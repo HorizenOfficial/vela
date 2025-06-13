@@ -1,1 +1,1 @@
-# Horizen Private Execution System
+# Horizen Privacy Preserving Execution System
