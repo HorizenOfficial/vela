@@ -20,6 +20,7 @@ const (
 	DeanonymizationRequestMessage
 	// DeanonymizationResponseMessage represents a response to a deanonymization request
 	DeanonymizationResponseMessage
+	// TODO: add getKeys message that goes from server to client
 	// ErrorMessage represents an error message
 	ErrorMessage
 )

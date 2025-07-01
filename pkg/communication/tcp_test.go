@@ -9,6 +9,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// MockRequestHandler is a mock implementation of the RequestHandler interface for testing
+type MockRequestHandler struct {
+	ProcessRequestFunc                func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error)
+	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+}
+
+func (m MockRequestHandler) ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+	return m.ProcessRequestFunc(ctx, req, appState, wasmModule)
+}
+
+func (m MockRequestHandler) DeployApp(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error) {
+	return m.DeployAppFunc(ctx, req)
+}
+
+func (m MockRequestHandler) GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
+	return m.GenerateDeanonymizationReportFunc(ctx, req, appState, wasmModule)
+}
+
 func TestTCPClientServer(t *testing.T) {
 	// Create a mock request handler
 	handler := &MockRequestHandler{
@@ -111,4 +130,7 @@ func TestTCPClientServer(t *testing.T) {
 	assert.Equal(t, req.ApplicationID, report.ApplicationID)
 	assert.Equal(t, "test-report-id", report.ReportID)
 	assert.Equal(t, []byte("test-encrypted-report"), report.EncryptedReport)
+
+	client.Close()
+	server.Stop()
 }

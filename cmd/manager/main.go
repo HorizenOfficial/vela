@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"github.com/horizen-pes/pkg/blockchain"
+	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"log"
@@ -13,17 +14,26 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Create the manager configuration
+	config := manager.DefaultConfig()
+
 	// Create the blockchain client
 	blockchainClient := blockchain.NewMockClient()
 
 	// Create the data layer
 	dataLayer := storage.NewMockDataLayer()
 
-	// Create the manager configuration
-	config := manager.DefaultConfig()
+	// Create the executor client
+	var executorClient communication.ExecutorClient
+	switch config.ExecutorConnectionType {
+	case "tcp":
+		executorClient = communication.NewTCPClient(config.ExecutorConnectionParams["url"])
+	case "vsock":
+		executorClient = communication.NewVSockClient(config.ExecutorConnectionParams["cid"], config.ExecutorConnectionParams["port"])
+	}
 
 	// Create the manager
-	secureProcessorManager, err := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer)
+	secureProcessorManager, err := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
 	if err != nil {
 		log.Fatalf("Failed to create manager: %v", err)
 	}

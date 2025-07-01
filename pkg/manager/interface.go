@@ -2,7 +2,6 @@ package manager
 
 import (
 	"context"
-	"github.com/horizen-pes/pkg/common"
 )
 
 // Manager defines the interface for the Secure Processor Manager
@@ -11,8 +10,6 @@ type Manager interface {
 	Start(ctx context.Context) error
 	// Stop stops the manager
 	Stop() error
-	// SubmitRequest submits a request to the manager
-	SubmitRequest(ctx context.Context, req *common.Request) error
 }
 
 // Config defines the configuration for the Secure Processor Manager
@@ -23,6 +20,9 @@ type Config struct {
 	ExecutorConnectionType string
 	// ExecutorConnectionParams are the parameters for the executor connection
 	ExecutorConnectionParams map[string]string
+
+	// TODO: blockchain connection parameters
+	// TODO: dataLayer connection parameters
 }
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager

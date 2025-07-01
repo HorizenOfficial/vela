@@ -2,8 +2,6 @@ package communication
 
 import (
 	"context"
-	"io"
-
 	"github.com/horizen-pes/pkg/common"
 )
 
@@ -39,26 +37,4 @@ type RequestHandler interface {
 	DeployApp(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
 	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
-}
-
-// VSockTransport defines the interface for v-socket communication
-type VSockTransport interface {
-	// Connect establishes a v-socket connection
-	Connect(ctx context.Context, cid uint32, port uint32) error
-	// Close closes the v-socket connection
-	Close() error
-	// Read reads data from the v-socket
-	Read(p []byte) (n int, err error)
-	// Write writes data to the v-socket
-	Write(p []byte) (n int, err error)
-}
-
-// HTTPTransport defines the interface for HTTP communication
-type HTTPTransport interface {
-	// Connect establishes an HTTP connection
-	Connect(ctx context.Context, url string) error
-	// Close closes the HTTP connection
-	Close() error
-	// Send sends a request and returns the response
-	Send(ctx context.Context, method string, path string, body io.Reader) ([]byte, error)
 }

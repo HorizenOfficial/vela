@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,7 +24,12 @@ type VSockClient struct {
 }
 
 // NewVSockClient creates a new v-socket client
-func NewVSockClient(cid, port uint32) *VSockClient {
+func NewVSockClient(cidStr, portStr string) *VSockClient {
+	cidUint, _ := strconv.ParseUint(cidStr, 10, 32)
+	portUint, _ := strconv.ParseUint(portStr, 10, 32)
+
+	cid := uint32(cidUint)
+	port := uint32(portUint)
 	return &VSockClient{
 		cid:  cid,
 		port: port,

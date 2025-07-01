@@ -4,25 +4,44 @@ package executor
 
 import (
 	"context"
+	"github.com/horizen-pes/pkg/communication"
 
 	"github.com/horizen-pes/pkg/common"
 )
 
+// Config defines the configuration for the executor application
+type Config struct {
+	// ServerType is the type of server to use (tcp / vsock)
+	ServerType string
+	// ServerAddr is the address for the HTTP server
+	ServerAddr string
+	// ServerPort is the port for the v-socket server
+	ServerPort uint32
+	// SigningKey is the key to use for signing update payloads
+	SigningKey []byte
+}
+
+// DefaultConfig returns the default configuration
+func DefaultConfig() *Config {
+	return &Config{
+		ServerType: "tcp",
+		ServerAddr: "localhost:8080",
+		ServerPort: 5000,
+		SigningKey: []byte("dummy-signing-key"),
+	}
+}
+
 // Executor defines the interface for the WASM Executor
 type Executor interface {
-	// ProcessRequest processes a request and returns the response
-	ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
-	// DeployApp deploys a new application
-	DeployApp(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error)
-	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+	// RequestHandler interface to handle requests from the communication layer
+	communication.RequestHandler
 	// Close closes the executor
 	Close() error
 }
 
-// WASMRuntime defines the interface for a WASM runtime
-type WASMRuntime interface {
-	// LoadModule loads a WASM module from bytecode
+// Runtime defines the interface for a WASM runtime
+type Runtime interface {
+	// LoadModule loads a module from bytecode
 	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, []byte, error) //todo: think about adding properties to manage module initialization
 	// ProcessRequest processes a request and returns the new state
 	ProcessRequest(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, []common.Event, []common.Withdrawal, error)

@@ -236,3 +236,51 @@ func (c *TCPClient) sendMessage(ctx context.Context, msg Message) (*Message, err
 
 	return &respMsg, nil
 }
+
+// extractProcessResponseData extracts ProcessResponseData from an interface{}
+func extractProcessResponseData(data interface{}) (*ProcessResponseData, error) {
+	// Convert to JSON and back to handle the case where data is a map[string]interface{}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal response data: %w", err)
+	}
+
+	var respData ProcessResponseData
+	if err := json.Unmarshal(jsonData, &respData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response data: %w", err)
+	}
+
+	return &respData, nil
+}
+
+// extractDeployAppResponseData extracts DeployAppResponseData from an interface{}
+func extractDeployAppResponseData(data interface{}) (*DeployAppResponseData, error) {
+	// Convert to JSON and back to handle the case where data is a map[string]interface{}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal response data: %w", err)
+	}
+
+	var respData DeployAppResponseData
+	if err := json.Unmarshal(jsonData, &respData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response data: %w", err)
+	}
+
+	return &respData, nil
+}
+
+// extractDeanonymizationResponseData extracts DeanonymizationResponseData from an interface{}
+func extractDeanonymizationResponseData(data interface{}) (*DeanonymizationResponseData, error) {
+	// Convert to JSON and back to handle the case where data is a map[string]interface{}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal response data: %w", err)
+	}
+
+	var respData DeanonymizationResponseData
+	if err := json.Unmarshal(jsonData, &respData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response data: %w", err)
+	}
+
+	return &respData, nil
+}

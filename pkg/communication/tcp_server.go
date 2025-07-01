@@ -315,3 +315,51 @@ func (s *TCPServer) sendErrorResponse(writer *bufio.Writer, code string, err err
 		return
 	}
 }
+
+// extractProcessRequestData extracts ProcessRequestData from an interface{}
+func extractProcessRequestData(data interface{}) (*ProcessRequestData, error) {
+	// Convert to JSON and back to handle the case where data is a map[string]interface{}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request data: %w", err)
+	}
+
+	var reqData ProcessRequestData
+	if err := json.Unmarshal(jsonData, &reqData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal request data: %w", err)
+	}
+
+	return &reqData, nil
+}
+
+// extractDeployAppRequestData extracts DeployAppRequestData from an interface{}
+func extractDeployAppRequestData(data interface{}) (*DeployAppRequestData, error) {
+	// Convert to JSON and back to handle the case where data is a map[string]interface{}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request data: %w", err)
+	}
+
+	var reqData DeployAppRequestData
+	if err := json.Unmarshal(jsonData, &reqData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal request data: %w", err)
+	}
+
+	return &reqData, nil
+}
+
+// extractDeanonymizationRequestData extracts DeanonymizationRequestData from an interface{}
+func extractDeanonymizationRequestData(data interface{}) (*DeanonymizationRequestData, error) {
+	// Convert to JSON and back to handle the case where data is a map[string]interface{}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request data: %w", err)
+	}
+
+	var reqData DeanonymizationRequestData
+	if err := json.Unmarshal(jsonData, &reqData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal request data: %w", err)
+	}
+
+	return &reqData, nil
+}
