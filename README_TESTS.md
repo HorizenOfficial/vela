@@ -17,7 +17,6 @@ The tests are organized into the following categories:
 To run the tests, use the following command:
 
 ```bash
-cd code
 go test ./...
 ```
 
@@ -29,7 +28,6 @@ E2E tests might end up being skipped as well, depending on the environment setup
 To run the tests with coverage, use the following command:
 
 ```bash
-cd code
 go test ./... -cover
 ```
 

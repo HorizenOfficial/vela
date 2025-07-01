@@ -37,5 +37,5 @@ type TestClient interface {
 	// GetDeanonymizationReport gets a deanonymization report
 	GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error)
 	// GetWithdrawals gets withdrawal requests
-	GetWithdrawals(ctx context.Context, applicationID string) ([]*common.Withdrawal, error)
+	GetWithdrawals(ctx context.Context, applicationID string) (*[]common.Withdrawal, error)
 }

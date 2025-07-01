@@ -136,7 +136,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 	case common.Deanonymize:
 		return m.processDeanonymization(ctx, req)
 	default:
-		return fmt.Errorf("unsupported request type: %d", req.RequestType)
+		return fmt.Errorf("unsupported request type: %s", req.RequestType)
 	}
 }
 
