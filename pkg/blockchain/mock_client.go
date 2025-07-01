@@ -178,7 +178,7 @@ func (c *MockClient) SubscribeToEvents(ctx context.Context, eventCh chan<- inter
 }
 
 // GetWithdrawals gets withdrawal requests for an application
-func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID string) (*[]common.Withdrawal, error) {
+func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID string) ([]*common.Withdrawal, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 

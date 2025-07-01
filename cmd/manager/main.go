@@ -30,6 +30,8 @@ func main() {
 		executorClient = communication.NewTCPClient(config.ExecutorConnectionParams["url"])
 	case "vsock":
 		executorClient = communication.NewVSockClient(config.ExecutorConnectionParams["cid"], config.ExecutorConnectionParams["port"])
+	default:
+		log.Fatalf("Unsupported executor connection type: %s", config.ExecutorConnectionType)
 	}
 
 	// Create the manager

@@ -20,6 +20,7 @@ func NewMockDataLayer() *MockDataLayer {
 		states:   make(map[string]*common.ApplicationState),
 		bytecode: make(map[string][]byte),
 		reports:  make(map[string]*common.DeanonymizationReport),
+		keys:     make(map[string][]byte),
 	}
 }
 
