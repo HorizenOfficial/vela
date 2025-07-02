@@ -4,12 +4,14 @@ pragma solidity ^0.8.28;
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Arrays.sol";
 
 import "./interfaces/ITeeAuthenticator.sol";
 import "./Structs.sol";
 
 contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.UintSet;
+    using Arrays for uint256[];
 
     //constants
     bytes32 public constant UPDATE_STATUS_ROLE = keccak256("UPDATE_STATUS_ROLE");
@@ -103,18 +105,23 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     }
 
     function getPendingRequests(uint256 offset, uint256 size) public view returns(Structs.PendingRequest[] memory) {
-        Structs.PendingRequest[] memory res = new Structs.PendingRequest[](size);
+        uint256[] memory ids = new uint256[](size);
 
         uint256 setSize = idsQueue.length();
-        uint256 insertIndex;
-        while(insertIndex < size && offset < setSize) {
-            uint256 requestId = idsQueue.at(offset);
-            res[insertIndex] = requests[requestId];
+        uint256 i;
+        while(i < size && offset < setSize) {
+            ids[i] = idsQueue.at(i+offset);
+            unchecked { ++i; }
+        }
 
-            unchecked {
-                ++insertIndex;
-                ++offset;
-            }
+        //set sorting is not guaranteed, so we use this to order the requestsId
+
+        //and then get the corresponding pending requests
+        Structs.PendingRequest[] memory res = new Structs.PendingRequest[](size);
+        i= 0;
+        while(i < size) {
+            res[i] = requests[ids[i]];
+            unchecked { ++i; }
         }
 
         return res;
