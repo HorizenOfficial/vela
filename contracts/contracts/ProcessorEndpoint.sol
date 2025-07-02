@@ -110,12 +110,12 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         uint256 setSize = idsQueue.length();
         uint256 i;
         while(i < size && offset < setSize) {
-            ids[i] = idsQueue.at(i+offset);
-            unchecked { ++i; }
+            ids[i] = idsQueue.at(offset);
+            unchecked { ++i; ++offset;}
         }
 
         //set sorting is not guaranteed, so we use this to order the requestsId
-
+        ids.sort();
         //and then get the corresponding pending requests
         Structs.PendingRequest[] memory res = new Structs.PendingRequest[](size);
         i= 0;
