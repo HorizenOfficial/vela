@@ -50,6 +50,21 @@ describe('ProcessorEndpoint Test', function () {
         expect(page2[0][6]).eql(await signers[0].getAddress()); //sender
     })
 
+    it('should not retrieve with wrong pagination parameters', async function () {
+        let submitTx = await processorEndpoint.submitRequest(1, 10, 1, "0x01", 0);
+        await submitTx.wait();
+        submitTx = await processorEndpoint.submitRequest(2, 20, 2, "0x02", 100, {value: 100});
+        await submitTx.wait();
+
+        //retrieve pages with wrong parameters
+        await expect(
+            processorEndpoint.getPendingRequests(0, 3)
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidPaginationParameters");
+        await expect(
+            processorEndpoint.getPendingRequests(1, 2)
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidPaginationParameters");
+    })
+
     it('should not save requests with wrong value', async function () {
         await expect(
             processorEndpoint.submitRequest(1, 10, 1, "0x01", 100) //value should be 100 but it is 0

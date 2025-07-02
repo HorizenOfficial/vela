@@ -35,6 +35,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     error InvalidValue();
     error InvalidRequestId();
     error RequestIsAlreadyCompletedOrFailed(Structs.RequestStatus currentStatus);
+    error InvalidPaginationParameters();
     error InvalidStateRoot();
     error InvalidSignature();
     error InsufficientBalance();
@@ -105,6 +106,8 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     }
 
     function getPendingRequests(uint256 offset, uint256 size) public view returns(Structs.PendingRequest[] memory) {
+        if(offset + size > getPendingRequestsSize()) revert InvalidPaginationParameters();
+
         uint256[] memory ids = new uint256[](size);
 
         uint256 setSize = idsQueue.length();
