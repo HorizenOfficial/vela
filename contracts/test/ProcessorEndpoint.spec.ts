@@ -1,20 +1,19 @@
 import { expect } from 'chai'
 import { Contract, Signer } from 'ethers';
+import { ethSignStateUpdate } from '../scripts/util';
 
 describe('ProcessorEndpoint Test', function () {
     let signers: Signer[]
     let processorEndpoint: Contract;
 
     beforeEach(async function () {
-        //deploy mock signature verifier that return true
-        let MockTeeAuthenticator = await ethers.getContractFactory("MockTeeAuthenticator");
-        let mockTeeAuthenticator = await MockTeeAuthenticator.deploy(true);
+        signers = await ethers.getSigners();
+        //deploy signature verifier
+        let EthSignatureTeeAuthenticator = await ethers.getContractFactory("EthSignatureTeeAuthenticator");
+        let ethSignatureTeeAuthenticator = await EthSignatureTeeAuthenticator.deploy(await signers[0].getAddress());
 
         let ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
-
-        signers = await ethers.getSigners();
-
-        processorEndpoint = await ProcessorEndpoint.deploy(mockTeeAuthenticator, await signers[0].getAddress());
+        processorEndpoint = await ProcessorEndpoint.deploy(ethSignatureTeeAuthenticator, await signers[0].getAddress());
     })
 
     it('should save multiple requests and retrieve paginated', async function () {
@@ -128,40 +127,39 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
-    it('should update status with mocked signature', async function () {
-        let updateTx = await processorEndpoint.stateUpdate(0, "0x", "0x1234", [], [], "0x");
+    it('should update status with correct signature', async function () {
+        let signature = await ethSignStateUpdate(signers[0], 0, "0x", "0x1234", [], []);
+        let updateTx = await processorEndpoint.stateUpdate(0, "0x", "0x1234", [], [], signature);
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql("0x1234");
 
-        updateTx = await processorEndpoint.stateUpdate(0, "0x1234", "0x123456", [], [], "0x"); 
+        signature = await ethSignStateUpdate(signers[0], 0, "0x1234", "0x123456", [], []);
+        updateTx = await processorEndpoint.stateUpdate(0, "0x1234", "0x123456", [], [], signature); 
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql("0x123456");
     });
 
     it('should not update status with wrong prev root', async function () {
-        let updateTx = await processorEndpoint.stateUpdate(0, "0x", "0x1234", [], [], "0x"); 
+        let signature = await ethSignStateUpdate(signers[0], 0, "0x", "0x1234", [], []);
+        let updateTx = await processorEndpoint.stateUpdate(0, "0x", "0x1234", [], [], signature); 
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql("0x1234");
 
+        signature = await ethSignStateUpdate(signers[0], 0, "0x0000", "0x123456", [], []);
         await expect(
-            processorEndpoint.stateUpdate(0, "0x0000", "0x123456", [], [], "0x") //wrong prev value
+            processorEndpoint.stateUpdate(0, "0x0000", "0x123456", [], [], signature) //wrong prev value
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidStateRoot");
     });
 
-    it('should not update status with wrong signature', async function () {
-        //deploy mock signature verifier that return false
-        let MockTeeAuthenticator = await ethers.getContractFactory("MockTeeAuthenticator");
-        let mockTeeAuthenticatorFalse = await MockTeeAuthenticator.deploy(false);
+    it('should not update status with invalid signature', async function () {
+        let invalidSignature = await ethSignStateUpdate(signers[1], 0, "0x", "0x123456", [], []); //signed by signer[1] instead of [0]
 
-        let ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
-
-        let processorEndpointFalse = await ProcessorEndpoint.deploy(mockTeeAuthenticatorFalse, await signers[0].getAddress());
         await expect(
-            processorEndpointFalse.stateUpdate(0, "0x", "0x123456", [], [], "0x")
+            processorEndpoint.stateUpdate(0, "0x", "0x123456", [], [], invalidSignature)
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidSignature");
     });
 
-    it('should update status with mocked signature and transfer', async function () {
+    it('should update status with correct signature and transfer', async function () {
         let submitTx = await processorEndpoint.submitRequest(2, 20, 2, "0x02", 100, {value: 100}); //value is 100
         await submitTx.wait();
 
@@ -171,7 +169,8 @@ describe('ProcessorEndpoint Test', function () {
         let balance1Before = await ethers.provider.getBalance(addr1);
         let balance2Before = await ethers.provider.getBalance(addr2);
 
-        let updateTx = await processorEndpoint.stateUpdate(0, "0x", "0x1234", [], [[addr1, 50], [addr2, 50]], "0x");
+        let signature = await ethSignStateUpdate(signers[0], 0, "0x", "0x1234", [], [[addr1, 50], [addr2, 50]]);
+        let updateTx = await processorEndpoint.stateUpdate(0, "0x", "0x1234", [], [[addr1, 50], [addr2, 50]], signature);
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql("0x1234");
 
@@ -190,8 +189,9 @@ describe('ProcessorEndpoint Test', function () {
         let addr1 = await signers[1].getAddress();
         let addr2 = await signers[2].getAddress();
 
+        let signature = await ethSignStateUpdate(signers[0], 0, "0x", "0x1234", [], [[addr1, 100], [addr2, 100]]);
         await expect(
-            processorEndpoint.stateUpdate(0, "0x", "0x1234", [], [[addr1, 100], [addr2, 100]], "0x") //sum of values is 200
+            processorEndpoint.stateUpdate(0, "0x", "0x1234", [], [[addr1, 100], [addr2, 100]], signature) //sum of values is 200
         ).to.be.revertedWithCustomError(processorEndpoint, "InsufficientBalance");
     });
 
