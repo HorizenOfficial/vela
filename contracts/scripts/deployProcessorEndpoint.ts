@@ -1,6 +1,3 @@
-import hre from "hardhat";
-
-
 async function deploy()  {
 
   const deployer = (await ethers.getSigners())[0]
