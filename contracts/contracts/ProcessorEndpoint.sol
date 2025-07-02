@@ -115,7 +115,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         }
 
         //set sorting is not guaranteed, so we use this to order the requestsId
-        ids.sort();
+        ids = ids.sort();
         //and then get the corresponding pending requests
         Structs.PendingRequest[] memory res = new Structs.PendingRequest[](size);
         i= 0;
