@@ -13,7 +13,7 @@ import (
 type Config struct {
 	// ServerType is the type of server to use (tcp / vsock)
 	ServerType string
-	// ServerAddr is the address for the HTTP server
+	// ServerAddr is the address for the TCP server
 	ServerAddr string
 	// ServerPort is the port for the v-socket server
 	ServerPort uint32

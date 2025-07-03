@@ -28,8 +28,8 @@ type Config struct {
 // DefaultConfig returns the default configuration for the Secure Processor Manager
 func DefaultConfig() *Config {
 	return &Config{
-		BlockchainPollingInterval: 5, // 5 seconds
-		ExecutorConnectionType:    "http",
+		BlockchainPollingInterval: 5,     // 5 seconds
+		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
 			"url": "http://localhost:8080",
 		},

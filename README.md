@@ -78,7 +78,7 @@ Key features of Wasmtime-go:
 
 TODO: Add instructions for building and running the system.
 For local testing and development:
-- TPC can be used as a fallback communication method — either on host or in docker container.
+- TCP can be used as a fallback communication method — either on host or in docker container.
 - docker does not support vsock
 - QEMU can be used to emulate vsock communication, with executor running in the VM, and manager running on the host.
 
