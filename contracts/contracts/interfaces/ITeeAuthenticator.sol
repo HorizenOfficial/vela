@@ -7,7 +7,7 @@ interface ITeeAuthenticator {
         uint256 applicationId, 
         bytes calldata prevStateRoot, 
         bytes calldata newStateRoot, 
-        uint256[] calldata processedRequestIds,
+        uint256 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         bytes memory signature

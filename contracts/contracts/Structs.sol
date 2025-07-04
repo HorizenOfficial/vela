@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
 contract Structs {
     //type definitions
     enum RequestType { DEPLOYAPP, PROCESS, DEANONYMIZATION }
-    enum RequestStatus { POSTED, COMPLETED, FAILED }
+    enum RequestStatus { POSTED, COMPLETED, FAILED_REFUNDED, FAILED_NOT_REFUNDED }
     
     struct PendingRequest {
         uint8 protocolVersion;

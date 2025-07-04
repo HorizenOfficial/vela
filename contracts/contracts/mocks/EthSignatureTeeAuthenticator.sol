@@ -16,7 +16,7 @@ contract EthSignatureTeeAuthenticator is ITeeAuthenticator {
         uint256 applicationId,
         bytes calldata prevStateRoot,
         bytes calldata newStateRoot,
-        uint256[] calldata processedRequestIds,
+        uint256 processedRequestId,
         bytes[] memory events,
         Structs.WithdrawalRequest[] memory withdrawalRequests,
         bytes calldata signature
@@ -25,7 +25,7 @@ contract EthSignatureTeeAuthenticator is ITeeAuthenticator {
             applicationId,
             prevStateRoot,
             newStateRoot,
-            processedRequestIds,
+            processedRequestId,
             events,
             withdrawalRequests
         ));

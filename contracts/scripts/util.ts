@@ -5,7 +5,7 @@ export async function ethSignStateUpdate(
   applicationId: number,
   prevStateRoot: string,
   newStateRoot: string,
-  processedRequestsId: number[],
+  processedRequestId: number,
   events: string[],
   withdrawalRequests: any[][]
 ): Promise<string> {
@@ -14,11 +14,11 @@ export async function ethSignStateUpdate(
       "uint256",
       "bytes",
       "bytes",
-      "uint256[]",
+      "uint256",
       "bytes[]",
       "tuple(address recipient, uint256 amount)[]"
     ],
-    [applicationId, prevStateRoot, newStateRoot, processedRequestsId, events, withdrawalRequests]
+    [applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests]
   )
 
   const messageHash = ethers.keccak256(encoded)

@@ -26,12 +26,12 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
 
     ITeeAuthenticator public teeAuthenticator;
     //events
-    event Withdrawal(uint256 indexed applicationId, address to, uint256 amount);
+    event Withdrawal(uint256 indexed applicationId, uint256 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(uint256 indexed requestId, address sender);
     event RequestCompleted(uint256 indexed requestId);
     event RequestFailed(uint256 indexed requestId);
-    event UserEvent(uint256 indexed applicationId, bytes encryptedData);
-    event StateRootUpdate(uint256 indexed applicationId, bytes oldStateRoot, bytes newStateRoot);
+    event UserEvent(uint256 indexed applicationId, uint256 indexed requestId, bytes encryptedData);
+    event StateRootUpdate(uint256 indexed applicationId, uint256 indexed requestId, bytes oldStateRoot, bytes newStateRoot);
     //errors
     error AddressCantBeZero();
     error InvalidValue();
@@ -94,7 +94,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         return requestId;
     }
 
-    function markRequestCompleted(uint256 requestId) public onlyRole(UPDATE_STATUS_ROLE) onlyPostedRequest(requestId){
+    function markRequestCompleted(uint256 requestId) public onlyRole(UPDATE_STATUS_ROLE) onlyPostedRequest(requestId) {
         requests[requestId].status = Structs.RequestStatus.COMPLETED;
         //remove from queue
         idsQueue.remove(requestId);
@@ -103,13 +103,14 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     }
 
     function markRequestFailed(uint256 requestId) public onlyRole(UPDATE_STATUS_ROLE) onlyPostedRequest(requestId) nonReentrant {
-        requests[requestId].status = Structs.RequestStatus.FAILED;
         //remove from queue
         idsQueue.remove(requestId);
         //emit event
         emit RequestFailed(requestId);
         //refunds
-        payable(requests[requestId].sender).transfer(requests[requestId].value);
+        (bool refunded, ) = payable(requests[requestId].sender).call{value: requests[requestId].value, gas: 2300}("");
+        if(refunded) requests[requestId].status = Structs.RequestStatus.FAILED_REFUNDED;
+        else requests[requestId].status = Structs.RequestStatus.FAILED_NOT_REFUNDED;
     }
 
     function getPendingRequestsSize() public view returns(uint256) {
@@ -144,7 +145,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         uint256 applicationId, 
         bytes calldata prevStateRoot, 
         bytes calldata newStateRoot, 
-        uint256[] calldata processedRequestIds,
+        uint256 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         bytes memory signature
@@ -153,7 +154,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         //check prev state root
         if(!_eq(stateRoot, "") && !_eq(prevStateRoot, stateRoot)) revert InvalidStateRoot();
         //check signature
-        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestIds, events, withdrawalRequests, signature)) revert InvalidSignature();
+        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature)) revert InvalidSignature();
 
         //check withdrawal sums 
         uint256 i;
@@ -165,27 +166,23 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         if(sum > address(this).balance) revert InsufficientBalance();
 
         //set requests as completed
-        i = 0;
-        while(i < processedRequestIds.length) {
-            markRequestCompleted(processedRequestIds[i]);
-            unchecked {++i;}
-        }
         //emit encrypted event
         i = 0;
         while(i < events.length) {
-            emit UserEvent(applicationId, events[i]);
+            emit UserEvent(applicationId, processedRequestId, events[i]);
             unchecked {++i;}
         }
 
-        //update state root
+        //update state root and request
+        markRequestCompleted(processedRequestId);
         stateRoot = newStateRoot;
-        emit StateRootUpdate(applicationId, prevStateRoot, newStateRoot);
+        emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
         //execute withdrawals (as last operation)
         i = 0;
         while(i < withdrawalRequests.length) {
             withdrawalRequests[i].receiver.transfer(withdrawalRequests[i].amount);
-            emit Withdrawal(applicationId, withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
+            emit Withdrawal(applicationId, processedRequestId, withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
             unchecked {++i;}
         }
     }
