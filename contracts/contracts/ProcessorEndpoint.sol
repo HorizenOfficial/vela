@@ -102,7 +102,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         emit RequestCompleted(requestId);
     }
 
-    function markRequestFailed(uint256 requestId) public onlyRole(UPDATE_STATUS_ROLE) onlyPostedRequest(requestId) {
+    function markRequestFailed(uint256 requestId) public onlyRole(UPDATE_STATUS_ROLE) onlyPostedRequest(requestId) nonReentrant {
         requests[requestId].status = Structs.RequestStatus.FAILED;
         //remove from queue
         idsQueue.remove(requestId);
