@@ -13,17 +13,19 @@ contract EthSignatureTeeAuthenticator is ITeeAuthenticator {
     }
 
     function checkSignature(
-        uint8 applicationId,
+        uint256 applicationId,
         bytes calldata prevStateRoot,
         bytes calldata newStateRoot,
-        bytes[] calldata events,
-        Structs.WithdrawalRequest[] calldata withdrawalRequests,
+        uint256[] calldata processedRequestIds,
+        bytes[] memory events,
+        Structs.WithdrawalRequest[] memory withdrawalRequests,
         bytes calldata signature
     ) external view override returns (bool) {
         bytes32 messageHash = keccak256(abi.encode(
             applicationId,
             prevStateRoot,
             newStateRoot,
+            processedRequestIds,
             events,
             withdrawalRequests
         ));

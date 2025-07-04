@@ -15,6 +15,8 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
 
     //constants
     bytes32 public constant UPDATE_STATUS_ROLE = keccak256("UPDATE_STATUS_ROLE");
+    uint8 public constant PROTOCOL_VERSION = 0;
+    uint256 public constant APPLICATION_ID = 1;
     
     //state variables
     bytes public stateRoot;
@@ -24,15 +26,17 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
 
     ITeeAuthenticator public teeAuthenticator;
     //events
-    event Withdrawal(address to, uint256 amount);
-    event RequestSubmitted(uint256 requestId, address sender);
-    event RequestCompleted(uint256 requestId);
-    event RequestFailed(uint256 requestId);
-    event UserEvent(uint8 applicationId, bytes encryptedData);
-    event StateRootUpdate(uint8 applicationId, bytes oldStateRoot, bytes newStateRoot);
+    event Withdrawal(uint256 indexed applicationId, address to, uint256 amount);
+    event RequestSubmitted(uint256 indexed requestId, address sender);
+    event RequestCompleted(uint256 indexed requestId);
+    event RequestFailed(uint256 indexed requestId);
+    event UserEvent(uint256 indexed applicationId, bytes encryptedData);
+    event StateRootUpdate(uint256 indexed applicationId, bytes oldStateRoot, bytes newStateRoot);
     //errors
     error AddressCantBeZero();
     error InvalidValue();
+    error InvalidProtocolVersion();
+    error InvalidApplicationId();
     error InvalidRequestId();
     error RequestIsAlreadyCompletedOrFailed(Structs.RequestStatus currentStatus);
     error InvalidPaginationParameters();
@@ -60,9 +64,12 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     }
 
     //request management functions
-    function submitRequest(uint8 protocolVersion, uint8 applicationId, Structs.RequestType requestType, bytes calldata payload, uint256 value) payable public {
+    function submitRequest(uint8 protocolVersion, uint256 applicationId, Structs.RequestType requestType, bytes calldata payload, uint256 value) payable public returns(uint256) {
         //check value
         if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
+        //check params
+        if(protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
+        if(applicationId != APPLICATION_ID) revert InvalidApplicationId();
         //create request
         uint256 requestId = requests.length;
         requests.push(
@@ -83,6 +90,8 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
 
         //emit event
         emit RequestSubmitted(requestId, msg.sender);
+
+        return requestId;
     }
 
     function markRequestCompleted(uint256 requestId) public onlyRole(UPDATE_STATUS_ROLE) onlyPostedRequest(requestId){
@@ -132,9 +141,10 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
 
     //update status
     function stateUpdate(
-        uint8 applicationId, 
+        uint256 applicationId, 
         bytes calldata prevStateRoot, 
         bytes calldata newStateRoot, 
+        uint256[] calldata processedRequestIds,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         bytes memory signature
@@ -143,7 +153,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         //check prev state root
         if(!_eq(stateRoot, "") && !_eq(prevStateRoot, stateRoot)) revert InvalidStateRoot();
         //check signature
-        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, events, withdrawalRequests, signature)) revert InvalidSignature();
+        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestIds, events, withdrawalRequests, signature)) revert InvalidSignature();
 
         //check withdrawal sums 
         uint256 i;
@@ -153,7 +163,13 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
             unchecked {++i;}
         }
         if(sum > address(this).balance) revert InsufficientBalance();
-        
+
+        //set requests as completed
+        i = 0;
+        while(i < processedRequestIds.length) {
+            markRequestCompleted(processedRequestIds[i]);
+            unchecked {++i;}
+        }
         //emit encrypted event
         i = 0;
         while(i < events.length) {
@@ -169,7 +185,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         i = 0;
         while(i < withdrawalRequests.length) {
             withdrawalRequests[i].receiver.transfer(withdrawalRequests[i].amount);
-            emit Withdrawal(withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
+            emit Withdrawal(applicationId, withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
             unchecked {++i;}
         }
     }
