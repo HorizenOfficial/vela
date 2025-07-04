@@ -16,6 +16,7 @@ contract Structs {
         uint256 timestamp; //assigned automatically
         address sender; //assigned automatically
         RequestStatus status; //assigned automatically
+        uint256 value; //assigned automatically
     }
 
     struct WithdrawalRequest {

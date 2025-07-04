@@ -39,7 +39,6 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     error InvalidApplicationId();
     error InvalidRequestId();
     error RequestIsAlreadyCompletedOrFailed(Structs.RequestStatus currentStatus);
-    error InvalidPaginationParameters();
     error InvalidStateRoot();
     error InvalidSignature();
     error InsufficientBalance();
@@ -81,7 +80,8 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
                 payload,
                 block.timestamp,
                 msg.sender,
-                Structs.RequestStatus.POSTED
+                Structs.RequestStatus.POSTED,
+                value
             )
         );
 
@@ -108,30 +108,30 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         idsQueue.remove(requestId);
         //emit event
         emit RequestFailed(requestId);
+        //refunds
+        payable(requests[requestId].sender).transfer(requests[requestId].value);
     }
 
     function getPendingRequestsSize() public view returns(uint256) {
         return idsQueue.length();
     }
 
-    function getPendingRequests(uint256 offset, uint256 size) public view returns(Structs.PendingRequest[] memory) {
-        if(offset + size > getPendingRequestsSize()) revert InvalidPaginationParameters();
-
-        uint256[] memory ids = new uint256[](size);
-
+    function getPendingRequests() public view returns(Structs.PendingRequest[] memory) {
         uint256 setSize = idsQueue.length();
+        uint256[] memory ids = new uint256[](setSize);
+
         uint256 i;
-        while(i < size && offset < setSize) {
-            ids[i] = idsQueue.at(offset);
-            unchecked { ++i; ++offset;}
+        while(i < setSize) {
+            ids[i] = idsQueue.at(i);
+            unchecked { ++i;}
         }
 
         //set sorting is not guaranteed, so we use this to order the requestsId
         ids = ids.sort();
         //and then get the corresponding pending requests
-        Structs.PendingRequest[] memory res = new Structs.PendingRequest[](size);
+        Structs.PendingRequest[] memory res = new Structs.PendingRequest[](setSize);
         i = 0;
-        while(i < size) {
+        while(i < setSize) {
             res[i] = requests[ids[i]];
             unchecked { ++i; }
         }
@@ -148,7 +148,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         bytes memory signature
-    ) public nonReentrant {  //this could be public since signature is checked
+    ) public nonReentrant onlyRole(UPDATE_STATUS_ROLE) {  //this could be public since signature is checked
 
         //check prev state root
         if(!_eq(stateRoot, "") && !_eq(prevStateRoot, stateRoot)) revert InvalidStateRoot();

@@ -21,7 +21,7 @@ describe('ProcessorEndpoint Test', function () {
         applicationId = await processorEndpoint.APPLICATION_ID();
     })
 
-    it('should save multiple requests and retrieve paginated', async function () {
+    it('should save multiple requests and retrieve', async function () {
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
         await submitTx.wait();
         submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100});
@@ -30,44 +30,24 @@ describe('ProcessorEndpoint Test', function () {
         let length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(2));
 
-        //retrieve pages
-        let page1 = await processorEndpoint.getPendingRequests(0, 1);
-        let page2 = await processorEndpoint.getPendingRequests(1, 1);
-        let singlePage = await processorEndpoint.getPendingRequests(0, 2);
-
-        expect(page1.length).eql(1);
-        expect(page2.length).eql(1);
-        expect(singlePage.length).eql(2);
+        //retrieve
+        let queue = await processorEndpoint.getPendingRequests();
+        expect(queue.length).eql(2);
 
         //check data in pages
-        expect(page1[0][0]).eql(protocolVersion); //protocolVersion
-        expect(page1[0][1]).eql(applicationId); //applicationId
-        expect(page1[0][2]).eql(BigInt(1)); //requestType
-        expect(page1[0][3]).eql(BigInt(0)); //requestId
-        expect(page1[0][4]).eql("0x01"); //payload
-        expect(page1[0][6]).eql(await signers[0].getAddress()); //sender
+        expect(queue[0][0]).eql(protocolVersion); //protocolVersion
+        expect(queue[0][1]).eql(applicationId); //applicationId
+        expect(queue[0][2]).eql(BigInt(1)); //requestType
+        expect(queue[0][3]).eql(BigInt(0)); //requestId
+        expect(queue[0][4]).eql("0x01"); //payload
+        expect(queue[0][6]).eql(await signers[0].getAddress()); //sender
 
-        expect(page2[0][0]).eql(protocolVersion); //protocolVersion
-        expect(page2[0][1]).eql(applicationId); //applicationId
-        expect(page2[0][2]).eql(BigInt(2)); //requestType
-        expect(page2[0][3]).eql(BigInt(1)); //requestId
-        expect(page2[0][4]).eql("0x02"); //payload
-        expect(page2[0][6]).eql(await signers[0].getAddress()); //sender
-    })
-
-    it('should not retrieve with wrong pagination parameters', async function () {
-        let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
-        await submitTx.wait();
-        submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100});
-        await submitTx.wait();
-
-        //retrieve pages with wrong parameters
-        await expect(
-            processorEndpoint.getPendingRequests(0, 3)
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidPaginationParameters");
-        await expect(
-            processorEndpoint.getPendingRequests(1, 2)
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidPaginationParameters");
+        expect(queue[1][0]).eql(protocolVersion); //protocolVersion
+        expect(queue[1][1]).eql(applicationId); //applicationId
+        expect(queue[1][2]).eql(BigInt(2)); //requestType
+        expect(queue[1][3]).eql(BigInt(1)); //requestId
+        expect(queue[1][4]).eql("0x02"); //payload
+        expect(queue[1][6]).eql(await signers[0].getAddress()); //sender
     })
 
     it('should not save requests with wrong value', async function () {
@@ -80,11 +60,11 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue")
     })
 
-    it('should mark request as completed and failed', async function () {
+    it('should mark request as completed and failed (and refund if failed)', async function () {
         //insert requests
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
         await submitTx.wait();
-        submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100});
+        submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100}); //value 100 in the failed
         await submitTx.wait();
 
         let length = await processorEndpoint.getPendingRequestsSize();
@@ -99,14 +79,22 @@ describe('ProcessorEndpoint Test', function () {
         let req = await processorEndpoint.requests(0);
         expect(req[7]).eql(BigInt(1)); //completed
 
+        //get balance prior to fail
+        let balanceBefore = await ethers.provider.getBalance(await signers[0].getAddress());
         //set as failed and check is not in the queue
         let failedTx = await processorEndpoint.markRequestFailed(1);
-        await failedTx.wait();
+        let receipt = await failedTx.wait();
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(0));
  
         req = await processorEndpoint.requests(1);
         expect(req[7]).eql(BigInt(2)); //failed
+
+        //check refund
+        let gasUsed = receipt.gasUsed * receipt.gasPrice;
+        let expectedBalanceAfter = balanceBefore - BigInt(gasUsed) + 100n;
+        let balanceAfter = await ethers.provider.getBalance(await signers[0].getAddress());
+        expect(balanceAfter).eql(expectedBalanceAfter);
     });
 
     it('should not re-mark as completed an already completed request', async function () {
