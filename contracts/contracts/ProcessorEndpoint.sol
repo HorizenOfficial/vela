@@ -166,6 +166,8 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         if(sum > address(this).balance) revert InsufficientBalance();
 
         //set requests as completed
+        markRequestCompleted(processedRequestId);
+
         //emit encrypted event
         i = 0;
         while(i < events.length) {
@@ -174,7 +176,6 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         }
 
         //update state root and request
-        markRequestCompleted(processedRequestId);
         stateRoot = newStateRoot;
         emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
