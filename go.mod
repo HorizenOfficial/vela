@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.24.0
 
 require (
+	github.com/google/go-cmp v0.5.9
 	github.com/mdlayher/vsock v1.2.1
 	github.com/stretchr/testify v1.10.0
 )
