@@ -13,6 +13,8 @@ type Client interface {
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
 	// MarkRequestCompleted marks a request as completed
 	MarkRequestCompleted(ctx context.Context, requestID string) error
+	// MarkRequestFailed marks a request as failed
+	MarkRequestFailed(ctx context.Context, requestID string) error
 	// SubmitStateUpdate submits a state update to the blockchain
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
 	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain

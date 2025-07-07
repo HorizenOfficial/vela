@@ -11,11 +11,23 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
+type RequestState int
+const (
+    Posted RequestState = iota
+    Processed
+	Failed
+)
+type MockRequest struct{
+	common.Request
+	RequestState RequestState
+}
+
+
 // MockClient is a mock implementation of the blockchain client for testing
 type MockClient struct {
 	mu               sync.RWMutex
-	requests         map[string]*common.Request
-	pendingRequests  map[string]*common.Request
+	requests         map[string]*MockRequest
+	pendingRequests  map[string]*MockRequest
 	states           map[string]*common.ApplicationState
 	withdrawals      map[string]*[]common.Withdrawal
 	reports          map[string]*common.DeanonymizationReport
@@ -26,8 +38,8 @@ type MockClient struct {
 // NewMockClient creates a new mock blockchain client
 func NewMockClient() *MockClient {
 	return &MockClient{
-		requests:        make(map[string]*common.Request),
-		pendingRequests: make(map[string]*common.Request),
+		requests:        make(map[string]*MockRequest),
+		pendingRequests: make(map[string]*MockRequest),
 		states:          make(map[string]*common.ApplicationState),
 		publicKeys:      make(map[string][]byte),
 	}
@@ -53,8 +65,10 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) err
 	}
 
 	// Store the request
-	c.requests[req.RequestID] = req
-	c.pendingRequests[req.RequestID] = req
+	c.requests[req.RequestID] = &MockRequest{
+		Request: *req,
+		RequestState: Posted,}
+	c.pendingRequests[req.RequestID] = c.requests[req.RequestID]
 
 	return nil
 }
@@ -65,9 +79,16 @@ func (c *MockClient) GetPendingRequests(ctx context.Context) ([]*common.Request,
 	defer c.mu.RUnlock()
 
 	requests := make([]*common.Request, 0, len(c.pendingRequests))
-	for _, req := range c.pendingRequests {
-		requests = append(requests, req)
+	// for _, req := range c.pendingRequests {
+	// 	requests = append(requests, req)
+	// }
+	req := &common.Request{
+		RequestID: "mock-request-id",
+		Timestamp: time.Now().Unix(),
+		RequestType: common.Process,
+		// Add other fields as needed for testing
 	}
+	requests = append(requests, req)
 
 	return requests, nil
 }
@@ -82,7 +103,22 @@ func (c *MockClient) MarkRequestCompleted(ctx context.Context, requestID string)
 	}
 
 	delete(c.pendingRequests, requestID)
+	c.requests[requestID].RequestState = Processed
 
+	return nil
+}
+
+// MarkRequestFailed marks a request as failed
+func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.pendingRequests[requestID]; !exists {
+		return fmt.Errorf("request not found: %s", requestID)
+	}
+
+	delete(c.pendingRequests, requestID)
+	c.requests[requestID].RequestState = Failed
 	return nil
 }
 
