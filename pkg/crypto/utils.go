@@ -320,3 +320,13 @@ func deriveAES256Key(secret []byte) (common.AES256Key, error) {
 	}
 	return common.AES256Key(key), nil
 }
+
+// GenerateAESKey generates a random AES-256 key.
+func GenerateAESKey() (common.AES256Key, error) {
+	var key common.AES256Key
+	_, err := rand.Read(key[:])
+	if err != nil {
+		return common.AES256Key{}, fmt.Errorf("failed to generate random AES key: %w", err)
+	}
+	return key, nil
+}

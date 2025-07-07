@@ -2,11 +2,8 @@ package crypto
 
 import (
 	"bytes"
-	"crypto/rand"
 	"os"
 	"testing"
-
-	"github.com/horizen-pes/pkg/common"
 )
 
 func TestGeneratePrivateKeyP521(t *testing.T) {
@@ -156,8 +153,7 @@ func TestEncryptDecrypt(t *testing.T) {
 
 func TestEncryptDecryptWithAES(t *testing.T) {
 	// Generate a random AES key
-	var aesKey common.AES256Key
-	_, err := rand.Read(aesKey[:])
+	aesKey, err := GenerateAESKey()
 	if err != nil {
 		t.Fatalf("failed to generate random AES key: %v", err)
 	}
