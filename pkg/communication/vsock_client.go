@@ -50,6 +50,12 @@ func (c *VSockClient) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to executor: %w", err)
 	}
+	// Set a read deadline for the response (e.g., 5 seconds)
+	deadline := 5 // seconds
+	if err := conn.SetReadDeadline(time.Now().Add(time.Duration(deadline) * time.Second)); err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to set read deadline: %w", err)
+	}
 
 	c.conn = conn
 	return nil

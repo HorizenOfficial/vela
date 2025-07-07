@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/horizen-pes/pkg/common"
+	"time"
 )
 
 // TCPClient is a TCP implementation of the ExecutorClient interface
@@ -40,10 +41,16 @@ func (c *TCPClient) Connect(ctx context.Context) error {
 	// Establish TCP connection
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", c.addr)
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to TCP server: %w", err)
 	}
-
+	// Set a read deadline for the response (e.g., 5 seconds)
+	deadline := 5 // seconds
+	if err := conn.SetReadDeadline(time.Now().Add(time.Duration(deadline) * time.Second)); err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to set read deadline: %w", err)
+	}
 	c.conn = conn
 	c.reader = bufio.NewReader(conn)
 	c.writer = bufio.NewWriter(conn)
