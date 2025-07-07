@@ -1,6 +1,8 @@
 // Package common provide the data structures used in the application.
 package common
 
+import "crypto/ecdh"
+
 // RequestType represents the type of request being sent to the TEE
 type RequestType string
 
@@ -12,6 +14,40 @@ const (
 	// Deanonymize is used for deanonymization requests
 	Deanonymize RequestType = "deanonymize"
 )
+
+// PublicKeyP521 is a public key with Elliptic Curve Diffie-Hellman over NIST P-521 curve, also known as secp521r1.
+// (This can be used for encryption/decription)
+type PublicKeyP521 struct {
+	*ecdh.PublicKey
+}
+
+// PrivateKeyP521 is a private key with Elliptic Curve Diffie-Hellman over NIST P-521 curve, also known as secp521r1.
+// (This can be used for encryption/decription)
+type PrivateKeyP521 struct {
+	*ecdh.PrivateKey
+}
+
+// PublicKey returns the public key associated with a private key.
+func (p *PrivateKeyP521) PublicKey() *PublicKeyP521 {
+	return &PublicKeyP521{p.PrivateKey.PublicKey()}
+}
+
+// PublicKey25519 is a public key with Elliptic Curve 25519.
+// (This is the curve used in Ethereum)
+type PublicKey25519 struct {
+	*ecdh.PublicKey
+}
+
+// PrivateKey25519 is a private key with with Elliptic Curve 25519.
+// (This is the curve used in Ethereum)
+type PrivateKey25519 struct {
+	*ecdh.PrivateKey
+}
+
+// PublicKey returns the public key associated with a private key.
+func (p *PrivateKey25519) PublicKey() *PublicKey25519 {
+	return &PublicKey25519{p.PrivateKey.PublicKey()}
+}
 
 // Request represents a request to the system
 type Request struct {
