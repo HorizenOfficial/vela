@@ -52,7 +52,15 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         if(requestId >= requests.length) revert InvalidRequestId();
         if(requests[requestId].status != Structs.RequestStatus.POSTED) revert RequestIsAlreadyCompletedOrFailed(requests[requestId].status);
         _;
-    }   
+    }
+    modifier validProtocolVersion(uint8 protocolVersion) {
+        if(protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
+        _;
+    }
+    modifier validApplicationId(uint256 applicationId) {
+        if(applicationId != APPLICATION_ID) revert InvalidApplicationId();
+        _;
+    }
 
     //constructor
     constructor(ITeeAuthenticator _teeAuthenticator, address updateStatusOperator) payable {
@@ -63,12 +71,15 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     }
 
     //request management functions
-    function submitRequest(uint8 protocolVersion, uint256 applicationId, Structs.RequestType requestType, bytes calldata payload, uint256 value) payable public returns(uint256) {
+    function submitRequest(
+        uint8 protocolVersion, 
+        uint256 applicationId, 
+        Structs.RequestType requestType, 
+        bytes calldata payload, 
+        uint256 value
+    ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(uint256) {
         //check value
         if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
-        //check params
-        if(protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
-        if(applicationId != APPLICATION_ID) revert InvalidApplicationId();
         //create request
         uint256 requestId = requests.length;
         requests.push(
@@ -149,7 +160,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         bytes memory signature
-    ) public nonReentrant onlyRole(UPDATE_STATUS_ROLE) {  //this could be public since signature is checked
+    ) public nonReentrant validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
 
         //check prev state root
         if(!_eq(stateRoot, "") && !_eq(prevStateRoot, stateRoot)) revert InvalidStateRoot();

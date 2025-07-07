@@ -1,8 +1,8 @@
-import { AbiCoder, ethers } from "ethers"
+import { AbiCoder, BigNumberish, ethers } from "ethers"
 
 export async function ethSignStateUpdate(
   signer: ethers.Signer,
-  applicationId: number,
+  applicationId: number | BigNumberish,
   prevStateRoot: string,
   newStateRoot: string,
   processedRequestId: number,
