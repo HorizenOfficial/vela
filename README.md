@@ -1,1 +1,1 @@
-# horizen-pes
+# Horizen Privacy Preserving Execution System
