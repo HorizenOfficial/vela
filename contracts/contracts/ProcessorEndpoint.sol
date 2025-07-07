@@ -43,11 +43,6 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     error InvalidSignature();
     error InsufficientBalance();
 
-    //modifiers
-    modifier onlyValidRequest(uint256 requestId) {
-        if(requestId >= requests.length) revert InvalidRequestId();
-        _;
-    }
     modifier onlyPostedRequest(uint256 requestId) {
         if(requestId >= requests.length) revert InvalidRequestId();
         if(requests[requestId].status != Structs.RequestStatus.POSTED) revert RequestIsAlreadyCompletedOrFailed(requests[requestId].status);
@@ -63,7 +58,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     }
 
     //constructor
-    constructor(ITeeAuthenticator _teeAuthenticator, address updateStatusOperator) payable {
+    constructor(ITeeAuthenticator _teeAuthenticator, address updateStatusOperator) {
         if(_teeAuthenticator == ITeeAuthenticator(address(0)) || updateStatusOperator == address(0)) revert AddressCantBeZero();
 
         teeAuthenticator = _teeAuthenticator;
