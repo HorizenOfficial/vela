@@ -4,9 +4,9 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/ecdsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -247,7 +247,7 @@ func Encrypt(senderPrivKey *common.PrivateKeyP521, receiverPubKey *common.Public
 		return nil, fmt.Errorf("failed to derive AES key: %w", err)
 	}
 
-	block, err := aes.NewCipher(sharedAESKey)
+	block, err := aes.NewCipher(sharedAESKey[:])
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new cipher: %w", err)
 	}
@@ -281,7 +281,7 @@ func Decrypt(senderPubKey *common.PublicKeyP521, receiverPrivKey *common.Private
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive AES key: %w", err)
 	}
-	block, err := aes.NewCipher(sharedAESKey)
+	block, err := aes.NewCipher(sharedAESKey[:])
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new cipher: %w", err)
 	}
@@ -302,11 +302,11 @@ func Decrypt(senderPubKey *common.PublicKeyP521, receiverPrivKey *common.Private
 	return plainMessage, nil
 }
 
-func deriveAES256Key(secret []byte) ([]byte, error) {
+func deriveAES256Key(secret []byte) (common.AES256Key, error) {
 	h := hkdf.New(sha256.New, secret, nil, nil)
 	key := make([]byte, aesKeySize)
 	if _, err := io.ReadFull(h, key); err != nil {
-		return nil, fmt.Errorf("failed to derive key: %w", err)
+		return common.AES256Key{}, fmt.Errorf("failed to derive key: %w", err)
 	}
-	return key, nil
+	return common.AES256Key(key), nil
 }

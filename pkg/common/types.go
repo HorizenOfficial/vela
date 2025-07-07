@@ -49,6 +49,9 @@ func (p *PrivateKey25519) PublicKey() *PublicKey25519 {
 	return &PublicKey25519{p.PrivateKey.PublicKey()}
 }
 
+// Represents a AES-256-GCM key
+type AES256Key [32]byte
+
 // Request represents a request to the system
 type Request struct {
 	// ProtocolVersion is the version of the protocol being used
