@@ -31,7 +31,7 @@ func DefaultConfig() *Config {
 		BlockchainPollingInterval: 5,     // 5 seconds
 		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
-			"url": "http://localhost:8080",
+			"url": "localhost:10000",
 		},
 	}
 }
