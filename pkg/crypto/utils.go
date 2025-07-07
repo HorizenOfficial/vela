@@ -247,7 +247,12 @@ func Encrypt(senderPrivKey *common.PrivateKeyP521, receiverPubKey *common.Public
 		return nil, fmt.Errorf("failed to derive AES key: %w", err)
 	}
 
-	block, err := aes.NewCipher(sharedAESKey[:])
+	return EncryptWithAES(sharedAESKey, message)
+}
+
+// EncryptWithAES encrypts a generic byte array with a given AES-256 key.
+func EncryptWithAES(key common.AES256Key, message []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new cipher: %w", err)
 	}
@@ -281,7 +286,12 @@ func Decrypt(senderPubKey *common.PublicKeyP521, receiverPrivKey *common.Private
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive AES key: %w", err)
 	}
-	block, err := aes.NewCipher(sharedAESKey[:])
+	return DecryptWithAES(sharedAESKey, message)
+}
+
+// DecryptWithAES decrypts a chipertext with a given AES-256 key.
+func DecryptWithAES(key common.AES256Key, message []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new cipher: %w", err)
 	}
