@@ -1,0 +1,5 @@
+# IDE folders
+.idea
+.vscode/
+.env
+*.bkp
