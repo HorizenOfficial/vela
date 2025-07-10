@@ -169,4 +169,37 @@ func TestApplicationStateStore(t *testing.T) {
 		err := store.Close()
 		assert.NoError(t, err, "Closing the store should not error")
 	})
+
+	// --- Test Close Method and Operations After Close ---
+	t.Run("OperationsAfterClose", func(t *testing.T) {
+		store := createStore()
+
+		// 1. Close the store
+		err := store.Close()
+		require.NoError(t, err, "Closing the store should not return an error on first close")
+
+		// 2. Verify subsequent Close() calls does not error
+		err = store.Close()
+		assert.NoError(t, err, "Error is not expected when trying to close an already closed store")
+
+		// 3. Try to perform an operation (e.g., GetApplicationState) after closing
+		_, err = store.GetApplicationState(ctx, "any-id")
+		require.Error(t, err, "Expected an error when getting application state from a closed store")
+		assert.Contains(t, err.Error(), "is closed", "Error message should indicate store is closed")
+
+		// 4. Try to perform a store operation (e.g., StoreApplicationState) after closing
+		someState := &common.ApplicationState{ApplicationID: "test-after-close", StateRoot: []byte("a")}
+		err = store.StoreApplicationState(ctx, someState)
+		require.Error(t, err, "Expected an error when storing application state to a closed store")
+		assert.Contains(t, err.Error(), "is closed", "Error message should indicate store is closed")
+
+		// You would add similar checks for all other Store/Get methods here
+		_, err = store.GetWASMBytecode(ctx, "any-id")
+		assert.Error(t, err, "Expected error when getting WASM bytecode from closed store")
+		assert.Contains(t, err.Error(), "is closed")
+
+		err = store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
+		assert.Error(t, err, "Expected error when storing report to closed store")
+		assert.Contains(t, err.Error(), "is closed")
+	})
 }
