@@ -1,0 +1,206 @@
+package storage_test
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/storage"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestNewMockDataLayer simply verifies the mock can be created.
+func TestNewMockDataLayer(t *testing.T) {
+	dl := storage.NewMockDataLayer()
+	assert.NotNil(t, dl, "NewMockDataLayer should return a non-nil instance")
+}
+
+func TestApplicationStateStore(t *testing.T) {
+	// createStore provides a fresh instance of the store for each test scenario.
+	createStore := func() storage.ApplicationStateStore {
+		return storage.NewMockDataLayer()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure context is canceled when tests complete
+
+	// --- Test ApplicationState Operations ---
+	t.Run("StoreAndGetApplicationState", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		expectedState := &common.ApplicationState{
+			ApplicationID:  "app-test-id-1",
+			StateRoot:      []byte("some-test-root-hash-1"),
+			EncryptedState: []byte{0x0A, 0x0B, 0x0C, 0x0D},
+		}
+
+		err := store.StoreApplicationState(ctx, expectedState)
+		require.NoError(t, err, "StoreApplicationState should not error")
+
+		actualState, err := store.GetApplicationState(ctx, expectedState.ApplicationID)
+		require.NoError(t, err, "GetApplicationState for existing ID should not error")
+		require.NotNil(t, actualState, "GetApplicationState should return a non-nil state")
+
+		if diff := cmp.Diff(expectedState, actualState); diff != "" {
+			t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("GetNonExistentApplicationState", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		_, err := store.GetApplicationState(ctx, "non-existent-app-id")
+		require.Error(t, err, "Expected an error when getting a non-existent state")
+
+		var notFoundErr *storageErrors.Error
+		if !errors.As(err, &notFoundErr) || notFoundErr.Code != "not_found" {
+			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
+		}
+	})
+
+	// --- Test WASM Bytecode Operations ---
+	t.Run("StoreAndGetWASMBytecode", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		appID := "wasm-app-id-1"
+		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03}
+
+		err := store.StoreWASMBytecode(ctx, appID, expectedBytecode)
+		require.NoError(t, err, "StoreWASMBytecode should not error")
+
+		actualBytecode, err := store.GetWASMBytecode(ctx, appID)
+		require.NoError(t, err, "GetWASMBytecode for existing ID should not error")
+		require.NotNil(t, actualBytecode, "GetWASMBytecode should return non-nil bytecode")
+
+		assert.True(t, bytes.Equal(expectedBytecode, actualBytecode), "Retrieved WASM bytecode mismatch")
+	})
+
+	t.Run("GetNonExistentWASMBytecode", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		_, err := store.GetWASMBytecode(ctx, "non-existent-wasm-id")
+		require.Error(t, err, "Expected an error when getting non-existent WASM bytecode")
+
+		var notFoundErr *storageErrors.Error
+		if !errors.As(err, &notFoundErr) || notFoundErr.Code != "not_found" {
+			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
+		}
+	})
+
+	// --- Test DeanonymizationReport Operations ---
+	t.Run("StoreAndGetDeanonymizationReport", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		expectedReport := &common.DeanonymizationReport{
+			ApplicationID:   "deanon-1",
+			ReportID:        "report-id-1",
+			EncryptedReport: []byte("some-test-root-hash-1"),
+		}
+
+		err := store.StoreDeanonymizationReport(ctx, expectedReport)
+		require.NoError(t, err, "StoreDeanonymizationReport should not error")
+
+		actualReport, err := store.GetDeanonymizationReport(ctx, expectedReport.ReportID)
+		require.NoError(t, err, "GetDeanonymizationReport for existing ID should not error")
+		require.NotNil(t, actualReport, "GetDeanonymizationReport should return a non-nil report")
+
+		if diff := cmp.Diff(expectedReport, actualReport); diff != "" {
+			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("GetNonExistentDeanonymizationReport", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		_, err := store.GetDeanonymizationReport(ctx, "non-existent-report-id")
+		require.Error(t, err, "Expected an error when getting non-existent deanonymization report")
+
+		var notFoundErr *storageErrors.Error
+		if !errors.As(err, &notFoundErr) || notFoundErr.Code != "not_found" {
+			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
+		}
+	})
+
+	// --- Test UserKey Operations ---
+	t.Run("StoreAndGetUserKey", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		userID := "user-id-1"
+		expectedPublicKey := []byte("some-public-key-bytes-1")
+
+		err := store.StoreUserKey(ctx, userID, expectedPublicKey)
+		require.NoError(t, err, "StoreUserKey should not error")
+
+		actualPublicKey, err := store.GetUserKey(ctx, userID)
+		require.NoError(t, err, "GetUserKey for existing ID should not error")
+		require.NotNil(t, actualPublicKey, "GetUserKey should return non-nil public key")
+
+		assert.True(t, bytes.Equal(expectedPublicKey, actualPublicKey), "Retrieved User Key mismatch")
+	})
+
+	t.Run("GetNonExistentUserKey", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		_, err := store.GetUserKey(ctx, "non-existent-user-id")
+		require.Error(t, err, "Expected an error when getting non-existent user key")
+
+		var notFoundErr *storageErrors.Error
+		if !errors.As(err, &notFoundErr) || notFoundErr.Code != "not_found" {
+			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
+		}
+	})
+
+	// --- Test Close Method ---
+	t.Run("CloseStore", func(t *testing.T) {
+		store := createStore()
+		// No defer Close() here, as we're testing it explicitly
+		err := store.Close()
+		assert.NoError(t, err, "Closing the store should not error")
+	})
+
+	// --- Test Close Method and Operations After Close ---
+	t.Run("OperationsAfterClose", func(t *testing.T) {
+		store := createStore()
+
+		// 1. Close the store
+		err := store.Close()
+		require.NoError(t, err, "Closing the store should not return an error on first close")
+
+		// 2. Verify subsequent Close() calls does not error
+		err = store.Close()
+		assert.NoError(t, err, "Error is not expected when trying to close an already closed store")
+
+		// 3. Try to perform an operation (e.g., GetApplicationState) after closing
+		_, err = store.GetApplicationState(ctx, "any-id")
+		require.Error(t, err, "Expected an error when getting application state from a closed store")
+		assert.Contains(t, err.Error(), "is closed", "Error message should indicate store is closed")
+
+		// 4. Try to perform a store operation (e.g., StoreApplicationState) after closing
+		someState := &common.ApplicationState{ApplicationID: "test-after-close", StateRoot: []byte("a")}
+		err = store.StoreApplicationState(ctx, someState)
+		require.Error(t, err, "Expected an error when storing application state to a closed store")
+		assert.Contains(t, err.Error(), "is closed", "Error message should indicate store is closed")
+
+		// You would add similar checks for all other Store/Get methods here
+		_, err = store.GetWASMBytecode(ctx, "any-id")
+		assert.Error(t, err, "Expected error when getting WASM bytecode from closed store")
+		assert.Contains(t, err.Error(), "is closed")
+
+		err = store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
+		assert.Error(t, err, "Expected error when storing report to closed store")
+		assert.Contains(t, err.Error(), "is closed")
+	})
+}
