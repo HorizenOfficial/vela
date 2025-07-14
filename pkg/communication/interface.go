@@ -3,7 +3,14 @@ package communication
 import (
 	"context"
 	"github.com/horizen-pes/pkg/common"
+	"net"
 )
+
+// ClientRequestHandler defines the interface for handling requests from server to client
+type ClientRequestHandler interface {
+	// GetUserKeys retrieves user keys for the specified application and users
+	GetUserKeys(ctx context.Context, users []string) (map[string][]byte, error)
+}
 
 // ExecutorClient defines the interface for communication with the WASM Executor
 type ExecutorClient interface {
@@ -12,11 +19,13 @@ type ExecutorClient interface {
 	// Close closes the connection to the executor
 	Close() error
 	// ProcessRequest sends a request to the executor and returns the response
-	ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	// DeployApp deploys a new application to the executor
 	DeployApp(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error)
+	// SetClientRequestHandler sets the handler for incoming requests from server
+	SetClientRequestHandler(handler ClientRequestHandler)
 }
 
 // ExecutorServer defines the interface for the WASM Executor server
@@ -27,14 +36,21 @@ type ExecutorServer interface {
 	Stop() error
 	// SetRequestHandler sets the handler for incoming requests
 	SetRequestHandler(handler RequestHandler)
+	// GetUserKeys requests user keys from the connected client
+	GetUserKeys(ctx context.Context, users []string) (map[string][]byte, error)
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor
 type RequestHandler interface {
 	// ProcessRequest processes a request and returns the response
-	ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	// DeployApp deploys a new application
 	DeployApp(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error)
+}
+
+type ConnectionFactory interface {
+	CreateClientConnection() (net.Conn, error)
+	CreateServerListener() (net.Listener, error)
 }

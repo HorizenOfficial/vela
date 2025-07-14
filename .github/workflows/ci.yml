@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # Setup Go
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+
+    # Setup Node.js for contracts
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: contracts/package-lock.json
+
+    # Install Go dependencies
+    - name: Download Go dependencies
+      run: go mod download
+
+    # Build Go project
+    - name: Build Go project
+      run: |
+        go build ./...
+        go build ./cmd/executor
+        go build ./cmd/manager
+
+    # Run Go tests (excluding system tests that require additional setup)
+    - name: Run Go tests
+      run: go test ./...
+
+    # Install Node.js dependencies for contracts
+    - name: Install contract dependencies
+      working-directory: contracts
+      run: npm ci
+
+    # Build contracts
+    - name: Build contracts
+      working-directory: contracts
+      run: npm run build
+
+    # Test contracts
+    - name: Test contracts
+      working-directory: contracts
+      run: npm run test
