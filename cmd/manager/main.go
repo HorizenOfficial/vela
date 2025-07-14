@@ -32,13 +32,17 @@ func main() {
 		executorClient = communication.NewClient(factory)
 	case "vsock":
 		cidStr, err := strconv.ParseUint(config.ExecutorConnectionParams["cid"], 10, 32)
+		if err != nil {
+			log.Fatalf("Failed to parse port: %v", err)
+		}
 		cid := uint32(cidStr)
+
 		portStr, err := strconv.ParseUint(config.ExecutorConnectionParams["port"], 10, 32)
-		port := uint32(portStr)
 		if err != nil {
 			log.Fatalf("Failed to parse executor connection parameters: %v", err)
-			return
 		}
+		port := uint32(portStr)
+
 		factory := communication.NewVSockConnectionFactory(cid, port)
 		executorClient = communication.NewClient(factory)
 	default:

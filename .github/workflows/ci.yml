@@ -38,7 +38,7 @@ jobs:
         go build ./cmd/executor
         go build ./cmd/manager
 
-    # Run Go tests (excluding system tests that require additional setup)
+    # Run Go tests
     - name: Run Go tests
       run: go test ./...
 
