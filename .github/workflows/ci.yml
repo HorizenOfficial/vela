@@ -31,7 +31,7 @@ jobs:
     - name: Download Go dependencies
       run: go mod download
 
-    # Build Go project
+    # Build a Go project
     - name: Build Go project
       run: |
         go build ./...
