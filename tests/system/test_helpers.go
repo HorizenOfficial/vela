@@ -147,21 +147,6 @@ func (s *SystemTestSuite) AssertRequestCompleted(requestID string, timeout time.
 	return s.blockchainClient.WaitForRequestCompletion(requestID, timeout)
 }
 
-func (s *SystemTestSuite) AssertEventPublished(expectedEvent interface{}, timeout time.Duration) error {
-	timeoutCh := time.After(timeout)
-
-	for {
-		select {
-		case event := <-s.eventChannel:
-			if event != nil {
-				return nil
-			}
-		case <-timeoutCh:
-			return fmt.Errorf("timeout waiting for event")
-		}
-	}
-}
-
 // WaitForEvent waits for a specific event to be published for a user
 func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*common.Event, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
