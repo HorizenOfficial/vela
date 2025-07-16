@@ -14,7 +14,6 @@ import (
 
 /*
 GeneratePrivateKey25519 generates a private key with Elliptic Curve 25519.
-(This is the curve used in Ethereum)
 */
 func GeneratePrivateKey25519() (*common.PrivateKey25519, error) {
 	curve := ecdh.X25519()
