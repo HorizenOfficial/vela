@@ -1,11 +1,11 @@
 import { expect } from 'chai'
-import { Contract, Signer } from 'ethers';
+import { Signer } from 'ethers';
 import { ethSignStateUpdate } from '../scripts/util';
 
 describe('TeeAuthenticator Test', function () {
     const ADDRESS_ZERO = "0x0000000000000000000000000000000000000000";
     let signers: Signer[];
-    let teeAuthenticator: Contract;
+    let teeAuthenticator: any;
 
     beforeEach(async function () {
         signers = await ethers.getSigners();
@@ -25,7 +25,7 @@ describe('TeeAuthenticator Test', function () {
 
     it('should not set tee if not owner', async function () {
         await expect( 
-            teeAuthenticator.connect(signers[1]).updateTee(await signers[1].getAddress())
+            teeAuthenticator.connect(signers[1]).updateTee(signers[1])
         ).to.be.revertedWithCustomError(teeAuthenticator, "OwnableUnauthorizedAccount")
         
     })

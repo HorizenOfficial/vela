@@ -3,7 +3,9 @@ async function deploy()  {
   const deployer = (await ethers.getSigners())[0]
 
   console.log(`deploying from ${await deployer.getAddress()}`)
-  console.log(`parameters: ${process.env.TEE_AUTHENTICATOR_DEPLOY_DEFAULT}`)
+  console.log(`parameters:
+    _teeSigner: ${process.env.TEE_AUTHENTICATOR_DEPLOY_DEFAULT}
+  `)
   //deploy 
   const TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
   const teeAuthenticator = await TeeAuthenticator.deploy(process.env.TEE_AUTHENTICATOR_DEPLOY_DEFAULT);
