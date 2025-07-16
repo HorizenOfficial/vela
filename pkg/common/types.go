@@ -4,6 +4,8 @@ package common
 import (
 	"crypto/ecdh"
 	"crypto/ecdsa"
+
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // RequestType represents the type of request being sent to the TEE
@@ -54,6 +56,11 @@ func (p *PrivateKey25519) PublicKey() *PublicKey25519 {
 // (This is the curve used in Bitcoin and Ethereum)
 type PublicKeySecp256k1 struct {
 	*ecdsa.PublicKey
+}
+
+// Address returns the Ethereum address of the public key.
+func (p *PublicKeySecp256k1) Address() string {
+	return crypto.PubkeyToAddress(*p.PublicKey).Hex()
 }
 
 // PrivateKeySecp256k1 is a private key with Elliptic Curve secp256k1.

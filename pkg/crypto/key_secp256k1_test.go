@@ -83,3 +83,16 @@ func TestExportImportPrivateKeySecp256k1Hex(t *testing.T) {
 		t.Fatal("loaded key does not match original key")
 	}
 }
+
+func TestPublicKeySecp256k1Address(t *testing.T) {
+	dummykey := "4504532170fc47ec70aaae37b9a69a0fc8efda59dbaf36b2545651aa51151b97"
+	dummyAddress := "0xDe98c1BCf65d928514C0a6e800b499054328314e" //ethereum address generated from the previous key
+
+	myKey, _ := ImportPrivateKeySecp256k1FromHex(dummykey)
+	myAddress := myKey.PublicKey().Address()
+
+	if dummyAddress != myAddress {
+		t.Fatal("Address not matching")
+	}
+
+}
