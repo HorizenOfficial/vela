@@ -81,3 +81,16 @@ func TestExportImportPrivateKey25519Hex(t *testing.T) {
 		t.Fatal("loaded key does not match original key")
 	}
 }
+
+func TestExportPublicKey25519Hex(t *testing.T) {
+	key, err := GeneratePrivateKey25519()
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+
+	hexPubKey := ExportPublicKey25519ToHex(key.PublicKey())
+
+	if len(hexPubKey) != 64 {
+		t.Fatalf("public key has wrong length: got %d, want 64", len(hexPubKey))
+	}
+}

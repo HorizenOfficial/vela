@@ -115,6 +115,11 @@ func ExportPrivateKey25519ToHex(privKey *common.PrivateKey25519) string {
 	return hex.EncodeToString(privKey.Bytes())
 }
 
+// ExportPublicKey25519ToHex exports a 25519 public key to a hex string.
+func ExportPublicKey25519ToHex(pubKey *common.PublicKey25519) string {
+	return hex.EncodeToString(pubKey.Bytes())
+}
+
 // ImportPrivateKey25519FromHex imports a 25519 private key from a hex string.
 func ImportPrivateKey25519FromHex(hexKey string) (*common.PrivateKey25519, error) {
 	keyBytes, err := hex.DecodeString(hexKey)

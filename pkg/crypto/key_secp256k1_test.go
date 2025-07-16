@@ -84,6 +84,20 @@ func TestExportImportPrivateKeySecp256k1Hex(t *testing.T) {
 	}
 }
 
+func TestExportPublicKeySecp256k1Hex(t *testing.T) {
+	key, err := GeneratePrivateKeySecp256k1()
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+
+	hexPubKey := ExportPublicKeySecp256k1ToHex(key.PublicKey())
+
+	// The public key should start with 04, followed by 64 bytes for X and Y coordinates
+	if len(hexPubKey) != 130 {
+		t.Fatalf("public key has wrong length: got %d, want 130", len(hexPubKey))
+	}
+}
+
 func TestPublicKeySecp256k1Address(t *testing.T) {
 	dummykey := "4504532170fc47ec70aaae37b9a69a0fc8efda59dbaf36b2545651aa51151b97"
 	dummyAddress := "0xDe98c1BCf65d928514C0a6e800b499054328314e" //ethereum address generated from the previous key

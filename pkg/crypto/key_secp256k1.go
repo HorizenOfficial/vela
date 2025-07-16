@@ -97,6 +97,11 @@ func ExportPrivateKeySecp256k1ToHex(privKey *common.PrivateKeySecp256k1) string 
 	return hex.EncodeToString(crypto.FromECDSA(privKey.PrivateKey))
 }
 
+// ExportPublicKeySecp256k1ToHex exports a secp256k1 public key to a hex string.
+func ExportPublicKeySecp256k1ToHex(pubKey *common.PublicKeySecp256k1) string {
+	return hex.EncodeToString(crypto.FromECDSAPub(pubKey.PublicKey))
+}
+
 // ImportPrivateKeySecp256k1FromHex imports a secp256k1 private key from a 64-character hex string.
 func ImportPrivateKeySecp256k1FromHex(hexKey string) (*common.PrivateKeySecp256k1, error) {
 	keyBytes, err := hex.DecodeString(hexKey)

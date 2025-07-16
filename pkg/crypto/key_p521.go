@@ -128,6 +128,11 @@ func ExportPrivateKeyP521ToHex(privKey *common.PrivateKeyP521) string {
 	return hex.EncodeToString(privKey.Bytes())
 }
 
+// ExportPublicKeyP521ToHex exports a P521 public key to a hex string.
+func ExportPublicKeyP521ToHex(pubKey *common.PublicKeyP521) string {
+	return hex.EncodeToString(pubKey.Bytes())
+}
+
 // ImportPrivateKeyP521FromHex imports a P521 private key from a hex string.
 func ImportPrivateKeyP521FromHex(hexKey string) (*common.PrivateKeyP521, error) {
 	keyBytes, err := hex.DecodeString(hexKey)
