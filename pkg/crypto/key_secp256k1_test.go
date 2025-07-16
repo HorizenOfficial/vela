@@ -96,3 +96,37 @@ func TestPublicKeySecp256k1Address(t *testing.T) {
 	}
 
 }
+
+func TestSignEthereum(t *testing.T) {
+	key, err := GeneratePrivateKeySecp256k1()
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+
+	// Create a dummy message and hash it
+	msg := []byte("test message")
+	hash := crypto.Keccak256(msg)
+
+	// Sign the hash
+	sig, err := key.Sign(hash)
+	if err != nil {
+		t.Fatalf("failed to sign message: %v", err)
+	}
+
+	// The signature should be 65 bytes long (R + S + V)
+	if len(sig) != 65 {
+		t.Fatalf("signature has wrong length: got %d, want 65", len(sig))
+	}
+
+	// Recover the public key from the signature
+	recoveredPubKey, err := crypto.SigToPub(hash, sig)
+	if err != nil {
+		t.Fatalf("failed to recover public key: %v", err)
+	}
+
+	// The recovered public key should match the original public key
+	if !bytes.Equal(crypto.FromECDSAPub(key.PublicKey().PublicKey), crypto.FromECDSAPub(recoveredPubKey)) {
+		t.Fatal("recovered public key does not match original key")
+	}
+}
+

@@ -74,6 +74,13 @@ func (p *PrivateKeySecp256k1) PublicKey() *PublicKeySecp256k1 {
 	return &PublicKeySecp256k1{&p.PrivateKey.PublicKey}
 }
 
+// Sign calculates an Ethereum signature.
+//
+// The produced signature is in the [R || S || V] format where V is 0 or 1.
+func (p *PrivateKeySecp256k1) Sign(digest []byte) ([]byte, error) {
+	return crypto.Sign(digest, p.PrivateKey)
+}
+
 // Represents a AES-256-GCM key
 type AES256Key [32]byte
 
