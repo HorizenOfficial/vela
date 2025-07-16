@@ -116,3 +116,18 @@ func ImportPrivateKeySecp256k1FromHex(hexKey string) (*common.PrivateKeySecp256k
 
 	return &common.PrivateKeySecp256k1{key}, nil
 }
+
+// ImportPublicKeySecp256k1FromHex imports a secp256k1 public key from a hex string.
+func ImportPublicKeySecp256k1FromHex(hexKey string) (*common.PublicKeySecp256k1, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	key, err := crypto.UnmarshalPubkey(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal public key: %w", err)
+	}
+
+	return &common.PublicKeySecp256k1{key}, nil
+}

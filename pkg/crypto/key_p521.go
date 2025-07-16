@@ -148,3 +148,19 @@ func ImportPrivateKeyP521FromHex(hexKey string) (*common.PrivateKeyP521, error) 
 
 	return &common.PrivateKeyP521{key}, nil
 }
+
+// ImportPublicKeyP521FromHex imports a P521 public key from a hex string.
+func ImportPublicKeyP521FromHex(hexKey string) (*common.PublicKeyP521, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	curve := ecdh.P521()
+	key, err := curve.NewPublicKey(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create public key: %w", err)
+	}
+
+	return &common.PublicKeyP521{key}, nil
+}

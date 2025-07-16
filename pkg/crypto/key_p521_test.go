@@ -82,16 +82,21 @@ func TestExportImportPrivateKeyP521Hex(t *testing.T) {
 	}
 }
 
-func TestExportPublicKeyP521Hex(t *testing.T) {
+func TestExportImportPublicKeyP521Hex(t *testing.T) {
 	key, err := GeneratePrivateKeyP521()
 	if err != nil {
 		t.Fatalf("failed to generate private key: %v", err)
 	}
+	pubKey := key.PublicKey()
 
-	hexPubKey := ExportPublicKeyP521ToHex(key.PublicKey())
+	hexKey := ExportPublicKeyP521ToHex(pubKey)
 
-	// The public key should start with 04, followed by 66 bytes for X and 66 bytes for Y coordinates
-	if len(hexPubKey) != 266 {
-		t.Fatalf("public key has wrong length: got %d, want 266", len(hexPubKey))
+	loadedKey, err := ImportPublicKeyP521FromHex(hexKey)
+	if err != nil {
+		t.Fatalf("failed to load public key: %v", err)
+	}
+
+	if !bytes.Equal(pubKey.Bytes(), loadedKey.Bytes()) {
+		t.Fatal("loaded key does not match original key")
 	}
 }

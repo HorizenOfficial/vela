@@ -135,3 +135,19 @@ func ImportPrivateKey25519FromHex(hexKey string) (*common.PrivateKey25519, error
 
 	return &common.PrivateKey25519{key}, nil
 }
+
+// ImportPublicKey25519FromHex imports a 25519 public key from a hex string.
+func ImportPublicKey25519FromHex(hexKey string) (*common.PublicKey25519, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	curve := ecdh.X25519()
+	key, err := curve.NewPublicKey(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create public key: %w", err)
+	}
+
+	return &common.PublicKey25519{key}, nil
+}

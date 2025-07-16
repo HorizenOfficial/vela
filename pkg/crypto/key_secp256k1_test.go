@@ -84,19 +84,25 @@ func TestExportImportPrivateKeySecp256k1Hex(t *testing.T) {
 	}
 }
 
-func TestExportPublicKeySecp256k1Hex(t *testing.T) {
+func TestExportImportPublicKeySecp256k1Hex(t *testing.T) {
 	key, err := GeneratePrivateKeySecp256k1()
 	if err != nil {
 		t.Fatalf("failed to generate private key: %v", err)
 	}
+	pubKey := key.PublicKey()
 
-	hexPubKey := ExportPublicKeySecp256k1ToHex(key.PublicKey())
+	hexKey := ExportPublicKeySecp256k1ToHex(pubKey)
 
-	// The public key should start with 04, followed by 64 bytes for X and Y coordinates
-	if len(hexPubKey) != 130 {
-		t.Fatalf("public key has wrong length: got %d, want 130", len(hexPubKey))
+	loadedKey, err := ImportPublicKeySecp256k1FromHex(hexKey)
+	if err != nil {
+		t.Fatalf("failed to load public key: %v", err)
+	}
+
+	if !bytes.Equal(crypto.FromECDSAPub(pubKey.PublicKey), crypto.FromECDSAPub(loadedKey.PublicKey)) {
+		t.Fatal("loaded key does not match original key")
 	}
 }
+
 
 func TestPublicKeySecp256k1Address(t *testing.T) {
 	dummykey := "4504532170fc47ec70aaae37b9a69a0fc8efda59dbaf36b2545651aa51151b97"
