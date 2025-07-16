@@ -63,3 +63,21 @@ func TestSaveLoadPrivateKeyP521PEM(t *testing.T) {
 		t.Fatal("loaded key does not match original key")
 	}
 }
+
+func TestExportImportPrivateKeyP521Hex(t *testing.T) {
+	key, err := GeneratePrivateKeyP521()
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+
+	hexKey := ExportPrivateKeyP521ToHex(key)
+
+	loadedKey, err := ImportPrivateKeyP521FromHex(hexKey)
+	if err != nil {
+		t.Fatalf("failed to load private key: %v", err)
+	}
+
+	if !bytes.Equal(key.Bytes(), loadedKey.Bytes()) {
+		t.Fatal("loaded key does not match original key")
+	}
+}
