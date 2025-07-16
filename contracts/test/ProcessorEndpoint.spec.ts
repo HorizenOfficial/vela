@@ -75,7 +75,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "AuthorityNotAllowed")
     })
     
-    it('should not save request that is not deanonymization from unauthorized authority', async function () {
+    it('should save request that is not deanonymization from unauthorized authority', async function () {
         let submitTx = await processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
         await submitTx.wait();
     })
