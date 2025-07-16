@@ -1,7 +1,10 @@
 // Package common provide the data structures used in the application.
 package common
 
-import "crypto/ecdh"
+import (
+	"crypto/ecdh"
+	"crypto/ecdsa"
+)
 
 // RequestType represents the type of request being sent to the TEE
 type RequestType string
@@ -33,13 +36,11 @@ func (p *PrivateKeyP521) PublicKey() *PublicKeyP521 {
 }
 
 // PublicKey25519 is a public key with Elliptic Curve 25519.
-// (This is the curve used in Ethereum)
 type PublicKey25519 struct {
 	*ecdh.PublicKey
 }
 
 // PrivateKey25519 is a private key with with Elliptic Curve 25519.
-// (This is the curve used in Ethereum)
 type PrivateKey25519 struct {
 	*ecdh.PrivateKey
 }
@@ -47,6 +48,23 @@ type PrivateKey25519 struct {
 // PublicKey returns the public key associated with a private key.
 func (p *PrivateKey25519) PublicKey() *PublicKey25519 {
 	return &PublicKey25519{p.PrivateKey.PublicKey()}
+}
+
+// PublicKeySecp256k1 is a public key with Elliptic Curve secp256k1.
+// (This is the curve used in Bitcoin and Ethereum)
+type PublicKeySecp256k1 struct {
+	*ecdsa.PublicKey
+}
+
+// PrivateKeySecp256k1 is a private key with Elliptic Curve secp256k1.
+// (This is the curve used in Bitcoin and Ethereum)
+type PrivateKeySecp256k1 struct {
+	*ecdsa.PrivateKey
+}
+
+// PublicKey returns the public key associated with a private key.
+func (p *PrivateKeySecp256k1) PublicKey() *PublicKeySecp256k1 {
+	return &PublicKeySecp256k1{&p.PrivateKey.PublicKey}
 }
 
 // Represents a AES-256-GCM key
