@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/ecdsa"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -84,6 +85,26 @@ func LoadPrivateKeySecp256k1FromFilePEM(filename string) (*common.PrivateKeySecp
 	}
 
 	key, err := crypto.ToECDSA(pemBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	return &common.PrivateKeySecp256k1{key}, nil
+}
+
+// ExportPrivateKeySecp256k1ToHex exports a secp256k1 private key to a 64-character hex string.
+func ExportPrivateKeySecp256k1ToHex(privKey *common.PrivateKeySecp256k1) string {
+	return hex.EncodeToString(crypto.FromECDSA(privKey.PrivateKey))
+}
+
+// ImportPrivateKeySecp256k1FromHex imports a secp256k1 private key from a 64-character hex string.
+func ImportPrivateKeySecp256k1FromHex(hexKey string) (*common.PrivateKeySecp256k1, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	key, err := crypto.ToECDSA(keyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse private key: %w", err)
 	}

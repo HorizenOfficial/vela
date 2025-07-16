@@ -65,3 +65,21 @@ func TestSaveLoadPrivateKeySecp256k1PEM(t *testing.T) {
 		t.Fatal("loaded key does not match original key")
 	}
 }
+
+func TestExportImportPrivateKeySecp256k1Hex(t *testing.T) {
+	key, err := GeneratePrivateKeySecp256k1()
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+
+	hexKey := ExportPrivateKeySecp256k1ToHex(key)
+
+	loadedKey, err := ImportPrivateKeySecp256k1FromHex(hexKey)
+	if err != nil {
+		t.Fatalf("failed to load private key: %v", err)
+	}
+
+	if !bytes.Equal(crypto.FromECDSA(key.PrivateKey), crypto.FromECDSA(loadedKey.PrivateKey)) {
+		t.Fatal("loaded key does not match original key")
+	}
+}
