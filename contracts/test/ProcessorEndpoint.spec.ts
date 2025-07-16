@@ -68,7 +68,6 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue")
     })
 
-    
     it('should not save denanonymization requests from unauthorized authority', async function () {
         await expect(
             processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 2, "0x01", 100, {value: 100}) 
