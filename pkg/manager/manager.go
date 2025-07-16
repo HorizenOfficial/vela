@@ -25,14 +25,18 @@ type SecureProcessorManager struct {
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
-func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.ApplicationStateStore, executorClient communication.ExecutorClient) (*SecureProcessorManager, error) {
-	return &SecureProcessorManager{
+func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.ApplicationStateStore, executorClient communication.ExecutorClient) *SecureProcessorManager {
+	manager := &SecureProcessorManager{
 		config:           config,
 		blockchainClient: blockchainClient,
 		executorClient:   executorClient,
 		dataLayer:        dataLayer,
 		stopChan:         make(chan struct{}),
-	}, nil
+	}
+	// Set up the executor client
+	manager.executorClient.SetClientRequestHandler(manager)
+
+	return manager
 }
 
 // Start starts the manager
@@ -106,20 +110,24 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 			// Get pending requests from the blockchain
 			requests, err := m.blockchainClient.GetPendingRequests(ctx)
 			if err != nil {
-				log.Printf("Failed to get pending requests: %v", err)
+				log.Printf("Manager: Failed to get pending requests: %v", err)
 				continue
 			}
 
 			// Process each request
 			for _, req := range requests {
 				if err := m.processRequest(ctx, req); err != nil {
-					log.Printf("Failed to process request %s: %v", req.RequestID, err)
-					continue
-				}
-
-				// Mark the request as completed
-				if err := m.blockchainClient.MarkRequestCompleted(ctx, req.RequestID); err != nil {
-					log.Printf("Failed to mark request %s as completed: %v", req.RequestID, err)
+					// Log the error and mark the request as failed
+					log.Printf("Manager: Failed to process request %s: %v", req.RequestID, err)
+					if err = m.blockchainClient.MarkRequestFailed(ctx, req.RequestID); err != nil {
+						log.Printf("Manager: Failed to mark request %s as failed: %v", req.RequestID, err)
+					}
+				} else {
+					// Mark the request as completed
+					if err = m.blockchainClient.MarkRequestCompleted(ctx, req.RequestID); err != nil {
+						log.Printf("Manager: Failed to mark request %s as completed: %v", req.RequestID, err)
+					}
+					log.Printf("Manager: Processed and marked as completed request %s", req.RequestID)
 				}
 			}
 		}
@@ -143,7 +151,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
 	// Deploy the application
-	appState, wasmBytes, err := m.executorClient.DeployApp(ctx, req)
+	updatePayload, appState, wasmBytes, err := m.executorClient.DeployApp(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to deploy application: %w", err)
 	}
@@ -160,9 +168,12 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		return fmt.Errorf("failed to persist WASM bytecode: %w", err)
 	}
 
-	// TODO: Submit the deployment confirmation to the blockchain
+	// Submit the state update to the blockchain
+	if err = m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
+		return fmt.Errorf("failed to submit state update: %w", err)
+	}
 
-	log.Printf("Deployed application %s", appState.ApplicationID)
+	log.Printf("Manager: Deployed application %s", appState.ApplicationID)
 	return nil
 }
 
@@ -180,8 +191,14 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		return fmt.Errorf("failed to get wasm bytes: %w", err)
 	}
 
+	// Get the user key for the request sender
+	senderKey, err := m.dataLayer.GetUserKey(ctx, req.Sender)
+	if err != nil {
+		return fmt.Errorf("failed to get user key for sender %s: %w", req.Sender, err)
+	}
+
 	// Process the request
-	updatePayload, updatedState, err := m.executorClient.ProcessRequest(ctx, req, appState, wasmBytes)
+	updatePayload, updatedState, err := m.executorClient.ProcessRequest(ctx, req, appState, senderKey, wasmBytes)
 	if err != nil {
 		return fmt.Errorf("failed to process request: %w", err)
 	}
@@ -197,7 +214,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		return fmt.Errorf("failed to submit state update: %w", err)
 	}
 
-	log.Printf("Processed request %s for application %s", req.RequestID, req.ApplicationID)
+	log.Printf("Manager: Processed request %s for application %s", req.RequestID, req.ApplicationID)
 	return nil
 }
 
@@ -215,8 +232,14 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		return fmt.Errorf("failed to get wasm bytes: %w", err)
 	}
 
+	// Get the user key for the request sender
+	senderKey, err := m.dataLayer.GetUserKey(ctx, req.Sender)
+	if err != nil {
+		return fmt.Errorf("failed to get user key for sender %s: %w", req.Sender, err)
+	}
+
 	// Generate the deanonymization report
-	report, err := m.executorClient.GenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
+	report, err := m.executorClient.GenerateDeanonymizationReport(ctx, req, appState, senderKey, wasmBytes)
 	if err != nil {
 		return fmt.Errorf("failed to generate deanonymization report: %w", err)
 	}
@@ -233,6 +256,26 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		return fmt.Errorf("failed to submit deanonymization report: %w", err)
 	}
 
-	log.Printf("Generated deanonymization report %s for application %s", report.ReportID, req.ApplicationID)
+	log.Printf("Manager: Generated deanonymization report %s for application %s", report.ReportID, req.ApplicationID)
 	return nil
+}
+
+func (m *SecureProcessorManager) GetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.isRunning {
+		return nil, fmt.Errorf("manager is not running")
+	}
+	userKeys := make(map[string][]byte)
+	// Get user keys from the blockchain or data layer
+	for _, user := range users {
+		userKey, err := m.dataLayer.GetUserKey(ctx, user)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user {%s} key: %w", user, err)
+		}
+		userKeys[user] = userKey
+	}
+
+	return userKeys, nil
 }

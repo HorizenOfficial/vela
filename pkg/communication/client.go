@@ -138,7 +138,7 @@ func (c *Client) ProcessRequest(ctx context.Context, req *common.Request, appSta
 }
 
 // DeployApp sends a deploy app request and waits for response
-func (c *Client) DeployApp(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error) {
+func (c *Client) DeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: DeployAppRequestMessage,
@@ -149,24 +149,24 @@ func (c *Client) DeployApp(ctx context.Context, req *common.Request) (*common.Ap
 
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if respMsg.Type == ErrorMessage {
 		errorData, _ := extractData[ErrorData](respMsg.Data)
-		return nil, nil, fmt.Errorf("server error: %s", errorData.Message)
+		return nil, nil, nil, fmt.Errorf("server error: %s", errorData.Message)
 	}
 
 	if respMsg.Type != DeployAppResponseMessage {
-		return nil, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+		return nil, nil, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
 	}
 
 	respData, err := extractData[DeployAppResponseData](respMsg.Data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to extract response data: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to extract response data: %w", err)
 	}
 
-	return respData.ApplicationState, respData.WasmModule, nil
+	return respData.UpdatePayload, respData.ApplicationState, respData.WasmModule, nil
 }
 
 // GenerateDeanonymizationReport sends a deanonymization request and waits for response
@@ -298,12 +298,13 @@ func (c *Client) messageReaderLoop(ctx context.Context) {
 		// Parse message
 		var msg Message
 		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			log.Printf("Error parsing message: %v", err)
+			log.Printf("Client: Error parsing message: %v", err)
 			continue
 		}
 
-		// Route message
-		c.routeIncomingMessage(ctx, &msg)
+		log.Printf("Client: Received message: ID=%s, Type=%v", msg.ID, msg.Type)
+		// Route message in a goroutine to avoid blocking
+		go c.routeIncomingMessage(ctx, &msg)
 	}
 }
 
@@ -324,7 +325,7 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 			// Channel is open and has room, send the response
 		default:
 			// Channel is full or closed, ignore and log the issue
-			log.Printf("Warning: response channel for request ID %s is full or closed, ignoring response\n", msg.ID)
+			log.Printf("Client: Warning: response channel for request ID %s is full or closed, ignoring response\n", msg.ID)
 		}
 		return
 	}
@@ -339,7 +340,7 @@ func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
 	case GetUserKeysRequestMessage:
 		c.handleGetUserKeysRequest(ctx, msg)
 	default:
-		c.sendErrorResponse(msg.ID, "UNKNOWN_MESSAGE", fmt.Errorf("unknown message type: %v", msg.Type))
+		log.Printf("Client: Warning: unknown message type: %v\n", msg.Type)
 	}
 }
 
@@ -371,12 +372,13 @@ func (c *Client) handleGetUserKeysRequest(ctx context.Context, msg *Message) {
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Failed to send GetUserKeys response: %v", err)
+		log.Printf("Client: Failed to send GetUserKeys response: %v", err)
 	}
 }
 
 // sendErrorResponse sends an error response
 func (c *Client) sendErrorResponse(requestID string, code string, err error) {
+	log.Printf("Client: Sending error response: ID=%s, Code=%s, Message=%s", requestID, code, err.Error())
 	response := Message{
 		ID:   requestID,
 		Type: ErrorMessage,
@@ -387,7 +389,7 @@ func (c *Client) sendErrorResponse(requestID string, code string, err error) {
 	}
 
 	if sendErr := c.sendMessage(response); sendErr != nil {
-		log.Printf("Failed to send error response: %v", sendErr)
+		log.Printf("Client: Failed to send error response: %v", sendErr)
 	}
 }
 

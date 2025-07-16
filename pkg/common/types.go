@@ -70,6 +70,8 @@ type Request struct {
 	Sender string `json:"sender"`
 	// Signature is the signature of the sender
 	Signature []byte `json:"signature"`
+	// Value is the optional deposit value in WEI
+	Value int64 `json:"value"`
 }
 
 // Event represents an event to be emitted

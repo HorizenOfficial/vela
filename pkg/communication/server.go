@@ -115,6 +115,10 @@ func (s *Server) GetUserKeys(ctx context.Context, users []string) (map[string][]
 		return nil, fmt.Errorf("no client connected")
 	}
 
+	if len(users) == 0 {
+		return map[string][]byte{}, nil
+	}
+
 	// Create a request message
 	msg := Message{
 		ID:   generateID(),
@@ -165,7 +169,7 @@ func (s *Server) acceptConnections(ctx context.Context) {
 			case <-s.shutdownChan:
 				return
 			default:
-				log.Printf("Error accepting connection: %v", err)
+				log.Printf("Server: Error accepting connection: %v", err)
 				continue
 			}
 		}
@@ -177,7 +181,7 @@ func (s *Server) acceptConnections(ctx context.Context) {
 
 // handleNewClient handles a new client connection
 func (s *Server) handleNewClient(ctx context.Context, conn net.Conn) {
-	log.Printf("New client connected from %s", conn.RemoteAddr())
+	log.Printf("Server: New client connected from %s", conn.RemoteAddr())
 
 	client := &ClientConnection{
 		conn:            conn,
@@ -325,12 +329,13 @@ func (c *ClientConnection) messageReaderLoop(ctx context.Context, server *Server
 		// Parse message
 		var msg Message
 		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			log.Printf("Error parsing message: %v", err)
+			log.Printf("Server: Error parsing message: %v", err)
 			continue
 		}
 
-		// Route message
-		c.routeIncomingMessage(ctx, &msg, server)
+		log.Printf("Server: Received message: ID=%s, Type=%v", msg.ID, msg.Type)
+		// Route message in a separate goroutine
+		go c.routeIncomingMessage(ctx, &msg, server)
 	}
 }
 
@@ -387,9 +392,6 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Messag
 	}
 
 	updatePayload, updatedState, err := handler.ProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.SenderKey, reqData.WasmModule)
-	log.Printf("Update Payload: %v", updatePayload)
-	log.Printf("Updated state: %v", updatedState)
-	log.Printf("Error: %v", err)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -405,8 +407,9 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Messag
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Failed to send ProcessRequest response: %v", err)
+		log.Printf("Server: Failed to send ProcessRequest response: %v", err)
 	}
+	log.Printf("Server: ProcessRequest handled successfully, ID=%s", msg.ID)
 }
 
 // handleDeployAppRequest handles DeployApp messages
@@ -417,7 +420,7 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Mess
 		return
 	}
 
-	appState, wasmModule, err := handler.DeployApp(ctx, reqData.Request)
+	updatePayload, appState, wasmModule, err := handler.DeployApp(ctx, reqData.Request)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -427,14 +430,16 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Mess
 		ID:   msg.ID,
 		Type: DeployAppResponseMessage,
 		Data: DeployAppResponseData{
+			UpdatePayload:    updatePayload,
 			ApplicationState: appState,
 			WasmModule:       wasmModule,
 		},
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Failed to send DeployApp response: %v", err)
+		log.Printf("Server: Failed to send DeployApp response: %v", err)
 	}
+	log.Printf("Server: DeployApp handled successfully, ID=%s", msg.ID)
 }
 
 // handleDeanonymizationRequest handles deanonymization messages
@@ -460,12 +465,14 @@ func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Failed to send deanonymization response: %v", err)
+		log.Printf("Server: Failed to send deanonymization response: %v", err)
 	}
+	log.Printf("Server: Deanonymization handled successfully, ID=%s", msg.ID)
 }
 
 // sendErrorResponse sends an error response
 func (c *ClientConnection) sendErrorResponse(requestID string, code string, err error) {
+	log.Printf("Server: Sending error response: ID=%s, Code=%s, Error=%v", requestID, code, err)
 	response := Message{
 		ID:   requestID,
 		Type: ErrorMessage,
@@ -476,7 +483,7 @@ func (c *ClientConnection) sendErrorResponse(requestID string, code string, err 
 	}
 
 	if sendErr := c.sendMessage(response); sendErr != nil {
-		log.Printf("Failed to send error response: %v", sendErr)
+		log.Printf("Server: Failed to send error response: %v", sendErr)
 	}
 }
 
@@ -503,6 +510,7 @@ func (c *ClientConnection) cleanupTimedOutRequests() {
 
 	for id, req := range c.pendingRequests {
 		if now.After(req.Timeout) {
+			log.Printf("Server: Cleaning up timed out request: %s", id)
 			close(req.ResponseChan)
 			delete(c.pendingRequests, id)
 		}

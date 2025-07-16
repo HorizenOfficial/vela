@@ -5,6 +5,7 @@ package executor
 import (
 	"context"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/crypto"
 
 	"github.com/horizen-pes/pkg/common"
 )
@@ -15,19 +16,30 @@ type Config struct {
 	ServerType string
 	// ServerAddr is the address for the TCP server
 	ServerAddr string
+	// ServerCid is the cid for the v-socket server
+	ServerCid uint32
 	// ServerPort is the port for the v-socket server
 	ServerPort uint32
-	// SigningKey is the key to use for signing update payloads
-	SigningKey []byte
+	// StateKey is the key to use for signing update payloads
+	StateKey common.AES256Key
+	// CommunicationKey is the key to use for encrypting payloads
+	CommunicationKey *common.PrivateKeyP521
+	// SignatureKey is used to sign UpdatePayloads and DeanonymizationReports
+	SignatureKey *common.PrivateKey25519 // Key used for signing requests and responses
 }
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
+	stateKey, _ := crypto.GenerateAESKey()
+	communicationKey, _ := crypto.GeneratePrivateKeyP521()
+	signatureKey, _ := crypto.GeneratePrivateKey25519()
+
 	return &Config{
-		ServerType: "tcp",
-		ServerAddr: "localhost:8080",
-		ServerPort: 5000,
-		SigningKey: []byte("dummy-signing-key"),
+		ServerType:       "tcp",
+		ServerAddr:       "localhost:8080",
+		StateKey:         stateKey,
+		CommunicationKey: communicationKey,
+		SignatureKey:     signatureKey,
 	}
 }
 
@@ -35,6 +47,8 @@ func DefaultConfig() *Config {
 type Executor interface {
 	// RequestHandler interface to handle requests from the communication layer
 	communication.RequestHandler
+	// Start starts the executor server
+	Start(ctx context.Context) error
 	// Close closes the executor
 	Close() error
 }
@@ -42,21 +56,21 @@ type Executor interface {
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
 	// LoadModule loads a module from bytecode
-	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, []byte, error) //todo: think about adding properties to manage module initialization
+	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, []byte, error)
+	// Deposit processes a deposit
+	Deposit(ctx context.Context, appId string, sender string, value int64, state []byte, wasm []byte) ([]byte, []PlainEvent, error)
 	// ProcessRequest processes a request and returns the new state
-	ProcessRequest(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, []common.Event, []common.Withdrawal, error)
+	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []PlainEvent, []common.Withdrawal, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, state []byte, wasm []byte) ([]byte, error)
+	GenerateDeanonymizationReport(ctx context.Context, appId string, requestId string, payload []byte, state []byte, wasm []byte) ([]byte, error)
 	// Close closes the WASM runtime
 	Close() error
 }
 
-// Event represents an event to be emitted
-type Event struct {
-	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+// PlainEvent represents an emitted event before encryption.
+type PlainEvent struct {
 	// UserID is the ID of the user associated with the event
 	UserID string `json:"userId"`
 	// EncryptedData is the encrypted event data
-	EncryptedData []byte `json:"encryptedData"`
+	Data []byte `json:"encryptedData"`
 }

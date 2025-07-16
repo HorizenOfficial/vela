@@ -76,6 +76,8 @@ type DeployAppRequestData struct {
 
 // DeployAppResponseData represents data for a deploy app response message
 type DeployAppResponseData struct {
+	// UpdatePayload is the update payload
+	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 	// ApplicationState initialized application state
 	ApplicationState *common.ApplicationState `json:"applicationState"`
 	// WasmModule is the WASM module for the deployed application

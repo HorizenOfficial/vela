@@ -21,7 +21,7 @@ type ExecutorClient interface {
 	// ProcessRequest sends a request to the executor and returns the response
 	ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	// DeployApp deploys a new application to the executor
-	DeployApp(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error)
+	DeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
 	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error)
 	// SetClientRequestHandler sets the handler for incoming requests from server
@@ -45,7 +45,7 @@ type RequestHandler interface {
 	// ProcessRequest processes a request and returns the response
 	ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	// DeployApp deploys a new application
-	DeployApp(ctx context.Context, req *common.Request) (*common.ApplicationState, []byte, error)
+	DeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
 	GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error)
 }
