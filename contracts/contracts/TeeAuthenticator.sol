@@ -1,15 +1,32 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
-import "../interfaces/ITeeAuthenticator.sol";
+import "./interfaces/ITeeAuthenticator.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-contract EthSignatureTeeAuthenticator is ITeeAuthenticator {
+contract TeeAuthenticator is ITeeAuthenticator, Ownable {
 
-    address validSigner;
+    address public teeSigner;
 
-    constructor(address _validSigner) {
-        validSigner = _validSigner;
+    //events
+    event TeeUpdate(address oldTee, address newTee);
+
+    //error
+    error TeeAddressCantBeZero();
+    error TeeIsNotSet();
+
+
+    constructor(address _teeSigner) Ownable(msg.sender) {
+        teeSigner = _teeSigner;
+        emit TeeUpdate(address(0), teeSigner);
+    }
+
+    function updateTee(address newTeeSigner) public onlyOwner {
+        if(newTeeSigner == address(0)) revert TeeAddressCantBeZero();
+
+        emit TeeUpdate(teeSigner, newTeeSigner);
+        teeSigner = newTeeSigner;
     }
 
     function checkSignature(
@@ -21,6 +38,8 @@ contract EthSignatureTeeAuthenticator is ITeeAuthenticator {
         Structs.WithdrawalRequest[] memory withdrawalRequests,
         bytes calldata signature
     ) external view override returns (bool) {
+        if(teeSigner == address(0)) revert TeeIsNotSet();
+
         bytes32 messageHash = keccak256(abi.encode(
             applicationId,
             prevStateRoot,
@@ -31,6 +50,6 @@ contract EthSignatureTeeAuthenticator is ITeeAuthenticator {
         ));
 
         address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);
-        return recovered == validSigner;
+        return recovered == teeSigner;
     }
 }

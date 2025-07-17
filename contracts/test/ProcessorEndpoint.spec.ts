@@ -11,11 +11,11 @@ describe('ProcessorEndpoint Test', function () {
     beforeEach(async function () {
         signers = await ethers.getSigners();
         //deploy signature verifier
-        let EthSignatureTeeAuthenticator = await ethers.getContractFactory("EthSignatureTeeAuthenticator");
-        let ethSignatureTeeAuthenticator = await EthSignatureTeeAuthenticator.deploy(await signers[0].getAddress());
+        let TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
+        let teeAuthenticator = await TeeAuthenticator.deploy(await signers[0].getAddress());
 
         let ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
-        processorEndpoint = await ProcessorEndpoint.deploy(ethSignatureTeeAuthenticator, await signers[0].getAddress());
+        processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, await signers[0].getAddress());
 
         protocolVersion = await processorEndpoint.PROTOCOL_VERSION();
         applicationId = await processorEndpoint.APPLICATION_ID();
