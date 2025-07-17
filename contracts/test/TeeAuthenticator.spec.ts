@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import { Contract, Signer } from 'ethers';
 import { ethSignStateUpdate } from '../scripts/util';
 
-describe('KeyRegistry Test', function () {
+describe('TeeAuthenticator Test', function () {
     const ADDRESS_ZERO = "0x0000000000000000000000000000000000000000";
     let signers: Signer[];
     let teeAuthenticator: Contract;
