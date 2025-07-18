@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -120,4 +121,46 @@ func LoadPrivateKeyP521FromFilePEM(filename string) (*common.PrivateKeyP521, err
 	}
 
 	return &common.PrivateKeyP521{ecdhKey}, nil
+}
+
+// ExportPrivateKeyP521ToHex exports a P521 private key to a hex string.
+func ExportPrivateKeyP521ToHex(privKey *common.PrivateKeyP521) string {
+	return hex.EncodeToString(privKey.Bytes())
+}
+
+// ExportPublicKeyP521ToHex exports a P521 public key to a hex string.
+func ExportPublicKeyP521ToHex(pubKey *common.PublicKeyP521) string {
+	return hex.EncodeToString(pubKey.Bytes())
+}
+
+// ImportPrivateKeyP521FromHex imports a P521 private key from a hex string.
+func ImportPrivateKeyP521FromHex(hexKey string) (*common.PrivateKeyP521, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	curve := ecdh.P521()
+	key, err := curve.NewPrivateKey(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create private key: %w", err)
+	}
+
+	return &common.PrivateKeyP521{key}, nil
+}
+
+// ImportPublicKeyP521FromHex imports a P521 public key from a hex string.
+func ImportPublicKeyP521FromHex(hexKey string) (*common.PublicKeyP521, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	curve := ecdh.P521()
+	key, err := curve.NewPublicKey(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create public key: %w", err)
+	}
+
+	return &common.PublicKeyP521{key}, nil
 }
