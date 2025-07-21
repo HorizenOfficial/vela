@@ -231,7 +231,10 @@ func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message)
 
 	// Wait for response or timeout
 	select {
-	case response := <-responseChan:
+	case response, ok := <-responseChan:
+		if !ok {
+			return nil, fmt.Errorf("request timeout or response channel closed")
+		}
 		return response, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()

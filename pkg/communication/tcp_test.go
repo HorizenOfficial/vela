@@ -2,6 +2,7 @@ package communication
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -455,4 +456,126 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	_, err = server.SendGetUserKeys(ctx, users)
 	assert.Error(t, err, "Server request should return error")
 	assert.Contains(t, err.Error(), "client error", "Error should indicate client error")
+}
+
+func TestTCPClientServer_ServerTimeout(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+	ctx := context.Background()
+	// Create a mock request handler that simulates slow processing
+	serverHandler := &MockRequestHandler{
+		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+			// Simulate slow processing that exceeds timeout
+			// check is performed each 5 seconds, and timeout is 30 seconds, so 35 is the worst case
+			time.Sleep(35 * time.Second)
+			return &common.UpdatePayload{
+				ApplicationID: req.ApplicationID,
+				PrevStateRoot: appState.StateRoot,
+				NewStateRoot:  []byte("new-state-root"),
+				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
+				Signature:     []byte("test-signature"),
+			}, appState, nil
+		},
+	}
+
+	// Create a server
+	factory := NewTCPConnectionFactory(":8089")
+	server := NewServer(factory)
+	server.SetRequestHandler(serverHandler)
+	err := server.Start(context.Background())
+	require.NoError(t, err)
+	defer server.Stop()
+
+	// Create a client
+	client := NewClient(factory)
+	clientHandler := &MockClientRequestHandler{}
+	client.SetClientRequestHandler(clientHandler)
+
+	err = client.Connect(context.Background())
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Give some time for the connection to be established
+	time.Sleep(100 * time.Millisecond)
+
+	req := &common.Request{
+		ProtocolVersion: "1.0",
+		ApplicationID:   "test-app",
+		RequestID:       "test-request-id",
+		RequestType:     common.Process,
+		Payload:         []byte("test-encrypted-action"),
+		Timestamp:       time.Now().Unix(),
+		Sender:          "test-sender",
+		Signature:       []byte("test-signature"),
+	}
+	appState := &common.ApplicationState{
+		ApplicationID:  "test-app",
+		StateRoot:      []byte("test-state-root"),
+		EncryptedState: []byte("test-encrypted-state"),
+	}
+	senderKey := []byte("test-sender-key")
+	wasmModule := []byte("test-wasm-module")
+
+	start := time.Now()
+	_, _, err = client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
+	elapsed := time.Since(start)
+
+	// Should timeout and return an error
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "request timeout")
+	assert.Greater(t, elapsed, 30*time.Second, "Should timeout at least after 30 seconds")
+}
+
+func TestTCPClientServer_ClientTimeout(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	ctx := context.Background()
+	// Create a mock client request handler that simulates slow processing
+	clientHandler := &MockClientRequestHandler{
+		GetUserKeysFunc: func(ctx context.Context, users []string) (map[string][]byte, error) {
+			// Simulate slow processing that exceeds timeout
+			// check is performed each 5 seconds, and timeout is 30 seconds, so 35 is the worst case
+			time.Sleep(35 * time.Second)
+			userKeys := make(map[string][]byte)
+			for _, user := range users {
+				userKeys[user] = []byte("public-key-for-" + user)
+			}
+			return userKeys, nil
+		},
+	}
+
+	// Create a server
+	factory := NewTCPConnectionFactory(":8089")
+	server := NewServer(factory)
+	serverHandler := &MockRequestHandler{}
+	server.SetRequestHandler(serverHandler)
+	err := server.Start(context.Background())
+	require.NoError(t, err)
+	defer server.Stop()
+
+	// Create a client
+	client := NewClient(factory)
+	client.SetClientRequestHandler(clientHandler)
+
+	err = client.Connect(context.Background())
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Give some time for the connection to be established
+	time.Sleep(100 * time.Millisecond)
+
+	users := []string{"user1", "user2"}
+
+	start := time.Now()
+	_, err = server.SendGetUserKeys(ctx, users)
+	elapsed := time.Since(start)
+
+	// Should timeout and return an error
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "request timeout")
+	assert.Greater(t, elapsed, 30*time.Second, "Should timeout at least after 30 seconds")
 }
