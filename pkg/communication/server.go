@@ -259,15 +259,15 @@ func (c *ClientConnection) sendRequestAndWaitForResponse(ctx context.Context, ms
 
 	// Wait for response or timeout
 	select {
-	case response := <-responseChan:
-
+	case response, ok := <-responseChan:
+		if !ok {
+			return nil, fmt.Errorf("request timeout or response channel closed")
+		}
 		return response, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-c.shutdown:
 		return nil, fmt.Errorf("client connection is shutting down")
-	case <-time.After(c.reqTimeout):
-		return nil, fmt.Errorf("request timeout")
 	}
 }
 
