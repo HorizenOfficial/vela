@@ -29,7 +29,7 @@ const (
 	DeanonymizationResponseMessage
 	// GetUserKeysRequestMessage represents a request from server to client for user keys
 	GetUserKeysRequestMessage
-	// GetUserKeysResponseMessage represents a response to a GetUserKeys request
+	// GetUserKeysResponseMessage represents a response to a HandleGetUserKeys request
 	GetUserKeysResponseMessage
 	// ErrorMessage represents an error message
 	ErrorMessage
@@ -100,13 +100,13 @@ type DeanonymizationResponseData struct {
 	Report *common.DeanonymizationReport `json:"report"`
 }
 
-// GetUserKeysRequestData represents data for a GetUserKeys request message
+// GetUserKeysRequestData represents data for a HandleGetUserKeys request message
 type GetUserKeysRequestData struct {
 	// Users is the list of users to get keys for
 	Users []string `json:"users"`
 }
 
-// GetUserKeysResponseData represents data for a GetUserKeys response message
+// GetUserKeysResponseData represents data for a HandleGetUserKeys response message
 type GetUserKeysResponseData struct {
 	// UserKeys is a map of user ID to their public key
 	UserKeys map[string][]byte `json:"userKeys"`
