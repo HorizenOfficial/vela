@@ -1,4 +1,4 @@
-package versioned_leveldb_test
+package storage_test // Use a separate test package to only test exported functionalities
 
 import (
 	"bytes" // For comparing []byte slices
@@ -8,6 +8,7 @@ import (
 	"os"            // For file system operations (creating/removing temp directories)
 	"path/filepath" // For joining file paths
 	"testing"
+	"time" // For BoltDB timeout option
 
 	"github.com/google/go-cmp/cmp"        // For deep comparison of structs
 	"github.com/stretchr/testify/assert"  // For general assertions (Error, NoError, Nil, NotNil)
@@ -15,25 +16,26 @@ import (
 
 	"github.com/horizen-pes/pkg/common"  // Your common types and interface
 	"github.com/horizen-pes/pkg/storage" // Your storage package with BoltDBDataLayer and custom Error
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 
-	
+	boltdb "github.com/horizen-pes/pkg/storage/boltdb"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	berrors "go.etcd.io/bbolt/errors"
 )
 
-// testVersionedLevelDBBaseDir is the base directory where all temporary Versioned LevelDB test files will be created.
-var testVersionedLevelDBBaseDir string
+// testBoltDBBaseDir is the base directory where all temporary BoltDB test files will be created.
+var testBoltDBBaseDir string
 
 // TestMain is a special function that runs before any tests in the package.
 // It's used here to set up and tear down the global test environment (the base directory).
 func TestMain(m *testing.M) {
-	fmt.Println("Running TestMain setup for VersionedLevelDBDataLayer integration tests...")
+	fmt.Println("Running TestMain setup for BoltDBDataLayer integration tests...")
 
-	// Create a temporary base directory for all Versioned LevelDB test files.
+	// Create a temporary base directory for all BoltDB test files.
 	// This ensures tests are isolated from each other and from real data.
 	var err error
-	testVersionedLevelDBBaseDir, err = os.MkdirTemp("", "versioned_leveldb_test_dbs_")
+	testBoltDBBaseDir, err = os.MkdirTemp("", "boltdb_test_dbs_")
 	if err != nil {
-		fmt.Printf("Failed to create Versioned LevelDB test base directory: %v\n", err)
+		fmt.Printf("Failed to create BoltDB test base directory: %v\n", err)
 		os.Exit(1) // Exit if setup fails
 	}
 
@@ -41,41 +43,41 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Clean up the base directory after all tests have completed.
-	fmt.Println("Running TestMain teardown for VersionedLevelDBDataLayer integration tests...")
-	err = os.RemoveAll(testVersionedLevelDBBaseDir)
+	fmt.Println("Running TestMain teardown for BoltDBDataLayer integration tests...")
+	err = os.RemoveAll(testBoltDBBaseDir)
 	if err != nil {
-		fmt.Printf("Failed to clean up Versioned LevelDB test base directory %s: %v\n", testVersionedLevelDBBaseDir, err)
+		fmt.Printf("Failed to clean up BoltDB test base directory %s: %v\n", testBoltDBBaseDir, err)
 	}
 
 	os.Exit(code) // Exit with the result code from tests
 }
 
-// TestVersionedLevelDBDataLayer provides a comprehensive test suite for the VersionedLevelDBDataLayer implementation.
-// It uses a factory function to create a new, isolated Versioned LevelDB instance for each subtest.
-func TestVersionedLevelDBDataLayer(t *testing.T) {
-	// createStore is a factory function that returns a new, clean VersionedLevelDBDataLayer instance.
-	// Each call to createStore will create a new temporary Versioned LevelDB file.
+// TestBoltDBDataLayer provides a comprehensive test suite for the BoltDBDataLayer implementation.
+// It uses a factory function to create a new, isolated BoltDB instance for each subtest.
+func TestBoltDBDataLayer(t *testing.T) {
+	// createStore is a factory function that returns a new, clean BoltDBDataLayer instance.
+	// Each call to createStore will create a new temporary BoltDB file.
 	createStore := func() storage.ApplicationStateStore {
 		// Create a unique temporary directory for this specific test instance.
 		// This ensures complete isolation between different subtests.
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
-		require.NoError(t, err, "Failed to create temp directory for Versioned LevelDB")
+		tempDir, err := os.MkdirTemp(testBoltDBBaseDir, "boltdb-test-")
+		require.NoError(t, err, "Failed to create temp directory for BoltDB")
 
-		// Configure Versioned LevelDB to use a file within the temporary directory.
-		cfg := storage.VersionedLevelDBConfig{
-			Path:           filepath.Join(tempDir, "test.db"), // The actual .db file
-			VersionsToKeep: 5,                                 // Keep a small number of versions for testing
+		// Configure BoltDB to use a file within the temporary directory.
+		cfg := boltdb.BoltDBConfig{
+			Path:    filepath.Join(tempDir, "test.db"), // The actual .db file
+			Timeout: 1 * time.Second,                   // Timeout for opening the DB
 		}
-		dl, err := storage.NewVersionedLevelDBDataLayer(cfg)
-		require.NoError(t, err, "Failed to create VersionedLevelDBDataLayer instance")
+		dl, err := boltdb.NewBoltDBDataLayer(cfg)
+		require.NoError(t, err, "Failed to create BoltDBDataLayer instance")
 
 		// Use t.Cleanup to ensure the database is closed and its temporary directory is removed
 		// after the current test (or subtest) finishes, regardless of pass/fail.
 		t.Cleanup(func() {
 			// Close the database connection.
-			require.NoError(t, dl.Close(), "Closing Versioned LevelDB store should not error during cleanup")
+			require.NoError(t, dl.Close(), "Closing BoltDB store should not error during cleanup")
 			// Remove the temporary directory and all its contents.
-			require.NoError(t, os.RemoveAll(tempDir), "Failed to remove Versioned LevelDB test directory: %s", tempDir)
+			require.NoError(t, os.RemoveAll(tempDir), "Failed to remove BoltDB test directory: %s", tempDir)
 		})
 
 		return dl
@@ -87,11 +89,11 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 	// --- Test ApplicationState Operations ---
 	t.Run("StoreAndGetApplicationState", func(t *testing.T) {
-		store := createStore() // Get a fresh Versioned LevelDB instance for this subtest
+		store := createStore() // Get a fresh BoltDB instance for this subtest
 
 		expectedState := &common.ApplicationState{
-			ApplicationID:  "versioned-leveldb-app-id-1",
-			StateRoot:      []byte("versioned-leveldb-root-hash-1"),
+			ApplicationID:  "boltdb-app-id-1",
+			StateRoot:      []byte("boltdb-root-hash-1"),
 			EncryptedState: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
 		}
 
@@ -109,9 +111,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("GetNonExistentApplicationState", func(t *testing.T) {
-		store := createStore() // Get a fresh Versioned LevelDB instance
+		store := createStore() // Get a fresh BoltDB instance
 
-		_, err := store.GetApplicationState(ctx, "versioned-leveldb-non-existent-app-id")
+		_, err := store.GetApplicationState(ctx, "boltdb-non-existent-app-id")
 		require.Error(t, err, "Expected an error when getting a non-existent application state")
 
 		// Verify that the error is specifically our custom "not found" error.
@@ -125,7 +127,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	t.Run("StoreAndGetWASMBytecode", func(t *testing.T) {
 		store := createStore()
 
-		appID := "versioned-leveldb-wasm-app-id-1"
+		appID := "boltdb-wasm-app-id-1"
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04}
 
 		err := store.StoreWASMBytecode(ctx, appID, expectedBytecode)
@@ -142,7 +144,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	t.Run("GetNonExistentWASMBytecode", func(t *testing.T) {
 		store := createStore()
 
-		_, err := store.GetWASMBytecode(ctx, "versioned-leveldb-non-existent-wasm-id")
+		_, err := store.GetWASMBytecode(ctx, "boltdb-non-existent-wasm-id")
 		require.Error(t, err, "Expected an error when getting non-existent WASM bytecode")
 
 		var notFoundErr *storageErrors.Error
@@ -157,7 +159,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 		expectedReport := &common.DeanonymizationReport{
 			ApplicationID:   "id-001",
-			ReportID:        "versioned-leveldb-report-id-1",
+			ReportID:        "boltdb-report-id-1",
 			EncryptedReport: []byte("some-test-root-hash-1"),
 		}
 
@@ -176,7 +178,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	t.Run("GetNonExistentDeanonymizationReport", func(t *testing.T) {
 		store := createStore()
 
-		_, err := store.GetDeanonymizationReport(ctx, "versioned-leveldb-non-existent-report-id")
+		_, err := store.GetDeanonymizationReport(ctx, "boltdb-non-existent-report-id")
 		require.Error(t, err, "Expected an error when getting non-existent deanonymization report")
 
 		var notFoundErr *storageErrors.Error
@@ -189,8 +191,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	t.Run("StoreAndGetUserKey", func(t *testing.T) {
 		store := createStore()
 
-		userID := "versioned-leveldb-user-id-1"
-		expectedPublicKey := []byte("versioned-leveldb-public-key-bytes-1")
+		userID := "boltdb-user-id-1"
+		expectedPublicKey := []byte("boltdb-public-key-bytes-1")
 
 		err := store.StoreUserKey(ctx, userID, expectedPublicKey)
 		require.NoError(t, err, "StoreUserKey should not return an error")
@@ -205,7 +207,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	t.Run("GetNonExistentUserKey", func(t *testing.T) {
 		store := createStore()
 
-		_, err := store.GetUserKey(ctx, "versioned-leveldb-non-existent-user-id")
+		_, err := store.GetUserKey(ctx, "boltdb-non-existent-user-id")
 		require.Error(t, err, "Expected an error when getting non-existent user key")
 
 		var notFoundErr *storageErrors.Error
@@ -216,47 +218,50 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 	// --- Test Close Method and Operations After Close ---
 	t.Run("OperationsAfterClose", func(t *testing.T) {
-		store := createStore() // Get a fresh Versioned LevelDB instance for this subtest
+		store := createStore() // Get a fresh BoltDB instance for this subtest
 
-		// Close the Versioned LevelDB store.
+		// Close the BoltDB store.
 		err := store.Close()
-		require.NoError(t, err, "Closing the Versioned LevelDB store should not return an error on first close")
+		require.NoError(t, err, "Closing the BoltDB store should not return an error on first close")
 
-		
+		// Subsequent Close() calls should also return an error for bbolt.
+		err = store.Close()
+		assert.NoError(t, err, "Error not expected when trying to close an already closed store")
 
 		// Try to perform an operation (e.g., GetApplicationState) after closing.
-		// This should result in an error from LevelDB.
+		// This should result in an error from BoltDB.
 		_, err = store.GetApplicationState(ctx, "any-id")
 		require.Error(t, err, "Expected an error when getting application state from a closed store")
-		assert.Contains(t, err.Error(), "closed", "Error message should indicate store is closed")
-		
+		//ErrDatabaseNotOpen is returned when a DB instance is accessed before it is opened or after it is closed.
+		assert.Contains(t, err.Error(), "not open", "Error message should indicate store is not open")
+		assert.True(t, errors.Is(err, berrors.ErrDatabaseNotOpen), "Error should be ErrDatabaseNotOpen")
 
 		// Try to perform a store operation (e.g., StoreApplicationState) after closing.
 		someState := &common.ApplicationState{ApplicationID: "test-after-close", StateRoot: []byte("a")}
 		err = store.StoreApplicationState(ctx, someState)
 		require.Error(t, err, "Expected an error when storing application state to a closed store")
-		assert.Contains(t, err.Error(), "closed", "Error message should indicate store is closed")
-		
+		assert.Contains(t, err.Error(), "not open", "Error message should indicate store is not open")
+		assert.True(t, errors.Is(err, berrors.ErrDatabaseNotOpen), "Error should be ErrDatabaseNotOpen")
 
 		// Add similar checks for other Store/Get methods after Close()
 		_, err = store.GetWASMBytecode(ctx, "any-id")
 		assert.Error(t, err, "Expected error when getting WASM bytecode from closed store")
-		assert.Contains(t, err.Error(), "closed", "Error message should indicate store is closed")
-		
+		assert.Contains(t, err.Error(), "not open", "Error message should indicate store is not open")
+		assert.True(t, errors.Is(err, berrors.ErrDatabaseNotOpen), "Error should be ErrDatabaseNotOpen")
 
 		err = store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
 		assert.Error(t, err, "Expected error when storing report to closed store")
-		assert.Contains(t, err.Error(), "closed", "Error message should indicate store is closed")
-		
+		assert.Contains(t, err.Error(), "not open", "Error message should indicate store is not open")
+		assert.True(t, errors.Is(err, berrors.ErrDatabaseNotOpen), "Error should be ErrDatabaseNotOpen")
 
 		_, err = store.GetUserKey(ctx, "any-id")
 		assert.Error(t, err, "Expected error when getting user key from closed store")
-		assert.Contains(t, err.Error(), "closed", "Error message should indicate store is closed")
-		
+		assert.Contains(t, err.Error(), "not open", "Error message should indicate store is not open")
+		assert.True(t, errors.Is(err, berrors.ErrDatabaseNotOpen), "Error should be ErrDatabaseNotOpen")
 
 		err = store.StoreUserKey(ctx, "test-user", []byte("key"))
 		assert.Error(t, err, "Expected error when storing user key to closed store")
-		assert.Contains(t, err.Error(), "closed", "Error message should indicate store is closed")
-		
+		assert.Contains(t, err.Error(), "not open", "Error message should indicate store is not open")
+		assert.True(t, errors.Is(err, berrors.ErrDatabaseNotOpen), "Error should be ErrDatabaseNotOpen")
 	})
 }

@@ -14,7 +14,7 @@ import (
 	leveldb_errors "github.com/syndtr/goleveldb/leveldb/errors" // Alias to avoid conflict with your custom Error type
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/storage"
 )
 
 const (
@@ -35,8 +35,8 @@ func init() {
 // This struct will be serialized and stored alongside each version ID.
 type ChangeSet struct {
 	InsertedKeys [][]byte              `json:"inserted_keys"` // Keys that were newly inserted
-	Removed      []common.KeyValuePair `json:"removed"`       // Original key-value pairs that were removed
-	Altered      []common.KeyValuePair `json:"altered"`       // Original key-value pairs whose values were changed
+	Removed      []storage.KeyValuePair `json:"removed"`       // Original key-value pairs that were removed
+	Altered      []storage.KeyValuePair `json:"altered"`       // Original key-value pairs whose values were changed
 }
 
 // ChangeSetSerializer provides methods to serialize/deserialize ChangeSet structs.
@@ -75,7 +75,7 @@ func NewVersionedLDBKVStore(db *leveldb.DB, versionsToKeep int) *VersionedLDBKVS
 // Update performs a versioned update operation.
 // It inserts/updates `toInsert` pairs, removes `toRemove` keys, and records these changes
 // under the given `versionID`. It also manages the versions history.
-func (v *VersionedLDBKVStore) Update(toInsert []common.KeyValuePair, toRemove [][]byte, versionID []byte) error {
+func (v *VersionedLDBKVStore) Update(toInsert []storage.KeyValuePair, toRemove [][]byte, versionID []byte) error {
 	// Validate the version ID size.
 	if len(versionID) != ConstantsHashLength {
 		return storageErrors.ErrInvalidParameter(fmt.Sprintf("Illegal version ID size: expected %d bytes, got %d", ConstantsHashLength, len(versionID)))
@@ -100,8 +100,8 @@ func (v *VersionedLDBKVStore) Update(toInsert []common.KeyValuePair, toRemove []
 
 	// Prepare the ChangeSet by recording the original state of keys being modified or removed.
 	insertedKeys := make([][]byte, 0, len(toInsert))
-	altered := make([]common.KeyValuePair, 0)
-	removed := make([]common.KeyValuePair, 0)
+	altered := make([]storage.KeyValuePair, 0)
+	removed := make([]storage.KeyValuePair, 0)
 
 	// Process insertions/updates to determine `insertedKeys` and `altered` entries.
 	for _, kv := range toInsert {
@@ -114,7 +114,7 @@ func (v *VersionedLDBKVStore) Update(toInsert []common.KeyValuePair, toRemove []
 			}
 		} else {
 			// Key was present, so it's an alteration. Record the original key-value pair.
-			altered = append(altered, common.KeyValuePair{Key: kv.Key, Value: oldValue})
+			altered = append(altered, storage.KeyValuePair{Key: kv.Key, Value: oldValue})
 		}
 	}
 
@@ -128,7 +128,7 @@ func (v *VersionedLDBKVStore) Update(toInsert []common.KeyValuePair, toRemove []
 			// If key not found, it means it didn't exist to be removed.
 		} else {
 			// Key was present, so it's a removal. Record the original key-value pair.
-			removed = append(removed, common.KeyValuePair{Key: k, Value: oldValue})
+			removed = append(removed, storage.KeyValuePair{Key: k, Value: oldValue})
 		}
 	}
 
@@ -353,7 +353,7 @@ func (v *VersionedLDBKVStore) VersionIDExists(versionID []byte) (bool, error) {
 // GetIterator returns a StorageIterator for the underlying LevelDB.
 // It creates an iterator with a snapshot to ensure a consistent view of the database
 // at the time the iterator is created. The caller must Release() the iterator.
-func (v *VersionedLDBKVStore) GetIterator() common.StorageIterator {
+func (v *VersionedLDBKVStore) GetIterator() storage.StorageIterator {
 	snapshot, err := v.Db.GetSnapshot()
 	if err != nil {
 		// In a real application, you might want to log this error or return a nil iterator
@@ -400,7 +400,7 @@ func (v *VersionedLDBKVStore) Close() error {
 
 // --- LDB Storage Iterator Implementation ---
 
-// ldbStorageIterator implements the common.StorageIterator interface for LevelDB.
+// ldbStorageIterator implements the storage.StorageIterator interface for LevelDB.
 
 type ldbStorageIterator struct {
 	iter         iterator.Iterator                      // The underlying LevelDB iterator.

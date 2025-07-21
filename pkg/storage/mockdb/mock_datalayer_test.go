@@ -10,20 +10,21 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	mockdb "github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestNewMockDataLayer simply verifies the mock can be created.
 func TestNewMockDataLayer(t *testing.T) {
-	dl := storage.NewMockDataLayer()
+	dl := mockdb.NewMockDataLayer()
 	assert.NotNil(t, dl, "NewMockDataLayer should return a non-nil instance")
 }
 
 func TestApplicationStateStore(t *testing.T) {
 	// createStore provides a fresh instance of the store for each test scenario.
 	createStore := func() storage.ApplicationStateStore {
-		return storage.NewMockDataLayer()
+		return mockdb.NewMockDataLayer()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

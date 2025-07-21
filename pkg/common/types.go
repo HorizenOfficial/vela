@@ -126,6 +126,7 @@ type DeanonymizationReport struct {
 	EncryptedReport []byte `json:"encryptedReport"`
 }
 
+/*
 // KeyValuePair represents a key-value pair for storage operations.
 type KeyValuePair struct {
 	Key   []byte
@@ -157,3 +158,4 @@ type VersionedStorage interface {
 	NumberOfVersions() int
 	GetIterator() StorageIterator
 }
+*/

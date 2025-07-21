@@ -3,10 +3,11 @@ package versioned_leveldb_test // Use a separate test package
 import (
 	"bytes" // For comparing []byte slices
 	"context"
-	"crypto/sha256"    // For generating unique version IDs
-		errors "errors" // For errors.As
+	"crypto/sha256" // For generating unique version IDs
+	errors "errors" // For errors.As
 	"fmt"
 	"os" // For file system operations (temp directories)
+
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
 
@@ -19,36 +20,12 @@ import (
 	"github.com/stretchr/testify/require" // For assertions that stop the test immediately on failure
 	"github.com/syndtr/goleveldb/leveldb"
 
-	"github.com/horizen-pes/pkg/common" // Your common types and interface
+	// Your common types and interface
+	"github.com/horizen-pes/pkg/storage" // Your common types and interface
 )
 
-// Global base directory for all temporary LevelDB test files.
+// testVersionedLevelDBBaseDir is the base directory where all temporary Versioned LevelDB test files will be created.
 var testLevelDBVersionedBaseDir string
-
-// TestMain runs before any tests in the package. Used for global setup/teardown.
-func TestMain(m *testing.M) {
-	fmt.Println("Running TestMain setup for VersionedLevelDbStorageAdapter integration tests...")
-
-	var err error
-	// Create a unique temporary base directory for all test DBs.
-	testLevelDBVersionedBaseDir, err = os.MkdirTemp("", "versioned_leveldb_test_dbs_")
-	if err != nil {
-		fmt.Printf("Failed to create base directory for versioned LevelDB tests: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Run all tests.
-	code := m.Run()
-
-	// Clean up the base directory after all tests are done.
-	fmt.Println("Running TestMain teardown for VersionedLevelDbStorageAdapter integration tests...")
-	err = os.RemoveAll(testLevelDBVersionedBaseDir)
-	if err != nil {
-		fmt.Printf("Failed to clean up base directory %s: %v\n", testLevelDBVersionedBaseDir, err)
-	}
-
-	os.Exit(code) // Exit with the test result code.
-}
 
 // Helper function to generate a unique version ID for tests.
 // Ensures the ID has the correct length (ConstantsHashLength).
@@ -58,8 +35,8 @@ func generateVersionID(suffix string) []byte {
 }
 
 // Helper to create a KeyValuePair for testing.
-func createTestKVPair(keySuffix, valueSuffix string) common.KeyValuePair {
-	return common.KeyValuePair{
+func createTestKVPair(keySuffix, valueSuffix string) storage.KeyValuePair {
+	return storage.KeyValuePair{
 		Key:   []byte("test_key_" + keySuffix),
 		Value: []byte("test_value_" + valueSuffix),
 	}
@@ -74,7 +51,7 @@ func isStorageErrorWithCode(err error, code string) bool {
 // TestVersionedLevelDbStorageAdapter is the main test suite for the adapter.
 func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 	// createAdapter is a factory function to get a new, isolated adapter instance for each subtest.
-	createAdapter := func() common.VersionedStorage {
+	createAdapter := func() storage.VersionedStorage {
 		// Create a unique temporary directory for each adapter instance's DB file.
 		tempDir, err := os.MkdirTemp(testLevelDBVersionedBaseDir, "adapter-test-")
 		require.NoError(t, err, "Failed to create temp directory for adapter DB")
@@ -127,7 +104,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		assert.True(t, bytes.Equal(defaultValue, valOrElse), "Expected default value for non-existent key")
 
 		// Store a value using update (as per versioned storage logic)
-		err = adapter.Update(versionID, []common.KeyValuePair{{Key: testKey, Value: testValue}}, nil)
+		err = adapter.Update(versionID, []storage.KeyValuePair{{Key: testKey, Value: testValue}}, nil)
 		require.NoError(t, err, "Update should succeed")
 
 		// Key should now exist
@@ -149,7 +126,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		versionID2 := generateVersionID("batch2")
 
 		// Store some items
-		err := adapter.Update(versionID1, []common.KeyValuePair{kv1, kv2}, nil)
+		err := adapter.Update(versionID1, []storage.KeyValuePair{kv1, kv2}, nil)
 		require.NoError(t, err, "Update batch 1 should succeed")
 
 		// Get a mix of existing and non-existent keys
@@ -159,7 +136,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		require.Len(t, results, len(keysToGet), "Result count should match requested keys count")
 
 		// Expected results (value will be nil for non-existent)
-		expectedResults := []common.KeyValuePair{
+		expectedResults := []storage.KeyValuePair{
 			{Key: kv1.Key, Value: kv1.Value},
 			{Key: []byte("non-existent"), Value: nil},
 			{Key: kv2.Key, Value: kv2.Value},
@@ -171,7 +148,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		}
 
 		// Update kv3
-		err = adapter.Update(versionID2, []common.KeyValuePair{kv3}, nil)
+		err = adapter.Update(versionID2, []storage.KeyValuePair{kv3}, nil)
 		require.NoError(t, err, "Update batch 2 should succeed")
 		val, err := adapter.Get(kv3.Key)
 		assert.NoError(t, err, "Get for kv3 should succeed")
@@ -186,16 +163,16 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		versionID1 := generateVersionID("all1")
 		versionID2 := generateVersionID("all2")
 
-		err := adapter.Update(versionID1, []common.KeyValuePair{kv1}, nil)
+		err := adapter.Update(versionID1, []storage.KeyValuePair{kv1}, nil)
 		require.NoError(t, err, "Update for kv1 should succeed")
-		err = adapter.Update(versionID2, []common.KeyValuePair{kv2}, nil)
+		err = adapter.Update(versionID2, []storage.KeyValuePair{kv2}, nil)
 		require.NoError(t, err, "Update for kv2 should succeed")
 
 		// GetAll should return only the data keys, excluding versions metadata
 		allPairs, err := adapter.GetAll()
 		require.NoError(t, err, "GetAll should not error")
 
-		expectedPairs := []common.KeyValuePair{kv1, kv2} // Order might vary based on LevelDB's internal key sort
+		expectedPairs := []storage.KeyValuePair{kv1, kv2} // Order might vary based on LevelDB's internal key sort
 		// Sort both slices to ensure order-independent comparison for GetAll
 		sortKVPairs(allPairs)
 		sortKVPairs(expectedPairs)
@@ -224,19 +201,19 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		vID2 := generateVersionID("last2")
 		vID3 := generateVersionID("last3")
 
-		err = adapter.Update(vID1, []common.KeyValuePair{createTestKVPair("l1", "1")}, nil)
+		err = adapter.Update(vID1, []storage.KeyValuePair{createTestKVPair("l1", "1")}, nil)
 		require.NoError(t, err, "Update vID1 should succeed")
 		lastID, err := adapter.LastVersionID()
 		assert.NoError(t, err, "LastVersionID should not error after first update")
 		assert.True(t, bytes.Equal(vID1, lastID), "Expected vID1 as last version")
 
-		err = adapter.Update(vID2, []common.KeyValuePair{createTestKVPair("l2", "2")}, nil)
+		err = adapter.Update(vID2, []storage.KeyValuePair{createTestKVPair("l2", "2")}, nil)
 		require.NoError(t, err, "Update vID2 should succeed")
 		lastID, err = adapter.LastVersionID()
 		assert.NoError(t, err, "LastVersionID should not error after second update")
 		assert.True(t, bytes.Equal(vID2, lastID), "Expected vID2 as last version")
 
-		err = adapter.Update(vID3, []common.KeyValuePair{createTestKVPair("l3", "3")}, nil)
+		err = adapter.Update(vID3, []storage.KeyValuePair{createTestKVPair("l3", "3")}, nil)
 		require.NoError(t, err, "Update vID3 should succeed")
 		lastID, err = adapter.LastVersionID()
 		assert.NoError(t, err, "LastVersionID should not error after third update")
@@ -247,16 +224,16 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 	t.Run("UpdateValidations", func(t *testing.T) {
 		adapter := createAdapter()
 		baseVersion := generateVersionID("base")
-		err := adapter.Update(baseVersion, []common.KeyValuePair{createTestKVPair("v1", "val1")}, nil)
+		err := adapter.Update(baseVersion, []storage.KeyValuePair{createTestKVPair("v1", "val1")}, nil)
 		require.NoError(t, err, "Base update should succeed")
 
 		// Case: Version ID already exists
-		err = adapter.Update(baseVersion, []common.KeyValuePair{createTestKVPair("v2", "val2")}, nil)
+		err = adapter.Update(baseVersion, []storage.KeyValuePair{createTestKVPair("v2", "val2")}, nil)
 		assert.Error(t, err, "Expected error when version ID already exists")
 		assert.True(t, isStorageErrorWithCode(err, "version_already_exists"), "Expected 'version_already_exists' error")
 
 		// Case: Duplicate key in toUpdate
-		invalidUpdate := []common.KeyValuePair{createTestKVPair("dup", "A"), createTestKVPair("dup", "B")}
+		invalidUpdate := []storage.KeyValuePair{createTestKVPair("dup", "A"), createTestKVPair("dup", "B")}
 		err = adapter.Update(generateVersionID("dup_update"), invalidUpdate, nil)
 		assert.Error(t, err, "Expected error for duplicate key in toUpdate")
 		assert.True(t, isStorageErrorWithCode(err, "invalid_parameter"), "Expected 'invalid_parameter' error")
@@ -271,7 +248,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 
 		// Case: Version ID used as data key
 		verIDAsKey := generateVersionID("id_as_key")
-		err = adapter.Update(verIDAsKey, []common.KeyValuePair{{Key: verIDAsKey, Value: []byte("val")}}, nil)
+		err = adapter.Update(verIDAsKey, []storage.KeyValuePair{{Key: verIDAsKey, Value: []byte("val")}}, nil)
 		assert.Error(t, err, "Expected error when version ID is used as data key in toUpdate")
 		assert.True(t, isStorageErrorWithCode(err, "invalid_parameter"), "Expected 'invalid_parameter' error")
 		assert.Contains(t, err.Error(), "Version ID cannot be used as a key in 'toUpdate'", "Error message should mention version ID as key")
@@ -293,7 +270,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 			vIDs := make([][]byte, 4)
 			for i := 0; i < 4; i++ {
 				vIDs[i] = generateVersionID(fmt.Sprintf("shrink_%d", i))
-				err := adapterWithFewVersions.Update(vIDs[i], []common.KeyValuePair{createTestKVPair(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))}, nil)
+				err := adapterWithFewVersions.Update(vIDs[i], []storage.KeyValuePair{createTestKVPair(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))}, nil)
 				require.NoError(t, err, fmt.Sprintf("Update for vID%d should succeed", i))
 			}
 
@@ -323,20 +300,20 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		key3 := []byte("key_v3")
 
 		// Initial state (vID1)
-		err := adapter.Update(vID1, []common.KeyValuePair{
+		err := adapter.Update(vID1, []storage.KeyValuePair{
 			{Key: key1, Value: []byte("val1")},
 		}, nil)
 		require.NoError(t, err, "Update vID1 should succeed")
 
 		// State after vID2 (key1 changed, key2 added, key3 removed)
-		err = adapter.Update(vID2, []common.KeyValuePair{
+		err = adapter.Update(vID2, []storage.KeyValuePair{
 			{Key: key1, Value: []byte("val2_updated")}, // key1 altered
 			{Key: key2, Value: []byte("val2_new")},     // key2 inserted
 		}, nil)
 		require.NoError(t, err, "Update vID2 should succeed")
 
 		// State after vID3 (key1 changed again, key2 removed)
-		err = adapter.Update(vID3, []common.KeyValuePair{
+		err = adapter.Update(vID3, []storage.KeyValuePair{
 			{Key: key1, Value: []byte("val3_updated_again")}, // key1 altered again
 		}, [][]byte{key2}) // key2 removed
 		require.NoError(t, err, "Update vID3 should succeed")
@@ -385,7 +362,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		vIDs := make([][]byte, 5)
 		for i := 0; i < 5; i++ {
 			vIDs[i] = generateVersionID(fmt.Sprintf("list_%d", i))
-			err := adapter.Update(vIDs[i], []common.KeyValuePair{createTestKVPair(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))}, nil)
+			err := adapter.Update(vIDs[i], []storage.KeyValuePair{createTestKVPair(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))}, nil)
 			require.NoError(t, err)
 		}
 
@@ -431,7 +408,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		assert.Contains(t, err.Error(), "closed", "Error message should indicate store is closed")
 
 		// Try to perform an operation after closing (Update)
-		err = adapter.Update(generateVersionID("after_close"), []common.KeyValuePair{createTestKVPair("ac", "val")}, nil)
+		err = adapter.Update(generateVersionID("after_close"), []storage.KeyValuePair{createTestKVPair("ac", "val")}, nil)
 		require.Error(t, err, "Expected an error when updating a closed adapter")
 		assert.Contains(t, err.Error(), "closed", "Error message should indicate store is closed")
 
@@ -456,14 +433,14 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		assert.Zero(t, adapter.NumberOfVersions(), "Expected 0 versions initially")
 
 		vID1 := generateVersionID("empty_check_1")
-		err := adapter.Update(vID1, []common.KeyValuePair{createTestKVPair("e1", "1")}, nil)
+		err := adapter.Update(vID1, []storage.KeyValuePair{createTestKVPair("e1", "1")}, nil)
 		require.NoError(t, err, "Update should succeed")
 
 		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after update")
 		assert.Equal(t, 1, adapter.NumberOfVersions(), "Expected 1 version after update")
 
 		vID2 := generateVersionID("empty_check_2")
-		err = adapter.Update(vID2, []common.KeyValuePair{createTestKVPair("e2", "2")}, nil)
+		err = adapter.Update(vID2, []storage.KeyValuePair{createTestKVPair("e2", "2")}, nil)
 		require.NoError(t, err, "Update should succeed")
 
 		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after second update")
@@ -484,21 +461,21 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		versionID1 := generateVersionID("iter1")
 		versionID2 := generateVersionID("iter2")
 
-		err := adapter.Update(versionID1, []common.KeyValuePair{kv1}, nil)
+		err := adapter.Update(versionID1, []storage.KeyValuePair{kv1}, nil)
 		require.NoError(t, err)
-		err = adapter.Update(versionID2, []common.KeyValuePair{kv2}, nil)
+		err = adapter.Update(versionID2, []storage.KeyValuePair{kv2}, nil)
 		require.NoError(t, err)
 
 		iter := adapter.GetIterator()
 		defer iter.Release() // Always release iterators
 
-		var retrievedPairs []common.KeyValuePair
+		var retrievedPairs []storage.KeyValuePair
 		for iter.Next() {
-			retrievedPairs = append(retrievedPairs, common.KeyValuePair{Key: iter.Key(), Value: iter.Value()})
+			retrievedPairs = append(retrievedPairs, storage.KeyValuePair{Key: iter.Key(), Value: iter.Value()})
 		}
 		require.NoError(t, iter.Error(), "Iterator should not have an error")
 
-		expectedPairs := []common.KeyValuePair{kv1, kv2}
+		expectedPairs := []storage.KeyValuePair{kv1, kv2}
 		// The iterator will return keys in sorted order.
 		// Ensure your expected and actual lists are sorted for comparison.
 		sortKVPairs(retrievedPairs)
@@ -520,7 +497,7 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 
 // Helper function to sort a slice of KeyValuePair by Key.
 // Useful for ensuring consistent comparison order in tests where order is not guaranteed by iteration.
-func sortKVPairs(pairs []common.KeyValuePair) {
+func sortKVPairs(pairs []storage.KeyValuePair) {
 	// Simple bubble sort for demonstration; use sort.Slice for larger datasets
 	for i := 0; i < len(pairs)-1; i++ {
 		for j := i + 1; j < len(pairs); j++ {

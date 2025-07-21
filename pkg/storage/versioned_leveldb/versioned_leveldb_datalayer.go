@@ -1,4 +1,4 @@
-package storage
+package versioned_leveldb
 
 import (
 	"context"
@@ -8,12 +8,12 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/storage/errors"
-	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/horizen-pes/pkg/storage"
 )
 
 // VersionedLevelDBDataLayer is an implementation of the ApplicationStateStore interface using Versioned LevelDB.
 type VersionedLevelDBDataLayer struct {
-	adapter *versioned_leveldb.VersionedLevelDbStorageAdapter
+	adapter *VersionedLevelDbStorageAdapter
 	isClosed bool // to track if the data layer is closed
 }
 
@@ -25,7 +25,7 @@ type VersionedLevelDBConfig struct {
 
 // NewVersionedLevelDBDataLayer creates a new VersionedLevelDBDataLayer instance.
 func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*VersionedLevelDBDataLayer, error) {
-	adapter, err := versioned_leveldb.NewVersionedLevelDbStorageAdapterWithVersions(cfg.Path, cfg.VersionsToKeep)
+	adapter, err := NewVersionedLevelDbStorageAdapterWithVersions(cfg.Path, cfg.VersionsToKeep)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VersionedLevelDbStorageAdapter: %w", err)
 	}
@@ -61,7 +61,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreApplicationState(ctx context.Context,
 	key := []byte(state.ApplicationID)
 	versionID := generateVersionID(key, value)
 
-	toUpdate := []common.KeyValuePair{{Key: key, Value: value}}
+	toUpdate := []storage.KeyValuePair{{Key: key, Value: value}}
 	toRemove := [][]byte{} // No removals for a store operation
 
 	err = vdl.adapter.Update(versionID, toUpdate, toRemove)
@@ -101,7 +101,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreWASMBytecode(ctx context.Context, app
 	key := []byte(applicationID)
 	versionID := generateVersionID(key, bytecode)
 
-	toUpdate := []common.KeyValuePair{{Key: key, Value: bytecode}}
+	toUpdate := []storage.KeyValuePair{{Key: key, Value: bytecode}}
 	toRemove := [][]byte{}
 
 	err := vdl.adapter.Update(versionID, toUpdate, toRemove)
@@ -140,7 +140,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreDeanonymizationReport(ctx context.Con
 	key := []byte(report.ReportID)
 	versionID := generateVersionID(key, value)
 
-	toUpdate := []common.KeyValuePair{{Key: key, Value: value}}
+	toUpdate := []storage.KeyValuePair{{Key: key, Value: value}}
 	toRemove := [][]byte{}
 
 	err = vdl.adapter.Update(versionID, toUpdate, toRemove)
@@ -180,7 +180,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreUserKey(ctx context.Context, userID s
 	key := []byte(userID)
 	versionID := generateVersionID(key, publicKey)
 
-	toUpdate := []common.KeyValuePair{{Key: key, Value: publicKey}}
+	toUpdate := []storage.KeyValuePair{{Key: key, Value: publicKey}}
 	toRemove := [][]byte{}
 
 	err := vdl.adapter.Update(versionID, toUpdate, toRemove)

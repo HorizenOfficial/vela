@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
-
-	"github.com/horizen-pes/pkg/common"
-
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldb_errors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/syndtr/goleveldb/leveldb/opt"
+
+	"github.com/horizen-pes/pkg/storage"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 )
 
 // VersionedLevelDbStorageAdapter is the Go equivalent of Scala's VersionedLevelDbStorageAdapter.
-// It implements the common.Storage interface on top of VersionedLDBKVStore.
+// It implements the storage.Storage interface on top of VersionedLDBKVStore.
 type VersionedLevelDbStorageAdapter struct {
 	dataBase    *VersionedLDBKVStore
 	versionsKey []byte // Stored as a raw byte slice
@@ -64,27 +64,27 @@ func (s *VersionedLevelDbStorageAdapter) GetOrElse(key []byte, defaultValue []by
 }
 
 // get(keys: JList[ByteArrayWrapper]): JList[JPair[ByteArrayWrapper, Optional[ByteArrayWrapper]]]
-func (s *VersionedLevelDbStorageAdapter) GetBatch(keys [][]byte) ([]common.KeyValuePair, error) {
-	results := make([]common.KeyValuePair, len(keys))
+func (s *VersionedLevelDbStorageAdapter) GetBatch(keys [][]byte) ([]storage.KeyValuePair, error) {
+	results := make([]storage.KeyValuePair, len(keys))
 	for i, key := range keys {
 		val, err := s.Get(key) // Reuse the single Get method
 		if err != nil {
 			return nil, fmt.Errorf("failed to get key %x in batch: %w", key, err)
 		}
-		results[i] = common.KeyValuePair{Key: key, Value: val} // Value is nil if not found
+		results[i] = storage.KeyValuePair{Key: key, Value: val} // Value is nil if not found
 	}
 	return results, nil
 }
 
 // getAll: JList[JPair[ByteArrayWrapper, ByteArrayWrapper]]
-func (s *VersionedLevelDbStorageAdapter) GetAll() ([]common.KeyValuePair, error) {
-	var allPairs []common.KeyValuePair
+func (s *VersionedLevelDbStorageAdapter) GetAll() ([]storage.KeyValuePair, error) {
+	var allPairs []storage.KeyValuePair
 	iter := s.GetIterator() // Use the adapter's GetIterator method
 	defer iter.Release()
 
 	for iter.Next() {
 		// The iterator now returns copies, so we don't need to copy here.
-		allPairs = append(allPairs, common.KeyValuePair{Key: iter.Key(), Value: iter.Value()})
+		allPairs = append(allPairs, storage.KeyValuePair{Key: iter.Key(), Value: iter.Value()})
 	}
 
 	if err := iter.Error(); err != nil {
@@ -107,7 +107,7 @@ func (s *VersionedLevelDbStorageAdapter) LastVersionID() ([]byte, error) {
 }
 
 // update(version: ByteArrayWrapper, toUpdate: JList[JPair[ByteArrayWrapper, ByteArrayWrapper]], toRemove: util.List[ByteArrayWrapper]): Unit
-func (s *VersionedLevelDbStorageAdapter) Update(versionID []byte, toUpdate []common.KeyValuePair, toRemove [][]byte) error {
+func (s *VersionedLevelDbStorageAdapter) Update(versionID []byte, toUpdate []storage.KeyValuePair, toRemove [][]byte) error {
 	// key for storing version shall not be used as key in any key-value pair in VersionedLDBKVStore
 	for _, pair := range toUpdate {
 		if bytes.Equal(pair.Key, versionID) {
@@ -275,6 +275,6 @@ func (s *VersionedLevelDbStorageAdapter) NumberOfVersions() int {
 }
 
 // getIterator(): StorageIterator
-func (s *VersionedLevelDbStorageAdapter) GetIterator() common.StorageIterator {
+func (s *VersionedLevelDbStorageAdapter) GetIterator() storage.StorageIterator {
 	return s.dataBase.GetIterator()
 }
