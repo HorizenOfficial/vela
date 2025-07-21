@@ -123,10 +123,6 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 						log.Printf("Manager: Failed to mark request %s as failed: %v", req.RequestID, err)
 					}
 				} else {
-					// Mark the request as completed
-					if err = m.blockchainClient.MarkRequestCompleted(ctx, req.RequestID); err != nil {
-						log.Printf("Manager: Failed to mark request %s as completed: %v", req.RequestID, err)
-					}
 					log.Printf("Manager: Processed and marked as completed request %s", req.RequestID)
 				}
 			}
@@ -151,7 +147,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
 	// Deploy the application
-	updatePayload, appState, wasmBytes, err := m.executorClient.DeployApp(ctx, req)
+	updatePayload, appState, wasmBytes, err := m.executorClient.SendDeployApp(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to deploy application: %w", err)
 	}
@@ -198,7 +194,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Process the request
-	updatePayload, updatedState, err := m.executorClient.ProcessRequest(ctx, req, appState, senderKey, wasmBytes)
+	updatePayload, updatedState, err := m.executorClient.SendProcessRequest(ctx, req, appState, senderKey, wasmBytes)
 	if err != nil {
 		return fmt.Errorf("failed to process request: %w", err)
 	}
@@ -239,7 +235,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	}
 
 	// Generate the deanonymization report
-	report, err := m.executorClient.GenerateDeanonymizationReport(ctx, req, appState, senderKey, wasmBytes)
+	report, err := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, senderKey, wasmBytes)
 	if err != nil {
 		return fmt.Errorf("failed to generate deanonymization report: %w", err)
 	}
@@ -260,7 +256,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	return nil
 }
 
-func (m *SecureProcessorManager) GetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
+func (m *SecureProcessorManager) HandleGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

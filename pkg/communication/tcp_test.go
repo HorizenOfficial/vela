@@ -23,6 +23,7 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 	}
 	return &common.UpdatePayload{
 			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
 			PrevStateRoot: appState.StateRoot,
 			NewStateRoot:  []byte("new-state-root"),
 			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
@@ -43,6 +44,7 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 	}
 	return &common.UpdatePayload{
 			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
 			PrevStateRoot: nil,
 			NewStateRoot:  []byte("new-state-root"),
 			Signature:     []byte("test-signature"),

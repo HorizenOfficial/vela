@@ -25,14 +25,14 @@ type Config struct {
 	// CommunicationKey is the key to use for encrypting payloads
 	CommunicationKey *common.PrivateKeyP521
 	// SignatureKey is used to sign UpdatePayloads and DeanonymizationReports
-	SignatureKey *common.PrivateKey25519 // Key used for signing requests and responses
+	SignatureKey *common.PrivateKeySecp256k1 // Key used for signing updatePayload
 }
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	stateKey, _ := crypto.GenerateAESKey()
 	communicationKey, _ := crypto.GeneratePrivateKeyP521()
-	signatureKey, _ := crypto.GeneratePrivateKey25519()
+	signatureKey, _ := crypto.GeneratePrivateKeySecp256k1()
 
 	return &Config{
 		ServerType:       "tcp",

@@ -128,6 +128,8 @@ type Withdrawal struct {
 type UpdatePayload struct {
 	// ApplicationID is the ID of the application
 	ApplicationID string `json:"applicationId"`
+	// RequestID is the ID of the request being processed
+	RequestID string `json:"requestId"`
 	// PrevStateRoot is the previous state root
 	PrevStateRoot []byte `json:"prevStateRoot"`
 	// NewStateRoot is the new state root

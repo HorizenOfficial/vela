@@ -1,8 +1,10 @@
 package system
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
@@ -199,4 +201,38 @@ func (c *CryptoHelper) DecryptDeanonymizationReport(userID string, report *commo
 	}
 
 	return decryptedReport, nil
+}
+
+func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *common.PublicKeySecp256k1) error {
+	// Create the original payload that was signed
+	originalPayload := &common.UpdatePayload{
+		ApplicationID: payload.ApplicationID,
+		RequestID:     payload.RequestID,
+		PrevStateRoot: payload.PrevStateRoot,
+		NewStateRoot:  payload.NewStateRoot,
+		Events:        payload.Events,
+		Withdrawals:   payload.Withdrawals,
+	}
+
+	// Serialize the payload for signing
+	payloadBytes, err := json.Marshal(originalPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload for signing: %w", err)
+	}
+
+	// Create the hash of the payload
+	hash := ethCrypto.Keccak256(payloadBytes)
+
+	// Recover the public key from the signature
+	recoveredPubKey, err := ethCrypto.SigToPub(hash, payload.Signature)
+	if err != nil {
+		return fmt.Errorf("failed to recover public key: %v", err)
+	}
+
+	// The recovered public key should match the original public key
+	if !bytes.Equal(ethCrypto.FromECDSAPub(key.PublicKey), ethCrypto.FromECDSAPub(recoveredPubKey)) {
+		return fmt.Errorf("recovered public key does not match original key")
+	}
+
+	return nil
 }

@@ -20,6 +20,7 @@ type MockClient struct {
 	states           map[string]*common.ApplicationState
 	withdrawals      map[string]*[]common.Withdrawal
 	reports          map[string]*common.DeanonymizationReport
+	updatePayloads   map[string]*common.UpdatePayload
 	publicKeys       map[string][]byte
 	eventSubscribers []chan<- interface{}
 }
@@ -33,6 +34,7 @@ func NewMockClient() *MockClient {
 		states:          make(map[string]*common.ApplicationState),
 		withdrawals:     make(map[string]*[]common.Withdrawal),
 		reports:         make(map[string]*common.DeanonymizationReport),
+		updatePayloads:  make(map[string]*common.UpdatePayload),
 		publicKeys:      make(map[string][]byte),
 	}
 }
@@ -74,20 +76,6 @@ func (c *MockClient) GetPendingRequests(ctx context.Context) ([]*common.Request,
 	}
 
 	return requests, nil
-}
-
-// MarkRequestCompleted marks a request as completed
-func (c *MockClient) MarkRequestCompleted(ctx context.Context, requestID string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if _, exists := c.pendingRequests[requestID]; !exists {
-		return fmt.Errorf("request not found: %s", requestID)
-	}
-
-	delete(c.pendingRequests, requestID)
-
-	return nil
 }
 
 // MarkRequestFailed marks a request as failed
@@ -148,7 +136,14 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Ignore validation for simplicity, but in a real implementation, you would validate the signature and state root
+	// Complete the request if it exists
+	if _, exists := c.pendingRequests[update.RequestID]; !exists {
+		return fmt.Errorf("request not found: %s", update.RequestID)
+	}
+	delete(c.pendingRequests, update.RequestID)
+
+	// Store update payload for separate verification by test suite
+	c.updatePayloads[update.RequestID] = update
 
 	// Update state
 	c.states[update.ApplicationID] = &common.ApplicationState{
@@ -171,6 +166,18 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 	}
 
 	return nil
+}
+
+// GetRequestUpdatePayload gets the update payload for a request
+func (c *MockClient) GetRequestUpdatePayload(ctx context.Context, requestID string) (*common.UpdatePayload, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	update, exists := c.updatePayloads[requestID]
+	if !exists {
+		return nil, fmt.Errorf("update payload not found for request: %s", requestID)
+	}
+	return update, nil
 }
 
 // GetApplicationState gets the state of an application
@@ -251,6 +258,12 @@ func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID string) (
 func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Complete the request if it exists
+	if _, exists := c.pendingRequests[report.ReportID]; !exists {
+		return fmt.Errorf("request not found: %s", report.ReportID)
+	}
+	delete(c.pendingRequests, report.ReportID)
 
 	// store the report
 	c.reports[report.ReportID] = report

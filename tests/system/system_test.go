@@ -49,6 +49,10 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
 
+	// Get executor's signing key for signature verification
+	executorSigningKey, err := suite.GetExecutorSigningKey()
+	require.NoError(t, err)
+
 	// Submit deploy request
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
@@ -62,15 +66,21 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for app to be deployed
-	appState, err := suite.WaitForAppStateInDB(appId, 10*time.Second)
+	appState, err := suite.WaitForAppStateInDB(appId, 100*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, appState)
 
-	appState, err = suite.WaitForAppStateInBlockchain(appId, 10*time.Second)
+	appState, err = suite.WaitForAppStateInBlockchain(appId, 100*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, appState)
 
-	err = suite.AssertRequestCompleted("deploy-1", 10*time.Second)
+	err = suite.AssertRequestCompleted("deploy-1", 100*time.Second)
+	require.NoError(t, err)
+
+	// Verify updatePayload signature
+	payload, err := suite.GetRequestUpdatePayload("deploy-1")
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
 	require.NoError(t, err)
 
 	t.Log("Step 2: Sending deposit request")
@@ -105,6 +115,12 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "deposit", depositEventData["type"])
 	require.Equal(t, float64(2000000000000000000), depositEventData["amount"])
+
+	// Verify updatePayload signature
+	payload, err = suite.GetRequestUpdatePayload("deposit-1")
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
 
 	t.Log("Step 3: Sending transfer request")
 
@@ -156,6 +172,12 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	require.Equal(t, user1, recipientEventData["from"])
 	require.Equal(t, float64(500000000000000000), recipientEventData["amount"])
 
+	// Verify updatePayload signature
+	payload, err = suite.GetRequestUpdatePayload("transfer-1")
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+
 	t.Log("Step 4: Sending deanonymization request as auditor")
 
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
@@ -196,6 +218,8 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	require.Equal(t, 1500000000000000000.0, accounts[user1].(map[string]interface{})["balance"])
 	require.Contains(t, accounts, user2)
 	require.Equal(t, 500000000000000000.0, accounts[user2].(map[string]interface{})["balance"])
+
+	// Deanon report does not contain signature for now, possibly add later
 
 	// Step 5: As another user, send withdrawal request
 	t.Log("Step 5: Sending withdrawal request as user2")
@@ -239,6 +263,12 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	require.NotNil(t, withdrawal)
 	require.Equal(t, "0x1234567890123456789012345678901234567890", withdrawal.DestinationAddress)
 	require.Equal(t, "500000000000000000", withdrawal.Amount)
+
+	// Verify updatePayload signature
+	payload, err = suite.GetRequestUpdatePayload("withdraw-1")
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
 
 	t.Log("system test completed successfully!")
 

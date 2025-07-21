@@ -15,15 +15,16 @@ import (
 )
 
 type SystemTestSuite struct {
-	t                *testing.T
-	manager          manager.Manager
-	executor         executor.Executor
-	blockchainClient *blockchain.MockClient
-	dataLayer        *storage.MockDataLayer
-	eventChannel     chan interface{}
-	ctx              context.Context
-	cancel           context.CancelFunc
-	executorCommKey  *common.PrivateKeyP521 // Executor's communication key for testing
+	t                  *testing.T
+	manager            manager.Manager
+	executor           executor.Executor
+	blockchainClient   *blockchain.MockClient
+	dataLayer          *storage.MockDataLayer
+	eventChannel       chan interface{}
+	ctx                context.Context
+	cancel             context.CancelFunc
+	executorCommKey    *common.PrivateKeyP521      // Executor's communication key for testing
+	executorSigningKey *common.PrivateKeySecp256k1 // Executor's signing key for testing
 }
 
 func NewSystemTestSuite(t *testing.T) *SystemTestSuite {
@@ -57,15 +58,16 @@ func NewSystemTestSuite(t *testing.T) *SystemTestSuite {
 	blockchainClient.SubscribeToEvents(ctx, eventChannel)
 
 	return &SystemTestSuite{
-		t:                t,
-		manager:          mgr,
-		executor:         exec,
-		blockchainClient: blockchainClient,
-		dataLayer:        dataLayer,
-		eventChannel:     eventChannel,
-		ctx:              ctx,
-		cancel:           cancel,
-		executorCommKey:  execConfig.CommunicationKey, // Store the executor's communication key
+		t:                  t,
+		manager:            mgr,
+		executor:           exec,
+		blockchainClient:   blockchainClient,
+		dataLayer:          dataLayer,
+		eventChannel:       eventChannel,
+		ctx:                ctx,
+		cancel:             cancel,
+		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
+		executorSigningKey: execConfig.SignatureKey,     // Store the executor's communication key
 	}
 }
 
@@ -209,12 +211,25 @@ func (s *SystemTestSuite) WaitForWithdrawal(appID string, timeout time.Duration)
 	}
 }
 
+func (s *SystemTestSuite) GetRequestUpdatePayload(reqId string) (*common.UpdatePayload, error) {
+	// Get the update payload for the request
+	return s.blockchainClient.GetRequestUpdatePayload(s.ctx, reqId)
+}
+
 // GetExecutorCommunicationKey returns the executor's communication public key for encryption
 func (s *SystemTestSuite) GetExecutorCommunicationKey() (*common.PublicKeyP521, error) {
 	if s.executorCommKey == nil {
 		return nil, fmt.Errorf("executor communication key not initialized")
 	}
 	return s.executorCommKey.PublicKey(), nil
+}
+
+// GetExecutorSigningKey returns the executor's communication public key for encryption
+func (s *SystemTestSuite) GetExecutorSigningKey() (*common.PublicKeySecp256k1, error) {
+	if s.executorSigningKey == nil {
+		return nil, fmt.Errorf("executor communication key not initialized")
+	}
+	return s.executorSigningKey.PublicKey(), nil
 }
 
 func (s *SystemTestSuite) Cleanup() error {

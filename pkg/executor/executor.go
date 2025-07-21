@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
@@ -60,8 +61,8 @@ func (e *StatelessExecutor) Close() error {
 	return nil
 }
 
-// ProcessRequest is the main workflow: decrypt state -> invoke WASM -> encrypt new state -> sign -> respond
-func (e *StatelessExecutor) ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+// HandleProcessRequest is the main workflow: decrypt state -> invoke WASM -> encrypt new state -> sign -> respond
+func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	log.Printf("Executor: Processing request %s for application %s", req.RequestID, req.ApplicationID)
 
 	// Decrypt the encrypted state
@@ -109,6 +110,7 @@ func (e *StatelessExecutor) ProcessRequest(ctx context.Context, req *common.Requ
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
 		ApplicationID: req.ApplicationID,
+		RequestID:     req.RequestID,
 		PrevStateRoot: appState.StateRoot,
 		NewStateRoot:  newStateRoot[:],
 		Events:        encryptedEvents,
@@ -133,8 +135,8 @@ func (e *StatelessExecutor) ProcessRequest(ctx context.Context, req *common.Requ
 	return updatePayload, newAppState, nil
 }
 
-// DeployApp implements the RequestHandler interface
-func (e *StatelessExecutor) DeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error) {
+// HandleDeployApp implements the RequestHandler interface
+func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error) {
 	log.Printf("Executor: Deploying application for request %s", req.RequestID)
 
 	// For deployment, we need to initialize the application with the WASM module
@@ -164,6 +166,7 @@ func (e *StatelessExecutor) DeployApp(ctx context.Context, req *common.Request) 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
 		ApplicationID: req.ApplicationID,
+		RequestID:     req.RequestID,
 		PrevStateRoot: nil, // No previous state root for new applications
 		NewStateRoot:  stateRoot,
 	}
@@ -179,8 +182,8 @@ func (e *StatelessExecutor) DeployApp(ctx context.Context, req *common.Request) 
 	return updatePayload, appState, wasmModule, nil
 }
 
-// GenerateDeanonymizationReport implements the RequestHandler interface
-func (e *StatelessExecutor) GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
+// HandleGenerateDeanonymizationReport implements the RequestHandler interface
+func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
 	log.Printf("Executor: Generating deanonymization report for request %s", req.RequestID)
 
 	// Decrypt the state
@@ -236,10 +239,18 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 	}
 
 	// Create a hash of the payload
-	hash := sha256.Sum256(payloadBytes)
+	hash := ethCrypto.Keccak256(payloadBytes)
 
-	// For now, return hash as the signature
-	signature := append(hash[:])
+	// Sign the hash
+	signature, err := e.config.SignatureKey.Sign(hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign update payload: %w", err)
+	}
+
+	// The signature should be 65 bytes long (R + S + V)
+	if len(signature) != 65 {
+		return nil, fmt.Errorf("signature has wrong length: got %d, want 65", len(signature))
+	}
 
 	return signature, nil
 }
@@ -258,7 +269,7 @@ func EncryptEvents(ctx context.Context, events []PlainEvent, appId string, key *
 			users = append(users, event.UserID)
 		}
 	}
-	keys, err := server.GetUserKeys(ctx, users)
+	keys, err := server.SendGetUserKeys(ctx, users)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user keys: %w", err)
 	}

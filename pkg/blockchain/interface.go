@@ -12,8 +12,6 @@ import (
 type Client interface {
 	// GetPendingRequests gets pending requests from the blockchain
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
-	// MarkRequestCompleted marks a request as completed
-	MarkRequestCompleted(ctx context.Context, requestID string) error
 	// MarkRequestFailed marks a request as completed
 	MarkRequestFailed(ctx context.Context, requestID string) error
 	// SubmitStateUpdate submits a state update to the blockchain
@@ -37,6 +35,8 @@ type TestClient interface {
 	SubscribeToEvents(ctx context.Context, eventCh chan<- interface{}) error
 	// GetApplicationState gets the state of an application
 	GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error)
+	// GetRequestUpdatePayload gets the signature for a request
+	GetRequestUpdatePayload(ctx context.Context, requestID string) ([]byte, error)
 	// GetDeanonymizationReport gets a deanonymization report
 	GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error)
 	// GetWithdrawals gets withdrawal requests
