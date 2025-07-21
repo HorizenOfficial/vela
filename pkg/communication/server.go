@@ -105,8 +105,8 @@ func (s *Server) SetRequestHandler(handler RequestHandler) {
 	s.handler = handler
 }
 
-// GetUserKeys requests user keys from the connected client
-func (s *Server) GetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
+// SendGetUserKeys requests user keys from the connected client
+func (s *Server) SendGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
 	s.clientMu.RLock()
 	client := s.client
 	s.clientMu.RUnlock()
@@ -391,7 +391,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Messag
 		return
 	}
 
-	updatePayload, updatedState, err := handler.ProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.SenderKey, reqData.WasmModule)
+	updatePayload, updatedState, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.SenderKey, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -407,7 +407,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Messag
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Server: Failed to send ProcessRequest response: %v", err)
+		log.Printf("Server: Failed to send HandleProcessRequest response: %v", err)
 	}
 	log.Printf("Server: ProcessRequest handled successfully, ID=%s", msg.ID)
 }
@@ -420,7 +420,7 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Mess
 		return
 	}
 
-	updatePayload, appState, wasmModule, err := handler.DeployApp(ctx, reqData.Request)
+	updatePayload, appState, wasmModule, err := handler.HandleDeployApp(ctx, reqData.Request)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -437,7 +437,7 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Mess
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Server: Failed to send DeployApp response: %v", err)
+		log.Printf("Server: Failed to send HandleDeployApp response: %v", err)
 	}
 	log.Printf("Server: DeployApp handled successfully, ID=%s", msg.ID)
 }
@@ -450,7 +450,7 @@ func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg
 		return
 	}
 
-	report, err := handler.GenerateDeanonymizationReport(ctx, reqData.Request, reqData.ApplicationState, reqData.SenderKey, reqData.WasmModule)
+	report, err := handler.HandleGenerateDeanonymizationReport(ctx, reqData.Request, reqData.ApplicationState, reqData.SenderKey, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return

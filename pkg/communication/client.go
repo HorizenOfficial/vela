@@ -102,8 +102,8 @@ func (c *Client) SetClientRequestHandler(handler ClientRequestHandler) {
 	c.requestHandler = handler
 }
 
-// ProcessRequest sends a process request and waits for response
-func (c *Client) ProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+// SendProcessRequest sends a process request and waits for response
+func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: ProcessRequestMessage,
@@ -137,8 +137,8 @@ func (c *Client) ProcessRequest(ctx context.Context, req *common.Request, appSta
 	return respData.UpdatePayload, respData.UpdatedApplicationState, nil
 }
 
-// DeployApp sends a deploy app request and waits for response
-func (c *Client) DeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error) {
+// SendDeployApp sends a deploy app request and waits for response
+func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: DeployAppRequestMessage,
@@ -169,8 +169,8 @@ func (c *Client) DeployApp(ctx context.Context, req *common.Request) (*common.Up
 	return respData.UpdatePayload, respData.ApplicationState, respData.WasmModule, nil
 }
 
-// GenerateDeanonymizationReport sends a deanonymization request and waits for response
-func (c *Client) GenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
+// SendGenerateDeanonymizationReport sends a deanonymization request and waits for response
+func (c *Client) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: DeanonymizationRequestMessage,
@@ -357,7 +357,7 @@ func (c *Client) handleGetUserKeysRequest(ctx context.Context, msg *Message) {
 		return
 	}
 
-	userKeys, err := c.requestHandler.GetUserKeys(ctx, reqData.Users)
+	userKeys, err := c.requestHandler.HandleGetUserKeys(ctx, reqData.Users)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -372,7 +372,7 @@ func (c *Client) handleGetUserKeysRequest(ctx context.Context, msg *Message) {
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Client: Failed to send GetUserKeys response: %v", err)
+		log.Printf("Client: Failed to send HandleGetUserKeys response: %v", err)
 	}
 }
 
