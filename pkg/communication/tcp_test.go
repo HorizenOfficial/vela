@@ -350,6 +350,81 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 	}
 }
 
+func TestTCPClientServer_DependantRequests(t *testing.T) {
+	// This test verifies that a server request can depend on a client request
+
+	clientHandler := &MockClientRequestHandler{
+		GetUserKeysFunc: func(ctx context.Context, users []string) (map[string][]byte, error) {
+			return map[string][]byte{"test-user": []byte("VERIFICATION_STRING")}, nil
+		},
+	}
+
+	var server *Server
+	// Server handler that calls GetUserKeys during ProcessRequest
+	serverHandler := &MockRequestHandler{
+		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+			keys, err := server.SendGetUserKeys(ctx, []string{"test-user"})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return &common.UpdatePayload{
+				ApplicationID: req.ApplicationID,
+				PrevStateRoot: appState.StateRoot,
+				NewStateRoot:  []byte("new-state-root"),
+				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
+				Signature:     keys["test-user"],
+			}, appState, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	// Setup server
+	factory := NewTCPConnectionFactory(":8090")
+	server = NewServer(factory)
+	server.SetRequestHandler(serverHandler)
+	err := server.Start(ctx)
+	require.NoError(t, err)
+	defer server.Stop()
+
+	// Setup client
+	client := NewClient(factory)
+	client.SetClientRequestHandler(clientHandler)
+	err = client.Connect(ctx)
+	require.NoError(t, err)
+	defer client.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Make the request that triggers the nested call
+	req := &common.Request{
+		ProtocolVersion: "1.0",
+		ApplicationID:   "test-app",
+		RequestID:       "test-request-id",
+		RequestType:     common.Process,
+		Payload:         []byte("test-encrypted-action"),
+		Timestamp:       time.Now().Unix(),
+		Sender:          "test-sender",
+		Signature:       []byte("test-signature"),
+		//Value:           0,
+	}
+	appState := &common.ApplicationState{
+		ApplicationID:  "test-app",
+		StateRoot:      []byte("test-state-root"),
+		EncryptedState: []byte("test-encrypted-state"),
+	}
+	senderKey := []byte("test-sender-key")
+	wasmModule := []byte("test-wasm-module")
+
+	// This should trigger GetUserKeys request from server to client
+	payload, _, err := client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
+	require.NoError(t, err)
+
+	require.Equal(t, []byte("VERIFICATION_STRING"), payload.Signature)
+}
+
 func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 	// Test connection lifecycle and error handling
 

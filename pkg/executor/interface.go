@@ -71,6 +71,6 @@ type Runtime interface {
 type PlainEvent struct {
 	// UserID is the ID of the user associated with the event
 	UserID string `json:"userId"`
-	// EncryptedData is the encrypted event data
-	Data []byte `json:"encryptedData"`
+	// Data is the encrypted event data
+	Data []byte `json:"data"`
 }
