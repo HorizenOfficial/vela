@@ -6,6 +6,8 @@ import (
 	"unsafe"
 )
 
+const WasmSerializationError = "{}"
+
 // AccountState represents the state of a user account
 type AccountState struct {
 	Address string `json:"address"`
@@ -117,7 +119,7 @@ func load_module(appIdPtr *byte, appIdLen int32) *byte {
 
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
-		return stringToPtr("{}")
+		return stringToPtr(WasmSerializationError)
 	}
 
 	return stringToPtr(string(stateJSON))
@@ -394,7 +396,7 @@ func generate_deanonymization_report(appIdPtr *byte, appIdLen int32, requestIdPt
 func serializeAndWriteResult(result any) *byte {
 	reportJSON, err := json.Marshal(result)
 	if err != nil {
-		return stringToPtr("{}")
+		return stringToPtr(WasmSerializationError)
 	}
 	return stringToPtr(string(reportJSON))
 }

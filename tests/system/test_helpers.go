@@ -79,7 +79,7 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 		ctx:                ctx,
 		cancel:             cancel,
 		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
-		executorSigningKey: execConfig.SignatureKey,     // Store the executor's communication key
+		executorSigningKey: execConfig.SignatureKey,     // Store the executor's signing key
 	}
 }
 
@@ -236,10 +236,10 @@ func (s *SystemTestSuite) GetExecutorCommunicationKey() (*common.PublicKeyP521, 
 	return s.executorCommKey.PublicKey(), nil
 }
 
-// GetExecutorSigningKey returns the executor's communication public key for encryption
+// GetExecutorSigningKey returns the executor's signing public key for encryption
 func (s *SystemTestSuite) GetExecutorSigningKey() (*common.PublicKeySecp256k1, error) {
 	if s.executorSigningKey == nil {
-		return nil, fmt.Errorf("executor communication key not initialized")
+		return nil, fmt.Errorf("executor signing key not initialized")
 	}
 	return s.executorSigningKey.PublicKey(), nil
 }

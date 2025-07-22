@@ -12,6 +12,8 @@ import (
 	"sync"
 )
 
+const WasmSerializationError = "{}"
+
 type ApplicationModule struct {
 	module   *wasmtime.Module
 	instance *wasmtime.Instance
@@ -430,8 +432,8 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 		return nil, fmt.Errorf("failed to read wasm module result from memory: %w", err)
 	}
 
-	// `{}` is returned by the wasm module if serialization fails
-	if string(reportBytes) == "{}" {
+	// WasmSerializationError (`{}`) is returned by the wasm module if serialization fails
+	if string(reportBytes) == WasmSerializationError {
 		return nil, fmt.Errorf("wasm module failed to serialize response/error")
 	}
 

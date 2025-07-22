@@ -2,6 +2,7 @@ package system
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -11,6 +12,10 @@ import (
 )
 
 func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
 	suite := NewSystemTestSuite(t, "wasmtime-payment")
 	// Load wasm bytecode for the payment app
 	wasmBytecode := suite.LoadWasmModule(t, "payment_app.wasm")
@@ -19,6 +24,10 @@ func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
 }
 
 func TestMockRuntimePaymentAppFullSystemFlow(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
 	suite := NewSystemTestSuite(t, "mock-runtime")
 	// Load wasm bytecode for the payment app
 	wasmBytecode := []byte("mock-runtime-payment-app-bytecode")

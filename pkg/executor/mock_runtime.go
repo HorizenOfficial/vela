@@ -41,7 +41,7 @@ type WithdrawInstruction struct {
 	Amount int64  `json:"amount"`
 }
 
-// PayloadInstructions represents the deserializeed payload instructions
+// PayloadInstructions represents the deserialized payload instructions
 type PayloadInstructions struct {
 	Type     string               `json:"type"`
 	Transfer *TransferInstruction `json:"transfer,omitempty"`
@@ -113,13 +113,13 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 	}
 
 	// Serialize the updated state
-	newserializeedState, err := json.Marshal(&currentState)
+	newSerializedState, err := json.Marshal(&currentState)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to serialize new state: %w", err)
 	}
 
 	log.Printf("Mock Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(events))
-	return newserializeedState, events, nil
+	return newSerializedState, events, nil
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
