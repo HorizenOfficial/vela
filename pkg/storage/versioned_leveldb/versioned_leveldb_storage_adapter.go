@@ -15,10 +15,9 @@ import (
 )
 
 const (
-	DefaultVersionsToKeep = 720*2 + 1 // From Scala code
+	DefaultVersionsToKeep = 10 // default number of version to keep for rollback operations. Probably just 1 is enough
 )
 
-// VersionedLevelDbStorageAdapter is the Go equivalent of Scala's VersionedLevelDbStorageAdapter.
 // It implements the storage.Storage interface on top of VersionedLDBKVStore.
 type VersionedLevelDbStorageAdapter struct {
 	dataBase    *VersionedLDBKVStore
@@ -119,10 +118,6 @@ func (s *VersionedLevelDbStorageAdapter) Update(versionID []byte, toUpdate []sto
 			return storageErrors.ErrInvalidParameter("Version ID cannot be used as a key in 'toRemove'")
 		}
 	}
-	// Scala's require(!toUpdateAsScala.exists(pair => pair.getKey == version) && !toRemoveAsScala.contains(version))
-
-	// require(toUpdateAsScala.map(_.getKey).toSet.size == toUpdateAsScala.size, "duplicate key in `toUpdate`")
-	// require(toRemoveAsScala.toSet.size == toRemoveAsScala.size, "duplicate key in `toRemove`")
 	// Check for duplicate keys in toUpdate
 	seenKeys := make(map[string]struct{})
 	for _, pair := range toUpdate {
@@ -187,7 +182,7 @@ func (s *VersionedLevelDbStorageAdapter) RollbackVersions() ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get versions for rollbackVersions: %w", err)
 	}
-	return versions, nil // Scala's versions.map(byteArrayToWrapper).asJava
+	return versions, nil
 }
 
 // rollbackVersions(maxNumberOfItems: Int): JList[ByteArrayWrapper]
@@ -216,7 +211,7 @@ func (s *VersionedLevelDbStorageAdapter) Close() error {
 // createDb is a private helper function to create and open a LevelDB database.
 // It ensures the directory exists and then opens the LevelDB instance.
 func createDb(path string, versionsToKeep int) (*VersionedLDBKVStore, error) {
-	// Equivalent to Scala's `path.mkdirs()`. Creates the directory if it doesn't exist.
+	// Creates the directory if it doesn't exist.
 	err := os.MkdirAll(path, 0755) // 0755 permissions: rwx for owner, rx for group and others
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", path, err)

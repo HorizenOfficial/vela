@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors" // For errors.Is
 	"fmt"
+
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 
 	// For io.Closer interface if needed (though not directly here)
@@ -18,8 +19,8 @@ import (
 )
 
 const (
-	ConstantsHashLength = 32   // Assuming SHA256 hash length for version IDs
-	ChangeSetPrefix     = 0x16 // From Scala's `ChangeSetPrefix: Byte = 0x16`
+	ConstantsHashLength = 32 // Assuming SHA256 hash length for version IDs
+	ChangeSetPrefix     = 0x16
 )
 
 // VersionsKey is the key under which the concatenated list of version IDs is stored.
@@ -34,7 +35,7 @@ func init() {
 // ChangeSet represents the changes made in a version.
 // This struct will be serialized and stored alongside each version ID.
 type ChangeSet struct {
-	InsertedKeys [][]byte              `json:"inserted_keys"` // Keys that were newly inserted
+	InsertedKeys [][]byte               `json:"inserted_keys"` // Keys that were newly inserted
 	Removed      []storage.KeyValuePair `json:"removed"`       // Original key-value pairs that were removed
 	Altered      []storage.KeyValuePair `json:"altered"`       // Original key-value pairs whose values were changed
 }
@@ -54,11 +55,10 @@ func (s *ChangeSetSerializer) ParseBytes(data []byte) (ChangeSet, error) {
 	return cs, err
 }
 
-// VersionedLDBKVStore is the Go equivalent of Scala's VersionedLDBKVStore.
 // It provides versioning capabilities on top of a LevelDB instance.
 type VersionedLDBKVStore struct {
 	Db                  *leveldb.DB
-	KeepVersions        int // The number of versions to keep (Scala's `val keepVersions`)
+	KeepVersions        int // The number of versions to keep
 	ChangeSetSerializer ChangeSetSerializer
 }
 
@@ -188,7 +188,7 @@ func (v *VersionedLDBKVStore) Update(toInsert []storage.KeyValuePair, toRemove [
 	if err != nil {
 		return fmt.Errorf("failed to serialize change set for version %x: %w", versionID, err)
 	}
-	// Prepend the ChangeSetPrefix byte as per Scala's `ChangeSetPrefix +: ChangeSetSerializer.toBytes(changeSet)`.
+	// Prepend the ChangeSetPrefix byte
 	prefixedChangeSetBytes := append([]byte{ChangeSetPrefix}, changeSetBytes...)
 	batch.Put(versionID, prefixedChangeSetBytes) // Store change set data under its version ID key.
 
