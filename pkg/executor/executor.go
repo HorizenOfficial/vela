@@ -71,6 +71,11 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, fmt.Errorf("failed to decrypt state: %w", err)
 	}
 
+	// Verify state consistency
+	if sha256.Sum256(decryptedState) != [32]byte(appState.StateRoot) {
+		return nil, nil, fmt.Errorf("state root mismatch: got %x, want %x", decryptedState, appState.StateRoot)
+	}
+
 	// Decrypt the request payload
 	decryptedPayload, err := DecryptPayload(e.config.CommunicationKey, req.Payload, senderKey)
 	if err != nil {
@@ -82,14 +87,18 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var depositEvents []PlainEvent
 	if req.Value > 0 {
 		tempState, depositEvents, err = e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, decryptedState, wasmModule)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to process deposit in WASM runtime: %w", err)
+		}
+		log.Printf("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
 
 	// Invoke WASM method to process the request
 	newState, events, withdrawals, err := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
-	log.Printf("Executor: Successfully processed request %s", req.RequestID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to process request in WASM runtime: %w", err)
 	}
+	log.Printf("Executor: Successfully processed request %s", req.RequestID)
 
 	// Encrypt the new state and events
 	encryptedNewState, err := crypto.EncryptWithAES(e.config.StateKey, newState)
@@ -186,22 +195,15 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
 	log.Printf("Executor: Generating deanonymization report for request %s", req.RequestID)
 
-	// Decrypt the state
-	var decryptedState []byte
-	if len(appState.EncryptedState) > 0 {
-		// Try to decrypt the state - if it fails, assume it's unencrypted data
-		var err error
-		decryptedState, err = crypto.DecryptWithAES(e.config.StateKey, appState.EncryptedState)
-		if err != nil {
-			// If decryption fails, assume the data is not encrypted (backward compatibility)
-			log.Printf("Executor: State decryption failed, assuming unencrypted data: %v", err)
-			decryptedState = appState.EncryptedState
-		} else {
-			log.Printf("Executor: Successfully decrypted application state for deanonymization report")
-		}
-	} else {
-		// Handle case where state is empty
-		decryptedState = appState.EncryptedState
+	// Decrypt the encrypted state
+	decryptedState, err := DecryptState(appState.EncryptedState, e.config.StateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt state: %w", err)
+	}
+
+	// Verify state consistency
+	if sha256.Sum256(decryptedState) != [32]byte(appState.StateRoot) {
+		return nil, fmt.Errorf("state root mismatch: got %x, want %x", decryptedState, appState.StateRoot)
 	}
 
 	// Decrypt the request payload
