@@ -63,3 +63,40 @@ func TestSaveLoadPrivateKey25519PEM(t *testing.T) {
 		t.Fatal("loaded key does not match original key")
 	}
 }
+
+func TestExportImportPrivateKey25519Hex(t *testing.T) {
+	key, err := GeneratePrivateKey25519()
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+
+	hexKey := ExportPrivateKey25519ToHex(key)
+
+	loadedKey, err := ImportPrivateKey25519FromHex(hexKey)
+	if err != nil {
+		t.Fatalf("failed to load private key: %v", err)
+	}
+
+	if !bytes.Equal(key.Bytes(), loadedKey.Bytes()) {
+		t.Fatal("loaded key does not match original key")
+	}
+}
+
+func TestExportImportPublicKey25519Hex(t *testing.T) {
+	key, err := GeneratePrivateKey25519()
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+	pubKey := key.PublicKey()
+
+	hexKey := ExportPublicKey25519ToHex(pubKey)
+
+	loadedKey, err := ImportPublicKey25519FromHex(hexKey)
+	if err != nil {
+		t.Fatalf("failed to load public key: %v", err)
+	}
+
+	if !bytes.Equal(pubKey.Bytes(), loadedKey.Bytes()) {
+		t.Fatal("loaded key does not match original key")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -13,7 +14,6 @@ import (
 
 /*
 GeneratePrivateKey25519 generates a private key with Elliptic Curve 25519.
-(This is the curve used in Ethereum)
 */
 func GeneratePrivateKey25519() (*common.PrivateKey25519, error) {
 	curve := ecdh.X25519()
@@ -108,4 +108,46 @@ func LoadPrivateKey25519FromFilePEM(filename string) (*common.PrivateKey25519, e
 	}
 
 	return &common.PrivateKey25519{ecdhKey}, nil
+}
+
+// ExportPrivateKey25519ToHex exports a 25519 private key to a hex string.
+func ExportPrivateKey25519ToHex(privKey *common.PrivateKey25519) string {
+	return hex.EncodeToString(privKey.Bytes())
+}
+
+// ExportPublicKey25519ToHex exports a 25519 public key to a hex string.
+func ExportPublicKey25519ToHex(pubKey *common.PublicKey25519) string {
+	return hex.EncodeToString(pubKey.Bytes())
+}
+
+// ImportPrivateKey25519FromHex imports a 25519 private key from a hex string.
+func ImportPrivateKey25519FromHex(hexKey string) (*common.PrivateKey25519, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	curve := ecdh.X25519()
+	key, err := curve.NewPrivateKey(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create private key: %w", err)
+	}
+
+	return &common.PrivateKey25519{key}, nil
+}
+
+// ImportPublicKey25519FromHex imports a 25519 public key from a hex string.
+func ImportPublicKey25519FromHex(hexKey string) (*common.PublicKey25519, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	curve := ecdh.X25519()
+	key, err := curve.NewPublicKey(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create public key: %w", err)
+	}
+
+	return &common.PublicKey25519{key}, nil
 }
