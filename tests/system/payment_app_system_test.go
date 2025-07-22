@@ -10,9 +10,23 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
-func TestMockAppFullSystemFlow(t *testing.T) {
-	suite := NewSystemTestSuite(t)
+func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
+	suite := NewSystemTestSuite(t, "wasmtime-payment")
+	// Load wasm bytecode for the payment app
+	wasmBytecode := suite.LoadWasmModule(t, "payment_app.wasm")
 
+	testPaymentAppFullSystemFlow(t, suite, wasmBytecode)
+}
+
+func TestMockRuntimePaymentAppFullSystemFlow(t *testing.T) {
+	suite := NewSystemTestSuite(t, "mock-runtime")
+	// Load wasm bytecode for the payment app
+	wasmBytecode := []byte("mock-runtime-payment-app-bytecode")
+
+	testPaymentAppFullSystemFlow(t, suite, wasmBytecode)
+}
+
+func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []byte) {
 	const appId = "payment-app"
 	const user1 = "user1"
 	const user2 = "user2"
@@ -58,7 +72,7 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: appId,
 		RequestID:     "deploy-1",
-		Payload:       []byte("payment-app-wasm-bytecode"),
+		Payload:       bytecode,
 		Sender:        user1,
 		Timestamp:     time.Now().Unix(),
 	}

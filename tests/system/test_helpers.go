@@ -9,7 +9,11 @@ import (
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/wasm"
+	"github.com/stretchr/testify/require"
 	"log"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -27,7 +31,7 @@ type SystemTestSuite struct {
 	executorSigningKey *common.PrivateKeySecp256k1 // Executor's signing key for testing
 }
 
-func NewSystemTestSuite(t *testing.T) *SystemTestSuite {
+func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create mock components
@@ -50,7 +54,15 @@ func NewSystemTestSuite(t *testing.T) *SystemTestSuite {
 	execConfig.ServerAddr = "localhost:8080"
 
 	server := communication.NewServer(factory)
-	runtime := executor.NewMockRuntime()
+	var runtime executor.Runtime
+	switch appType {
+	case "wasmtime-payment":
+		runtime = wasm.NewWasmtimeRuntime()
+	case "mock-runtime":
+		runtime = executor.NewMockRuntime()
+	default:
+		t.Fatalf("Unknown app type: %s", appType)
+	}
 	exec := executor.NewStatelessExecutor(execConfig, runtime, server)
 
 	// Create event channel
@@ -230,6 +242,14 @@ func (s *SystemTestSuite) GetExecutorSigningKey() (*common.PublicKeySecp256k1, e
 		return nil, fmt.Errorf("executor communication key not initialized")
 	}
 	return s.executorSigningKey.PublicKey(), nil
+}
+
+func (s *SystemTestSuite) LoadWasmModule(t *testing.T, moduleFilename string) []byte {
+	// Load the compiled WASM module
+	wasmPath := filepath.Join("wasm", moduleFilename)
+	wasmBytes, err := os.ReadFile(wasmPath)
+	require.NoError(t, err, "Failed to read WASM file")
+	return wasmBytes
 }
 
 func (s *SystemTestSuite) Cleanup() error {

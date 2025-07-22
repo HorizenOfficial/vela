@@ -1,0 +1,1 @@
+Copied from /pkg/wasm/wasm-go/** for convenience
