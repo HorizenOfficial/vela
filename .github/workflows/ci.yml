@@ -92,6 +92,24 @@ jobs:
         run: CI_FLAG= go test -v ./...
         timeout-minutes: 10
 
+      # Run ALL Go tests and generate report
+      - name: Run Go tests (full suite)
+        run: |
+          CI_FLAG= go test ./... -json > full-test-results.json
+          CI_FLAG= go test -v ./... > full-test-output.txt
+        timeout-minutes: 10
+        continue-on-error: true
+
+      # Generate full test report
+      - name: Full Test Report
+        uses: dorny/test-reporter@v2
+        if: success() || failure()
+        with:
+          name: Go Tests (Full Suite)
+          path: full-test-results.json
+          reporter: 'golang-json'
+          fail-on-error: true
+
       # Install Node.js dependencies for contracts
       - name: Install contract dependencies
         working-directory: contracts
