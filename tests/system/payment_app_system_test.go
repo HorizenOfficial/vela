@@ -12,7 +12,7 @@ import (
 )
 
 func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
-	if os.Getenv("CI") != "" {
+	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
@@ -24,7 +24,7 @@ func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
 }
 
 func TestMockRuntimePaymentAppFullSystemFlow(t *testing.T) {
-	if os.Getenv("CI") != "" {
+	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 

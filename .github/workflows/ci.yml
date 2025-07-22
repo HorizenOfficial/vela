@@ -41,7 +41,7 @@ jobs:
 
     # Run Go tests
     - name: Run Go tests quick
-      run: CI=true go test ./...
+      run: CI_FLAG=true go test -v ./...
 
     # Install Node.js dependencies for contracts
     - name: Install contract dependencies
@@ -89,7 +89,7 @@ jobs:
 
       # Run ALL Go tests (including long-running ones)
       - name: Run Go tests (full suite)
-        run: go test -v ./...
+        run: CI_FLAG= go test -v ./...
         timeout-minutes: 10
 
       # Install Node.js dependencies for contracts

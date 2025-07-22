@@ -544,7 +544,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 }
 
 func TestTCPClientServer_ServerTimeout(t *testing.T) {
-	if os.Getenv("CI") != "" {
+	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 	ctx := context.Background()
@@ -614,7 +614,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 }
 
 func TestTCPClientServer_ClientTimeout(t *testing.T) {
-	if os.Getenv("CI") != "" {
+	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
