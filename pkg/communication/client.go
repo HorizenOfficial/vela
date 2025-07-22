@@ -305,8 +305,8 @@ func (c *Client) messageReaderLoop(ctx context.Context) {
 			continue
 		}
 
-		// Route message
-		c.routeIncomingMessage(ctx, &msg)
+		// Route message in a goroutine to avoid blocking
+		go c.routeIncomingMessage(ctx, &msg)
 	}
 }
 

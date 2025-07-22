@@ -329,8 +329,8 @@ func (c *ClientConnection) messageReaderLoop(ctx context.Context, server *Server
 			continue
 		}
 
-		// Route message
-		c.routeIncomingMessage(ctx, &msg, server)
+		// Route message in a separate goroutine
+		go c.routeIncomingMessage(ctx, &msg, server)
 	}
 }
 
