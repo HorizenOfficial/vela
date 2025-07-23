@@ -11,7 +11,7 @@ describe('TeeAuthenticator Test', function () {
         signers = await ethers.getSigners();
 
         let TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-        teeAuthenticator = await TeeAuthenticator.deploy(ADDRESS_ZERO);
+        teeAuthenticator = await TeeAuthenticator.deploy(signers[0], ADDRESS_ZERO);
     })
 
     it('should set new tee', async function () {

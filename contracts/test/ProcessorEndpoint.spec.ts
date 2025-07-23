@@ -12,10 +12,10 @@ describe('ProcessorEndpoint Test', function () {
         signers = await ethers.getSigners();
         //deploy helper contracts
         let TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-        let teeAuthenticator = await TeeAuthenticator.deploy(signers[0]);
+        let teeAuthenticator = await TeeAuthenticator.deploy(signers[0], signers[0]);
 
         let AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
-        let authorityRegistry = await AuthorityRegistry.deploy();
+        let authorityRegistry = await AuthorityRegistry.deploy(signers[0]);
 
         let ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
         processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, authorityRegistry, signers[0]);

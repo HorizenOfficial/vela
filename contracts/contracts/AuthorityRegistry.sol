@@ -14,7 +14,7 @@ contract AuthorityRegistry is Ownable {
     error AuthorityNotPresent();
     error AuthorityAlreadyPresent();
 
-    constructor() Ownable(msg.sender) {}
+    constructor(address owner) Ownable(owner) {}
 
     function addAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
         if(allowedAuthorities[applicationId][authority]) revert AuthorityAlreadyPresent();

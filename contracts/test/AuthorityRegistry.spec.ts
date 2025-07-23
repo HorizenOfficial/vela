@@ -11,7 +11,7 @@ describe('AuthorityRegistry Test', function () {
         signers = await ethers.getSigners();
 
         let AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
-        authorityRegistry = await AuthorityRegistry.deploy();
+        authorityRegistry = await AuthorityRegistry.deploy(signers[0]);
 
         testAddr = await signers[1].getAddress();
     })

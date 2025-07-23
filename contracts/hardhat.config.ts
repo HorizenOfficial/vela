@@ -17,12 +17,6 @@ const accounts = MNEMONIC
       ? [PRIVATE_KEY]
       : undefined
 
-if (accounts == null) {
-    console.warn(
-        'Could not find MNEMONIC or PRIVATE_KEY environment variables. It will not be possible to execute transactions in your example.'
-    )
-}
-
 const config: HardhatUserConfig = {
     paths: {
         cache: 'cache/hardhat',
