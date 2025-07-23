@@ -5,34 +5,32 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/storage/errors"
 )
 
-// VersionedLevelDBDataLayer is an implementation of the ApplicationStateStore interface using Versioned LevelDB.
 type VersionedLevelDBDataLayer struct {
-	adapter *VersionedLevelDbStorageAdapter
-	isClosed bool // to track if the data layer is closed
+	adapter  *VersionedLevelDbStorageAdapter
+	isClosed bool
+	mu       sync.RWMutex
 }
 
-// VersionedLevelDBConfig holds configuration parameters for opening a Versioned LevelDB database.
 type VersionedLevelDBConfig struct {
-	Path           string // Filesystem path for the database file (e.g., "data/my_versioned.db")
-	VersionsToKeep int    // Number of versions to keep
+	Path           string
+	VersionsToKeep int
 }
 
-// NewVersionedLevelDBDataLayer creates a new VersionedLevelDBDataLayer instance.
 func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*VersionedLevelDBDataLayer, error) {
 	adapter, err := NewVersionedLevelDbStorageAdapterWithVersions(cfg.Path, cfg.VersionsToKeep)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VersionedLevelDbStorageAdapter: %w", err)
 	}
-	return &VersionedLevelDBDataLayer{adapter: adapter, isClosed: false}, nil
+	return &VersionedLevelDBDataLayer{adapter: adapter}, nil
 }
 
-// generateVersionID generates a unique version ID based on the key and data.
 func generateVersionID(key []byte, data []byte) []byte {
 	h := sha256.New()
 	h.Write(key)
@@ -40,15 +38,15 @@ func generateVersionID(key []byte, data []byte) []byte {
 	return h.Sum(nil)
 }
 
-// checkClosed checks if the data layer is closed and returns an error if it is.
 func (vdl *VersionedLevelDBDataLayer) checkClosed() error {
+	vdl.mu.RLock()
+	defer vdl.mu.RUnlock()
 	if vdl.isClosed {
 		return errors.ErrStorageIsClosed("Versioned LevelDB data layer is closed")
 	}
 	return nil
 }
 
-// StoreApplicationState stores the state of an application.
 func (vdl *VersionedLevelDBDataLayer) StoreApplicationState(ctx context.Context, state *common.ApplicationState) error {
 	if err := vdl.checkClosed(); err != nil {
 		return err
@@ -62,7 +60,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreApplicationState(ctx context.Context,
 	versionID := generateVersionID(key, value)
 
 	toUpdate := []storage.KeyValuePair{{Key: key, Value: value}}
-	toRemove := [][]byte{} // No removals for a store operation
+	toRemove := [][]byte{}
 
 	err = vdl.adapter.Update(versionID, toUpdate, toRemove)
 	if err != nil {
@@ -71,7 +69,6 @@ func (vdl *VersionedLevelDBDataLayer) StoreApplicationState(ctx context.Context,
 	return nil
 }
 
-// GetApplicationState gets the state of an application.
 func (vdl *VersionedLevelDBDataLayer) GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error) {
 	if err := vdl.checkClosed(); err != nil {
 		return nil, err
@@ -93,7 +90,6 @@ func (vdl *VersionedLevelDBDataLayer) GetApplicationState(ctx context.Context, a
 	return state, nil
 }
 
-// StoreWASMBytecode stores WASM bytecode for an application.
 func (vdl *VersionedLevelDBDataLayer) StoreWASMBytecode(ctx context.Context, applicationID string, bytecode []byte) error {
 	if err := vdl.checkClosed(); err != nil {
 		return err
@@ -111,7 +107,6 @@ func (vdl *VersionedLevelDBDataLayer) StoreWASMBytecode(ctx context.Context, app
 	return nil
 }
 
-// GetWASMBytecode gets WASM bytecode for an application.
 func (vdl *VersionedLevelDBDataLayer) GetWASMBytecode(ctx context.Context, applicationID string) ([]byte, error) {
 	if err := vdl.checkClosed(); err != nil {
 		return nil, err
@@ -127,7 +122,6 @@ func (vdl *VersionedLevelDBDataLayer) GetWASMBytecode(ctx context.Context, appli
 	return value, nil
 }
 
-// StoreDeanonymizationReport stores a deanonymization report.
 func (vdl *VersionedLevelDBDataLayer) StoreDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
 	if err := vdl.checkClosed(); err != nil {
 		return err
@@ -150,7 +144,6 @@ func (vdl *VersionedLevelDBDataLayer) StoreDeanonymizationReport(ctx context.Con
 	return nil
 }
 
-// GetDeanonymizationReport gets a deanonymization report.
 func (vdl *VersionedLevelDBDataLayer) GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error) {
 	if err := vdl.checkClosed(); err != nil {
 		return nil, err
@@ -172,7 +165,6 @@ func (vdl *VersionedLevelDBDataLayer) GetDeanonymizationReport(ctx context.Conte
 	return report, nil
 }
 
-// StoreUserKey stores a user's public key.
 func (vdl *VersionedLevelDBDataLayer) StoreUserKey(ctx context.Context, userID string, publicKey []byte) error {
 	if err := vdl.checkClosed(); err != nil {
 		return err
@@ -190,7 +182,6 @@ func (vdl *VersionedLevelDBDataLayer) StoreUserKey(ctx context.Context, userID s
 	return nil
 }
 
-// GetUserKey retrieves a user's public key.
 func (vdl *VersionedLevelDBDataLayer) GetUserKey(ctx context.Context, userID string) ([]byte, error) {
 	if err := vdl.checkClosed(); err != nil {
 		return nil, err
@@ -206,11 +197,14 @@ func (vdl *VersionedLevelDBDataLayer) GetUserKey(ctx context.Context, userID str
 	return value, nil
 }
 
-// Close closes the Versioned LevelDB database connection.
 func (vdl *VersionedLevelDBDataLayer) Close() error {
+	vdl.mu.Lock()
+	defer vdl.mu.Unlock()
 	if vdl.isClosed {
-		return nil // Already closed, no-op
+		return nil
 	}
 	vdl.isClosed = true
 	return vdl.adapter.Close()
 }
+
+var _ storage.ApplicationStateStore = (*VersionedLevelDBDataLayer)(nil)

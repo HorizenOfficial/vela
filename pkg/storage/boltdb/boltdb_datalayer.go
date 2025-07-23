@@ -1,15 +1,16 @@
-package storage
+package boltdb
 
 import (
 	"context"
 	"encoding/json" // For marshaling/unmarshaling Go structs to/from []byte
+	"errors"        // For errors.As
 	"fmt"
 	"time" // For BoltDB Open options
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors" // Alias for custom errors
-	"go.etcd.io/bbolt" // The bbolt library
-	"errors" // For errors.As
+	"go.etcd.io/bbolt"                                        // The bbolt library
 )
 
 // Define bucket names for different data types.
@@ -45,21 +46,11 @@ func NewBoltDBDataLayer(cfg BoltDBConfig) (*BoltDBDataLayer, error) {
 
 	// Create buckets if they don't exist. This is done within a write transaction.
 	err = db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(appStatesBucket)
-		if err != nil {
-			return fmt.Errorf("create bucket %q: %w", appStatesBucket, err)
-		}
-		_, err = tx.CreateBucketIfNotExists(wasmBytecodeBucket)
-		if err != nil {
-			return fmt.Errorf("create bucket %q: %w", wasmBytecodeBucket, err)
-		}
-		_, err = tx.CreateBucketIfNotExists(reportsBucket)
-		if err != nil {
-			return fmt.Errorf("create bucket %q: %w", reportsBucket, err)
-		}
-		_, err = tx.CreateBucketIfNotExists(userKeysBucket)
-		if err != nil {
-			return fmt.Errorf("create bucket %q: %w", userKeysBucket, err)
+		for _, bucket := range [][]byte{appStatesBucket, wasmBytecodeBucket, reportsBucket, userKeysBucket} {
+			_, err := tx.CreateBucketIfNotExists(bucket)
+			if err != nil {
+				return fmt.Errorf("create bucket %q: %w", bucket, err)
+			}
 		}
 		return nil
 	})
@@ -83,11 +74,6 @@ func (bdl *BoltDBDataLayer) StoreApplicationState(ctx context.Context, state *co
 	// Perform the write operation within a BoltDB write transaction.
 	err = bdl.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(appStatesBucket)
-		if b == nil {
-			// This scenario should ideally not happen if NewBoltDBDataLayer works correctly,
-			// but it's good defensive programming.
-			return fmt.Errorf("bucket %q not found during store operation", appStatesBucket)
-		}
 		// Put the state using ApplicationID as the key.
 		return b.Put([]byte(state.ApplicationID), value)
 	})
@@ -104,9 +90,6 @@ func (bdl *BoltDBDataLayer) GetApplicationState(ctx context.Context, application
 	// Perform the read operation within a BoltDB read-only transaction.
 	err := bdl.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(appStatesBucket)
-		if b == nil {
-			return fmt.Errorf("bucket %q not found during get operation", appStatesBucket)
-		}
 		// Retrieve the value by ApplicationID.
 		value := b.Get([]byte(applicationID))
 		if value == nil {
@@ -117,12 +100,7 @@ func (bdl *BoltDBDataLayer) GetApplicationState(ctx context.Context, application
 		return json.Unmarshal(value, state)
 	})
 	if err != nil {
-		// Check if the error is our custom ErrNotFound and return it directly.
-		var nfErr *storageErrors.Error
-		if errors.As(err, &nfErr) && nfErr.Code == "not_found" {
-			return nil, nfErr
-		}
-		return nil, fmt.Errorf("failed to get application state from BoltDB: %w", err)
+		return nil, handleGetError(err, "application state")
 	}
 	return state, nil
 }
@@ -131,9 +109,6 @@ func (bdl *BoltDBDataLayer) GetApplicationState(ctx context.Context, application
 func (bdl *BoltDBDataLayer) StoreWASMBytecode(ctx context.Context, applicationID string, bytecode []byte) error {
 	err := bdl.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(wasmBytecodeBucket)
-		if b == nil {
-			return fmt.Errorf("bucket %q not found", wasmBytecodeBucket)
-		}
 		return b.Put([]byte(applicationID), bytecode)
 	})
 	if err != nil {
@@ -147,9 +122,6 @@ func (bdl *BoltDBDataLayer) GetWASMBytecode(ctx context.Context, applicationID s
 	var bytecode []byte // Declare slice to hold copied data
 	err := bdl.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(wasmBytecodeBucket)
-		if b == nil {
-			return fmt.Errorf("bucket %q not found", wasmBytecodeBucket)
-		}
 		val := b.Get([]byte(applicationID))
 		if val == nil {
 			return storageErrors.ErrNotFound("wasm bytecode not found for application: " + applicationID)
@@ -160,11 +132,7 @@ func (bdl *BoltDBDataLayer) GetWASMBytecode(ctx context.Context, applicationID s
 		return nil
 	})
 	if err != nil {
-		var nfErr *storageErrors.Error
-		if errors.As(err, &nfErr) && nfErr.Code == "not_found" {
-			return nil, nfErr
-		}
-		return nil, fmt.Errorf("failed to get WASM bytecode from BoltDB: %w", err)
+		return nil, handleGetError(err, "WASM bytecode")
 	}
 	return bytecode, nil
 }
@@ -177,9 +145,6 @@ func (bdl *BoltDBDataLayer) StoreDeanonymizationReport(ctx context.Context, repo
 	}
 	err = bdl.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(reportsBucket)
-		if b == nil {
-			return fmt.Errorf("bucket %q not found", reportsBucket)
-		}
 		return b.Put([]byte(report.ReportID), value)
 	})
 	if err != nil {
@@ -193,9 +158,6 @@ func (bdl *BoltDBDataLayer) GetDeanonymizationReport(ctx context.Context, report
 	report := &common.DeanonymizationReport{}
 	err := bdl.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(reportsBucket)
-		if b == nil {
-			return fmt.Errorf("bucket %q not found", reportsBucket)
-		}
 		value := b.Get([]byte(reportID))
 		if value == nil {
 			return storageErrors.ErrNotFound("deanonymization report not found: " + reportID)
@@ -203,11 +165,7 @@ func (bdl *BoltDBDataLayer) GetDeanonymizationReport(ctx context.Context, report
 		return json.Unmarshal(value, report)
 	})
 	if err != nil {
-		var nfErr *storageErrors.Error
-		if errors.As(err, &nfErr) && nfErr.Code == "not_found" {
-			return nil, nfErr
-		}
-		return nil, fmt.Errorf("failed to get deanonymization report from BoltDB: %w", err)
+		return nil, handleGetError(err, "deanonymization report")
 	}
 	return report, nil
 }
@@ -216,9 +174,6 @@ func (bdl *BoltDBDataLayer) GetDeanonymizationReport(ctx context.Context, report
 func (bdl *BoltDBDataLayer) StoreUserKey(ctx context.Context, userID string, publicKey []byte) error {
 	err := bdl.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(userKeysBucket)
-		if b == nil {
-			return fmt.Errorf("bucket %q not found", userKeysBucket)
-		}
 		return b.Put([]byte(userID), publicKey)
 	})
 	if err != nil {
@@ -232,9 +187,6 @@ func (bdl *BoltDBDataLayer) GetUserKey(ctx context.Context, userID string) ([]by
 	var publicKey []byte
 	err := bdl.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(userKeysBucket)
-		if b == nil {
-			return fmt.Errorf("bucket %q not found", userKeysBucket)
-		}
 		val := b.Get([]byte(userID))
 		if val == nil {
 			return storageErrors.ErrNotFound("public key not found for user: " + userID)
@@ -245,11 +197,7 @@ func (bdl *BoltDBDataLayer) GetUserKey(ctx context.Context, userID string) ([]by
 		return nil
 	})
 	if err != nil {
-		var nfErr *storageErrors.Error
-		if errors.As(err, &nfErr) && nfErr.Code == "not_found" {
-			return nil, nfErr
-		}
-		return nil, fmt.Errorf("failed to get user key from BoltDB: %w", err)
+		return nil, handleGetError(err, "user key")
 	}
 	return publicKey, nil
 }
@@ -260,4 +208,24 @@ func (bdl *BoltDBDataLayer) Close() error {
 	return bdl.db.Close()
 }
 
+// handleGetError simplifies error handling for all Get operations.
+// It checks for the custom ErrNotFound and wraps other errors with more context.
+func handleGetError(err error, objectName string) error {
+	var nfErr *storageErrors.Error
+	if errors.As(err, &nfErr) && nfErr.Code == storageErrors.NotFound {
+		return nfErr // Return the original "not found" error directly
+	}
+	// For any other error, wrap it with a more descriptive message.
+	return fmt.Errorf("failed to get %s from BoltDB: %w", objectName, err)
+}
 
+// checkBucket is a helper function to check for a bucket's existence.
+func checkBucket(tx *bbolt.Tx, bucketName []byte) error {
+	b := tx.Bucket(bucketName)
+	if b == nil {
+		return fmt.Errorf("bucket %q not found", bucketName)
+	}
+	return nil
+}
+
+var _ storage.ApplicationStateStore = (*BoltDBDataLayer)(nil)
