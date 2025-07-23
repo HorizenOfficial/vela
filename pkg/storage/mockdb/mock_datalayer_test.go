@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -187,6 +189,44 @@ func TestApplicationStateStore(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	t.Run("ConcurrentAccess", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+
+		var wg sync.WaitGroup
+		numGoroutines := 50
+
+		// Test concurrent writes
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				appID := fmt.Sprintf("concurrent-app-%d", i)
+				state := &common.ApplicationState{
+					ApplicationID: appID,
+					StateRoot:     []byte(fmt.Sprintf("root-%d", i)),
+				}
+				err := store.StoreApplicationState(ctx, state)
+				assert.NoError(t, err)
+			}(i)
+		}
+		wg.Wait()
+
+		// Test concurrent reads
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				appID := fmt.Sprintf("concurrent-app-%d", i)
+				state, err := store.GetApplicationState(ctx, appID)
+				assert.NoError(t, err)
+				assert.Equal(t, appID, state.ApplicationID)
+				assert.Equal(t, []byte(fmt.Sprintf("root-%d", i)), state.StateRoot)
+			}(i)
+		}
+		wg.Wait()
 	})
 }
 

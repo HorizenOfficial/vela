@@ -61,6 +61,20 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	t.Run("NewVersionedLevelDbStorageAdapterWithInvalidPath", func(t *testing.T) {
+		_, err := versioned_leveldb.NewVersionedLevelDbStorageAdapterWithVersions("/invalid-path", 10)
+		require.Error(t, err)
+	})
+
+	t.Run("GetOrElseWithError", func(t *testing.T) {
+		adapter := createAdapter(t, 10)
+		require.NoError(t, adapter.Close())
+
+		defaultValue := []byte("default")
+		val := adapter.GetOrElse([]byte("any-key"), defaultValue)
+		assert.Equal(t, defaultValue, val)
+	})
+
 	t.Run("GetAndGetOrElse", func(t *testing.T) {
 		adapter := createAdapter(t, 10)
 		testKey := []byte("mykey")
@@ -388,6 +402,32 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		}
 	})
 
+	t.Run("RollbackVersionsLimitedWithNegativeLimit", func(t *testing.T) {
+		adapter := createAdapter(t, 10)
+		vID1 := generateVersionID("neg_limit_1")
+		err := adapter.Update(vID1, []storage.KeyValuePair{createTestKVPair("nl1", "1")}, nil)
+		require.NoError(t, err)
+
+		limitedVersions, err := adapter.RollbackVersionsLimited(-1)
+		require.NoError(t, err)
+		assert.Len(t, limitedVersions, 0, "Expected 0 versions for limited list with negative limit")
+	})
+
+	t.Run("IsEmptyAfterRollbackToLastVersion", func(t *testing.T) {
+		adapter := createAdapter(t, 10)
+		assert.True(t, adapter.IsEmpty(), "Expected empty storage initially")
+
+		vID1 := generateVersionID("empty_rb_1")
+		err := adapter.Update(vID1, []storage.KeyValuePair{createTestKVPair("er1", "1")}, nil)
+		require.NoError(t, err)
+		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after update")
+
+		// This rollback should leave the DB with one version
+		err = adapter.Rollback(vID1)
+		require.NoError(t, err)
+		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after rolling back to the only version")
+		assert.Equal(t, 1, adapter.NumberOfVersions(), "Expected 1 version after rollback")
+	})
 }
 
 func sortKVPairs(pairs []storage.KeyValuePair) {

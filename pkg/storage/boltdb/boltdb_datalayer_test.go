@@ -46,7 +46,7 @@ func TestBoltDBDataLayer(t *testing.T) {
 		require.NoError(t, err, "Failed to create temp directory for BoltDB")
 
 		cfg := boltdb.BoltDBConfig{
-			Path:    filepath.Join(tempDir, "test.db"),
+			Path:	filepath.Join(tempDir, "test.db"),
 			Timeout: 1 * time.Second,
 		}
 		dl, err := boltdb.NewBoltDBDataLayer(cfg)
@@ -68,12 +68,35 @@ func TestBoltDBDataLayer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	t.Run("NewBoltDBDataLayerWithInvalidPath", func(t *testing.T) {
+		// An invalid path that cannot be created.
+		invalidPath := "/invalid-path/test.db"
+		cfg := boltdb.BoltDBConfig{
+			Path:	invalidPath,
+			Timeout: 1 * time.Second,
+		}
+		_, err := boltdb.NewBoltDBDataLayer(cfg)
+		require.Error(t, err, "Expected an error when creating BoltDBDataLayer with an invalid path")
+	})
+
+	t.Run("StoreAndGetApplicationStateWithCorruptedData", func(t *testing.T) {
+		store := createStore(t)
+		appID := "corrupted-app-id"
+
+		// Manually insert corrupted data into the database.
+		err := store.StoreWASMBytecode(ctx, appID, []byte("corrupted-json"))
+		require.NoError(t, err, "Storing corrupted data should not fail")
+
+		_, err = store.GetApplicationState(ctx, appID)
+		require.Error(t, err, "Expected an error when getting corrupted application state")
+	})
+
 	t.Run("StoreAndGetApplicationState", func(t *testing.T) {
 		store := createStore(t)
 		expectedState := &common.ApplicationState{
-			ApplicationID:  "boltdb-app-id-1",
-			StateRoot:      []byte("boltdb-root-hash-1"),
-			EncryptedState: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
+			ApplicationID:	"boltdb-app-id-1",
+			StateRoot:		[]byte("boltdb-root-hash-1"),
+			EncryptedState:	[]byte{0x01, 0x02, 0x03, 0x04, 0x05},
 		}
 		err := store.StoreApplicationState(ctx, expectedState)
 		require.NoError(t, err, "StoreApplicationState should not return an error")
@@ -120,8 +143,8 @@ func TestBoltDBDataLayer(t *testing.T) {
 	t.Run("StoreAndGetDeanonymizationReport", func(t *testing.T) {
 		store := createStore(t)
 		expectedReport := &common.DeanonymizationReport{
-			ApplicationID:   "id-001",
-			ReportID:        "boltdb-report-id-1",
+			ApplicationID:	"id-001",
+			ReportID:		"boltdb-report-id-1",
 			EncryptedReport: []byte("some-test-root-hash-1"),
 		}
 		err := store.StoreDeanonymizationReport(ctx, expectedReport)
@@ -211,5 +234,42 @@ func TestBoltDBDataLayer(t *testing.T) {
 				assert.True(t, errors.Is(err, berrors.ErrDatabaseNotOpen), "Error should be ErrDatabaseNotOpen")
 			})
 		}
+	})
+
+	t.Run("NewBoltDBDataLayerWithReadOnlyFile", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testBoltDBBaseDir, "boltdb-readonly-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		dbPath := filepath.Join(tempDir, "test.db")
+		file, err := os.Create(dbPath)
+		require.NoError(t, err)
+		require.NoError(t, file.Close())
+
+		// Change file to read-only
+		require.NoError(t, os.Chmod(dbPath, 0400))
+
+		cfg := boltdb.BoltDBConfig{
+			Path:    dbPath,
+			Timeout: 1 * time.Second,
+		}
+		_, err = boltdb.NewBoltDBDataLayer(cfg)
+		require.Error(t, err, "Expected an error when creating BoltDBDataLayer with a read-only file")
+	})
+
+	t.Run("DataIntegrity", func(t *testing.T) {
+		store := createStore(t)
+		appID := "integrity-app-id"
+		originalBytecode := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
+		err := store.StoreWASMBytecode(ctx, appID, originalBytecode)
+		require.NoError(t, err)
+
+		// Modify the original slice
+		originalBytecode[0] = 0xFF
+
+		retrievedBytecode, err := store.GetWASMBytecode(ctx, appID)
+		require.NoError(t, err)
+		assert.NotEqual(t, originalBytecode, retrievedBytecode, "Retrieved bytecode should not be affected by modification of original slice")
+		assert.Equal(t, []byte{0x01, 0x02, 0x03, 0x04, 0x05}, retrievedBytecode, "Retrieved bytecode should match the data as it was stored")
 	})
 }

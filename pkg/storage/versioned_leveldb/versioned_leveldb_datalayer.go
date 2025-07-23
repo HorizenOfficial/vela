@@ -31,6 +31,9 @@ func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*VersionedLevelDB
 	return &VersionedLevelDBDataLayer{adapter: adapter}, nil
 }
 
+// generateVersionID creates a unique version identifier for a key-value pair.
+// It computes the SHA-256 hash of the key concatenated with the value,
+// ensuring that any change to the value results in a new version ID.
 func generateVersionID(key []byte, data []byte) []byte {
 	h := sha256.New()
 	h.Write(key)

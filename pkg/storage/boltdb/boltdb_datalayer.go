@@ -219,13 +219,4 @@ func handleGetError(err error, objectName string) error {
 	return fmt.Errorf("failed to get %s from BoltDB: %w", objectName, err)
 }
 
-// checkBucket is a helper function to check for a bucket's existence.
-func checkBucket(tx *bbolt.Tx, bucketName []byte) error {
-	b := tx.Bucket(bucketName)
-	if b == nil {
-		return fmt.Errorf("bucket %q not found", bucketName)
-	}
-	return nil
-}
-
 var _ storage.ApplicationStateStore = (*BoltDBDataLayer)(nil)

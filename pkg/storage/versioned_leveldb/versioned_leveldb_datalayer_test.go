@@ -61,6 +61,26 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	t.Run("NewVersionedLevelDBDataLayerWithInvalidPath", func(t *testing.T) {
+		_, err := versionedDb.NewVersionedLevelDBDataLayer(versionedDb.VersionedLevelDBConfig{
+			Path:           "/invalid-path",
+			VersionsToKeep: 5,
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("StoreAndGetApplicationStateWithCorruptedData", func(t *testing.T) {
+		store := createStore(t)
+		appID := "corrupted-app-id"
+
+		// Manually insert corrupted data into the database.
+		err := store.StoreWASMBytecode(ctx, appID, []byte("corrupted-json"))
+		require.NoError(t, err, "Storing corrupted data should not fail")
+
+		_, err = store.GetApplicationState(ctx, appID)
+		require.Error(t, err, "Expected an error when getting corrupted application state")
+	})
+
 	t.Run("StoreAndGetApplicationState", func(t *testing.T) {
 		store := createStore(t)
 		expectedState := &common.ApplicationState{
@@ -204,5 +224,30 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	t.Run("StoreWithEmptyKeyAndValue", func(t *testing.T) {
+		store := createStore(t)
+		err := store.StoreUserKey(ctx, "", []byte{})
+		require.NoError(t, err, "Storing an empty key and value should not produce an error")
+
+		val, err := store.GetUserKey(ctx, "")
+		require.NoError(t, err, "Getting an empty key should not produce an error")
+		assert.Equal(t, []byte{}, val, "Expected an empty value")
+	})
+
+	t.Run("StoreWithLargeValue", func(t *testing.T) {
+		store := createStore(t)
+		largeValue := make([]byte, 1024*1024) // 1MB
+		for i := range largeValue {
+			largeValue[i] = byte(i % 256)
+		}
+
+		err := store.StoreWASMBytecode(ctx, "large-value-app", largeValue)
+		require.NoError(t, err, "Storing a large value should not produce an error")
+
+		retrievedValue, err := store.GetWASMBytecode(ctx, "large-value-app")
+		require.NoError(t, err, "Getting a large value should not produce an error")
+		assert.True(t, bytes.Equal(largeValue, retrievedValue), "Retrieved large value should match the original")
 	})
 }
