@@ -5,11 +5,11 @@ async function deploy()  {
   console.log(`deploying from ${await deployer.getAddress()}`)
   console.log(`parameters:
     owner: ${process.env.TEE_OWNER},
-    _teeSigner: ${process.env.TEE_AUTHENTICATOR_DEPLOY_DEFAULT}
+    _teeSigner: ${process.env.TEE_SIGNER}
   `)
   //deploy 
   const TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-  const teeAuthenticator = await TeeAuthenticator.deploy(process.env.TEE_OWNER, process.env.TEE_AUTHENTICATOR_DEPLOY_DEFAULT);
+  const teeAuthenticator = await TeeAuthenticator.deploy(process.env.TEE_OWNER, process.env.TEE_SIGNER);
   await teeAuthenticator.deploymentTransaction().wait();
 
   console.log(`contract deployed at ${await teeAuthenticator.getAddress()}`);

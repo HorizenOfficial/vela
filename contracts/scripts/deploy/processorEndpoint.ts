@@ -4,7 +4,6 @@ async function deploy()  {
 
   console.log(`deploying from ${await deployer.getAddress()}`)
   console.log(`parameters:
-    owner: ${process.env.OWNER}
     _teeAuthenticator: ${process.env.TEE_AUTHENTICATOR}
     _authorityRegistry: ${process.env.AUTHORITY_REGISTRY}
     updateStatusOperator: ${process.env.UPDATE_STATUS_OPERATOR}
