@@ -7,6 +7,7 @@ import (
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"log"
+	"strconv"
 )
 
 func main() {
@@ -27,9 +28,23 @@ func main() {
 	var executorClient communication.ExecutorClient
 	switch config.ExecutorConnectionType {
 	case "tcp":
-		executorClient = communication.NewTCPClient(config.ExecutorConnectionParams["url"])
+		factory := communication.NewTCPConnectionFactory(config.ExecutorConnectionParams["url"])
+		executorClient = communication.NewClient(factory)
 	case "vsock":
-		executorClient = communication.NewVSockClient(config.ExecutorConnectionParams["cid"], config.ExecutorConnectionParams["port"])
+		cidStr, err := strconv.ParseUint(config.ExecutorConnectionParams["cid"], 10, 32)
+		if err != nil {
+			log.Fatalf("Failed to parse port: %v", err)
+		}
+		cid := uint32(cidStr)
+
+		portStr, err := strconv.ParseUint(config.ExecutorConnectionParams["port"], 10, 32)
+		if err != nil {
+			log.Fatalf("Failed to parse executor connection parameters: %v", err)
+		}
+		port := uint32(portStr)
+
+		factory := communication.NewVSockConnectionFactory(cid, port)
+		executorClient = communication.NewClient(factory)
 	default:
 		log.Fatalf("Unsupported executor connection type: %s", config.ExecutorConnectionType)
 	}
@@ -41,6 +56,7 @@ func main() {
 	}
 
 	// Start the manager
+	log.Println("Starting manager...")
 	if err := secureProcessorManager.Start(ctx); err != nil {
 		log.Fatalf("Failed to start manager: %v", err)
 	}

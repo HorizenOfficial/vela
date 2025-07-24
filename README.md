@@ -63,6 +63,25 @@ Key functionalities:
 4. Encrypt the new state and events.
 5. Produce and sign update payloads.
 
+### V-Socket Communication
+
+The system uses v-socket for communication between the Secure Processor Manager and the WASM Executor. V-socket is a virtual socket interface that allows for efficient communication in environments like AWS Nitro Enclaves.
+Until the v-socket communication is fully implemented, the system can use TCP as a fallback communication method, it interfaces with the same message structure and logic.
+
+#### Bidirectional Communication Example
+```
+Client                                  Server
+  |                                       |
+  |---> ProcessRequest (ID: 789) -------->|
+  |                                       | (needs user keys)
+  |<--- GetUserKeys (ID: 101) <-----------|
+  |---> UserKeysResponse (ID: 101)------->|
+  |                                       | (completes deploy)
+  |<--- ProcessRequestResponse (ID: 789)<-|
+  |                                       |
+```
+
+
 ## WASM Runtime
 
 The system uses Wasmtime-go as the runtime for WASM Modules. Wasmtime is a standalone JIT-style runtime for WebAssembly, using Cranelift. It's designed to be embedded in applications, and provides a safe, fast, and configurable environment for executing WebAssembly code.
