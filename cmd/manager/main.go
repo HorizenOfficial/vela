@@ -4,33 +4,45 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
+	"strings"
 
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/storage/mockdb"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
 
-func createDataLayer() (storage.ApplicationStateStore, error) {
-	// Create a unique temporary directory. TODO use os.MkdirAll() in production
-	testVersionedLevelDBBaseDir := "/tmp/"
-	tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-data-layer-")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+func createDataLayer(config *manager.Config) (storage.ApplicationStateStore, error) {
+	// first of all if we are using mockdb do not even care for file and other configs
+	if config.DataLayerType == "mockdb" {
+		return mockdb.NewMockDataLayer(), nil
 	}
 
-	// Configure Versioned LevelDB to use a file within the temporary directory.
-	cfg := versionedDb.VersionedLevelDBConfig{
-		Path:           filepath.Join(tempDir, "manager.db"), // The actual .db file
-		VersionsToKeep: 5,                                    // Keep a small number of versions for testing
+	if strings.TrimSpace(config.DataLayerDBPath) == "" {
+		return nil, fmt.Errorf("data layer path is empty")
 	}
-	dl, err := versionedDb.NewVersionedLevelDBDataLayer(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
+
+	var dl storage.ApplicationStateStore
+	var err error
+
+	switch config.DataLayerType {
+	case "versioned_leveldb":
+		cfg := versionedDb.VersionedLevelDBConfig{
+			DBPath:         config.DataLayerDBPath,
+			VersionsToKeep: config.DataLayerNumOfVersions,
+		}
+		dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
+		}
+	case "boltdb":
+		return nil, fmt.Errorf("boltdb data layer creation is not yet implemented")
+	default:
+		return nil, fmt.Errorf("unknown data layer type: %s", config.DataLayerType)
 	}
+
 	return dl, nil
 }
 
@@ -46,7 +58,7 @@ func main() {
 	blockchainClient := blockchain.NewMockClient()
 
 	// Create the data layer
-	dataLayer, err := createDataLayer()
+	dataLayer, err := createDataLayer(config)
 	if err != nil {
 		log.Fatalf("Failed to create data layer: %v", err)
 	}

@@ -1,10 +1,6 @@
 # Versioned LevelDB Storage
 
-This document outlines the software architecture of the versioned LevelDB storage system.
-
-## Overview
-
-The versioned LevelDB storage provides a key-value store with the ability to version data and roll back to previous versions. This is achieved through a layered architecture that uses LevelDB as the underlying storage engine.
+The versioned LevelDB storage system provides a key-value store with the ability to version data and roll back to previous versions. This is achieved through a layered architecture that uses LevelDB as the underlying storage engine.
 
 ## Architecture
 

@@ -18,13 +18,15 @@ type VersionedLevelDBDataLayer struct {
 	mu       sync.RWMutex
 }
 
+// just two attributes for the time being; should we need more customization we can add them here
 type VersionedLevelDBConfig struct {
-	Path           string
+	DBPath         string
 	VersionsToKeep int
 }
 
 func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*VersionedLevelDBDataLayer, error) {
-	adapter, err := NewVersionedLevelDbStorageAdapterWithVersions(cfg.Path, cfg.VersionsToKeep)
+	// Construct the final, specific path for this database instance.
+	adapter, err := NewVersionedLevelDbStorageAdapterWithVersions(cfg.DBPath, cfg.VersionsToKeep)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VersionedLevelDbStorageAdapter: %w", err)
 	}
@@ -211,3 +213,21 @@ func (vdl *VersionedLevelDBDataLayer) Close() error {
 }
 
 var _ storage.ApplicationStateStore = (*VersionedLevelDBDataLayer)(nil)
+
+func (vdl *VersionedLevelDBDataLayer) NumberOfVersions() int {
+	return vdl.adapter.NumberOfVersions()
+}
+
+func (vdl *VersionedLevelDBDataLayer) Rollback(versionID []byte) error {
+	if err := vdl.checkClosed(); err != nil {
+		return err
+	}
+	return vdl.adapter.Rollback(versionID)
+}
+
+func (vdl *VersionedLevelDBDataLayer) LastVersionID() ([]byte, error) {
+	if err := vdl.checkClosed(); err != nil {
+		return nil, err
+	}
+	return vdl.adapter.LastVersionID()
+}
