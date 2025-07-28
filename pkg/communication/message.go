@@ -1,11 +1,18 @@
 package communication
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"github.com/horizen-pes/pkg/common"
+	"time"
 )
 
 // MessageType represents the type of message being sent
 type MessageType int
+
+const delimiter = byte('\n')
 
 const (
 	// ProcessRequestMessage represents a request to process an action
@@ -20,17 +27,25 @@ const (
 	DeanonymizationRequestMessage
 	// DeanonymizationResponseMessage represents a response to a deanonymization request
 	DeanonymizationResponseMessage
-	// TODO: add getKeys message that goes from server to client
+	// GetUserKeysRequestMessage represents a request from server to client for user keys
+	GetUserKeysRequestMessage
+	// GetUserKeysResponseMessage represents a response to a HandleGetUserKeys request
+	GetUserKeysResponseMessage
 	// ErrorMessage represents an error message
 	ErrorMessage
 )
 
 // Message represents a message exchanged between components
 type Message struct {
-	// Type is the type of message
+	ID   string      `json:"id"`
 	Type MessageType `json:"type"`
-	// Data is the message data
 	Data interface{} `json:"data"`
+}
+
+// PendingRequest represents a request waiting for response
+type PendingRequest struct {
+	ResponseChan chan *Message
+	Timeout      time.Time
 }
 
 // ProcessRequestData represents data for a process request message
@@ -39,6 +54,8 @@ type ProcessRequestData struct {
 	Request *common.Request `json:"request"`
 	// ApplicationState is the current state of the application
 	ApplicationState *common.ApplicationState `json:"applicationState"`
+	// SenderKey is the public key of the sender
+	SenderKey []byte `json:"senderKey"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
 }
@@ -71,6 +88,8 @@ type DeanonymizationRequestData struct {
 	Request *common.Request `json:"request"`
 	// ApplicationState is the current state of the application
 	ApplicationState *common.ApplicationState `json:"applicationState"`
+	// SenderKey is the public key of the sender
+	SenderKey []byte `json:"senderKey"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
 }
@@ -81,10 +100,45 @@ type DeanonymizationResponseData struct {
 	Report *common.DeanonymizationReport `json:"report"`
 }
 
+// GetUserKeysRequestData represents data for a HandleGetUserKeys request message
+type GetUserKeysRequestData struct {
+	// Users is the list of users to get keys for
+	Users []string `json:"users"`
+}
+
+// GetUserKeysResponseData represents data for a HandleGetUserKeys response message
+type GetUserKeysResponseData struct {
+	// UserKeys is a map of user ID to their public key
+	UserKeys map[string][]byte `json:"userKeys"`
+}
+
 // ErrorData represents data for an error message
 type ErrorData struct {
 	// Code is the error code
 	Code string `json:"code"`
 	// Message is the error message
 	Message string `json:"message"`
+}
+
+// generateID generates a simple unique ID for message correlation
+func generateID() string {
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
+// extractData extracts request / response message data structs from an interface{}
+func extractData[T any](data interface{}) (*T, error) {
+	// Convert to JSON and back to exact type T
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal response data: %w", err)
+	}
+
+	var respData T
+	if err := json.Unmarshal(jsonData, &respData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response data: %w", err)
+	}
+
+	return &respData, nil
 }
