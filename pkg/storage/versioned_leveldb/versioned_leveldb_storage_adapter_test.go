@@ -61,6 +61,29 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	t.Run("NewVersionedLevelDbStorageAdapter", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testLevelDBVersionedBaseDir, "adapter-test-default-")
+		require.NoError(t, err, "Failed to create temp directory for adapter DB")
+
+		adapter, err := versioned_leveldb.NewVersionedLevelDbStorageAdapter(tempDir)
+		require.NoError(t, err, "Failed to create VersionedLevelDbStorageAdapter with default versions")
+
+		t.Cleanup(func() {
+			cleanupErr := adapter.Close()
+			if cleanupErr != nil && !errors.Is(cleanupErr, leveldb.ErrClosed) {
+				t.Errorf("Cleanup failed: Unexpected error during adapter.Close(): %v", cleanupErr)
+			}
+			require.NoError(t, os.RemoveAll(tempDir), "Failed to remove adapter temp directory: %s", tempDir)
+		})
+
+		// Check that we can perform a basic operation
+		err = adapter.Update(generateVersionID("default-adapter-test"), []storage.KeyValuePair{createTestKVPair("dat", "val")}, nil)
+		require.NoError(t, err, "Update on default adapter should succeed")
+		versions, err := adapter.RollbackVersions()
+		require.NoError(t, err)
+		assert.Len(t, versions, 1, "Should have one version after update")
+	})
+
 	t.Run("NewVersionedLevelDbStorageAdapterWithInvalidPath", func(t *testing.T) {
 		_, err := versioned_leveldb.NewVersionedLevelDbStorageAdapterWithVersions("/invalid-path", 10)
 		require.Error(t, err)

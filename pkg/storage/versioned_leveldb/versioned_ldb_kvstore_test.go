@@ -152,6 +152,29 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		assert.Equal(t, storageErrors.InconsistentState, storageErr.Code)
 	})
 
+	t.Run("RollbackToWithMalformedChangeSet", func(t *testing.T) {
+		kvStore, cleanup := createKVStore(t, 10)
+		defer cleanup()
+
+		vID1 := sha256.Sum256([]byte("version1"))
+		vID2 := sha256.Sum256([]byte("version2"))
+
+		err := kvStore.Update(nil, nil, vID1[:])
+		require.NoError(t, err)
+		err = kvStore.Update(nil, nil, vID2[:])
+		require.NoError(t, err)
+
+		// Manually put a malformed change set for vID2
+		err = kvStore.Db.Put(vID2[:], []byte("malformed-change-set"), nil)
+		require.NoError(t, err)
+
+		err = kvStore.RollbackTo(vID1[:])
+		require.Error(t, err)
+		var storageErr *storageErrors.Error
+		require.True(t, errors.As(err, &storageErr))
+		assert.Equal(t, storageErrors.InconsistentState, storageErr.Code)
+	})
+
 	t.Run("UpdateWithLargeNumberOfKeys", func(t *testing.T) {
 		kvStore, cleanup := createKVStore(t, 10)
 		defer cleanup()
@@ -210,6 +233,28 @@ func TestVersionedLDBKVStore(t *testing.T) {
 			assert.NotEqual(t, vID1[:], key)
 			assert.NotEqual(t, vID2[:], key)
 		}
+	})
+
+	t.Run("ErrorIterator", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp("", "kvstore-test-error-iterator-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		db, err := leveldb.OpenFile(filepath.Join(tempDir, "db"), nil)
+		require.NoError(t, err)
+
+		kvStore := versioned_leveldb.NewVersionedLDBKVStore(db, 10)
+
+		// Close the database to force an error when creating an iterator
+		require.NoError(t, kvStore.Close())
+
+		iter := kvStore.GetIterator()
+
+		assert.False(t, iter.Next())
+		assert.Nil(t, iter.Key())
+		assert.Nil(t, iter.Value())
+		assert.Error(t, iter.Error())
+		iter.Release()
 	})
 }
 
