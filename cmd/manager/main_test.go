@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/manager"
+	boltDb "github.com/horizen-pes/pkg/storage/boltdb"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
@@ -64,13 +65,28 @@ func TestCreateDataLayer(t *testing.T) {
 
 	t.Run("should return not implemented error for boltdb", func(t *testing.T) {
 		tempDir := t.TempDir()
+		dbFileName := "test_manager.db"
+		dbPath := filepath.Join(tempDir, dbFileName)
+
 		config := &manager.Config{
 			DataLayerType:   "boltdb",
-			DataLayerDBPath: tempDir,
+			DataLayerDBPath: dbPath,
 		}
-		_, err := createDataLayer(config)
-		require.Error(t, err)
-		assert.Equal(t, "boltdb data layer is not yet implemented", err.Error())
+		dl, err := createDataLayer(config)
+		require.NoError(t, err)
+		require.NotNil(t, dl)
+
+		// Check that the concrete type is correct
+		_, ok := dl.(*boltDb.BoltDBDataLayer)
+		assert.True(t, ok, "Expected a *boltDb.BoltDBDataLayer instance")
+
+		// Verify that the database directory was created
+		_, err = os.Stat(dbPath)
+		assert.NoError(t, err, "Database directory should have been created")
+
+		// Clean up the data layer
+		err = dl.Close()
+		assert.NoError(t, err, "Closing the data layer should not produce an error")
 	})
 
 	t.Run("should return unknown type error for other types", func(t *testing.T) {

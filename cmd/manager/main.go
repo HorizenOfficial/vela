@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"strconv"
 
@@ -12,7 +13,9 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
+	boltDb "github.com/horizen-pes/pkg/storage/boltdb"
 	"github.com/horizen-pes/pkg/storage/mockdb"
+
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
 
@@ -40,7 +43,14 @@ func createDataLayer(config *manager.Config) (storage.ApplicationStateStore, err
 			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
 		}
 	case "boltdb":
-		return nil, fmt.Errorf("boltdb data layer creation is not yet implemented")
+		cfg := boltDb.BoltDBConfig{
+			Path:    config.DataLayerDBPath,
+			Timeout: 1 * time.Second,
+		}
+		dl, err = boltDb.NewBoltDBDataLayer(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
+		}
 	default:
 		return nil, fmt.Errorf("unknown data layer type: %s", config.DataLayerType)
 	}

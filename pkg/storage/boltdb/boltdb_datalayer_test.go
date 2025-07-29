@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/bbolt"
 	berrors "go.etcd.io/bbolt/errors"
 
 	"github.com/horizen-pes/pkg/common"
@@ -46,7 +47,7 @@ func TestBoltDBDataLayer(t *testing.T) {
 		require.NoError(t, err, "Failed to create temp directory for BoltDB")
 
 		cfg := boltdb.BoltDBConfig{
-			Path:	filepath.Join(tempDir, "test.db"),
+			Path:    filepath.Join(tempDir, "test.db"),
 			Timeout: 1 * time.Second,
 		}
 		dl, err := boltdb.NewBoltDBDataLayer(cfg)
@@ -72,7 +73,7 @@ func TestBoltDBDataLayer(t *testing.T) {
 		// An invalid path that cannot be created.
 		invalidPath := "/invalid-path/test.db"
 		cfg := boltdb.BoltDBConfig{
-			Path:	invalidPath,
+			Path:    invalidPath,
 			Timeout: 1 * time.Second,
 		}
 		_, err := boltdb.NewBoltDBDataLayer(cfg)
@@ -84,8 +85,12 @@ func TestBoltDBDataLayer(t *testing.T) {
 		appID := "corrupted-app-id"
 
 		// Manually insert corrupted data into the database.
-		err := store.StoreWASMBytecode(ctx, appID, []byte("corrupted-json"))
-		require.NoError(t, err, "Storing corrupted data should not fail")
+		err := store.(*boltdb.BoltDBDataLayer).GetDb_ForTest().Update(func(tx *bbolt.Tx) error {
+			b := tx.Bucket([]byte("application_states"))
+			// Put the state using ApplicationID as the key.
+			return b.Put([]byte(appID), []byte("corrupted-json"))
+		})
+		require.NoError(t, err)
 
 		_, err = store.GetApplicationState(ctx, appID)
 		require.Error(t, err, "Expected an error when getting corrupted application state")
@@ -94,9 +99,9 @@ func TestBoltDBDataLayer(t *testing.T) {
 	t.Run("StoreAndGetApplicationState", func(t *testing.T) {
 		store := createStore(t)
 		expectedState := &common.ApplicationState{
-			ApplicationID:	"boltdb-app-id-1",
-			StateRoot:		[]byte("boltdb-root-hash-1"),
-			EncryptedState:	[]byte{0x01, 0x02, 0x03, 0x04, 0x05},
+			ApplicationID:  "boltdb-app-id-1",
+			StateRoot:      []byte("boltdb-root-hash-1"),
+			EncryptedState: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
 		}
 		err := store.StoreApplicationState(ctx, expectedState)
 		require.NoError(t, err, "StoreApplicationState should not return an error")
@@ -143,8 +148,8 @@ func TestBoltDBDataLayer(t *testing.T) {
 	t.Run("StoreAndGetDeanonymizationReport", func(t *testing.T) {
 		store := createStore(t)
 		expectedReport := &common.DeanonymizationReport{
-			ApplicationID:	"id-001",
-			ReportID:		"boltdb-report-id-1",
+			ApplicationID:   "id-001",
+			ReportID:        "boltdb-report-id-1",
 			EncryptedReport: []byte("some-test-root-hash-1"),
 		}
 		err := store.StoreDeanonymizationReport(ctx, expectedReport)

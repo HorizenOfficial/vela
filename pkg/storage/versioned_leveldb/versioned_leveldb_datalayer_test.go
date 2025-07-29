@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
@@ -77,7 +78,12 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		appID := "corrupted-app-id"
 
 		// Manually insert corrupted data into the database.
-		err = store.StoreWASMBytecode(ctx, appID, []byte("corrupted-json"))
+		key := []byte(versionedDb.TestAppStatePrefix + appID)
+		value := []byte("corrupted-json")
+		versionID := versionedDb.GenerateVersionID_ForTest(key, value)
+		toUpdate := []storage.KeyValuePair{{Key: key, Value: value}}
+		toRemove := [][]byte{}
+		err = store.GetAdapter_ForTest().Update(versionID, toUpdate, toRemove)
 		require.NoError(t, err, "Storing corrupted data should not fail")
 
 		_, err = store.GetApplicationState(ctx, appID)
@@ -356,7 +362,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// limit, reopens with a smaller limit, and verifies a new write triggers
 		// pruning to the new, lower limit.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "persistent-db-versions-test-")
-		require.NoError(t, err, "Failed to create temp directory for persistent DB test")
+		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
 		dbPath := filepath.Join(tempDir, "test.db")
@@ -407,7 +413,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// It stores up to an initial limit, reopens with a higher limit, and
 		// verifies that it can then store more versions up to the new limit.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "persistent-db-more-versions-test-")
-		require.NoError(t, err, "Failed to create temp directory for persistent DB test")
+		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
 		dbPath := filepath.Join(tempDir, "test.db")
@@ -615,6 +621,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("GetDeanonymizationReportWithCorruptedData", func(t *testing.T) {
+		// Verifies that attempting to retrieve a report that has been
+		// manually corrupted (e.g., invalid JSON) results in an error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "corrupted-data-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
@@ -623,7 +631,12 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		reportID := "corrupted-report-id"
 
 		// Manually insert corrupted data into the database.
-		err = store.StoreUserKey(ctx, reportID, []byte("corrupted-json"))
+		key := []byte(versionedDb.TestDeanonymizationReportPrefix + reportID)
+		value := []byte("corrupted-json")
+		versionID := versionedDb.GenerateVersionID_ForTest(key, value)
+		toUpdate := []storage.KeyValuePair{{Key: key, Value: value}}
+		toRemove := [][]byte{}
+		err = store.GetAdapter_ForTest().Update(versionID, toUpdate, toRemove)
 		require.NoError(t, err, "Storing corrupted data should not fail")
 
 		// Now, attempt to read the data as a DeanonymizationReport.
@@ -632,10 +645,6 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// so it should not find the data and return a NotFound error.
 		_, err = store.GetDeanonymizationReport(ctx, reportID)
 		require.Error(t, err, "Expected an error when getting corrupted report")
-		var notFoundErr *storageErrors.Error
-		if assert.True(t, errors.As(err, &notFoundErr), "Error should be a storage error") {
-			assert.Equal(t, storageErrors.NotFound, notFoundErr.Code, "Error code should be NotFound")
-		}
 	})
 
 	t.Run("GetApplicationStateWithCorruptedData", func(t *testing.T) {

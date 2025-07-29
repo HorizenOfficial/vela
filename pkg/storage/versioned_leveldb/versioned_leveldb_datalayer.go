@@ -239,3 +239,8 @@ func (vdl *VersionedLevelDBDataLayer) LastVersionID() ([]byte, error) {
 	}
 	return vdl.adapter.LastVersionID()
 }
+
+// adapter returns the underlying VersionedLevelDbStorageAdapter instance. This is intended for testing purposes only.
+func (vdl *VersionedLevelDBDataLayer) getAdapter() *VersionedLevelDbStorageAdapter {
+	return vdl.adapter
+}
