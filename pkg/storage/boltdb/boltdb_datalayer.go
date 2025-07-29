@@ -25,7 +25,6 @@ var (
 // BoltDBDataLayer is an implementation of the ApplicationStateStore interface using BoltDB.
 type BoltDBDataLayer struct {
 	db *bbolt.DB
-	// bbolt.DB.Close() handles future operations by returning errors directly.
 }
 
 // BoltDBConfig holds configuration parameters for opening a BoltDB database.
