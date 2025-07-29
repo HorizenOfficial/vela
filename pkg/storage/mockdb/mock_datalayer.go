@@ -146,6 +146,4 @@ func (d *MockDataLayer) Close() error {
 	return nil
 }
 
-var _ storage.ApplicationStateStore = (*MockDataLayer)(nil)
-
-
+var _ storage.ApplicationStateStoreOld = (*MockDataLayer)(nil)

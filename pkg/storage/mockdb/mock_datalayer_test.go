@@ -23,7 +23,7 @@ func TestNewMockDataLayer(t *testing.T) {
 }
 
 func TestApplicationStateStore(t *testing.T) {
-	createStore := func() storage.ApplicationStateStore {
+	createStore := func() storage.ApplicationStateStoreOld {
 		return mockdb.NewMockDataLayer()
 	}
 
@@ -229,4 +229,3 @@ func TestApplicationStateStore(t *testing.T) {
 		wg.Wait()
 	})
 }
-

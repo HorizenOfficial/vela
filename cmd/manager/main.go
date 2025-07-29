@@ -19,7 +19,7 @@ import (
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
 
-func createDataLayer(config *manager.Config) (storage.ApplicationStateStore, error) {
+func createDataLayer(config *manager.Config) (storage.ApplicationStateStoreOld, error) {
 	// first of all if we are using mockdb do not even care for file and other configs
 	if config.DataLayerType == "mockdb" {
 		return mockdb.NewMockDataLayer(), nil
@@ -29,7 +29,7 @@ func createDataLayer(config *manager.Config) (storage.ApplicationStateStore, err
 		return nil, fmt.Errorf("data layer path is empty")
 	}
 
-	var dl storage.ApplicationStateStore
+	var dl storage.ApplicationStateStoreOld
 	var err error
 
 	switch config.DataLayerType {

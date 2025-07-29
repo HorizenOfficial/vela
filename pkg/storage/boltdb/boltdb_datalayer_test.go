@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestBoltDBDataLayer(t *testing.T) {
-	createStore := func(t *testing.T) storage.ApplicationStateStore {
+	createStore := func(t *testing.T) storage.ApplicationStateStoreOld {
 		tempDir, err := os.MkdirTemp(testBoltDBBaseDir, "boltdb-test-")
 		require.NoError(t, err, "Failed to create temp directory for BoltDB")
 

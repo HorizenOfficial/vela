@@ -148,6 +148,13 @@ type ApplicationState struct {
 	EncryptedState []byte `json:"encryptedState"`
 }
 
+type WASMData struct {
+	// ApplicationID is the ID of the application
+	ApplicationID string `json:"applicationId"`
+	// Bytecode is the wasm bytecode
+	Bytecode []byte `json:"bytecode"`
+}
+
 // DeanonymizationReport represents a report for deanonymization
 type DeanonymizationReport struct {
 	// ApplicationID is the ID of the application

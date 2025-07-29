@@ -3,13 +3,14 @@ package manager
 import (
 	"context"
 	"fmt"
+	"log"
+	"sync"
+	"time"
+
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/storage"
-	"log"
-	"sync"
-	"time"
 )
 
 // SecureProcessorManager is an implementation of the Manager interface
@@ -17,7 +18,7 @@ type SecureProcessorManager struct {
 	config           *Config
 	blockchainClient blockchain.Client
 	executorClient   communication.ExecutorClient
-	dataLayer        storage.ApplicationStateStore
+	dataLayer        storage.ApplicationStateStoreOld
 	mu               sync.Mutex
 	isRunning        bool
 	stopChan         chan struct{}
@@ -25,7 +26,7 @@ type SecureProcessorManager struct {
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
-func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.ApplicationStateStore, executorClient communication.ExecutorClient) (*SecureProcessorManager, error) {
+func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.ApplicationStateStoreOld, executorClient communication.ExecutorClient) (*SecureProcessorManager, error) {
 	return &SecureProcessorManager{
 		config:           config,
 		blockchainClient: blockchainClient,

@@ -218,4 +218,4 @@ func handleGetError(err error, objectName string) error {
 	return fmt.Errorf("failed to get %s from BoltDB: %w", objectName, err)
 }
 
-var _ storage.ApplicationStateStore = (*BoltDBDataLayer)(nil)
+var _ storage.ApplicationStateStoreOld = (*BoltDBDataLayer)(nil)

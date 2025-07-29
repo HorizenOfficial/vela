@@ -220,7 +220,7 @@ func (vdl *VersionedLevelDBDataLayer) Close() error {
 	return vdl.adapter.Close()
 }
 
-var _ storage.ApplicationStateStore = (*VersionedLevelDBDataLayer)(nil)
+var _ storage.ApplicationStateStoreOld = (*VersionedLevelDBDataLayer)(nil)
 
 func (vdl *VersionedLevelDBDataLayer) NumberOfVersions() int {
 	return vdl.adapter.NumberOfVersions()
