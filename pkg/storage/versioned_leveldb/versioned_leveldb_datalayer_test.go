@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -468,6 +469,310 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		var versionNotFoundErr *storageErrors.Error
 		if assert.True(t, errors.As(err, &versionNotFoundErr), "Error should be a storage error") {
 			assert.Equal(t, storageErrors.VersionNotFound, versionNotFoundErr.Code, "Error code should be VersionNotFound")
+		}
+	})
+
+	t.Run("RollbackAndLastVersionID", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "rollback-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+		// 1. Test LastVersionID on empty db
+		_, err = store.LastVersionID()
+		require.Error(t, err, "Expected an error when getting last version from empty storage")
+
+		// 2. Store first version
+		appID := "rollback-app"
+		state1 := &common.ApplicationState{ApplicationID: appID, StateRoot: []byte("root1")}
+		err = store.StoreApplicationState(ctx, state1)
+		require.NoError(t, err)
+		v1, err := store.LastVersionID()
+		require.NoError(t, err)
+
+		// 3. Store second version
+		state2 := &common.ApplicationState{ApplicationID: appID, StateRoot: []byte("root2")}
+		err = store.StoreApplicationState(ctx, state2)
+		require.NoError(t, err)
+		v2, err := store.LastVersionID()
+		require.NoError(t, err)
+		assert.NotEqual(t, v1, v2)
+
+		// 4. Rollback to first version
+		err = store.Rollback(v1)
+		require.NoError(t, err)
+
+		// 5. Check last version is now v1
+		lastVersion, err := store.LastVersionID()
+		require.NoError(t, err)
+		assert.Equal(t, v1, lastVersion)
+
+		// 6. Check that state is rolled back
+		retrievedState, err := store.GetApplicationState(ctx, appID)
+		require.NoError(t, err)
+		assert.Equal(t, state1.StateRoot, retrievedState.StateRoot)
+
+		// 7. Test rollback on closed db
+		require.NoError(t, store.Close())
+		err = store.Rollback(v1)
+		require.Error(t, err)
+		var closedErr *storageErrors.Error
+		if assert.True(t, errors.As(err, &closedErr), "Error should be a storage error") {
+			assert.Equal(t, storageErrors.StorageIsClosed, closedErr.Code, "Error code should be StorageIsClosed")
+		}
+
+		// 8. Test LastVersionID on closed db
+		_, err = store.LastVersionID()
+		require.Error(t, err)
+		if assert.True(t, errors.As(err, &closedErr), "Error should be a storage error") {
+			assert.Equal(t, storageErrors.StorageIsClosed, closedErr.Code, "Error code should be StorageIsClosed")
+		}
+	})
+
+	t.Run("StoreApplicationStateTwice", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+		state := &common.ApplicationState{
+			ApplicationID:  "test-app",
+			StateRoot:      []byte("root"),
+			EncryptedState: []byte("state"),
+		}
+
+		err = store.StoreApplicationState(ctx, state)
+		require.NoError(t, err)
+
+		err = store.StoreApplicationState(ctx, state)
+		require.Error(t, err)
+		var storageErr *storageErrors.Error
+		require.True(t, errors.As(err, &storageErr))
+		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
+	})
+
+	t.Run("StoreWASMBytecodeTwice", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+		appID := "test-app"
+		bytecode := []byte("bytecode")
+
+		err = store.StoreWASMBytecode(ctx, appID, bytecode)
+		require.NoError(t, err)
+
+		err = store.StoreWASMBytecode(ctx, appID, bytecode)
+		require.Error(t, err)
+		var storageErr *storageErrors.Error
+		require.True(t, errors.As(err, &storageErr))
+		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
+	})
+
+	t.Run("StoreDeanonymizationReportTwice", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+		report := &common.DeanonymizationReport{
+			ReportID: "test-report",
+		}
+
+		err = store.StoreDeanonymizationReport(ctx, report)
+		require.NoError(t, err)
+
+		err = store.StoreDeanonymizationReport(ctx, report)
+		require.Error(t, err)
+		var storageErr *storageErrors.Error
+		require.True(t, errors.As(err, &storageErr))
+		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
+	})
+
+	t.Run("StoreUserKeyTwice", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+		userID := "test-user"
+		publicKey := []byte("publicKey")
+
+		err = store.StoreUserKey(ctx, userID, publicKey)
+		require.NoError(t, err)
+
+		err = store.StoreUserKey(ctx, userID, publicKey)
+		require.Error(t, err)
+		var storageErr *storageErrors.Error
+		require.True(t, errors.As(err, &storageErr))
+		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
+	})
+
+	t.Run("GetDeanonymizationReportWithCorruptedData", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "corrupted-data-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+		reportID := "corrupted-report-id"
+
+		// Manually insert corrupted data into the database.
+		err = store.StoreUserKey(ctx, reportID, []byte("corrupted-json"))
+		require.NoError(t, err, "Storing corrupted data should not fail")
+
+		// Now, attempt to read the data as a DeanonymizationReport.
+		// Since we used StoreUserKey, the key is prefixed with "userkey_".
+		// GetDeanonymizationReport will look for a key prefixed with "deanon_",
+		// so it should not find the data and return a NotFound error.
+		_, err = store.GetDeanonymizationReport(ctx, reportID)
+		require.Error(t, err, "Expected an error when getting corrupted report")
+		var notFoundErr *storageErrors.Error
+		if assert.True(t, errors.As(err, &notFoundErr), "Error should be a storage error") {
+			assert.Equal(t, storageErrors.NotFound, notFoundErr.Code, "Error code should be NotFound")
+		}
+	})
+
+	t.Run("GetApplicationStateWithCorruptedData", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "corrupted-data-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+		appID := "corrupted-app-id"
+
+		// Manually insert corrupted data into the database.
+		err = store.StoreWASMBytecode(ctx, appID, []byte("corrupted-json"))
+		require.NoError(t, err, "Storing corrupted data should not fail")
+
+		// Now, attempt to read the data as an ApplicationState.
+		// Since we used StoreWASMBytecode, the key is prefixed with "wasm_".
+		// GetApplicationState will look for a key prefixed with "appstate_",
+		// so it should not find the data and return a NotFound error.
+		_, err = store.GetApplicationState(ctx, appID)
+		require.Error(t, err, "Expected an error when getting corrupted application state")
+		var notFoundErr *storageErrors.Error
+		if assert.True(t, errors.As(err, &notFoundErr), "Error should be a storage error") {
+			assert.Equal(t, storageErrors.NotFound, notFoundErr.Code, "Error code should be NotFound")
+		}
+	})
+
+	t.Run("NoKeyCollisionWithSameID", func(t *testing.T) {
+		// Verifies that storing an ApplicationState, WASM bytecode, and a
+		// DeanonymizationReport with the same ID does not result in a key
+		// collision
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "collision-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+		sharedID := "shared-id"
+		expectedState := &common.ApplicationState{
+			ApplicationID:  sharedID,
+			StateRoot:      []byte("state-root"),
+			EncryptedState: []byte{0x01, 0x02, 0x03},
+		}
+		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+		expectedReport := &common.DeanonymizationReport{
+			ApplicationID:   sharedID,
+			ReportID:        sharedID, // use the same ID even for the report
+			EncryptedReport: []byte("encrypted-report"),
+		}
+
+		// Store all three data type
+		err = store.StoreApplicationState(ctx, expectedState)
+		require.NoError(t, err, "StoreApplicationState should not return an error")
+		err = store.StoreWASMBytecode(ctx, sharedID, expectedBytecode)
+		require.NoError(t, err, "StoreWASMBytecode should not return an error")
+		err = store.StoreDeanonymizationReport(ctx, expectedReport)
+		require.NoError(t, err, "StoreDeanonymizationReport should not return an error")
+
+		// Retrieve and verify ApplicationState
+		actualState, err := store.GetApplicationState(ctx, sharedID)
+		require.NoError(t, err, "GetApplicationState should not return an error")
+		if diff := cmp.Diff(expectedState, actualState); diff != "" {
+			t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
+		}
+
+		// Retrieve and verify WASMBytecode
+		actualBytecode, err := store.GetWASMBytecode(ctx, sharedID)
+		require.NoError(t, err, "GetWASMBytecode should not return an error")
+		assert.True(t, bytes.Equal(expectedBytecode, actualBytecode), "Retrieved WASM bytecode mismatch")
+
+		// Retrieve and verify DeanonymizationReport
+		actualReport, err := store.GetDeanonymizationReport(ctx, sharedID)
+		require.NoError(t, err, "GetDeanonymizationReport should not return an error")
+		if diff := cmp.Diff(expectedReport, actualReport); diff != "" {
+			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("ConcurrentReadWrite", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "concurrency-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 20)
+
+		// Pre-populate with some data
+		initialState := &common.ApplicationState{
+			ApplicationID: "initial-app",
+			StateRoot:     []byte("initial-root"),
+		}
+		err = store.StoreApplicationState(ctx, initialState)
+		require.NoError(t, err)
+
+		var wg sync.WaitGroup
+		numGoroutines := 10
+
+		// Writer goroutines
+		for i := range numGoroutines {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				appID := fmt.Sprintf("concurrent-app-%d", i)
+				state := &common.ApplicationState{
+					ApplicationID: appID,
+					StateRoot:     []byte(fmt.Sprintf("root-%d", i)),
+				}
+				err := store.StoreApplicationState(ctx, state)
+				if err != nil {
+					var storageErr *storageErrors.Error
+					if errors.As(err, &storageErr) && storageErr.Code == storageErrors.VersionAlreadyExists {
+						// This is acceptable in a concurrent test
+					} else {
+						assert.NoError(t, err)
+					}
+				}
+			}(i)
+		}
+
+		// Reader goroutines
+		for range numGoroutines {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// Read initial state
+				_, err := store.GetApplicationState(ctx, "initial-app")
+				assert.NoError(t, err)
+
+				// Read one of the new states (might not exist yet)
+				appID := fmt.Sprintf("concurrent-app-%d", 5)
+				_, _ = store.GetApplicationState(ctx, appID)
+			}()
+		}
+
+		wg.Wait()
+
+		// Verify all data is present
+		for i := range numGoroutines {
+			appID := fmt.Sprintf("concurrent-app-%d", i)
+			_, err := store.GetApplicationState(ctx, appID)
+			assert.NoError(t, err, "should be able to get state for %s", appID)
 		}
 	})
 }

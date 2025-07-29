@@ -12,6 +12,14 @@ import (
 	"github.com/horizen-pes/pkg/storage/errors"
 )
 
+// pkg private prefixes, useful for avoiding collisions when using the same key
+const (
+	appStatePrefix              = "appstate_"
+	wasmPrefix                  = "wasm_"
+	deanonymizationReportPrefix = "deanon_"
+	userKeyPrefix               = "userkey_"
+)
+
 type VersionedLevelDBDataLayer struct {
 	adapter  *VersionedLevelDbStorageAdapter
 	isClosed bool
@@ -61,7 +69,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreApplicationState(ctx context.Context,
 		return fmt.Errorf("failed to marshal application state: %w", err)
 	}
 
-	key := []byte(state.ApplicationID)
+	key := []byte(appStatePrefix + state.ApplicationID)
 	versionID := generateVersionID(key, value)
 
 	toUpdate := []storage.KeyValuePair{{Key: key, Value: value}}
@@ -78,7 +86,7 @@ func (vdl *VersionedLevelDBDataLayer) GetApplicationState(ctx context.Context, a
 	if err := vdl.checkClosed(); err != nil {
 		return nil, err
 	}
-	key := []byte(applicationID)
+	key := []byte(appStatePrefix + applicationID)
 	value, err := vdl.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get application state from Versioned LevelDB: %w", err)
@@ -99,7 +107,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreWASMBytecode(ctx context.Context, app
 	if err := vdl.checkClosed(); err != nil {
 		return err
 	}
-	key := []byte(applicationID)
+	key := []byte(wasmPrefix + applicationID)
 	versionID := generateVersionID(key, bytecode)
 
 	toUpdate := []storage.KeyValuePair{{Key: key, Value: bytecode}}
@@ -116,7 +124,7 @@ func (vdl *VersionedLevelDBDataLayer) GetWASMBytecode(ctx context.Context, appli
 	if err := vdl.checkClosed(); err != nil {
 		return nil, err
 	}
-	key := []byte(applicationID)
+	key := []byte(wasmPrefix + applicationID)
 	value, err := vdl.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get WASM bytecode from Versioned LevelDB: %w", err)
@@ -136,7 +144,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreDeanonymizationReport(ctx context.Con
 		return fmt.Errorf("failed to marshal deanonymization report: %w", err)
 	}
 
-	key := []byte(report.ReportID)
+	key := []byte(deanonymizationReportPrefix + report.ReportID)
 	versionID := generateVersionID(key, value)
 
 	toUpdate := []storage.KeyValuePair{{Key: key, Value: value}}
@@ -153,7 +161,7 @@ func (vdl *VersionedLevelDBDataLayer) GetDeanonymizationReport(ctx context.Conte
 	if err := vdl.checkClosed(); err != nil {
 		return nil, err
 	}
-	key := []byte(reportID)
+	key := []byte(deanonymizationReportPrefix + reportID)
 	value, err := vdl.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get deanonymization report from Versioned LevelDB: %w", err)
@@ -174,7 +182,7 @@ func (vdl *VersionedLevelDBDataLayer) StoreUserKey(ctx context.Context, userID s
 	if err := vdl.checkClosed(); err != nil {
 		return err
 	}
-	key := []byte(userID)
+	key := []byte(userKeyPrefix + userID)
 	versionID := generateVersionID(key, publicKey)
 
 	toUpdate := []storage.KeyValuePair{{Key: key, Value: publicKey}}
@@ -191,7 +199,7 @@ func (vdl *VersionedLevelDBDataLayer) GetUserKey(ctx context.Context, userID str
 	if err := vdl.checkClosed(); err != nil {
 		return nil, err
 	}
-	key := []byte(userID)
+	key := []byte(userKeyPrefix + userID)
 	value, err := vdl.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user key from Versioned LevelDB: %w", err)
