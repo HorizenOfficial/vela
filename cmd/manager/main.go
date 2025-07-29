@@ -2,13 +2,61 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"strconv"
+
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
-	"log"
-	"strconv"
+	boltDb "github.com/horizen-pes/pkg/storage/boltdb"
+	"github.com/horizen-pes/pkg/storage/mockdb"
+
+	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
+
+func createDataLayer(config *manager.Config) (storage.ApplicationStateStore, error) {
+	// first of all if we are using mockdb do not even care for file and other configs
+	if config.DataLayerType == "mockdb" {
+		return mockdb.NewMockDataLayer(), nil
+	}
+
+	if strings.TrimSpace(config.DataLayerDBPath) == "" {
+		return nil, fmt.Errorf("data layer path is empty")
+	}
+
+	var dl storage.ApplicationStateStore
+	var err error
+
+	switch config.DataLayerType {
+	case "versioned_leveldb":
+		cfg := versionedDb.VersionedLevelDBConfig{
+			DBPath:         config.DataLayerDBPath,
+			VersionsToKeep: config.DataLayerNumOfVersions,
+		}
+		dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
+		}
+	case "boltdb":
+		cfg := boltDb.BoltDBConfig{
+			Path:    config.DataLayerDBPath,
+			Timeout: 1 * time.Second,
+		}
+		dl, err = boltDb.NewBoltDBDataLayer(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unknown data layer type: %s", config.DataLayerType)
+	}
+
+	return dl, nil
+}
 
 func main() {
 	// Create a context that is canceled on SIGINT or SIGTERM
@@ -22,7 +70,10 @@ func main() {
 	blockchainClient := blockchain.NewMockClient()
 
 	// Create the data layer
-	dataLayer := storage.NewMockDataLayer()
+	dataLayer, err := createDataLayer(config)
+	if err != nil {
+		log.Fatalf("Failed to create data layer: %v", err)
+	}
 
 	// Create the executor client
 	var executorClient communication.ExecutorClient

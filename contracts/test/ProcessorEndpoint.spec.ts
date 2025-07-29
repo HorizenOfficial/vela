@@ -1,31 +1,39 @@
 import { expect } from 'chai'
-import { BigNumberish, Contract, Signer } from 'ethers';
+import { BigNumberish, Signer } from 'ethers';
 import { ethSignStateUpdate } from '../scripts/util';
 
 describe('ProcessorEndpoint Test', function () {
     let signers: Signer[]
-    let processorEndpoint: Contract;
+    let processorEndpoint: any;
     let protocolVersion: BigNumberish;
     let applicationId: BigNumberish;
 
     beforeEach(async function () {
         signers = await ethers.getSigners();
-        //deploy signature verifier
+        //deploy helper contracts
         let TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-        let teeAuthenticator = await TeeAuthenticator.deploy(await signers[0].getAddress());
+        let teeAuthenticator = await TeeAuthenticator.deploy(signers[0], signers[0]);
+
+        let AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
+        let authorityRegistry = await AuthorityRegistry.deploy(signers[0]);
 
         let ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
-        processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, await signers[0].getAddress());
+        processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, authorityRegistry, signers[0]);
 
         protocolVersion = await processorEndpoint.PROTOCOL_VERSION();
         applicationId = await processorEndpoint.APPLICATION_ID();
+        await authorityRegistry.addAllowedAuthority(applicationId, signers[0]);
+
     })
 
     it('should save multiple requests and retrieve', async function () {
-        let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
-        await submitTx.wait();
-        submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100});
-        await submitTx.wait();
+        await expect(
+            processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0)
+        ).to.emit(processorEndpoint, "RequestSubmitted");
+        
+        await expect(
+            processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100})
+        ).to.emit(processorEndpoint, "RequestSubmitted");
 
         let length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(2));
@@ -58,6 +66,17 @@ describe('ProcessorEndpoint Test', function () {
         await expect(
             processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0, {value: 100}) //value should be 0 but it is 100
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue")
+    })
+
+    it('should not save denanonymization requests from unauthorized authority', async function () {
+        await expect(
+            processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 2, "0x01", 100, {value: 100}) 
+        ).to.be.revertedWithCustomError(processorEndpoint, "AuthorityNotAllowed")
+    })
+    
+    it('should save request that is not deanonymization from unauthorized authority', async function () {
+        let submitTx = await processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
+        await submitTx.wait();
     })
 
     it('should mark request as completed and failed (and refund if failed)', async function () {

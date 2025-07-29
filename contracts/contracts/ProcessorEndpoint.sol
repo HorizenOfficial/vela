@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Arrays.sol";
 
 import "./interfaces/ITeeAuthenticator.sol";
+import "./AuthorityRegistry.sol";
 import "./Structs.sol";
 
 contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
@@ -25,6 +26,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     EnumerableSet.UintSet private idsQueue;
 
     ITeeAuthenticator public teeAuthenticator;
+    AuthorityRegistry public authorityRegistry;
     //events
     event Withdrawal(uint256 indexed applicationId, uint256 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(uint256 indexed requestId, address sender);
@@ -42,6 +44,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     error InvalidStateRoot();
     error InvalidSignature();
     error InsufficientBalance();
+    error AuthorityNotAllowed();
 
     modifier onlyPostedRequest(uint256 requestId) {
         if(requestId >= requests.length) revert InvalidRequestId();
@@ -58,10 +61,15 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     }
 
     //constructor
-    constructor(ITeeAuthenticator _teeAuthenticator, address updateStatusOperator) {
-        if(_teeAuthenticator == ITeeAuthenticator(address(0)) || updateStatusOperator == address(0)) revert AddressCantBeZero();
+    constructor(ITeeAuthenticator _teeAuthenticator, AuthorityRegistry _authorityRegistry, address updateStatusOperator) {
+        if(
+            _teeAuthenticator == ITeeAuthenticator(address(0)) || 
+            _authorityRegistry == AuthorityRegistry(address(0)) ||
+            updateStatusOperator == address(0)
+        ) revert AddressCantBeZero();
 
         teeAuthenticator = _teeAuthenticator;
+        authorityRegistry = _authorityRegistry; 
         _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
     }
 
@@ -75,6 +83,9 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(uint256) {
         //check value
         if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
+        //check authorization
+        if(requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
+
         //create request
         uint256 requestId = requests.length;
         requests.push(
