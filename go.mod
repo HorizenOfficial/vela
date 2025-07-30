@@ -6,8 +6,11 @@ toolchain go1.24.0
 
 require (
 	github.com/ethereum/go-ethereum v1.16.1
+	github.com/google/go-cmp v0.5.9
 	github.com/mdlayher/vsock v1.2.1
 	github.com/stretchr/testify v1.10.0
+	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
+	go.etcd.io/bbolt v1.4.2
 	golang.org/x/crypto v0.39.0
 )
 
