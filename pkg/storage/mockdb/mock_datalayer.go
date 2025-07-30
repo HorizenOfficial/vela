@@ -38,14 +38,31 @@ func (d *MockDataLayer) checkClosed() error {
 	return nil
 }
 
-// StoreApplicationState stores the state of an application.
-func (d *MockDataLayer) StoreApplicationState(ctx context.Context, state *common.ApplicationState) error {
+// Store stores the state of an application.
+func (d *MockDataLayer) Store(
+	ctx context.Context,
+	versionID []byte,
+	stateArray *[]common.ApplicationState,
+	wasmArray *[]common.WASMData,
+) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if err := d.checkClosed(); err != nil {
 		return err
 	}
-	d.states[state.ApplicationID] = state
+
+	if stateArray != nil {
+		for _, state := range *stateArray {
+			d.states[state.ApplicationID] = &state
+		}
+	}
+
+	if wasmArray != nil {
+		for _, wasm := range *wasmArray {
+			d.bytecode[wasm.ApplicationID] = wasm.Bytecode
+		}
+	}
+
 	return nil
 }
 
@@ -61,17 +78,6 @@ func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID s
 		return nil, errors.ErrNotFound("application state not found: " + applicationID)
 	}
 	return state, nil
-}
-
-// StoreWASMBytecode stores WASM bytecode for an application.
-func (d *MockDataLayer) StoreWASMBytecode(ctx context.Context, applicationID string, bytecode []byte) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if err := d.checkClosed(); err != nil {
-		return err
-	}
-	d.bytecode[applicationID] = bytecode
-	return nil
 }
 
 // GetWASMBytecode retrieves WASM bytecode for an application.
@@ -146,4 +152,17 @@ func (d *MockDataLayer) Close() error {
 	return nil
 }
 
-var _ storage.ApplicationStateStoreOld = (*MockDataLayer)(nil)
+// Rollback is a mock implementation of the Rollback method.
+func (d *MockDataLayer) Rollback(versionID []byte) error {
+	return nil
+}
+
+// LastVersionID is a mock implementation of the LastVersionID method.
+func (d *MockDataLayer) LastVersionID() ([]byte, error) {
+	return []byte("mock_version_id"), nil
+}
+
+var _ storage.ApplicationStateStore = (*MockDataLayer)(nil)
+var _ storage.ApplicationUserKeyStore = (*MockDataLayer)(nil)
+var _ storage.ApplicationReportStore = (*MockDataLayer)(nil)
+

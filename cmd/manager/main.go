@@ -4,20 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
-
 	"strconv"
+	"strings"
 
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/mockdb"
-
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
 
-func createDataLayer(config *manager.Config) (storage.ApplicationStateStoreOld, error) {
+func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
 	// first of all if we are using mockdb do not even care for file and other configs
 	if config.DataLayerType == "mockdb" {
 		return mockdb.NewMockDataLayer(), nil
@@ -27,19 +25,23 @@ func createDataLayer(config *manager.Config) (storage.ApplicationStateStoreOld, 
 		return nil, fmt.Errorf("data layer path is empty")
 	}
 
-	var dl storage.ApplicationStateStoreOld
+	var dl storage.DataLayer
 	var err error
 
 	switch config.DataLayerType {
 	case "versioned_leveldb":
-		cfg := versionedDb.VersionedLevelDBConfig{
-			DBPath:         config.DataLayerDBPath,
-			VersionsToKeep: config.DataLayerNumOfVersions,
-		}
-		dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
-		}
+		// TODO: Rework this to implement the full storage.DataLayer interface
+		return nil, fmt.Errorf("versioned_leveldb is not supported yet")
+		/*
+			cfg := versionedDb.VersionedLevelDBConfig{
+				DBPath:         config.DataLayerDBPath,
+				VersionsToKeep: config.DataLayerNumOfVersions,
+			}
+			dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
+			}
+		*/
 	default:
 		return nil, fmt.Errorf("unknown data layer type: %s", config.DataLayerType)
 	}

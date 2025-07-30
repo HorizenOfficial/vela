@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"sync"
@@ -18,7 +19,7 @@ type SecureProcessorManager struct {
 	config           *Config
 	blockchainClient blockchain.Client
 	executorClient   communication.ExecutorClient
-	dataLayer        storage.ApplicationStateStoreOld
+	dataLayer        storage.DataLayer
 	mu               sync.Mutex
 	isRunning        bool
 	stopChan         chan struct{}
@@ -26,7 +27,7 @@ type SecureProcessorManager struct {
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
-func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.ApplicationStateStoreOld, executorClient communication.ExecutorClient) (*SecureProcessorManager, error) {
+func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.DataLayer, executorClient communication.ExecutorClient) (*SecureProcessorManager, error) {
 	return &SecureProcessorManager{
 		config:           config,
 		blockchainClient: blockchainClient,
@@ -149,16 +150,16 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		return fmt.Errorf("failed to deploy application: %w", err)
 	}
 
-	// Store the application state
-	err = m.dataLayer.StoreApplicationState(ctx, appState)
+	// Store the application state and WASM bytecode
+	versionID := sha256.Sum256(append(appState.StateRoot, wasmBytes...))
+	err = m.dataLayer.Store(
+		ctx,
+		versionID[:],
+		&[]common.ApplicationState{*appState},
+		&[]common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: wasmBytes}},
+	)
 	if err != nil {
-		return fmt.Errorf("failed to persist application state: %w", err)
-	}
-
-	// Store the WASM bytecode
-	err = m.dataLayer.StoreWASMBytecode(ctx, appState.ApplicationID, wasmBytes)
-	if err != nil {
-		return fmt.Errorf("failed to persist WASM bytecode: %w", err)
+		return fmt.Errorf("failed to persist application data: %w", err)
 	}
 
 	// TODO: Submit the deployment confirmation to the blockchain
@@ -188,7 +189,13 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Store the updated application state
-	err = m.dataLayer.StoreApplicationState(ctx, updatedState)
+	versionID := sha256.Sum256(updatedState.StateRoot)
+	err = m.dataLayer.Store(
+		ctx,
+		versionID[:],
+		&[]common.ApplicationState{*updatedState},
+		nil,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to persist application state: %w", err)
 	}
