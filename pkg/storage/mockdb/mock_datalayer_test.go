@@ -33,7 +33,7 @@ func TestApplicationStateStore(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 
-		expectedState := &common.ApplicationState{
+		expectedState := common.ApplicationState{
 			ApplicationID:  "app-test-id-1",
 			StateRoot:      []byte("some-test-root-hash-1"),
 			EncryptedState: []byte{0x0A, 0x0B, 0x0C, 0x0D},
@@ -43,15 +43,15 @@ func TestApplicationStateStore(t *testing.T) {
 		err := store.Store(
 			ctx,
 			[]byte("version-1"),
-			&[]common.ApplicationState{*expectedState},
-			&[]common.WASMData{{ApplicationID: expectedState.ApplicationID, Bytecode: expectedBytecode}},
+			[]*common.ApplicationState{&expectedState},
+			[]*common.WASMData{{ApplicationID: expectedState.ApplicationID, Bytecode: expectedBytecode}},
 		)
 		require.NoError(t, err, "Store should not error")
 
 		actualState, err := store.GetApplicationState(ctx, expectedState.ApplicationID)
 		require.NoError(t, err, "GetApplicationState for existing ID should not error")
 		require.NotNil(t, actualState, "GetApplicationState should return a non-nil state")
-		if diff := cmp.Diff(expectedState, actualState); diff != "" {
+		if diff := cmp.Diff(&expectedState, actualState); diff != "" {
 			t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
 		}
 
@@ -196,7 +196,7 @@ func TestApplicationStateStore(t *testing.T) {
 		numGoroutines := 50
 
 		// Test concurrent writes
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -205,14 +205,14 @@ func TestApplicationStateStore(t *testing.T) {
 					ApplicationID: appID,
 					StateRoot:     []byte(fmt.Sprintf("root-%d", i)),
 				}
-				err := store.Store(ctx, []byte(fmt.Sprintf("version-%d", i)), &[]common.ApplicationState{state}, nil)
+				err := store.Store(ctx, []byte(fmt.Sprintf("version-%d", i)), []*common.ApplicationState{&state}, nil)
 				assert.NoError(t, err)
 			}(i)
 		}
 		wg.Wait()
 
 		// Test concurrent reads
-		for i := 0; i < numGoroutines; i++ {
+		for i := range numGoroutines {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -224,5 +224,63 @@ func TestApplicationStateStore(t *testing.T) {
 			}(i)
 		}
 		wg.Wait()
+	})
+
+	t.Run("StoreArays", func(t *testing.T) {
+		ctx := context.Background()
+		dataLayer := mockdb.NewMockDataLayer()
+
+		// 1. Define non-trivial arrays for states and WASM data
+		stateArray := []*common.ApplicationState{
+			{
+				ApplicationID:  "app1",
+				StateRoot:      []byte("root1"),
+				EncryptedState: []byte("state1"),
+			},
+			{
+				ApplicationID:  "app2",
+				StateRoot:      []byte("root2"),
+				EncryptedState: []byte("state2"),
+			},
+		}
+
+		wasmArray := []*common.WASMData{
+			{
+				ApplicationID: "app1",
+				Bytecode:      []byte("wasm1"),
+			},
+			{
+				ApplicationID: "app3", // Use a different app ID to test wasm-only storage
+				Bytecode:      []byte("wasm3"),
+			},
+		}
+
+		versionID := []byte("test-version-1")
+
+		// 2. Call the Store method
+		err := dataLayer.Store(ctx, versionID, stateArray, wasmArray)
+		require.NoError(t, err, "Store should not return an error")
+
+		// 3. Verify ApplicationStates were stored correctly
+		for _, expectedState := range stateArray {
+			actualState, err := dataLayer.GetApplicationState(ctx, expectedState.ApplicationID)
+			require.NoError(t, err, "GetApplicationState for %s should not return an error", expectedState.ApplicationID)
+			assert.Equal(t, expectedState, actualState, "Stored state for %s does not match", expectedState.ApplicationID)
+		}
+
+		// 4. Verify WASMData were stored correctly
+		for _, expectedWasm := range wasmArray {
+			actualWasm, err := dataLayer.GetWASMBytecode(ctx, expectedWasm.ApplicationID)
+			require.NoError(t, err, "GetWASMBytecode for %s should not return an error", expectedWasm.ApplicationID)
+			assert.Equal(t, expectedWasm.Bytecode, actualWasm, "Stored WASM for %s does not match", expectedWasm.ApplicationID)
+		}
+
+		// 5. Verify that an app with only WASM data has no state
+		_, err = dataLayer.GetApplicationState(ctx, "app3")
+		assert.Error(t, err, "GetApplicationState for app3 should return an error as it has no state")
+
+		// 6. Verify that an app with only state data has no WASM
+		_, err = dataLayer.GetWASMBytecode(ctx, "app2")
+		assert.Error(t, err, "GetWASMBytecode for app2 should return an error as it has no WASM")
 	})
 }

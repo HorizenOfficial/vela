@@ -25,7 +25,7 @@ type Config struct {
 
 	// DataLayerType specifies the database implementation to use. Supported values: "versioned_leveldb", "mockdb".
 	DataLayerType string
-	// DataLayerDBPath is the full file path for the database.
+	// DataLayerDBPath is the path for the database. For "versioned_leveldb", this is a base directory.
 	DataLayerDBPath string
 	// DataLayerNumOfVersions specifies how many historical versions to keep. Only used by "versioned_leveldb".
 	DataLayerNumOfVersions int
@@ -41,7 +41,7 @@ func DefaultConfig() *Config {
 			"url": "localhost:8080",
 		},
 		DataLayerType:          "versioned_leveldb",
-		DataLayerDBPath:        "/tmp/horizen-pes-data/manager.db",
+		DataLayerDBPath:        "/tmp/horizen-pes-data/manager_db",
 		DataLayerNumOfVersions: 10, // useful only for versioned leveldb
 	}
 }

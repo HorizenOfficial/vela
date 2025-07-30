@@ -42,8 +42,8 @@ func (d *MockDataLayer) checkClosed() error {
 func (d *MockDataLayer) Store(
 	ctx context.Context,
 	versionID []byte,
-	stateArray *[]common.ApplicationState,
-	wasmArray *[]common.WASMData,
+	stateArray []*common.ApplicationState,
+	wasmArray []*common.WASMData,
 ) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -51,16 +51,12 @@ func (d *MockDataLayer) Store(
 		return err
 	}
 
-	if stateArray != nil {
-		for _, state := range *stateArray {
-			d.states[state.ApplicationID] = &state
-		}
+	for _, state := range stateArray {
+		d.states[state.ApplicationID] = state
 	}
 
-	if wasmArray != nil {
-		for _, wasm := range *wasmArray {
-			d.bytecode[wasm.ApplicationID] = wasm.Bytecode
-		}
+	for _, wasm := range wasmArray {
+		d.bytecode[wasm.ApplicationID] = wasm.Bytecode
 	}
 
 	return nil
@@ -166,3 +162,4 @@ var _ storage.ApplicationStateStore = (*MockDataLayer)(nil)
 var _ storage.ApplicationUserKeyStore = (*MockDataLayer)(nil)
 var _ storage.ApplicationReportStore = (*MockDataLayer)(nil)
 
+var _ storage.DataLayer = (*MockDataLayer)(nil)

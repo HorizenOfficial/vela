@@ -50,7 +50,7 @@ func TestCreateDataLayer(t *testing.T) {
 		require.NotNil(t, dl)
 
 		// Check that the concrete type is correct
-		_, ok := dl.(*versionedDb.VersionedLevelDBDataLayer)
+		_, ok := dl.(*versionedDb.LevelDBDataLayer)
 		assert.True(t, ok, "Expected a *versionedDb.VersionedLevelDBDataLayer instance")
 
 		// Verify that the database directory was created

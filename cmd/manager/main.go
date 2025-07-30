@@ -30,18 +30,14 @@ func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
 
 	switch config.DataLayerType {
 	case "versioned_leveldb":
-		// TODO: Rework this to implement the full storage.DataLayer interface
-		return nil, fmt.Errorf("versioned_leveldb is not supported yet")
-		/*
-			cfg := versionedDb.VersionedLevelDBConfig{
-				DBPath:         config.DataLayerDBPath,
-				VersionsToKeep: config.DataLayerNumOfVersions,
-			}
-			dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
-			}
-		*/
+		cfg := versionedDb.VersionedLevelDBConfig{
+			DBPath:         config.DataLayerDBPath,
+			VersionsToKeep: config.DataLayerNumOfVersions,
+		}
+		dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
+		}
 	default:
 		return nil, fmt.Errorf("unknown data layer type: %s", config.DataLayerType)
 	}

@@ -11,8 +11,8 @@ type ApplicationStateStore interface {
 	Store(
 		ctx context.Context,
 		versionID []byte,
-		stateArray *[]common.ApplicationState,
-		wasmArray *[]common.WASMData,
+		stateArray []*common.ApplicationState,
+		wasmArray []*common.WASMData,
 	) error
 
 	// Rollbacks to the given version

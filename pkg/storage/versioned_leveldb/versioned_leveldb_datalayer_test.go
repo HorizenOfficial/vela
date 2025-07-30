@@ -39,22 +39,22 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestVersionedLevelDBDataLayer(t *testing.T) {
-	createStore := func(t *testing.T, dbPath string, versionsToKeep int) *versionedDb.VersionedLevelDBDataLayer {
-		cfg := versionedDb.VersionedLevelDBConfig{
-			DBPath:         dbPath,
-			VersionsToKeep: versionsToKeep,
-		}
-		dl, err := versionedDb.NewVersionedLevelDBDataLayer(cfg)
-		require.NoError(t, err, "Failed to create VersionedLevelDBDataLayer instance")
-
-		t.Cleanup(func() {
-			require.NoError(t, dl.Close(), "Closing Versioned LevelDB store should not error during cleanup")
-		})
-
-		return dl
+func createStore(t *testing.T, dbPath string, versionsToKeep int) *versionedDb.LevelDBDataLayer {
+	cfg := versionedDb.VersionedLevelDBConfig{
+		DBPath:         dbPath,
+		VersionsToKeep: versionsToKeep,
 	}
+	dl, err := versionedDb.NewVersionedLevelDBDataLayer(cfg)
+	require.NoError(t, err, "Failed to create VersionedLevelDBDataLayer instance")
 
+	t.Cleanup(func() {
+		require.NoError(t, dl.Close(), "Closing Versioned LevelDB store should not error during cleanup")
+	})
+
+	return dl
+}
+
+func TestVersionedLevelDBDataLayer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -97,17 +97,18 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		expectedState := &common.ApplicationState{
+		expectedState := common.ApplicationState{
 			ApplicationID:  "versioned-leveldb-app-id-1",
 			StateRoot:      []byte("versioned-leveldb-root-hash-1"),
 			EncryptedState: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
 		}
-		err = store.StoreApplicationState(ctx, expectedState)
-		require.NoError(t, err, "StoreApplicationState should not return an error")
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(expectedState.ApplicationID), expectedState.StateRoot)
+		err = store.Store(ctx, versionID, []*common.ApplicationState{&expectedState}, nil)
+		require.NoError(t, err, "Store should not return an error")
 		actualState, err := store.GetApplicationState(ctx, expectedState.ApplicationID)
 		require.NoError(t, err, "GetApplicationState for existing ID should not return an error")
 		require.NotNil(t, actualState, "GetApplicationState should return a non-nil state")
-		if diff := cmp.Diff(expectedState, actualState); diff != "" {
+		if diff := cmp.Diff(&expectedState, actualState); diff != "" {
 			t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -136,8 +137,13 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		appID := "versioned-leveldb-wasm-app-id-1"
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04}
-		err = store.StoreWASMBytecode(ctx, appID, expectedBytecode)
-		require.NoError(t, err, "StoreWASMBytecode should not return an error")
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), expectedBytecode)
+		wasm := common.WASMData{
+			ApplicationID: appID,
+			Bytecode:      expectedBytecode,
+		}
+		err = store.Store(ctx, versionID, nil, []*common.WASMData{&wasm})
+		require.NoError(t, err, "Store should not return an error")
 		actualBytecode, err := store.GetWASMBytecode(ctx, appID)
 		require.NoError(t, err, "GetWASMBytecode for existing ID should not return an error")
 		require.NotNil(t, actualBytecode, "GetWASMBytecode should return non-nil bytecode")
@@ -242,15 +248,12 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 				_, err := store.GetApplicationState(ctx, "any-id")
 				return err
 			},
-			"StoreApplicationState": func() error {
-				return store.StoreApplicationState(ctx, &common.ApplicationState{ApplicationID: "test-after-close"})
+			"Store": func() error {
+				return store.Store(ctx, []byte("version"), []*common.ApplicationState{{ApplicationID: "test-after-close"}}, nil)
 			},
 			"GetWASMBytecode": func() error {
 				_, err := store.GetWASMBytecode(ctx, "any-id")
 				return err
-			},
-			"StoreWASMBytecode": func() error {
-				return store.StoreWASMBytecode(ctx, "any-id", []byte("bytecode"))
 			},
 			"GetDeanonymizationReport": func() error {
 				_, err := store.GetDeanonymizationReport(ctx, "any-id")
@@ -306,8 +309,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		for i := range largeValue {
 			largeValue[i] = byte(i % 256)
 		}
-
-		err = store.StoreWASMBytecode(ctx, "large-value-app", largeValue)
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte("large-value-app"), largeValue)
+		err = store.Store(ctx, versionID, nil, []*common.WASMData{{ApplicationID: "large-value-app", Bytecode: largeValue}})
 		require.NoError(t, err, "Storing a large value should not produce an error")
 
 		retrievedValue, err := store.GetWASMBytecode(ctx, "large-value-app")
@@ -332,13 +335,14 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		dl1, err := versionedDb.NewVersionedLevelDBDataLayer(cfg)
 		require.NoError(t, err, "Failed to create first VersionedLevelDBDataLayer instance")
 
-		expectedState := &common.ApplicationState{
+		expectedState := common.ApplicationState{
 			ApplicationID:  "persistent-app-id",
 			StateRoot:      []byte("persistent-root-hash"),
 			EncryptedState: []byte{0x0A, 0x0B, 0x0C, 0x0D, 0x0E},
 		}
-		err = dl1.StoreApplicationState(ctx, expectedState)
-		require.NoError(t, err, "StoreApplicationState on first instance should not return an error")
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(expectedState.ApplicationID), expectedState.StateRoot)
+		err = dl1.Store(ctx, versionID, []*common.ApplicationState{&expectedState}, nil)
+		require.NoError(t, err, "Store on first instance should not return an error")
 
 		// Close the first instance
 		require.NoError(t, dl1.Close(), "Closing first DB instance should not error")
@@ -352,7 +356,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		actualState, err := dl2.GetApplicationState(ctx, expectedState.ApplicationID)
 		require.NoError(t, err, "GetApplicationState on second instance should not return an error")
 		require.NotNil(t, actualState, "GetApplicationState on second instance should return a non-nil state")
-		if diff := cmp.Diff(expectedState, actualState); diff != "" {
+		if diff := cmp.Diff(&expectedState, actualState); diff != "" {
 			t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -373,17 +377,18 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		appID := "persistent-app-id-versions"
 		// Store 15 versions
 		for i := 0; i < 15; i++ {
-			state := &common.ApplicationState{
+			state := common.ApplicationState{
 				ApplicationID:  appID,
 				StateRoot:      []byte(fmt.Sprintf("root-hash-%d", i)),
 				EncryptedState: []byte{byte(i)},
 			}
-			err := dl1.StoreApplicationState(ctx, state)
-			require.NoError(t, err, "StoreApplicationState on first instance should not return an error")
+			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+			err := dl1.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
+			require.NoError(t, err, "Store on first instance should not return an error")
 		}
 
 		// We should have 10 versions now
-		require.Equal(t, 10, dl1.NumberOfVersions())
+		require.Equal(t, 10, dl1.GetAdapter_ForTest().NumberOfVersions())
 
 		// Close the first instance
 		require.NoError(t, dl1.Close(), "Closing first DB instance should not error")
@@ -393,19 +398,20 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		defer dl2.Close()
 
 		// The number of versions should still be 10 because pruning only happens on write
-		require.Equal(t, 10, dl2.NumberOfVersions())
+		require.Equal(t, 10, dl2.GetAdapter_ForTest().NumberOfVersions())
 
 		// Store one more version, this should trigger pruning
-		state := &common.ApplicationState{
+		state := common.ApplicationState{
 			ApplicationID:  appID,
 			StateRoot:      []byte("root-hash-15"),
 			EncryptedState: []byte{15},
 		}
-		err = dl2.StoreApplicationState(ctx, state)
-		require.NoError(t, err, "StoreApplicationState on second instance should not return an error")
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+		err = dl2.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
+		require.NoError(t, err, "Store on second instance should not return an error")
 
 		// Now we should have 5 versions
-		require.Equal(t, 5, dl2.NumberOfVersions())
+		require.Equal(t, 5, dl2.GetAdapter_ForTest().NumberOfVersions())
 	})
 
 	t.Run("ReopenWithMoreVersionsToKeep", func(t *testing.T) {
@@ -425,13 +431,14 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		var prunedVersionID []byte
 		// Store 10 versions
 		for i := 0; i < 10; i++ {
-			state := &common.ApplicationState{
+			state := common.ApplicationState{
 				ApplicationID:  appID,
 				StateRoot:      []byte(fmt.Sprintf("root-hash-%d", i)),
 				EncryptedState: []byte{byte(i)},
 			}
-			err := dl1.StoreApplicationState(ctx, state)
-			require.NoError(t, err, "StoreApplicationState on first instance should not return an error")
+			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+			err := dl1.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
+			require.NoError(t, err, "Store on first instance should not return an error")
 
 			if i == 0 {
 				// Capture the version ID of the first state, which will be pruned.
@@ -442,7 +449,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 
 		// We should have 5 versions now
-		require.Equal(t, 5, dl1.NumberOfVersions())
+		require.Equal(t, 5, dl1.GetAdapter_ForTest().NumberOfVersions())
 
 		// Close the first instance
 		require.NoError(t, dl1.Close(), "Closing first DB instance should not error")
@@ -452,21 +459,22 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		defer dl2.Close()
 
 		// The number of versions should still be 5
-		require.Equal(t, 5, dl2.NumberOfVersions())
+		require.Equal(t, 5, dl2.GetAdapter_ForTest().NumberOfVersions())
 
 		// Store 5 more versions
 		for i := 10; i < 15; i++ {
-			state := &common.ApplicationState{
+			state := common.ApplicationState{
 				ApplicationID:  appID,
 				StateRoot:      []byte(fmt.Sprintf("root-hash-%d", i)),
 				EncryptedState: []byte{byte(i)},
 			}
-			err := dl2.StoreApplicationState(ctx, state)
-			require.NoError(t, err, "StoreApplicationState on second instance should not return an error")
+			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+			err = dl2.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
+			require.NoError(t, err, "Store on second instance should not return an error")
 		}
 
 		// Now we should have 10 versions
-		require.Equal(t, 10, dl2.NumberOfVersions())
+		require.Equal(t, 10, dl2.GetAdapter_ForTest().NumberOfVersions())
 
 		// Attempt to roll back to a version that was pruned by the first instance.
 		// This should fail, as reopening does not resurrect pruned versions.
@@ -491,15 +499,23 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 		// 2. Store first version
 		appID := "rollback-app"
-		state1 := &common.ApplicationState{ApplicationID: appID, StateRoot: []byte("root1")}
-		err = store.StoreApplicationState(ctx, state1)
+		state1 := common.ApplicationState{
+			ApplicationID: appID,
+			StateRoot:     []byte("root1"),
+		}
+		versionID1 := versionedDb.GenerateVersionID_ForTest([]byte(appID), state1.StateRoot)
+		err = store.Store(ctx, versionID1, []*common.ApplicationState{&state1}, nil)
 		require.NoError(t, err)
 		v1, err := store.LastVersionID()
 		require.NoError(t, err)
 
 		// 3. Store second version
-		state2 := &common.ApplicationState{ApplicationID: appID, StateRoot: []byte("root2")}
-		err = store.StoreApplicationState(ctx, state2)
+		state2 := common.ApplicationState{
+			ApplicationID: appID,
+			StateRoot:     []byte("root2"),
+		}
+		versionID2 := versionedDb.GenerateVersionID_ForTest([]byte(appID), state2.StateRoot)
+		err = store.Store(ctx, versionID2, []*common.ApplicationState{&state2}, nil)
 		require.NoError(t, err)
 		v2, err := store.LastVersionID()
 		require.NoError(t, err)
@@ -536,84 +552,23 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 	})
 
-	t.Run("StoreApplicationStateTwice", func(t *testing.T) {
+	t.Run("StoreTwice", func(t *testing.T) {
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
-		state := &common.ApplicationState{
+		state := common.ApplicationState{
 			ApplicationID:  "test-app",
 			StateRoot:      []byte("root"),
 			EncryptedState: []byte("state"),
 		}
-
-		err = store.StoreApplicationState(ctx, state)
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(state.ApplicationID), state.StateRoot)
+		err = store.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 		require.NoError(t, err)
 
-		err = store.StoreApplicationState(ctx, state)
-		require.Error(t, err)
-		var storageErr *storageErrors.Error
-		require.True(t, errors.As(err, &storageErr))
-		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
-	})
-
-	t.Run("StoreWASMBytecodeTwice", func(t *testing.T) {
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-
-		appID := "test-app"
-		bytecode := []byte("bytecode")
-
-		err = store.StoreWASMBytecode(ctx, appID, bytecode)
-		require.NoError(t, err)
-
-		err = store.StoreWASMBytecode(ctx, appID, bytecode)
-		require.Error(t, err)
-		var storageErr *storageErrors.Error
-		require.True(t, errors.As(err, &storageErr))
-		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
-	})
-
-	t.Run("StoreDeanonymizationReportTwice", func(t *testing.T) {
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-
-		report := &common.DeanonymizationReport{
-			ReportID: "test-report",
-		}
-
-		err = store.StoreDeanonymizationReport(ctx, report)
-		require.NoError(t, err)
-
-		err = store.StoreDeanonymizationReport(ctx, report)
-		require.Error(t, err)
-		var storageErr *storageErrors.Error
-		require.True(t, errors.As(err, &storageErr))
-		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
-	})
-
-	t.Run("StoreUserKeyTwice", func(t *testing.T) {
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-
-		userID := "test-user"
-		publicKey := []byte("publicKey")
-
-		err = store.StoreUserKey(ctx, userID, publicKey)
-		require.NoError(t, err)
-
-		err = store.StoreUserKey(ctx, userID, publicKey)
+		err = store.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 		require.Error(t, err)
 		var storageErr *storageErrors.Error
 		require.True(t, errors.As(err, &storageErr))
@@ -633,16 +588,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Manually insert corrupted data into the database.
 		key := []byte(versionedDb.TestDeanonymizationReportPrefix + reportID)
 		value := []byte("corrupted-json")
-		versionID := versionedDb.GenerateVersionID_ForTest(key, value)
-		toUpdate := []storage.KeyValuePair{{Key: key, Value: value}}
-		toRemove := [][]byte{}
-		err = store.GetAdapter_ForTest().Update(versionID, toUpdate, toRemove)
+		err = store.LevelDBReportStore.Adapter.Put(key, value)
 		require.NoError(t, err, "Storing corrupted data should not fail")
 
 		// Now, attempt to read the data as a DeanonymizationReport.
-		// Since we used StoreUserKey, the key is prefixed with "userkey_".
-		// GetDeanonymizationReport will look for a key prefixed with "deanon_",
-		// so it should not find the data and return a NotFound error.
 		_, err = store.GetDeanonymizationReport(ctx, reportID)
 		require.Error(t, err, "Expected an error when getting corrupted report")
 	})
@@ -656,13 +605,11 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		appID := "corrupted-app-id"
 
 		// Manually insert corrupted data into the database.
-		err = store.StoreWASMBytecode(ctx, appID, []byte("corrupted-json"))
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), []byte("corrupted-json"))
+		err = store.Store(ctx, versionID, nil, []*common.WASMData{{ApplicationID: appID, Bytecode: []byte("corrupted-json")}})
 		require.NoError(t, err, "Storing corrupted data should not fail")
 
 		// Now, attempt to read the data as an ApplicationState.
-		// Since we used StoreWASMBytecode, the key is prefixed with "wasm_".
-		// GetApplicationState will look for a key prefixed with "appstate_",
-		// so it should not find the data and return a NotFound error.
 		_, err = store.GetApplicationState(ctx, appID)
 		require.Error(t, err, "Expected an error when getting corrupted application state")
 		var notFoundErr *storageErrors.Error
@@ -681,30 +628,32 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
 		sharedID := "shared-id"
-		expectedState := &common.ApplicationState{
+		expectedState := common.ApplicationState{
 			ApplicationID:  sharedID,
 			StateRoot:      []byte("state-root"),
 			EncryptedState: []byte{0x01, 0x02, 0x03},
 		}
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF}
-		expectedReport := &common.DeanonymizationReport{
+		expectedReport := common.DeanonymizationReport{
 			ApplicationID:   sharedID,
 			ReportID:        sharedID, // use the same ID even for the report
 			EncryptedReport: []byte("encrypted-report"),
 		}
 
 		// Store all three data type
-		err = store.StoreApplicationState(ctx, expectedState)
-		require.NoError(t, err, "StoreApplicationState should not return an error")
-		err = store.StoreWASMBytecode(ctx, sharedID, expectedBytecode)
-		require.NoError(t, err, "StoreWASMBytecode should not return an error")
-		err = store.StoreDeanonymizationReport(ctx, expectedReport)
+		versionID1 := versionedDb.GenerateVersionID_ForTest([]byte(sharedID), expectedState.StateRoot)
+		err = store.Store(ctx, versionID1, []*common.ApplicationState{&expectedState}, nil)
+		require.NoError(t, err, "Store should not return an error")
+		versionID2 := versionedDb.GenerateVersionID_ForTest([]byte(sharedID), expectedBytecode)
+		err = store.Store(ctx, versionID2, nil, []*common.WASMData{{ApplicationID: sharedID, Bytecode: expectedBytecode}})
+		require.NoError(t, err, "Store should not return an error")
+		err = store.StoreDeanonymizationReport(ctx, &expectedReport)
 		require.NoError(t, err, "StoreDeanonymizationReport should not return an error")
 
 		// Retrieve and verify ApplicationState
 		actualState, err := store.GetApplicationState(ctx, sharedID)
 		require.NoError(t, err, "GetApplicationState should not return an error")
-		if diff := cmp.Diff(expectedState, actualState); diff != "" {
+		if diff := cmp.Diff(&expectedState, actualState); diff != "" {
 			t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
 		}
 
@@ -716,7 +665,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Retrieve and verify DeanonymizationReport
 		actualReport, err := store.GetDeanonymizationReport(ctx, sharedID)
 		require.NoError(t, err, "GetDeanonymizationReport should not return an error")
-		if diff := cmp.Diff(expectedReport, actualReport); diff != "" {
+		if diff := cmp.Diff(&expectedReport, actualReport); diff != "" {
 			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -728,11 +677,12 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 20)
 
 		// Pre-populate with some data
-		initialState := &common.ApplicationState{
+		initialState := common.ApplicationState{
 			ApplicationID: "initial-app",
 			StateRoot:     []byte("initial-root"),
 		}
-		err = store.StoreApplicationState(ctx, initialState)
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(initialState.ApplicationID), initialState.StateRoot)
+		err = store.Store(ctx, versionID, []*common.ApplicationState{&initialState}, nil)
 		require.NoError(t, err)
 
 		var wg sync.WaitGroup
@@ -744,11 +694,12 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			go func(i int) {
 				defer wg.Done()
 				appID := fmt.Sprintf("concurrent-app-%d", i)
-				state := &common.ApplicationState{
+				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     []byte(fmt.Sprintf("root-%d", i)),
 				}
-				err := store.StoreApplicationState(ctx, state)
+				versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+				err := store.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 				if err != nil {
 					var storageErr *storageErrors.Error
 					if errors.As(err, &storageErr) && storageErr.Code == storageErrors.VersionAlreadyExists {
