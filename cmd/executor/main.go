@@ -17,7 +17,7 @@ func main() {
 	config := executor.DefaultConfig()
 
 	// Create the WASM runtime
-	runtime := executor.NewMockWasmRuntime()
+	runtime := executor.NewMockRuntime()
 
 	// Create the appropriate server based on configuration
 	var server communication.ExecutorServer
