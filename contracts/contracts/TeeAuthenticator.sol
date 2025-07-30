@@ -17,7 +17,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     error TeeIsNotSet();
 
 
-    constructor(address _teeSigner) Ownable(msg.sender) {
+    constructor(address owner, address _teeSigner) Ownable(owner) {
         teeSigner = _teeSigner;
         emit TeeUpdate(address(0), teeSigner);
     }

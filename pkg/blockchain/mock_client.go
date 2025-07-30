@@ -119,11 +119,11 @@ func (c *MockClient) WaitForRequestCompletion(requestID string, timeout time.Dur
 			_, exists := c.pendingRequests[requestID]
 			_, failed := c.failedRequests[requestID]
 			c.mu.RUnlock()
-			if !exists {
-				return nil // Request completed
-			}
 			if failed {
 				return fmt.Errorf("request %s has failed", requestID)
+			}
+			if !exists {
+				return nil // Request completed
 			}
 		case <-timeoutCh:
 			return fmt.Errorf("timeout waiting for request %s to complete", requestID)

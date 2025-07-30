@@ -31,8 +31,8 @@ describe('KeyRegistry Test', function () {
         tx = await keyRegistry.connect(signers[1]).registerPK(key2);
         await tx.wait();
 
-        expect(await keyRegistry.getPK(await signers[0].getAddress())).eql(key1);
-        expect(await keyRegistry.getPK(await signers[1].getAddress())).eql(key2);
+        expect(await keyRegistry.getPK(signers[0])).eql(key1);
+        expect(await keyRegistry.getPK(signers[1])).eql(key2);
     })
 
     it('should emit event', async function () {
@@ -40,7 +40,7 @@ describe('KeyRegistry Test', function () {
 
         await expect( 
             keyRegistry.connect(signers[0]).registerPK(key1)
-        ).to.emit(keyRegistry, "PKRegistered").withArgs(await signers[0].getAddress(), key1);
+        ).to.emit(keyRegistry, "PKRegistered").withArgs(signers[0], key1);
         
     })
 

@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/sha256"
@@ -145,7 +146,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 }
 
 // HandleDeployApp implements the RequestHandler interface
-func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error) {
+func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
 	log.Printf("Executor: Deploying application for request %s", req.RequestID)
 
 	// For deployment, we need to initialize the application with the WASM module
@@ -155,13 +156,13 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Load the module and get initial state
 	initialState, stateRoot, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to load WASM module: %w", err)
+		return nil, nil, fmt.Errorf("failed to load WASM module: %w", err)
 	}
 
 	// Encrypt the initial state
 	encryptedState, err := crypto.EncryptWithAES(e.config.StateKey, initialState)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to encrypt initial application state: %w", err)
+		return nil, nil, fmt.Errorf("failed to encrypt initial application state: %w", err)
 	}
 	log.Printf("Executor: Successfully encrypted initial application state")
 
@@ -183,12 +184,12 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Sign the update payload (produce attestation)
 	signature, err := e.signUpdatePayload(updatePayload)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to sign update payload: %w", err)
+		return nil, nil, fmt.Errorf("failed to sign update payload: %w", err)
 	}
 	updatePayload.Signature = signature
 
 	log.Printf("Executor: Successfully deployed application %s", req.ApplicationID)
-	return updatePayload, appState, wasmModule, nil
+	return updatePayload, appState, nil
 }
 
 // HandleGenerateDeanonymizationReport implements the RequestHandler interface
@@ -202,7 +203,8 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	}
 
 	// Verify state consistency
-	if sha256.Sum256(decryptedState) != [32]byte(appState.StateRoot) {
+	hash := sha256.Sum256(decryptedState)
+	if !bytes.Equal(hash[:], appState.StateRoot) {
 		return nil, fmt.Errorf("state root mismatch: got %x, want %x", decryptedState, appState.StateRoot)
 	}
 

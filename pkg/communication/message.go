@@ -80,8 +80,6 @@ type DeployAppResponseData struct {
 	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 	// ApplicationState initialized application state
 	ApplicationState *common.ApplicationState `json:"applicationState"`
-	// WasmModule is the WASM module for the deployed application
-	WasmModule []byte `json:"wasmModule"`
 }
 
 // DeanonymizationRequestData represents data for a deanonymization request message
