@@ -420,7 +420,7 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Mess
 		return
 	}
 
-	updatePayload, appState, wasmModule, err := handler.HandleDeployApp(ctx, reqData.Request)
+	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -432,7 +432,6 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Mess
 		Data: DeployAppResponseData{
 			UpdatePayload:    updatePayload,
 			ApplicationState: appState,
-			WasmModule:       wasmModule,
 		},
 	}
 

@@ -8,7 +8,7 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
-	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/storage/mockdb"
 	"log"
 	"testing"
 	"time"
@@ -19,7 +19,7 @@ type SystemTestSuite struct {
 	manager            manager.Manager
 	executor           executor.Executor
 	blockchainClient   *blockchain.MockClient
-	dataLayer          *storage.MockDataLayer
+	dataLayer          *mockdb.MockDataLayer
 	eventChannel       chan interface{}
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -32,7 +32,7 @@ func NewSystemTestSuite(t *testing.T) *SystemTestSuite {
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
-	dataLayer := storage.NewMockDataLayer()
+	dataLayer := mockdb.NewMockDataLayer()
 
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory("localhost:8080")

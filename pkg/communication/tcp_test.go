@@ -14,7 +14,7 @@ import (
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
 	ProcessRequestFunc                func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
-	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error)
+	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
 	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error)
 }
 
@@ -39,7 +39,7 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 		nil
 }
 
-func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error) {
+func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if m.DeployAppFunc != nil {
 		return m.DeployAppFunc(ctx, req)
 	}
@@ -55,7 +55,6 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 			StateRoot:      []byte("new-state-root"),
 			EncryptedState: []byte("test-encrypted-state"),
 		},
-		[]byte("test-wasm-module"),
 		nil
 }
 
@@ -140,13 +139,12 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	assert.Equal(t, []byte("test-event"), updatePayload.Events[0].EncryptedData)
 
 	// Test HandleDeployApp
-	updatedState, appState2, wasmBytes, err := client.SendDeployApp(ctx, req)
+	updatedState, appState2, err := client.SendDeployApp(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, req.ApplicationID, updatedState.ApplicationID)
 	assert.Equal(t, []byte("new-state-root"), updatedState.NewStateRoot)
 	assert.Equal(t, req.ApplicationID, appState2.ApplicationID)
 	assert.Equal(t, []byte("new-state-root"), appState2.StateRoot)
-	assert.Equal(t, []byte("test-wasm-module"), wasmBytes)
 
 	// Test HandleGenerateDeanonymizationReport
 	report, err := client.SendGenerateDeanonymizationReport(ctx, req, appState, senderKey, wasmModule)
@@ -465,9 +463,9 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			//Value:           0,
 		}
 
-		_, _, wasmBytes, err := client.SendDeployApp(ctx, req)
+		_, appState, err := client.SendDeployApp(ctx, req)
 		require.NoError(t, err, "Deploy request %d should succeed", i)
-		assert.Equal(t, []byte("test-wasm-module"), wasmBytes)
+		assert.Equal(t, []byte("test-encrypted-state"), appState.EncryptedState)
 
 		err = client.Close()
 		require.NoError(t, err, "Close %d should succeed", i)

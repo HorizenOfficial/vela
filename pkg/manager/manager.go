@@ -147,7 +147,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
 	// Deploy the application
-	updatePayload, appState, wasmBytes, err := m.executorClient.SendDeployApp(ctx, req)
+	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to deploy application: %w", err)
 	}
@@ -159,7 +159,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Store the WASM bytecode
-	err = m.dataLayer.StoreWASMBytecode(ctx, appState.ApplicationID, wasmBytes)
+	err = m.dataLayer.StoreWASMBytecode(ctx, appState.ApplicationID, req.Payload)
 	if err != nil {
 		return fmt.Errorf("failed to persist WASM bytecode: %w", err)
 	}

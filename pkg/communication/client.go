@@ -138,7 +138,7 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 }
 
 // SendDeployApp sends a deploy app request and waits for response
-func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, []byte, error) {
+func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: DeployAppRequestMessage,
@@ -149,24 +149,24 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*commo
 
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	if respMsg.Type == ErrorMessage {
 		errorData, _ := extractData[ErrorData](respMsg.Data)
-		return nil, nil, nil, fmt.Errorf("server error: %s", errorData.Message)
+		return nil, nil, fmt.Errorf("server error: %s", errorData.Message)
 	}
 
 	if respMsg.Type != DeployAppResponseMessage {
-		return nil, nil, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+		return nil, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
 	}
 
 	respData, err := extractData[DeployAppResponseData](respMsg.Data)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to extract response data: %w", err)
+		return nil, nil, fmt.Errorf("failed to extract response data: %w", err)
 	}
 
-	return respData.UpdatePayload, respData.ApplicationState, respData.WasmModule, nil
+	return respData.UpdatePayload, respData.ApplicationState, nil
 }
 
 // SendGenerateDeanonymizationReport sends a deanonymization request and waits for response
