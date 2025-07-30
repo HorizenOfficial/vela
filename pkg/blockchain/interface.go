@@ -3,6 +3,7 @@ package blockchain
 
 import (
 	"context"
+	"time"
 
 	"github.com/horizen-pes/pkg/common"
 )
@@ -11,8 +12,8 @@ import (
 type Client interface {
 	// GetPendingRequests gets pending requests from the blockchain
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
-	// MarkRequestCompleted marks a request as completed
-	MarkRequestCompleted(ctx context.Context, requestID string) error
+	// MarkRequestFailed marks a request as failed
+	MarkRequestFailed(ctx context.Context, requestID string) error
 	// SubmitStateUpdate submits a state update to the blockchain
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
 	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
@@ -34,8 +35,16 @@ type TestClient interface {
 	SubscribeToEvents(ctx context.Context, eventCh chan<- interface{}) error
 	// GetApplicationState gets the state of an application
 	GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error)
+	// GetRequestUpdatePayload gets the signature for a request
+	GetRequestUpdatePayload(ctx context.Context, requestID string) ([]byte, error)
 	// GetDeanonymizationReport gets a deanonymization report
 	GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error)
 	// GetWithdrawals gets withdrawal requests
 	GetWithdrawals(ctx context.Context, applicationID string) (*[]common.Withdrawal, error)
+	// WaitForRequestCompletion waits for a specific request to complete within the given timeout.
+	WaitForRequestCompletion(requestID string, timeout time.Duration) error
+	// GetCompletedRequests retrieves all completed requests.
+	GetCompletedRequests() []*common.Request
+	// ClearAllData clears all data in the mock client
+	ClearAllData()
 }
