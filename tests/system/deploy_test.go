@@ -10,7 +10,7 @@ import (
 )
 
 func TestDeployApp(t *testing.T) {
-	suite := NewSystemTestSuite(t)
+	suite := NewSystemTestSuite(t, "mock-runtime")
 	defer suite.Cleanup()
 
 	// 1. Start executor
