@@ -23,11 +23,13 @@ import (
 
 var testLevelDBVersionedBaseDir string
 
+// generateVersionID is a helper function to create a unique version identifier for testing.
 func generateVersionID(suffix string) []byte {
 	hash := sha256.Sum256([]byte("version-" + suffix + "-" + time.Now().String()))
 	return hash[:]
 }
 
+// createTestKVPair is a helper function to create a key-value pair for testing.
 func createTestKVPair(keySuffix, valueSuffix string) storage.KeyValuePair {
 	return storage.KeyValuePair{
 		Key:   []byte("test_key_" + keySuffix),
@@ -35,11 +37,16 @@ func createTestKVPair(keySuffix, valueSuffix string) storage.KeyValuePair {
 	}
 }
 
+// isStorageErrorWithCode is a helper function to check if an error is a
+// specific type of storage error.
 func isStorageErrorWithCode(err error, code string) bool {
 	var se *storageErrors.Error
 	return errors.As(err, &se) && se.Code == code
 }
 
+// TestVersionedLevelDbStorageAdapter is the main test suite for the
+// VersionedLevelDbStorageAdapter. It covers all aspects of the adapter's
+// functionality, including data retrieval, updates, rollbacks, and error handling.
 func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 	createAdapter := func(t *testing.T, versionsToKeep int) storage.VersionedStorage {
 		tempDir, err := os.MkdirTemp(testLevelDBVersionedBaseDir, "adapter-test-")
@@ -366,27 +373,48 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 
 	t.Run("IsEmptyAndNumberOfVersions", func(t *testing.T) {
 		adapter := createAdapter(t, 10)
-		assert.True(t, adapter.IsEmpty(), "Expected empty storage initially")
-		assert.Zero(t, adapter.NumberOfVersions(), "Expected 0 versions initially")
+		empty, err := adapter.IsEmpty()
+		require.NoError(t, err)
+		assert.True(t, empty, "Expected empty storage initially")
+
+		numVersions, err := adapter.NumberOfVersions()
+		require.NoError(t, err)
+		assert.Zero(t, numVersions, "Expected 0 versions initially")
 
 		vID1 := generateVersionID("empty_check_1")
-		err := adapter.Update(vID1, []storage.KeyValuePair{createTestKVPair("e1", "1")}, nil)
+		err = adapter.Update(vID1, []storage.KeyValuePair{createTestKVPair("e1", "1")}, nil)
 		require.NoError(t, err, "Update should succeed")
 
-		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after update")
-		assert.Equal(t, 1, adapter.NumberOfVersions(), "Expected 1 version after update")
+		empty, err = adapter.IsEmpty()
+		require.NoError(t, err)
+		assert.False(t, empty, "Expected non-empty storage after update")
+
+		numVersions, err = adapter.NumberOfVersions()
+		require.NoError(t, err)
+		assert.Equal(t, 1, numVersions, "Expected 1 version after update")
 
 		vID2 := generateVersionID("empty_check_2")
 		err = adapter.Update(vID2, []storage.KeyValuePair{createTestKVPair("e2", "2")}, nil)
 		require.NoError(t, err, "Update should succeed")
 
-		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after second update")
-		assert.Equal(t, 2, adapter.NumberOfVersions(), "Expected 2 versions after second update")
+		empty, err = adapter.IsEmpty()
+		require.NoError(t, err)
+		assert.False(t, empty, "Expected non-empty storage after second update")
+
+		numVersions, err = adapter.NumberOfVersions()
+		require.NoError(t, err)
+		assert.Equal(t, 2, numVersions, "Expected 2 versions after second update")
 
 		err = adapter.Rollback(vID1)
 		require.NoError(t, err, "Rollback should succeed")
-		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after rollback (to 1 version)")
-		assert.Equal(t, 1, adapter.NumberOfVersions(), "Expected 1 version after rollback")
+
+		empty, err = adapter.IsEmpty()
+		require.NoError(t, err)
+		assert.False(t, empty, "Expected non-empty storage after rollback (to 1 version)")
+
+		numVersions, err = adapter.NumberOfVersions()
+		require.NoError(t, err)
+		assert.Equal(t, 1, numVersions, "Expected 1 version after rollback")
 	})
 
 	t.Run("Iterator", func(t *testing.T) {
@@ -438,21 +466,33 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 
 	t.Run("IsEmptyAfterRollbackToLastVersion", func(t *testing.T) {
 		adapter := createAdapter(t, 10)
-		assert.True(t, adapter.IsEmpty(), "Expected empty storage initially")
+		empty, err := adapter.IsEmpty()
+		require.NoError(t, err)
+		assert.True(t, empty, "Expected empty storage initially")
 
 		vID1 := generateVersionID("empty_rb_1")
-		err := adapter.Update(vID1, []storage.KeyValuePair{createTestKVPair("er1", "1")}, nil)
+		err = adapter.Update(vID1, []storage.KeyValuePair{createTestKVPair("er1", "1")}, nil)
 		require.NoError(t, err)
-		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after update")
+
+		empty, err = adapter.IsEmpty()
+		require.NoError(t, err)
+		assert.False(t, empty, "Expected non-empty storage after update")
 
 		// This rollback should leave the DB with one version
 		err = adapter.Rollback(vID1)
 		require.NoError(t, err)
-		assert.False(t, adapter.IsEmpty(), "Expected non-empty storage after rolling back to the only version")
-		assert.Equal(t, 1, adapter.NumberOfVersions(), "Expected 1 version after rollback")
+
+		empty, err = adapter.IsEmpty()
+		require.NoError(t, err)
+		assert.False(t, empty, "Expected non-empty storage after rolling back to the only version")
+
+		numVersions, err := adapter.NumberOfVersions()
+		require.NoError(t, err)
+		assert.Equal(t, 1, numVersions, "Expected 1 version after rollback")
 	})
 }
 
+// sortKVPairs is a helper function to sort a slice of KeyValuePair objects by key.
 func sortKVPairs(pairs []storage.KeyValuePair) {
 	sort.Slice(pairs, func(i, j int) bool {
 		return bytes.Compare(pairs[i].Key, pairs[j].Key) < 0

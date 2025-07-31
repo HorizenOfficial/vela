@@ -55,16 +55,14 @@ func (c *closableStore) checkClosed(storeName string) error {
 	return nil
 }
 
-func (c *closableStore) markClosed() {
+func (c *closableStore) close(closeFunc func() error) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	if c.isClosed {
+		return nil
+	}
 	c.isClosed = true
-}
-
-func (c *closableStore) isAlreadyClosed() bool {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
-	return c.isClosed
+	return closeFunc()
 }
 
 // VersionedLevelDBAppStateStore is a versioned store for application state.
@@ -181,11 +179,7 @@ func (vdl *VersionedLevelDBAppStateStore) ListVersions() ([][]byte, error) {
 }
 
 func (vdl *VersionedLevelDBAppStateStore) Close() error {
-	if vdl.isAlreadyClosed() {
-		return nil
-	}
-	vdl.markClosed()
-	return vdl.adapter.Close()
+	return vdl.close(vdl.adapter.Close)
 }
 
 // adapter returns the underlying VersionedLevelDbStorageAdapter instance. This is intended for testing purposes only.
@@ -280,11 +274,7 @@ func (s *LevelDBUserKeyStore) GetUserKey(ctx context.Context, userID string) ([]
 }
 
 func (s *LevelDBUserKeyStore) Close() error {
-	if s.isAlreadyClosed() {
-		return nil
-	}
-	s.markClosed()
-	return s.Adapter.Close()
+	return s.close(s.Adapter.Close)
 }
 
 var _ storage.ApplicationUserKeyStore = (*LevelDBUserKeyStore)(nil)
@@ -340,11 +330,7 @@ func (s *LevelDBReportStore) GetDeanonymizationReport(ctx context.Context, repor
 }
 
 func (s *LevelDBReportStore) Close() error {
-	if s.isAlreadyClosed() {
-		return nil
-	}
-	s.markClosed()
-	return s.Adapter.Close()
+	return s.close(s.Adapter.Close)
 }
 
 var _ storage.ApplicationReportStore = (*LevelDBReportStore)(nil)

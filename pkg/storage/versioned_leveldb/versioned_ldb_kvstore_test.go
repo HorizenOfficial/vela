@@ -17,6 +17,9 @@ import (
 	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
 
+// createKVStore is a helper function that sets up a new VersionedLDBKVStore
+// for testing. It creates a temporary directory for the LevelDB database and
+// returns the store instance and a cleanup function to be called with defer.
 func createKVStore(t *testing.T, versionsToKeep int) (*versioned_leveldb.VersionedLDBKVStore, func()) {
 	tempDir, err := os.MkdirTemp("", "kvstore-test-")
 	require.NoError(t, err)
@@ -34,6 +37,8 @@ func createKVStore(t *testing.T, versionsToKeep int) (*versioned_leveldb.Version
 	return kvStore, cleanup
 }
 
+// TestVersionedLDBKVStore tests the core functionality of the VersionedLDBKVStore,
+// including updates, rollbacks, version management, and error handling.
 func TestVersionedLDBKVStore(t *testing.T) {
 	t.Run("UpdateWithInvalidVersionIDSize", func(t *testing.T) {
 		kvStore, cleanup := createKVStore(t, 10)
@@ -309,6 +314,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 	})
 }
 
+// TestChangeSetSerializer tests the serialization and deserialization of ChangeSet objects.
 func TestChangeSetSerializer(t *testing.T) {
 	t.Run("ToBytesAndParseBytes", func(t *testing.T) {
 		serializer := versioned_leveldb.ChangeSetSerializer{}

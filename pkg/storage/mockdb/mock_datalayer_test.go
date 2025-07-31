@@ -16,11 +16,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestNewMockDataLayer verifies that the constructor for MockDataLayer returns a non-nil instance.
 func TestNewMockDataLayer(t *testing.T) {
 	dl := mockdb.NewMockDataLayer()
 	assert.NotNil(t, dl, "NewMockDataLayer should return a non-nil instance")
 }
 
+// TestApplicationStateStore tests the full functionality of the MockDataLayer,
+// covering all the methods of the ApplicationStateStore, ApplicationUserKeyStore,
+// and ApplicationReportStore interfaces. It checks for correct data storage and
+// retrieval, error handling for non-existent data, behavior after closing the store,
+// and concurrent access.
 func TestApplicationStateStore(t *testing.T) {
 	createStore := func() *mockdb.MockDataLayer {
 		return mockdb.NewMockDataLayer()

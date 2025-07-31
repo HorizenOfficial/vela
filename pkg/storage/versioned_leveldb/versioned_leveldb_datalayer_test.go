@@ -23,6 +23,8 @@ import (
 
 var testVersionedLevelDBBaseDir string
 
+// TestMain sets up a temporary base directory for all VersionedLevelDBDataLayer
+// integration tests and cleans it up after all tests in the package have run.
 func TestMain(m *testing.M) {
 	fmt.Println("Running TestMain setup for VersionedLevelDBDataLayer integration tests...")
 	var err error
@@ -40,6 +42,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// createStore is a helper function that creates a new LevelDBDataLayer instance
+// for testing. It takes a database path and the number of versions to keep,
+// and ensures that the store is closed and cleaned up after the test.
 func createStore(t *testing.T, dbPath string, versionsToKeep int) *versionedDb.LevelDBDataLayer {
 	cfg := versionedDb.VersionedLevelDBConfig{
 		DBPath:         dbPath,
@@ -55,6 +60,9 @@ func createStore(t *testing.T, dbPath string, versionsToKeep int) *versionedDb.L
 	return dl
 }
 
+// TestVersionedLevelDBDataLayer is the main test suite for the LevelDBDataLayer.
+// It covers all aspects of the data layer's functionality, including data
+// persistence, versioning, error handling, and concurrency.
 func TestVersionedLevelDBDataLayer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -390,7 +398,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 
 		// We should have 10 versions now
-		require.Equal(t, 10, dl1.GetAdapter_ForTest().NumberOfVersions())
+		numVersions, err := dl1.GetAdapter_ForTest().NumberOfVersions()
+		require.NoError(t, err)
+		require.Equal(t, 10, numVersions)
 
 		// Close the first instance
 		require.NoError(t, dl1.Close(), "Closing first DB instance should not error")
@@ -400,7 +410,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		defer dl2.Close()
 
 		// The number of versions should still be 10 because pruning only happens on write
-		require.Equal(t, 10, dl2.GetAdapter_ForTest().NumberOfVersions())
+		numVersions, err = dl2.GetAdapter_ForTest().NumberOfVersions()
+		require.NoError(t, err)
+		require.Equal(t, 10, numVersions)
 
 		// Store one more version, this should trigger pruning
 		state := common.ApplicationState{
@@ -413,7 +425,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		require.NoError(t, err, "Store on second instance should not return an error")
 
 		// Now we should have 5 versions
-		require.Equal(t, 5, dl2.GetAdapter_ForTest().NumberOfVersions())
+		numVersions, err = dl2.GetAdapter_ForTest().NumberOfVersions()
+		require.NoError(t, err)
+		require.Equal(t, 5, numVersions)
 	})
 
 	t.Run("ReopenWithMoreVersionsToKeep", func(t *testing.T) {
@@ -451,7 +465,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 
 		// We should have 5 versions now
-		require.Equal(t, 5, dl1.GetAdapter_ForTest().NumberOfVersions())
+		numVersions, err := dl1.GetAdapter_ForTest().NumberOfVersions()
+		require.NoError(t, err)
+		require.Equal(t, 5, numVersions)
 
 		// Close the first instance
 		require.NoError(t, dl1.Close(), "Closing first DB instance should not error")
@@ -461,7 +477,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		defer dl2.Close()
 
 		// The number of versions should still be 5
-		require.Equal(t, 5, dl2.GetAdapter_ForTest().NumberOfVersions())
+		numVersions, err = dl2.GetAdapter_ForTest().NumberOfVersions()
+		require.NoError(t, err)
+		require.Equal(t, 5, numVersions)
 
 		// Store 5 more versions
 		for i := 10; i < 15; i++ {
@@ -476,7 +494,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 
 		// Now we should have 10 versions
-		require.Equal(t, 10, dl2.GetAdapter_ForTest().NumberOfVersions())
+		numVersions, err = dl2.GetAdapter_ForTest().NumberOfVersions()
+		require.NoError(t, err)
+		require.Equal(t, 10, numVersions)
 
 		// Attempt to roll back to a version that was pruned by the first instance.
 		// This should fail, as reopening does not resurrect pruned versions.
@@ -489,6 +509,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("ListVersions", func(t *testing.T) {
+		// Verifies that ListVersions returns the correct number of versions in the
+		// correct order (newest first).
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
@@ -548,6 +570,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("RollbackAndLastVersionID", func(t *testing.T) {
+		// Tests the Rollback functionality and verifies that LastVersionID is
+		// updated correctly after a rollback.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "rollback-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
@@ -614,6 +638,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("StoreTwice", func(t *testing.T) {
+		// Verifies that attempting to store the same version ID twice results in
+		// a 'VersionAlreadyExists' error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
@@ -658,6 +684,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("GetApplicationStateWithCorruptedData", func(t *testing.T) {
+		// Verifies that attempting to retrieve an application state that has been
+		// manually corrupted (e.g., invalid JSON) results in an error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "corrupted-data-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
@@ -732,6 +760,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("StoreNilEntryShouldFail", func(t *testing.T) {
+		// Verifies that attempting to store a nil entry in the state or wasm arrays
+		// results in an error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "nil-entry-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
@@ -756,6 +786,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("ConcurrentReadWrite", func(t *testing.T) {
+		// Tests the behavior of the data layer under concurrent read and write
+		// operations to ensure thread safety.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "concurrency-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
