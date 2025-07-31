@@ -61,6 +61,57 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
 	})
 
+	t.Run("RollbackTo", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := leveldb.OpenFile(filepath.Join(dir, "testdb"), nil)
+		require.NoError(t, err)
+		defer db.Close()
+
+		store := versioned_leveldb.NewVersionedLDBKVStore(db, 10)
+
+		// v1
+		v1 := sha256.Sum256([]byte("v1"))
+		err = store.Update([]storage.KeyValuePair{{Key: []byte("k1"), Value: []byte("v1")}}, nil, v1[:])
+		require.NoError(t, err)
+
+		// v2
+		v2 := sha256.Sum256([]byte("v2"))
+		err = store.Update([]storage.KeyValuePair{{Key: []byte("k2"), Value: []byte("v2")}}, nil, v2[:])
+		require.NoError(t, err)
+
+		// v3
+		v3 := sha256.Sum256([]byte("v3"))
+		err = store.Update([]storage.KeyValuePair{{Key: []byte("k3"), Value: []byte("v3")}}, nil, v3[:])
+		require.NoError(t, err)
+
+		// Sanity check: all keys should exist
+		val, err := db.Get([]byte("k1"), nil)
+		require.NoError(t, err)
+		require.Equal(t, []byte("v1"), val)
+
+		val, err = db.Get([]byte("k2"), nil)
+		require.NoError(t, err)
+		require.Equal(t, []byte("v2"), val)
+
+		val, err = db.Get([]byte("k3"), nil)
+		require.NoError(t, err)
+		require.Equal(t, []byte("v3"), val)
+
+		// Rollback to v2
+		err = store.RollbackTo(v2[:])
+		require.NoError(t, err)
+
+		// Expected: k1 and k2 present, k3 removed
+		_, err = db.Get([]byte("k1"), nil)
+		require.NoError(t, err, "expected k1 to remain after rollback to v2")
+
+		_, err = db.Get([]byte("k2"), nil)
+		require.NoError(t, err, "expected k2 to remain after rollback to v2")
+
+		_, err = db.Get([]byte("k3"), nil)
+		require.Error(t, err, "expected k3 to be removed after rollback to v2")
+	})
+
 	t.Run("RollbackToNonExistentVersion", func(t *testing.T) {
 		kvStore, cleanup := createKVStore(t, 10)
 		defer cleanup()

@@ -41,11 +41,36 @@ func generateVersionID(key []byte, data []byte) []byte {
 	return h.Sum(nil)
 }
 
+type closableStore struct {
+	isClosed bool
+	mutex    sync.RWMutex
+}
+
+func (c *closableStore) checkClosed(storeName string) error {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	if c.isClosed {
+		return storageErrors.ErrStorageIsClosed(storeName + " is closed")
+	}
+	return nil
+}
+
+func (c *closableStore) markClosed() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.isClosed = true
+}
+
+func (c *closableStore) isAlreadyClosed() bool {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.isClosed
+}
+
 // VersionedLevelDBAppStateStore is a versioned store for application state.
 type VersionedLevelDBAppStateStore struct {
-	adapter  *VersionedLevelDbStorageAdapter
-	isClosed bool
-	mu       sync.RWMutex
+	adapter *VersionedLevelDbStorageAdapter
+	closableStore
 }
 
 func NewVersionedLevelDBAppStateStore(cfg VersionedLevelDBConfig) (*VersionedLevelDBAppStateStore, error) {
@@ -56,29 +81,24 @@ func NewVersionedLevelDBAppStateStore(cfg VersionedLevelDBConfig) (*VersionedLev
 	return &VersionedLevelDBAppStateStore{adapter: adapter}, nil
 }
 
-func (vdl *VersionedLevelDBAppStateStore) checkClosed() error {
-	vdl.mu.RLock()
-	defer vdl.mu.RUnlock()
-	if vdl.isClosed {
-		return storageErrors.ErrStorageIsClosed("Versioned LevelDB data layer is closed")
-	}
-	return nil
-}
-
 func (vdl *VersionedLevelDBAppStateStore) Store(
 	ctx context.Context,
 	versionID []byte,
 	stateArray []*common.ApplicationState,
 	wasmArray []*common.WASMData,
 ) error {
-	if err := vdl.checkClosed(); err != nil {
+	if err := vdl.checkClosed("state store"); err != nil {
 		return err
 	}
-
 	toUpdate := []storage.KeyValuePair{}
 	toRemove := [][]byte{}
 
 	for _, state := range stateArray {
+
+		if state == nil {
+			return fmt.Errorf("application state entry is nil")
+		}
+
 		value, err := json.Marshal(state)
 		if err != nil {
 			return fmt.Errorf("failed to marshal application state: %w", err)
@@ -88,6 +108,10 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 	}
 
 	for _, wasm := range wasmArray {
+		if wasm == nil {
+			return fmt.Errorf("wasm entry is nil")
+		}
+
 		key := []byte(wasmPrefix + wasm.ApplicationID)
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: wasm.Bytecode})
 	}
@@ -100,7 +124,7 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 }
 
 func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error) {
-	if err := vdl.checkClosed(); err != nil {
+	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
 	key := []byte(appStatePrefix + applicationID)
@@ -121,7 +145,7 @@ func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Contex
 }
 
 func (vdl *VersionedLevelDBAppStateStore) GetWASMBytecode(ctx context.Context, applicationID string) ([]byte, error) {
-	if err := vdl.checkClosed(); err != nil {
+	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
 	key := []byte(wasmPrefix + applicationID)
@@ -136,26 +160,31 @@ func (vdl *VersionedLevelDBAppStateStore) GetWASMBytecode(ctx context.Context, a
 }
 
 func (vdl *VersionedLevelDBAppStateStore) Rollback(versionID []byte) error {
-	if err := vdl.checkClosed(); err != nil {
+	if err := vdl.checkClosed("state store"); err != nil {
 		return err
 	}
 	return vdl.adapter.Rollback(versionID)
 }
 
 func (vdl *VersionedLevelDBAppStateStore) LastVersionID() ([]byte, error) {
-	if err := vdl.checkClosed(); err != nil {
+	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
 	return vdl.adapter.LastVersionID()
 }
 
+func (vdl *VersionedLevelDBAppStateStore) ListVersions() ([][]byte, error) {
+	if err := vdl.checkClosed("state store"); err != nil {
+		return nil, err
+	}
+	return vdl.adapter.RollbackVersions()
+}
+
 func (vdl *VersionedLevelDBAppStateStore) Close() error {
-	vdl.mu.Lock()
-	defer vdl.mu.Unlock()
-	if vdl.isClosed {
+	if vdl.isAlreadyClosed() {
 		return nil
 	}
-	vdl.isClosed = true
+	vdl.markClosed()
 	return vdl.adapter.Close()
 }
 
@@ -211,9 +240,8 @@ func (s *LevelDbStorageAdapter) Close() error {
 
 // LevelDBUserKeyStore is a non-versioned store for user keys.
 type LevelDBUserKeyStore struct {
-	Adapter  *LevelDbStorageAdapter
-	isClosed bool
-	mu       sync.RWMutex
+	Adapter *LevelDbStorageAdapter
+	closableStore
 }
 
 func NewLevelDBUserKeyStore(dbPath string) (*LevelDBUserKeyStore, error) {
@@ -224,17 +252,8 @@ func NewLevelDBUserKeyStore(dbPath string) (*LevelDBUserKeyStore, error) {
 	return &LevelDBUserKeyStore{Adapter: adapter}, nil
 }
 
-func (s *LevelDBUserKeyStore) checkClosed() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.isClosed {
-		return storageErrors.ErrStorageIsClosed("LevelDB user key store is closed")
-	}
-	return nil
-}
-
 func (s *LevelDBUserKeyStore) StoreUserKey(ctx context.Context, userID string, publicKey []byte) error {
-	if err := s.checkClosed(); err != nil {
+	if err := s.checkClosed("user key store"); err != nil {
 		return err
 	}
 	key := []byte(userKeyPrefix + userID)
@@ -246,7 +265,7 @@ func (s *LevelDBUserKeyStore) StoreUserKey(ctx context.Context, userID string, p
 }
 
 func (s *LevelDBUserKeyStore) GetUserKey(ctx context.Context, userID string) ([]byte, error) {
-	if err := s.checkClosed(); err != nil {
+	if err := s.checkClosed("user key store"); err != nil {
 		return nil, err
 	}
 	key := []byte(userKeyPrefix + userID)
@@ -261,12 +280,10 @@ func (s *LevelDBUserKeyStore) GetUserKey(ctx context.Context, userID string) ([]
 }
 
 func (s *LevelDBUserKeyStore) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.isClosed {
+	if s.isAlreadyClosed() {
 		return nil
 	}
-	s.isClosed = true
+	s.markClosed()
 	return s.Adapter.Close()
 }
 
@@ -274,9 +291,8 @@ var _ storage.ApplicationUserKeyStore = (*LevelDBUserKeyStore)(nil)
 
 // LevelDBReportStore is a non-versioned store for reports.
 type LevelDBReportStore struct {
-	Adapter  *LevelDbStorageAdapter
-	isClosed bool
-	mu       sync.RWMutex
+	Adapter *LevelDbStorageAdapter
+	closableStore
 }
 
 func NewLevelDBReportStore(dbPath string) (*LevelDBReportStore, error) {
@@ -287,17 +303,8 @@ func NewLevelDBReportStore(dbPath string) (*LevelDBReportStore, error) {
 	return &LevelDBReportStore{Adapter: adapter}, nil
 }
 
-func (s *LevelDBReportStore) checkClosed() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.isClosed {
-		return storageErrors.ErrStorageIsClosed("LevelDB report store is closed")
-	}
-	return nil
-}
-
 func (s *LevelDBReportStore) StoreDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
-	if err := s.checkClosed(); err != nil {
+	if err := s.checkClosed("report store"); err != nil {
 		return err
 	}
 	value, err := json.Marshal(report)
@@ -313,7 +320,7 @@ func (s *LevelDBReportStore) StoreDeanonymizationReport(ctx context.Context, rep
 }
 
 func (s *LevelDBReportStore) GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error) {
-	if err := s.checkClosed(); err != nil {
+	if err := s.checkClosed("report store"); err != nil {
 		return nil, err
 	}
 	key := []byte(deanonymizationReportPrefix + reportID)
@@ -333,12 +340,10 @@ func (s *LevelDBReportStore) GetDeanonymizationReport(ctx context.Context, repor
 }
 
 func (s *LevelDBReportStore) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.isClosed {
+	if s.isAlreadyClosed() {
 		return nil
 	}
-	s.isClosed = true
+	s.markClosed()
 	return s.Adapter.Close()
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -275,6 +276,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				err := op()
 				require.Error(t, err, "Expected an error from a closed store")
+				t.Log("Got an err as expected:", err)
 				var closedErr *storageErrors.Error
 				if assert.True(t, errors.As(err, &closedErr), "Error should be a storage error") {
 					assert.Equal(t, storageErrors.StorageIsClosed, closedErr.Code, "Error code should be StorageIsClosed")
@@ -486,6 +488,65 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 	})
 
+	t.Run("ListVersions", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+		// Initially, there should be no versions
+		versions, err := store.ListVersions()
+		if err != nil {
+			t.Fatalf("ListVersions failed: %v", err)
+		}
+		if len(versions) != 0 {
+			t.Fatalf("expected no versions, got %d", len(versions))
+		}
+
+		// Store two versions
+		v1 := versionedDb.GenerateVersionID_ForTest([]byte("v1"), []byte("d1"))
+		v2 := versionedDb.GenerateVersionID_ForTest([]byte("v2"), []byte("d2"))
+
+		state := []*common.ApplicationState{
+			{
+				ApplicationID:  "app1",
+				StateRoot:      []byte("state1"),
+				EncryptedState: []byte("encs1"),
+			},
+		}
+		wasm := []*common.WASMData{
+			{
+				ApplicationID: "app1",
+				Bytecode:      []byte("wasm1"),
+			},
+		}
+
+		if err := store.Store(ctx, v1, state, wasm); err != nil {
+			t.Fatalf("failed to store v1: %v", err)
+		}
+		if err := store.Store(ctx, v2, state, wasm); err != nil {
+			t.Fatalf("failed to store v2: %v", err)
+		}
+
+		// Check that ListVersions returns them in reverse order (newest first)
+		versions, err = store.ListVersions()
+		if err != nil {
+			t.Fatalf("ListVersions failed: %v", err)
+		}
+
+		if len(versions) != 2 {
+			t.Fatalf("expected 2 versions, got %d", len(versions))
+		}
+
+		if !bytes.Equal(versions[0], v2) {
+			t.Errorf("expected latest version to be %s, got %s", v2, versions[0])
+		}
+		if !bytes.Equal(versions[1], v1) {
+			t.Errorf("expected older version to be %s, got %s", v1, versions[1])
+		}
+	})
+
 	t.Run("RollbackAndLastVersionID", func(t *testing.T) {
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "rollback-test-")
 		require.NoError(t, err)
@@ -668,6 +729,30 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		if diff := cmp.Diff(&expectedReport, actualReport); diff != "" {
 			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)
 		}
+	})
+
+	t.Run("StoreNilEntryShouldFail", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "nil-entry-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+		versionID := []byte("v1")
+		stateArray := []*common.ApplicationState{
+			nil, // <-- this should trigger the error
+		}
+		wasmArray := []*common.WASMData{}
+
+		err = store.Store(context.Background(), versionID, stateArray, wasmArray)
+
+		if err == nil {
+			t.Fatalf("expected error due to nil state entry, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "application state entry is nil") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+
 	})
 
 	t.Run("ConcurrentReadWrite", func(t *testing.T) {
