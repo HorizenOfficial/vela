@@ -164,6 +164,14 @@ func (d *MockDataLayer) LastVersionID() ([]byte, error) {
 	return []byte("mock_version_id"), nil
 }
 
+// ListVersions is a mock implementation of the ListVersions method.
+func (d *MockDataLayer) ListVersions() ([][]byte, error) {
+	return [][]byte{
+		[]byte("mock_version_id1"),
+		[]byte("mock_version_id2"),
+	}, nil
+}
+
 var _ storage.ApplicationStateStore = (*MockDataLayer)(nil)
 var _ storage.ApplicationUserKeyStore = (*MockDataLayer)(nil)
 var _ storage.ApplicationReportStore = (*MockDataLayer)(nil)
