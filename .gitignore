@@ -1,5 +1,15 @@
-# IDE folders
-.idea
-.vscode/
+/.idea/**
+/.vscode/**
+
+/bin/
+/build/
+/dist/
+/*.exe
+
+*.test
+*.out
+*.log
+*.tmp
+TODO.md
 .env
 *.bkp

@@ -107,10 +107,7 @@ func main() {
 	}
 
 	// Create the manager
-	secureProcessorManager, err := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
-	if err != nil {
-		log.Fatalf("Failed to create manager: %v", err)
-	}
+	secureProcessorManager := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
 
 	// Start the manager
 	log.Println("Starting manager...")
