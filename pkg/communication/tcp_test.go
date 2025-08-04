@@ -2,6 +2,7 @@ package communication
 
 import (
 	"context"
+	"crypto/sha256"
 	"os"
 	"testing"
 	"time"
@@ -22,18 +23,19 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 	if m.ProcessRequestFunc != nil {
 		return m.ProcessRequestFunc(ctx, req, appState, senderKey, wasmModule)
 	}
+	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
 			ApplicationID: req.ApplicationID,
 			RequestID:     req.RequestID,
 			PrevStateRoot: appState.StateRoot,
-			NewStateRoot:  []byte("new-state-root"),
+			NewStateRoot:  newStateRoot,
 			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
 			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
 			Signature:     []byte("test-signature"),
 		},
 		&common.ApplicationState{
 			ApplicationID:  req.ApplicationID,
-			StateRoot:      []byte("new-state-root"),
+			StateRoot:      newStateRoot,
 			EncryptedState: []byte("test-encrypted-state"),
 		},
 		nil
@@ -43,16 +45,17 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 	if m.DeployAppFunc != nil {
 		return m.DeployAppFunc(ctx, req)
 	}
+	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
 			ApplicationID: req.ApplicationID,
 			RequestID:     req.RequestID,
-			PrevStateRoot: nil,
-			NewStateRoot:  []byte("new-state-root"),
+			PrevStateRoot: [32]byte{},
+			NewStateRoot:  newStateRoot,
 			Signature:     []byte("test-signature"),
 		},
 		&common.ApplicationState{
 			ApplicationID:  req.ApplicationID,
-			StateRoot:      []byte("new-state-root"),
+			StateRoot:      newStateRoot,
 			EncryptedState: []byte("test-encrypted-state"),
 		},
 		nil
@@ -123,7 +126,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  "test-app",
-		StateRoot:      []byte("test-state-root"),
+		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
 	senderKey := []byte("test-sender-key")
@@ -133,7 +136,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, req.ApplicationID, updatePayload.ApplicationID)
 	assert.Equal(t, appState.StateRoot, updatePayload.PrevStateRoot)
-	assert.Equal(t, []byte("new-state-root"), updatePayload.NewStateRoot)
+	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), updatePayload.NewStateRoot)
 	assert.Len(t, updatePayload.Events, 1)
 	assert.Equal(t, req.ApplicationID, updatePayload.Events[0].ApplicationID)
 	assert.Equal(t, []byte("test-event"), updatePayload.Events[0].EncryptedData)
@@ -142,9 +145,9 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	updatedState, appState2, err := client.SendDeployApp(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, req.ApplicationID, updatedState.ApplicationID)
-	assert.Equal(t, []byte("new-state-root"), updatedState.NewStateRoot)
+	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), updatedState.NewStateRoot)
 	assert.Equal(t, req.ApplicationID, appState2.ApplicationID)
-	assert.Equal(t, []byte("new-state-root"), appState2.StateRoot)
+	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), appState2.StateRoot)
 
 	// Test HandleGenerateDeanonymizationReport
 	report, err := client.SendGenerateDeanonymizationReport(ctx, req, appState, senderKey, wasmModule)
@@ -256,7 +259,7 @@ func TestTCPClientServer_ConcurrentBidirectionalCommunication(t *testing.T) {
 		}
 		appState := &common.ApplicationState{
 			ApplicationID:  "test-app",
-			StateRoot:      []byte("test-state-root"),
+			StateRoot:      sha256.Sum256([]byte("test-state-root")),
 			EncryptedState: []byte("test-encrypted-state"),
 		}
 		senderKey := []byte("test-sender-key")
@@ -331,7 +334,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 		}
 		appState := &common.ApplicationState{
 			ApplicationID:  "test-app",
-			StateRoot:      []byte("test-state-root"),
+			StateRoot:      sha256.Sum256([]byte("test-state-root")),
 			EncryptedState: []byte("test-encrypted-state"),
 		}
 		senderKey := []byte("test-sender-key")
@@ -369,7 +372,7 @@ func TestTCPClientServer_DependantRequests(t *testing.T) {
 			return &common.UpdatePayload{
 				ApplicationID: req.ApplicationID,
 				PrevStateRoot: appState.StateRoot,
-				NewStateRoot:  []byte("new-state-root"),
+				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
 				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
 				Signature:     keys["test-user"],
@@ -410,7 +413,7 @@ func TestTCPClientServer_DependantRequests(t *testing.T) {
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  "test-app",
-		StateRoot:      []byte("test-state-root"),
+		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
 	senderKey := []byte("test-sender-key")
@@ -524,7 +527,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  "test-app",
-		StateRoot:      []byte("test-state-root"),
+		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
 	senderKey := []byte("test-sender-key")
@@ -555,7 +558,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 			return &common.UpdatePayload{
 				ApplicationID: req.ApplicationID,
 				PrevStateRoot: appState.StateRoot,
-				NewStateRoot:  []byte("new-state-root"),
+				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
 				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
 				Signature:     []byte("test-signature"),
@@ -595,7 +598,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  "test-app",
-		StateRoot:      []byte("test-state-root"),
+		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
 	senderKey := []byte("test-sender-key")

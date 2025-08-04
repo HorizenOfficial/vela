@@ -1,11 +1,11 @@
 import { expect } from 'chai'
 import { Signer } from 'ethers';
 import { KeyRegistry } from '../typechain-types';
+import * as crypto from 'crypto';
 
 function _getRandomHexString(length: number): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  const bytes = crypto.randomBytes(length);
+  return '0x' + bytes.toString('hex');
 }
 
 describe('KeyRegistry Test', function () {

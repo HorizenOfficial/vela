@@ -490,6 +490,39 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, numVersions, "Expected 1 version after rollback")
 	})
+
+	t.Run("GetAllWithEmptyDatabase", func(t *testing.T) {
+		adapter := createAdapter(t, 10)
+		allPairs, err := adapter.GetAll()
+		require.NoError(t, err, "GetAll should not error on an empty database")
+		assert.Empty(t, allPairs, "GetAll on an empty database should return an empty slice")
+	})
+
+	t.Run("UpdateWithEmptyPayload", func(t *testing.T) {
+		adapter := createAdapter(t, 10)
+		vID := generateVersionID("empty_payload")
+
+		// An update with no changes should still create a new version.
+		err := adapter.Update(vID, nil, nil)
+		require.NoError(t, err, "Update with nil slices should succeed")
+
+		numVersions, err := adapter.NumberOfVersions()
+		require.NoError(t, err)
+		assert.Equal(t, 1, numVersions, "Should create a version even with empty payload")
+
+		lastID, err := adapter.LastVersionID()
+		require.NoError(t, err)
+		assert.Equal(t, vID, lastID, "The new version ID should be the last one")
+
+		// A second update with empty slices should also succeed.
+		vID2 := generateVersionID("empty_payload_2")
+		err = adapter.Update(vID2, []storage.KeyValuePair{}, [][]byte{})
+		require.NoError(t, err, "Update with empty slices should succeed")
+
+		numVersions, err = adapter.NumberOfVersions()
+		require.NoError(t, err)
+		assert.Equal(t, 2, numVersions, "Should create a second version")
+	})
 }
 
 // sortKVPairs is a helper function to sort a slice of KeyValuePair objects by key.

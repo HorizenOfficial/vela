@@ -3,6 +3,7 @@ package versioned_leveldb_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -108,10 +109,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		expectedState := common.ApplicationState{
 			ApplicationID:  "versioned-leveldb-app-id-1",
-			StateRoot:      []byte("versioned-leveldb-root-hash-1"),
+			StateRoot:      sha256.Sum256([]byte("versioned-leveldb-root-hash-1")),
 			EncryptedState: []byte{0x01, 0x02, 0x03, 0x04, 0x05},
 		}
-		versionID := versionedDb.GenerateVersionID_ForTest([]byte(expectedState.ApplicationID), expectedState.StateRoot)
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(expectedState.ApplicationID), expectedState.StateRoot[:])
 		err = store.Store(ctx, versionID, []*common.ApplicationState{&expectedState}, nil)
 		require.NoError(t, err, "Store should not return an error")
 		actualState, err := store.GetApplicationState(ctx, expectedState.ApplicationID)
@@ -347,10 +348,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 		expectedState := common.ApplicationState{
 			ApplicationID:  "persistent-app-id",
-			StateRoot:      []byte("persistent-root-hash"),
+			StateRoot:      sha256.Sum256([]byte("persistent-root-hash")),
 			EncryptedState: []byte{0x0A, 0x0B, 0x0C, 0x0D, 0x0E},
 		}
-		versionID := versionedDb.GenerateVersionID_ForTest([]byte(expectedState.ApplicationID), expectedState.StateRoot)
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(expectedState.ApplicationID), expectedState.StateRoot[:])
 		err = dl1.Store(ctx, versionID, []*common.ApplicationState{&expectedState}, nil)
 		require.NoError(t, err, "Store on first instance should not return an error")
 
@@ -389,10 +390,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		for i := 0; i < 15; i++ {
 			state := common.ApplicationState{
 				ApplicationID:  appID,
-				StateRoot:      []byte(fmt.Sprintf("root-hash-%d", i)),
+				StateRoot:      sha256.Sum256([]byte(fmt.Sprintf("root-hash-%d", i))),
 				EncryptedState: []byte{byte(i)},
 			}
-			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot[:])
 			err := dl1.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 			require.NoError(t, err, "Store on first instance should not return an error")
 		}
@@ -417,10 +418,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Store one more version, this should trigger pruning
 		state := common.ApplicationState{
 			ApplicationID:  appID,
-			StateRoot:      []byte("root-hash-15"),
+			StateRoot:      sha256.Sum256([]byte("root-hash-15")),
 			EncryptedState: []byte{15},
 		}
-		versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot[:])
 		err = dl2.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 		require.NoError(t, err, "Store on second instance should not return an error")
 
@@ -449,10 +450,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			state := common.ApplicationState{
 				ApplicationID:  appID,
-				StateRoot:      []byte(fmt.Sprintf("root-hash-%d", i)),
+				StateRoot:      sha256.Sum256([]byte(fmt.Sprintf("root-hash-%d", i))),
 				EncryptedState: []byte{byte(i)},
 			}
-			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot[:])
 			err := dl1.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 			require.NoError(t, err, "Store on first instance should not return an error")
 
@@ -485,10 +486,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		for i := 10; i < 15; i++ {
 			state := common.ApplicationState{
 				ApplicationID:  appID,
-				StateRoot:      []byte(fmt.Sprintf("root-hash-%d", i)),
+				StateRoot:      sha256.Sum256([]byte(fmt.Sprintf("root-hash-%d", i))),
 				EncryptedState: []byte{byte(i)},
 			}
-			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+			versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot[:])
 			err = dl2.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 			require.NoError(t, err, "Store on second instance should not return an error")
 		}
@@ -533,7 +534,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		state := []*common.ApplicationState{
 			{
 				ApplicationID:  "app1",
-				StateRoot:      []byte("state1"),
+				StateRoot:      sha256.Sum256([]byte("state1")),
 				EncryptedState: []byte("encs1"),
 			},
 		}
@@ -586,9 +587,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		appID := "rollback-app"
 		state1 := common.ApplicationState{
 			ApplicationID: appID,
-			StateRoot:     []byte("root1"),
+			StateRoot:     sha256.Sum256([]byte("root1")),
 		}
-		versionID1 := versionedDb.GenerateVersionID_ForTest([]byte(appID), state1.StateRoot)
+		versionID1 := versionedDb.GenerateVersionID_ForTest([]byte(appID), state1.StateRoot[:])
 		err = store.Store(ctx, versionID1, []*common.ApplicationState{&state1}, nil)
 		require.NoError(t, err)
 		v1, err := store.LastVersionID()
@@ -597,9 +598,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// 3. Store second version
 		state2 := common.ApplicationState{
 			ApplicationID: appID,
-			StateRoot:     []byte("root2"),
+			StateRoot:     sha256.Sum256([]byte("root2")),
 		}
-		versionID2 := versionedDb.GenerateVersionID_ForTest([]byte(appID), state2.StateRoot)
+		versionID2 := versionedDb.GenerateVersionID_ForTest([]byte(appID), state2.StateRoot[:])
 		err = store.Store(ctx, versionID2, []*common.ApplicationState{&state2}, nil)
 		require.NoError(t, err)
 		v2, err := store.LastVersionID()
@@ -648,10 +649,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 		state := common.ApplicationState{
 			ApplicationID:  "test-app",
-			StateRoot:      []byte("root"),
+			StateRoot:      sha256.Sum256([]byte("root")),
 			EncryptedState: []byte("state"),
 		}
-		versionID := versionedDb.GenerateVersionID_ForTest([]byte(state.ApplicationID), state.StateRoot)
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(state.ApplicationID), state.StateRoot[:])
 		err = store.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 		require.NoError(t, err)
 
@@ -719,7 +720,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		sharedID := "shared-id"
 		expectedState := common.ApplicationState{
 			ApplicationID:  sharedID,
-			StateRoot:      []byte("state-root"),
+			StateRoot:      sha256.Sum256([]byte("state-root")),
 			EncryptedState: []byte{0x01, 0x02, 0x03},
 		}
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF}
@@ -730,7 +731,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 
 		// Store all three data type
-		versionID1 := versionedDb.GenerateVersionID_ForTest([]byte(sharedID), expectedState.StateRoot)
+		versionID1 := versionedDb.GenerateVersionID_ForTest([]byte(sharedID), expectedState.StateRoot[:])
 		err = store.Store(ctx, versionID1, []*common.ApplicationState{&expectedState}, nil)
 		require.NoError(t, err, "Store should not return an error")
 		versionID2 := versionedDb.GenerateVersionID_ForTest([]byte(sharedID), expectedBytecode)
@@ -796,9 +797,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Pre-populate with some data
 		initialState := common.ApplicationState{
 			ApplicationID: "initial-app",
-			StateRoot:     []byte("initial-root"),
+			StateRoot:     sha256.Sum256([]byte("initial-root")),
 		}
-		versionID := versionedDb.GenerateVersionID_ForTest([]byte(initialState.ApplicationID), initialState.StateRoot)
+		versionID := versionedDb.GenerateVersionID_ForTest([]byte(initialState.ApplicationID), initialState.StateRoot[:])
 		err = store.Store(ctx, versionID, []*common.ApplicationState{&initialState}, nil)
 		require.NoError(t, err)
 
@@ -813,9 +814,9 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 				appID := fmt.Sprintf("concurrent-app-%d", i)
 				state := common.ApplicationState{
 					ApplicationID: appID,
-					StateRoot:     []byte(fmt.Sprintf("root-%d", i)),
+					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
 				}
-				versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot)
+				versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot[:])
 				err := store.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
 				if err != nil {
 					var storageErr *storageErrors.Error
@@ -846,10 +847,137 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		wg.Wait()
 
 		// Verify all data is present
-		for i := range numGoroutines {
-			appID := fmt.Sprintf("concurrent-app-%d", i)
-			_, err := store.GetApplicationState(ctx, appID)
-			assert.NoError(t, err, "should be able to get state for %s", appID)
-		}
-	})
+        	for i := range numGoroutines {
+            		appID := fmt.Sprintf("concurrent-app-%d", i)
+            		_, err := store.GetApplicationState(ctx, appID)
+            		assert.NoError(t, err, "should be able to get state for %s", appID)
+        	}
+    })
+
+    t.Run("StoreWithMixedDataTypes", func(t *testing.T) {
+        // Verifies that a single Store call can atomically save both ApplicationState
+        // and WASMData for different applications under the same version.
+        tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "mixed-types-test-")
+        require.NoError(t, err)
+        defer os.RemoveAll(tempDir)
+        store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+        state := &common.ApplicationState{
+            ApplicationID: "app-with-state",
+            StateRoot:     sha256.Sum256([]byte("state-root")),
+        }
+        wasm := &common.WASMData{
+            ApplicationID: "app-with-wasm",
+            Bytecode:      []byte{0xCA, 0xFE},
+        }
+        versionID := versionedDb.GenerateVersionID_ForTest(state.StateRoot[:], wasm.Bytecode)
+
+        err = store.Store(ctx, versionID, []*common.ApplicationState{state}, []*common.WASMData{wasm})
+        require.NoError(t, err)
+
+        // Verify both were stored correctly
+        retrievedState, err := store.GetApplicationState(ctx, "app-with-state")
+        require.NoError(t, err)
+        if diff := cmp.Diff(state, retrievedState); diff != "" {
+            t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
+        }
+
+        retrievedWasm, err := store.GetWASMBytecode(ctx, "app-with-wasm")
+        require.NoError(t, err)
+        assert.Equal(t, wasm.Bytecode, retrievedWasm)
+    })
+
+    t.Run("RollbackAffectsAllDataTypes", func(t *testing.T) {
+        // Verifies that a rollback correctly reverts changes across all versioned
+        // data types (ApplicationState and WASMData).
+        tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "rollback-mixed-types-test-")
+        require.NoError(t, err)
+        defer os.RemoveAll(tempDir)
+        store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+
+        // Version 1: Initial state for AppA
+        appAStateV1 := &common.ApplicationState{ApplicationID: "AppA", StateRoot: sha256.Sum256([]byte("v1"))}
+        v1 := versionedDb.GenerateVersionID_ForTest([]byte("AppA"), appAStateV1.StateRoot[:])
+        err = store.Store(ctx, v1, []*common.ApplicationState{appAStateV1}, nil)
+        require.NoError(t, err)
+
+        // Version 2: Update AppA and add WASM for AppB
+        appAStateV2 := &common.ApplicationState{ApplicationID: "AppA", StateRoot: sha256.Sum256([]byte("v2"))}
+        appBWasm := &common.WASMData{ApplicationID: "AppB", Bytecode: []byte("wasm-b")}
+        v2 := versionedDb.GenerateVersionID_ForTest(appAStateV2.StateRoot[:], appBWasm.Bytecode)
+        err = store.Store(ctx, v2, []*common.ApplicationState{appAStateV2}, []*common.WASMData{appBWasm})
+        require.NoError(t, err)
+
+        // Verify V2 state
+        state, err := store.GetApplicationState(ctx, "AppA")
+        require.NoError(t, err)
+        assert.Equal(t, appAStateV2.StateRoot, state.StateRoot)
+        _, err = store.GetWASMBytecode(ctx, "AppB")
+        require.NoError(t, err)
+
+        // Rollback to V1
+        err = store.Rollback(v1)
+        require.NoError(t, err)
+
+        // Verify state after rollback
+        state, err = store.GetApplicationState(ctx, "AppA")
+        require.NoError(t, err)
+        assert.Equal(t, appAStateV1.StateRoot, state.StateRoot, "AppA state should be reverted to V1")
+
+        _, err = store.GetWASMBytecode(ctx, "AppB")
+        require.Error(t, err, "WASM for AppB should be gone after rollback")
+        var notFoundErr *storageErrors.Error
+        require.True(t, errors.As(err, &notFoundErr) && notFoundErr.Code == storageErrors.NotFound)
+    })
+
+    t.Run("ConcurrentRollbackAndWrite", func(t *testing.T) {
+        // Tests for race conditions between writing new versions and rolling back to old ones.
+        tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "concurrent-rollback-write-test-")
+        require.NoError(t, err)
+        defer os.RemoveAll(tempDir)
+        store := createStore(t, filepath.Join(tempDir, "test.db"), 20)
+
+        // Pre-populate with an initial version
+        initialVersionID := versionedDb.GenerateVersionID_ForTest([]byte("initial"), []byte("state"))
+        err = store.Store(ctx, initialVersionID, []*common.ApplicationState{{ApplicationID: "initial-app"}}, nil)
+        require.NoError(t, err)
+
+        var wg sync.WaitGroup
+        const writerRoutines = 5
+        const rollbackRoutines = 5
+
+        // Writer goroutines
+        for i := 0; i < writerRoutines; i++ {
+            wg.Add(1)
+            go func(i int) {
+                defer wg.Done()
+                appID := fmt.Sprintf("concurrent-app-%d", i)
+                state := common.ApplicationState{
+                    ApplicationID: appID,
+                    StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
+                }
+                versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot[:])
+                // Errors are possible and acceptable (e.g., version already exists)
+                _ = store.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
+            }(i)
+        }
+
+        // Rollback goroutines
+        for i := 0; i < rollbackRoutines; i++ {
+            wg.Add(1)
+            go func() {
+                defer wg.Done()
+                // Attempt to rollback to the initial, stable version.
+                // This may fail if other rollbacks are happening, which is acceptable.
+                _ = store.Rollback(initialVersionID)
+            }()
+        }
+
+        wg.Wait()
+
+        // The final state is non-deterministic, but the test should complete without panicking.
+        // We can check that the database is still in a valid state.
+        _, err = store.ListVersions()
+        assert.NoError(t, err, "ListVersions should not fail after concurrent operations")
+    })
 }

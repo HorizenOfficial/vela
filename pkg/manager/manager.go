@@ -155,7 +155,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Store the application state and WASM bytecode
-	versionID := sha256.Sum256(append(appState.StateRoot, req.Payload...))
+	versionID := sha256.Sum256(append(appState.StateRoot[:], req.Payload...))
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
@@ -202,7 +202,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Store the updated application state
-	versionID := sha256.Sum256(updatedState.StateRoot)
+	versionID := sha256.Sum256(updatedState.StateRoot[:])
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
