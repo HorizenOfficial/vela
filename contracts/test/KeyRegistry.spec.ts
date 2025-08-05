@@ -1,6 +1,8 @@
-import { expect } from 'chai'
+import { expect } from 'chai';
+import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
 import { KeyRegistry } from '../typechain-types';
+import * as crypto from 'crypto';
 
 function _getRandomHexString(length: number): string {
   const bytes = new Uint8Array(length);
