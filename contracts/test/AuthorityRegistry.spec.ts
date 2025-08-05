@@ -1,4 +1,5 @@
-import { expect } from 'chai'
+import { expect } from 'chai';
+import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
 
 describe('AuthorityRegistry Test', function () {
@@ -17,7 +18,7 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('owner can add', async function () {
-        await expect( 
+        await expect(
             authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
         ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
 
@@ -26,7 +27,9 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('owner can remove', async function () {
-        authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
+        await expect(
+            authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
+        ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
 
         await expect( 
             authorityRegistry.connect(signers[0]).removeAllowedAuthority(APPLICATION_ID, testAddr)
@@ -43,14 +46,19 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('only owner can remove', async function () {
-        authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
+        await expect(
+            authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
+        ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
+
         await expect( 
             authorityRegistry.connect(signers[1]).removeAllowedAuthority(APPLICATION_ID, testAddr)
         ).to.be.revertedWithCustomError(authorityRegistry, "OwnableUnauthorizedAccount");      
     })
 
     it('cant add already added', async function () {
-        authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
+        await expect(
+            authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
+        ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
 
         await expect( 
             authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
