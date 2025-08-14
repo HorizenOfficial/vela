@@ -1,12 +1,13 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"strconv"
 	"unsafe"
 )
 
-const WasmSerializationError = "{}"
+var WasmSerializationError = []byte("{}")
 
 // AccountState represents the state of a user account
 type AccountState struct {
@@ -96,14 +97,18 @@ func ptrToString(ptr *byte, length int32) string {
 }
 
 // Helper function to convert string to allocated memory pointer
-func stringToPtr(s string) *byte {
-	if s == "" {
+func stringToPtr(data []byte) *byte {
+	dataLength := len(data)
+	if dataLength == 0 {
 		return nil
 	}
-	data := []byte(s)
-	data = append(data, 0x00) // null-terminate the string
-	ptr := allocate(int32(len(data)))
-	copy(unsafe.Slice(ptr, len(data)), data)
+
+	n := 4 + dataLength // 4 bytes for length + actual data length
+	ptr := allocate(int32(n))
+	destination := unsafe.Slice(ptr, n)
+	binary.LittleEndian.PutUint32(destination[:4], uint32(dataLength))
+	copy(destination[4:], data)
+
 	return ptr
 }
 
@@ -122,7 +127,7 @@ func load_module(appIdPtr *byte, appIdLen int32) *byte {
 		return stringToPtr(WasmSerializationError)
 	}
 
-	return stringToPtr(string(stateJSON))
+	return stringToPtr(stateJSON)
 }
 
 //export deposit
@@ -398,7 +403,7 @@ func serializeAndWriteResult(result any) *byte {
 	if err != nil {
 		return stringToPtr(WasmSerializationError)
 	}
-	return stringToPtr(string(reportJSON))
+	return stringToPtr(reportJSON)
 }
 
 // Main function is required but not used in WASM

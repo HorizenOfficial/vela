@@ -3,6 +3,7 @@ package wasm
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"github.com/bytecodealliance/wasmtime-go"
@@ -413,31 +414,37 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 		return nil, fmt.Errorf("wasm module returned unexpected type")
 	}
 
-	// Read the result from memory (find null terminator)
+	// Read the length prefix (first 4 bytes as uint32)
 	memData := appModule.memory.UnsafeData(r.store)
-	var resultLength int32
-	for i := resultPtr; i < int32(len(memData)); i++ {
-		if memData[i] == 0 {
-			resultLength = i - resultPtr
-			break
-		}
+	if resultPtr < 0 || int(resultPtr+4) > len(memData) {
+		return nil, fmt.Errorf("invalid memory access for length prefix")
 	}
 
-	if resultLength == 0 {
+	// Extract length from first 4 bytes (little-endian)
+	lengthBytes := memData[resultPtr : resultPtr+4]
+	dataLength := binary.LittleEndian.Uint32(lengthBytes)
+
+	if dataLength == 0 {
 		return nil, fmt.Errorf("empty result from wasm module")
 	}
 
-	reportBytes, err := r.readFromMemory(appModule, resultPtr, resultLength)
+	// Validate that we can read the full data
+	if int(resultPtr+4+int32(dataLength)) > len(memData) {
+		return nil, fmt.Errorf("invalid memory access for data payload")
+	}
+
+	// Read the actual data (skip the 4-byte length prefix)
+	resultBytes, err := r.readFromMemory(appModule, resultPtr+4, int32(dataLength))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read wasm module result from memory: %w", err)
 	}
 
 	// WasmSerializationError (`{}`) is returned by the wasm module if serialization fails
-	if string(reportBytes) == WasmSerializationError {
+	if string(resultBytes) == WasmSerializationError {
 		return nil, fmt.Errorf("wasm module failed to serialize response/error")
 	}
 
-	return reportBytes, nil
+	return resultBytes, nil
 }
 
 // Close closes the wasmtime runtime and cleans up resources
