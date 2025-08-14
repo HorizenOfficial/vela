@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/bytecodealliance/wasmtime-go"
+	"github.com/bytecodealliance/wasmtime-go/v35"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/executor"
 	"log"
@@ -23,10 +23,12 @@ type ApplicationModule struct {
 
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
 type WasmtimeRuntime struct {
-	engine     *wasmtime.Engine
-	store      *wasmtime.Store
-	modules    map[string]*ApplicationModule // Map of application ID to module
-	moduleLock sync.RWMutex                  // Lock for module access
+	engine       *wasmtime.Engine
+	store        *wasmtime.Store
+	modules      map[string]*ApplicationModule // Map of application ID to module
+	moduleLock   sync.RWMutex                  // Lock for module access
+	fuelLimit    uint64                        // Configurable fuel limit
+	fuelConsumed uint64                        // Track total fuel consumed
 }
 
 // DepositResult represents the result of a deposit operation from WASM
@@ -51,20 +53,39 @@ type DeanonymizationResult struct {
 }
 
 // NewWasmtimeRuntime creates a new wasmtime runtime instance
-func NewWasmtimeRuntime() *WasmtimeRuntime {
-	log.Println("Runtime: Initializing wasmtime runtime")
+func NewWasmtimeRuntime(fuelLimit uint64) *WasmtimeRuntime {
+	log.Printf("Runtime: Initializing wasmtime runtime with fuel limit: %d", fuelLimit)
 
-	// Create a new engine with default configuration
-	engine := wasmtime.NewEngine()
+	// Create a new engine with fuel management enabled
+	config := wasmtime.NewConfig()
+	config.SetConsumeFuel(true)
+	engine := wasmtime.NewEngineWithConfig(config)
 
 	// Create a new store
 	store := wasmtime.NewStore(engine)
 
 	return &WasmtimeRuntime{
-		engine:  engine,
-		store:   store,
-		modules: make(map[string]*ApplicationModule),
+		engine:       engine,
+		store:        store,
+		modules:      make(map[string]*ApplicationModule),
+		fuelLimit:    fuelLimit,
+		fuelConsumed: 0,
 	}
+}
+
+// GetFuelConsumed returns the total fuel consumed
+func (r *WasmtimeRuntime) GetFuelConsumed() uint64 {
+	return r.fuelConsumed
+}
+
+// GetRemainingFuel returns the remaining fuel available from the store
+func (r *WasmtimeRuntime) GetRemainingFuel() uint64 {
+	if r.store != nil {
+		// Note: GetFuel() may return different types depending on wasmtime-go version
+		// For now, we'll track fuel consumption manually
+		return r.fuelLimit - r.fuelConsumed
+	}
+	return 0
 }
 
 // Helper function to write data to WASM memory and return pointer
@@ -79,8 +100,16 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 		return 0, fmt.Errorf("allocate function not found in WASM module")
 	}
 
+	// Set fuel limit for this operation
+	r.store.SetFuel(r.fuelLimit)
+
 	// Call the allocate function to get a pointer
 	result, err := allocateFunc.Call(r.store, len(data))
+
+	// Track basic fuel consumption
+	fuel, _ := r.store.GetFuel()
+	r.fuelConsumed += r.fuelLimit - fuel
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to call allocate: %w", err)
 	}
@@ -195,8 +224,16 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 		return nil, nil, fmt.Errorf("failed to write appId to memory: %w", err)
 	}
 
+	// Set fuel limit for this operation
+	r.store.SetFuel(r.fuelLimit)
+
 	// Call the load_module function
 	result, err := loadModuleFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)))
+
+	// Track fuel consumption
+	fuel, _ := r.store.GetFuel()
+	r.fuelConsumed += r.fuelLimit - fuel
+
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to call load_module: %w", err)
 	}
@@ -252,11 +289,18 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 		return nil, nil, fmt.Errorf("failed to write state to memory: %w", err)
 	}
 
+	// Set fuel consumption limit
+	r.store.SetFuel(r.fuelLimit)
+
 	// Call the deposit function
 	result, err := depositFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), senderPtr, int32(len(senderBytes)), value, statePtr, int32(len(state)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to call deposit: %w", err)
 	}
+
+	// Get fuel used by the function call
+	fuel, _ := r.store.GetFuel()
+	r.fuelConsumed += r.fuelLimit - fuel
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule, err)
@@ -322,8 +366,18 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 		return nil, nil, nil, fmt.Errorf("failed to write state to memory: %w", err)
 	}
 
+	// Set fuel consumption limit
+	err = r.store.SetFuel(r.fuelLimit)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to set fuel limit: %w", err)
+	}
+
 	// Call the process_request function
 	result, err := processRequestFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), senderPtr, int32(len(senderBytes)), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
+	// Get fuel used by the function call
+	fuel, _ := r.store.GetFuel()
+	r.fuelConsumed += r.fuelLimit - fuel
+
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to call process_request: %w", err)
 	}
@@ -381,11 +435,18 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 		return nil, fmt.Errorf("failed to write state to memory: %w", err)
 	}
 
+	// Set fuel consumption limit
+	r.store.SetFuel(r.fuelLimit)
+
 	// Call the generate_deanonymization_report function
 	result, err := generateReportFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), requestIdPtr, int32(len(requestIdBytes)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call generate_deanonymization_report: %w", err)
 	}
+
+	// Get fuel used by the function call
+	fuel, _ := r.store.GetFuel()
+	r.fuelConsumed += r.fuelLimit - fuel
 
 	// Extract the result bytes
 	reportBytes, err := r.extractResultBytes(result, appModule, err)

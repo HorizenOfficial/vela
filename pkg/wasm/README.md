@@ -66,6 +66,17 @@ Add corresponding tests in `wasmtime_runtime_test.go`.
 go test ./pkg/wasm/... -v
 ```
 
+## Fuel API
+
+Wasmtime-go can **meter execution** by charging “fuel” as WebAssembly runs. When fuel runs out, execution **traps**, which lets you bound CPU usage, prevent infinite loops, or implement per-request budgets. Stores start with **0 fuel** when fuel metering is enabled, so you must add some before running code.
+
+## TL;DR
+
+- Enable metering on the engine: `config.SetConsumeFuel(true)`
+- Create a store, set fuel: `store.SetFuel(n)`
+- Run wasm; when fuel is exhausted the call **traps**
+- Inspect usage: `store.GetFuel()` returns how much fuel is left
+
 ## Resources
 
 - [TinyGo Documentation](https://tinygo.org/docs/)

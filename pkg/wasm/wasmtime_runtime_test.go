@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/horizen-pes/pkg/executor"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -22,7 +23,7 @@ func TestWasmtimeRuntime_LoadModule(t *testing.T) {
 	require.NoError(t, err, "Failed to read WASM file")
 
 	// Create runtime
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	// Test LoadModule
@@ -53,7 +54,7 @@ func TestWasmtimeRuntime_Deposit(t *testing.T) {
 	require.NoError(t, err, "Failed to read WASM file")
 
 	// Create runtime
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	// Load module first
@@ -98,7 +99,7 @@ func TestWasmtimeRuntime_ProcessRequest_Transfer(t *testing.T) {
 	require.NoError(t, err, "Failed to read WASM file")
 
 	// Create runtime
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -175,7 +176,7 @@ func TestWasmtimeRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	require.NoError(t, err, "Failed to read WASM file")
 
 	// Create runtime
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -243,7 +244,7 @@ func TestWasmtimeRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	require.NoError(t, err, "Failed to read WASM file")
 
 	// Create runtime
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -289,7 +290,7 @@ func TestWasmtimeRuntime_FullWorkflow(t *testing.T) {
 	require.NoError(t, err, "Failed to read WASM file")
 
 	// Create runtime
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -371,7 +372,7 @@ func TestWasmtimeRuntime_ConcurrentModuleLoading(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -404,7 +405,7 @@ func TestWasmtimeRuntime_ModuleCaching(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -426,7 +427,7 @@ func TestWasmtimeRuntime_LargeStateHandling(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -463,7 +464,7 @@ func TestWasmtimeRuntime_LargeStateHandling(t *testing.T) {
 }
 
 func TestWasmtimeRuntime_InvalidWasmModule(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -476,7 +477,7 @@ func TestWasmtimeRuntime_InvalidWasmModule(t *testing.T) {
 }
 
 func TestWasmtimeRuntime_EmptyWasmModule(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -493,7 +494,7 @@ func TestWasmtimeRuntime_NilInputs(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -524,7 +525,7 @@ func TestWasmtimeRuntime_InvalidPayloads(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -571,7 +572,7 @@ func TestWasmtimeRuntime_InsufficientFunds(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -600,7 +601,8 @@ func TestWasmtimeRuntime_InsufficientFunds(t *testing.T) {
 }
 
 func TestWasmtimeRuntime_LargePayload(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000_000)
+	defer runtime.Close()
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -630,7 +632,7 @@ func TestWasmtimeRuntime_InvalidStateFormat(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -651,7 +653,7 @@ func TestWasmtimeRuntime_StateRootConsistency(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -676,7 +678,7 @@ func TestWasmtimeRuntime_ZeroValueOperations(t *testing.T) {
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err)
 
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(1_000_000)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -692,4 +694,158 @@ func TestWasmtimeRuntime_ZeroValueOperations(t *testing.T) {
 	require.Len(t, events, 0, "Zero value deposit should not generate any events")
 	require.NotNil(t, state, "State should not be nil after zero value deposit")
 	require.Equal(t, state, newState)
+}
+
+func TestWasmtimeRuntime_FuelBasicUsage(t *testing.T) {
+	fuelLimit := uint64(1_000_000)
+	runtime := NewWasmtimeRuntime(fuelLimit)
+	defer runtime.Close()
+
+	// Initially no fuel should be consumed
+	assert.Equal(t, uint64(0), runtime.GetFuelConsumed())
+	assert.Equal(t, fuelLimit, runtime.GetRemainingFuel())
+
+	ctx := context.Background()
+	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
+	wasmBytes, err := os.ReadFile(wasmPath)
+	require.NoError(t, err)
+
+	// Load module should consume some fuel
+	_, _, err = runtime.LoadModule(ctx, "fuel-test-app", wasmBytes)
+	require.NoError(t, err)
+
+	// Fuel should be consumed after loading module
+	consumed := runtime.GetFuelConsumed()
+	remaining := runtime.GetRemainingFuel()
+	assert.Greater(t, consumed, uint64(0), "Some fuel should be consumed after loading module")
+	assert.Equal(t, fuelLimit-consumed, remaining)
+	assert.Greater(t, remaining, uint64(0), "Some fuel should remain after loading module")
+}
+
+func TestWasmtimeRuntime_FuelConsumptionWithOperations(t *testing.T) {
+	fuelLimit := uint64(10_000_000)
+	runtime := NewWasmtimeRuntime(fuelLimit)
+	defer runtime.Close()
+
+	ctx := context.Background()
+	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
+	wasmBytes, err := os.ReadFile(wasmPath)
+	require.NoError(t, err)
+	appId := "fuel-operations-app"
+
+	// Track fuel at each step
+	initialFuel := runtime.GetFuelConsumed()
+	assert.Equal(t, uint64(0), initialFuel)
+
+	// Load module
+	state, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	fuelAfterLoad := runtime.GetFuelConsumed()
+	assert.Greater(t, fuelAfterLoad, initialFuel, "LoadModule should consume fuel")
+	log.Printf("Fuel after loading module: %d", fuelAfterLoad)
+
+	// Deposit operation
+	user := "test-user"
+	value := int64(1000000000000000000) // 1 ETH
+	state, _, err = runtime.Deposit(ctx, appId, user, value, state, wasmBytes)
+	require.NoError(t, err)
+	fuelAfterDeposit := runtime.GetFuelConsumed()
+	assert.Greater(t, fuelAfterDeposit, fuelAfterLoad, "Deposit should consume additional fuel")
+	log.Printf("Fuel after deposit: %d", fuelAfterDeposit)
+
+	// Process request operation
+	transferPayload := map[string]interface{}{
+		"type": "transfer",
+		"transfer": map[string]interface{}{
+			"to":     "recipient",
+			"amount": int64(500000000000000000),
+		},
+	}
+	payloadBytes, err := json.Marshal(transferPayload)
+	require.NoError(t, err)
+
+	_, _, _, err = runtime.ProcessRequest(ctx, appId, user, payloadBytes, state, wasmBytes)
+	require.NoError(t, err)
+	fuelAfterProcess := runtime.GetFuelConsumed()
+	assert.Greater(t, fuelAfterProcess, fuelAfterDeposit, "ProcessRequest should consume additional fuel")
+	log.Printf("Fuel after process request: %d", fuelAfterProcess)
+
+	// Verify total fuel consumption is reasonable
+	totalConsumed := runtime.GetFuelConsumed()
+	remaining := runtime.GetRemainingFuel()
+	assert.Equal(t, fuelLimit-totalConsumed, remaining)
+	assert.Less(t, totalConsumed, fuelLimit, "Should not consume all fuel for normal operations")
+	log.Printf("Total fuel consumed: %d, Remaining fuel: %d", totalConsumed, remaining)
+}
+
+func TestWasmtimeRuntime_FuelProgressiveConsumption(t *testing.T) {
+	fuelLimit := uint64(50_000_000)
+	runtime := NewWasmtimeRuntime(fuelLimit)
+	defer runtime.Close()
+
+	ctx := context.Background()
+	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
+	wasmBytes, err := os.ReadFile(wasmPath)
+	require.NoError(t, err)
+	appId := "progressive-fuel-app"
+
+	// Load module
+	state, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	var previousFuel uint64 = 0
+	user := "test-user"
+
+	// Make multiple deposits and verify fuel consumption increases
+	for i := 0; i < 5; i++ {
+		value := int64(1000000000000000000) // 1 ETH each deposit
+		state, _, err = runtime.Deposit(ctx, appId, user, value, state, wasmBytes)
+		require.NoError(t, err)
+
+		currentFuel := runtime.GetFuelConsumed()
+		assert.Greater(t, currentFuel, previousFuel, "Fuel consumption should increase with each operation")
+		log.Printf("Deposit %d: Fuel consumed: %d", i+1, currentFuel)
+		previousFuel = currentFuel
+	}
+
+	// Verify we haven't exhausted fuel
+	remaining := runtime.GetRemainingFuel()
+	assert.Greater(t, remaining, uint64(0), "Should still have fuel remaining")
+
+	// Verify fuel accounting is consistent
+	totalConsumed := runtime.GetFuelConsumed()
+	assert.Equal(t, fuelLimit-totalConsumed, remaining)
+}
+
+func TestWasmtimeRuntime_FuelConsistencyAcrossInstances(t *testing.T) {
+	fuelLimit := uint64(5_000_000)
+
+	ctx := context.Background()
+	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
+	wasmBytes, err := os.ReadFile(wasmPath)
+	require.NoError(t, err)
+
+	var consumptions []uint64
+
+	// Create multiple runtime instances and measure fuel consumption for same operations
+	for i := 0; i < 3; i++ {
+		runtime := NewWasmtimeRuntime(fuelLimit)
+
+		// Load module
+		state, _, err := runtime.LoadModule(ctx, fmt.Sprintf("consistency-app-%d", i), wasmBytes)
+		require.NoError(t, err)
+
+		// Deposit operation
+		state, _, err = runtime.Deposit(ctx, fmt.Sprintf("consistency-app-%d", i), "test-user", int64(1000000000000000000), state, wasmBytes)
+		require.NoError(t, err)
+
+		consumptions = append(consumptions, runtime.GetFuelConsumed())
+		runtime.Close()
+	}
+
+	// Verify fuel consumption is equal across instances
+	for i := 1; i < len(consumptions); i++ {
+		diff := consumptions[i] - consumptions[0]
+		assert.Equal(t, uint64(0), diff, "Fuel consumption should be consistent across instances")
+	}
 }
