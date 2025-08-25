@@ -335,6 +335,10 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 	teeAddress, tx := deployRes.Addresses[tee.MockTeeAuthenticatorMetaData.ID], deployRes.Txs[tee.MockTeeAuthenticatorMetaData.ID]
 
 	sim.Commit()
+	// wait for the pending contract to be deployed on-chain
+	_, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash());
+	require.NoError(t, err)
+	fmt.Printf("Tee authenticator contract deployed at address 0x%x\n", teeAddress)
 
 	authorityContract := *authority.NewAuthorityRegistry()
 
@@ -351,6 +355,10 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 	authorityAddress, tx := deployRes.Addresses[authority.AuthorityRegistryMetaData.ID], deployRes.Txs[authority.AuthorityRegistryMetaData.ID]
 
 	sim.Commit()
+	
+	_, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash());
+	require.NoError(t, err)
+	fmt.Printf("Authority contract deployed at address 0x%x\n", authorityAddress)
 
 	contract := *processorendpoint.NewProcessorEndpoint()
 
@@ -373,7 +381,7 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 	// wait for the pending contract to be deployed on-chain
 	 _, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash());
 	 require.NoError(t, err)
-	fmt.Printf("contract deployed at address 0x%x\n", processorContractAddress)
+	fmt.Printf("Processor Endpoint contract deployed at address 0x%x\n", processorContractAddress)
 
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.KeyRegistryMetaData},

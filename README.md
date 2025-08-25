@@ -120,9 +120,14 @@ For installing `abigen`:
 ```bash
 go install github.com/ethereum/go-ethereum/cmd/abigen@latest
 ```
+Before running `abigen`, install contracts dependencies:
+```bash
+cd contracts
+npm install
+```
 
 `abigen` is run using `go generate` command.
-So, before compiling, it is necessary to run the following
+So, before compiling, it is necessary to run the following:
 ```bash
 go generate ./...
 ```
