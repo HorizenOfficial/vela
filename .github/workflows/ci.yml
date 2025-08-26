@@ -45,7 +45,7 @@ jobs:
 
     # Install abigen
     - name: Install abigen
-      run: go install github.com/ethereum/go-ethereum/cmd/abigen@latest
+      run: go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
 
     # Generate contracts cobindingsde
     - name: Generate contracts bindings with abigen
@@ -61,8 +61,6 @@ jobs:
     # Run Go tests
     - name: Run Go tests quick
       run: CI=true go test ./...
-
-
 
     # Build contracts
     - name: Build contracts
