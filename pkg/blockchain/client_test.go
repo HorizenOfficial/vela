@@ -14,18 +14,19 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/horizen-pes/pkg/blockchain/contracts/authority"
-	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
+    "github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
+	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
 )
 
 //go:generate mkdir -p ./contracts/tee
-//go:generate solc --combined-json abi,bin ../../contracts/contracts/mocks/MockTeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules -o ./contracts/tee/MockTeeAuthenticator.json --overwrite
-//go:generate abigen --v2 --combined-json ./contracts/tee/MockTeeAuthenticator.json/combined.json --pkg tee --type MockTeeAuthenticator --out ./contracts/tee/MockTeeAuthenticator.go
+//go:generate solc --combined-json abi,bin ../../contracts/contracts/mocks/MockTeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/MockTeeAuthenticatorAbi --overwrite
+//go:generate abigen --v2 --combined-json ../../contract_abis/MockTeeAuthenticatorAbi/combined.json --pkg tee --type MockTeeAuthenticator --out ./contracts/tee/MockTeeAuthenticator.go
 //go:generate mkdir -p ./contracts/authority
-//go:generate solc --combined-json abi,bin ../../contracts/contracts/AuthorityRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules -o ./contracts/authority/AuthorityRegistry.json --overwrite
-//go:generate abigen --v2 --combined-json ./contracts/authority/AuthorityRegistry.json/combined.json --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
+//go:generate solc --combined-json abi,bin ../../contracts/contracts/AuthorityRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/AuthorityRegistryAbi --overwrite
+//go:generate abigen --v2 --combined-json ../../contract_abis/AuthorityRegistryAbi/combined.json --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
 
 const (
 	defaultProtocolVersion = uint8(0)
@@ -288,7 +289,7 @@ func TestGetPublicKey(t *testing.T) {
 
 	processorAddress, keyRegistryAddress := setupContracts(t, sim, deployer, manager.From)
 
-	contractEndpoint := processorendpoint.NewKeyRegistry()
+	contractEndpoint := keyregistry.NewKeyRegistry()
 	instance := contractEndpoint.Instance(sim.Client(), keyRegistryAddress)
 
 	blockchainClient := setupRequestContractClient(sim, processorAddress, keyRegistryAddress, manager)
@@ -384,14 +385,14 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 	fmt.Printf("Processor Endpoint contract deployed at address 0x%x\n", processorContractAddress)
 
 	deployParams = bind.DeploymentParams{
-		Contracts: []*bind.MetaData{&processorendpoint.KeyRegistryMetaData},
+		Contracts: []*bind.MetaData{&keyregistry.KeyRegistryMetaData},
 	}
 
 	// create and submit the contract deployment
 	deployRes, err = bind.LinkAndDeploy(&deployParams, deployer)
 	require.NoError(t, err)
 
-	keyRegistryAddress, tx = deployRes.Addresses[processorendpoint.KeyRegistryMetaData.ID], deployRes.Txs[processorendpoint.KeyRegistryMetaData.ID]
+	keyRegistryAddress, tx = deployRes.Addresses[keyregistry.KeyRegistryMetaData.ID], deployRes.Txs[keyregistry.KeyRegistryMetaData.ID]
 
 	sim.Commit()
 

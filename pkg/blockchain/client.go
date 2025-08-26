@@ -12,15 +12,17 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	commonEth "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
+    "github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
+	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
 	"github.com/horizen-pes/pkg/common"
 )
-
+//go:generate mkdir -p ../../contract_abis
 //go:generate mkdir -p ./contracts/processorendpoint
-//go:generate solc --combined-json abi,bin ../../contracts/contracts/ProcessorEndpoint.sol --base-path ../.. --include-path ../../contracts/node_modules -o ./contracts/processorendpoint/ProcessorEndpoint.json --overwrite
-//go:generate abigen --v2 --combined-json ./contracts/processorendpoint/ProcessorEndpoint.json/combined.json --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
-//go:generate solc --combined-json abi,bin ../../contracts/contracts/KeyRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules -o ./contracts/processorendpoint/KeyRegistry.json --overwrite
-//go:generate abigen --v2 --combined-json ./contracts/processorendpoint/KeyRegistry.json/combined.json --pkg processorendpoint --type KeyRegistry --out ./contracts/processorendpoint/KeyRegistry.go
+//go:generate solc --combined-json abi,bin ../../contracts/contracts/ProcessorEndpoint.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointAbi --overwrite
+//go:generate abigen --v2 --combined-json ../../contract_abis/ProcessorEndpointAbi/combined.json --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
+//go:generate mkdir -p ./contracts/keyregistry
+//go:generate solc --combined-json abi,bin ../../contracts/contracts/KeyRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/KeyRegistryAbi --overwrite
+//go:generate abigen --v2 --combined-json ../../contract_abis/KeyRegistryAbi/combined.json --pkg keyregistry --type KeyRegistry --out ./contracts/keyregistry/KeyRegistry.go
 
 type ChainClient interface {
 	ethereum.BlockNumberReader
@@ -48,7 +50,7 @@ type RequestContractClient struct {
 	processorBoundContract   *bind.BoundContract
 	processorEndpoint        *processorendpoint.ProcessorEndpoint
 	keyRegistryBoundContract *bind.BoundContract
-	keyRegistryEndpoint      *processorendpoint.KeyRegistry
+	keyRegistryEndpoint      *keyregistry.KeyRegistry
 	client                   ChainClient
 	privKey                  *ecdsa.PrivateKey
 	account                  *bind.TransactOpts
@@ -73,7 +75,7 @@ func NewRequestContractClient(processor commonEth.Address, keyRegistry commonEth
 		keyRegistryAddress:  keyRegistry,
 		rpcURL:              rpcURL,
 		processorEndpoint:   processorendpoint.NewProcessorEndpoint(),
-		keyRegistryEndpoint: processorendpoint.NewKeyRegistry(),
+		keyRegistryEndpoint: keyregistry.NewKeyRegistry(),
 		privKey:             key,
 	}
 }
