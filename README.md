@@ -132,8 +132,6 @@ So, before compiling, it is necessary to run the following:
 go generate ./...
 ```
 
-
-
 ## Testing
 
 For information about testing the system, see [README_TESTS.md](README_TESTS.md).
