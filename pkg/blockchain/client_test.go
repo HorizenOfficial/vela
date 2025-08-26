@@ -34,7 +34,226 @@ const (
 
 var (
 	applicationId = big.NewInt(1)
+
+	sim *simulated.Backend
+
+	processEndpointContract = processorendpoint.NewProcessorEndpoint()
+	processEndpointInstance *bind.BoundContract
+	keyRegistryContract = keyregistry.NewKeyRegistry()
+	keyRegistryContractInstance  *bind.BoundContract 
+
+	processorAddress ethCommon.Address
+	keyRegistryAddress ethCommon.Address
+	deployer *bind.TransactOpts
+	submitter *bind.TransactOpts
+	manager *bind.TransactOpts
+	blockchainClient *RequestContractClient
 )
+
+func TestGetPendingRequests(t *testing.T) {
+
+	setupTestSuite(t)
+
+	res, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	require.Equal(t, 0, len(res), "There should be zero pending request")
+
+	//*****************************************************
+	// submit request
+	tx, err := bind.Transact(processEndpointInstance, submitter, processEndpointContract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), big.NewInt(0)))
+	require.NoError(t, err, "failed to submit transaction")
+
+	// call Commit to make the simulated backend mine a block
+	sim.Commit()
+	// wait for transaction inclusion
+	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
+	require.NoError(t, err, "error waiting for tx inclusion")
+
+	fmt.Println("Request was successfully included")
+
+	res, err = blockchainClient.GetPendingRequests(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, 1, len(res), "There should be one pending request")
+	request := res[0]
+	require.Equal(t, "0", request.ProtocolVersion, "Protocol version should match")
+	require.Equal(t, "1", request.ApplicationID, "Application ID should match")
+	require.Equal(t, common.Process, request.RequestType, "Request type should match")
+	require.Equal(t, ethCommon.FromHex("0x00"), request.Payload, "Payload should match")
+	require.Greater(t, request.Timestamp, int64(0), "Timestamp should match")
+	require.Equal(t, submitter.From.String(), request.Sender, "Sender should match")
+
+}
+
+func TestMarkRequestCompleted(t *testing.T) {
+
+	setupTestSuite(t)
+
+	//*****************************************************
+	// submit request
+
+	tx, err := bind.Transact(processEndpointInstance, submitter, processEndpointContract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), big.NewInt(0)))
+	require.NoError(t, err, "failed to submit transaction")
+
+	// call Commit to make the simulated backend mine a block
+	sim.Commit()
+
+	// wait for transaction inclusion
+	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
+	require.NoError(t, err, "error waiting for tx inclusion")
+
+	res, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+
+	time.AfterFunc(1*time.Second, func() {
+		sim.Commit()
+	})
+
+	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
+	require.NoError(t, err)
+
+	res, err = blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 0, len(res), "There should be zero pending request")
+
+}
+
+func TestMarkRequestFailed(t *testing.T) {
+	setupTestSuite(t)
+
+	submitter.Value = big.NewInt(1000000)
+	tx, err := bind.Transact(processEndpointInstance, submitter, processEndpointContract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), submitter.Value))
+	if err != nil {
+		panic(fmt.Errorf("failed to submit transaction: %v", err))
+	}
+	submitter.Value = nil
+
+	// call Commit to make the simulated backend mine a block
+	sim.Commit()
+	// wait for transaction inclusion
+	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
+	require.NoError(t, err, "error waiting for tx inclusion")
+
+	res, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	time.AfterFunc(1*time.Second, func() {
+		sim.Commit()
+	})
+
+	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID)
+	require.NoError(t, err)
+
+	res, err = blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 0, len(res), "There should be zero pending request")
+}
+
+func TestSubmitStateUpdate(t *testing.T) {
+
+	setupTestSuite(t)
+
+	//*****************************************************
+	// submit request
+	submitter.Value = big.NewInt(1000000)
+	tx, err := bind.Transact(processEndpointInstance, submitter, processEndpointContract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), submitter.Value))
+	require.NoError(t, err)
+
+	// call Commit to make the simulated backend mine a block
+	sim.Commit()
+	// wait for transaction inclusion
+	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
+	require.NoError(t, err, "error waiting for tx inclusion")
+
+	res, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	time.AfterFunc(1*time.Second, func() {
+		sim.Commit()
+	})
+
+	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
+	withdrawals := []common.Withdrawal{
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: "10"},
+	}
+
+	oldStateRoot, err := bind.Call(processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		processEndpointContract.PackStateRoot(),
+		processEndpointContract.UnpackStateRoot)
+	require.NoError(t, err)
+
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID: res[0].ApplicationID,
+		RequestID:     res[0].RequestID,
+		PrevStateRoot: oldStateRoot,
+		NewStateRoot:  []byte{0x04, 0x05, 0x06},
+		Events:        events[:],
+		Withdrawals:   withdrawals,
+		Signature:     signature[:],
+	}
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+
+	res, err = blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 0, len(res), "There should be 0 pending request")
+}
+
+func TestGetPublicKey(t *testing.T) {
+
+	setupTestSuite(t)
+	res, err := blockchainClient.GetPublicKey(context.Background(), submitter.From.Hex())
+	require.NoError(t, err)
+	require.Equal(t, 0, len(res), "There should be no key")
+
+	//*****************************************************
+	// submit request
+	submitterKey := [133]byte{1, 2, 3}
+
+	tx, err := bind.Transact(keyRegistryContractInstance, submitter, keyRegistryContract.PackRegisterPK(submitterKey[:]))
+	require.NoError(t, err, "failed to submit transaction")
+
+	// call Commit to make the simulated backend mine a block
+	sim.Commit()
+	// wait for transaction inclusion
+	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
+	require.NoError(t, err, "error waiting for tx inclusion")
+
+	fmt.Println("Request was successfully included")
+
+	res, err = blockchainClient.GetPublicKey(context.Background(), submitter.From.Hex())
+
+	require.NoError(t, err)
+	require.Equal(t, submitterKey[:], res)
+
+}
+
+
+func setupTestSuite(t *testing.T) {
+
+	submitter, deployer, manager = setupTestAccounts(t)
+
+	sim = simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
+		submitter.From: {Balance: big.NewInt(9e18)},
+		deployer.From:  {Balance: big.NewInt(9e18)},
+		manager.From:   {Balance: big.NewInt(9e18)},
+	})
+
+	processorAddress, keyRegistryAddress = setupContracts(t, sim, deployer, manager.From)
+
+	processEndpointInstance = processEndpointContract.Instance(sim.Client(), processorAddress)
+
+	keyRegistryContractInstance = keyRegistryContract.Instance(sim.Client(), keyRegistryAddress)
+
+	blockchainClient = setupRequestContractClient(sim, processorAddress, keyRegistryAddress, manager)
+
+
+}
+
 
 func setupTestAccounts(t *testing.T) (submitter *bind.TransactOpts, deployer *bind.TransactOpts, manager *bind.TransactOpts) {
 	// Since we are using a simulated backend, we will get the chain ID
@@ -70,256 +289,6 @@ func setupRequestContractClient(sim *simulated.Backend, processorAddress ethComm
 	return blockchainClient
 }
 
-func TestGetPendingRequests(t *testing.T) {
-
-	submitter, deployer, manager := setupTestAccounts(t)
-
-	sim := simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
-		submitter.From: {Balance: big.NewInt(9e18)},
-		deployer.From:  {Balance: big.NewInt(9e18)},
-		manager.From:   {Balance: big.NewInt(9e18)},
-	})
-
-	processorAddress, keyRegistryAddress := setupContracts(t, sim, deployer, manager.From)
-
-	contractEndpoint := processorendpoint.NewProcessorEndpoint()
-	instance := contractEndpoint.Instance(sim.Client(), processorAddress)
-
-	blockchainClient := setupRequestContractClient(sim, processorAddress, keyRegistryAddress, manager)
-
-	res, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-
-	require.Equal(t, 0, len(res), "There should be zero pending request")
-
-	//*****************************************************
-	// submit request
-	tx, err := bind.Transact(instance, submitter, contractEndpoint.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), big.NewInt(0)))
-	require.NoError(t, err, "failed to submit transaction")
-
-	// call Commit to make the simulated backend mine a block
-	sim.Commit()
-	// wait for transaction inclusion
-	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
-	require.NoError(t, err, "error waiting for tx inclusion")
-
-	fmt.Println("Request was successfully included")
-
-	res, err = blockchainClient.GetPendingRequests(context.Background())
-
-	require.NoError(t, err)
-	require.Equal(t, 1, len(res), "There should be one pending request")
-	request := res[0]
-	require.Equal(t, "0", request.ProtocolVersion, "Protocol version should match")
-	require.Equal(t, "1", request.ApplicationID, "Application ID should match")
-	require.Equal(t, common.Process, request.RequestType, "Request type should match")
-	require.Equal(t, ethCommon.FromHex("0x00"), request.Payload, "Payload should match")
-	require.Greater(t, request.Timestamp, int64(0), "Timestamp should match")
-	require.Equal(t, submitter.From.String(), request.Sender, "Sender should match")
-
-}
-
-func TestMarkRequestCompleted(t *testing.T) {
-
-	submitter, deployer, manager := setupTestAccounts(t)
-
-	sim := simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
-		submitter.From: {Balance: big.NewInt(9e18)},
-		manager.From:   {Balance: big.NewInt(9e18)},
-		deployer.From:  {Balance: big.NewInt(9e18)},
-	})
-	contract := *processorendpoint.NewProcessorEndpoint()
-
-	processorAddress, keyRegistryAddress := setupContracts(t, sim, deployer, manager.From)
-
-	instance := contract.Instance(sim.Client(), processorAddress)
-	blockchainClient := setupRequestContractClient(sim, processorAddress, keyRegistryAddress, manager)
-
-
-	//*****************************************************
-	// submit request
-
-	tx, err := bind.Transact(instance, submitter, contract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), big.NewInt(0)))
-	require.NoError(t, err, "failed to submit transaction")
-
-	// call Commit to make the simulated backend mine a block
-	sim.Commit()
-
-	// wait for transaction inclusion
-	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
-	require.NoError(t, err, "error waiting for tx inclusion")
-
-	res, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-
-
-	time.AfterFunc(1*time.Second, func() {
-		sim.Commit()
-	})
-
-	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
-	require.NoError(t, err)
-
-	res, err = blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be zero pending request")
-
-}
-
-func TestMarkRequestFailed(t *testing.T) {
-
-	submitter, deployer, manager := setupTestAccounts(t)
-
-	sim := simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
-		submitter.From: {Balance: big.NewInt(9e18)},
-		manager.From:   {Balance: big.NewInt(9e18)},
-		deployer.From:  {Balance: big.NewInt(9e18)},
-	})
-	contract := *processorendpoint.NewProcessorEndpoint()
-
-	processorAddress, keyRegistryAddress := setupContracts(t, sim, deployer, manager.From)
-
-	instance := contract.Instance(sim.Client(), processorAddress)
-
-	blockchainClient := setupRequestContractClient(sim, processorAddress, keyRegistryAddress, manager)
-
-
-	submitter.Value = big.NewInt(1000000)
-	tx, err := bind.Transact(instance, submitter, contract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), submitter.Value))
-	if err != nil {
-		panic(fmt.Errorf("failed to submit transaction: %v", err))
-	}
-
-	// call Commit to make the simulated backend mine a block
-	sim.Commit()
-	// wait for transaction inclusion
-	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
-	require.NoError(t, err, "error waiting for tx inclusion")
-
-	res, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-
-	time.AfterFunc(1*time.Second, func() {
-		sim.Commit()
-	})
-
-	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID)
-	require.NoError(t, err)
-
-	res, err = blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be zero pending request")
-}
-
-func TestSubmitStateUpdate(t *testing.T) {
-
-	submitter, deployer, manager := setupTestAccounts(t)
-
-	sim := simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
-		submitter.From: {Balance: big.NewInt(9e18)},
-		manager.From:   {Balance: big.NewInt(9e18)},
-		deployer.From:  {Balance: big.NewInt(9e18)},
-	})
-
-	processorAddress, keyRegistryAddress := setupContracts(t, sim, deployer, manager.From)
-
-	contract := *processorendpoint.NewProcessorEndpoint()
-	instance := contract.Instance(sim.Client(), processorAddress)
-
-	blockchainClient := setupRequestContractClient(sim, processorAddress, keyRegistryAddress, manager)
-
-
-	//*****************************************************
-	// submit request
-	submitter.Value = big.NewInt(1000000)
-	tx, err := bind.Transact(instance, submitter, contract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), submitter.Value))
-	require.NoError(t, err)
-
-	// call Commit to make the simulated backend mine a block
-	sim.Commit()
-	// wait for transaction inclusion
-	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
-	require.NoError(t, err, "error waiting for tx inclusion")
-
-	res, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-
-	time.AfterFunc(1*time.Second, func() {
-		sim.Commit()
-	})
-
-	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
-	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: "10"},
-	}
-
-	oldStateRoot, err := bind.Call(instance,
-		&bind.CallOpts{Pending: false},
-		contract.PackStateRoot(),
-		contract.UnpackStateRoot)
-	require.NoError(t, err)
-
-	signature := [65]byte{}
-	payload := &common.UpdatePayload{
-		ApplicationID: res[0].ApplicationID,
-		RequestID:     res[0].RequestID,
-		PrevStateRoot: oldStateRoot,
-		NewStateRoot:  []byte{0x04, 0x05, 0x06},
-		Events:        events[:],
-		Withdrawals:   withdrawals,
-		Signature:     signature[:],
-	}
-	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
-	require.NoError(t, err)
-
-	res, err = blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be 0 pending request")
-}
-
-func TestGetPublicKey(t *testing.T) {
-
-	submitter, deployer, manager := setupTestAccounts(t)
-
-	sim := simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
-		submitter.From: {Balance: big.NewInt(9e18)},
-		deployer.From:  {Balance: big.NewInt(9e18)},
-		manager.From:   {Balance: big.NewInt(9e18)},
-	})
-
-	processorAddress, keyRegistryAddress := setupContracts(t, sim, deployer, manager.From)
-
-	contractEndpoint := keyregistry.NewKeyRegistry()
-	instance := contractEndpoint.Instance(sim.Client(), keyRegistryAddress)
-
-	blockchainClient := setupRequestContractClient(sim, processorAddress, keyRegistryAddress, manager)
-
-
-	res, err := blockchainClient.GetPublicKey(context.Background(), submitter.From.Hex())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be no key")
-
-	//*****************************************************
-	// submit request
-	submitterKey := [133]byte{1, 2, 3}
-
-	tx, err := bind.Transact(instance, submitter, contractEndpoint.PackRegisterPK(submitterKey[:]))
-	require.NoError(t, err, "failed to submit transaction")
-
-	// call Commit to make the simulated backend mine a block
-	sim.Commit()
-	// wait for transaction inclusion
-	_, err = bind.WaitMined(context.Background(), sim.Client(), tx.Hash())
-	require.NoError(t, err, "error waiting for tx inclusion")
-
-	fmt.Println("Request was successfully included")
-
-	res, err = blockchainClient.GetPublicKey(context.Background(), submitter.From.Hex())
-
-	require.NoError(t, err)
-	require.Equal(t, submitterKey[:], res)
-
-}
 
 func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.TransactOpts, processorAddress ethCommon.Address) (processorContractAddress ethCommon.Address, keyRegistryAddress ethCommon.Address) {
 	// use the default deployer: it simply creates, signs and submits the deployment transactions
