@@ -31,9 +31,15 @@ jobs:
     - name: Download Go dependencies
       run: go mod download
 
+    # Install abigen for contract bindings
+    - name: Install abigen
+      run: |
+        go install github.com/ethereum/go-ethereum/cmd/abigen@latest
+
     # Build a Go project
     - name: Build Go project
       run: |
+        go generate ./...
         go build ./...
         go build ./cmd/executor
         go build ./cmd/manager
