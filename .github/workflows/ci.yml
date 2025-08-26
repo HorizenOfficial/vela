@@ -54,6 +54,7 @@ jobs:
     # Build a Go project
     - name: Build Go project
       run: |
+        go generate ./...
         go build ./...
         go build ./cmd/executor
         go build ./cmd/manager
