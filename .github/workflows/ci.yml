@@ -47,7 +47,7 @@ jobs:
     - name: Install abigen
       run: go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
 
-    # Generate contracts cobindingsde
+    # Generate contracts bindings
     - name: Generate contracts bindings with abigen
       run: go generate ./...
 
