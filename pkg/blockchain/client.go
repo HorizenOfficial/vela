@@ -2,20 +2,22 @@ package blockchain
 
 import (
 	"context"
-	"math/big"
 	"fmt"
+	"math/big"
 	"strconv"
 	"sync"
 
 	"crypto/ecdsa"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	commonEth "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-    "github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
+	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/common"
 )
+
 //go:generate mkdir -p ../../contract_abis
 //go:generate mkdir -p ./contracts/processorendpoint
 //go:generate solc --combined-json abi,bin ../../contracts/contracts/ProcessorEndpoint.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointAbi --overwrite
@@ -41,7 +43,7 @@ type ChainClient interface {
 	ethereum.ChainIDReader
 }
 
-type RequestContractClient struct {
+type BlockChainClient struct {
 	mu                       sync.RWMutex
 	connected                bool
 	processorAddress         commonEth.Address
@@ -69,8 +71,13 @@ func toRequestType(i uint8) common.RequestType {
 	}
 }
 
-func NewRequestContractClient(processor commonEth.Address, keyRegistry commonEth.Address, rpcURL string, key *ecdsa.PrivateKey) *RequestContractClient {
-	return &RequestContractClient{
+func stringToBigInt(s string) (*big.Int, bool) {
+	i, ok := new(big.Int).SetString(s, 10)
+	return i, ok
+}
+
+func NewBlockChainClient(processor commonEth.Address, keyRegistry commonEth.Address, rpcURL string, key *ecdsa.PrivateKey) *BlockChainClient {
+	return &BlockChainClient{
 		processorAddress:    processor,
 		keyRegistryAddress:  keyRegistry,
 		rpcURL:              rpcURL,
@@ -80,7 +87,7 @@ func NewRequestContractClient(processor commonEth.Address, keyRegistry commonEth
 	}
 }
 
-func (c *RequestContractClient) Connect(ctx context.Context) error {
+func (c *BlockChainClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -108,10 +115,8 @@ func (c *RequestContractClient) Connect(ctx context.Context) error {
 	return nil
 }
 
-
-
 // GetPendingRequests gets pending requests from the blockchain
-func (c *RequestContractClient) GetPendingRequests(ctx context.Context) ([]*common.Request, error) {
+func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Request, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -145,7 +150,7 @@ func (c *RequestContractClient) GetPendingRequests(ctx context.Context) ([]*comm
 	return output, nil
 }
 
-func (c *RequestContractClient) MarkRequestCompleted(ctx context.Context, requestID string) error {
+func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -153,7 +158,7 @@ func (c *RequestContractClient) MarkRequestCompleted(ctx context.Context, reques
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := new(big.Int).SetString(requestID, 10)
+	reqId, ok := stringToBigInt(requestID)
 	if !ok {
 		return fmt.Errorf("invalid request ID: %s", requestID)
 	}
@@ -171,7 +176,7 @@ func (c *RequestContractClient) MarkRequestCompleted(ctx context.Context, reques
 
 }
 
-func (c *RequestContractClient) MarkRequestFailed(ctx context.Context, requestID string) error {
+func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -179,8 +184,7 @@ func (c *RequestContractClient) MarkRequestFailed(ctx context.Context, requestID
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := new(big.Int).SetString(requestID, 10)
-
+	reqId, ok := stringToBigInt(requestID)
 	if !ok {
 		return fmt.Errorf("invalid request ID: %s", requestID)
 	}
@@ -198,12 +202,12 @@ func (c *RequestContractClient) MarkRequestFailed(ctx context.Context, requestID
 
 }
 
-func (c *RequestContractClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
+func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
 	// This is the only thing that has to be done on the blockchain for deanonymization reports
 	return c.MarkRequestCompleted(ctx, update.ReportID)
 }
 
-func (c *RequestContractClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
+func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -211,12 +215,12 @@ func (c *RequestContractClient) SubmitStateUpdate(ctx context.Context, update *c
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := new(big.Int).SetString(update.RequestID, 10)
+	reqId, ok := stringToBigInt(update.RequestID)
 	if !ok {
 		return fmt.Errorf("invalid request ID: %s", update.RequestID)
 	}
 
-	appId, ok := new(big.Int).SetString(update.ApplicationID, 10)
+	appId, ok := stringToBigInt(update.ApplicationID)
 	if !ok {
 		return fmt.Errorf("invalid application ID: %s", update.ApplicationID)
 	}
@@ -228,7 +232,7 @@ func (c *RequestContractClient) SubmitStateUpdate(ctx context.Context, update *c
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
 	for i, withdrawal := range update.Withdrawals {
-		amount, ok := new(big.Int).SetString(withdrawal.Amount, 10)
+		amount, ok := stringToBigInt(withdrawal.Amount)
 		if !ok {
 			return fmt.Errorf("invalid amount: %s", withdrawal.Amount)
 		}
@@ -261,7 +265,7 @@ func (c *RequestContractClient) SubmitStateUpdate(ctx context.Context, update *c
 
 }
 
-func (c *RequestContractClient) GetPublicKey(ctx context.Context, address string) ([]byte, error) {
+func (c *BlockChainClient) GetPublicKey(ctx context.Context, address string) ([]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -282,7 +286,7 @@ func (c *RequestContractClient) GetPublicKey(ctx context.Context, address string
 }
 
 // Close closes the blockchain client
-func (c *RequestContractClient) Close() error {
+func (c *BlockChainClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

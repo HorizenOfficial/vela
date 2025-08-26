@@ -3,19 +3,20 @@ package blockchain
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"testing"
+	"time"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
-	"math/big"
-	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/horizen-pes/pkg/blockchain/contracts/authority"
-    "github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
+	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
@@ -37,17 +38,17 @@ var (
 
 	sim *simulated.Backend
 
-	processEndpointContract = processorendpoint.NewProcessorEndpoint()
-	processEndpointInstance *bind.BoundContract
-	keyRegistryContract = keyregistry.NewKeyRegistry()
-	keyRegistryContractInstance  *bind.BoundContract 
+	processEndpointContract     = processorendpoint.NewProcessorEndpoint()
+	processEndpointInstance     *bind.BoundContract
+	keyRegistryContract         = keyregistry.NewKeyRegistry()
+	keyRegistryContractInstance *bind.BoundContract
 
-	processorAddress ethCommon.Address
+	processorAddress   ethCommon.Address
 	keyRegistryAddress ethCommon.Address
-	deployer *bind.TransactOpts
-	submitter *bind.TransactOpts
-	manager *bind.TransactOpts
-	blockchainClient *RequestContractClient
+	deployer           *bind.TransactOpts
+	submitter          *bind.TransactOpts
+	manager            *bind.TransactOpts
+	blockchainClient   *BlockChainClient
 )
 
 func TestGetPendingRequests(t *testing.T) {
@@ -105,7 +106,6 @@ func TestMarkRequestCompleted(t *testing.T) {
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
-
 
 	time.AfterFunc(1*time.Second, func() {
 		sim.Commit()
@@ -232,7 +232,6 @@ func TestGetPublicKey(t *testing.T) {
 
 }
 
-
 func setupTestSuite(t *testing.T) {
 
 	submitter, deployer, manager = setupTestAccounts(t)
@@ -249,11 +248,9 @@ func setupTestSuite(t *testing.T) {
 
 	keyRegistryContractInstance = keyRegistryContract.Instance(sim.Client(), keyRegistryAddress)
 
-	blockchainClient = setupRequestContractClient(sim, processorAddress, keyRegistryAddress, manager)
-
+	blockchainClient = setupNewBlockChainClient(sim, processorAddress, keyRegistryAddress, manager)
 
 }
-
 
 func setupTestAccounts(t *testing.T) (submitter *bind.TransactOpts, deployer *bind.TransactOpts, manager *bind.TransactOpts) {
 	// Since we are using a simulated backend, we will get the chain ID
@@ -275,8 +272,8 @@ func setupTestAccounts(t *testing.T) (submitter *bind.TransactOpts, deployer *bi
 	return
 }
 
-func setupRequestContractClient(sim *simulated.Backend, processorAddress ethCommon.Address, keyRegistryAddress ethCommon.Address, manager *bind.TransactOpts) *RequestContractClient {
-	blockchainClient := NewRequestContractClient(processorAddress, keyRegistryAddress, "", nil)
+func setupNewBlockChainClient(sim *simulated.Backend, processorAddress ethCommon.Address, keyRegistryAddress ethCommon.Address, manager *bind.TransactOpts) *BlockChainClient {
+	blockchainClient := NewBlockChainClient(processorAddress, keyRegistryAddress, "", nil)
 	blockchainClient.client = sim.Client()
 
 	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, processorAddress)
@@ -285,10 +282,8 @@ func setupRequestContractClient(sim *simulated.Backend, processorAddress ethComm
 	blockchainClient.account = manager
 	blockchainClient.connected = true
 
-
 	return blockchainClient
 }
-
 
 func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.TransactOpts, processorAddress ethCommon.Address) (processorContractAddress ethCommon.Address, keyRegistryAddress ethCommon.Address) {
 	// use the default deployer: it simply creates, signs and submits the deployment transactions
@@ -306,7 +301,7 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 
 	sim.Commit()
 	// wait for the pending contract to be deployed on-chain
-	_, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash());
+	_, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash())
 	require.NoError(t, err)
 	fmt.Printf("Tee authenticator contract deployed at address 0x%x\n", teeAddress)
 
@@ -325,8 +320,8 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 	authorityAddress, tx := deployRes.Addresses[authority.AuthorityRegistryMetaData.ID], deployRes.Txs[authority.AuthorityRegistryMetaData.ID]
 
 	sim.Commit()
-	
-	_, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash());
+
+	_, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash())
 	require.NoError(t, err)
 	fmt.Printf("Authority contract deployed at address 0x%x\n", authorityAddress)
 
@@ -349,8 +344,8 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 	sim.Commit()
 
 	// wait for the pending contract to be deployed on-chain
-	 _, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash());
-	 require.NoError(t, err)
+	_, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash())
+	require.NoError(t, err)
 	fmt.Printf("Processor Endpoint contract deployed at address 0x%x\n", processorContractAddress)
 
 	deployParams = bind.DeploymentParams{
@@ -366,7 +361,7 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 	sim.Commit()
 
 	// wait for the pending contract to be deployed on-chain
-	 _, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash())
+	_, err = bind.WaitDeployed(context.Background(), sim.Client(), tx.Hash())
 	require.NoError(t, err)
 
 	fmt.Printf("Key Registry contract deployed at address 0x%x\n", keyRegistryAddress)
