@@ -27,21 +27,29 @@ jobs:
         cache: 'npm'
         cache-dependency-path: contracts/package-lock.json
 
+    # Install Node.js dependencies for contracts
+    - name: Install contract dependencies
+      working-directory: contracts
+      run: npm ci
+
     # Install Go dependencies
     - name: Download Go dependencies
       run: go mod download
 
-    # Install abigen for contract bindings
-    - name: Install abigen
-      run: |
-        go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
-
-    # Install Solidity compiler
-    - name: Install Solidity compiler
+    # Install dependencies for abigen
+    - name: Install dependencies for abigen
       run: |
         sudo add-apt-repository ppa:ethereum/ethereum
         sudo apt-get update
-        sudo apt-get install solc    
+        sudo apt-get install solc
+
+    # Install abigen
+    - name: Install abigen
+      run: go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
+
+    # Generate contracts bindings
+    - name: Generate contracts bindings with abigen
+      run: go generate ./...
 
     # Build a Go project
     - name: Build Go project
@@ -54,11 +62,6 @@ jobs:
     # Run Go tests
     - name: Run Go tests quick
       run: CI=true go test ./...
-
-    # Install Node.js dependencies for contracts
-    - name: Install contract dependencies
-      working-directory: contracts
-      run: npm ci
 
     # Build contracts
     - name: Build contracts
