@@ -26,7 +26,9 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('owner can remove', async function () {
-        authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
+        await expect( 
+            authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
+        ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
 
         await expect( 
             authorityRegistry.connect(signers[0]).removeAllowedAuthority(APPLICATION_ID, testAddr)
