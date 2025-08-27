@@ -315,11 +315,13 @@ func (c *ClientConnection) messageReaderLoop(ctx context.Context, server *Server
 		}
 
 		// Read message with timeout
+		log.Printf("Set Read operation time out")
 		c.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 		msgBytes, err := c.reader.ReadBytes(delimiter)
 		if err != nil {
 			// Check if it's a timeout error
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				log.Printf("Read operation time out!")
 				continue // Continue reading on timeout
 			}
 			// Connection error, exit loop
