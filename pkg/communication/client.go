@@ -139,8 +139,11 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 
 // SendDeployApp sends a deploy app request and waits for response
 func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
+	uid := generateID()
+	log.Printf("Generated UID: %s", uid)
+
 	msg := Message{
-		ID:   generateID(),
+		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
 			Request: req,
@@ -257,9 +260,11 @@ func (c *Client) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
+	log.Printf("MagBytes length before delimiter: %d", len(data))
 
 	// Add delimiter
 	data = append(data, delimiter)
+	log.Printf("MagBytes length after delimiter: %d", len(data))
 
 	// Write message with delimiter
 	if _, err := c.writer.Write(data); err != nil {

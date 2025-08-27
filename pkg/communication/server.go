@@ -328,6 +328,7 @@ func (c *ClientConnection) messageReaderLoop(ctx context.Context, server *Server
 
 		// Parse message
 		var msg Message
+		log.Printf("Server: message %d bytes: %x...%x", len(msgBytes), msgBytes[:16], msgBytes[len(msgBytes)-16:])
 		if err := json.Unmarshal(msgBytes, &msg); err != nil {
 			log.Printf("Server: Error parsing message: %v", err)
 			continue
