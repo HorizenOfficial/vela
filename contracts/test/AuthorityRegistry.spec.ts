@@ -52,8 +52,10 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('cant add already added', async function () {
-        authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
-
+        await expect( 
+            authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
+        ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
+        
         await expect( 
             authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
         ).to.be.revertedWithCustomError(authorityRegistry, "AuthorityAlreadyPresent");
