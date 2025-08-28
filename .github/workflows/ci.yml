@@ -100,9 +100,9 @@ jobs:
       # Install dependencies for abigen
       - name: Install dependencies for abigen
         run: |
-        sudo add-apt-repository ppa:ethereum/ethereum
-        sudo apt-get update
-        sudo apt-get install solc
+          sudo add-apt-repository ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install solc
 
       # Install abigen
       - name: Install abigen
