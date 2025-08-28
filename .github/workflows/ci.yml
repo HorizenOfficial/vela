@@ -97,10 +97,27 @@ jobs:
       - name: Download Go dependencies
         run: go mod download
 
+      # Install dependencies for abigen
+      - name: Install dependencies for abigen
+        run: |
+        sudo add-apt-repository ppa:ethereum/ethereum
+        sudo apt-get update
+        sudo apt-get install solc
+
+      # Install abigen
+      - name: Install abigen
+        run: go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
+
+      # Generate contracts bindings
+      - name: Generate contracts bindings with abigen
+        run: go generate ./...
+
       # Build a Go project
       - name: Build Go project
         run: |
           go build ./...
+          go build ./cmd/executor
+          go build ./cmd/manager
 
       # Run ALL Go tests (including long-running ones)
       - name: Run Go tests (full suite)
