@@ -7,85 +7,20 @@ on:
     branches: [ main, dev ]
 
 jobs:
-  quick-test:
-    name: Quick Test Suite
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    # Setup Go
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.24'
-
-    # Setup Node.js for contracts
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: contracts/package-lock.json
-
-    # Install Node.js dependencies for contracts
-    - name: Install contract dependencies
-      working-directory: contracts
-      run: npm ci
-
-    # Install Go dependencies
-    - name: Download Go dependencies
-      run: go mod download
-
-    # Install dependencies for abigen
-    - name: Install dependencies for abigen
-      run: |
-        sudo add-apt-repository ppa:ethereum/ethereum
-        sudo apt-get update
-        sudo apt-get install solc
-
-    # Install abigen
-    - name: Install abigen
-      run: go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
-
-    # Generate contracts bindings
-    - name: Generate contracts bindings with abigen
-      run: go generate ./...
-
-    # Build a Go project
-    - name: Build Go project
-      run: |
-        go build ./...
-        go build ./cmd/executor
-        go build ./cmd/manager
-
-    # Run Go tests
-    - name: Run Go tests quick
-      run: CI_FLAG=true go test -v ./...
-
-    # Build contracts
-    - name: Build contracts
-      working-directory: contracts
-      run: npm run build
-
-    # Test contracts
-    - name: Test contracts
-      working-directory: contracts
-      run: npm run test
-  full-test:
-    name: Full Test Suite
+  shared-setup:
+    name: Shared Setup
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      # Setup Go
+    # Setup Go
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
 
-      # Setup Node.js for contracts
+    # Setup Node.js for contracts
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -93,48 +28,64 @@ jobs:
           cache: 'npm'
           cache-dependency-path: contracts/package-lock.json
 
-      # Install Go dependencies
+    # Install Node.js dependencies for contracts
+      - name: Install contract dependencies
+        working-directory: contracts
+        run: npm ci
+
+    # Install Go dependencies
       - name: Download Go dependencies
         run: go mod download
 
-      # Install dependencies for abigen
-      - name: Install dependencies for abigen
+    # Install dependencies for abigen
+      - name: Install abigen and solc
         run: |
           sudo add-apt-repository ppa:ethereum/ethereum
           sudo apt-get update
           sudo apt-get install solc
+          go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
 
-      # Install abigen
-      - name: Install abigen
-        run: go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
-
-      # Generate contracts bindings
-      - name: Generate contracts bindings with abigen
+    # Generate contracts bindings
+      - name: Generate contracts bindings
         run: go generate ./...
 
-      # Build a Go project
+    # Build a Go project
       - name: Build Go project
         run: |
           go build ./...
           go build ./cmd/executor
           go build ./cmd/manager
 
-      # Run ALL Go tests (including long-running ones)
-      - name: Run Go tests (full suite)
-        run: CI_FLAG= go test -v ./...
-        timeout-minutes: 10
-
-      # Install Node.js dependencies for contracts
-      - name: Install contract dependencies
-        working-directory: contracts
-        run: npm ci
-
-      # Build contracts
+    # Build contracts
       - name: Build contracts
         working-directory: contracts
         run: npm run build
 
-      # Test contracts
+    # Test contracts
       - name: Test contracts
         working-directory: contracts
         run: npm run test
+
+    outputs:
+      job_status: ${{ job.status }}
+    
+  quick-test:
+    needs: shared-setup
+    if: success()
+    name: Quick Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Go tests quick
+        run: CI_FLAG=true go test -v ./...
+      
+  full-test:
+    needs: shared-setup
+    if: success()
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Go tests (full suite)
+        run: CI_FLAG= go test -v ./...
+        timeout-minutes: 10
