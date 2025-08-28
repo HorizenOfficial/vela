@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
@@ -304,6 +305,12 @@ func (c *ClientConnection) sendMessage(msg Message) error {
 func (c *ClientConnection) messageReaderLoop(ctx context.Context, server *Server) {
 	defer c.close()
 
+	// A constant for the read timeout, long enough to handle a brief pause in data flow
+	const readTimeout = 1 * time.Second
+
+	// A constant start/end buffer size for logging log messages
+	const startEndBufSize = 16
+
 	for {
 		select {
 		case <-c.shutdown:
@@ -314,23 +321,66 @@ func (c *ClientConnection) messageReaderLoop(ctx context.Context, server *Server
 			// Continue reading
 		}
 
-		// Read message with timeout
-		log.Printf("Set Read operation time out")
-		c.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		msgBytes, err := c.reader.ReadBytes(delimiter)
-		if err != nil {
-			// Check if it's a timeout error
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Printf("Read operation time out!")
-				continue // Continue reading on timeout
+		// Use a temporary buffer to accumulate parts of a potentially large message
+		var msgBytes []byte
+
+		for {
+
+			// Set the read deadline for each read operation
+			c.conn.SetReadDeadline(time.Now().Add(readTimeout))
+
+			// Read a chunk of data from the connection
+			chunk, err := c.reader.ReadBytes(delimiter)
+			if err != nil {
+				// Check if it's a timeout error
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					if len(chunk) > 0 {
+						log.Printf("Server: Read operation timed out while reading!")
+						// bytes has been consumed on the connection communication buffer, save them before resuming reading
+						msgBytes = append(msgBytes, chunk...)
+						log.Printf("Server: added %d bytes to msgBytes buffer, total length now is %d.",
+							len(chunk), len(msgBytes))
+					}
+					// Continue the inner loop, hoping more data arrives later in case of partial read
+					continue
+				}
+
+				// If it's a non-timeout error, it's a fatal problem
+				if err == io.EOF {
+					// TODO shall we bail out here too?
+					log.Printf("Server: Client closed connection gracefully.")
+				} else {
+					log.Printf("Server: Read error, closing connection: %v", err)
+				}
+				return // Exit the entire function
 			}
-			// Connection error, exit loop
-			return
+
+			// Append the received chunk to the message buffer
+			if len(msgBytes) > 0 {
+				// we have a partial read recovered here, log it
+				log.Printf("Server: adding %d bytes to msgBytes buffer, total length %d",
+					len(chunk), len(msgBytes)+len(chunk))
+			}
+			msgBytes = append(msgBytes, chunk...)
+
+			// Check if the delimiter was found at the end of the chunk
+			if len(chunk) > 0 && chunk[len(chunk)-1] == delimiter {
+				break // The full message has been received, exit the inner loop
+			} else {
+				// TODO shall we consider it an error?
+				log.Printf("Server: delimiter not found in msgBytes buffer, total length %d", len(msgBytes))
+			}
 		}
 
-		// Parse message
+		// At this point, a full message has been read into msgBytes
+		if len(msgBytes) > 2*startEndBufSize {
+			log.Printf("Server: message %d bytes: %x...%x", len(msgBytes), msgBytes[:16], msgBytes[len(msgBytes)-16:])
+		} else {
+			log.Printf("Server: message %d bytes: %x", len(msgBytes), msgBytes)
+		}
+
+		// Parse and route the complete message
 		var msg Message
-		log.Printf("Server: message %d bytes: %x...%x", len(msgBytes), msgBytes[:16], msgBytes[len(msgBytes)-16:])
 		if err := json.Unmarshal(msgBytes, &msg); err != nil {
 			log.Printf("Server: Error parsing message: %v", err)
 			continue

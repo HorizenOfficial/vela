@@ -16,16 +16,16 @@ import (
 // Client is a unified client implementation of the ExecutorClient interface
 type Client struct {
 	conn            net.Conn
-	connected       bool
 	connLock        sync.Mutex
-	factory         ConnectionFactory
+	connected       bool
 	reader          *bufio.Reader
 	writer          *bufio.Writer
 	pendingRequests map[string]*PendingRequest
 	pendingMu       sync.Mutex
-	requestHandler  ClientRequestHandler
-	requestTimeout  time.Duration
 	shutdown        chan struct{}
+	reqTimeout      time.Duration
+	factory         ConnectionFactory
+	requestHandler  ClientRequestHandler
 }
 
 // NewClient creates a new client with the specified connection factory
@@ -34,7 +34,7 @@ func NewClient(factory ConnectionFactory) *Client {
 		factory:         factory,
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
-		requestTimeout:  30 * time.Second,
+		reqTimeout:      30 * time.Second,
 	}
 }
 
@@ -216,7 +216,7 @@ func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message)
 	c.pendingMu.Lock()
 	c.pendingRequests[msg.ID] = &PendingRequest{
 		ResponseChan: responseChan,
-		Timeout:      time.Now().Add(c.requestTimeout),
+		Timeout:      time.Now().Add(c.reqTimeout),
 	}
 	c.pendingMu.Unlock()
 
