@@ -101,6 +101,37 @@ For local testing and development:
 - docker does not support vsock
 - QEMU can be used to emulate vsock communication, with executor running in the VM, and manager running on the host.
 
+## Generate contracts bindings
+The interaction with the contracts on chain is managed using a Geth tool called `abigen`, that can convert contract code into Go code that can be used directly in Go applications. For more information, see [Go contract binding](https://geth.ethereum.org/docs/developers/dapp-developer/native-bindings-v2). 
+
+For running `abigen`, check to have `solc` installed:
+```bash
+solc --version
+```
+For installing `solc`:
+
+```bash
+sudo add-apt-repository ppa:ethereum/ethereum
+sudo apt-get update
+sudo apt-get install solc
+```
+
+For installing `abigen`:
+```bash
+go install github.com/ethereum/go-ethereum/cmd/abigen@latest
+```
+Before running `abigen`, install contracts dependencies:
+```bash
+cd contracts
+npm install
+```
+
+`abigen` is run using `go generate` command.
+So, before compiling, it is necessary to run the following:
+```bash
+go generate ./...
+```
+
 ## Testing
 
 For information about testing the system, see [README_TESTS.md](README_TESTS.md).
