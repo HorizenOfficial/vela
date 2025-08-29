@@ -3,6 +3,7 @@ package mockdb_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -41,7 +42,7 @@ func TestApplicationStateStore(t *testing.T) {
 
 		expectedState := common.ApplicationState{
 			ApplicationID:  "app-test-id-1",
-			StateRoot:      []byte("some-test-root-hash-1"),
+			StateRoot:      sha256.Sum256([]byte("some-test-root-hash-1")),
 			EncryptedState: []byte{0x0A, 0x0B, 0x0C, 0x0D},
 		}
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03}
@@ -209,7 +210,7 @@ func TestApplicationStateStore(t *testing.T) {
 				appID := fmt.Sprintf("concurrent-app-%d", i)
 				state := common.ApplicationState{
 					ApplicationID: appID,
-					StateRoot:     []byte(fmt.Sprintf("root-%d", i)),
+					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
 				}
 				err := store.Store(ctx, []byte(fmt.Sprintf("version-%d", i)), []*common.ApplicationState{&state}, nil)
 				assert.NoError(t, err)
@@ -226,7 +227,7 @@ func TestApplicationStateStore(t *testing.T) {
 				state, err := store.GetApplicationState(ctx, appID)
 				assert.NoError(t, err)
 				assert.Equal(t, appID, state.ApplicationID)
-				assert.Equal(t, []byte(fmt.Sprintf("root-%d", i)), state.StateRoot)
+				assert.Equal(t, sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))), state.StateRoot)
 			}(i)
 		}
 		wg.Wait()
@@ -240,12 +241,12 @@ func TestApplicationStateStore(t *testing.T) {
 		stateArray := []*common.ApplicationState{
 			{
 				ApplicationID:  "app1",
-				StateRoot:      []byte("root1"),
+				StateRoot:      sha256.Sum256([]byte("root1")),
 				EncryptedState: []byte("state1"),
 			},
 			{
 				ApplicationID:  "app2",
-				StateRoot:      []byte("root2"),
+				StateRoot:      sha256.Sum256([]byte("root2")),
 				EncryptedState: []byte("state2"),
 			},
 		}

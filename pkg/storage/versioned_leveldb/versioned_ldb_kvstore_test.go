@@ -312,6 +312,147 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		assert.Error(t, iter.Error())
 		iter.Release()
 	})
+
+	t.Run("UpdateWithMixedOperationsAndRollback", func(t *testing.T) {
+		kvStore, cleanup := createKVStore(t, 10)
+		defer cleanup()
+
+		// Pre-existing data
+		keyToAlter := []byte("key-to-alter")
+		originalValue := []byte("original-value")
+		keyToRemove := []byte("key-to-remove")
+		valueToRemove := []byte("value-to-remove")
+
+		v1 := sha256.Sum256([]byte("v1"))
+		err := kvStore.Update([]storage.KeyValuePair{
+			{Key: keyToAlter, Value: originalValue},
+			{Key: keyToRemove, Value: valueToRemove},
+		}, nil, v1[:])
+		require.NoError(t, err)
+
+		// The mixed update
+		keyToInsert := []byte("key-to-insert")
+		valueToInsert := []byte("value-to-insert")
+		alteredValue := []byte("altered-value")
+
+		v2 := sha256.Sum256([]byte("v2"))
+		err = kvStore.Update(
+			[]storage.KeyValuePair{ // ToUpdate
+				{Key: keyToInsert, Value: valueToInsert},
+				{Key: keyToAlter, Value: alteredValue},
+			},
+			[][]byte{keyToRemove}, // ToRemove
+			v2[:],
+		)
+		require.NoError(t, err)
+
+		// Verify state after update
+		val, err := kvStore.Db.Get(keyToInsert, nil)
+		require.NoError(t, err)
+		assert.Equal(t, valueToInsert, val)
+
+		val, err = kvStore.Db.Get(keyToAlter, nil)
+		require.NoError(t, err)
+		assert.Equal(t, alteredValue, val)
+
+		_, err = kvStore.Db.Get(keyToRemove, nil)
+		assert.Equal(t, leveldb.ErrNotFound, err)
+
+		// Rollback the mixed update
+		err = kvStore.RollbackTo(v1[:])
+		require.NoError(t, err)
+
+		// Verify state after rollback
+		_, err = kvStore.Db.Get(keyToInsert, nil)
+		assert.Equal(t, leveldb.ErrNotFound, err, "keyToInsert should be gone after rollback")
+
+		val, err = kvStore.Db.Get(keyToAlter, nil)
+		require.NoError(t, err)
+		assert.Equal(t, originalValue, val, "keyToAlter should have its original value")
+
+		val, err = kvStore.Db.Get(keyToRemove, nil)
+		require.NoError(t, err)
+		assert.Equal(t, valueToRemove, val, "keyToRemove should be restored after rollback")
+	})
+
+	t.Run("RollbackMultipleLevels", func(t *testing.T) {
+		kvStore, cleanup := createKVStore(t, 10)
+		defer cleanup()
+
+		// Create 5 versions
+		versions := make([][]byte, 5)
+		for i := 0; i < 5; i++ {
+			v := sha256.Sum256([]byte("v" + strconv.Itoa(i+1)))
+			versions[i] = v[:]
+			key := []byte("key" + strconv.Itoa(i+1))
+			value := []byte("value" + strconv.Itoa(i+1))
+			err := kvStore.Update([]storage.KeyValuePair{{Key: key, Value: value}}, nil, versions[i])
+			require.NoError(t, err)
+		}
+
+		// Rollback from v5 to v2
+		err := kvStore.RollbackTo(versions[1]) // versions[1] is v2
+		require.NoError(t, err)
+
+		// Verify versions list
+		currentVersions, err := kvStore.Versions()
+		require.NoError(t, err)
+		require.Len(t, currentVersions, 2)
+		assert.Equal(t, versions[1], currentVersions[0]) // Newest should be v2
+		assert.Equal(t, versions[0], currentVersions[1]) // Oldest should be v1
+
+		// Verify data state
+		// Keys from v1 and v2 should exist
+		_, err = kvStore.Db.Get([]byte("key1"), nil)
+		require.NoError(t, err)
+		_, err = kvStore.Db.Get([]byte("key2"), nil)
+		require.NoError(t, err)
+
+		// Keys from v3, v4, v5 should not exist
+		_, err = kvStore.Db.Get([]byte("key3"), nil)
+		assert.Equal(t, leveldb.ErrNotFound, err)
+		_, err = kvStore.Db.Get([]byte("key4"), nil)
+		assert.Equal(t, leveldb.ErrNotFound, err)
+		_, err = kvStore.Db.Get([]byte("key5"), nil)
+		assert.Equal(t, leveldb.ErrNotFound, err)
+	})
+
+	t.Run("VersionPruningOnUpdate", func(t *testing.T) {
+		kvStore, cleanup := createKVStore(t, 3) // Keep only 3 versions
+		defer cleanup()
+
+		// Add 5 versions
+		versions := make([][]byte, 5)
+		for i := 0; i < 5; i++ {
+			v := sha256.Sum256([]byte("v" + strconv.Itoa(i)))
+			versions[i] = v[:]
+			key := []byte("key" + strconv.Itoa(i))
+			value := []byte("value" + strconv.Itoa(i))
+			err := kvStore.Update([]storage.KeyValuePair{{Key: key, Value: value}}, nil, versions[i])
+			require.NoError(t, err)
+
+			// Check version count after the 4th and 5th updates
+			if i >= 3 {
+				currentVersions, err := kvStore.Versions()
+				require.NoError(t, err)
+				assert.Len(t, currentVersions, 3, "Should have pruned to 3 versions")
+			}
+		}
+
+		// Verify the correct versions were kept (the last 3)
+		currentVersions, err := kvStore.Versions()
+		require.NoError(t, err)
+		require.Len(t, currentVersions, 3)
+		assert.Equal(t, versions[4], currentVersions[0]) // v4 (newest)
+		assert.Equal(t, versions[3], currentVersions[1]) // v3
+		assert.Equal(t, versions[2], currentVersions[2]) // v2 (oldest)
+
+		// Verify that data from pruned versions (v0, v1) still exists
+		_, err = kvStore.Db.Get([]byte("key0"), nil)
+		require.NoError(t, err, "Data from pruned version v0 should still exist")
+		_, err = kvStore.Db.Get([]byte("key1"), nil)
+		require.NoError(t, err, "Data from pruned version v1 should still exist")
+	})
 }
 
 // TestChangeSetSerializer tests the serialization and deserialization of ChangeSet objects.
