@@ -31,8 +31,6 @@ type ApplicationStateStore interface {
 	// ListVersions returns a list of all stored version IDs.
 	ListVersions() ([][]byte, error)
 
-
-
 	// GetApplicationState retrieves the state of a specific application by its ID.
 	GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error)
 	// GetWASMBytecode retrieves the WASM bytecode for a specific application by its ID.
@@ -43,6 +41,7 @@ type ApplicationStateStore interface {
 }
 
 // ApplicationUserKeyStore defines the interface for managing user public keys.
+// This storage is not versioned
 type ApplicationUserKeyStore interface {
 	// StoreUserKey saves a user's public key, associating it with a userID.
 	StoreUserKey(ctx context.Context, userID string, publicKey []byte) error
@@ -51,6 +50,7 @@ type ApplicationUserKeyStore interface {
 }
 
 // ApplicationReportStore defines the interface for managing deanonymization reports.
+// This storage is not versioned
 type ApplicationReportStore interface {
 	// StoreDeanonymizationReport saves a new deanonymization report.
 	StoreDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error

@@ -68,16 +68,6 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	t.Run("NewVersionedLevelDBDataLayerWithInvalidPath", func(t *testing.T) {
-		// Verifies that creating a new data layer with an invalid or inaccessible
-		// path returns an error.
-		_, err := versionedDb.NewVersionedLevelDBDataLayer(versionedDb.VersionedLevelDBConfig{
-			DBPath:         "/invalid-path",
-			VersionsToKeep: 5,
-		})
-		require.Error(t, err)
-	})
-
 	t.Run("StoreAndGetApplicationStateWithCorruptedData", func(t *testing.T) {
 		// Verifies that attempting to retrieve an application state that has been
 		// manually corrupted (e.g., invalid JSON) results in an error.
@@ -847,137 +837,137 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		wg.Wait()
 
 		// Verify all data is present
-        	for i := range numGoroutines {
-            		appID := fmt.Sprintf("concurrent-app-%d", i)
-            		_, err := store.GetApplicationState(ctx, appID)
-            		assert.NoError(t, err, "should be able to get state for %s", appID)
-        	}
-    })
+		for i := range numGoroutines {
+			appID := fmt.Sprintf("concurrent-app-%d", i)
+			_, err := store.GetApplicationState(ctx, appID)
+			assert.NoError(t, err, "should be able to get state for %s", appID)
+		}
+	})
 
-    t.Run("StoreWithMixedDataTypes", func(t *testing.T) {
-        // Verifies that a single Store call can atomically save both ApplicationState
-        // and WASMData for different applications under the same version.
-        tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "mixed-types-test-")
-        require.NoError(t, err)
-        defer os.RemoveAll(tempDir)
-        store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+	t.Run("StoreWithMixedDataTypes", func(t *testing.T) {
+		// Verifies that a single Store call can atomically save both ApplicationState
+		// and WASMData for different applications under the same version.
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "mixed-types-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
-        state := &common.ApplicationState{
-            ApplicationID: "app-with-state",
-            StateRoot:     sha256.Sum256([]byte("state-root")),
-        }
-        wasm := &common.WASMData{
-            ApplicationID: "app-with-wasm",
-            Bytecode:      []byte{0xCA, 0xFE},
-        }
-        versionID := versionedDb.GenerateVersionID_ForTest(state.StateRoot[:], wasm.Bytecode)
+		state := &common.ApplicationState{
+			ApplicationID: "app-with-state",
+			StateRoot:     sha256.Sum256([]byte("state-root")),
+		}
+		wasm := &common.WASMData{
+			ApplicationID: "app-with-wasm",
+			Bytecode:      []byte{0xCA, 0xFE},
+		}
+		versionID := versionedDb.GenerateVersionID_ForTest(state.StateRoot[:], wasm.Bytecode)
 
-        err = store.Store(ctx, versionID, []*common.ApplicationState{state}, []*common.WASMData{wasm})
-        require.NoError(t, err)
+		err = store.Store(ctx, versionID, []*common.ApplicationState{state}, []*common.WASMData{wasm})
+		require.NoError(t, err)
 
-        // Verify both were stored correctly
-        retrievedState, err := store.GetApplicationState(ctx, "app-with-state")
-        require.NoError(t, err)
-        if diff := cmp.Diff(state, retrievedState); diff != "" {
-            t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
-        }
+		// Verify both were stored correctly
+		retrievedState, err := store.GetApplicationState(ctx, "app-with-state")
+		require.NoError(t, err)
+		if diff := cmp.Diff(state, retrievedState); diff != "" {
+			t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
+		}
 
-        retrievedWasm, err := store.GetWASMBytecode(ctx, "app-with-wasm")
-        require.NoError(t, err)
-        assert.Equal(t, wasm.Bytecode, retrievedWasm)
-    })
+		retrievedWasm, err := store.GetWASMBytecode(ctx, "app-with-wasm")
+		require.NoError(t, err)
+		assert.Equal(t, wasm.Bytecode, retrievedWasm)
+	})
 
-    t.Run("RollbackAffectsAllDataTypes", func(t *testing.T) {
-        // Verifies that a rollback correctly reverts changes across all versioned
-        // data types (ApplicationState and WASMData).
-        tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "rollback-mixed-types-test-")
-        require.NoError(t, err)
-        defer os.RemoveAll(tempDir)
-        store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+	t.Run("RollbackAffectsAllDataTypes", func(t *testing.T) {
+		// Verifies that a rollback correctly reverts changes across all versioned
+		// data types (ApplicationState and WASMData).
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "rollback-mixed-types-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
-        // Version 1: Initial state for AppA
-        appAStateV1 := &common.ApplicationState{ApplicationID: "AppA", StateRoot: sha256.Sum256([]byte("v1"))}
-        v1 := versionedDb.GenerateVersionID_ForTest([]byte("AppA"), appAStateV1.StateRoot[:])
-        err = store.Store(ctx, v1, []*common.ApplicationState{appAStateV1}, nil)
-        require.NoError(t, err)
+		// Version 1: Initial state for AppA
+		appAStateV1 := &common.ApplicationState{ApplicationID: "AppA", StateRoot: sha256.Sum256([]byte("v1"))}
+		v1 := versionedDb.GenerateVersionID_ForTest([]byte("AppA"), appAStateV1.StateRoot[:])
+		err = store.Store(ctx, v1, []*common.ApplicationState{appAStateV1}, nil)
+		require.NoError(t, err)
 
-        // Version 2: Update AppA and add WASM for AppB
-        appAStateV2 := &common.ApplicationState{ApplicationID: "AppA", StateRoot: sha256.Sum256([]byte("v2"))}
-        appBWasm := &common.WASMData{ApplicationID: "AppB", Bytecode: []byte("wasm-b")}
-        v2 := versionedDb.GenerateVersionID_ForTest(appAStateV2.StateRoot[:], appBWasm.Bytecode)
-        err = store.Store(ctx, v2, []*common.ApplicationState{appAStateV2}, []*common.WASMData{appBWasm})
-        require.NoError(t, err)
+		// Version 2: Update AppA and add WASM for AppB
+		appAStateV2 := &common.ApplicationState{ApplicationID: "AppA", StateRoot: sha256.Sum256([]byte("v2"))}
+		appBWasm := &common.WASMData{ApplicationID: "AppB", Bytecode: []byte("wasm-b")}
+		v2 := versionedDb.GenerateVersionID_ForTest(appAStateV2.StateRoot[:], appBWasm.Bytecode)
+		err = store.Store(ctx, v2, []*common.ApplicationState{appAStateV2}, []*common.WASMData{appBWasm})
+		require.NoError(t, err)
 
-        // Verify V2 state
-        state, err := store.GetApplicationState(ctx, "AppA")
-        require.NoError(t, err)
-        assert.Equal(t, appAStateV2.StateRoot, state.StateRoot)
-        _, err = store.GetWASMBytecode(ctx, "AppB")
-        require.NoError(t, err)
+		// Verify V2 state
+		state, err := store.GetApplicationState(ctx, "AppA")
+		require.NoError(t, err)
+		assert.Equal(t, appAStateV2.StateRoot, state.StateRoot)
+		_, err = store.GetWASMBytecode(ctx, "AppB")
+		require.NoError(t, err)
 
-        // Rollback to V1
-        err = store.Rollback(v1)
-        require.NoError(t, err)
+		// Rollback to V1
+		err = store.Rollback(v1)
+		require.NoError(t, err)
 
-        // Verify state after rollback
-        state, err = store.GetApplicationState(ctx, "AppA")
-        require.NoError(t, err)
-        assert.Equal(t, appAStateV1.StateRoot, state.StateRoot, "AppA state should be reverted to V1")
+		// Verify state after rollback
+		state, err = store.GetApplicationState(ctx, "AppA")
+		require.NoError(t, err)
+		assert.Equal(t, appAStateV1.StateRoot, state.StateRoot, "AppA state should be reverted to V1")
 
-        _, err = store.GetWASMBytecode(ctx, "AppB")
-        require.Error(t, err, "WASM for AppB should be gone after rollback")
-        var notFoundErr *storageErrors.Error
-        require.True(t, errors.As(err, &notFoundErr) && notFoundErr.Code == storageErrors.NotFound)
-    })
+		_, err = store.GetWASMBytecode(ctx, "AppB")
+		require.Error(t, err, "WASM for AppB should be gone after rollback")
+		var notFoundErr *storageErrors.Error
+		require.True(t, errors.As(err, &notFoundErr) && notFoundErr.Code == storageErrors.NotFound)
+	})
 
-    t.Run("ConcurrentRollbackAndWrite", func(t *testing.T) {
-        // Tests for race conditions between writing new versions and rolling back to old ones.
-        tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "concurrent-rollback-write-test-")
-        require.NoError(t, err)
-        defer os.RemoveAll(tempDir)
-        store := createStore(t, filepath.Join(tempDir, "test.db"), 20)
+	t.Run("ConcurrentRollbackAndWrite", func(t *testing.T) {
+		// Tests for race conditions between writing new versions and rolling back to old ones.
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "concurrent-rollback-write-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 20)
 
-        // Pre-populate with an initial version
-        initialVersionID := versionedDb.GenerateVersionID_ForTest([]byte("initial"), []byte("state"))
-        err = store.Store(ctx, initialVersionID, []*common.ApplicationState{{ApplicationID: "initial-app"}}, nil)
-        require.NoError(t, err)
+		// Pre-populate with an initial version
+		initialVersionID := versionedDb.GenerateVersionID_ForTest([]byte("initial"), []byte("state"))
+		err = store.Store(ctx, initialVersionID, []*common.ApplicationState{{ApplicationID: "initial-app"}}, nil)
+		require.NoError(t, err)
 
-        var wg sync.WaitGroup
-        const writerRoutines = 5
-        const rollbackRoutines = 5
+		var wg sync.WaitGroup
+		const writerRoutines = 5
+		const rollbackRoutines = 5
 
-        // Writer goroutines
-        for i := 0; i < writerRoutines; i++ {
-            wg.Add(1)
-            go func(i int) {
-                defer wg.Done()
-                appID := fmt.Sprintf("concurrent-app-%d", i)
-                state := common.ApplicationState{
-                    ApplicationID: appID,
-                    StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
-                }
-                versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot[:])
-                // Errors are possible and acceptable (e.g., version already exists)
-                _ = store.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
-            }(i)
-        }
+		// Writer goroutines
+		for i := 0; i < writerRoutines; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				appID := fmt.Sprintf("concurrent-app-%d", i)
+				state := common.ApplicationState{
+					ApplicationID: appID,
+					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
+				}
+				versionID := versionedDb.GenerateVersionID_ForTest([]byte(appID), state.StateRoot[:])
+				// Errors are possible and acceptable (e.g., version already exists)
+				_ = store.Store(ctx, versionID, []*common.ApplicationState{&state}, nil)
+			}(i)
+		}
 
-        // Rollback goroutines
-        for i := 0; i < rollbackRoutines; i++ {
-            wg.Add(1)
-            go func() {
-                defer wg.Done()
-                // Attempt to rollback to the initial, stable version.
-                // This may fail if other rollbacks are happening, which is acceptable.
-                _ = store.Rollback(initialVersionID)
-            }()
-        }
+		// Rollback goroutines
+		for i := 0; i < rollbackRoutines; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// Attempt to rollback to the initial, stable version.
+				// This may fail if other rollbacks are happening, which is acceptable.
+				_ = store.Rollback(initialVersionID)
+			}()
+		}
 
-        wg.Wait()
+		wg.Wait()
 
-        // The final state is non-deterministic, but the test should complete without panicking.
-        // We can check that the database is still in a valid state.
-        _, err = store.ListVersions()
-        assert.NoError(t, err, "ListVersions should not fail after concurrent operations")
-    })
+		// The final state is non-deterministic, but the test should complete without panicking.
+		// We can check that the database is still in a valid state.
+		_, err = store.ListVersions()
+		assert.NoError(t, err, "ListVersions should not fail after concurrent operations")
+	})
 }

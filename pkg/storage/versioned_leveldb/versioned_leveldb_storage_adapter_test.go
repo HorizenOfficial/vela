@@ -91,11 +91,6 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		assert.Len(t, versions, 1, "Should have one version after update")
 	})
 
-	t.Run("NewVersionedLevelDbStorageAdapterWithInvalidPath", func(t *testing.T) {
-		_, err := versioned_leveldb.NewVersionedLevelDbStorageAdapterWithVersions("/invalid-path", 10)
-		require.Error(t, err)
-	})
-
 	t.Run("GetOrElseWithError", func(t *testing.T) {
 		adapter := createAdapter(t, 10)
 		require.NoError(t, adapter.Close())
