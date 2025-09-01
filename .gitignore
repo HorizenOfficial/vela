@@ -5,9 +5,13 @@
 /build/
 /dist/
 /*.exe
+contract_abis/
+pkg/blockchain/contracts/
 
 *.test
 *.out
 *.log
 *.tmp
 TODO.md
+.env
+*.bkp

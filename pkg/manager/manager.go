@@ -72,9 +72,6 @@ func (m *SecureProcessorManager) Stop() error {
 		return nil
 	}
 
-	// Signal the polling loop to stop
-	close(m.stopChan)
-
 	// Wait for the polling loop to stop
 	m.wg.Wait()
 
@@ -106,7 +103,7 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 
 	for {
 		select {
-		case <-m.stopChan:
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			// Get pending requests from the blockchain

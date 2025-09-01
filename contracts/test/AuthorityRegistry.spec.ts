@@ -27,7 +27,7 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('owner can remove', async function () {
-        await expect(
+        await expect( 
             authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
         ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
 
@@ -56,10 +56,10 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('cant add already added', async function () {
-        await expect(
+        await expect( 
             authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
         ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
-
+        
         await expect( 
             authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
         ).to.be.revertedWithCustomError(authorityRegistry, "AuthorityAlreadyPresent");

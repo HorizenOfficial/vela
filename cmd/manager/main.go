@@ -7,6 +7,10 @@ import (
 	"strconv"
 	"strings"
 
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
@@ -46,6 +50,9 @@ func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
 }
 
 func main() {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	// Create a context that is canceled on SIGINT or SIGTERM
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -97,10 +104,14 @@ func main() {
 	}
 	log.Println("Manager started")
 
-	// Wait for the context to be canceled
-	<-ctx.Done()
+	// Wait for shutdown signal
+	<-sigChan
+	signal.Stop(sigChan)
+	// Handle shutdown signal (Ctrl+C or SIGTERM)
+	log.Println("Received shutdown signal. Shutting down gracefully...")
 
 	// Stop the manager
+	cancel()
 	if err := secureProcessorManager.Stop(); err != nil {
 		log.Fatalf("Failed to stop manager: %v", err)
 	}
