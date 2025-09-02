@@ -131,9 +131,9 @@ type UpdatePayload struct {
 	// RequestID is the ID of the request being processed
 	RequestID string `json:"requestId"`
 	// PrevStateRoot is the previous state root
-	PrevStateRoot []byte `json:"prevStateRoot"`
+	PrevStateRoot [32]byte `json:"prevStateRoot"`
 	// NewStateRoot is the new state root
-	NewStateRoot []byte `json:"newStateRoot"`
+	NewStateRoot [32]byte `json:"newStateRoot"`
 	// Events is a list of events to emit
 	Events []Event `json:"events"`
 	// Withdrawals is a list of withdrawals to execute
@@ -147,9 +147,16 @@ type ApplicationState struct {
 	// ApplicationID is the ID of the application
 	ApplicationID string `json:"applicationId"`
 	// StateRoot is the root hash of the state
-	StateRoot []byte `json:"stateRoot"`
+	StateRoot [32]byte `json:"stateRoot"`
 	// EncryptedState is the encrypted state data
 	EncryptedState []byte `json:"encryptedState"`
+}
+
+type WASMData struct {
+	// ApplicationID is the ID of the application
+	ApplicationID string `json:"applicationId"`
+	// Bytecode is the wasm bytecode
+	Bytecode []byte `json:"bytecode"`
 }
 
 // DeanonymizationReport represents a report for deanonymization

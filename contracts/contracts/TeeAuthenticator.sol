@@ -31,8 +31,8 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
 
     function checkSignature(
         uint256 applicationId,
-        bytes calldata prevStateRoot,
-        bytes calldata newStateRoot,
+        bytes32 prevStateRoot,
+        bytes32 newStateRoot,
         uint256 processedRequestId,
         bytes[] memory events,
         Structs.WithdrawalRequest[] memory withdrawalRequests,
@@ -40,13 +40,16 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     ) external view override returns (bool) {
         if(teeSigner == address(0)) revert TeeIsNotSet();
 
-        bytes32 messageHash = keccak256(abi.encode(
+        bytes32 eventsHash = keccak256(abi.encode(events));
+        bytes32 withdrawalRequestsHash = keccak256(abi.encode(withdrawalRequests));
+
+        bytes32 messageHash = keccak256(abi.encodePacked(
             applicationId,
             prevStateRoot,
             newStateRoot,
             processedRequestId,
-            events,
-            withdrawalRequests
+            eventsHash,
+            withdrawalRequestsHash
         ));
 
         address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);

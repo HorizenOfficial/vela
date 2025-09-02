@@ -24,7 +24,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 		t.Error("Expected non-empty serialized state")
 	}
 
-	if len(stateRoot) == 0 {
+	if stateRoot == ([32]byte{}) {
 		t.Error("Expected non-empty state root")
 	}
 

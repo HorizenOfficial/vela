@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/sha256"
@@ -73,8 +72,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	// Verify state consistency
-	if sha256.Sum256(decryptedState) != [32]byte(appState.StateRoot) {
-		return nil, nil, fmt.Errorf("state root mismatch: got %x, want %x", decryptedState, appState.StateRoot)
+	stateRoot := sha256.Sum256(decryptedState)
+	if stateRoot != appState.StateRoot {
+		return nil, nil, fmt.Errorf("state root mismatch: got %x, want %x", stateRoot, appState.StateRoot)
 	}
 
 	// Decrypt the request payload
@@ -122,7 +122,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		ApplicationID: req.ApplicationID,
 		RequestID:     req.RequestID,
 		PrevStateRoot: appState.StateRoot,
-		NewStateRoot:  newStateRoot[:],
+		NewStateRoot:  newStateRoot,
 		Events:        encryptedEvents,
 		Withdrawals:   withdrawals,
 	}
@@ -137,7 +137,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// Create the new application state
 	newAppState := &common.ApplicationState{
 		ApplicationID:  req.ApplicationID,
-		StateRoot:      newStateRoot[:],
+		StateRoot:      newStateRoot,
 		EncryptedState: encryptedNewState,
 	}
 
@@ -177,7 +177,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	updatePayload := &common.UpdatePayload{
 		ApplicationID: req.ApplicationID,
 		RequestID:     req.RequestID,
-		PrevStateRoot: nil, // No previous state root for new applications
+		PrevStateRoot: [32]byte{}, // No previous state root for new applications
 		NewStateRoot:  stateRoot,
 	}
 
@@ -204,8 +204,8 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 
 	// Verify state consistency
 	hash := sha256.Sum256(decryptedState)
-	if !bytes.Equal(hash[:], appState.StateRoot) {
-		return nil, fmt.Errorf("state root mismatch: got %x, want %x", decryptedState, appState.StateRoot)
+	if hash != appState.StateRoot {
+		return nil, fmt.Errorf("state root mismatch: got %x, want %x", hash, appState.StateRoot)
 	}
 
 	// Decrypt the request payload

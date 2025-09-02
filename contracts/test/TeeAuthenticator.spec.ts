@@ -1,4 +1,5 @@
-import { expect } from 'chai'
+import { expect } from 'chai';
+import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
 import { ethSignStateUpdate } from '../scripts/util';
 
@@ -42,8 +43,8 @@ describe('TeeAuthenticator Test', function () {
         let tx = await teeAuthenticator.connect(signers[0]).updateTee(addr2);
         await tx.wait();
 
-        let signature = await ethSignStateUpdate(signers[1], 0, "0x", "0x1234", 0, ["0x"], [[addr1, 50], [addr2, 50]]);
-        let res = await teeAuthenticator.checkSignature(0, "0x", "0x1234", 0, ["0x"], [[addr1, 50], [addr2, 50]], signature);
+        let signature = await ethSignStateUpdate(signers[1], 0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x"], [[addr1, 50], [addr2, 50]]);
+        let res = await teeAuthenticator.checkSignature(0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x"], [[addr1, 50], [addr2, 50]], signature);
         expect(res).eql(true);
     })
 
@@ -53,8 +54,8 @@ describe('TeeAuthenticator Test', function () {
         let tx = await teeAuthenticator.connect(signers[0]).updateTee(addr2);
         await tx.wait();
 
-        let signature = await ethSignStateUpdate(signers[0], 0, "0x", "0x1234", 0, ["0x"], [[addr1, 50], [addr2, 50]]);
-        let res = await teeAuthenticator.checkSignature(0, "0x", "0x1234", 0, ["0x"], [[addr1, 50], [addr2, 50]], signature);
+        let signature = await ethSignStateUpdate(signers[0], 0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x"], [[addr1, 50], [addr2, 50]]);
+        let res = await teeAuthenticator.checkSignature(0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x"], [[addr1, 50], [addr2, 50]], signature);
         expect(res).eql(false);
     })
 
@@ -62,9 +63,9 @@ describe('TeeAuthenticator Test', function () {
         let addr1 = await signers[0].getAddress();
         let addr2 = await signers[1].getAddress();
 
-        let signature = await ethSignStateUpdate(signers[1], 0, "0x", "0x1234", 0, ["0x"], [[addr1, 50], [addr2, 50]]);
+        let signature = await ethSignStateUpdate(signers[1], 0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x"], [[addr1, 50], [addr2, 50]]);
         await expect(
-            teeAuthenticator.checkSignature(0, "0x", "0x1234", 0, ["0x"], [[addr1, 50], [addr2, 50]], signature)
+            teeAuthenticator.checkSignature(0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x"], [[addr1, 50], [addr2, 50]], signature)
         ).to.be.revertedWithCustomError(teeAuthenticator, "TeeIsNotSet");
     })
 })

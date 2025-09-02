@@ -20,7 +20,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     uint256 public constant APPLICATION_ID = 1;
     
     //state variables
-    bytes public stateRoot;
+    bytes32 public stateRoot;
     
     Structs.PendingRequest[] public requests;
     EnumerableSet.UintSet private idsQueue;
@@ -33,7 +33,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     event RequestCompleted(uint256 indexed requestId);
     event RequestFailed(uint256 indexed requestId);
     event UserEvent(uint256 indexed applicationId, uint256 indexed requestId, bytes encryptedData);
-    event StateRootUpdate(uint256 indexed applicationId, uint256 indexed requestId, bytes oldStateRoot, bytes newStateRoot);
+    event StateRootUpdate(uint256 indexed applicationId, uint256 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     //errors
     error AddressCantBeZero();
     error InvalidValue();
@@ -160,8 +160,8 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     //update status
     function stateUpdate(
         uint256 applicationId, 
-        bytes calldata prevStateRoot, 
-        bytes calldata newStateRoot, 
+        bytes32 prevStateRoot, 
+        bytes32 newStateRoot, 
         uint256 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
@@ -169,7 +169,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     ) public nonReentrant validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
 
         //check prev state root
-        if(!_eq(stateRoot, "") && !_eq(prevStateRoot, stateRoot)) revert InvalidStateRoot();
+        if(stateRoot != bytes32(0) && prevStateRoot != stateRoot) revert InvalidStateRoot();
         //check signature
         if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature)) revert InvalidSignature();
 
@@ -203,15 +203,5 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
             emit Withdrawal(applicationId, processedRequestId, withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
             unchecked {++i;}
         }
-    }
-
-    function _eq(bytes memory a, bytes memory b) internal pure returns(bool) {
-        if(a.length != b.length) return false;
-        uint256 i;
-        while(i < a.length) {
-            if(a[i] != b[i]) return false;
-            unchecked {++i;}
-        }
-        return true;
     }
 }
