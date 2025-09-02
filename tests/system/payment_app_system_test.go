@@ -252,7 +252,7 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 		"withdraw-1",
 		user2,
 		"0x1234567890123456789012345678901234567890",
-		500000000000000000, // 0.5 ETH
+		uint64(500000000000000000), // 0.5 ETH
 		executorPubKey,
 	)
 	require.NoError(t, err)
@@ -285,7 +285,7 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 	require.NoError(t, err)
 	require.NotNil(t, withdrawal)
 	require.Equal(t, "0x1234567890123456789012345678901234567890", withdrawal.DestinationAddress)
-	require.Equal(t, "500000000000000000", withdrawal.Amount)
+	require.Equal(t, uint64(500000000000000000), withdrawal.Amount)
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload("withdraw-1")

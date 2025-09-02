@@ -5,11 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/horizen-pes/pkg/executor"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/horizen-pes/pkg/executor"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,7 +61,7 @@ func TestWasmtimeRuntime_Deposit(t *testing.T) {
 	ctx := context.Background()
 	appId := "test-app"
 	sender := "user1"
-	value := int64(1000000000000000000) // 1 ETH
+	value := uint64(1000000000000000000) // 1 ETH
 
 	initialState, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err, "LoadModule should succeed")
@@ -105,8 +106,8 @@ func TestWasmtimeRuntime_ProcessRequest_Transfer(t *testing.T) {
 	appId := "test-app"
 	sender := "user1"
 	recipient := "user2"
-	depositValue := int64(2000000000000000000) // 2 ETH
-	transferValue := int64(500000000000000000) // 0.5 ETH
+	depositValue := uint64(2000000000000000000) // 2 ETH
+	transferValue := uint64(500000000000000000) // 0.5 ETH
 
 	// Load module and make a deposit first
 	initialState, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
@@ -181,8 +182,8 @@ func TestWasmtimeRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	ctx := context.Background()
 	appId := "test-app"
 	sender := "user1"
-	depositValue := int64(1000000000000000000) // 1 ETH
-	withdrawValue := int64(500000000000000000) // 0.5 ETH
+	depositValue := uint64(1000000000000000000) // 1 ETH
+	withdrawValue := uint64(500000000000000000) // 0.5 ETH
 	withdrawAddress := "0x1234567890123456789012345678901234567890"
 
 	// Load module and make a deposit first
@@ -224,7 +225,7 @@ func TestWasmtimeRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	// Verify withdrawal
 	withdrawal := withdrawals[0]
 	assert.Equal(t, withdrawAddress, withdrawal.DestinationAddress)
-	assert.Equal(t, "500000000000000000", withdrawal.Amount)
+	assert.Equal(t, uint64(500000000000000000), withdrawal.Amount)
 
 	// Verify the state was updated
 	var stateData map[string]interface{}
@@ -250,7 +251,7 @@ func TestWasmtimeRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	appId := "test-app"
 	requestId := "deanon-1"
 	sender := "user1"
-	value := int64(1000000000000000000) // 1 ETH
+	value := uint64(1000000000000000000) // 1 ETH
 
 	// Load module and make a deposit first to have some state
 	initialState, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
@@ -304,13 +305,13 @@ func TestWasmtimeRuntime_FullWorkflow(t *testing.T) {
 	require.NotNil(t, stateRoot)
 
 	t.Log("Step 2: Make deposit for user1")
-	depositValue := int64(2000000000000000000) // 2 ETH
+	depositValue := uint64(2000000000000000000) // 2 ETH
 	state, events, err := runtime.Deposit(ctx, appId, user1, depositValue, state, wasmBytes)
 	require.NoError(t, err, "Deposit should succeed")
 	require.Len(t, events, 1)
 
 	t.Log("Step 3: Transfer from user1 to user2")
-	transferValue := int64(500000000000000000) // 0.5 ETH
+	transferValue := uint64(500000000000000000) // 0.5 ETH
 	transferPayload := map[string]interface{}{
 		"type": "transfer",
 		"transfer": map[string]interface{}{
@@ -327,7 +328,7 @@ func TestWasmtimeRuntime_FullWorkflow(t *testing.T) {
 	require.Len(t, withdrawals, 0)
 
 	t.Log("Step 4: Withdraw from user2")
-	withdrawValue := int64(250000000000000000) // 0.25 ETH
+	withdrawValue := uint64(250000000000000000) // 0.25 ETH
 	withdrawAddress := "0x1234567890123456789012345678901234567890"
 	withdrawPayload := map[string]interface{}{
 		"type": "withdraw",
@@ -440,7 +441,7 @@ func TestWasmtimeRuntime_LargeStateHandling(t *testing.T) {
 	// Tested up to 6k, after 6k app is very slow and failing randomly
 	for i := 0; i < 100; i++ {
 		user := fmt.Sprintf("user%d", i)
-		value := int64(1000000000000000000) // 1 ETH
+		value := uint64(1000000000000000000) // 1 ETH
 		state, _, err = runtime.Deposit(ctx, appId, user, value, state, wasmBytes)
 		require.NoError(t, err)
 	}
@@ -450,7 +451,7 @@ func TestWasmtimeRuntime_LargeStateHandling(t *testing.T) {
 		"type": "transfer",
 		"transfer": map[string]interface{}{
 			"to":     "user1",
-			"amount": int64(500000000000000000),
+			"amount": uint64(500000000000000000),
 		},
 	}
 	payloadBytes, err := json.Marshal(transferPayload)
@@ -556,7 +557,7 @@ func TestWasmtimeRuntime_InvalidPayloads(t *testing.T) {
 			"type": "transfer",
 			"transfer": map[string]interface{}{
 				"to":     "user2",
-				"amount": int64(500),
+				"amount": uint64(500),
 			},
 		}
 		payloadBytes, _ := json.Marshal(negativePayload)
@@ -577,7 +578,7 @@ func TestWasmtimeRuntime_InsufficientFunds(t *testing.T) {
 	ctx := context.Background()
 	appId := "test-app"
 	sender := "user1"
-	value := int64(1000000000000000000) // 1 ETH
+	value := uint64(12345678901234567890) // # fits in uint64, > max int64
 
 	state, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
@@ -589,7 +590,7 @@ func TestWasmtimeRuntime_InsufficientFunds(t *testing.T) {
 		"type": "transfer",
 		"transfer": map[string]interface{}{
 			"to":     "user2",
-			"amount": value, // 1 ETH
+			"amount": value, // big value
 		},
 	}
 	payloadBytes, _ := json.Marshal(transferPayload)

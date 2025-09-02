@@ -28,7 +28,7 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 			PrevStateRoot: appState.StateRoot,
 			NewStateRoot:  []byte("new-state-root"),
 			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
+			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
 			Signature:     []byte("test-signature"),
 		},
 		&common.ApplicationState{
@@ -371,7 +371,7 @@ func TestTCPClientServer_DependantRequests(t *testing.T) {
 				PrevStateRoot: appState.StateRoot,
 				NewStateRoot:  []byte("new-state-root"),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
 				Signature:     keys["test-user"],
 			}, appState, nil
 		},
@@ -557,7 +557,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 				PrevStateRoot: appState.StateRoot,
 				NewStateRoot:  []byte("new-state-root"),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
 				Signature:     []byte("test-signature"),
 			}, appState, nil
 		},

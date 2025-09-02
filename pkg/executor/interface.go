@@ -4,6 +4,7 @@ package executor
 
 import (
 	"context"
+
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
 
@@ -58,7 +59,7 @@ type Runtime interface {
 	// LoadModule loads a module from bytecode
 	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, []byte, error)
 	// Deposit processes a deposit
-	Deposit(ctx context.Context, appId string, sender string, value int64, state []byte, wasm []byte) ([]byte, []PlainEvent, error)
+	Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []PlainEvent, error)
 	// ProcessRequest processes a request and returns the new state
 	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []PlainEvent, []common.Withdrawal, error)
 	// GenerateDeanonymizationReport generates a deanonymization report

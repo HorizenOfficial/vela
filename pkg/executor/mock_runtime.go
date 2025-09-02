@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strconv"
 
 	"github.com/horizen-pes/pkg/common"
 )
@@ -19,7 +18,7 @@ type MockRuntime struct {
 // AccountState represents the state of a user account
 type AccountState struct {
 	Address string `json:"address"`
-	Balance int64  `json:"balance"`
+	Balance uint64 `json:"balance"`
 }
 
 // ApplicationInternalState represents the internal state of the application
@@ -32,13 +31,13 @@ type ApplicationInternalState struct {
 // TransferInstruction represents instructions for transferring funds
 type TransferInstruction struct {
 	To     string `json:"to"`
-	Amount int64  `json:"amount"`
+	Amount uint64 `json:"amount"`
 }
 
 // WithdrawInstruction represents instructions for withdrawing funds
 type WithdrawInstruction struct {
 	To     string `json:"to"`
-	Amount int64  `json:"amount"`
+	Amount uint64 `json:"amount"`
 }
 
 // PayloadInstructions represents the deserialized payload instructions
@@ -78,7 +77,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte)
 	return stateBytes, stateRoot[:], nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value int64, state []byte, wasm []byte) ([]byte, []PlainEvent, error) {
+func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []PlainEvent, error) {
 	log.Printf("Mock Runtime: Processing deposit for application %s ( value: %d wei for sender: %s )", appId, value, sender)
 
 	// Deserialize the current state
@@ -207,7 +206,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			// Create withdrawal
 			withdrawal := common.Withdrawal{
 				DestinationAddress: instructions.Withdraw.To,
-				Amount:             strconv.FormatInt(instructions.Withdraw.Amount, 10),
+				Amount:             instructions.Withdraw.Amount,
 			}
 			withdrawals = append(withdrawals, withdrawal)
 

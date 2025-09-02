@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"time"
+
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/crypto"
@@ -44,7 +45,7 @@ func (c *CryptoHelper) GetUserKey(userID string) (*common.PrivateKeyP521, error)
 }
 
 // CreateDepositRequest creates an encrypted deposit request
-func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, value int64, receiverPubKey *common.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, value uint64, receiverPubKey *common.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -109,7 +110,7 @@ func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient
 }
 
 // CreateWithdrawalRequest creates an encrypted withdrawal request
-func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destinationAddress string, amount int64, receiverPubKey *common.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destinationAddress string, amount uint64, receiverPubKey *common.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err

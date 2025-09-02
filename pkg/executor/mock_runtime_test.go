@@ -54,7 +54,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 
 	appId := "test-app-123"
 	sender := "0x1234567890123456789012345678901234567890"
-	value := int64(1000000000000000000)
+	value := uint64(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -114,8 +114,8 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	sender := "0x1234567890123456789012345678901234567890"
 	recipient := "0x0987654321098765432109876543210987654321"
-	depositAmount := int64(2000000000000000000) // 2 ETH
-	transferAmount := int64(500000000000000000) // 0.5 ETH
+	depositAmount := uint64(2000000000000000000) // 2 ETH
+	transferAmount := uint64(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -197,8 +197,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	sender := "0x1234567890123456789012345678901234567890"
 	withdrawTo := "0x0987654321098765432109876543210987654321"
-	depositAmount := int64(2000000000000000000) // 2 ETH
-	withdrawAmount := int64(500000000000000000) // 0.5 ETH
+	depositAmount := uint64(2000000000000000000) // 2 ETH
+	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -244,8 +244,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected withdrawal destination %s, got %s", withdrawTo, withdrawals[0].DestinationAddress)
 	}
 
-	if withdrawals[0].Amount != "500000000000000000" {
-		t.Errorf("Expected withdrawal amount 500000000000000000, got %s", withdrawals[0].Amount)
+	if withdrawals[0].Amount != 500000000000000000 {
+		t.Errorf("Expected withdrawal amount 500000000000000000, got %d", withdrawals[0].Amount)
 	}
 
 	// Verify state update
@@ -284,7 +284,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 
 	sender := "0x1234567890123456789012345678901234567890"
 	recipient := "0x0987654321098765432109876543210987654321"
-	transferAmount := int64(1000000000000000000) // 1 ETH
+	transferAmount := uint64(1000000000000000000) // 1 ETH
 
 	// Try to transfer without any balance
 	transferInstructions := PayloadInstructions{
@@ -319,7 +319,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 	sender1 := "0x1234567890123456789012345678901234567890"
 	sender2 := "0x0987654321098765432109876543210987654321"
-	value := int64(1000000000000000000) // 1 ETH
+	value := uint64(1000000000000000000) // 1 ETH
 
 	// Load module first
 	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)

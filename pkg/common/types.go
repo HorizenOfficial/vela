@@ -103,7 +103,7 @@ type Request struct {
 	// Signature is the signature of the sender
 	Signature []byte `json:"signature"`
 	// Value is the optional deposit value in WEI
-	Value int64 `json:"value"`
+	Value uint64 `json:"value"`
 }
 
 // Event represents an event to be emitted
@@ -121,7 +121,7 @@ type Withdrawal struct {
 	// DestinationAddress is the address to send the funds to
 	DestinationAddress string `json:"destinationAddress"`
 	// Amount is the amount to withdraw in WEI
-	Amount string `json:"amount"`
+	Amount             uint64 `json:"amount"`
 }
 
 // UpdatePayload represents an update to the state

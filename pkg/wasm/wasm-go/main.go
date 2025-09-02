@@ -2,16 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"strconv"
 
 	"payment-app/utils"
 )
 
-
 // AccountState represents the state of a user account
 type AccountState struct {
 	Address string `json:"address"`
-	Balance int64  `json:"balance"`
+	Balance uint64 `json:"balance"`
 }
 
 // ApplicationInternalState represents the internal state of the application
@@ -24,13 +22,13 @@ type ApplicationInternalState struct {
 // TransferInstruction represents instructions for transferring funds
 type TransferInstruction struct {
 	To     string `json:"to"`
-	Amount int64  `json:"amount"`
+	Amount uint64 `json:"amount"`
 }
 
 // WithdrawInstruction represents instructions for withdrawing funds
 type WithdrawInstruction struct {
 	To     string `json:"to"`
-	Amount int64  `json:"amount"`
+	Amount uint64 `json:"amount"`
 }
 
 // PayloadInstructions represents the deserialized payload instructions
@@ -49,7 +47,7 @@ type PlainEvent struct {
 // Withdrawal represents a withdrawal instruction
 type Withdrawal struct {
 	DestinationAddress string `json:"destinationAddress"`
-	Amount             string `json:"amount"`
+	Amount             uint64 `json:"amount"`
 }
 
 // DepositResult represents the result of a deposit operation
@@ -85,7 +83,7 @@ func load_module(appIdPtr *byte, appIdLen int32) *byte {
 }
 
 //export deposit
-func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, value int64, statePtr *byte, stateLen int32) *byte {
+func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, value uint64, statePtr *byte, stateLen int32) *byte {
 	_ = utils.PtrToString(appIdPtr, appIdLen)
 	sender := utils.PtrToString(senderPtr, senderLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
@@ -127,7 +125,7 @@ func loadModule(appId string) []byte {
 	return stateJSON
 }
 
-func depositFunds(sender string, value int64, stateJSON string) DepositResult {
+func depositFunds(sender string, value uint64, stateJSON string) DepositResult {
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return DepositResult{Error: "Failed to parse application state"}
@@ -156,7 +154,10 @@ func depositFunds(sender string, value int64, stateJSON string) DepositResult {
 			"balance": currentState.Accounts[sender].Balance,
 			"nonce":   currentState.Nonce,
 		}
-		eventDataBytes, _ := json.Marshal(eventData)
+		eventDataBytes, err := json.Marshal(eventData)
+		if err != nil {
+			return DepositResult{Error: "Failed to serialize event data"}
+		}
 
 		events = append(events, PlainEvent{
 			UserID: sender,
@@ -174,7 +175,7 @@ func depositFunds(sender string, value int64, stateJSON string) DepositResult {
 
 func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 	// Deserialize current state
-        var currentState ApplicationInternalState
+	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return ProcessResult{Error: "Failed to parse application state"}
 	}
@@ -224,7 +225,10 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 				"balance": currentState.Accounts[sender].Balance,
 				"nonce":   currentState.Nonce,
 			}
-			senderEventDataBytes, _ := json.Marshal(senderEventData)
+			senderEventDataBytes, err := json.Marshal(senderEventData)
+			if err != nil {
+				return ProcessResult{Error: "Failed to serialize sender event data"}
+			}
 
 			recipientEventData := map[string]interface{}{
 				"type":    "transfer_received",
@@ -233,7 +237,10 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 				"balance": currentState.Accounts[instructions.Transfer.To].Balance,
 				"nonce":   currentState.Nonce,
 			}
-			recipientEventDataBytes, _ := json.Marshal(recipientEventData)
+			recipientEventDataBytes, err := json.Marshal(recipientEventData)
+			if err != nil {
+				return ProcessResult{Error: "Failed to serialize recipient event data"}
+			}
 
 			events = append(events, PlainEvent{
 				UserID: sender,
@@ -265,7 +272,7 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 			// Create withdrawal
 			withdrawals = append(withdrawals, Withdrawal{
 				DestinationAddress: instructions.Withdraw.To,
-				Amount:             strconv.FormatInt(instructions.Withdraw.Amount, 10),
+				Amount:             instructions.Withdraw.Amount,
 			})
 
 			// Create event for sender
@@ -276,7 +283,10 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 				"balance": currentState.Accounts[sender].Balance,
 				"nonce":   currentState.Nonce,
 			}
-			withdrawEventDataBytes, _ := json.Marshal(withdrawEventData)
+			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
+			if err != nil {
+				return ProcessResult{Error: "Failed to serialize withdraw event data"}
+			}
 
 			events = append(events, PlainEvent{
 				UserID: sender,

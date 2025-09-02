@@ -176,7 +176,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: "10"},
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
 	}
 
 	oldStateRoot, err := bind.Call(processEndpointInstance,
