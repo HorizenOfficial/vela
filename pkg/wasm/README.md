@@ -21,8 +21,8 @@ brew install tinygo
 
 **Linux/Manual Installation:**
 ```bash
-wget https://github.com/tinygo-org/tinygo/releases/download/v0.38.0/tinygo_0.38.0_amd64.deb
-sudo dpkg -i tinygo_0.38.0_amd64.deb
+wget https://github.com/tinygo-org/tinygo/releases/download/v0.39.0/tinygo_0.39.0_amd64.deb
+sudo dpkg -i tinygo_0.39.0_amd64.deb
 ```
 
 **Verify Installation:**
@@ -50,7 +50,8 @@ tinygo build -o payment_app.wasm -target wasi -opt=2 main.go
 ## Development Workflow
 
 ### 1. Modify WASM Module 
-`pkg/wasm/wasm-go/main.go` contains module implementation.
+`pkg/wasm/wasm-go/main.go` contains the core payment application logic.
+`pkg/wasm/wasm-go/utils/utils.go` provides utility functions and memory management. Could be separate Go module in the future for better organization and reusability.
 
 ### 2. Rebuild Module
 ```bash

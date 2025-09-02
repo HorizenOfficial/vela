@@ -1,13 +1,12 @@
 package main
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"strconv"
-	"unsafe"
+
+	"payment-app/utils"
 )
 
-var WasmSerializationError = []byte("{}")
 
 // AccountState represents the state of a user account
 type AccountState struct {
@@ -74,75 +73,64 @@ type DeanonymizationResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// Memory management functions
-//
-//export allocate
-func allocate(size int32) *byte {
-	// Allocate memory and return pointer
-	data := make([]byte, size)
-	return &data[0]
-}
+// --- WASM-Exposed Functions (Bridge to Application Logic) ---
 
-//export deallocate
-func deallocate(ptr *byte, size int32) {
-	// no-op for deallocation in Go, as Go's garbage collector handles memory management
-}
-
-// Helper function to convert pointer and length to string
-func ptrToString(ptr *byte, length int32) string {
-	if ptr == nil || length == 0 {
-		return ""
-	}
-	return string(unsafe.Slice(ptr, length))
-}
-
-// Helper function to convert string to allocated memory pointer
-func stringToPtr(data []byte) *byte {
-	dataLength := len(data)
-	if dataLength == 0 {
-		return nil
-	}
-
-	n := 4 + dataLength // 4 bytes for length + actual data length
-	ptr := allocate(int32(n))
-	destination := unsafe.Slice(ptr, n)
-	binary.LittleEndian.PutUint32(destination[:4], uint32(dataLength))
-	copy(destination[4:], data)
-
-	return ptr
-}
+// These functions handle the WASM I/O and call the high-level logic functions.
 
 //export load_module
 func load_module(appIdPtr *byte, appIdLen int32) *byte {
-	appId := ptrToString(appIdPtr, appIdLen)
+	appId := utils.PtrToString(appIdPtr, appIdLen)
+	stateBytes := loadModule(appId)
+	return utils.StringToPtr(stateBytes)
+}
 
+//export deposit
+func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, value int64, statePtr *byte, stateLen int32) *byte {
+	_ = utils.PtrToString(appIdPtr, appIdLen)
+	sender := utils.PtrToString(senderPtr, senderLen)
+	stateJSON := utils.PtrToString(statePtr, stateLen)
+	result := depositFunds(sender, value, stateJSON)
+	return utils.SerializeAndWriteResult(result)
+}
+
+//export process_request
+func process_request(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
+	_ = utils.PtrToString(appIdPtr, appIdLen)
+	sender := utils.PtrToString(senderPtr, senderLen)
+	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
+	stateJSON := utils.PtrToString(statePtr, stateLen)
+	result := processRequest(sender, payloadJSON, stateJSON)
+	return utils.SerializeAndWriteResult(result)
+}
+
+//export generate_deanonymization_report
+func generate_deanonymization_report(appIdPtr *byte, appIdLen int32, requestIdPtr *byte, requestIdLen int32, statePtr *byte, stateLen int32) *byte {
+	appId := utils.PtrToString(appIdPtr, appIdLen)
+	requestId := utils.PtrToString(requestIdPtr, requestIdLen)
+	stateJSON := utils.PtrToString(statePtr, stateLen)
+	result := generateDeanonymizationReport(appId, requestId, stateJSON)
+	return utils.SerializeAndWriteResult(result)
+}
+
+// --- High-Level Application Logic ---
+
+func loadModule(appId string) []byte {
 	initialState := &ApplicationInternalState{
 		AppID:    appId,
 		Accounts: make(map[string]*AccountState),
 		Nonce:    0,
 	}
-
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
-		return stringToPtr(WasmSerializationError)
+		return utils.WasmSerializationError
 	}
-
-	return stringToPtr(stateJSON)
+	return stateJSON
 }
 
-//export deposit
-func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, value int64, statePtr *byte, stateLen int32) *byte {
-	_ = ptrToString(appIdPtr, appIdLen) // appId not used in this function
-	sender := ptrToString(senderPtr, senderLen)
-	stateJSON := ptrToString(statePtr, stateLen)
-
-	// Deserialize current state
+func depositFunds(sender string, value int64, stateJSON string) DepositResult {
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		result := DepositResult{
-			Error: "Failed to parse application state",
-		}
-		return serializeAndWriteResult(result)
+		return DepositResult{Error: "Failed to parse application state"}
 	}
 
 	var events []PlainEvent
@@ -179,34 +167,16 @@ func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, v
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(&currentState)
 	if err != nil {
-		result := DepositResult{
-			Error: "Failed to serialize new state",
-		}
-		return serializeAndWriteResult(result)
+		return DepositResult{Error: "Failed to serialize new state"}
 	}
-
-	result := DepositResult{
-		State:  newStateBytes,
-		Events: events,
-	}
-
-	return serializeAndWriteResult(result)
+	return DepositResult{State: newStateBytes, Events: events}
 }
 
-//export process_request
-func process_request(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
-	_ = ptrToString(appIdPtr, appIdLen) // appId not used in this function
-	sender := ptrToString(senderPtr, senderLen)
-	payloadJSON := ptrToString(payloadPtr, payloadLen)
-	stateJSON := ptrToString(statePtr, stateLen)
-
+func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 	// Deserialize current state
-	var currentState ApplicationInternalState
+        var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		result := ProcessResult{
-			Error: "Failed to parse application state",
-		}
-		return serializeAndWriteResult(result)
+		return ProcessResult{Error: "Failed to parse application state"}
 	}
 
 	var events []PlainEvent
@@ -216,33 +186,21 @@ func process_request(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen 
 	if payloadJSON != "" {
 		var instructions PayloadInstructions
 		if err := json.Unmarshal([]byte(payloadJSON), &instructions); err != nil {
-			result := ProcessResult{
-				Error: "Failed to parse payload instructions",
-			}
-			return serializeAndWriteResult(result)
+			return ProcessResult{Error: "Failed to parse payload instructions"}
 		}
 
 		switch instructions.Type {
 		case "transfer":
 			if instructions.Transfer == nil {
-				result := ProcessResult{
-					Error: "Transfer instruction is missing",
-				}
-				return serializeAndWriteResult(result)
+				return ProcessResult{Error: "Transfer instruction is missing"}
 			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[sender] == nil {
-				result := ProcessResult{
-					Error: "Account does not exist",
-				}
-				return serializeAndWriteResult(result)
+				return ProcessResult{Error: "Account does not exist"}
 			}
 			if currentState.Accounts[sender].Balance < instructions.Transfer.Amount {
-				result := ProcessResult{
-					Error: "Insufficient balance for transfer",
-				}
-				return serializeAndWriteResult(result)
+				return ProcessResult{Error: "Insufficient balance for transfer"}
 			}
 
 			// Ensure recipient account exists
@@ -289,24 +247,15 @@ func process_request(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen 
 
 		case "withdraw":
 			if instructions.Withdraw == nil {
-				result := ProcessResult{
-					Error: "Withdraw instruction is missing",
-				}
-				return serializeAndWriteResult(result)
+				return ProcessResult{Error: "Withdraw instruction is missing"}
 			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[sender] == nil {
-				result := ProcessResult{
-					Error: "Account does not exist",
-				}
-				return serializeAndWriteResult(result)
+				return ProcessResult{Error: "Account does not exist"}
 			}
 			if currentState.Accounts[sender].Balance < instructions.Withdraw.Amount {
-				result := ProcessResult{
-					Error: "Insufficient balance for withdrawal",
-				}
-				return serializeAndWriteResult(result)
+				return ProcessResult{Error: "Insufficient balance for withdrawal"}
 			}
 
 			// Execute withdrawal
@@ -335,44 +284,27 @@ func process_request(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen 
 			})
 
 		default:
-			result := ProcessResult{
-				Error: "Unsupported instruction type",
-			}
-			return serializeAndWriteResult(result)
+			return ProcessResult{Error: "Unsupported instruction type"}
 		}
 	}
 
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(currentState)
 	if err != nil {
-		result := ProcessResult{
-			Error: "Failed to serialize new state",
-		}
-		return serializeAndWriteResult(result)
+		return ProcessResult{Error: "Failed to serialize new state"}
 	}
-
-	result := ProcessResult{
+	return ProcessResult{
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
 	}
-
-	return serializeAndWriteResult(result)
 }
 
-//export generate_deanonymization_report
-func generate_deanonymization_report(appIdPtr *byte, appIdLen int32, requestIdPtr *byte, requestIdLen int32, statePtr *byte, stateLen int32) *byte {
-	appId := ptrToString(appIdPtr, appIdLen)
-	requestId := ptrToString(requestIdPtr, requestIdLen)
-	stateJSON := ptrToString(statePtr, stateLen)
-
+func generateDeanonymizationReport(appId, requestId, stateJSON string) DeanonymizationResult {
 	// Deserialize current state
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		result := DeanonymizationResult{
-			Error: "Failed to parse application state",
-		}
-		return serializeAndWriteResult(result)
+		return DeanonymizationResult{Error: "Failed to parse application state"}
 	}
 
 	// Create deanonymization report
@@ -386,24 +318,9 @@ func generate_deanonymization_report(appIdPtr *byte, appIdLen int32, requestIdPt
 	// Serialize the report
 	reportBytes, err := json.Marshal(report)
 	if err != nil {
-		result := DeanonymizationResult{
-			Error: "Failed to serialize deanonymization report",
-		}
-		return serializeAndWriteResult(result)
+		return DeanonymizationResult{Error: "Failed to serialize deanonymization report"}
 	}
-
-	result := DeanonymizationResult{
-		Report: reportBytes,
-	}
-	return serializeAndWriteResult(result)
-}
-
-func serializeAndWriteResult(result any) *byte {
-	reportJSON, err := json.Marshal(result)
-	if err != nil {
-		return stringToPtr(WasmSerializationError)
-	}
-	return stringToPtr(reportJSON)
+	return DeanonymizationResult{Report: reportBytes}
 }
 
 // Main function is required but not used in WASM
