@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/appstate"
 )
 
 func TestMockRuntime_LoadModule(t *testing.T) {
@@ -29,7 +29,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 	}
 
 	// Verify we can deserialize the initial state
-	var state ApplicationInternalState
+	var state appstate.ApplicationInternalState
 	err = json.Unmarshal(serializedState, &state)
 	if err != nil {
 		t.Fatalf("Failed to deserialize initial state: %v", err)
@@ -80,7 +80,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 	}
 
 	// Verify state update
-	var state ApplicationInternalState
+	var state appstate.ApplicationInternalState
 	err = json.Unmarshal(newState, &state)
 	if err != nil {
 		t.Fatalf("Failed to deserialize new state: %v", err)
@@ -125,9 +125,9 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	}
 
 	// make a transfer
-	transferInstructions := PayloadInstructions{
+	transferInstructions := appstate.PayloadInstructions{
 		Type: "transfer",
-		Transfer: &TransferInstruction{
+		Transfer: &appstate.TransferInstruction{
 			To:     recipient,
 			Amount: transferAmount,
 		},
@@ -154,7 +154,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	}
 
 	// Verify state update
-	var state ApplicationInternalState
+	var state appstate.ApplicationInternalState
 	err = json.Unmarshal(newState, &state)
 	if err != nil {
 		t.Fatalf("Failed to deserialize new state: %v", err)
@@ -208,9 +208,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	}
 
 	// make a withdrawal
-	withdrawInstructions := PayloadInstructions{
+	withdrawInstructions := appstate.PayloadInstructions{
 		Type: "withdraw",
-		Withdraw: &WithdrawInstruction{
+		Withdraw: &appstate.WithdrawInstruction{
 			To:     withdrawTo,
 			Amount: withdrawAmount,
 		},
@@ -249,7 +249,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	}
 
 	// Verify state update
-	var state ApplicationInternalState
+	var state appstate.ApplicationInternalState
 	err = json.Unmarshal(newState, &state)
 	if err != nil {
 		t.Fatalf("Failed to deserialize new state: %v", err)
@@ -287,9 +287,9 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	transferAmount := uint64(1000000000000000000) // 1 ETH
 
 	// Try to transfer without any balance
-	transferInstructions := PayloadInstructions{
+	transferInstructions := appstate.PayloadInstructions{
 		Type: "transfer",
-		Transfer: &TransferInstruction{
+		Transfer: &appstate.TransferInstruction{
 			To:     recipient,
 			Amount: transferAmount,
 		},
@@ -341,11 +341,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	}
 
 	// Generate deanonymization report
-	reportReq := &common.Request{
-		ApplicationID: appId,
-		RequestID:     "report-req",
-		Timestamp:     1234567892,
-	}
+	var requestID string = "report-req"
 
 	reportBytes, err := runtime.GenerateDeanonymizationReport(context.Background(), appId, "report-req", []byte(""), serializedState, wasmBytes)
 	if err != nil {
@@ -363,8 +359,8 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 		t.Errorf("Expected applicationId %s, got %v", appId, report["applicationId"])
 	}
 
-	if report["requestId"] != reportReq.RequestID {
-		t.Errorf("Expected requestId %s, got %v", reportReq.RequestID, report["requestId"])
+	if report["requestId"] != requestID {
+		t.Errorf("Expected requestId %s, got %v", requestID, report["requestId"])
 	}
 
 	totalAccounts, ok := report["accounts"].(map[string]interface{})

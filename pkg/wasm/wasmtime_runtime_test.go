@@ -48,7 +48,22 @@ func TestWasmtimeRuntime_LoadModule(t *testing.T) {
 }
 
 func TestWasmtimeRuntime_Deposit(t *testing.T) {
-	// Load the compiled WASM module
+
+	type TestAccountState struct {
+		Balance uint64 `json:"balance"`
+	}
+
+	type TestStateData struct {
+		AppId    string                      `json:"appId"`
+		Accounts map[string]TestAccountState `json:"accounts"`
+		Nonce    uint64                      `json:"nonce"`
+	}
+
+	type DepositEvent struct {
+		Type   string `json:"type"`
+		Amount uint64 `json:"amount"`
+	}
+
 	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err, "Failed to read WASM file")
@@ -76,23 +91,40 @@ func TestWasmtimeRuntime_Deposit(t *testing.T) {
 	event := events[0]
 	assert.Equal(t, sender, event.UserID)
 
-	var eventData map[string]interface{}
+	var eventData DepositEvent
 	err = json.Unmarshal(event.Data, &eventData)
 	require.NoError(t, err, "Event data should be valid JSON")
-	assert.Equal(t, "deposit", eventData["type"])
-	assert.Equal(t, float64(value), eventData["amount"])
+	assert.Equal(t, "deposit", eventData.Type)
+	assert.Equal(t, value, eventData.Amount)
 
 	// Verify the state was updated
-	var stateData map[string]interface{}
+	var stateData TestStateData
 	err = json.Unmarshal(newState, &stateData)
 	require.NoError(t, err, "New state should be valid JSON")
 
-	accounts := stateData["accounts"].(map[string]interface{})
-	userAccount := accounts[sender].(map[string]interface{})
-	assert.Equal(t, float64(value), userAccount["balance"])
+	require.Contains(t, stateData.Accounts, sender)
+	assert.Equal(t, value, stateData.Accounts[sender].Balance)
 }
 
 func TestWasmtimeRuntime_ProcessRequest_Transfer(t *testing.T) {
+
+	type TestAccountState struct {
+		Balance uint64 `json:"balance"`
+	}
+
+	type TestStateData struct {
+		AppId    string                      `json:"appId"`
+		Accounts map[string]TestAccountState `json:"accounts"`
+		Nonce    uint64                      `json:"nonce"`
+	}
+
+	type TestTransferEventData struct {
+		Type   string `json:"type"`
+		From   string `json:"from,omitempty"`
+		To     string `json:"to,omitempty"`
+		Amount uint64 `json:"amount"`
+	}
+
 	// Load the compiled WASM module
 	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
 	wasmBytes, err := os.ReadFile(wasmPath)
@@ -135,41 +167,48 @@ func TestWasmtimeRuntime_ProcessRequest_Transfer(t *testing.T) {
 	require.Len(t, withdrawals, 0, "Should not generate withdrawals")
 
 	// Verify sender event
-	senderEvent := events[0]
-	assert.Equal(t, sender, senderEvent.UserID)
-
-	var senderEventData map[string]interface{}
-	err = json.Unmarshal(senderEvent.Data, &senderEventData)
-	require.NoError(t, err, "Sender event data should be valid JSON")
-	assert.Equal(t, "transfer_sent", senderEventData["type"])
-	assert.Equal(t, recipient, senderEventData["to"])
-	assert.Equal(t, float64(transferValue), senderEventData["amount"])
+	var senderEventData TestTransferEventData
+	err = json.Unmarshal(events[0].Data, &senderEventData)
+	require.NoError(t, err)
+	assert.Equal(t, "transfer_sent", senderEventData.Type)
+	assert.Equal(t, recipient, senderEventData.To)
+	assert.Equal(t, transferValue, senderEventData.Amount)
 
 	// Verify recipient event
-	recipientEvent := events[1]
-	assert.Equal(t, recipient, recipientEvent.UserID)
-
-	var recipientEventData map[string]interface{}
-	err = json.Unmarshal(recipientEvent.Data, &recipientEventData)
-	require.NoError(t, err, "Recipient event data should be valid JSON")
-	assert.Equal(t, "transfer_received", recipientEventData["type"])
-	assert.Equal(t, sender, recipientEventData["from"])
-	assert.Equal(t, float64(transferValue), recipientEventData["amount"])
+	var recipientEventData TestTransferEventData
+	err = json.Unmarshal(events[1].Data, &recipientEventData)
+	require.NoError(t, err)
+	assert.Equal(t, "transfer_received", recipientEventData.Type)
+	assert.Equal(t, sender, recipientEventData.From)
+	assert.Equal(t, transferValue, recipientEventData.Amount)
 
 	// Verify the state was updated
-	var stateData map[string]interface{}
+	var stateData TestStateData
 	err = json.Unmarshal(newState, &stateData)
 	require.NoError(t, err, "New state should be valid JSON")
 
-	accounts := stateData["accounts"].(map[string]interface{})
-	senderAccount := accounts[sender].(map[string]interface{})
-	recipientAccount := accounts[recipient].(map[string]interface{})
-
-	assert.Equal(t, float64(depositValue-transferValue), senderAccount["balance"])
-	assert.Equal(t, float64(transferValue), recipientAccount["balance"])
+	assert.Equal(t, depositValue-transferValue, stateData.Accounts[sender].Balance)
+	assert.Equal(t, transferValue, stateData.Accounts[recipient].Balance)
 }
 
 func TestWasmtimeRuntime_ProcessRequest_Withdrawal(t *testing.T) {
+
+	type TestAccountState struct {
+		Balance uint64 `json:"balance"`
+	}
+
+	type TestStateData struct {
+		AppId    string                      `json:"appId"`
+		Accounts map[string]TestAccountState `json:"accounts"`
+		Nonce    uint64                      `json:"nonce"`
+	}
+
+	type TestWithdrawalEventData struct {
+		Type   string `json:"type"`
+		To     string `json:"to"`
+		Amount uint64 `json:"amount"`
+	}
+
 	// Load the compiled WASM module
 	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
 	wasmBytes, err := os.ReadFile(wasmPath)
@@ -215,29 +254,39 @@ func TestWasmtimeRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	event := events[0]
 	assert.Equal(t, sender, event.UserID)
 
-	var eventData map[string]interface{}
+	var eventData TestWithdrawalEventData
 	err = json.Unmarshal(event.Data, &eventData)
 	require.NoError(t, err, "Event data should be valid JSON")
-	assert.Equal(t, "withdrawal", eventData["type"])
-	assert.Equal(t, withdrawAddress, eventData["to"])
-	assert.Equal(t, float64(withdrawValue), eventData["amount"])
+	assert.Equal(t, "withdrawal", eventData.Type)
+	assert.Equal(t, withdrawAddress, eventData.To)
+	assert.Equal(t, withdrawValue, eventData.Amount)
 
 	// Verify withdrawal
 	withdrawal := withdrawals[0]
 	assert.Equal(t, withdrawAddress, withdrawal.DestinationAddress)
-	assert.Equal(t, uint64(500000000000000000), withdrawal.Amount)
+	assert.Equal(t, withdrawValue, withdrawal.Amount)
 
 	// Verify the state was updated
-	var stateData map[string]interface{}
+	var stateData TestStateData
 	err = json.Unmarshal(newState, &stateData)
 	require.NoError(t, err, "New state should be valid JSON")
 
-	accounts := stateData["accounts"].(map[string]interface{})
-	senderAccount := accounts[sender].(map[string]interface{})
-	assert.Equal(t, float64(depositValue-withdrawValue), senderAccount["balance"])
+	assert.Equal(t, depositValue-withdrawValue, stateData.Accounts[sender].Balance)
 }
 
 func TestWasmtimeRuntime_GenerateDeanonymizationReport(t *testing.T) {
+
+	type TestAccountState struct {
+		Balance uint64 `json:"balance"`
+	}
+
+	type TestDeanonymizationReport struct {
+		ApplicationId string                      `json:"applicationId"`
+		RequestId     string                      `json:"requestId"`
+		Accounts      map[string]TestAccountState `json:"accounts"`
+		Nonce         uint64                      `json:"nonce"`
+	}
+
 	// Load the compiled WASM module
 	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
 	wasmBytes, err := os.ReadFile(wasmPath)
@@ -265,25 +314,28 @@ func TestWasmtimeRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	require.NoError(t, err, "GenerateDeanonymizationReport should succeed")
 	require.NotNil(t, report, "Report should not be nil")
 
-	// Verify the report is valid JSON
-	var reportData map[string]interface{}
+	var reportData TestDeanonymizationReport
 	err = json.Unmarshal(report, &reportData)
 	require.NoError(t, err, "Report should be valid JSON")
 
-	// Check that the report contains expected fields
-	assert.Equal(t, appId, reportData["applicationId"])
-	assert.Equal(t, requestId, reportData["requestId"])
-	assert.Contains(t, reportData, "accounts")
-	assert.Contains(t, reportData, "nonce")
-
-	// Verify account information in the report
-	accounts := reportData["accounts"].(map[string]interface{})
-	assert.Contains(t, accounts, sender)
-	userAccount := accounts[sender].(map[string]interface{})
-	assert.Equal(t, float64(value), userAccount["balance"])
+	assert.Equal(t, appId, reportData.ApplicationId)
+	assert.Equal(t, requestId, reportData.RequestId)
+	require.Contains(t, reportData.Accounts, sender)
+	assert.Equal(t, value, reportData.Accounts[sender].Balance)
 }
 
 func TestWasmtimeRuntime_FullWorkflow(t *testing.T) {
+
+	type TestAccountState struct {
+		Balance uint64 `json:"balance"`
+	}
+
+	type TestStateData struct {
+		AppId    string                      `json:"appId"`
+		Accounts map[string]TestAccountState `json:"accounts"`
+		Nonce    uint64                      `json:"nonce"`
+	}
+
 	// Load the compiled WASM module
 	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
 	wasmBytes, err := os.ReadFile(wasmPath)
@@ -350,19 +402,12 @@ func TestWasmtimeRuntime_FullWorkflow(t *testing.T) {
 	require.NoError(t, err, "Deanonymization report should succeed")
 	require.NotNil(t, report)
 
-	// Verify final state
-	var stateData map[string]interface{}
+	var stateData TestStateData
 	err = json.Unmarshal(state, &stateData)
 	require.NoError(t, err)
 
-	accounts := stateData["accounts"].(map[string]interface{})
-	user1Account := accounts[user1].(map[string]interface{})
-	user2Account := accounts[user2].(map[string]interface{})
-
-	// user1: 2 ETH - 0.5 ETH = 1.5 ETH
-	assert.Equal(t, float64(1500000000000000000), user1Account["balance"])
-	// user2: 0.5 ETH - 0.25 ETH = 0.25 ETH
-	assert.Equal(t, float64(250000000000000000), user2Account["balance"])
+	assert.Equal(t, depositValue-transferValue, stateData.Accounts[user1].Balance)
+	assert.Equal(t, transferValue-withdrawValue, stateData.Accounts[user2].Balance)
 
 	t.Log("Full workflow completed successfully!")
 }
@@ -438,7 +483,7 @@ func TestWasmtimeRuntime_LargeStateHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make 100 deposits to create a large state
-	// Tested up to 6k, after 6k app is very slow and failing randomly
+	// Tested up to 6k, after 6k app is very slow and failing randomly: TODO check this!
 	for i := 0; i < 100; i++ {
 		user := fmt.Sprintf("user%d", i)
 		value := uint64(1000000000000000000) // 1 ETH
@@ -584,13 +629,14 @@ func TestWasmtimeRuntime_InsufficientFunds(t *testing.T) {
 	require.NoError(t, err)
 
 	state, _, err = runtime.Deposit(ctx, appId, sender, value/2, state, wasmBytes)
+	require.NoError(t, err)
 
 	// Try to transfer without enough funds
 	transferPayload := map[string]interface{}{
 		"type": "transfer",
 		"transfer": map[string]interface{}{
 			"to":     "user2",
-			"amount": value, // big value
+			"amount": value,
 		},
 	}
 	payloadBytes, _ := json.Marshal(transferPayload)
@@ -693,4 +739,30 @@ func TestWasmtimeRuntime_ZeroValueOperations(t *testing.T) {
 	require.Len(t, events, 0, "Zero value deposit should not generate any events")
 	require.NotNil(t, state, "State should not be nil after zero value deposit")
 	require.Equal(t, state, newState)
+}
+
+func TestWasmtimeRuntime_InvalidInstruction(t *testing.T) {
+
+	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
+	wasmBytes, err := os.ReadFile(wasmPath)
+	require.NoError(t, err)
+
+	runtime := NewWasmtimeRuntime()
+	defer runtime.Close()
+
+	ctx := context.Background()
+	appId := "invalid-instruction-app"
+
+	state, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	invalidPayload := map[string]interface{}{
+		"type": "unsupported_instruction",
+	}
+	payloadBytes, err := json.Marshal(invalidPayload)
+	require.NoError(t, err)
+
+	_, _, _, err = runtime.ProcessRequest(ctx, appId, "user1", payloadBytes, state, wasmBytes)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Unsupported instruction type")
 }

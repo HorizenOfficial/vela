@@ -7,11 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
+
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
-	"log"
 )
 
 // StatelessExecutor implements the Executor interface
@@ -210,6 +211,9 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 
 	// Decrypt the request payload
 	decryptedPayload, err := DecryptPayload(e.config.CommunicationKey, req.Payload, senderKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt Payload: %w", err)
+	}
 
 	// Generate the report using the runtime
 	reportData, err := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, req.RequestID, decryptedPayload, decryptedState, wasmModule)

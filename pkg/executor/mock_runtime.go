@@ -8,43 +8,12 @@ import (
 	"log"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/appstate"
 )
 
 // MockRuntime implements a simple mock runtime that mimics a wasm application
 // It supports deposits, fund transfers, withdrawals, and events with serializeed state persistence
 type MockRuntime struct {
-}
-
-// AccountState represents the state of a user account
-type AccountState struct {
-	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
-}
-
-// ApplicationInternalState represents the internal state of the application
-type ApplicationInternalState struct {
-	AppID    string                   `json:"appId"`
-	Accounts map[string]*AccountState `json:"accounts"`
-	Nonce    int64                    `json:"nonce"`
-}
-
-// TransferInstruction represents instructions for transferring funds
-type TransferInstruction struct {
-	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
-}
-
-// WithdrawInstruction represents instructions for withdrawing funds
-type WithdrawInstruction struct {
-	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
-}
-
-// PayloadInstructions represents the deserialized payload instructions
-type PayloadInstructions struct {
-	Type     string               `json:"type"`
-	Transfer *TransferInstruction `json:"transfer,omitempty"`
-	Withdraw *WithdrawInstruction `json:"withdraw,omitempty"`
 }
 
 // NewMockRuntime creates a new mock runtime instance
@@ -58,9 +27,9 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte)
 	log.Printf("Mock Runtime: Loading mock runtime module for application %s (wasm size: %d bytes)", appId, len(wasm))
 
 	// Create initial application state
-	initialState := &ApplicationInternalState{
+	initialState := &appstate.ApplicationInternalState{
 		AppID:    appId,
-		Accounts: make(map[string]*AccountState),
+		Accounts: make(map[string]*appstate.AccountState),
 		Nonce:    0,
 	}
 
@@ -81,7 +50,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 	log.Printf("Mock Runtime: Processing deposit for application %s ( value: %d wei for sender: %s )", appId, value, sender)
 
 	// Deserialize the current state
-	var currentState ApplicationInternalState
+	var currentState appstate.ApplicationInternalState
 	err := json.Unmarshal(state, &currentState)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
@@ -93,7 +62,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 
 		// Ensure sender account exists
 		if currentState.Accounts[sender] == nil {
-			currentState.Accounts[sender] = &AccountState{
+			currentState.Accounts[sender] = &appstate.AccountState{
 				Address: sender,
 				Balance: 0,
 			}
@@ -126,7 +95,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 	log.Printf("Mock Runtime: Processing request for application %s (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
 	// deserialize the current state
-	var currentState ApplicationInternalState
+	var currentState appstate.ApplicationInternalState
 	err := json.Unmarshal(state, &currentState)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
@@ -137,7 +106,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 
 	// Process payload instructions if payload is not empty
 	if len(payload) > 0 {
-		var instructions PayloadInstructions
+		var instructions appstate.PayloadInstructions
 		if err := json.Unmarshal(payload, &instructions); err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to unmarshal payload instructions: %w", err)
 		}
@@ -160,7 +129,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 
 			// Ensure recipient account exists
 			if currentState.Accounts[instructions.Transfer.To] == nil {
-				currentState.Accounts[instructions.Transfer.To] = &AccountState{
+				currentState.Accounts[instructions.Transfer.To] = &appstate.AccountState{
 					Address: instructions.Transfer.To,
 					Balance: 0,
 				}
@@ -238,7 +207,7 @@ func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId s
 	log.Printf("Mock Runtime: Generating deanonymization report, id: %s,for application %s", requestId, appId)
 
 	// deserialize the current state to access account information
-	var currentState ApplicationInternalState
+	var currentState appstate.ApplicationInternalState
 	err := json.Unmarshal(state, &currentState)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize state for deanonymization: %w", err)

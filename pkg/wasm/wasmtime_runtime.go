@@ -203,7 +203,7 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 	}
 
 	// Extract the result bytes
-	stateBytes, err := r.extractResultBytes(result, appModule, err)
+	stateBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
@@ -271,7 +271,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 	}
 
 	// Extract the result bytes
-	resultBytes, err := r.extractResultBytes(result, appModule, err)
+	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
@@ -341,7 +341,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 	}
 
 	// Extract the result bytes
-	resultBytes, err := r.extractResultBytes(result, appModule, err)
+	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
@@ -400,7 +400,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	}
 
 	// Extract the result bytes
-	reportBytes, err := r.extractResultBytes(result, appModule, err)
+	reportBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
@@ -419,7 +419,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	return deanonymizationResult.Report, nil
 }
 
-func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *ApplicationModule, err error) ([]byte, error) {
+func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *ApplicationModule) ([]byte, error) {
 	// Extract the result pointer
 	resultPtr, ok := result.(int32)
 	if !ok {

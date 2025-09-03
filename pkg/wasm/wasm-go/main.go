@@ -3,40 +3,9 @@ package main
 import (
 	"encoding/json"
 
+	"github.com/horizen-pes/pkg/common/appstate"
 	"payment-app/utils"
 )
-
-// AccountState represents the state of a user account
-type AccountState struct {
-	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
-}
-
-// ApplicationInternalState represents the internal state of the application
-type ApplicationInternalState struct {
-	AppID    string                   `json:"appId"`
-	Accounts map[string]*AccountState `json:"accounts"`
-	Nonce    int64                    `json:"nonce"`
-}
-
-// TransferInstruction represents instructions for transferring funds
-type TransferInstruction struct {
-	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
-}
-
-// WithdrawInstruction represents instructions for withdrawing funds
-type WithdrawInstruction struct {
-	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
-}
-
-// PayloadInstructions represents the deserialized payload instructions
-type PayloadInstructions struct {
-	Type     string               `json:"type"`
-	Transfer *TransferInstruction `json:"transfer,omitempty"`
-	Withdraw *WithdrawInstruction `json:"withdraw,omitempty"`
-}
 
 // PlainEvent represents an emitted event
 type PlainEvent struct {
@@ -113,9 +82,9 @@ func generate_deanonymization_report(appIdPtr *byte, appIdLen int32, requestIdPt
 // --- High-Level Application Logic ---
 
 func loadModule(appId string) []byte {
-	initialState := &ApplicationInternalState{
+	initialState := &appstate.ApplicationInternalState{
 		AppID:    appId,
-		Accounts: make(map[string]*AccountState),
+		Accounts: make(map[string]*appstate.AccountState),
 		Nonce:    0,
 	}
 	stateJSON, err := json.Marshal(initialState)
@@ -126,7 +95,7 @@ func loadModule(appId string) []byte {
 }
 
 func depositFunds(sender string, value uint64, stateJSON string) DepositResult {
-	var currentState ApplicationInternalState
+	var currentState appstate.ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return DepositResult{Error: "Failed to parse application state"}
 	}
@@ -137,7 +106,7 @@ func depositFunds(sender string, value uint64, stateJSON string) DepositResult {
 	if value > 0 {
 		// Ensure sender account exists
 		if currentState.Accounts[sender] == nil {
-			currentState.Accounts[sender] = &AccountState{
+			currentState.Accounts[sender] = &appstate.AccountState{
 				Address: sender,
 				Balance: 0,
 			}
@@ -175,7 +144,7 @@ func depositFunds(sender string, value uint64, stateJSON string) DepositResult {
 
 func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 	// Deserialize current state
-	var currentState ApplicationInternalState
+	var currentState appstate.ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return ProcessResult{Error: "Failed to parse application state"}
 	}
@@ -185,7 +154,7 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 
 	// Process payload instructions if payload is not empty
 	if payloadJSON != "" {
-		var instructions PayloadInstructions
+		var instructions appstate.PayloadInstructions
 		if err := json.Unmarshal([]byte(payloadJSON), &instructions); err != nil {
 			return ProcessResult{Error: "Failed to parse payload instructions"}
 		}
@@ -206,7 +175,7 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 
 			// Ensure recipient account exists
 			if currentState.Accounts[instructions.Transfer.To] == nil {
-				currentState.Accounts[instructions.Transfer.To] = &AccountState{
+				currentState.Accounts[instructions.Transfer.To] = &appstate.AccountState{
 					Address: instructions.Transfer.To,
 					Balance: 0,
 				}
@@ -312,7 +281,7 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 
 func generateDeanonymizationReport(appId, requestId, stateJSON string) DeanonymizationResult {
 	// Deserialize current state
-	var currentState ApplicationInternalState
+	var currentState appstate.ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return DeanonymizationResult{Error: "Failed to parse application state"}
 	}
