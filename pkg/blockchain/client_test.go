@@ -62,8 +62,11 @@ func TestGetPendingRequests(t *testing.T) {
 
 	//*****************************************************
 	// submit request
-	tx, err := bind.Transact(processEndpointInstance, submitter, processEndpointContract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), big.NewInt(0)))
+	transferValue := big.NewInt(1203055)
+	submitter.Value = transferValue
+	tx, err := bind.Transact(processEndpointInstance, submitter, processEndpointContract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), transferValue))
 	require.NoError(t, err, "failed to submit transaction")
+	submitter.Value = big.NewInt(0)
 
 	// call Commit to make the simulated backend mine a block
 	sim.Commit()
@@ -84,6 +87,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, ethCommon.FromHex("0x00"), request.Payload, "Payload should match")
 	require.Greater(t, request.Timestamp, int64(0), "Timestamp should match")
 	require.Equal(t, submitter.From.String(), request.Sender, "Sender should match")
+	require.Equal(t, transferValue.Int64(), request.Value, "Value should match")
 
 }
 
@@ -285,7 +289,7 @@ func setupNewBlockChainClient(sim *simulated.Backend, processorAddress ethCommon
 	return blockchainClient
 }
 
-func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.TransactOpts, processorAddress ethCommon.Address) (processorContractAddress ethCommon.Address, keyRegistryAddress ethCommon.Address) {
+func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.TransactOpts, managerAddress ethCommon.Address) (processorContractAddress ethCommon.Address, keyRegistryAddress ethCommon.Address) {
 	// use the default deployer: it simply creates, signs and submits the deployment transactions
 	deployer := bind.DefaultDeployer(deployerSigner, sim.Client())
 
@@ -327,7 +331,7 @@ func setupContracts(t *testing.T, sim *simulated.Backend, deployerSigner *bind.T
 
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(teeAddress, authorityAddress, processorAddress)
+	constructorInput = contract.PackConstructor(teeAddress, authorityAddress, managerAddress)
 	// set up params to deploy an instance of the ProcessorEndpoint contract
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},

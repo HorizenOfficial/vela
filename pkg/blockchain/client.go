@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"sync"
 
-	"crypto/ecdsa"
-
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	commonEth "github.com/ethereum/go-ethereum/common"
@@ -54,7 +52,7 @@ type BlockChainClient struct {
 	keyRegistryBoundContract *bind.BoundContract
 	keyRegistryEndpoint      *keyregistry.KeyRegistry
 	client                   ChainClient
-	privKey                  *ecdsa.PrivateKey
+	privKey                  *common.PrivateKeySecp256k1
 	account                  *bind.TransactOpts
 }
 
@@ -76,7 +74,7 @@ func stringToBigInt(s string) (*big.Int, bool) {
 	return i, ok
 }
 
-func NewBlockChainClient(processor commonEth.Address, keyRegistry commonEth.Address, rpcURL string, key *ecdsa.PrivateKey) *BlockChainClient {
+func NewBlockChainClient(processor commonEth.Address, keyRegistry commonEth.Address, rpcURL string, key *common.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:    processor,
 		keyRegistryAddress:  keyRegistry,
@@ -109,7 +107,7 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("Failed to retrieve chain ID: %v", err)
 	}
 
-	c.account = bind.NewKeyedTransactor(c.privKey, chainID)
+	c.account = bind.NewKeyedTransactor(c.privKey.PrivateKey, chainID)
 
 	c.connected = true
 	return nil
@@ -135,6 +133,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 
 	output := make([]*common.Request, 0, len(listOfRequests))
 	for _, request := range listOfRequests {
+		//TODO check that all big.Int can fit in a int64. If not, the specific request should be marked as failed
 		req := &common.Request{
 			ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
 			ApplicationID:   request.ApplicationId.String(),
@@ -143,6 +142,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			Payload:         request.Payload,
 			Timestamp:       request.Timestamp.Int64(),
 			Sender:          request.Sender.String(),
+			Value: 		     request.Value.Int64(),
 		}
 
 		output = append(output, req)

@@ -22,6 +22,8 @@ type Client interface {
 	GetPublicKey(ctx context.Context, address string) ([]byte, error)
 	// Close closes the blockchain client
 	Close() error
+	// Connect connects to the blockchain
+	Connect(ctx context.Context) error
 }
 
 // TestClient defines the interface for testing the blockchain client
@@ -47,4 +49,6 @@ type TestClient interface {
 	GetCompletedRequests() []*common.Request
 	// ClearAllData clears all data in the mock client
 	ClearAllData()
+	// GetFailedRequests retrieves all failed requests.
+	GetFailedRequests() []*common.Request
 }

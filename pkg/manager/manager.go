@@ -53,6 +53,11 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to executor: %w", err)
 	}
 
+	// Connect to the blockchain
+	if err := m.blockchainClient.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect to blockchain node: %w", err)
+	}
+
 	// Start the blockchain polling loop in a goroutine
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
@@ -104,31 +109,56 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Get pending requests from the blockchain
-			requests, err := m.blockchainClient.GetPendingRequests(ctx)
-			if err != nil {
-				log.Printf("Manager: Failed to get pending requests: %v", err)
-				continue
-			}
-
-			// Process each request
-			for _, req := range requests {
-				if err := m.processRequest(ctx, req); err != nil {
-					// Log the error and mark the request as failed
-					log.Printf("Manager: Failed to process request %s: %v", req.RequestID, err)
-					if err = m.blockchainClient.MarkRequestFailed(ctx, req.RequestID); err != nil {
-						log.Printf("Manager: Failed to mark request %s as failed: %v", req.RequestID, err)
-					}
-				} else {
-					log.Printf("Manager: Processed and marked as completed request %s", req.RequestID)
-				}
-			}
+			m.processRequestsFromChain(ctx)
 		}
 	}
 }
 
+
+// processRequestsFromChain retrieves pending requests from the blockchain and processes them
+func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
+
+	if !m.isRunning {
+		log.Printf("Manager is not started yet, skipping")
+		return
+	}
+
+	// Get pending requests from the blockchain
+	requests, err := m.blockchainClient.GetPendingRequests(ctx)
+	if err != nil {
+		log.Printf("Manager: Failed to get pending requests: %v", err)
+		return
+	}
+
+	// Process each request
+	for _, req := range requests {
+		m.mu.Lock()
+		if !m.isRunning {
+			log.Printf("Manager has stopped, exiting request processing loop")
+			m.mu.Unlock()
+			return
+		}
+		if err := m.processRequest(ctx, req); err != nil {
+			// Log the error and mark the request as failed
+			log.Printf("Manager: Failed to process request %s: %v", req.RequestID, err)
+			if err = m.blockchainClient.MarkRequestFailed(ctx, req.RequestID); err != nil {
+				log.Printf("Manager: Failed to mark request %s as failed: %v", req.RequestID, err)
+			}
+		} else {
+			log.Printf("Manager: Processed and marked as completed request %s", req.RequestID)
+		}
+		m.mu.Unlock()
+	}
+
+}
+
+
 // processRequest processes a request
 func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) error {
+	if !m.isRunning {
+		log.Printf("Manager is not started yet, skipping")
+		return fmt.Errorf("Manager is not started yet")
+	}
 	switch req.RequestType {
 	case common.Deploy:
 		return m.processDeployApp(ctx, req)
@@ -143,6 +173,10 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
+	if !m.isRunning {
+		log.Printf("Manager is not started yet, skipping")
+		return fmt.Errorf("Manager is not started yet")
+	}
 	// Deploy the application
 	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req)
 	if err != nil {
@@ -172,6 +206,11 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 // processProcessRequest processes a process request
 func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
+	if !m.isRunning {
+		log.Printf("Manager is not started yet, skipping")
+		return fmt.Errorf("Manager is not started yet")
+	}
+	
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
@@ -213,6 +252,11 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 
 // processDeanonymization processes a deanonymization request
 func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req *common.Request) error {
+	if !m.isRunning {
+		log.Printf("Manager is not started yet, skipping")
+		return fmt.Errorf("Manager is not started yet")
+	}
+	
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
@@ -258,8 +302,10 @@ func (m *SecureProcessorManager) HandleGetUserKeys(ctx context.Context, users []
 	defer m.mu.Unlock()
 
 	if !m.isRunning {
-		return nil, fmt.Errorf("manager is not running")
+		log.Printf("Manager is not started yet, skipping")
+		return nil, fmt.Errorf("Manager is not started yet")
 	}
+
 	userKeys := make(map[string][]byte)
 	// Get user keys from the blockchain or data layer
 	for _, user := range users {
