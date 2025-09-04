@@ -5,6 +5,8 @@ import (
 	"github.com/horizen-pes/pkg/common/appstate"
 )
 
+// TODO add applicationId to the definitions where appropriate, in future we will have many differnt apps
+
 // DepositResult represents the result of a deposit operation
 type DepositResult struct {
 	State  []byte              `json:"state"`

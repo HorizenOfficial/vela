@@ -24,6 +24,7 @@ func load_module(appIdPtr *byte, appIdLen int32) *byte {
 
 //export deposit
 func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, value uint64, statePtr *byte, stateLen int32) *byte {
+	// TODO: in future we must use the appId for adding it to the generated event
 	_ = utils.PtrToString(appIdPtr, appIdLen)
 	sender := utils.PtrToString(senderPtr, senderLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
@@ -33,6 +34,7 @@ func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, v
 
 //export process_request
 func process_request(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
+	// TODO: in future we must use the appId for setting it in the generated event
 	_ = utils.PtrToString(appIdPtr, appIdLen)
 	sender := utils.PtrToString(senderPtr, senderLen)
 	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)

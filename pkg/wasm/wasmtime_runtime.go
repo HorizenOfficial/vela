@@ -60,17 +60,19 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 	}
 
 	// Call the allocate function to get a pointer
-	result, err := allocateFunc.Call(r.store, len(data))
+	result, err := allocateFunc.Call(r.store, int32(len(data)))
 	if err != nil {
 		return 0, fmt.Errorf("failed to call allocate: %w", err)
 	}
 
 	ptr, ok := result.(int32)
 	if !ok {
-		return 0, fmt.Errorf("allocate returned unexpected type")
+		return 0, fmt.Errorf("allocate returned unexpected type: %T", result)
 	}
 
 	// Get memory data and copy our data to the allocated location
+	// We can safely assume that the guest GC will not free the memory if is not locally referenced
+	// since guest execution is paused while host is executing
 	memData := module.memory.UnsafeData(r.store)
 	if ptr < 0 || int(ptr+int32(len(data))) > len(memData) {
 		return 0, fmt.Errorf("invalid memory allocation")
@@ -78,6 +80,8 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 
 	copy(memData[ptr:ptr+int32(len(data))], data)
 
+	// TODO: The risk here is if the caller expects the pointer to remain valid across async host calls
+	// without reference tracking in the guest.
 	return ptr, nil
 }
 
