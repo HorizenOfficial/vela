@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/horizen-pes/pkg/executor"
-
+	"github.com/horizen-pes/pkg/common"
+	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,11 +59,6 @@ func TestWasmtimeRuntime_Deposit(t *testing.T) {
 		Nonce    uint64                      `json:"nonce"`
 	}
 
-	type DepositEvent struct {
-		Type   string `json:"type"`
-		Amount uint64 `json:"amount"`
-	}
-
 	wasmPath := filepath.Join("wasm-go", "payment_app.wasm")
 	wasmBytes, err := os.ReadFile(wasmPath)
 	require.NoError(t, err, "Failed to read WASM file")
@@ -91,7 +86,7 @@ func TestWasmtimeRuntime_Deposit(t *testing.T) {
 	event := events[0]
 	assert.Equal(t, sender, event.UserID)
 
-	var eventData DepositEvent
+	var eventData appCommon.DepositEvent
 	err = json.Unmarshal(event.Data, &eventData)
 	require.NoError(t, err, "Event data should be valid JSON")
 	assert.Equal(t, "deposit", eventData.Type)
@@ -690,7 +685,7 @@ func TestWasmtimeRuntime_InvalidStateFormat(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Failed to parse application state")
 	require.Equal(t, []byte(nil), state)
-	require.Equal(t, []executor.PlainEvent(nil), events)
+	require.Equal(t, []common.PlainEvent(nil), events)
 }
 
 func TestWasmtimeRuntime_StateRootConsistency(t *testing.T) {

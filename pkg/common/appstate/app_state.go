@@ -10,7 +10,7 @@ type AccountState struct {
 type ApplicationInternalState struct {
 	AppID    string                   `json:"appId"`
 	Accounts map[string]*AccountState `json:"accounts"`
-	Nonce    int64                    `json:"nonce"`
+	Nonce    uint64                   `json:"nonce"`
 }
 
 // TransferInstruction represents instructions for transferring funds

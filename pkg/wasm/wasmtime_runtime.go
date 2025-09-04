@@ -11,7 +11,7 @@ import (
 
 	"github.com/bytecodealliance/wasmtime-go"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/executor"
+	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
 const WasmSerializationError = "{}"
@@ -28,27 +28,6 @@ type WasmtimeRuntime struct {
 	store      *wasmtime.Store
 	modules    map[string]*ApplicationModule // Map of application ID to module
 	moduleLock sync.RWMutex                  // Lock for module access
-}
-
-// DepositResult represents the result of a deposit operation from WASM
-type DepositResult struct {
-	State  []byte                `json:"state"`
-	Events []executor.PlainEvent `json:"events"`
-	Error  string                `json:"error,omitempty"`
-}
-
-// ProcessResult represents the result of a process request operation from WASM
-type ProcessResult struct {
-	State       []byte                `json:"state"`
-	Events      []executor.PlainEvent `json:"events"`
-	Withdrawals []common.Withdrawal   `json:"withdrawals"`
-	Error       string                `json:"error,omitempty"`
-}
-
-// DeanonymizationResult represents the result of a process request operation from WASM
-type DeanonymizationResult struct {
-	Report []byte `json:"report"`
-	Error  string `json:"error,omitempty"`
 }
 
 // NewWasmtimeRuntime creates a new wasmtime runtime instance
@@ -221,7 +200,7 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 }
 
 // Deposit processes a deposit
-func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []executor.PlainEvent, error) {
+func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
 	log.Printf("Wasmtime Runtime: Processing deposit for application %s (value: %d wei for sender: %s)", appId, value, sender)
 
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
@@ -279,7 +258,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 	log.Printf("Wasmtime Runtime: Raw deposit result from WASM: %s", string(resultBytes))
 
 	// Deserialize the result
-	var depositResult DepositResult
+	var depositResult appCommon.DepositResult
 	if err := json.Unmarshal(resultBytes, &depositResult); err != nil {
 		return nil, nil, fmt.Errorf("failed to unmarshal deposit result: %w", err)
 	}
@@ -293,7 +272,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []executor.PlainEvent, []common.Withdrawal, error) {
+func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
 	log.Printf("Wasmtime Runtime: Processing request for application %s (payload size: %d, state size: %d)", appId, len(payload), len(state))
 	if len(payload) == 0 {
 		log.Printf("Wasmtime Runtime: Empty payload for application %s, returning current state", appId)
@@ -347,7 +326,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 	}
 
 	// Deserialize the result
-	var processResult ProcessResult
+	var processResult appCommon.ProcessResult
 	if err := json.Unmarshal(resultBytes, &processResult); err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to unmarshal process result: %w", err)
 	}
@@ -406,7 +385,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	}
 
 	// Deserialize the result
-	var deanonymizationResult DeanonymizationResult
+	var deanonymizationResult appCommon.DeanonymizationResult
 	if err := json.Unmarshal(reportBytes, &deanonymizationResult); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal deanonymization result: %w", err)
 	}

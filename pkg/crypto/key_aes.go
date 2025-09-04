@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
 // GenerateAESKey generates a random AES-256 key.
-func GenerateAESKey() (common.AES256Key, error) {
-	var key common.AES256Key
+func GenerateAESKey() (cryptotypes.AES256Key, error) {
+	var key cryptotypes.AES256Key
 	_, err := rand.Read(key[:])
 	if err != nil {
-		return common.AES256Key{}, fmt.Errorf("failed to generate random AES key: %w", err)
+		return cryptotypes.AES256Key{}, fmt.Errorf("failed to generate random AES key: %w", err)
 	}
 	return key, nil
 }
 
 // SaveAESKeyToFile saves an AES key to a file in raw binary format.
-func SaveAESKeyToFile(key *common.AES256Key, filename string) error {
+func SaveAESKeyToFile(key *cryptotypes.AES256Key, filename string) error {
 	err := os.WriteFile(filename, key[:], 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write to file: %w", err)
@@ -29,7 +29,7 @@ func SaveAESKeyToFile(key *common.AES256Key, filename string) error {
 }
 
 // LoadAESKeyFromFile loads an AES key from a file in raw binary format.
-func LoadAESKeyFromFile(filename string) (*common.AES256Key, error) {
+func LoadAESKeyFromFile(filename string) (*cryptotypes.AES256Key, error) {
 	keyBytes, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -37,13 +37,13 @@ func LoadAESKeyFromFile(filename string) (*common.AES256Key, error) {
 	if len(keyBytes) != 32 {
 		return nil, fmt.Errorf("invalid key size: %d", len(keyBytes))
 	}
-	var key common.AES256Key
+	var key cryptotypes.AES256Key
 	copy(key[:], keyBytes)
 	return &key, nil
 }
 
 // SaveAESKeyToFilePEM saves an AES key to a file in PEM format.
-func SaveAESKeyToFilePEM(key *common.AES256Key, filename string) error {
+func SaveAESKeyToFilePEM(key *cryptotypes.AES256Key, filename string) error {
 	pemBlock := &pem.Block{
 		Type:  "AES-256 KEY",
 		Bytes: key[:],
@@ -64,7 +64,7 @@ func SaveAESKeyToFilePEM(key *common.AES256Key, filename string) error {
 }
 
 // LoadAESKeyFromFilePEM loads an AES key from a file in PEM format.
-func LoadAESKeyFromFilePEM(filename string) (*common.AES256Key, error) {
+func LoadAESKeyFromFilePEM(filename string) (*cryptotypes.AES256Key, error) {
 	pemBytes, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -83,7 +83,7 @@ func LoadAESKeyFromFilePEM(filename string) (*common.AES256Key, error) {
 		return nil, fmt.Errorf("invalid key size: %d", len(pemBlock.Bytes))
 	}
 
-	var key common.AES256Key
+	var key cryptotypes.AES256Key
 	copy(key[:], pemBlock.Bytes)
 	return &key, nil
 }

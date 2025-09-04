@@ -46,7 +46,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte)
 	return stateBytes, stateRoot[:], nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []PlainEvent, error) {
+func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
 	log.Printf("Mock Runtime: Processing deposit for application %s ( value: %d wei for sender: %s )", appId, value, sender)
 
 	// Deserialize the current state
@@ -56,7 +56,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 		return nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
 	}
 
-	var events []PlainEvent
+	var events []common.PlainEvent
 	// Handle deposit
 	if value > 0 {
 
@@ -73,7 +73,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 		currentState.Nonce++
 
 		// Create a deposit event for sender
-		depositEvent := PlainEvent{
+		depositEvent := common.PlainEvent{
 			UserID: sender,
 			Data:   []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, value, currentState.Accounts[sender].Balance, currentState.Nonce)),
 		}
@@ -91,7 +91,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []PlainEvent, []common.Withdrawal, error) {
+func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
 	log.Printf("Mock Runtime: Processing request for application %s (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
 	// deserialize the current state
@@ -101,7 +101,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 		return nil, nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
 	}
 
-	var events []PlainEvent
+	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
 
 	// Process payload instructions if payload is not empty
@@ -141,12 +141,12 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			currentState.Nonce++
 
 			// Create events for both parties
-			senderEvent := PlainEvent{
+			senderEvent := common.PlainEvent{
 				UserID: sender,
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					instructions.Transfer.To, instructions.Transfer.Amount, currentState.Accounts[sender].Balance, currentState.Nonce)),
 			}
-			recipientEvent := PlainEvent{
+			recipientEvent := common.PlainEvent{
 				UserID: instructions.Transfer.To,
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					sender, instructions.Transfer.Amount, currentState.Accounts[instructions.Transfer.To].Balance, currentState.Nonce)),
@@ -180,7 +180,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			withdrawals = append(withdrawals, withdrawal)
 
 			// Create event for sender
-			withdrawEvent := PlainEvent{
+			withdrawEvent := common.PlainEvent{
 				UserID: sender,
 				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					instructions.Withdraw.To, instructions.Withdraw.Amount, currentState.Accounts[sender].Balance, currentState.Nonce)),

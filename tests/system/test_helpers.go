@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
@@ -27,8 +28,8 @@ type SystemTestSuite struct {
 	eventChannel       chan interface{}
 	ctx                context.Context
 	cancel             context.CancelFunc
-	executorCommKey    *common.PrivateKeyP521      // Executor's communication key for testing
-	executorSigningKey *common.PrivateKeySecp256k1 // Executor's signing key for testing
+	executorCommKey    *cryptotypes.PrivateKeyP521      // Executor's communication key for testing
+	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 }
 
 func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
@@ -229,7 +230,7 @@ func (s *SystemTestSuite) GetRequestUpdatePayload(reqId string) (*common.UpdateP
 }
 
 // GetExecutorCommunicationKey returns the executor's communication public key for encryption
-func (s *SystemTestSuite) GetExecutorCommunicationKey() (*common.PublicKeyP521, error) {
+func (s *SystemTestSuite) GetExecutorCommunicationKey() (*cryptotypes.PublicKeyP521, error) {
 	if s.executorCommKey == nil {
 		return nil, fmt.Errorf("executor communication key not initialized")
 	}
@@ -237,7 +238,7 @@ func (s *SystemTestSuite) GetExecutorCommunicationKey() (*common.PublicKeyP521, 
 }
 
 // GetExecutorSigningKey returns the executor's signing public key for encryption
-func (s *SystemTestSuite) GetExecutorSigningKey() (*common.PublicKeySecp256k1, error) {
+func (s *SystemTestSuite) GetExecutorSigningKey() (*cryptotypes.PublicKeySecp256k1, error) {
 	if s.executorSigningKey == nil {
 		return nil, fmt.Errorf("executor signing key not initialized")
 	}

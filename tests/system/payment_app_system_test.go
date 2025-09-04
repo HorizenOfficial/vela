@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
+	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
 func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
@@ -227,20 +228,19 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditor, deanonReport, executorPubKey)
 	require.NoError(t, err)
 
-	var reportData map[string]interface{}
+	var reportData appCommon.UnencryptedDeanonimizationReportData
 	err = json.Unmarshal(decryptedReport, &reportData)
 	require.NoError(t, err)
-	require.Equal(t, appId, reportData["applicationId"])
-	require.Equal(t, "deanon-1", reportData["requestId"])
-	require.Contains(t, reportData, "accounts")
+	require.Equal(t, appId, reportData.ApplicationID)
+	require.Equal(t, "deanon-1", reportData.RequestID)
 
 	// Verify account information in the report
-	accounts, ok := reportData["accounts"].(map[string]interface{})
-	require.True(t, ok)
+	accounts := reportData.Accounts
 	require.Contains(t, accounts, user1)
-	require.Equal(t, 1500000000000000000.0, accounts[user1].(map[string]interface{})["balance"])
+	require.Equal(t, uint64(1500000000000000000), accounts[user1].Balance)
+
 	require.Contains(t, accounts, user2)
-	require.Equal(t, 500000000000000000.0, accounts[user2].(map[string]interface{})["balance"])
+	require.Equal(t, uint64(500000000000000000), accounts[user2].Balance)
 
 	// Deanon report does not contain signature for now, possibly add later
 

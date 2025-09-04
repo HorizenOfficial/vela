@@ -3,42 +3,13 @@ package main
 import (
 	"encoding/json"
 
-	"github.com/horizen-pes/pkg/common/appstate"
 	"payment-app/utils"
+
+	appCommon "github.com/horizen-pes/pkg/wasm/common"
+
+	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/appstate"
 )
-
-// PlainEvent represents an emitted event
-type PlainEvent struct {
-	UserID string `json:"userId"`
-	Data   []byte `json:"data"`
-}
-
-// Withdrawal represents a withdrawal instruction
-type Withdrawal struct {
-	DestinationAddress string `json:"destinationAddress"`
-	Amount             uint64 `json:"amount"`
-}
-
-// DepositResult represents the result of a deposit operation
-type DepositResult struct {
-	State  []byte       `json:"state"`
-	Events []PlainEvent `json:"events"`
-	Error  string       `json:"error,omitempty"`
-}
-
-// ProcessResult represents the result of a process request operation
-type ProcessResult struct {
-	State       []byte       `json:"state"`
-	Events      []PlainEvent `json:"events"`
-	Withdrawals []Withdrawal `json:"withdrawals"`
-	Error       string       `json:"error,omitempty"`
-}
-
-// DeanonymizationResult represents the result of generating deanonymization report
-type DeanonymizationResult struct {
-	Report []byte `json:"report"`
-	Error  string `json:"error,omitempty"`
-}
 
 // --- WASM-Exposed Functions (Bridge to Application Logic) ---
 
@@ -94,13 +65,13 @@ func loadModule(appId string) []byte {
 	return stateJSON
 }
 
-func depositFunds(sender string, value uint64, stateJSON string) DepositResult {
+func depositFunds(sender string, value uint64, stateJSON string) appCommon.DepositResult {
 	var currentState appstate.ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return DepositResult{Error: "Failed to parse application state"}
+		return appCommon.DepositResult{Error: "Failed to parse application state"}
 	}
 
-	var events []PlainEvent
+	var events []common.PlainEvent
 
 	// Handle deposit
 	if value > 0 {
@@ -117,18 +88,18 @@ func depositFunds(sender string, value uint64, stateJSON string) DepositResult {
 		currentState.Nonce++
 
 		// Create deposit event
-		eventData := map[string]interface{}{
-			"type":    "deposit",
-			"amount":  value,
-			"balance": currentState.Accounts[sender].Balance,
-			"nonce":   currentState.Nonce,
+		eventData := appCommon.DepositEvent{
+			Type:    "deposit",
+			Amount:  value,
+			Balance: currentState.Accounts[sender].Balance,
+			Nonce:   currentState.Nonce,
 		}
 		eventDataBytes, err := json.Marshal(eventData)
 		if err != nil {
-			return DepositResult{Error: "Failed to serialize event data"}
+			return appCommon.DepositResult{Error: "Failed to serialize event data"}
 		}
 
-		events = append(events, PlainEvent{
+		events = append(events, common.PlainEvent{
 			UserID: sender,
 			Data:   eventDataBytes,
 		})
@@ -137,40 +108,40 @@ func depositFunds(sender string, value uint64, stateJSON string) DepositResult {
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(&currentState)
 	if err != nil {
-		return DepositResult{Error: "Failed to serialize new state"}
+		return appCommon.DepositResult{Error: "Failed to serialize new state"}
 	}
-	return DepositResult{State: newStateBytes, Events: events}
+	return appCommon.DepositResult{State: newStateBytes, Events: events}
 }
 
-func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
+func processRequest(sender, payloadJSON, stateJSON string) appCommon.ProcessResult {
 	// Deserialize current state
 	var currentState appstate.ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return ProcessResult{Error: "Failed to parse application state"}
+		return appCommon.ProcessResult{Error: "Failed to parse application state"}
 	}
 
-	var events []PlainEvent
-	var withdrawals []Withdrawal
+	var events []common.PlainEvent
+	var withdrawals []common.Withdrawal
 
 	// Process payload instructions if payload is not empty
 	if payloadJSON != "" {
 		var instructions appstate.PayloadInstructions
 		if err := json.Unmarshal([]byte(payloadJSON), &instructions); err != nil {
-			return ProcessResult{Error: "Failed to parse payload instructions"}
+			return appCommon.ProcessResult{Error: "Failed to parse payload instructions"}
 		}
 
 		switch instructions.Type {
 		case "transfer":
 			if instructions.Transfer == nil {
-				return ProcessResult{Error: "Transfer instruction is missing"}
+				return appCommon.ProcessResult{Error: "Transfer instruction is missing"}
 			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[sender] == nil {
-				return ProcessResult{Error: "Account does not exist"}
+				return appCommon.ProcessResult{Error: "Account does not exist"}
 			}
 			if currentState.Accounts[sender].Balance < instructions.Transfer.Amount {
-				return ProcessResult{Error: "Insufficient balance for transfer"}
+				return appCommon.ProcessResult{Error: "Insufficient balance for transfer"}
 			}
 
 			// Ensure recipient account exists
@@ -187,51 +158,51 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 			currentState.Nonce++
 
 			// Create events for both parties
-			senderEventData := map[string]interface{}{
-				"type":    "transfer_sent",
-				"to":      instructions.Transfer.To,
-				"amount":  instructions.Transfer.Amount,
-				"balance": currentState.Accounts[sender].Balance,
-				"nonce":   currentState.Nonce,
+			senderEventData := appCommon.SenderEvent{
+				Type:    "transfer_sent",
+				To:      instructions.Transfer.To,
+				Amount:  instructions.Transfer.Amount,
+				Balance: currentState.Accounts[sender].Balance,
+				Nonce:   currentState.Nonce,
 			}
 			senderEventDataBytes, err := json.Marshal(senderEventData)
 			if err != nil {
-				return ProcessResult{Error: "Failed to serialize sender event data"}
+				return appCommon.ProcessResult{Error: "Failed to serialize sender event data"}
 			}
 
-			recipientEventData := map[string]interface{}{
-				"type":    "transfer_received",
-				"from":    sender,
-				"amount":  instructions.Transfer.Amount,
-				"balance": currentState.Accounts[instructions.Transfer.To].Balance,
-				"nonce":   currentState.Nonce,
+			recipientEventData := appCommon.RecipientEvent{
+				Type:    "transfer_received",
+				From:    sender,
+				Amount:  instructions.Transfer.Amount,
+				Balance: currentState.Accounts[instructions.Transfer.To].Balance,
+				Nonce:   currentState.Nonce,
 			}
 			recipientEventDataBytes, err := json.Marshal(recipientEventData)
 			if err != nil {
-				return ProcessResult{Error: "Failed to serialize recipient event data"}
+				return appCommon.ProcessResult{Error: "Failed to serialize recipient event data"}
 			}
 
-			events = append(events, PlainEvent{
+			events = append(events, common.PlainEvent{
 				UserID: sender,
 				Data:   senderEventDataBytes,
 			})
 
-			events = append(events, PlainEvent{
+			events = append(events, common.PlainEvent{
 				UserID: instructions.Transfer.To,
 				Data:   recipientEventDataBytes,
 			})
 
 		case "withdraw":
 			if instructions.Withdraw == nil {
-				return ProcessResult{Error: "Withdraw instruction is missing"}
+				return appCommon.ProcessResult{Error: "Withdraw instruction is missing"}
 			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[sender] == nil {
-				return ProcessResult{Error: "Account does not exist"}
+				return appCommon.ProcessResult{Error: "Account does not exist"}
 			}
 			if currentState.Accounts[sender].Balance < instructions.Withdraw.Amount {
-				return ProcessResult{Error: "Insufficient balance for withdrawal"}
+				return appCommon.ProcessResult{Error: "Insufficient balance for withdrawal"}
 			}
 
 			// Execute withdrawal
@@ -239,67 +210,67 @@ func processRequest(sender, payloadJSON, stateJSON string) ProcessResult {
 			currentState.Nonce++
 
 			// Create withdrawal
-			withdrawals = append(withdrawals, Withdrawal{
+			withdrawals = append(withdrawals, common.Withdrawal{
 				DestinationAddress: instructions.Withdraw.To,
 				Amount:             instructions.Withdraw.Amount,
 			})
 
 			// Create event for sender
-			withdrawEventData := map[string]interface{}{
-				"type":    "withdrawal",
-				"to":      instructions.Withdraw.To,
-				"amount":  instructions.Withdraw.Amount,
-				"balance": currentState.Accounts[sender].Balance,
-				"nonce":   currentState.Nonce,
+			withdrawEventData := appCommon.WithdrawalEvent{
+				Type:    "withdrawal",
+				To:      instructions.Withdraw.To,
+				Amount:  instructions.Withdraw.Amount,
+				Balance: currentState.Accounts[sender].Balance,
+				Nonce:   currentState.Nonce,
 			}
 			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
 			if err != nil {
-				return ProcessResult{Error: "Failed to serialize withdraw event data"}
+				return appCommon.ProcessResult{Error: "Failed to serialize withdraw event data"}
 			}
 
-			events = append(events, PlainEvent{
+			events = append(events, common.PlainEvent{
 				UserID: sender,
 				Data:   withdrawEventDataBytes,
 			})
 
 		default:
-			return ProcessResult{Error: "Unsupported instruction type"}
+			return appCommon.ProcessResult{Error: "Unsupported instruction type"}
 		}
 	}
 
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(currentState)
 	if err != nil {
-		return ProcessResult{Error: "Failed to serialize new state"}
+		return appCommon.ProcessResult{Error: "Failed to serialize new state"}
 	}
-	return ProcessResult{
+	return appCommon.ProcessResult{
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
 	}
 }
 
-func generateDeanonymizationReport(appId, requestId, stateJSON string) DeanonymizationResult {
+func generateDeanonymizationReport(appId, requestId, stateJSON string) appCommon.DeanonymizationResult {
 	// Deserialize current state
 	var currentState appstate.ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return DeanonymizationResult{Error: "Failed to parse application state"}
+		return appCommon.DeanonymizationResult{Error: "Failed to parse application state"}
 	}
 
 	// Create deanonymization report
-	report := map[string]interface{}{
-		"applicationId": appId,
-		"requestId":     requestId,
-		"accounts":      currentState.Accounts,
-		"nonce":         currentState.Nonce,
+	report := appCommon.UnencryptedDeanonimizationReportData{
+		ApplicationID: appId,
+		RequestID:     requestId,
+		Accounts:      currentState.Accounts,
+		Nonce:         currentState.Nonce,
 	}
 
 	// Serialize the report
 	reportBytes, err := json.Marshal(report)
 	if err != nil {
-		return DeanonymizationResult{Error: "Failed to serialize deanonymization report"}
+		return appCommon.DeanonymizationResult{Error: "Failed to serialize deanonymization report"}
 	}
-	return DeanonymizationResult{Report: reportBytes}
+	return appCommon.DeanonymizationResult{Report: reportBytes}
 }
 
 // Main function is required but not used in WASM

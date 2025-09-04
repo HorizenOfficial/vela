@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
 /*
@@ -18,17 +18,17 @@ GeneratePrivateKeyP521 generates a private key with Elliptic Curve Diffie-Hellma
 also known as secp521r1.
 (This can be used for encryption/decription)
 */
-func GeneratePrivateKeyP521() (*common.PrivateKeyP521, error) {
+func GeneratePrivateKeyP521() (*cryptotypes.PrivateKeyP521, error) {
 	curve := ecdh.P521()
 	newKey, err := curve.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
-	return &common.PrivateKeyP521{newKey}, nil
+	return &cryptotypes.PrivateKeyP521{newKey}, nil
 }
 
 // SavePrivateKeyP521ToFileDER saves a P521 private key to a file in PKCS #8, ASN.1 DER format.
-func SavePrivateKeyP521ToFileDER(privKey *common.PrivateKeyP521, filename string) error {
+func SavePrivateKeyP521ToFileDER(privKey *cryptotypes.PrivateKeyP521, filename string) error {
 	derBytes, err := x509.MarshalPKCS8PrivateKey(privKey.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("failed to marshal private key: %w", err)
@@ -43,7 +43,7 @@ func SavePrivateKeyP521ToFileDER(privKey *common.PrivateKeyP521, filename string
 }
 
 // LoadPrivateKeyP521FromFileDER loads a P521 private key from a file in PKCS #8, ASN.1 DER format.
-func LoadPrivateKeyP521FromFileDER(filename string) (*common.PrivateKeyP521, error) {
+func LoadPrivateKeyP521FromFileDER(filename string) (*cryptotypes.PrivateKeyP521, error) {
 	derBytes, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -64,11 +64,11 @@ func LoadPrivateKeyP521FromFileDER(filename string) (*common.PrivateKeyP521, err
 		return nil, fmt.Errorf("failed to convert to ECDH key: %w", err)
 	}
 
-	return &common.PrivateKeyP521{ecdhKey}, nil
+	return &cryptotypes.PrivateKeyP521{ecdhKey}, nil
 }
 
 // SavePrivateKeyP521ToFilePEM saves a P521 private key to a file in PEM format.
-func SavePrivateKeyP521ToFilePEM(privKey *common.PrivateKeyP521, filename string) error {
+func SavePrivateKeyP521ToFilePEM(privKey *cryptotypes.PrivateKeyP521, filename string) error {
 	derBytes, err := x509.MarshalPKCS8PrivateKey(privKey.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("failed to marshal private key: %w", err)
@@ -94,7 +94,7 @@ func SavePrivateKeyP521ToFilePEM(privKey *common.PrivateKeyP521, filename string
 }
 
 // LoadPrivateKeyP521FromFilePEM loads a P521 private key from a file in PEM format.
-func LoadPrivateKeyP521FromFilePEM(filename string) (*common.PrivateKeyP521, error) {
+func LoadPrivateKeyP521FromFilePEM(filename string) (*cryptotypes.PrivateKeyP521, error) {
 	pemBytes, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -120,21 +120,21 @@ func LoadPrivateKeyP521FromFilePEM(filename string) (*common.PrivateKeyP521, err
 		return nil, fmt.Errorf("failed to convert to ECDH key: %w", err)
 	}
 
-	return &common.PrivateKeyP521{ecdhKey}, nil
+	return &cryptotypes.PrivateKeyP521{ecdhKey}, nil
 }
 
 // ExportPrivateKeyP521ToHex exports a P521 private key to a hex string.
-func ExportPrivateKeyP521ToHex(privKey *common.PrivateKeyP521) string {
+func ExportPrivateKeyP521ToHex(privKey *cryptotypes.PrivateKeyP521) string {
 	return hex.EncodeToString(privKey.Bytes())
 }
 
 // ExportPublicKeyP521ToHex exports a P521 public key to a hex string.
-func ExportPublicKeyP521ToHex(pubKey *common.PublicKeyP521) string {
+func ExportPublicKeyP521ToHex(pubKey *cryptotypes.PublicKeyP521) string {
 	return hex.EncodeToString(pubKey.Bytes())
 }
 
 // ImportPrivateKeyP521FromHex imports a P521 private key from a hex string.
-func ImportPrivateKeyP521FromHex(hexKey string) (*common.PrivateKeyP521, error) {
+func ImportPrivateKeyP521FromHex(hexKey string) (*cryptotypes.PrivateKeyP521, error) {
 	keyBytes, err := hex.DecodeString(hexKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode hex string: %w", err)
@@ -146,11 +146,11 @@ func ImportPrivateKeyP521FromHex(hexKey string) (*common.PrivateKeyP521, error) 
 		return nil, fmt.Errorf("failed to create private key: %w", err)
 	}
 
-	return &common.PrivateKeyP521{key}, nil
+	return &cryptotypes.PrivateKeyP521{key}, nil
 }
 
 // ImportPublicKeyP521FromHex imports a P521 public key from a hex string.
-func ImportPublicKeyP521FromHex(hexKey string) (*common.PublicKeyP521, error) {
+func ImportPublicKeyP521FromHex(hexKey string) (*cryptotypes.PublicKeyP521, error) {
 	keyBytes, err := hex.DecodeString(hexKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode hex string: %w", err)
@@ -162,5 +162,5 @@ func ImportPublicKeyP521FromHex(hexKey string) (*common.PublicKeyP521, error) {
 		return nil, fmt.Errorf("failed to create public key: %w", err)
 	}
 
-	return &common.PublicKeyP521{key}, nil
+	return &cryptotypes.PublicKeyP521{key}, nil
 }
