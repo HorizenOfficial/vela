@@ -1,0 +1,57 @@
+version: "3"
+
+networks:
+  pes_network:
+    ipam:
+      config:
+        - subnet: ${INTERNAL_NETWORK_SUBNET}
+  inet:     
+
+volumes:
+  horizen-pes-manager-data:  
+  horizen-pes-chain-data:
+
+services:
+  exectuor:
+    image: horizen-pes-executor
+    container_name: horizen-pes-executor
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      pes_network:
+        ipv4_address: ${EXECUTOR_IP_ADDRESS}
+    environment:
+      - EXECUTOR_IP_ADDRESS
+      - EXECUTOR_IP_PORT
+  manager:
+    image: horizen-pes-manager
+    container_name: horizen-pes-manager
+    restart: always 
+    networks:
+      pes_network:
+        ipv4_address: ${MANAGER_IP_ADDRESS}
+      inet:    
+    environment:
+      - EXECUTOR_IP_ADDRESS
+      - EXECUTOR_IP_PORT  
+    volumes:
+      - "horizen-pes-manager-data:/tmp/horizen-pes-data/manager_db/:rw" 
+    depends_on:
+      - exectuor 
+  chain:
+    image: horizen-pes-chain
+    container_name: horizen-pes-chain
+    restart: always 
+    environment:
+      - DATA_FOLDER=${CHAIN_DATA_FOLDER:-/data}
+    ports:
+      - "8545:8545"
+    networks:
+      pes_network:
+        ipv4_address: ${CHAIN_IP_ADDRESS}
+      inet:    
+
+    volumes:
+      - horizen-pes-chain-data:${CHAIN_DATA_FOLDER:-/data} 
+

@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"context"
+	"os"
+
 
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
@@ -41,9 +43,18 @@ func DefaultConfig() *Config {
 	communicationKey, _ := crypto.GeneratePrivateKeyP521()
 	signatureKey, _ := crypto.GeneratePrivateKeySecp256k1()
 
+	serverAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
+	if serverAddress == "" {
+		serverAddress = "localhost"
+	}
+	serverPort := os.Getenv("EXECUTOR_IP_PORT")
+	if serverPort == "" {
+		serverPort = "8080"
+	}
+
 	return &Config{
 		ServerType:       "tcp",
-		ServerAddr:       "localhost:8080",
+		ServerAddr:       serverAddress + ":" + serverPort,
 		StateKey:         stateKey,
 		CommunicationKey: communicationKey,
 		SignatureKey:     signatureKey,

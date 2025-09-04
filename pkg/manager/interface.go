@@ -4,6 +4,8 @@ import (
 	"log"
 	"os"
 	"context"
+	"os"
+
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/magiconair/properties"
 	"github.com/horizen-pes/pkg/crypto"
@@ -53,12 +55,20 @@ type Config struct {
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager
 func DefaultConfig() *Config {
+	executorServerAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
+	if executorServerAddress == "" {
+		executorServerAddress = "localhost"
+	}
+	executorServerPort := os.Getenv("EXECUTOR_IP_PORT")
+	if executorServerPort == "" {
+		executorServerPort = "8080"
+	}
 	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex("5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a") // well known private key for local development
 	return &Config{
 		BlockchainPollingInterval: 5,     // 5 seconds
 		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
-			"url": "localhost:8080",
+			"url": executorServerAddress + ":" + executorServerPort,
 		},
 		RpcURL: 			   "http://127.0.0.1:8545",
 		PrivateKey: 			*PrivateKey,
