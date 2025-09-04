@@ -28,15 +28,16 @@ services:
     image: horizen-pes-manager
     container_name: horizen-pes-manager
     restart: always 
+    environment:
+      - EXECUTOR_IP_ADDRESS
+      - EXECUTOR_IP_PORT  
+      - MANAGAER_DATA_FOLDER=${MANAGAER_DATA_FOLDER:-/data}
     networks:
       pes_network:
         ipv4_address: ${MANAGER_IP_ADDRESS}
       inet:    
-    environment:
-      - EXECUTOR_IP_ADDRESS
-      - EXECUTOR_IP_PORT  
     volumes:
-      - "horizen-pes-manager-data:/tmp/horizen-pes-data/manager_db/:rw" 
+      - horizen-pes-manager-data:${MANAGAER_DATA_FOLDER:-/data}
     depends_on:
       - exectuor 
   chain:
@@ -51,7 +52,6 @@ services:
       pes_network:
         ipv4_address: ${CHAIN_IP_ADDRESS}
       inet:    
-
     volumes:
       - horizen-pes-chain-data:${CHAIN_DATA_FOLDER:-/data} 
 

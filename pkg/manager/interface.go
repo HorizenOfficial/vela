@@ -64,6 +64,11 @@ func DefaultConfig() *Config {
 		executorServerPort = "8080"
 	}
 	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex("5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a") // well known private key for local development
+	dataPath := os.Getenv("MANAGER_DATA_FOLDER")
+	if dataPath == "" {
+		dataPath = "/tmp/horizen-pes-data/manager_db"
+	}
+
 	return &Config{
 		BlockchainPollingInterval: 5,     // 5 seconds
 		ExecutorConnectionType:    "tcp", // or "vsock"
@@ -77,7 +82,7 @@ func DefaultConfig() *Config {
 		MockBlockChainClient:    false,
 		// Data layer configuration
 		DataLayerType:          "versioned_leveldb",
-		DataLayerDBPath:        "/tmp/horizen-pes-data/manager_db",
+		DataLayerDBPath:        dataPath,
 		DataLayerNumOfVersions: 10, // useful only for versioned leveldb
 	}
 }

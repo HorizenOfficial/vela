@@ -26,7 +26,3 @@ VOLUME ${DATA_FOLDER}
 # Set the entrypoint to our script.
 # The container will start as root to run this.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-
-# The default command is to run anvil.
-# The entrypoint script will execute this as the 'foundry' user.
-CMD ["anvil", "--host", "0.0.0.0", "--state", "${DATA_FOLDER}/anvil_state.json", "--state-interval", "10"]
