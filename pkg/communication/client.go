@@ -59,7 +59,19 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.connected = true
 
 	// Start the message reader goroutine
-	go c.messageReaderLoop(ctx)
+	go MessageReaderLoop(
+		ctx,
+		"Client",
+		c.conn,
+		c.reader,
+		c.shutdown,
+		func(ctx context.Context, msg *Message) {
+			c.routeIncomingMessage(ctx, msg)
+		},
+		func() {
+			c.Close()
+		},
+	)
 
 	// Start the cleanup goroutine for timed-out requests
 	go c.cleanupLoop()
@@ -275,45 +287,6 @@ func (c *Client) sendMessage(msg Message) error {
 	}
 
 	return nil
-}
-
-// messageReaderLoop continuously reads messages from the connection
-func (c *Client) messageReaderLoop(ctx context.Context) {
-	for {
-		select {
-		case <-c.shutdown:
-			return
-		case <-ctx.Done():
-			return
-		default:
-			// Continue reading
-		}
-
-		// Read message with timeout
-		c.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		msgBytes, err := c.reader.ReadBytes(delimiter)
-		if err != nil {
-			// Check if it's a timeout error
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// todo: handle partial reads with a buffer or use length-prefixed messages
-				continue // Continue reading on timeout
-			}
-			// Connection error, close client
-			c.Close()
-			return
-		}
-
-		// Parse message
-		var msg Message
-		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			log.Printf("Client: Error parsing message: %v", err)
-			continue
-		}
-
-		log.Printf("Client: Received message: ID=%s, Type=%v", msg.ID, msg.Type)
-		// Route message in a goroutine to avoid blocking
-		go c.routeIncomingMessage(ctx, &msg)
-	}
 }
 
 // routeIncomingMessage routes incoming messages to appropriate handlers
