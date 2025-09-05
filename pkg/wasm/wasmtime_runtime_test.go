@@ -709,7 +709,7 @@ func TestWasmtimeRuntime_StateRootConsistency(t *testing.T) {
 
 		// Verify state root is deterministic
 		expectedHash := sha256.Sum256(state)
-		assert.Equal(t, expectedHash[:], stateRoot)
+		assert.Equal(t, expectedHash, stateRoot)
 	}
 }
 

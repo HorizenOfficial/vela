@@ -121,7 +121,7 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, was
 }
 
 // LoadModule loads a WASM module and returns initial state and state root
-func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, []byte, error) {
+func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, [32]byte, error) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 	log.Printf("Wasmtime Runtime: Loading WASM module for application %s (wasm size: %d bytes)", appId, len(wasm))
@@ -129,14 +129,14 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 	// Compile the WASM module
 	module, err := wasmtime.NewModule(r.engine, wasm)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to compile WASM module: %w", err)
+		return nil, [32]byte{}, fmt.Errorf("failed to compile WASM module: %w", err)
 	}
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
 	err = linker.DefineWasi()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to define WASI: %w", err)
+		return nil, [32]byte{}, fmt.Errorf("failed to define WASI: %w", err)
 	}
 
 	// Create WASI configuration
@@ -146,24 +146,24 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 	// Create an instance of the module with WASI imports
 	instance, err := linker.Instantiate(r.store, module)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
+		return nil, [32]byte{}, fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}
 
 	// Get the memory export
 	memoryExport := instance.GetExport(r.store, "memory")
 	if memoryExport == nil {
-		return nil, nil, fmt.Errorf("memory export not found in WASM module")
+		return nil, [32]byte{}, fmt.Errorf("memory export not found in WASM module")
 	}
 
 	memory := memoryExport.Memory()
 	if memory == nil {
-		return nil, nil, fmt.Errorf("memory export is not a memory")
+		return nil, [32]byte{}, fmt.Errorf("memory export is not a memory")
 	}
 
 	// Get the load_module function
 	loadModuleFunc := instance.GetFunc(r.store, "load_module")
 	if loadModuleFunc == nil {
-		return nil, nil, fmt.Errorf("load_module function not found in WASM module")
+		return nil, [32]byte{}, fmt.Errorf("load_module function not found in WASM module")
 	}
 
 	appModule := &ApplicationModule{
@@ -176,19 +176,19 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 	appIdBytes := []byte(appId)
 	appIdPtr, err := r.writeToMemory(appModule, appIdBytes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to write appId to memory: %w", err)
+		return nil, [32]byte{}, fmt.Errorf("failed to write appId to memory: %w", err)
 	}
 
 	// Call the load_module function
 	result, err := loadModuleFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to call load_module: %w", err)
+		return nil, [32]byte{}, fmt.Errorf("failed to call load_module: %w", err)
 	}
 
 	// Extract the result bytes
 	stateBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
+		return nil, [32]byte{}, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
 
 	log.Printf("Wasmtime Runtime: Raw result from WASM: %s", string(stateBytes))
@@ -200,7 +200,7 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 
 	// Store the module in the runtime
 	r.modules[appId] = appModule
-	return stateBytes, stateRoot[:], nil
+	return stateBytes, stateRoot, nil
 }
 
 // Deposit processes a deposit
