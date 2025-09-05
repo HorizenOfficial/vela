@@ -4,13 +4,17 @@ The versioned LevelDB storage system provides a key-value store with the ability
 
 ## Architecture
 
-The system is composed of three main layers:
+The system is composed of several layers:
 
-1.  **`VersionedLevelDBDataLayer`**: This is the highest-level abstraction, implementing the `storage.ApplicationStateStore` interface. It is responsible for handling application-specific data, such as application states, WASM bytecode, and user keys. It serializes and deserializes data and uses the `VersionedLevelDbStorageAdapter` to interact with the storage.
+1.  **`LevelDBDataLayer`**: This is the highest-level abstraction, implementing the `storage.DataLayer` interface. It acts as a unified entry point for accessing different types of data. It combines both versioned and non-versioned storage by composing multiple specialized stores. Data is segregated into different subdirectories to avoid key collisions.
 
-2.  **`VersionedLevelDbStorageAdapter`**: This layer adapts the `VersionedLDBKVStore` to the `storage.VersionedStorage` interface. It provides methods for getting, setting, and updating data, as well as for managing versions.
+2.  **`VersionedLevelDBAppStateStore`**: This component implements the `storage.ApplicationStateStore` interface and is responsible for handling data that requires versioning, such as application states and WASM bytecode. It uses the `VersionedLevelDbStorageAdapter` to interact with the underlying versioned database. It also handles the serialization and deserialization of application-specific data structures.
 
-3.  **`VersionedLDBKVStore`**: This is the core of the versioning system. It directly interacts with the LevelDB database and implements the versioning logic.
+3.  **`LevelDBUserKeyStore` and `LevelDBReportStore`**: These are non-versioned stores for user keys and deanonymization reports, respectively. They use a simple `LevelDbStorageAdapter` to interact directly with LevelDB instances, without any versioning capabilities.
+
+4.  **`VersionedLevelDbStorageAdapter`**: This layer adapts the `VersionedLDBKVStore` to the `storage.VersionedStorage` interface. It provides methods for getting, setting, and updating data, as well as for managing versions.
+
+5.  **`VersionedLDBKVStore`**: This is the core of the versioning system. It directly interacts with the LevelDB database and implements the versioning logic.
 
 ### Versioning Mechanism
 
@@ -51,7 +55,3 @@ When a `RollbackTo` operation is performed with a target `versionID`:
 6.  All these operations are performed within a single LevelDB transaction.
 
 This architecture ensures that the database can be reliably rolled back to any previous state while maintaining data integrity.
-
-## TODO
-
--   Modify the `storage.ApplicationStateStore` interface in `pkg/storage/interface.go` to include a `Rollback` method. This will allow higher-level components to trigger a rollback of storage operations to a specific version, abstracting the underlying versioning mechanism.

@@ -1,4 +1,5 @@
-import { expect } from 'chai'
+import { expect } from 'chai';
+import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
 
 describe('AuthorityRegistry Test', function () {
@@ -17,7 +18,7 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('owner can add', async function () {
-        await expect( 
+        await expect(
             authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
         ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
 
@@ -45,7 +46,7 @@ describe('AuthorityRegistry Test', function () {
     })
 
     it('only owner can remove', async function () {
-        await expect( 
+        await expect(
             authorityRegistry.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
         ).to.emit(authorityRegistry, "AddedAuthority").withArgs(APPLICATION_ID, testAddr);
 

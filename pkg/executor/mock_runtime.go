@@ -23,7 +23,7 @@ func NewMockRuntime() *MockRuntime {
 }
 
 // LoadModule loads a WASM module and returns initial state and state root
-func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, []byte, error) {
+func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, [32]byte, error) {
 	log.Printf("Mock Runtime: Loading mock runtime module for application %s (wasm size: %d bytes)", appId, len(wasm))
 
 	// Create initial application state
@@ -36,14 +36,14 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte)
 	// Serialize the state
 	stateBytes, err := json.Marshal(initialState)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal initial state: %w", err)
+		return nil, [32]byte{}, fmt.Errorf("failed to marshal initial state: %w", err)
 	}
 
 	// Create state root hash
 	stateRoot := sha256.Sum256(stateBytes)
 
 	log.Printf("Mock Runtime: Successfully loaded mock runtime module for application %s", appId)
-	return stateBytes, stateRoot[:], nil
+	return stateBytes, stateRoot, nil
 }
 
 func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {

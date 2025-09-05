@@ -15,8 +15,8 @@ var (
 )
 
 // GetAdapter_ForTest returns the underlying VersionedLevelDbStorageAdapter instance for testing purposes.
-func (vdl *VersionedLevelDBDataLayer) GetAdapter_ForTest() *VersionedLevelDbStorageAdapter {
-	return vdl.getAdapter()
+func (vdl *LevelDBDataLayer) GetAdapter_ForTest() *VersionedLevelDbStorageAdapter {
+	return vdl.VersionedLevelDBAppStateStore.getAdapter()
 }
 
 // TestGenerateVersionID returns the internal method for testing purposes.

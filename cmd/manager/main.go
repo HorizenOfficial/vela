@@ -4,25 +4,22 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
-	"time"
-
 	"strconv"
+	"strings"
+
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
-	"os"
-    "os/signal"
-	"syscall"
-	boltDb "github.com/horizen-pes/pkg/storage/boltdb"
 	"github.com/horizen-pes/pkg/storage/mockdb"
-
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 )
 
-func createDataLayer(config *manager.Config) (storage.ApplicationStateStore, error) {
+func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
 	// first of all if we are using mockdb do not even care for file and other configs
 	if config.DataLayerType == "mockdb" {
 		return mockdb.NewMockDataLayer(), nil
@@ -32,7 +29,7 @@ func createDataLayer(config *manager.Config) (storage.ApplicationStateStore, err
 		return nil, fmt.Errorf("data layer path is empty")
 	}
 
-	var dl storage.ApplicationStateStore
+	var dl storage.DataLayer
 	var err error
 
 	switch config.DataLayerType {
@@ -42,15 +39,6 @@ func createDataLayer(config *manager.Config) (storage.ApplicationStateStore, err
 			VersionsToKeep: config.DataLayerNumOfVersions,
 		}
 		dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
-		}
-	case "boltdb":
-		cfg := boltDb.BoltDBConfig{
-			Path:    config.DataLayerDBPath,
-			Timeout: 1 * time.Second,
-		}
-		dl, err = boltDb.NewBoltDBDataLayer(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
 		}
@@ -117,7 +105,7 @@ func main() {
 	log.Println("Manager started")
 
 	// Wait for shutdown signal
-    <-sigChan
+	<-sigChan
 	signal.Stop(sigChan)
 	// Handle shutdown signal (Ctrl+C or SIGTERM)
 	log.Println("Received shutdown signal. Shutting down gracefully...")
