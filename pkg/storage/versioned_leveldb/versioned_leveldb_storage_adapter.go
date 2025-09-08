@@ -191,26 +191,24 @@ func createDb(path string, versionsToKeep int) (*VersionedLDBKVStore, error) {
 	return NewVersionedLDBKVStore(db, versionsToKeep), nil
 }
 
-func (s *VersionedLevelDbStorageAdapter) IsEmpty() bool {
+func (s *VersionedLevelDbStorageAdapter) IsEmpty() (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	versions, err := s.dataBase.Versions()
 	if err != nil {
-		fmt.Printf("Error checking if empty: %v\n", err)
-		return true
+		return true, fmt.Errorf("error checking if empty: %w", err)
 	}
-	return len(versions) == 0
+	return len(versions) == 0, nil
 }
 
-func (s *VersionedLevelDbStorageAdapter) NumberOfVersions() int {
+func (s *VersionedLevelDbStorageAdapter) NumberOfVersions() (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	versions, err := s.dataBase.Versions()
 	if err != nil {
-		fmt.Printf("Error getting number of versions: %v\n", err)
-		return 0
+		return 0, fmt.Errorf("error getting number of versions: %w", err)
 	}
-	return len(versions)
+	return len(versions), nil
 }
 
 func (s *VersionedLevelDbStorageAdapter) GetIterator() storage.StorageIterator {

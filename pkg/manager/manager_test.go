@@ -72,7 +72,7 @@ func (c *MockBCClientWithError) Close() error {
 }
 
 type MockDataLayerWithFailure struct {
-	storage.ApplicationStateStore
+	storage.DataLayer
 	
 }
 

@@ -194,7 +194,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 		ApplicationID: res[0].ApplicationID,
 		RequestID:     res[0].RequestID,
 		PrevStateRoot: oldStateRoot,
-		NewStateRoot:  []byte{0x04, 0x05, 0x06},
+		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
 		Events:        events[:],
 		Withdrawals:   withdrawals,
 		Signature:     signature[:],

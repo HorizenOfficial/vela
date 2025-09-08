@@ -9,7 +9,9 @@ type KeyValuePair struct {
 // StorageIterator defines an interface for iterating over key-value pairs in storage.
 type StorageIterator interface {
 	Next() bool
+	// Key returns the key of the current entry. The slice is only valid until the next call to Next().
 	Key() []byte
+	// Value returns the value of the current entry. The slice is only valid until the next call to Next().
 	Value() []byte
 	Release()
 	Error() error
@@ -27,7 +29,7 @@ type VersionedStorage interface {
 	RollbackVersions() ([][]byte, error)
 	RollbackVersionsLimited(maxNumberOfItems int) ([][]byte, error)
 	Close() error
-	IsEmpty() bool
-	NumberOfVersions() int
+	IsEmpty() (bool, error)
+	NumberOfVersions() (int, error)
 	GetIterator() StorageIterator
 }

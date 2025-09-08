@@ -1,4 +1,5 @@
-import { expect } from 'chai'
+import { expect } from 'chai';
+import { ethers } from 'hardhat';
 import { BigNumberish, Signer } from 'ethers';
 import { ethSignStateUpdate } from '../scripts/util';
 
@@ -178,18 +179,18 @@ describe('ProcessorEndpoint Test', function () {
         submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100}); //value 100 in the failed
         await submitTx.wait();
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x", "0x1234", 0, [], []);
-        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x", "0x1234", 0, [], [], signature);
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], []);
+        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [], signature);
         await updateTx.wait();
-        expect(await processorEndpoint.stateRoot()).eql("0x1234");
+        expect(await processorEndpoint.stateRoot()).eql("0x1234000000000000000000000000000000000000000000000000000000000000");
         //check if completed
         let req = await processorEndpoint.requests(0);
         expect(req[7]).eql(BigInt(1)); //completed
 
-        signature = await ethSignStateUpdate(signers[0], applicationId, "0x1234", "0x123456", 1, [], []);
-        updateTx = await processorEndpoint.stateUpdate(applicationId, "0x1234", "0x123456", 1, [], [], signature); 
+        signature = await ethSignStateUpdate(signers[0], applicationId, "0x1234000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 1, [], []);
+        updateTx = await processorEndpoint.stateUpdate(applicationId, "0x1234000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 1, [], [], signature); 
         await updateTx.wait();
-        expect(await processorEndpoint.stateRoot()).eql("0x123456");
+        expect(await processorEndpoint.stateRoot()).eql("0x1234560000000000000000000000000000000000000000000000000000000000");
         //check if completed
         req = await processorEndpoint.requests(1);
         expect(req[7]).eql(BigInt(1)); //completed
@@ -200,22 +201,22 @@ describe('ProcessorEndpoint Test', function () {
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
         await submitTx.wait();
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x", "0x1234", 0, [], []);
-        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x", "0x1234", 0, [], [], signature); 
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], []);
+        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [], signature); 
         await updateTx.wait();
-        expect(await processorEndpoint.stateRoot()).eql("0x1234");
+        expect(await processorEndpoint.stateRoot()).eql("0x1234000000000000000000000000000000000000000000000000000000000000");
 
-        signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000", "0x123456", 0, [], []);
+        signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 0, [], []);
         await expect(
-            processorEndpoint.stateUpdate(applicationId, "0x0000", "0x123456", 0, [], [], signature) //wrong prev value
+            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 0, [], [], signature) //wrong prev value
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidStateRoot");
     });
 
     it('should not update status with invalid signature', async function () {
-        let invalidSignature = await ethSignStateUpdate(signers[1], 0, "0x", "0x123456", 0, [], []); //signed by signer[1] instead of [0]
+        let invalidSignature = await ethSignStateUpdate(signers[1], 0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 0, [], []); //signed by signer[1] instead of [0]
 
         await expect(
-            processorEndpoint.stateUpdate(applicationId, "0x", "0x123456", 0, [], [], invalidSignature)
+            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 0, [], [], invalidSignature)
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidSignature");
     });
 
@@ -229,10 +230,10 @@ describe('ProcessorEndpoint Test', function () {
         let balance1Before = await ethers.provider.getBalance(addr1);
         let balance2Before = await ethers.provider.getBalance(addr2);
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x", "0x1234", 0, [], [[addr1, 50], [addr2, 50]]);
-        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x", "0x1234", 0, [], [[addr1, 50], [addr2, 50]], signature);
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [[addr1, 50], [addr2, 50]]);
+        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [[addr1, 50], [addr2, 50]], signature);
         await updateTx.wait();
-        expect(await processorEndpoint.stateRoot()).eql("0x1234");
+        expect(await processorEndpoint.stateRoot()).eql("0x1234000000000000000000000000000000000000000000000000000000000000");
 
         //check balance after
         let balance1After = await ethers.provider.getBalance(addr1);
@@ -246,9 +247,9 @@ describe('ProcessorEndpoint Test', function () {
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 0);
         await submitTx.wait();
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x", "0x1234", 0, ["0x1234"], []);
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x1234"], []);
         await expect(
-            processorEndpoint.stateUpdate(applicationId, "0x", "0x1234", 0, ["0x1234"], [], signature)
+            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x1234"], [], signature)
         ).to.emit(processorEndpoint, "UserEvent").withArgs(applicationId, 0, "0x1234");
     });
 
@@ -259,9 +260,9 @@ describe('ProcessorEndpoint Test', function () {
         let addr1 = await signers[1].getAddress();
         let addr2 = await signers[2].getAddress();
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x", "0x1234", 0, [], [[addr1, 100], [addr2, 100]]);
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [[addr1, 100], [addr2, 100]]);
         await expect(
-            processorEndpoint.stateUpdate(applicationId, "0x", "0x1234", 0, [], [[addr1, 100], [addr2, 100]], signature) //sum of values is 200
+            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [[addr1, 100], [addr2, 100]], signature) //sum of values is 200
         ).to.be.revertedWithCustomError(processorEndpoint, "InsufficientBalance");
     });
 
