@@ -285,6 +285,27 @@ func (c *BlockChainClient) GetPublicKey(ctx context.Context, address string) ([]
 	return pubKey, nil
 }
 
+func (c *BlockChainClient) RegisterPK(ctx context.Context, publicKey []byte) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.connected == false {
+		return fmt.Errorf("client not connected, call Connect first")
+	}
+
+	tx, err := bind.Transact(c.processorBoundContract, c.account, c.keyRegistryEndpoint.PackRegisterPK(publicKey))
+	if err != nil {
+		return fmt.Errorf("failed to submit transaction: %v", err)
+	}
+
+	// wait for transaction inclusion
+	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
+		return fmt.Errorf("error waiting for tx inclusion: %v", err)
+	}
+	return nil
+
+}
+
 // Close closes the blockchain client
 func (c *BlockChainClient) Close() error {
 	c.mu.Lock()
