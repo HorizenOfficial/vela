@@ -73,7 +73,7 @@ func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, val
 }
 
 // CreateTransferRequest creates an encrypted transfer request
-func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient string, amount int64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient string, amount uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err

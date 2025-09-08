@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"payment-app/utils"
 
@@ -72,6 +73,9 @@ func depositFunds(sender string, value uint64, stateJSON string) appCommon.Depos
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return appCommon.DepositResult{Error: "Failed to parse application state"}
 	}
+	if !utils.IsValidAddress(sender) {
+		return appCommon.DepositResult{Error: fmt.Sprintf("sender address is not valid: %s", sender)}
+	}
 
 	var events []common.PlainEvent
 
@@ -121,6 +125,9 @@ func processRequest(sender, payloadJSON, stateJSON string) appCommon.ProcessResu
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return appCommon.ProcessResult{Error: "Failed to parse application state"}
 	}
+	if !utils.IsValidAddress(sender) {
+		return appCommon.ProcessResult{Error: fmt.Sprintf("sender address is not valid: %s", sender)}
+	}
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
@@ -138,9 +145,13 @@ func processRequest(sender, payloadJSON, stateJSON string) appCommon.ProcessResu
 				return appCommon.ProcessResult{Error: "Transfer instruction is missing"}
 			}
 
+			if !utils.IsValidAddress(instructions.Transfer.To) {
+				return appCommon.ProcessResult{Error: fmt.Sprintf("Transfer destination addrss is not valid: %s", instructions.Transfer.To)}
+			}
+
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[sender] == nil {
-				return appCommon.ProcessResult{Error: "Account does not exist"}
+				return appCommon.ProcessResult{Error: fmt.Sprintf("Account does not exist: %s", sender)}
 			}
 			if currentState.Accounts[sender].Balance < instructions.Transfer.Amount {
 				return appCommon.ProcessResult{Error: "Insufficient balance for transfer"}
@@ -203,6 +214,7 @@ func processRequest(sender, payloadJSON, stateJSON string) appCommon.ProcessResu
 			if currentState.Accounts[sender] == nil {
 				return appCommon.ProcessResult{Error: "Account does not exist"}
 			}
+
 			if currentState.Accounts[sender].Balance < instructions.Withdraw.Amount {
 				return appCommon.ProcessResult{Error: "Insufficient balance for withdrawal"}
 			}

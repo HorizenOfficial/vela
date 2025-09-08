@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"sync"
 
 	"github.com/bytecodealliance/wasmtime-go"
@@ -74,11 +75,15 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 	// We can safely assume that the guest GC will not free the memory if is not locally referenced
 	// since guest execution is paused while host is executing
 	memData := module.memory.UnsafeData(r.store)
-	if ptr < 0 || int(ptr+int32(len(data))) > len(memData) {
+	if len(data) > math.MaxInt32 {
+		return 0, fmt.Errorf("data too large for WASM memory: len(data) = %d > math.MaxInt32 = %d", len(data), math.MaxInt32)
+	}
+
+	if ptr < 0 || int64(ptr)+int64(len(data)) > int64(len(memData)) {
 		return 0, fmt.Errorf("invalid memory allocation")
 	}
 
-	copy(memData[ptr:ptr+int32(len(data))], data)
+	copy(memData[ptr:int(ptr)+len(data)], data)
 
 	// TODO: The risk here is if the caller expects the pointer to remain valid across async host calls
 	// without reference tracking in the guest.

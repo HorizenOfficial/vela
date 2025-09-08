@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/binary"
 	"encoding/json"
+	"strings"
 	"unsafe"
 )
 
@@ -85,4 +86,19 @@ func SerializeAndWriteResult(result any) *byte {
 		return StringToPtr(WasmSerializationError)
 	}
 	return StringToPtr(reportJSON)
+}
+
+// isValidAddress checks if a given string is a valid hexadecimal address.
+// We might use ethereum common util func but that would imply a lot of pkg dependancies in go.mod
+func IsValidAddress(address string) bool {
+	// Basic check:  Must start with "0x", be 42 characters long (including "0x"), and contain only hex characters.
+	if len(address) != 42 || !strings.HasPrefix(address, "0x") {
+		return false
+	}
+	for _, char := range address[2:] { // Skip "0x" prefix
+		if !strings.ContainsRune("0123456789abcdefABCDEF", char) {
+			return false
+		}
+	}
+	return true
 }
