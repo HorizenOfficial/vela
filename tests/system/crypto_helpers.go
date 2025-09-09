@@ -226,7 +226,7 @@ func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayl
 	// Recover the public key from the signature
 	recoveredPubKey, err := ethCrypto.SigToPub(hash, payload.Signature)
 	if err != nil {
-		return fmt.Errorf("failed to recover public key: %v", err)
+		return fmt.Errorf("failed to recover public key: %w", err)
 	}
 
 	// The recovered public key should match the original public key

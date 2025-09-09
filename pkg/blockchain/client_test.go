@@ -130,7 +130,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	submitter.Value = big.NewInt(1000000)
 	tx, err := bind.Transact(processEndpointInstance, submitter, processEndpointContract.PackSubmitRequest(defaultProtocolVersion, applicationId, uint8(1), ethCommon.FromHex("0x00"), submitter.Value))
 	if err != nil {
-		panic(fmt.Errorf("failed to submit transaction: %v", err))
+		panic(fmt.Errorf("failed to submit transaction: %w", err))
 	}
 	submitter.Value = nil
 

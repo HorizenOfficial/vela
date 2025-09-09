@@ -90,13 +90,13 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	if c.connected {
-		return fmt.Errorf("Already connected")
+		return fmt.Errorf("already connected")
 	}
 
 	var err error
 	c.client, err = ethclient.Dial(c.rpcURL)
 	if err != nil {
-		return fmt.Errorf("Cannot connect to chain: %v", err)
+		return fmt.Errorf("cannot connect to chain: %w", err)
 	}
 
 	c.processorBoundContract = c.processorEndpoint.Instance(c.client, c.processorAddress)
@@ -104,7 +104,7 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 
 	chainID, err := c.client.ChainID(ctx)
 	if err != nil {
-		return fmt.Errorf("Failed to retrieve chain ID: %v", err)
+		return fmt.Errorf("failed to retrieve chain ID: %w", err)
 	}
 
 	c.account = bind.NewKeyedTransactor(c.privKey.PrivateKey, chainID)
@@ -118,7 +118,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.connected == false {
+	if !c.connected {
 		return nil, fmt.Errorf("client not connected, call Connect first")
 	}
 
@@ -128,7 +128,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 		c.processorEndpoint.UnpackGetPendingRequests)
 
 	if err != nil {
-		return nil, fmt.Errorf("call returned error: %v", err)
+		return nil, fmt.Errorf("call returned error: %w", err)
 	}
 
 	output := make([]*common.Request, 0, len(listOfRequests))
@@ -154,7 +154,7 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.connected == false {
+	if !c.connected {
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
@@ -165,12 +165,12 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 
 	tx, err := bind.Transact(c.processorBoundContract, c.account, c.processorEndpoint.PackMarkRequestCompleted(reqId))
 	if err != nil {
-		return fmt.Errorf("failed to submit transaction: %v", err)
+		return fmt.Errorf("failed to submit transaction: %w", err)
 	}
 
 	// wait for transaction inclusion
 	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
-		return fmt.Errorf("error waiting for tx inclusion: %v", err)
+		return fmt.Errorf("error waiting for tx inclusion: %w", err)
 	}
 	return nil
 
@@ -180,7 +180,7 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.connected == false {
+	if !c.connected {
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
@@ -191,12 +191,12 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 
 	tx, err := bind.Transact(c.processorBoundContract, c.account, c.processorEndpoint.PackMarkRequestFailed(reqId))
 	if err != nil {
-		return fmt.Errorf("failed to submit transaction: %v", err)
+		return fmt.Errorf("failed to submit transaction: %w", err)
 	}
 
 	// wait for transaction inclusion
 	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
-		return fmt.Errorf("error waiting for tx inclusion: %v", err)
+		return fmt.Errorf("error waiting for tx inclusion: %w", err)
 	}
 	return nil
 
@@ -254,12 +254,12 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	tx, err := bind.Transact(c.processorBoundContract, c.account, params)
 	if err != nil {
-		return fmt.Errorf("failed to submit transaction: %v", err)
+		return fmt.Errorf("failed to submit transaction: %w", err)
 	}
 
 	// wait for transaction inclusion
 	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
-		return fmt.Errorf("error waiting for tx inclusion: %v", err)
+		return fmt.Errorf("error waiting for tx inclusion: %w", err)
 	}
 	return nil
 
@@ -269,7 +269,7 @@ func (c *BlockChainClient) GetPublicKey(ctx context.Context, address string) ([]
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.connected == false {
+	if !c.connected {
 		return nil, fmt.Errorf("client not connected, call Connect first")
 	}
 
@@ -279,7 +279,7 @@ func (c *BlockChainClient) GetPublicKey(ctx context.Context, address string) ([]
 		c.keyRegistryEndpoint.UnpackGetPK)
 
 	if err != nil {
-		return nil, fmt.Errorf("call returned error: %v", err)
+		return nil, fmt.Errorf("call returned error: %w", err)
 	}
 
 	return pubKey, nil
@@ -289,18 +289,18 @@ func (c *BlockChainClient) RegisterPK(ctx context.Context, publicKey []byte) err
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.connected == false {
+	if !c.connected {
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
 	tx, err := bind.Transact(c.processorBoundContract, c.account, c.keyRegistryEndpoint.PackRegisterPK(publicKey))
 	if err != nil {
-		return fmt.Errorf("failed to submit transaction: %v", err)
+		return fmt.Errorf("failed to submit transaction: %w", err)
 	}
 
 	// wait for transaction inclusion
 	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
-		return fmt.Errorf("error waiting for tx inclusion: %v", err)
+		return fmt.Errorf("error waiting for tx inclusion: %w", err)
 	}
 	return nil
 

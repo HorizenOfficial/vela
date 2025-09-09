@@ -75,11 +75,11 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 	} 
 
 	if !commonEth.IsHexAddress(config.ProcessorAddress){
-		return nil, fmt.Errorf("processor address is not a valid hex address")
+		return nil, fmt.Errorf("processor address is not a valid hex address: %s", config.ProcessorAddress)
 	}
 
 	if !commonEth.IsHexAddress(config.KeyRegistryAddress){
-		return nil, fmt.Errorf("keyregistry address is not a valid hex address")
+		return nil, fmt.Errorf("keyregistry address is not a valid hex address: %s", config.KeyRegistryAddress)
 	}
 
 	bcClient := blockchain.NewBlockChainClient(
@@ -118,6 +118,9 @@ func main() {
 	var executorClient communication.ExecutorClient
 	switch config.ExecutorConnectionType {
 	case "tcp":
+		if strings.TrimSpace(config.ExecutorConnectionParams["url"]) == "" {
+			log.Fatalf("Tcp url is empty")
+		}
 		factory := communication.NewTCPConnectionFactory(config.ExecutorConnectionParams["url"])
 		executorClient = communication.NewClient(factory)
 	case "vsock":
