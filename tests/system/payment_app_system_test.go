@@ -2,20 +2,45 @@ package system
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
+	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
-func TestMockAppFullSystemFlow(t *testing.T) {
-	suite := NewSystemTestSuite(t)
+func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
 
+	suite := NewSystemTestSuite(t, "wasmtime-payment")
+	// Load wasm bytecode for the payment app
+	wasmBytecode := suite.LoadWasmModule(t, "payment_app.wasm")
+
+	testPaymentAppFullSystemFlow(t, suite, wasmBytecode)
+}
+
+func TestMockRuntimePaymentAppFullSystemFlow(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	suite := NewSystemTestSuite(t, "mock-runtime")
+	// Load wasm bytecode for the payment app
+	wasmBytecode := []byte("mock-runtime-payment-app-bytecode")
+
+	testPaymentAppFullSystemFlow(t, suite, wasmBytecode)
+}
+
+func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []byte) {
 	const appId = "payment-app"
-	const user1 = "user1"
-	const user2 = "user2"
+	user1 := fmt.Sprintf("0xadd%037x", 1)
+	user2 := fmt.Sprintf("0xadd%037x", 2)
 	const auditor = "auditor"
 
 	cryptoHelper := NewCryptoHelper()
@@ -58,7 +83,7 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: appId,
 		RequestID:     "deploy-1",
-		Payload:       []byte("payment-app-wasm-bytecode"),
+		Payload:       bytecode,
 		Sender:        user1,
 		Timestamp:     time.Now().Unix(),
 	}
@@ -85,11 +110,12 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 
 	t.Log("Step 2: Sending deposit request")
 
+	depositAmount := uint64(2000000000000000000)
 	depositReq, err := cryptoHelper.CreateDepositRequest(
 		appId,
 		"deposit-1",
 		user1,
-		2000000000000000000, // 2 ETH
+		depositAmount,
 		executorPubKey,
 	)
 	require.NoError(t, err)
@@ -110,11 +136,11 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	decryptedDepositData, err := cryptoHelper.DecryptEvent(user1, depositEvent, executorPubKey)
 	require.NoError(t, err)
 
-	var depositEventData map[string]interface{}
+	var depositEventData appCommon.DepositEvent
 	err = json.Unmarshal(decryptedDepositData, &depositEventData)
 	require.NoError(t, err)
-	require.Equal(t, "deposit", depositEventData["type"])
-	require.Equal(t, float64(2000000000000000000), depositEventData["amount"])
+	require.Equal(t, "deposit", depositEventData.Type)
+	require.Equal(t, depositAmount, depositEventData.Amount)
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload("deposit-1")
@@ -124,12 +150,13 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 
 	t.Log("Step 3: Sending transfer request")
 
+	sentAmount := uint64(500000000000000000) // 0.5 ETH
 	transferReq, err := cryptoHelper.CreateTransferRequest(
 		appId,
 		"transfer-1",
 		user1,
 		user2,
-		500000000000000000, // 0.5 ETH
+		sentAmount,
 		executorPubKey,
 	)
 	require.NoError(t, err)
@@ -154,23 +181,23 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	decryptedSenderData, err := cryptoHelper.DecryptEvent(user1, senderEvent, executorPubKey)
 	require.NoError(t, err)
 
-	var senderEventData map[string]interface{}
+	var senderEventData appCommon.SenderEvent
 	err = json.Unmarshal(decryptedSenderData, &senderEventData)
 	require.NoError(t, err)
-	require.Equal(t, "transfer_sent", senderEventData["type"])
-	require.Equal(t, user2, senderEventData["to"])
-	require.Equal(t, float64(500000000000000000), senderEventData["amount"])
+	require.Equal(t, "transfer_sent", senderEventData.Type)
+	require.Equal(t, user2, senderEventData.To)
+	require.Equal(t, sentAmount, senderEventData.Amount)
 
 	// Decrypt and verify recipient event
 	decryptedRecipientData, err := cryptoHelper.DecryptEvent(user2, recipientEvent, executorPubKey)
 	require.NoError(t, err)
 
-	var recipientEventData map[string]interface{}
+	var recipientEventData appCommon.RecipientEvent
 	err = json.Unmarshal(decryptedRecipientData, &recipientEventData)
 	require.NoError(t, err)
-	require.Equal(t, "transfer_received", recipientEventData["type"])
-	require.Equal(t, user1, recipientEventData["from"])
-	require.Equal(t, float64(500000000000000000), recipientEventData["amount"])
+	require.Equal(t, "transfer_received", recipientEventData.Type)
+	require.Equal(t, user1, recipientEventData.From)
+	require.Equal(t, sentAmount, recipientEventData.Amount)
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload("transfer-1")
@@ -204,32 +231,32 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditor, deanonReport, executorPubKey)
 	require.NoError(t, err)
 
-	var reportData map[string]interface{}
+	var reportData appCommon.UnencryptedDeanonymizationReportData
 	err = json.Unmarshal(decryptedReport, &reportData)
 	require.NoError(t, err)
-	require.Equal(t, appId, reportData["applicationId"])
-	require.Equal(t, "deanon-1", reportData["requestId"])
-	require.Contains(t, reportData, "accounts")
+	require.Equal(t, appId, reportData.ApplicationID)
+	require.Equal(t, "deanon-1", reportData.RequestID)
 
 	// Verify account information in the report
-	accounts, ok := reportData["accounts"].(map[string]interface{})
-	require.True(t, ok)
+	accounts := reportData.Accounts
 	require.Contains(t, accounts, user1)
-	require.Equal(t, 1500000000000000000.0, accounts[user1].(map[string]interface{})["balance"])
+	require.Equal(t, uint64(1500000000000000000), accounts[user1].Balance)
+
 	require.Contains(t, accounts, user2)
-	require.Equal(t, 500000000000000000.0, accounts[user2].(map[string]interface{})["balance"])
+	require.Equal(t, uint64(500000000000000000), accounts[user2].Balance)
 
 	// Deanon report does not contain signature for now, possibly add later
 
 	// Step 5: As another user, send withdrawal request
 	t.Log("Step 5: Sending withdrawal request as user2")
 
+	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
 	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(
 		appId,
 		"withdraw-1",
 		user2,
 		"0x1234567890123456789012345678901234567890",
-		500000000000000000, // 0.5 ETH
+		withdrawAmount,
 		executorPubKey,
 	)
 	require.NoError(t, err)
@@ -250,19 +277,19 @@ func TestMockAppFullSystemFlow(t *testing.T) {
 	decryptedWithdrawalData, err := cryptoHelper.DecryptEvent(user2, withdrawalEvent, executorPubKey)
 	require.NoError(t, err)
 
-	var withdrawalEventData map[string]interface{}
+	var withdrawalEventData appCommon.WithdrawalEvent
 	err = json.Unmarshal(decryptedWithdrawalData, &withdrawalEventData)
 	require.NoError(t, err)
-	require.Equal(t, "withdrawal", withdrawalEventData["type"])
-	require.Equal(t, "0x1234567890123456789012345678901234567890", withdrawalEventData["to"])
-	require.Equal(t, float64(500000000000000000), withdrawalEventData["amount"])
+	require.Equal(t, "withdrawal", withdrawalEventData.Type)
+	require.Equal(t, "0x1234567890123456789012345678901234567890", withdrawalEventData.To)
+	require.Equal(t, withdrawAmount, withdrawalEventData.Amount)
 
 	// Wait for actual withdrawal to be recorded
 	withdrawal, err := suite.WaitForWithdrawal(appId, 10*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawal)
 	require.Equal(t, "0x1234567890123456789012345678901234567890", withdrawal.DestinationAddress)
-	require.Equal(t, "500000000000000000", withdrawal.Amount)
+	require.Equal(t, withdrawAmount, withdrawal.Amount)
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload("withdraw-1")

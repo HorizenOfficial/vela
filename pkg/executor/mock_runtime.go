@@ -6,46 +6,41 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strconv"
 
 	"github.com/horizen-pes/pkg/common"
 )
 
-// MockRuntime implements a simple mock runtime that mimics a wasm application
-// It supports deposits, fund transfers, withdrawals, and events with serializeed state persistence
-type MockRuntime struct {
-}
-
-// AccountState represents the state of a user account
+// Local mirror types to avoid importing the wasm-go app package
 type AccountState struct {
 	Address string `json:"address"`
-	Balance int64  `json:"balance"`
+	Balance uint64 `json:"balance"`
 }
 
-// ApplicationInternalState represents the internal state of the application
 type ApplicationInternalState struct {
 	AppID    string                   `json:"appId"`
 	Accounts map[string]*AccountState `json:"accounts"`
-	Nonce    int64                    `json:"nonce"`
+	Nonce    uint64                   `json:"nonce"`
 }
 
-// TransferInstruction represents instructions for transferring funds
 type TransferInstruction struct {
 	To     string `json:"to"`
-	Amount int64  `json:"amount"`
+	Amount uint64 `json:"amount"`
 }
 
-// WithdrawInstruction represents instructions for withdrawing funds
 type WithdrawInstruction struct {
 	To     string `json:"to"`
-	Amount int64  `json:"amount"`
+	Amount uint64 `json:"amount"`
 }
 
-// PayloadInstructions represents the deserializeed payload instructions
 type PayloadInstructions struct {
 	Type     string               `json:"type"`
 	Transfer *TransferInstruction `json:"transfer,omitempty"`
 	Withdraw *WithdrawInstruction `json:"withdraw,omitempty"`
+}
+
+// MockRuntime implements a simple mock runtime that mimics a wasm application
+// It supports deposits, fund transfers, withdrawals, and events with serializeed state persistence
+type MockRuntime struct {
 }
 
 // NewMockRuntime creates a new mock runtime instance
@@ -78,7 +73,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte)
 	return stateBytes, stateRoot, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value int64, state []byte, wasm []byte) ([]byte, []PlainEvent, error) {
+func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
 	log.Printf("Mock Runtime: Processing deposit for application %s ( value: %d wei for sender: %s )", appId, value, sender)
 
 	// Deserialize the current state
@@ -88,7 +83,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 		return nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
 	}
 
-	var events []PlainEvent
+	var events []common.PlainEvent
 	// Handle deposit
 	if value > 0 {
 
@@ -105,7 +100,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 		currentState.Nonce++
 
 		// Create a deposit event for sender
-		depositEvent := PlainEvent{
+		depositEvent := common.PlainEvent{
 			UserID: sender,
 			Data:   []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, value, currentState.Accounts[sender].Balance, currentState.Nonce)),
 		}
@@ -113,17 +108,17 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 	}
 
 	// Serialize the updated state
-	newserializeedState, err := json.Marshal(&currentState)
+	newSerializedState, err := json.Marshal(&currentState)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to serialize new state: %w", err)
 	}
 
 	log.Printf("Mock Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(events))
-	return newserializeedState, events, nil
+	return newSerializedState, events, nil
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []PlainEvent, []common.Withdrawal, error) {
+func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
 	log.Printf("Mock Runtime: Processing request for application %s (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
 	// deserialize the current state
@@ -133,7 +128,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 		return nil, nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
 	}
 
-	var events []PlainEvent
+	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
 
 	// Process payload instructions if payload is not empty
@@ -173,12 +168,12 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			currentState.Nonce++
 
 			// Create events for both parties
-			senderEvent := PlainEvent{
+			senderEvent := common.PlainEvent{
 				UserID: sender,
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					instructions.Transfer.To, instructions.Transfer.Amount, currentState.Accounts[sender].Balance, currentState.Nonce)),
 			}
-			recipientEvent := PlainEvent{
+			recipientEvent := common.PlainEvent{
 				UserID: instructions.Transfer.To,
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					sender, instructions.Transfer.Amount, currentState.Accounts[instructions.Transfer.To].Balance, currentState.Nonce)),
@@ -207,12 +202,12 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			// Create withdrawal
 			withdrawal := common.Withdrawal{
 				DestinationAddress: instructions.Withdraw.To,
-				Amount:             strconv.FormatInt(instructions.Withdraw.Amount, 10),
+				Amount:             instructions.Withdraw.Amount,
 			}
 			withdrawals = append(withdrawals, withdrawal)
 
 			// Create event for sender
-			withdrawEvent := PlainEvent{
+			withdrawEvent := common.PlainEvent{
 				UserID: sender,
 				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					instructions.Withdraw.To, instructions.Withdraw.Amount, currentState.Accounts[sender].Balance, currentState.Nonce)),

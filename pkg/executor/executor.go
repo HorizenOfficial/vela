@@ -6,11 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
+
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
-	"log"
 )
 
 // StatelessExecutor implements the Executor interface
@@ -85,7 +87,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	// If the request contains a deposit, handle it first
 	var tempState = decryptedState
-	var depositEvents []PlainEvent
+	var depositEvents []common.PlainEvent
 	if req.Value > 0 {
 		tempState, depositEvents, err = e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, decryptedState, wasmModule)
 		if err != nil {
@@ -210,6 +212,9 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 
 	// Decrypt the request payload
 	decryptedPayload, err := DecryptPayload(e.config.CommunicationKey, req.Payload, senderKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt Payload: %w", err)
+	}
 
 	// Generate the report using the runtime
 	reportData, err := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, req.RequestID, decryptedPayload, decryptedState, wasmModule)
@@ -259,7 +264,7 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 	return signature, nil
 }
 
-func EncryptEvents(ctx context.Context, events []PlainEvent, appId string, key *common.PrivateKeyP521, server communication.ExecutorServer) ([]common.Event, error) {
+func EncryptEvents(ctx context.Context, events []common.PlainEvent, appId string, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer) ([]common.Event, error) {
 	if len(events) == 0 {
 		return nil, nil // No events to encrypt
 	}
@@ -288,7 +293,7 @@ func EncryptEvents(ctx context.Context, events []PlainEvent, appId string, key *
 		if err != nil {
 			return nil, fmt.Errorf("failed to create public key from user key: %w", err)
 		}
-		userKey := common.PublicKeyP521{PublicKey: pubkey}
+		userKey := cryptotypes.PublicKeyP521{PublicKey: pubkey}
 
 		// Encrypt the event data
 		encryptedData, err := crypto.Encrypt(key, &userKey, event.Data)
@@ -308,7 +313,7 @@ func EncryptEvents(ctx context.Context, events []PlainEvent, appId string, key *
 	return encryptedEvents, nil
 }
 
-func EncryptDeanonymizationReport(key *common.PrivateKeyP521, senderKey []byte, reportData []byte) ([]byte, error) {
+func EncryptDeanonymizationReport(key *cryptotypes.PrivateKeyP521, senderKey []byte, reportData []byte) ([]byte, error) {
 	if len(reportData) == 0 {
 		return reportData, nil // No report to encrypt
 	}
@@ -318,7 +323,7 @@ func EncryptDeanonymizationReport(key *common.PrivateKeyP521, senderKey []byte, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create public key from sender key: %w", err)
 	}
-	senderPublicKey := common.PublicKeyP521{PublicKey: pubkey}
+	senderPublicKey := cryptotypes.PublicKeyP521{PublicKey: pubkey}
 
 	// Encrypt the report data
 	encryptedReport, err := crypto.Encrypt(key, &senderPublicKey, reportData)
@@ -329,7 +334,7 @@ func EncryptDeanonymizationReport(key *common.PrivateKeyP521, senderKey []byte, 
 	return encryptedReport, nil
 }
 
-func DecryptState(encryptedState []byte, decryptionKey common.AES256Key) ([]byte, error) {
+func DecryptState(encryptedState []byte, decryptionKey cryptotypes.AES256Key) ([]byte, error) {
 	if len(encryptedState) == 0 {
 		return encryptedState, nil // nothing to decrypt
 	}
@@ -343,14 +348,14 @@ func DecryptState(encryptedState []byte, decryptionKey common.AES256Key) ([]byte
 	return decryptedState, nil
 }
 
-func DecryptPayload(decryptionKey *common.PrivateKeyP521, payload []byte, senderKey []byte) ([]byte, error) {
+func DecryptPayload(decryptionKey *cryptotypes.PrivateKeyP521, payload []byte, senderKey []byte) ([]byte, error) {
 	if len(payload) == 0 {
 		return payload, nil // No payload to decrypt
 	}
 
 	curve := ecdh.P521()
 	pubkey, err := curve.NewPublicKey(senderKey)
-	key := common.PublicKeyP521{PublicKey: pubkey}
+	key := cryptotypes.PublicKeyP521{PublicKey: pubkey}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create public key from sender key: %w", err)
 	}

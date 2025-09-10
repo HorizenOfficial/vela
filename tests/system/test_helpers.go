@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage/mockdb"
+	"github.com/horizen-pes/pkg/wasm"
+	"github.com/stretchr/testify/require"
 	"log"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -23,11 +28,11 @@ type SystemTestSuite struct {
 	eventChannel       chan interface{}
 	ctx                context.Context
 	cancel             context.CancelFunc
-	executorCommKey    *common.PrivateKeyP521      // Executor's communication key for testing
-	executorSigningKey *common.PrivateKeySecp256k1 // Executor's signing key for testing
+	executorCommKey    *cryptotypes.PrivateKeyP521      // Executor's communication key for testing
+	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 }
 
-func NewSystemTestSuite(t *testing.T) *SystemTestSuite {
+func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create mock components
@@ -50,7 +55,15 @@ func NewSystemTestSuite(t *testing.T) *SystemTestSuite {
 	execConfig.ServerAddr = "localhost:8080"
 
 	server := communication.NewServer(factory)
-	runtime := executor.NewMockRuntime()
+	var runtime executor.Runtime
+	switch appType {
+	case "wasmtime-payment":
+		runtime = wasm.NewWasmtimeRuntime()
+	case "mock-runtime":
+		runtime = executor.NewMockRuntime()
+	default:
+		t.Fatalf("Unknown app type: %s", appType)
+	}
 	exec := executor.NewStatelessExecutor(execConfig, runtime, server)
 
 	// Create event channel
@@ -67,7 +80,7 @@ func NewSystemTestSuite(t *testing.T) *SystemTestSuite {
 		ctx:                ctx,
 		cancel:             cancel,
 		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
-		executorSigningKey: execConfig.SignatureKey,     // Store the executor's communication key
+		executorSigningKey: execConfig.SignatureKey,     // Store the executor's signing key
 	}
 }
 
@@ -217,19 +230,27 @@ func (s *SystemTestSuite) GetRequestUpdatePayload(reqId string) (*common.UpdateP
 }
 
 // GetExecutorCommunicationKey returns the executor's communication public key for encryption
-func (s *SystemTestSuite) GetExecutorCommunicationKey() (*common.PublicKeyP521, error) {
+func (s *SystemTestSuite) GetExecutorCommunicationKey() (*cryptotypes.PublicKeyP521, error) {
 	if s.executorCommKey == nil {
 		return nil, fmt.Errorf("executor communication key not initialized")
 	}
 	return s.executorCommKey.PublicKey(), nil
 }
 
-// GetExecutorSigningKey returns the executor's communication public key for encryption
-func (s *SystemTestSuite) GetExecutorSigningKey() (*common.PublicKeySecp256k1, error) {
+// GetExecutorSigningKey returns the executor's signing public key for encryption
+func (s *SystemTestSuite) GetExecutorSigningKey() (*cryptotypes.PublicKeySecp256k1, error) {
 	if s.executorSigningKey == nil {
-		return nil, fmt.Errorf("executor communication key not initialized")
+		return nil, fmt.Errorf("executor signing key not initialized")
 	}
 	return s.executorSigningKey.PublicKey(), nil
+}
+
+func (s *SystemTestSuite) LoadWasmModule(t *testing.T, moduleFilename string) []byte {
+	// Load the compiled WASM module
+	wasmPath := filepath.Join("wasm", moduleFilename)
+	wasmBytes, err := os.ReadFile(wasmPath)
+	require.NoError(t, err, "Failed to read WASM file")
+	return wasmBytes
 }
 
 func (s *SystemTestSuite) Cleanup() error {

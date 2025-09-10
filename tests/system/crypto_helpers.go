@@ -4,27 +4,29 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"time"
 
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
 )
 
 // CryptoHelper provides cryptographic operations for system tests
 type CryptoHelper struct {
-	userKeys map[string]*common.PrivateKeyP521
+	userKeys map[string]*cryptotypes.PrivateKeyP521
 }
 
 // NewCryptoHelper creates a new crypto helper
 func NewCryptoHelper() *CryptoHelper {
 	return &CryptoHelper{
-		userKeys: make(map[string]*common.PrivateKeyP521),
+		userKeys: make(map[string]*cryptotypes.PrivateKeyP521),
 	}
 }
 
 // GenerateUserKey generates a new private key for a user
-func (c *CryptoHelper) GenerateUserKey(userID string) (*common.PrivateKeyP521, error) {
+func (c *CryptoHelper) GenerateUserKey(userID string) (*cryptotypes.PrivateKeyP521, error) {
 	privKey, err := crypto.GeneratePrivateKeyP521()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate private key for user %s: %w", userID, err)
@@ -35,7 +37,7 @@ func (c *CryptoHelper) GenerateUserKey(userID string) (*common.PrivateKeyP521, e
 }
 
 // GetUserKey returns the private key for a user
-func (c *CryptoHelper) GetUserKey(userID string) (*common.PrivateKeyP521, error) {
+func (c *CryptoHelper) GetUserKey(userID string) (*cryptotypes.PrivateKeyP521, error) {
 	key, exists := c.userKeys[userID]
 	if !exists {
 		return nil, fmt.Errorf("no key found for user %s", userID)
@@ -44,7 +46,7 @@ func (c *CryptoHelper) GetUserKey(userID string) (*common.PrivateKeyP521, error)
 }
 
 // CreateDepositRequest creates an encrypted deposit request
-func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, value int64, receiverPubKey *common.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, value uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -71,7 +73,7 @@ func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, val
 }
 
 // CreateTransferRequest creates an encrypted transfer request
-func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient string, amount int64, receiverPubKey *common.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient string, amount uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -109,7 +111,7 @@ func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient
 }
 
 // CreateWithdrawalRequest creates an encrypted withdrawal request
-func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destinationAddress string, amount int64, receiverPubKey *common.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destinationAddress string, amount uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -147,7 +149,7 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destina
 }
 
 // CreateDeanonymizationRequest creates an encrypted deanonymization request
-func (c *CryptoHelper) CreateDeanonymizationRequest(appID, requestID, sender string, receiverPubKey *common.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDeanonymizationRequest(appID, requestID, sender string, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -174,7 +176,7 @@ func (c *CryptoHelper) CreateDeanonymizationRequest(appID, requestID, sender str
 }
 
 // DecryptEvent decrypts an event using the user's private key
-func (c *CryptoHelper) DecryptEvent(userID string, event *common.Event, senderPubKey *common.PublicKeyP521) ([]byte, error) {
+func (c *CryptoHelper) DecryptEvent(userID string, event *common.Event, senderPubKey *cryptotypes.PublicKeyP521) ([]byte, error) {
 	userKey, err := c.GetUserKey(userID)
 	if err != nil {
 		return nil, err
@@ -189,7 +191,7 @@ func (c *CryptoHelper) DecryptEvent(userID string, event *common.Event, senderPu
 }
 
 // DecryptDeanonymizationReport decrypts a deanonymization report
-func (c *CryptoHelper) DecryptDeanonymizationReport(userID string, report *common.DeanonymizationReport, senderPubKey *common.PublicKeyP521) ([]byte, error) {
+func (c *CryptoHelper) DecryptDeanonymizationReport(userID string, report *common.DeanonymizationReport, senderPubKey *cryptotypes.PublicKeyP521) ([]byte, error) {
 	userKey, err := c.GetUserKey(userID)
 	if err != nil {
 		return nil, err
@@ -203,7 +205,7 @@ func (c *CryptoHelper) DecryptDeanonymizationReport(userID string, report *commo
 	return decryptedReport, nil
 }
 
-func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *common.PublicKeySecp256k1) error {
+func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *cryptotypes.PublicKeySecp256k1) error {
 	// Create the original payload that was signed
 	originalPayload := &common.UpdatePayload{
 		ApplicationID: payload.ApplicationID,

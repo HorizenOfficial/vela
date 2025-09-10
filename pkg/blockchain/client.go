@@ -232,10 +232,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
 	for i, withdrawal := range update.Withdrawals {
-		amount, ok := stringToBigInt(withdrawal.Amount)
-		if !ok {
-			return fmt.Errorf("invalid amount: %s", withdrawal.Amount)
-		}
+		amount := new(big.Int).SetUint64(withdrawal.Amount)
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
 			Receiver: commonEth.HexToAddress(withdrawal.DestinationAddress),
 			Amount:   amount,

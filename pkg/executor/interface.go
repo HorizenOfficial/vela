@@ -4,6 +4,8 @@ package executor
 
 import (
 	"context"
+
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
 
@@ -21,11 +23,11 @@ type Config struct {
 	// ServerPort is the port for the v-socket server
 	ServerPort uint32
 	// StateKey is the key to use for signing update payloads
-	StateKey common.AES256Key
+	StateKey cryptotypes.AES256Key
 	// CommunicationKey is the key to use for encrypting payloads
-	CommunicationKey *common.PrivateKeyP521
+	CommunicationKey *cryptotypes.PrivateKeyP521
 	// SignatureKey is used to sign UpdatePayloads and DeanonymizationReports
-	SignatureKey *common.PrivateKeySecp256k1 // Key used for signing updatePayload
+	SignatureKey *cryptotypes.PrivateKeySecp256k1 // Key used for signing updatePayload
 }
 
 // DefaultConfig returns the default configuration
@@ -58,19 +60,11 @@ type Runtime interface {
 	// LoadModule loads a module from bytecode
 	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, [32]byte, error)
 	// Deposit processes a deposit
-	Deposit(ctx context.Context, appId string, sender string, value int64, state []byte, wasm []byte) ([]byte, []PlainEvent, error)
+	Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
 	// ProcessRequest processes a request and returns the new state
-	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []PlainEvent, []common.Withdrawal, error)
+	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
 	GenerateDeanonymizationReport(ctx context.Context, appId string, requestId string, payload []byte, state []byte, wasm []byte) ([]byte, error)
 	// Close closes the WASM runtime
 	Close() error
-}
-
-// PlainEvent represents an emitted event before encryption.
-type PlainEvent struct {
-	// UserID is the ID of the user associated with the event
-	UserID string `json:"userId"`
-	// Data is the encrypted event data
-	Data []byte `json:"data"`
 }

@@ -202,7 +202,17 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn) {
 	s.clientMu.Unlock()
 
 	// Start client message handling
-	go client.messageReaderLoop(ctx, s)
+	go MessageReaderLoop(
+		ctx,
+		"Server",
+		client.conn,
+		client.reader,
+		client.shutdown,
+		func(ctx context.Context, msg *Message) {
+			client.routeIncomingMessage(ctx, msg, s)
+		},
+		client.close,
+	)
 	go client.cleanupLoop()
 }
 
@@ -298,45 +308,6 @@ func (c *ClientConnection) sendMessage(msg Message) error {
 	}
 
 	return nil
-}
-
-// messageReaderLoop continuously reads messages from the connection
-func (c *ClientConnection) messageReaderLoop(ctx context.Context, server *Server) {
-	defer c.close()
-
-	for {
-		select {
-		case <-c.shutdown:
-			return
-		case <-ctx.Done():
-			return
-		default:
-			// Continue reading
-		}
-
-		// Read message with timeout
-		c.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		msgBytes, err := c.reader.ReadBytes(delimiter)
-		if err != nil {
-			// Check if it's a timeout error
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				continue // Continue reading on timeout
-			}
-			// Connection error, exit loop
-			return
-		}
-
-		// Parse message
-		var msg Message
-		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			log.Printf("Server: Error parsing message: %v", err)
-			continue
-		}
-
-		log.Printf("Server: Received message: ID=%s, Type=%v", msg.ID, msg.Type)
-		// Route message in a separate goroutine
-		go c.routeIncomingMessage(ctx, &msg, server)
-	}
 }
 
 // routeIncomingMessage routes incoming messages to appropriate handlers

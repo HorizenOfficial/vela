@@ -4,9 +4,36 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-
-	"github.com/horizen-pes/pkg/common"
 )
+
+// Local mirror types used in tests to avoid importing wasm-go/app
+
+type testAccountState struct {
+	Address string `json:"address"`
+	Balance uint64 `json:"balance"`
+}
+
+type testApplicationInternalState struct {
+	AppID    string                       `json:"appId"`
+	Accounts map[string]*testAccountState `json:"accounts"`
+	Nonce    uint64                       `json:"nonce"`
+}
+
+type testTransferInstruction struct {
+	To     string `json:"to"`
+	Amount uint64 `json:"amount"`
+}
+
+type testWithdrawInstruction struct {
+	To     string `json:"to"`
+	Amount uint64 `json:"amount"`
+}
+
+type testPayloadInstructions struct {
+	Type     string                   `json:"type"`
+	Transfer *testTransferInstruction `json:"transfer,omitempty"`
+	Withdraw *testWithdrawInstruction `json:"withdraw,omitempty"`
+}
 
 func TestMockRuntime_LoadModule(t *testing.T) {
 	runtime := NewMockRuntime()
@@ -29,7 +56,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 	}
 
 	// Verify we can deserialize the initial state
-	var state ApplicationInternalState
+	var state testApplicationInternalState
 	err = json.Unmarshal(serializedState, &state)
 	if err != nil {
 		t.Fatalf("Failed to deserialize initial state: %v", err)
@@ -54,7 +81,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 
 	appId := "test-app-123"
 	sender := "0x1234567890123456789012345678901234567890"
-	value := int64(1000000000000000000)
+	value := uint64(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -80,7 +107,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 	}
 
 	// Verify state update
-	var state ApplicationInternalState
+	var state testApplicationInternalState
 	err = json.Unmarshal(newState, &state)
 	if err != nil {
 		t.Fatalf("Failed to deserialize new state: %v", err)
@@ -114,8 +141,8 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	sender := "0x1234567890123456789012345678901234567890"
 	recipient := "0x0987654321098765432109876543210987654321"
-	depositAmount := int64(2000000000000000000) // 2 ETH
-	transferAmount := int64(500000000000000000) // 0.5 ETH
+	depositAmount := uint64(2000000000000000000) // 2 ETH
+	transferAmount := uint64(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -125,9 +152,9 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	}
 
 	// make a transfer
-	transferInstructions := PayloadInstructions{
+	transferInstructions := testPayloadInstructions{
 		Type: "transfer",
-		Transfer: &TransferInstruction{
+		Transfer: &testTransferInstruction{
 			To:     recipient,
 			Amount: transferAmount,
 		},
@@ -154,7 +181,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	}
 
 	// Verify state update
-	var state ApplicationInternalState
+	var state testApplicationInternalState
 	err = json.Unmarshal(newState, &state)
 	if err != nil {
 		t.Fatalf("Failed to deserialize new state: %v", err)
@@ -197,8 +224,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	sender := "0x1234567890123456789012345678901234567890"
 	withdrawTo := "0x0987654321098765432109876543210987654321"
-	depositAmount := int64(2000000000000000000) // 2 ETH
-	withdrawAmount := int64(500000000000000000) // 0.5 ETH
+	depositAmount := uint64(2000000000000000000) // 2 ETH
+	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -208,9 +235,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	}
 
 	// make a withdrawal
-	withdrawInstructions := PayloadInstructions{
+	withdrawInstructions := testPayloadInstructions{
 		Type: "withdraw",
-		Withdraw: &WithdrawInstruction{
+		Withdraw: &testWithdrawInstruction{
 			To:     withdrawTo,
 			Amount: withdrawAmount,
 		},
@@ -244,12 +271,12 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected withdrawal destination %s, got %s", withdrawTo, withdrawals[0].DestinationAddress)
 	}
 
-	if withdrawals[0].Amount != "500000000000000000" {
-		t.Errorf("Expected withdrawal amount 500000000000000000, got %s", withdrawals[0].Amount)
+	if withdrawals[0].Amount != 500000000000000000 {
+		t.Errorf("Expected withdrawal amount 500000000000000000, got %d", withdrawals[0].Amount)
 	}
 
 	// Verify state update
-	var state ApplicationInternalState
+	var state testApplicationInternalState
 	err = json.Unmarshal(newState, &state)
 	if err != nil {
 		t.Fatalf("Failed to deserialize new state: %v", err)
@@ -284,12 +311,12 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 
 	sender := "0x1234567890123456789012345678901234567890"
 	recipient := "0x0987654321098765432109876543210987654321"
-	transferAmount := int64(1000000000000000000) // 1 ETH
+	transferAmount := uint64(1000000000000000000) // 1 ETH
 
 	// Try to transfer without any balance
-	transferInstructions := PayloadInstructions{
+	transferInstructions := testPayloadInstructions{
 		Type: "transfer",
-		Transfer: &TransferInstruction{
+		Transfer: &testTransferInstruction{
 			To:     recipient,
 			Amount: transferAmount,
 		},
@@ -319,7 +346,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 	sender1 := "0x1234567890123456789012345678901234567890"
 	sender2 := "0x0987654321098765432109876543210987654321"
-	value := int64(1000000000000000000) // 1 ETH
+	value := uint64(1000000000000000000) // 1 ETH
 
 	// Load module first
 	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
@@ -341,11 +368,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	}
 
 	// Generate deanonymization report
-	reportReq := &common.Request{
-		ApplicationID: appId,
-		RequestID:     "report-req",
-		Timestamp:     1234567892,
-	}
+	var requestID string = "report-req"
 
 	reportBytes, err := runtime.GenerateDeanonymizationReport(context.Background(), appId, "report-req", []byte(""), serializedState, wasmBytes)
 	if err != nil {
@@ -363,8 +386,8 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 		t.Errorf("Expected applicationId %s, got %v", appId, report["applicationId"])
 	}
 
-	if report["requestId"] != reportReq.RequestID {
-		t.Errorf("Expected requestId %s, got %v", reportReq.RequestID, report["requestId"])
+	if report["requestId"] != requestID {
+		t.Errorf("Expected requestId %s, got %v", requestID, report["requestId"])
 	}
 
 	totalAccounts, ok := report["accounts"].(map[string]interface{})

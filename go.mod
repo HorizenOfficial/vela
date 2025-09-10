@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.24.0
 
 require (
+	github.com/bytecodealliance/wasmtime-go v1.0.0
 	github.com/ethereum/go-ethereum v1.16.1
 	github.com/google/go-cmp v0.5.9
 	github.com/mdlayher/vsock v1.2.1

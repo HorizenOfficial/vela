@@ -16,16 +16,16 @@ import (
 // Client is a unified client implementation of the ExecutorClient interface
 type Client struct {
 	conn            net.Conn
-	connected       bool
 	connLock        sync.Mutex
-	factory         ConnectionFactory
+	connected       bool
 	reader          *bufio.Reader
 	writer          *bufio.Writer
 	pendingRequests map[string]*PendingRequest
 	pendingMu       sync.Mutex
-	requestHandler  ClientRequestHandler
-	requestTimeout  time.Duration
 	shutdown        chan struct{}
+	reqTimeout      time.Duration
+	factory         ConnectionFactory
+	requestHandler  ClientRequestHandler
 }
 
 // NewClient creates a new client with the specified connection factory
@@ -34,7 +34,7 @@ func NewClient(factory ConnectionFactory) *Client {
 		factory:         factory,
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
-		requestTimeout:  30 * time.Second,
+		reqTimeout:      30 * time.Second,
 	}
 }
 
@@ -59,7 +59,19 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.connected = true
 
 	// Start the message reader goroutine
-	go c.messageReaderLoop(ctx)
+	go MessageReaderLoop(
+		ctx,
+		"Client",
+		c.conn,
+		c.reader,
+		c.shutdown,
+		func(ctx context.Context, msg *Message) {
+			c.routeIncomingMessage(ctx, msg)
+		},
+		func() {
+			c.Close()
+		},
+	)
 
 	// Start the cleanup goroutine for timed-out requests
 	go c.cleanupLoop()
@@ -139,8 +151,11 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 
 // SendDeployApp sends a deploy app request and waits for response
 func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
+	uid := generateID()
+	log.Printf("Generated UID: %s", uid)
+
 	msg := Message{
-		ID:   generateID(),
+		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
 			Request: req,
@@ -213,7 +228,7 @@ func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message)
 	c.pendingMu.Lock()
 	c.pendingRequests[msg.ID] = &PendingRequest{
 		ResponseChan: responseChan,
-		Timeout:      time.Now().Add(c.requestTimeout),
+		Timeout:      time.Now().Add(c.reqTimeout),
 	}
 	c.pendingMu.Unlock()
 
@@ -257,9 +272,11 @@ func (c *Client) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
+	log.Printf("MagBytes length before delimiter: %d", len(data))
 
 	// Add delimiter
 	data = append(data, delimiter)
+	log.Printf("MagBytes length after delimiter: %d", len(data))
 
 	// Write message with delimiter
 	if _, err := c.writer.Write(data); err != nil {
@@ -270,45 +287,6 @@ func (c *Client) sendMessage(msg Message) error {
 	}
 
 	return nil
-}
-
-// messageReaderLoop continuously reads messages from the connection
-func (c *Client) messageReaderLoop(ctx context.Context) {
-	for {
-		select {
-		case <-c.shutdown:
-			return
-		case <-ctx.Done():
-			return
-		default:
-			// Continue reading
-		}
-
-		// Read message with timeout
-		c.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		msgBytes, err := c.reader.ReadBytes(delimiter)
-		if err != nil {
-			// Check if it's a timeout error
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// todo: handle partial reads with a buffer or use length-prefixed messages
-				continue // Continue reading on timeout
-			}
-			// Connection error, close client
-			c.Close()
-			return
-		}
-
-		// Parse message
-		var msg Message
-		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			log.Printf("Client: Error parsing message: %v", err)
-			continue
-		}
-
-		log.Printf("Client: Received message: ID=%s, Type=%v", msg.ID, msg.Type)
-		// Route message in a goroutine to avoid blocking
-		go c.routeIncomingMessage(ctx, &msg)
-	}
 }
 
 // routeIncomingMessage routes incoming messages to appropriate handlers

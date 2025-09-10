@@ -30,7 +30,7 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 			PrevStateRoot: appState.StateRoot,
 			NewStateRoot:  newStateRoot,
 			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
+			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
 			Signature:     []byte("test-signature"),
 		},
 		&common.ApplicationState{
@@ -371,7 +371,7 @@ func TestTCPClientServer_DependantRequests(t *testing.T) {
 				PrevStateRoot: appState.StateRoot,
 				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
 				Signature:     keys["test-user"],
 			}, appState, nil
 		},
@@ -539,7 +539,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 }
 
 func TestTCPClientServer_ServerTimeout(t *testing.T) {
-	if os.Getenv("CI") != "" {
+	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 	ctx := context.Background()
@@ -554,7 +554,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 				PrevStateRoot: appState.StateRoot,
 				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: "100"}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
 				Signature:     []byte("test-signature"),
 			}, appState, nil
 		},
@@ -608,7 +608,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 }
 
 func TestTCPClientServer_ClientTimeout(t *testing.T) {
-	if os.Getenv("CI") != "" {
+	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
