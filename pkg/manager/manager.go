@@ -20,7 +20,7 @@ type SecureProcessorManager struct {
 	blockchainClient blockchain.Client
 	executorClient   communication.ExecutorClient
 	dataLayer        storage.DataLayer
-	mu               sync.Mutex
+	mu               sync.RWMutex
 	isRunning        bool
 	stopChan         chan struct{}
 	wg               sync.WaitGroup
@@ -134,10 +134,10 @@ func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
 
 	// Process each request
 	for _, req := range requests {
-		m.mu.Lock()
+		m.mu.RLock()
 		if !m.isRunning {
 			log.Printf("Manager has stopped, exiting request processing loop")
-			m.mu.Unlock()
+			m.mu.RUnlock()
 			return
 		}
 		if err := m.processRequest(ctx, req); err != nil {
@@ -149,7 +149,7 @@ func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
 		} else {
 			log.Printf("Manager: Processed and marked as completed request %s", req.RequestID)
 		}
-		m.mu.Unlock()
+		m.mu.RUnlock()
 	}
 
 }
@@ -306,8 +306,8 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 }
 
 func (m *SecureProcessorManager) HandleGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
