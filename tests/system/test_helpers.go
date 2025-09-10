@@ -3,6 +3,12 @@ package system
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -12,11 +18,6 @@ import (
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/horizen-pes/pkg/wasm"
 	"github.com/stretchr/testify/require"
-	"log"
-	"os"
-	"path/filepath"
-	"testing"
-	"time"
 )
 
 type SystemTestSuite struct {
@@ -135,6 +136,7 @@ func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duratio
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for app state %s", appID)
+
 		}
 	}
 }
@@ -154,6 +156,7 @@ func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for app state %s in blockchain", appID)
+
 		}
 	}
 }
