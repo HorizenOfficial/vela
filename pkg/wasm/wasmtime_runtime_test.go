@@ -70,7 +70,7 @@ func TestWasmtimeRuntime_LoadModule(t *testing.T) {
 	// Check that the state contains expected fields
 	assert.Equal(t, appId, stateData.AppID)
 	assert.Equal(t, 0, len(stateData.Accounts))
-	assert.True(t, stateData.Nonce >= 0)
+	assert.True(t, stateData.Nonce == 0)
 }
 
 func TestWasmtimeRuntime_Deposit(t *testing.T) {
