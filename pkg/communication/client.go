@@ -291,11 +291,9 @@ func (c *Client) sendMessage(msg Message) error {
 
 // routeIncomingMessage routes incoming messages to appropriate handlers
 func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
-	log.Printf("Client: acquiring lock, msg.type=%d", msg.Type)
 	c.pendingMu.Lock()
 	pendingReq, exists := c.pendingRequests[msg.ID]
 	c.pendingMu.Unlock()
-	log.Printf("Client: lock released. exists=%d", exists)
 
 	if exists {
 		/*
