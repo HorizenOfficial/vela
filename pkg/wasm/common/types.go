@@ -2,7 +2,6 @@ package common
 
 import (
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/appstate"
 )
 
 // TODO add applicationId to the definitions where appropriate, in future we will have many differnt apps
@@ -54,8 +53,14 @@ type RecipientEvent struct {
 type WithdrawalEvent = SenderEvent
 
 type UnencryptedDeanonimizationReportData struct {
-	ApplicationID string                            `json:"applicationId"`
-	RequestID     string                            `json:"requestId"`
-	Accounts      map[string]*appstate.AccountState `json:"accounts"`
-	Nonce         uint64                            `json:"nonce"`
+	ApplicationID string                        `json:"applicationId"`
+	RequestID     string                        `json:"requestId"`
+	Accounts      map[string]*AccountState      `json:"accounts"`
+	Nonce         uint64                        `json:"nonce"`
+}
+
+// AccountState mirrors the app-level state shape for serialization without introducing a reverse import.
+type AccountState struct {
+	Address string `json:"address"`
+	Balance uint64 `json:"balance"`
 }

@@ -11,11 +11,36 @@ import (
 	"testing"
 
 	"github.com/horizen-pes/pkg/common"
-	appState "github.com/horizen-pes/pkg/common/appstate"
-	appCommon "github.com/horizen-pes/pkg/wasm/common"
+	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// Local helper types to avoid importing the app submodule
+// They mirror the JSON shapes expected by the WASM app.
+type PayloadInstructions struct {
+	Type     string               `json:"type"`
+	Transfer *TransferInstruction `json:"transfer,omitempty"`
+	Withdraw *WithdrawInstruction `json:"withdraw,omitempty"`
+}
+
+type TransferInstruction struct {
+	To     string `json:"to"`
+	Amount uint64 `json:"amount"`
+}
+
+type WithdrawInstruction struct {
+	To     string `json:"to"`
+	Amount uint64 `json:"amount"`
+}
+
+type AppState struct {
+	AppID    string `json:"appId"`
+	Accounts map[string]struct {
+		Balance uint64 `json:"balance"`
+	} `json:"accounts"`
+	Nonce uint64 `json:"nonce"`
+}
 
 func TestWasmtimeRuntime_LoadModule(t *testing.T) {
 	// Load the compiled WASM module
@@ -38,7 +63,7 @@ func TestWasmtimeRuntime_LoadModule(t *testing.T) {
 	require.Len(t, stateRoot, 32, "State root should be 32 bytes")
 
 	// Verify the state is valid JSON
-	var stateData appState.ApplicationInternalState
+	var stateData AppState
 	err = json.Unmarshal(state, &stateData)
 	require.NoError(t, err, "State should be valid JSON")
 
@@ -87,7 +112,7 @@ func TestWasmtimeRuntime_Deposit(t *testing.T) {
 	event := events[0]
 	assert.Equal(t, sender, event.UserID)
 
-	var eventData appCommon.DepositEvent
+	var eventData wasmCommon.DepositEvent
 	err = json.Unmarshal(event.Data, &eventData)
 	require.NoError(t, err, "Event data should be valid JSON")
 	assert.Equal(t, "deposit", eventData.Type)
@@ -145,9 +170,9 @@ func TestWasmtimeRuntime_ProcessRequest_Transfer(t *testing.T) {
 	require.NoError(t, err, "Deposit should succeed")
 
 	// Create transfer payload
-	transferPayload := appState.PayloadInstructions{
+	transferPayload := PayloadInstructions{
 		Type: "transfer",
-		Transfer: &appState.TransferInstruction{
+		Transfer: &TransferInstruction{
 			To:     recipient,
 			Amount: transferValue,
 		},
@@ -229,9 +254,9 @@ func TestWasmtimeRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	require.NoError(t, err, "Deposit should succeed")
 
 	// Create withdrawal payload
-	withdrawPayload := appState.PayloadInstructions{
+	withdrawPayload := PayloadInstructions{
 		Type: "withdraw",
-		Withdraw: &appState.WithdrawInstruction{
+		Withdraw: &WithdrawInstruction{
 			To:     withdrawAddress,
 			Amount: withdrawValue,
 		},
@@ -306,7 +331,7 @@ func TestWasmtimeRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	require.NoError(t, err, "Deposit should succeed")
 
 	// Test GenerateDeanonymizationReport
-	report, err := runtime.GenerateDeanonymizationReport(ctx, appId, requestId, nil, stateWithData, wasmBytes)
+	report, err := runtime.GenerateDeanonymizationReport(ctx, appId, requestId, []byte{}, stateWithData, wasmBytes)
 	require.NoError(t, err, "GenerateDeanonymizationReport should succeed")
 	require.NotNil(t, report, "Report should not be nil")
 
@@ -360,9 +385,9 @@ func TestWasmtimeRuntime_FullWorkflow(t *testing.T) {
 
 	t.Log("Step 3: Transfer from user1 to user2")
 	transferValue := uint64(500000000000000000) // 0.5 ETH
-	transferPayload := appState.PayloadInstructions{
+	transferPayload := PayloadInstructions{
 		Type: "transfer",
-		Transfer: &appState.TransferInstruction{
+		Transfer: &TransferInstruction{
 			To:     user2,
 			Amount: transferValue,
 		},
@@ -379,9 +404,9 @@ func TestWasmtimeRuntime_FullWorkflow(t *testing.T) {
 	// Create withdrawal payload
 	withdrawValue := uint64(250000000000000000) // 0.25 ETH
 	withdrawAddress := "0x1234567890123456789012345678901234567890"
-	withdrawPayload := appState.PayloadInstructions{
+	withdrawPayload := PayloadInstructions{
 		Type: "withdraw",
-		Withdraw: &appState.WithdrawInstruction{
+		Withdraw: &WithdrawInstruction{
 			To:     withdrawAddress,
 			Amount: withdrawValue,
 		},
@@ -395,7 +420,7 @@ func TestWasmtimeRuntime_FullWorkflow(t *testing.T) {
 	require.Len(t, withdrawals, 1)
 
 	t.Log("Step 5: Generate deanonymization report")
-	report, err := runtime.GenerateDeanonymizationReport(ctx, appId, "deanon-1", nil, state, wasmBytes)
+	report, err := runtime.GenerateDeanonymizationReport(ctx, appId, "deanon-1", []byte{}, state, wasmBytes)
 	require.NoError(t, err, "Deanonymization report should succeed")
 	require.NotNil(t, report)
 
@@ -489,9 +514,9 @@ func TestWasmtimeRuntime_LargeStateHandling(t *testing.T) {
 	}
 
 	// Verify the large state can still be processed
-	transferPayload := appState.PayloadInstructions{
+	transferPayload := PayloadInstructions{
 		Type: "transfer",
-		Transfer: &appState.TransferInstruction{
+		Transfer: &TransferInstruction{
 			To:     fmt.Sprintf("0xadd%037x", 1),
 			Amount: uint64(500000000000000000),
 		},
@@ -634,9 +659,9 @@ func TestWasmtimeRuntime_InsufficientFunds(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to transfer without enough funds
-	transferPayload := appState.PayloadInstructions{
+	transferPayload := PayloadInstructions{
 		Type: "transfer",
-		Transfer: &appState.TransferInstruction{
+		Transfer: &TransferInstruction{
 			To:     user2,
 			Amount: value,
 		},
