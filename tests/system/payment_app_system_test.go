@@ -231,7 +231,7 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditor, deanonReport, executorPubKey)
 	require.NoError(t, err)
 
-	var reportData appCommon.UnencryptedDeanonimizationReportData
+	var reportData appCommon.UnencryptedDeanonymizationReportData
 	err = json.Unmarshal(decryptedReport, &reportData)
 	require.NoError(t, err)
 	require.Equal(t, appId, reportData.ApplicationID)

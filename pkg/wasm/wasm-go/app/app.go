@@ -102,7 +102,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 
 			if !utils.IsValidAddress(instructions.Transfer.To) {
-				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Transfer destination addrss is not valid: %s", instructions.Transfer.To)}
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Transfer destination address is not valid: %s", instructions.Transfer.To)}
 			}
 
 			// Validate sender account exists and has sufficient balance
@@ -228,7 +228,7 @@ func GenerateDeanonymizationReport(appId, requestId, stateJSON string) wasmCommo
 	}
 
 	// Create deanonymization report
-	report := wasmCommon.UnencryptedDeanonimizationReportData{
+	report := wasmCommon.UnencryptedDeanonymizationReportData{
 		ApplicationID: appId,
 		RequestID:     requestId,
 		Accounts:      convertAccountsToWasmCommon(currentState.Accounts),
