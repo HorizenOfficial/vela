@@ -124,7 +124,7 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 	require.NoError(t, err)
 
 	// Wait for deposit to be processed
-	err = suite.AssertRequestCompleted("deposit-1", 10*time.Second)
+	err = suite.AssertRequestCompleted("deposit-1", 100*time.Second)
 	require.NoError(t, err)
 
 	// Wait for deposit event

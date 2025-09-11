@@ -10,6 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	commonEth "github.com/ethereum/go-ethereum/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
@@ -52,7 +54,7 @@ type BlockChainClient struct {
 	keyRegistryBoundContract *bind.BoundContract
 	keyRegistryEndpoint      *keyregistry.KeyRegistry
 	client                   ChainClient
-	privKey                  *common.PrivateKeySecp256k1
+	privKey                  *cryptotypes.PrivateKeySecp256k1
 	account                  *bind.TransactOpts
 }
 
@@ -74,7 +76,7 @@ func stringToBigInt(s string) (*big.Int, bool) {
 	return i, ok
 }
 
-func NewBlockChainClient(processor commonEth.Address, keyRegistry commonEth.Address, rpcURL string, key *common.PrivateKeySecp256k1) *BlockChainClient {
+func NewBlockChainClient(processor commonEth.Address, keyRegistry commonEth.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:    processor,
 		keyRegistryAddress:  keyRegistry,
@@ -133,7 +135,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 
 	output := make([]*common.Request, 0, len(listOfRequests))
 	for _, request := range listOfRequests {
-		//TODO check that all big.Int can fit in a int64. If not, the specific request should be marked as failed
+		//TODO check that all big.Int can fit in a Uint64. If not, the specific request should be marked as failed
 		req := &common.Request{
 			ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
 			ApplicationID:   request.ApplicationId.String(),
@@ -142,7 +144,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			Payload:         request.Payload,
 			Timestamp:       request.Timestamp.Int64(),
 			Sender:          request.Sender.String(),
-			Value: 		     request.Value.Int64(),
+			Value:           request.Value.Uint64(),
 		}
 
 		output = append(output, req)

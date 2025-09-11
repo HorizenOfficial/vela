@@ -87,7 +87,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, ethCommon.FromHex("0x00"), request.Payload, "Payload should match")
 	require.Greater(t, request.Timestamp, int64(0), "Timestamp should match")
 	require.Equal(t, submitter.From.String(), request.Sender, "Sender should match")
-	require.Equal(t, transferValue.Int64(), request.Value, "Value should match")
+	require.Equal(t, transferValue.Uint64(), request.Value, "Value should match")
 
 }
 
