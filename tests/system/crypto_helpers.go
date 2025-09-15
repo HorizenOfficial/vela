@@ -46,7 +46,7 @@ func (c *CryptoHelper) GetUserKey(userID string) (*cryptotypes.PrivateKeyP521, e
 }
 
 // CreateDepositRequest creates an encrypted deposit request
-func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, value uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDepositRequest(appID, sender string, value uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -63,7 +63,6 @@ func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, val
 
 	return &common.Request{
 		ApplicationID: appID,
-		RequestID:     requestID,
 		RequestType:   common.Process,
 		Payload:       encryptedPayload,
 		Sender:        sender,

@@ -1,0 +1,48 @@
+package executor
+
+import (
+	"testing"
+
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/horizen-pes/pkg/blockchain"
+	"github.com/horizen-pes/pkg/common"
+	"github.com/stretchr/testify/require"
+)
+
+func TestCheckSignature(t *testing.T) {
+	applicationId := "1"
+	execConfig := DefaultConfig()
+	executor := &StatelessExecutor{
+		config:           execConfig,
+		msgToSignBuilder: NewMsgToSignBuilder(),
+	}
+	executorAddress := ethCrypto.PubkeyToAddress(execConfig.SignatureKey.PrivateKey.PublicKey)
+	
+	testHelper := blockchain.NewSimTestHelper(t, false, false, &executorAddress)
+	defer testHelper.Close()
+
+    events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
+	withdrawals := []common.Withdrawal{
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 1},
+	}
+	
+	updatePayload := &common.UpdatePayload{
+		ApplicationID: applicationId,
+		RequestID:     "305",
+		PrevStateRoot: [32]byte{0x08, 0x05, 0x06},
+		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
+		Events:        events[:],
+		Withdrawals:   withdrawals,
+	}
+
+
+	signature, err := executor.signUpdatePayload(updatePayload)
+	require.NoError(t, err)
+
+	// Sign the hash
+	updatePayload.Signature = signature
+	teeSignerContract := testHelper.GetTeeSignerHelper()
+
+	result := teeSignerContract.CheckSignature(updatePayload)
+	require.True(t, result, "Signature verification failed")
+}

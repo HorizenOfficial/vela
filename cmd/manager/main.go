@@ -18,7 +18,7 @@ import (
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
-	commonEth "github.com/ethereum/go-ethereum/common"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
@@ -74,17 +74,17 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 		return nil, fmt.Errorf("failed to parse private key: %w", err)
 	} 
 
-	if !commonEth.IsHexAddress(config.ProcessorAddress){
-		return nil, fmt.Errorf("processor address is not a valid hex address: %s", config.ProcessorAddress)
+	if !ethCommon.IsHexAddress(config.ProcessorAddress){
+		return nil, fmt.Errorf("processor address is not a valid hex address")
 	}
 
-	if !commonEth.IsHexAddress(config.KeyRegistryAddress){
-		return nil, fmt.Errorf("keyregistry address is not a valid hex address: %s", config.KeyRegistryAddress)
+	if !ethCommon.IsHexAddress(config.KeyRegistryAddress){
+		return nil, fmt.Errorf("keyregistry address is not a valid hex address")
 	}
 
 	bcClient := blockchain.NewBlockChainClient(
-		commonEth.HexToAddress(config.ProcessorAddress), 
-		commonEth.HexToAddress(config.KeyRegistryAddress), 
+		ethCommon.HexToAddress(config.ProcessorAddress), 
+		ethCommon.HexToAddress(config.KeyRegistryAddress), 
 		config.RpcURL, 
 		privKey)
 

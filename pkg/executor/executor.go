@@ -4,11 +4,8 @@ import (
 	"context"
 	"crypto/ecdh"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"log"
-
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
@@ -20,14 +17,17 @@ type StatelessExecutor struct {
 	config  *Config
 	runtime Runtime
 	server  communication.ExecutorServer
+	*msgToSignBuilder
 }
 
 // NewStatelessExecutor creates a new stateless executor
 func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer) *StatelessExecutor {
+	msgBuilder := NewMsgToSignBuilder()
 	executor := &StatelessExecutor{
-		config:  config,
-		runtime: runtime,
-		server:  server,
+		config:           config,
+		runtime:          runtime,
+		server:           server,
+		msgToSignBuilder: msgBuilder,
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
@@ -242,13 +242,11 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 // signUpdatePayload signs the update payload to produce an attestation
 func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]byte, error) {
 	// Serialize the payload for signing
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload for signing: %w", err)
-	}
+	hash, err := e.buildMsgHash(payload)
 
-	// Create a hash of the payload
-	hash := ethCrypto.Keccak256(payloadBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create message to sign: %w", err)
+	}
 
 	// Sign the hash
 	signature, err := e.config.SignatureKey.Sign(hash)
@@ -261,6 +259,10 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 		return nil, fmt.Errorf("signature has wrong length: got %d, want 65", len(signature))
 	}
 
+	// Adjust V value to be 27 or 28, because ecrecover in Solidity expects this format
+	if signature[64] < 27 {
+		signature[64] += 27
+	}
 	return signature, nil
 }
 
