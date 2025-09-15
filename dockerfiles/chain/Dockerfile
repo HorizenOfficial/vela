@@ -3,6 +3,8 @@ FROM ghcr.io/foundry-rs/foundry
 
 #default location for data folder (can be overridden by docker compose or docker run)
 ENV DATA_FOLDER="/data"
+#default location for rpc port (can be overridden by docker compose or docker run)
+ENV RPCPORT=8545
 
 # Switch to root to install packages and set up permissions
 USER root

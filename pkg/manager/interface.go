@@ -37,13 +37,14 @@ type Config struct {
 	// MockBlockChainClient specifies if the mock BlockChainClient should be used. Only for testing and development.
 	MockBlockChainClient bool
 	// Rpc address of the blockchain node
-	RpcURL               string
+	RpcURL string
 	// TODO this is the priv key of the account used to sign transactions. For production, it should be managed by a secure vault.
 	PrivateKey           cryptotypes.PrivateKeySecp256k1 
+
 	// Address of the ProcessorEndpoint contract
-	ProcessorAddress    string
+	ProcessorAddress string
 	// Address of the KeyRegistry contract
-	KeyRegistryAddress  string
+	KeyRegistryAddress string
 
 	// DataLayerType specifies the database implementation to use. Supported values: "versioned_leveldb", "mockdb".
 	DataLayerType string
@@ -68,6 +69,17 @@ func DefaultConfig() *Config {
 	if dataPath == "" {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
 	}
+	nodeUrl := os.Getenv("CHAIN_RPC_ADDRESS")
+	if nodeUrl == "" {
+		nodeUrl = "127.0.0.1"
+	}
+	nodePort := os.Getenv("CHAIN_RPC_PORT")
+	if nodePort == "" {
+		nodePort = "8545"
+	}
+	privateKey := os.Getenv("MANAGER_PRIVATE_KEY")
+	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
+	keyRegistryAddress := os.Getenv("CHAIN_KEYREGISTRY_ADDRESS")
 
 	return &Config{
 		BlockchainPollingInterval: 5,     // 5 seconds
@@ -77,9 +89,9 @@ func DefaultConfig() *Config {
 		},
 		RpcURL: 			   "http://127.0.0.1:8545",
 		PrivateKey: 			*PrivateKey,
-		ProcessorAddress: 		"0xCfEB869F69431e42cd62bB3aB5De8C3fB4d92dB", // well known address for local development
-		KeyRegistryAddress: 	"0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1", // well known address for local development
-		MockBlockChainClient:    false,
+		ProcessorAddress:     processorAddress,
+		KeyRegistryAddress:   keyRegistryAddress,
+		MockBlockChainClient: false,
 		// Data layer configuration
 		DataLayerType:          "versioned_leveldb",
 		DataLayerDBPath:        dataPath,
