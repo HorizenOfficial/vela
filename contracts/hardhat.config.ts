@@ -21,7 +21,7 @@ const config: HardhatUserConfig = {
     paths: {
         cache: 'cache/hardhat',
     },
-    defaultNetwork: (process.env.NETWORK || "sepolia-testnet"),
+    defaultNetwork: (process.env.NETWORK || "hardhat"),
     solidity: {
         compilers: [
             {
