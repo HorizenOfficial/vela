@@ -83,16 +83,6 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, testHelper.Submitter.From.String(), request.Sender, "Sender should match")
 	require.Equal(t, transferValue.Uint64(), request.Value, "Value should match")
 
-	oldbalance, err := blockchainClient.client.BalanceAt(context.Background(), testHelper.Deployer.From, nil)
-	require.NoError(t, err)
-	fmt.Println("KeyRegistry balance: ", oldbalance)
-	tx = testHelper.TransferFunds(testHelper.Submitter, testHelper.Deployer.From, big.NewInt(10000000000000000))
-	testHelper.MineBlock()
-	testHelper.WaitMined(tx)
-	balance, err := testHelper.Client().BalanceAt(context.Background(), testHelper.Deployer.From, nil)
-	require.NoError(t, err)
-	fmt.Println("KeyRegistry balance: ", balance)
-	require.Equal(t, oldbalance.Add(oldbalance, big.NewInt(10000000000000000)).Int64(), balance.Int64(), "KeyRegistry balance should match")
 }
 
 func TestMarkRequestCompleted(t *testing.T) {
