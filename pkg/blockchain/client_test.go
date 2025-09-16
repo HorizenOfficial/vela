@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"strconv"
 	"testing"
-	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
@@ -43,9 +42,18 @@ func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainCli
 
 }
 
+func setupSimTestHelperManualMining(t *testing.T) *testutil.SimTestHelper {
+	return testutil.NewSimTestHelper(t, false, true, nil)
+}
+
+func setupSimTestHelperAutoMining(t *testing.T) *testutil.SimTestHelper {
+	return testutil.NewSimTestHelper(t, true, true, nil)
+}
+
+
 func TestGetPendingRequests(t *testing.T) {
 
-	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
+	testHelper := setupSimTestHelperManualMining(t)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -61,7 +69,6 @@ func TestGetPendingRequests(t *testing.T) {
 	payload := ethCommon.FromHex("0x001234")
 	tx := testHelper.SubmitRequest(applicationId, common.Process, payload, transferValue)
 
-	// call Commit to make the simulated backend mine a block
 	testHelper.MineBlock()
 
 	// wait for transaction inclusion
@@ -87,7 +94,7 @@ func TestGetPendingRequests(t *testing.T) {
 
 func TestMarkRequestCompleted(t *testing.T) {
 
-	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
+	testHelper := setupSimTestHelperAutoMining(t)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -97,18 +104,11 @@ func TestMarkRequestCompleted(t *testing.T) {
 	transferValue := big.NewInt(0)
 	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
 
-	// call Commit to make the simulated backend mine a block
-	testHelper.MineBlock()
-
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
-
-	time.AfterFunc(1*time.Second, func() {
-		testHelper.MineBlock()
-	})
 
 	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
 	require.NoError(t, err)
@@ -120,7 +120,8 @@ func TestMarkRequestCompleted(t *testing.T) {
 }
 
 func TestMarkRequestFailed(t *testing.T) {
-	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
+
+	testHelper := setupSimTestHelperAutoMining(t)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -128,17 +129,11 @@ func TestMarkRequestFailed(t *testing.T) {
 	transferValue := big.NewInt(1000000)
 	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
 
-	// call Commit to make the simulated backend mine a block
-	testHelper.MineBlock()
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
-
-	time.AfterFunc(1*time.Second, func() {
-		testHelper.MineBlock()
-	})
 
 	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID)
 	require.NoError(t, err)
@@ -150,7 +145,7 @@ func TestMarkRequestFailed(t *testing.T) {
 
 func TestSubmitStateUpdate(t *testing.T) {
 
-	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
+	testHelper := setupSimTestHelperAutoMining(t)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -160,17 +155,11 @@ func TestSubmitStateUpdate(t *testing.T) {
 	transferValue := big.NewInt(1000000)
 	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
 
-	// call Commit to make the simulated backend mine a block
-	testHelper.MineBlock()
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
-
-	time.AfterFunc(1*time.Second, func() {
-		testHelper.MineBlock()
-	})
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
@@ -200,7 +189,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 func TestGetPublicKey(t *testing.T) {
 
-	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
+	testHelper := setupSimTestHelperManualMining(t)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -216,7 +205,6 @@ func TestGetPublicKey(t *testing.T) {
 	tx, err := testHelper.RegisterUserKey(testHelper.Submitter, userEncryptPubKey)
 	require.NoError(t, err)
 
-	// call Commit to make the simulated backend mine a block
 	testHelper.MineBlock()
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
