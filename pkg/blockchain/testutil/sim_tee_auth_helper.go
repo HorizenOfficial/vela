@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
@@ -21,7 +20,7 @@ type SimTeeAuthenticatorHelper struct {
 	teeContractInstance *bind.BoundContract
 }
 
-func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Address, nodeClient simulated.Client) *SimTeeAuthenticatorHelper {
+func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Address, nodeClient bind.ContractBackend) *SimTeeAuthenticatorHelper {
 
 	teeContract := tee.NewTeeAuthenticator()
 
