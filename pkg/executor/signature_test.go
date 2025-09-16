@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
-	"github.com/horizen-pes/pkg/blockchain"
+	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
 )
@@ -14,18 +14,18 @@ func TestCheckSignature(t *testing.T) {
 	execConfig := DefaultConfig()
 	executor := &StatelessExecutor{
 		config:           execConfig,
-		msgToSignBuilder: NewMsgToSignBuilder(),
+		MsgToSignBuilder: NewMsgToSignBuilder(),
 	}
 	executorAddress := ethCrypto.PubkeyToAddress(execConfig.SignatureKey.PrivateKey.PublicKey)
-	
-	testHelper := blockchain.NewSimTestHelper(t, false, false, &executorAddress)
+
+	testHelper := testutil.NewSimTestHelper(t, false, false, &executorAddress)
 	defer testHelper.Close()
 
-    events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
+	events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
 	withdrawals := []common.Withdrawal{
 		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 1},
 	}
-	
+
 	updatePayload := &common.UpdatePayload{
 		ApplicationID: applicationId,
 		RequestID:     "305",
@@ -34,7 +34,6 @@ func TestCheckSignature(t *testing.T) {
 		Events:        events[:],
 		Withdrawals:   withdrawals,
 	}
-
 
 	signature, err := executor.signUpdatePayload(updatePayload)
 	require.NoError(t, err)

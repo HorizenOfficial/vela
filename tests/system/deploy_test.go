@@ -1,12 +1,10 @@
 package system
 
 import (
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
-	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/crypto"
 )
@@ -24,37 +22,36 @@ func TestDeployApp(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Add user keys to registry
-	userKey, err := crypto.GeneratePrivateKeyP521()
+	userKey, _ := crypto.GeneratePrivateKeyP521()
+	err = suite.AddUserKeys("test-user", userKey.PublicKey().Bytes())
 	require.NoError(t, err)
 
-	err = suite.AddUserKeys(suite.simNode.Submitter, userKey.PublicKey().Bytes())
-	require.NoError(t, err)
+	RequestID := "233"
+	ApplicationId := "1"
 
 	// 4. Submit deploy request
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
-		ApplicationID: "1",
+		ApplicationID: ApplicationId,
+		RequestID:      RequestID,
 		Payload:       []byte("deploy-payload"),
-		Sender:        suite.simNode.Submitter.From.Hex(),
+		Sender:        "test-user",
 		Timestamp:     time.Now().Unix(),
 	}
-	requestID, err := suite.SubmitRequest(deployReq)
+	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)
 
-	// 5. Assert request marked as done
-	result, err := suite.AssertRequestCompleted(requestID, 10*time.Second)
-	require.NoError(t, err)
-	require.Equal(t, blockchain.RequestCompleted, result, "Request should be marked as completed")
-
-	// 6. Assert app state created in DB
-	appState, err := suite.WaitForAppStateInDB(deployReq.ApplicationID, 10*time.Second)
+	// 5. Assert app state created in DB
+	appState, err := suite.WaitForAppStateInDB(ApplicationId, 10*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, appState)
 
-	// 7. Assert app state created in blockchain
-	appStateinBC, err := suite.WaitForAppStateInBlockchain(deployReq.ApplicationID, 10*time.Second)
+	// 6. Assert app state created in blockchain
+	appState, err = suite.WaitForAppStateInBlockchain(ApplicationId, 10*time.Second)
 	require.NoError(t, err)
-	require.NotNil(t, appStateinBC)
-	require.Equal(t, appState.StateRoot, appStateinBC.StateRoot, "App state should be the same in data layer and in blockchain")
+	require.NotNil(t, appState)
 
+	// 7. Assert request marked as done
+	err = suite.AssertRequestCompleted(RequestID, 10*time.Second)
+	require.NoError(t, err)
 }

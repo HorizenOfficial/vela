@@ -1,4 +1,4 @@
-package blockchain
+package testutil
 
 import (
 	"context"
@@ -42,12 +42,12 @@ type SimTestHelper struct {
 	keyRegistryContract         *keyregistry.KeyRegistry
 	keyRegistryContractInstance *bind.BoundContract
 
-	processorContractAddress ethCommon.Address
-	keyRegistryAddress       ethCommon.Address
-	teeSignerAddress         ethCommon.Address
-	deployer                 *bind.TransactOpts
+	ProcessorContractAddress ethCommon.Address
+	KeyRegistryAddress       ethCommon.Address
+	TeeSignerAddress         ethCommon.Address
+	Deployer                 *bind.TransactOpts
 	Submitter                *bind.TransactOpts
-	managerAccount           *bind.TransactOpts
+	ManagerAccount           *bind.TransactOpts
 	autoMining               bool
 	cancel                   context.CancelFunc
 }
@@ -62,23 +62,29 @@ func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
 	return bind.NewKeyedTransactor(userPrivateKey, chainID)
 }
 
-func (s *SimTestHelper) SetupNewBlockChainClient() *BlockChainClient {
-	blockchainClient := NewBlockChainClient(s.processorContractAddress, s.keyRegistryAddress, "", nil)
-	blockchainClient.client = s.sim.Client()
 
-	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, s.processorContractAddress)
-	blockchainClient.keyRegistryBoundContract = blockchainClient.keyRegistryEndpoint.Instance(blockchainClient.client, s.keyRegistryAddress)
 
-	blockchainClient.account = s.managerAccount
-	blockchainClient.connected = true
+// func (s *SimTestHelper) SetupNewBlockChainClient() *blockchain.BlockChainClient {
+// 	blockchainClient := blockchain.NewBlockChainClient(s.ProcessorContractAddress, s.KeyRegistryAddress, "", nil)
+// 	blockchainClient.client = s.sim.Client()
 
-	return blockchainClient
+// 	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, s.ProcessorContractAddress)
+// 	blockchainClient.keyRegistryBoundContract = blockchainClient.keyRegistryEndpoint.Instance(blockchainClient.client, s.KeyRegistryAddress)
 
+// 	blockchainClient.account = s.ManagerAccount
+// 	blockchainClient.connected = true
+
+// 	return blockchainClient
+
+// }
+
+func (s *SimTestHelper) Client() simulated.Client {
+	return s.sim.Client()
 }
 
 func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethCommon.Address) {
 	// use the default deployer: it simply creates, signs and submits the deployment transactions
-	deployer := bind.DefaultDeployer(s.deployer, s.sim.Client())
+	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
 
 	var tx *ethTypes.Transaction
 
@@ -91,11 +97,11 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 		deployRes, err := bind.LinkAndDeploy(&teeDeployParams, deployer)
 		require.NoError(s.t, err)
 
-		s.teeSignerAddress, tx = deployRes.Addresses[mocktee.MockTeeAuthenticatorMetaData.ID], deployRes.Txs[mocktee.MockTeeAuthenticatorMetaData.ID]
+		s.TeeSignerAddress, tx = deployRes.Addresses[mocktee.MockTeeAuthenticatorMetaData.ID], deployRes.Txs[mocktee.MockTeeAuthenticatorMetaData.ID]
 	} else {
 		require.NotNil(s.t, teeSigner, "teeSigner address must be provided when not using mock contracts")
 		teeContract := *tee.NewTeeAuthenticator()
-		constructorInput := teeContract.PackConstructor(s.deployer.From, *teeSigner)
+		constructorInput := teeContract.PackConstructor(s.Deployer.From, *teeSigner)
 		teeDeployParams := bind.DeploymentParams{
 			Contracts: []*bind.MetaData{&tee.TeeAuthenticatorMetaData},
 			Inputs:    map[string][]byte{tee.TeeAuthenticatorMetaData.ID: constructorInput},
@@ -105,18 +111,18 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 		deployRes, err := bind.LinkAndDeploy(&teeDeployParams, deployer)
 		require.NoError(s.t, err)
 
-		s.teeSignerAddress, tx = deployRes.Addresses[tee.TeeAuthenticatorMetaData.ID], deployRes.Txs[tee.TeeAuthenticatorMetaData.ID]
+		s.TeeSignerAddress, tx = deployRes.Addresses[tee.TeeAuthenticatorMetaData.ID], deployRes.Txs[tee.TeeAuthenticatorMetaData.ID]
 	}
 
 	s.sim.Commit()
 	// wait for the pending contract to be deployed on-chain
 	_, err := bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
 	require.NoError(s.t, err)
-	fmt.Printf("Tee authenticator contract deployed at address 0x%x\n", s.teeSignerAddress)
+	fmt.Printf("Tee authenticator contract deployed at address 0x%x\n", s.TeeSignerAddress)
 
 	authorityContract := *authority.NewAuthorityRegistry()
 
-	constructorInput := authorityContract.PackConstructor(s.deployer.From)
+	constructorInput := authorityContract.PackConstructor(s.Deployer.From)
 
 	deployParams := bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&authority.AuthorityRegistryMetaData},
@@ -136,7 +142,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.teeSignerAddress, authorityAddress, s.managerAccount.From)
+	constructorInput = contract.PackConstructor(s.TeeSignerAddress, authorityAddress, s.ManagerAccount.From)
 	// set up params to deploy an instance of the ProcessorEndpoint contract
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},
@@ -147,7 +153,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	deployRes, err = bind.LinkAndDeploy(&deployParams, deployer)
 	require.NoError(s.t, err)
 
-	s.processorContractAddress, tx = deployRes.Addresses[processorendpoint.ProcessorEndpointMetaData.ID], deployRes.Txs[processorendpoint.ProcessorEndpointMetaData.ID]
+	s.ProcessorContractAddress, tx = deployRes.Addresses[processorendpoint.ProcessorEndpointMetaData.ID], deployRes.Txs[processorendpoint.ProcessorEndpointMetaData.ID]
 
 	// call Commit to make the simulated backend mine a block
 	s.sim.Commit()
@@ -155,7 +161,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	// wait for the pending contract to be deployed on-chain
 	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
 	require.NoError(s.t, err)
-	fmt.Printf("Processor Endpoint contract deployed at address 0x%x\n", s.processorContractAddress)
+	fmt.Printf("Processor Endpoint contract deployed at address 0x%x\n", s.ProcessorContractAddress)
 
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&keyregistry.KeyRegistryMetaData},
@@ -165,7 +171,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	deployRes, err = bind.LinkAndDeploy(&deployParams, deployer)
 	require.NoError(s.t, err)
 
-	s.keyRegistryAddress, tx = deployRes.Addresses[keyregistry.KeyRegistryMetaData.ID], deployRes.Txs[keyregistry.KeyRegistryMetaData.ID]
+	s.KeyRegistryAddress, tx = deployRes.Addresses[keyregistry.KeyRegistryMetaData.ID], deployRes.Txs[keyregistry.KeyRegistryMetaData.ID]
 
 	s.sim.Commit()
 
@@ -173,7 +179,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
 	require.NoError(s.t, err)
 
-	fmt.Printf("Key Registry contract deployed at address 0x%x\n", s.keyRegistryAddress)
+	fmt.Printf("Key Registry contract deployed at address 0x%x\n", s.KeyRegistryAddress)
 
 }
 func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeSigner *ethCommon.Address) *SimTestHelper {
@@ -186,20 +192,20 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	}
 
 	helper.Submitter = helper.GenerateNewUser()
-	helper.deployer = helper.GenerateNewUser()
-	helper.managerAccount = helper.GenerateNewUser()
+	helper.Deployer = helper.GenerateNewUser()
+	helper.ManagerAccount = helper.GenerateNewUser()
 
 	helper.sim = simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
 		helper.Submitter.From:      {Balance: big.NewInt(9e18)},
-		helper.deployer.From:       {Balance: big.NewInt(9e18)},
-		helper.managerAccount.From: {Balance: big.NewInt(9e18)},
+		helper.Deployer.From:       {Balance: big.NewInt(9e18)},
+		helper.ManagerAccount.From: {Balance: big.NewInt(9e18)},
 	})
 
 	helper.setupContracts(useMockContracts, teeSigner)
 
-	helper.processEndpointInstance = helper.processEndpointContract.Instance(helper.sim.Client(), helper.processorContractAddress)
+	helper.processEndpointInstance = helper.processEndpointContract.Instance(helper.sim.Client(), helper.ProcessorContractAddress)
 
-	helper.keyRegistryContractInstance = helper.keyRegistryContract.Instance(helper.sim.Client(), helper.keyRegistryAddress)
+	helper.keyRegistryContractInstance = helper.keyRegistryContract.Instance(helper.sim.Client(), helper.KeyRegistryAddress)
 
 	if autoMining {
 		go func() {
@@ -375,5 +381,5 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 }
 
 func (s *SimTestHelper) GetTeeSignerHelper() *SimTeeSignerHelper {
-	return NewSimTeeSignerHelper(s.t, s.teeSignerAddress, s.sim.Client())
+	return NewSimTeeSignerHelper(s.t, s.TeeSignerAddress, s.sim.Client())
 }

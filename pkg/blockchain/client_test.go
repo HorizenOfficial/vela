@@ -11,6 +11,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/crypto"
+	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,12 +29,26 @@ var (
 	applicationId = big.NewInt(1)
 )
 
+func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
+	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, testHelper.KeyRegistryAddress, "", nil)
+	blockchainClient.client = testHelper.Client()
+
+	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, testHelper.ProcessorContractAddress)
+	blockchainClient.keyRegistryBoundContract = blockchainClient.keyRegistryEndpoint.Instance(blockchainClient.client, testHelper.KeyRegistryAddress)
+
+	blockchainClient.account = testHelper.ManagerAccount
+	blockchainClient.connected = true
+
+	return blockchainClient
+
+}
+
 func TestGetPendingRequests(t *testing.T) {
 
-	testHelper := NewSimTestHelper(t, false, true, nil)
+	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
 	defer testHelper.Close()
 
-	blockchainClient := testHelper.SetupNewBlockChainClient()
+	blockchainClient := SetupNewBlockChainClient(testHelper)
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
@@ -68,13 +83,13 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, testHelper.Submitter.From.String(), request.Sender, "Sender should match")
 	require.Equal(t, transferValue.Uint64(), request.Value, "Value should match")
 
-	oldbalance, err := blockchainClient.client.BalanceAt(context.Background(), testHelper.deployer.From, nil)
+	oldbalance, err := blockchainClient.client.BalanceAt(context.Background(), testHelper.Deployer.From, nil)
 	require.NoError(t, err)
 	fmt.Println("KeyRegistry balance: ", oldbalance)
-	tx = testHelper.TransferFunds(testHelper.Submitter, testHelper.deployer.From, big.NewInt(10000000000000000))
+	tx = testHelper.TransferFunds(testHelper.Submitter, testHelper.Deployer.From, big.NewInt(10000000000000000))
 	testHelper.MineBlock()
 	testHelper.WaitMined(tx)
-	balance, err := testHelper.sim.Client().BalanceAt(context.Background(), testHelper.deployer.From, nil)
+	balance, err := testHelper.Client().BalanceAt(context.Background(), testHelper.Deployer.From, nil)
 	require.NoError(t, err)
 	fmt.Println("KeyRegistry balance: ", balance)
 	require.Equal(t, oldbalance.Add(oldbalance, big.NewInt(10000000000000000)).Int64(), balance.Int64(), "KeyRegistry balance should match")
@@ -82,10 +97,10 @@ func TestGetPendingRequests(t *testing.T) {
 
 func TestMarkRequestCompleted(t *testing.T) {
 
-	testHelper := NewSimTestHelper(t, false, true, nil)
+	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
 	defer testHelper.Close()
 
-	blockchainClient := testHelper.SetupNewBlockChainClient()
+	blockchainClient := SetupNewBlockChainClient(testHelper)
 
 	//*****************************************************
 	// submit request
@@ -115,10 +130,10 @@ func TestMarkRequestCompleted(t *testing.T) {
 }
 
 func TestMarkRequestFailed(t *testing.T) {
-	testHelper := NewSimTestHelper(t, false, true, nil)
+	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
 	defer testHelper.Close()
 
-	blockchainClient := testHelper.SetupNewBlockChainClient()
+	blockchainClient := SetupNewBlockChainClient(testHelper)
 
 	transferValue := big.NewInt(1000000)
 	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
@@ -145,10 +160,10 @@ func TestMarkRequestFailed(t *testing.T) {
 
 func TestSubmitStateUpdate(t *testing.T) {
 
-	testHelper := NewSimTestHelper(t, false, true, nil)
+	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
 	defer testHelper.Close()
 
-	blockchainClient := testHelper.SetupNewBlockChainClient()
+	blockchainClient := SetupNewBlockChainClient(testHelper)
 
 	//*****************************************************
 	// submit request
@@ -195,10 +210,10 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 func TestGetPublicKey(t *testing.T) {
 
-	testHelper := NewSimTestHelper(t, false, true, nil)
+	testHelper := testutil.NewSimTestHelper(t, false, true, nil)
 	defer testHelper.Close()
 
-	blockchainClient := testHelper.SetupNewBlockChainClient()
+	blockchainClient := SetupNewBlockChainClient(testHelper)
 
 	res, err := blockchainClient.GetPublicKey(context.Background(), testHelper.Submitter.From.Hex())
 	require.NoError(t, err)

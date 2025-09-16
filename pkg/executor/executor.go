@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log"
+
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
@@ -17,7 +18,7 @@ type StatelessExecutor struct {
 	config  *Config
 	runtime Runtime
 	server  communication.ExecutorServer
-	*msgToSignBuilder
+	*MsgToSignBuilder
 }
 
 // NewStatelessExecutor creates a new stateless executor
@@ -27,7 +28,7 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 		config:           config,
 		runtime:          runtime,
 		server:           server,
-		msgToSignBuilder: msgBuilder,
+		MsgToSignBuilder: msgBuilder,
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
@@ -242,7 +243,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 // signUpdatePayload signs the update payload to produce an attestation
 func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]byte, error) {
 	// Serialize the payload for signing
-	hash, err := e.buildMsgHash(payload)
+	hash, err := e.BuildMsgHash(payload)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create message to sign: %w", err)

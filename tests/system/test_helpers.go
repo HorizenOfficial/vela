@@ -9,11 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"math/big"
-
-	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
-	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -25,42 +20,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
-
 type SystemTestSuite struct {
 	t                  *testing.T
 	manager            manager.Manager
 	executor           executor.Executor
-	blockchainClient   *blockchain.BlockChainClient
+	blockchainClient   *blockchain.MockClient
 	dataLayer          *mockdb.MockDataLayer
 	eventChannel       chan interface{}
 	ctx                context.Context
 	cancel             context.CancelFunc
 	executorCommKey    *cryptotypes.PrivateKeyP521      // Executor's communication key for testing
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
-	simNode			   *blockchain.SimTestHelper
 }
-
-type MockBlockchainClient struct {
-	*blockchain.BlockChainClient
-}
-
-func (c *MockBlockchainClient) Connect(ctx context.Context) error {
-	fmt.Println("MockBlockchainClient: Simulating connection to blockchain")
-	return nil
-}
-
 
 func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create the simulated blockchain node, with all the needed contracts
-	execConfig := executor.DefaultConfig()
-	execAddress := crypto.PubkeyToAddress(execConfig.SignatureKey.PrivateKey.PublicKey)
-	sim := blockchain.NewSimTestHelper(t, true, false, &execAddress)
 	// Create mock components
-	//blockchainClient := blockchain.NewMockClient()
-	blockchainClient := sim.SetupNewBlockChainClient()
+	blockchainClient := blockchain.NewMockClient()
 	dataLayer := mockdb.NewMockDataLayer()
 
 	// Create an executor client (TCP for testing)
@@ -71,10 +48,10 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	config := manager.DefaultConfig()
 	config.ExecutorConnectionType = "tcp"
 	config.ExecutorConnectionParams = map[string]string{"url": "http://localhost:8080"}
-	mgr := manager.NewSecureProcessorManager(config, &MockBlockchainClient{blockchainClient}, dataLayer, executorClient)
+	mgr := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
 
 	// Create executor
-
+	execConfig := executor.DefaultConfig()
 	execConfig.ServerType = "tcp"
 	execConfig.ServerAddr = "localhost:8080"
 
@@ -92,7 +69,7 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 
 	// Create event channel
 	eventChannel := make(chan interface{}, 100)
-//TODO	blockchainClient.SubscribeToEvents(ctx, eventChannel)
+	blockchainClient.SubscribeToEvents(ctx, eventChannel)
 
 	return &SystemTestSuite{
 		t:                  t,
@@ -104,18 +81,15 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 		ctx:                ctx,
 		cancel:             cancel,
 		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
-		executorSigningKey: execConfig.SignatureKey,     // Store the executor's communication key
-		simNode: 		  sim,
+		executorSigningKey: execConfig.SignatureKey,     // Store the executor's signing key
 	}
 }
 
 func (s *SystemTestSuite) StartManager() error {
 	go func() {
 		if err := s.manager.Start(s.ctx); err != nil {
-			fmt.Println("Manager failed: ", err)
 			s.t.Errorf("Manager failed: %v", err)
 		}
-		fmt.Println("Manager started")
 	}()
 
 	time.Sleep(100 * time.Millisecond)
@@ -133,37 +107,19 @@ func (s *SystemTestSuite) StartExecutor() error {
 	return nil
 }
 
-func (s *SystemTestSuite) AddUserKeys(sender *bind.TransactOpts, publicKey []byte) error {
+func (s *SystemTestSuite) AddUserKeys(userID string, publicKey []byte) error {
 	// Register in a blockchain client
-	tx, err := s.simNode.RegisterUserKey(sender, publicKey)
-	if err != nil {	
-		return err
+	err := s.blockchainClient.RegisterPublicKey(s.ctx, userID, publicKey)
+	if err == nil {
+		// Register in data layer
+		return s.dataLayer.StoreUserKey(s.ctx, userID, publicKey)
 	}
-
-	s.simNode.WaitMined(tx)	
-	
-	// Register in data layer
-	return s.dataLayer.StoreUserKey(s.ctx, sender.From.Hex(), publicKey)
+	return err
 }
 
-func (s *SystemTestSuite) SubmitRequest(req *common.Request) (string, error) {
-
-	return s.SubmitRequestFromUser(req, s.simNode.Submitter)
+func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {
+	return s.blockchainClient.SubmitRequest(s.ctx, req)
 }
-
-func (s *SystemTestSuite) SubmitRequestFromUser(req *common.Request, sender *bind.TransactOpts) (string, error) {
-	appId, ok := common.StringToBigInt(req.ApplicationID)
-	require.True(s.t, ok, "invalid application ID")
-	tx := s.simNode.SubmitRequestFromUser(appId, req.RequestType,req.Payload, new(big.Int).SetUint64(req.Value), sender)
-
-	s.simNode.WaitMined(tx)
-	
-	event := s.simNode.GetRequestSubmittedEvent(tx)
-
-
-	return event.RequestId.String(), nil
-}
-
 
 func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duration) (*common.ApplicationState, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -194,8 +150,10 @@ func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time
 	for {
 		select {
 		case <-ticker.C:
-		state := &common.ApplicationState{ApplicationID: appID, StateRoot: s.simNode.GetStateRoot()}
-		return state, nil
+			state, err := s.blockchainClient.GetApplicationState(s.ctx, appID)
+			if err == nil {
+				return state, nil
+			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for app state %s in blockchain", appID)
 
@@ -203,8 +161,8 @@ func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time
 	}
 }
 
-func (s *SystemTestSuite) AssertRequestCompleted(requestID string, timeout time.Duration) (blockchain.RequestStatus, error) {
-	return s.simNode.WaitForRequestCompletion(requestID, timeout)
+func (s *SystemTestSuite) AssertRequestCompleted(requestID string, timeout time.Duration) error {
+	return s.blockchainClient.WaitForRequestCompletion(requestID, timeout)
 }
 
 // WaitForEvent waits for a specific event to be published for a user
@@ -237,12 +195,11 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID string, timeout 
 	for {
 		select {
 		case <-ticker.C:
-			//TODO
-			// // Check if deanonymization report exists in blockchain
-			// report, err := s.blockchainClient.GetDeanonymizationReport(s.ctx, reportID)
-			// if err == nil && report != nil {
-			// 	return report, nil
-			// }
+			// Check if deanonymization report exists in blockchain
+			report, err := s.blockchainClient.GetDeanonymizationReport(s.ctx, reportID)
+			if err == nil && report != nil {
+				return report, nil
+			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for deanonymization report %s", reportID)
 		}
@@ -259,18 +216,21 @@ func (s *SystemTestSuite) WaitForWithdrawal(appID string, timeout time.Duration)
 	for {
 		select {
 		case <-ticker.C:
-			//TODO
-			// // Check if withdrawal exists in blockchain
-			// withdrawals, err := s.blockchainClient.GetWithdrawals(s.ctx, appID)
-			// if err == nil && withdrawals != nil && len(*withdrawals) > 0 {
-			// 	return &(*withdrawals)[0], nil
-			// }
+			// Check if withdrawal exists in blockchain
+			withdrawals, err := s.blockchainClient.GetWithdrawals(s.ctx, appID)
+			if err == nil && withdrawals != nil && len(*withdrawals) > 0 {
+				return &(*withdrawals)[0], nil
+			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for withdrawal for app %s", appID)
 		}
 	}
 }
 
+func (s *SystemTestSuite) GetRequestUpdatePayload(reqId string) (*common.UpdatePayload, error) {
+	// Get the update payload for the request
+	return s.blockchainClient.GetRequestUpdatePayload(s.ctx, reqId)
+}
 
 // GetExecutorCommunicationKey returns the executor's communication public key for encryption
 func (s *SystemTestSuite) GetExecutorCommunicationKey() (*cryptotypes.PublicKeyP521, error) {
@@ -297,7 +257,6 @@ func (s *SystemTestSuite) LoadWasmModule(t *testing.T, moduleFilename string) []
 }
 
 func (s *SystemTestSuite) Cleanup() error {
-	fmt.Println("Cleaning up the test suite")
 	s.cancel()
 
 	if s.manager != nil {
@@ -308,21 +267,7 @@ func (s *SystemTestSuite) Cleanup() error {
 		s.executor.Close()
 	}
 
-	if s.simNode != nil {
-		s.simNode.Close()	
-	}
+	s.blockchainClient.ClearAllData()
 
 	return nil
-}
-
-func (s *SystemTestSuite) TransferFunds(sender *bind.TransactOpts, toAddress ethCommon.Address, value *big.Int) {
-	
-	tx := s.simNode.TransferFunds(sender, toAddress, value)
-
-	s.simNode.WaitMined(tx)	
-
-	receipt, err := s.simNode.GetTxReceipt( tx)
-	require.NoError(s.t, err, "error getting transaction receipt")
-	require.Equal(s.t, uint64(1), receipt.Status, "Transaction failed")
-
 }

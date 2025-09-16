@@ -11,9 +11,9 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
-type msgToSignBuilder struct {
-	msgArgs abi.Arguments
-	eventsArgs abi.Arguments
+type MsgToSignBuilder struct {
+	msgArgs         abi.Arguments
+	eventsArgs      abi.Arguments
 	withdrawalsArgs abi.Arguments
 }
 
@@ -22,7 +22,7 @@ type withdrawalTuple struct {
 	Amount   *big.Int
 }
 
-func NewMsgToSignBuilder() *msgToSignBuilder {
+func NewMsgToSignBuilder() *MsgToSignBuilder {
 	uint256Type, _ := abi.NewType("uint256", "", nil)
 	bytes32Type, _ := abi.NewType("bytes32", "", nil)
 	bytesArrayType, _ := abi.NewType("bytes[]", "", nil)
@@ -42,11 +42,11 @@ func NewMsgToSignBuilder() *msgToSignBuilder {
 		{Type: bytes32Type},
 	}
 
-	msgBuilder := &msgToSignBuilder{msgArgs: msgArgs, eventsArgs: eventsArgs, withdrawalsArgs: withdrawalsArgs}
+	msgBuilder := &MsgToSignBuilder{msgArgs: msgArgs, eventsArgs: eventsArgs, withdrawalsArgs: withdrawalsArgs}
 	return msgBuilder
 }
 
-func (b *msgToSignBuilder) buildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
+func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
 
 	reqId, ok := common.StringToBigInt(updatePayload.RequestID)
 	if !ok {
@@ -81,7 +81,7 @@ func (b *msgToSignBuilder) buildMsgHash(updatePayload *common.UpdatePayload) ([]
 		}
 	}
 
-	encodedWithdrawal, err :=  b.withdrawalsArgs.Pack(withdrawals)
+	encodedWithdrawal, err := b.withdrawalsArgs.Pack(withdrawals)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode withdrawals: %w", err)
 	}

@@ -1,4 +1,4 @@
-package blockchain
+package testutil
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ type SimTeeSignerHelper struct {
 
 }
 
-func NewSimTeeSignerHelper(t *testing.T, teeSignerAddress ethCommon.Address, nodeClient ChainClient) *SimTeeSignerHelper {
+func NewSimTeeSignerHelper(t *testing.T, teeSignerAddress ethCommon.Address, nodeClient simulated.Client) *SimTeeSignerHelper {
 
 	teeContract := tee.NewTeeAuthenticator()
 
