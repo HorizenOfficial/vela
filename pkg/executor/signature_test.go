@@ -40,7 +40,7 @@ func TestCheckSignature(t *testing.T) {
 
 	// Sign the hash
 	updatePayload.Signature = signature
-	teeSignerContract := testHelper.GetTeeSignerHelper()
+	teeSignerContract := testHelper.GetSimTeeAuthenticatorHelper()
 
 	result := teeSignerContract.CheckSignature(updatePayload)
 	require.True(t, result, "Signature verification failed")

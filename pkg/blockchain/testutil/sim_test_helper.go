@@ -15,8 +15,8 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/horizen-pes/pkg/blockchain/contracts/authority"
 	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
-	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/mocktee"
+	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
@@ -61,8 +61,6 @@ func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
 	require.NoError(s.t, err, "failed to generate user private key")
 	return bind.NewKeyedTransactor(userPrivateKey, chainID)
 }
-
-
 
 // func (s *SimTestHelper) SetupNewBlockChainClient() *blockchain.BlockChainClient {
 // 	blockchainClient := blockchain.NewBlockChainClient(s.ProcessorContractAddress, s.KeyRegistryAddress, "", nil)
@@ -380,6 +378,6 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 	return signedTx
 }
 
-func (s *SimTestHelper) GetTeeSignerHelper() *SimTeeSignerHelper {
-	return NewSimTeeSignerHelper(s.t, s.TeeSignerAddress, s.sim.Client())
+func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelper {
+	return NewSimTeeAuthenticatorHelper(s.t, s.TeeSignerAddress, s.sim.Client())
 }

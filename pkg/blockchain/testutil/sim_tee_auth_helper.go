@@ -14,35 +14,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type SimTeeSignerHelper struct {
+type SimTeeAuthenticatorHelper struct {
 	t *testing.T
 
 	teeContract         *tee.TeeAuthenticator
 	teeContractInstance *bind.BoundContract
-
 }
 
-func NewSimTeeSignerHelper(t *testing.T, teeSignerAddress ethCommon.Address, nodeClient simulated.Client) *SimTeeSignerHelper {
+func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Address, nodeClient simulated.Client) *SimTeeAuthenticatorHelper {
 
 	teeContract := tee.NewTeeAuthenticator()
 
 	teeContractInstance := teeContract.Instance(nodeClient, teeSignerAddress)
 
-	return &SimTeeSignerHelper{
+	return &SimTeeAuthenticatorHelper{
 		t:                   t,
 		teeContract:         teeContract,
 		teeContractInstance: teeContractInstance,
-	}	
+	}
 }
 
-func (s *SimTeeSignerHelper) CheckSignature(payload *common.UpdatePayload) bool {
+func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload) bool {
 
 	reqId, ok := common.StringToBigInt(payload.RequestID)
 	require.True(s.t, ok, "invalid request ID: %s", payload.RequestID)
 
 	appId, ok := common.StringToBigInt(payload.ApplicationID)
 	require.True(s.t, ok, "invalid application ID: %s", payload.ApplicationID)
-
 
 	events := make([][]byte, len(payload.Events))
 	for i, event := range payload.Events {
@@ -70,7 +68,6 @@ func (s *SimTeeSignerHelper) CheckSignature(payload *common.UpdatePayload) bool 
 		payload.Signature,
 	)
 
-	
 	result, err := bind.Call(s.teeContractInstance,
 		&bind.CallOpts{Pending: false},
 		params,
@@ -79,11 +76,11 @@ func (s *SimTeeSignerHelper) CheckSignature(payload *common.UpdatePayload) bool 
 	if err != nil {
 		raw, hasRevertErrorData := ethclient.RevertErrorData(err)
 		if !hasRevertErrorData {
-				s.t.Fatalf("expected call error to contain revert error data.")
+			s.t.Fatalf("expected call error to contain revert error data.")
 		}
 		rawUnpackedErr, err := s.teeContract.UnpackError(raw)
 		if err != nil {
-				s.t.Fatalf("expected to unpack error")
+			s.t.Fatalf("expected to unpack error")
 		}
 		fmt.Printf("Revert error: %#v\n", rawUnpackedErr)
 		require.NoError(s.t, err)
@@ -92,7 +89,7 @@ func (s *SimTeeSignerHelper) CheckSignature(payload *common.UpdatePayload) bool 
 
 }
 
-func (s *SimTeeSignerHelper) GetTeeSigner() ethCommon.Address {
+func (s *SimTeeAuthenticatorHelper) GetTeeSigner() ethCommon.Address {
 
 	result, err := bind.Call(s.teeContractInstance,
 		&bind.CallOpts{Pending: false},
