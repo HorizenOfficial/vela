@@ -62,19 +62,6 @@ func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
 	return bind.NewKeyedTransactor(userPrivateKey, chainID)
 }
 
-// func (s *SimTestHelper) SetupNewBlockChainClient() *blockchain.BlockChainClient {
-// 	blockchainClient := blockchain.NewBlockChainClient(s.ProcessorContractAddress, s.KeyRegistryAddress, "", nil)
-// 	blockchainClient.client = s.sim.Client()
-
-// 	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, s.ProcessorContractAddress)
-// 	blockchainClient.keyRegistryBoundContract = blockchainClient.keyRegistryEndpoint.Instance(blockchainClient.client, s.KeyRegistryAddress)
-
-// 	blockchainClient.account = s.ManagerAccount
-// 	blockchainClient.connected = true
-
-// 	return blockchainClient
-
-// }
 
 func (s *SimTestHelper) Client() simulated.Client {
 	return s.sim.Client()
@@ -180,6 +167,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	fmt.Printf("Key Registry contract deployed at address 0x%x\n", s.KeyRegistryAddress)
 
 }
+
 func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeSigner *ethCommon.Address) *SimTestHelper {
 
 	helper := &SimTestHelper{
