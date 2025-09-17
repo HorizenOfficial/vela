@@ -1,9 +1,13 @@
 package manager
 
 import (
+	"os"
 	"context"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/magiconair/properties"
 )
+
+const confFileName = "manager.conf"
 
 // Manager defines the interface for the Secure Processor Manager
 type Manager interface {
@@ -43,7 +47,6 @@ type Config struct {
 	DataLayerNumOfVersions int
 }
 
-// TODO maybe it is best using a config file
 // DefaultConfig returns the default configuration for the Secure Processor Manager
 func DefaultConfig() *Config {
 	return &Config{
@@ -62,4 +65,36 @@ func DefaultConfig() *Config {
 		DataLayerDBPath:        "/tmp/horizen-pes-data/manager_db",
 		DataLayerNumOfVersions: 10, // useful only for versioned leveldb
 	}
+}
+
+func ReadConfig() *Config {
+	if !fileExists(confFileName) {
+		panic("File conf not found. Please create it and restart.")
+	}
+	// Load properties from file
+	config, err := properties.LoadFile(confFileName, properties.UTF8)
+	if err != nil {
+		panic(err)
+	}
+	return &Config{
+		BlockchainPollingInterval:	config.MustGetInt64("BlockchainPollingInterval"),
+		ExecutorConnectionType:    	config.MustGetString("ExecutorConnectionType"),
+		ExecutorConnectionParams: map[string]string{
+			"url": config.MustGetString("ExecutorConnectionUrl"),
+		},
+		RpcURL: 			  	config.MustGetString("RpcUrl"),
+		PrivateKey: 		   	config.MustGetString("PrivateKey"),
+		ProcessorAddress: 		config.MustGetString("ProcessorAddress"),
+		KeyRegistryAddress: 	config.MustGetString("KeyRegistryAddress"),
+		MockBlockChainClient:   config.MustGetBool("MockBlockChainClient"),
+		// Data layer configuration
+		DataLayerType:          config.MustGetString("DataLayerType"),
+		DataLayerDBPath:        config.MustGetString("DataLayerDBPath"),
+		DataLayerNumOfVersions: config.MustGetInt("DataLayerNumOfVersions"),
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil || !os.IsNotExist(err)
 }

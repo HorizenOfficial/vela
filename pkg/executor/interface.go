@@ -3,6 +3,7 @@
 package executor
 
 import (
+	"os"
 	"context"
 
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -10,7 +11,10 @@ import (
 	"github.com/horizen-pes/pkg/crypto"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/magiconair/properties"
 )
+
+const confFileName = "executor.conf"
 
 // Config defines the configuration for the executor application
 type Config struct {
@@ -45,6 +49,30 @@ func DefaultConfig() *Config {
 	}
 }
 
+func ReadConfig() *Config {
+
+	if !fileExists(confFileName) {
+		panic("File conf not found. Please create it and restart.")
+	}
+	// Load properties from file
+	config, err := properties.LoadFile(confFileName, properties.UTF8)
+	if err != nil {
+		panic(err)
+	}
+	
+	stateKey, _ := crypto.LoadAESKeyFromFilePEM(config.MustGetString("StateKeyPEMFile"))
+	communicationKey, _ := crypto.ImportPrivateKeyP521FromHex(config.MustGetString("CommunicationKeyHex"))
+	signatureKey, _ := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("SignatureKeyHex"))
+	
+	return &Config{
+		ServerType:       config.MustGetString("ServerType"),
+		ServerAddr:       config.MustGetString("ServerAddr"),
+		StateKey:         *stateKey,
+		CommunicationKey: communicationKey,
+		SignatureKey:     signatureKey,	
+	}
+}
+
 // Executor defines the interface for the WASM Executor
 type Executor interface {
 	// RequestHandler interface to handle requests from the communication layer
@@ -67,4 +95,9 @@ type Runtime interface {
 	GenerateDeanonymizationReport(ctx context.Context, appId string, requestId string, payload []byte, state []byte, wasm []byte) ([]byte, error)
 	// Close closes the WASM runtime
 	Close() error
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil || !os.IsNotExist(err)
 }

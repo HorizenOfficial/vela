@@ -6,8 +6,10 @@ toolchain go1.24.0
 
 require (
 	github.com/bytecodealliance/wasmtime-go v1.0.0
+	github.com/elliotchance/orderedmap/v3 v3.1.0
 	github.com/ethereum/go-ethereum v1.16.1
 	github.com/google/go-cmp v0.5.9
+	github.com/magiconair/properties v1.8.10
 	github.com/mdlayher/vsock v1.2.1
 	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
@@ -35,7 +37,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
-	github.com/elliotchance/orderedmap/v3 v3.1.0 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.0 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/ferranbt/fastssz v0.1.2 // indirect

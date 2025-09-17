@@ -45,13 +45,13 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	executorClient := communication.NewClient(factory)
 
 	// Create manager
-	config := manager.DefaultConfig()
+	config := manager.ReadConfig()
 	config.ExecutorConnectionType = "tcp"
 	config.ExecutorConnectionParams = map[string]string{"url": "http://localhost:8080"}
 	mgr := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
 
 	// Create executor
-	execConfig := executor.DefaultConfig()
+	execConfig := executor.DefaultConfig() // just to generate keys
 	execConfig.ServerType = "tcp"
 	execConfig.ServerAddr = "localhost:8080"
 
