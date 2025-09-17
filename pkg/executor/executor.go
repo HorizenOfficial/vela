@@ -22,8 +22,12 @@ type StatelessExecutor struct {
 }
 
 // NewStatelessExecutor creates a new stateless executor
-func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer) *StatelessExecutor {
-	msgBuilder := NewMsgToSignBuilder()
+func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer) (*StatelessExecutor, error) {
+	msgBuilder, err := NewMsgToSignBuilder()
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup msg to sign builder: %w", err)
+	}
+
 	executor := &StatelessExecutor{
 		config:           config,
 		runtime:          runtime,
@@ -33,7 +37,7 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
 
-	return executor
+	return executor, nil
 }
 
 // Start starts the executor server

@@ -33,7 +33,10 @@ func main() {
 	}
 
 	// Create the executor
-	exec := executor.NewStatelessExecutor(config, runtime, server)
+	exec, err := executor.NewStatelessExecutor(config, runtime, server)
+	if err != nil {
+		log.Fatalf("Error creating executor: %v", err)
+	}
 
 	// Start the executor
 	log.Printf("Starting executor service...")

@@ -217,23 +217,18 @@ func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayl
 		Withdrawals:   payload.Withdrawals,
 	}
 
-	// // Serialize the payload for signing
-	// payloadBytes, err := json.Marshal(originalPayload)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to marshal payload for signing: %w", err)
-	// }
+	msgBuilder, err := executor.NewMsgToSignBuilder()
+	if err != nil {
+		return fmt.Errorf("failed to create message to sign builder: %w", err)
+	}
 
-	// // Create the hash of the payload
-	// hash := ethCrypto.Keccak256(payloadBytes)
-
-	msgBuilder := executor.NewMsgToSignBuilder()
 	msg, err := msgBuilder.BuildMsgHash(originalPayload)
 	if err != nil {
 		return fmt.Errorf("failed to build message to sign: %w", err)
 	}
 
 
-	payload.Signature[64] -= 27 //
+	payload.Signature[64] -= 27 //SigToPub requires v field < 4
 	// Recover the public key from the signature
 	recoveredPubKey, err := ethCrypto.SigToPub(msg, payload.Signature)
 	if err != nil {

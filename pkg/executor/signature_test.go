@@ -12,9 +12,13 @@ import (
 func TestCheckSignature(t *testing.T) {
 	applicationId := "1"
 	execConfig := DefaultConfig()
+
+	builder, err :=  NewMsgToSignBuilder()
+	require.NoError(t, err)
+
 	executor := &StatelessExecutor{
 		config:           execConfig,
-		MsgToSignBuilder: NewMsgToSignBuilder(),
+		MsgToSignBuilder: builder,
 	}
 	executorAddress := ethCrypto.PubkeyToAddress(execConfig.SignatureKey.PrivateKey.PublicKey)
 

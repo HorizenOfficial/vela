@@ -113,7 +113,7 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 
 	t.Log("Step 2: Sending deposit request")
 
-	RequestID = "87654"
+	RequestID = "2134"
 	depositAmount := uint64(2000000000000000000)
 	depositReq, err := cryptoHelper.CreateDepositRequest(
 		appId,
@@ -155,7 +155,7 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 	t.Log("Step 3: Sending transfer request")
 
 
-	RequestID = "4367"
+	RequestID = "2135"
 	sentAmount := uint64(500000000000000000) // 0.5 ETH
 	transferReq, err := cryptoHelper.CreateTransferRequest(
 		appId,
@@ -213,7 +213,7 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 
 	t.Log("Step 4: Sending deanonymization request as auditor")
 
-	RequestID = "76333"
+	RequestID = "2136"
 
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
 		appId,
@@ -258,7 +258,7 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 	// Step 5: As another user, send withdrawal request
 	t.Log("Step 5: Sending withdrawal request as user2")
 
-	RequestID =  "1654332"
+	RequestID =  "2137"
 	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
 	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(
 		appId,
