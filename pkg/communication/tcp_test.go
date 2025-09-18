@@ -121,7 +121,6 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       time.Now().Unix(),
 		Sender:          "test-sender",
-		Signature:       []byte("test-signature"),
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
@@ -254,7 +253,6 @@ func TestTCPClientServer_ConcurrentBidirectionalCommunication(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       time.Now().Unix(),
 			Sender:          "test-sender",
-			Signature:       []byte("test-signature"),
 			//Value:           0,
 		}
 		appState := &common.ApplicationState{
@@ -329,7 +327,6 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       time.Now().Unix(),
 			Sender:          "test-sender",
-			Signature:       []byte("test-signature"),
 			//Value:           0,
 		}
 		appState := &common.ApplicationState{
@@ -408,7 +405,6 @@ func TestTCPClientServer_DependantRequests(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       time.Now().Unix(),
 		Sender:          "test-sender",
-		Signature:       []byte("test-signature"),
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
@@ -462,7 +458,6 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       time.Now().Unix(),
 			Sender:          "test-sender",
-			Signature:       []byte("test-signature"),
 			//Value:           0,
 		}
 
@@ -522,7 +517,6 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       time.Now().Unix(),
 		Sender:          "test-sender",
-		Signature:       []byte("test-signature"),
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
@@ -594,7 +588,6 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       time.Now().Unix(),
 		Sender:          "test-sender",
-		Signature:       []byte("test-signature"),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  "test-app",

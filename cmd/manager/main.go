@@ -15,8 +15,10 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	commonEth "github.com/ethereum/go-ethereum/common"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
@@ -49,6 +51,46 @@ func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
 	return dl, nil
 }
 
+func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
+	if config.MockBlockChainClient {
+		return blockchain.NewMockClient(), nil
+	}
+
+	if strings.TrimSpace(config.ProcessorAddress) == "" {
+		return nil, fmt.Errorf("processor address is empty")
+	}
+	if strings.TrimSpace(config.KeyRegistryAddress) == "" {
+		return nil, fmt.Errorf("key registry address is empty")
+	}
+	if strings.TrimSpace(config.RpcURL) == "" {
+		return nil, fmt.Errorf("rpc url is empty")
+	}
+	if strings.TrimSpace(config.PrivateKey) == "" {
+		return nil, fmt.Errorf("private key is empty")
+	}
+
+	privKey, err := crypto.ImportPrivateKeySecp256k1FromHex(config.PrivateKey)
+    if err != nil {
+		return nil, fmt.Errorf("failed to parse private key: %w", err)
+	} 
+
+	if !commonEth.IsHexAddress(config.ProcessorAddress){
+		return nil, fmt.Errorf("processor address is not a valid hex address: %s", config.ProcessorAddress)
+	}
+
+	if !commonEth.IsHexAddress(config.KeyRegistryAddress){
+		return nil, fmt.Errorf("keyregistry address is not a valid hex address: %s", config.KeyRegistryAddress)
+	}
+
+	bcClient := blockchain.NewBlockChainClient(
+		commonEth.HexToAddress(config.ProcessorAddress), 
+		commonEth.HexToAddress(config.KeyRegistryAddress), 
+		config.RpcURL, 
+		privKey)
+
+	return bcClient, nil
+}	
+
 func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -61,7 +103,10 @@ func main() {
 	config := manager.DefaultConfig()
 
 	// Create the blockchain client
-	blockchainClient := blockchain.NewMockClient()
+	blockchainClient, err := createBlockchainClient(config)
+	if err != nil {
+		log.Fatalf("Failed to create blockchain client: %v", err)
+	}
 
 	// Create the data layer
 	dataLayer, err := createDataLayer(config)
@@ -73,6 +118,9 @@ func main() {
 	var executorClient communication.ExecutorClient
 	switch config.ExecutorConnectionType {
 	case "tcp":
+		if strings.TrimSpace(config.ExecutorConnectionParams["url"]) == "" {
+			log.Fatalf("Tcp url is empty")
+		}
 		factory := communication.NewTCPConnectionFactory(config.ExecutorConnectionParams["url"])
 		executorClient = communication.NewClient(factory)
 	case "vsock":

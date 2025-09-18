@@ -295,9 +295,11 @@ func (c *ClientConnection) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
+	log.Printf("Server: MsgBytes length before delimiter: %d", len(data))
 
 	// Add newline delimiter
 	data = append(data, delimiter)
+	log.Printf("Server: MsgBytes length after delimiter: %d", len(data))
 
 	// Write a message
 	if _, err := c.writer.Write(data); err != nil {

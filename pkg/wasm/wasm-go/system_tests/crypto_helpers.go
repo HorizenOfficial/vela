@@ -123,7 +123,7 @@ func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayl
 	hash := ethCrypto.Keccak256(payloadBytes)
 	recoveredPubKey, err := ethCrypto.SigToPub(hash, payload.Signature)
 	if err != nil {
-		return fmt.Errorf("failed to recover public key: %v", err)
+		return fmt.Errorf("failed to recover public key: %w", err)
 	}
 	if !bytes.Equal(ethCrypto.FromECDSAPub(key.PublicKey), ethCrypto.FromECDSAPub(recoveredPubKey)) {
 		return fmt.Errorf("recovered public key does not match original key")

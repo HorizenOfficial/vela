@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+
 	"testing"
 	"time"
 
@@ -127,6 +128,7 @@ func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duratio
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for app state %s", appID)
+
 		}
 	}
 }
@@ -146,6 +148,7 @@ func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for app state %s in blockchain", appID)
+
 		}
 	}
 }

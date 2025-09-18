@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
+	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/stretchr/testify/require"
+	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
 func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
@@ -19,7 +19,8 @@ func TestWasmtimePaymentAppFullSystemFlow(t *testing.T) {
 	}
 
 	suite := NewSystemTestSuite(t, "wasmtime-payment")
-	wasmBytecode := suite.LoadWasmModule(t, "../payment_app.wasm")
+	// Load wasm bytecode for the payment app
+        wasmBytecode := suite.LoadWasmModule(t, "../payment_app.wasm")
 	testPaymentAppFullSystemFlow(t, suite, wasmBytecode)
 }
 
@@ -29,7 +30,9 @@ func TestMockRuntimePaymentAppFullSystemFlow(t *testing.T) {
 	}
 
 	suite := NewSystemTestSuite(t, "mock-runtime")
+	// Load wasm bytecode for the payment app
 	wasmBytecode := []byte("mock-runtime-payment-app-bytecode")
+
 	testPaymentAppFullSystemFlow(t, suite, wasmBytecode)
 }
 
@@ -41,7 +44,9 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 
 	cryptoHelper := NewCryptoHelper()
 
-	// keys
+	t.Log("Step 0: Setup user keys for encryption/decryption")
+
+	// Generate user and auditor keys
 	user1Key, err := cryptoHelper.GenerateUserKey(user1)
 	require.NoError(t, err)
 	user2Key, err := cryptoHelper.GenerateUserKey(user2)
@@ -49,18 +54,30 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 	auditorKey, err := cryptoHelper.GenerateUserKey(auditor)
 	require.NoError(t, err)
 
-	require.NoError(t, suite.AddUserKeys(user1, user1Key.PublicKey().Bytes()))
-	require.NoError(t, suite.AddUserKeys(user2, user2Key.PublicKey().Bytes()))
-	require.NoError(t, suite.AddUserKeys(auditor, auditorKey.PublicKey().Bytes()))
+	// Register keys in the system
+	err = suite.AddUserKeys(user1, user1Key.PublicKey().Bytes())
+	require.NoError(t, err)
+	err = suite.AddUserKeys(user2, user2Key.PublicKey().Bytes())
+	require.NoError(t, err)
+	err = suite.AddUserKeys(auditor, auditorKey.PublicKey().Bytes())
+	require.NoError(t, err)
 
-	require.NoError(t, suite.StartExecutor())
-	require.NoError(t, suite.StartManager())
+	t.Log("Step 1: Starting system components and deploying app")
 
+	err = suite.StartExecutor()
+	require.NoError(t, err)
+	err = suite.StartManager()
+	require.NoError(t, err)
+
+	// Get executor's communication key for encryption, for now get from the test suite
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
+
+	// Get executor's signing key for signature verification
 	executorSigningKey, err := suite.GetExecutorSigningKey()
 	require.NoError(t, err)
 
+	// Submit deploy request
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
 		ApplicationID: appId,
@@ -69,108 +86,217 @@ func testPaymentAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode
 		Sender:        user1,
 		Timestamp:     time.Now().Unix(),
 	}
-	require.NoError(t, suite.SubmitRequest(deployReq))
+	err = suite.SubmitRequest(deployReq)
+	require.NoError(t, err)
 
-	_, err = suite.WaitForAppStateInDB(appId, 100*time.Second)
+	// Wait for app to be deployed
+	appState, err := suite.WaitForAppStateInDB(appId, 100*time.Second)
 	require.NoError(t, err)
-	_, err = suite.WaitForAppStateInBlockchain(appId, 100*time.Second)
+	require.NotNil(t, appState)
+
+	appState, err = suite.WaitForAppStateInBlockchain(appId, 100*time.Second)
 	require.NoError(t, err)
-	require.NoError(t, suite.AssertRequestCompleted("deploy-1", 100*time.Second))
+	require.NotNil(t, appState)
+
+	err = suite.AssertRequestCompleted("deploy-1", 100*time.Second)
+	require.NoError(t, err)
+
+	// Verify updatePayload signature
 	payload, err := suite.GetRequestUpdatePayload("deploy-1")
 	require.NoError(t, err)
-	require.NoError(t, cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey))
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+
+	t.Log("Step 2: Sending deposit request")
 
 	depositAmount := uint64(2000000000000000000)
-	depositReq, err := cryptoHelper.CreateDepositRequest(appId, "deposit-1", user1, depositAmount, executorPubKey)
+	depositReq, err := cryptoHelper.CreateDepositRequest(
+		appId,
+		"deposit-1",
+		user1,
+		depositAmount,
+		executorPubKey,
+	)
 	require.NoError(t, err)
-	require.NoError(t, suite.SubmitRequest(depositReq))
-	require.NoError(t, suite.AssertRequestCompleted("deposit-1", 10*time.Second))
+
+	err = suite.SubmitRequest(depositReq)
+	require.NoError(t, err)
+
+	// Wait for deposit to be processed
+	err = suite.AssertRequestCompleted("deposit-1", 100*time.Second)
+	require.NoError(t, err)
+
+	// Wait for deposit event
 	depositEvent, err := suite.WaitForEvent(user1, 10*time.Second)
 	require.NoError(t, err)
+	require.NotNil(t, depositEvent)
+
+	// Decrypt and verify deposit event
 	decryptedDepositData, err := cryptoHelper.DecryptEvent(user1, depositEvent, executorPubKey)
 	require.NoError(t, err)
-	var depositEventData wasmCommon.DepositEvent
-	require.NoError(t, json.Unmarshal(decryptedDepositData, &depositEventData))
+
+	var depositEventData appCommon.DepositEvent
+	err = json.Unmarshal(decryptedDepositData, &depositEventData)
+	require.NoError(t, err)
 	require.Equal(t, "deposit", depositEventData.Type)
 	require.Equal(t, depositAmount, depositEventData.Amount)
+
+	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload("deposit-1")
 	require.NoError(t, err)
-	require.NoError(t, cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey))
-
-	sentAmount := uint64(500000000000000000)
-	transferReq, err := cryptoHelper.CreateTransferRequest(appId, "transfer-1", user1, user2, sentAmount, executorPubKey)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
 	require.NoError(t, err)
-	require.NoError(t, suite.SubmitRequest(transferReq))
-	require.NoError(t, suite.AssertRequestCompleted("transfer-1", 10*time.Second))
+
+	t.Log("Step 3: Sending transfer request")
+
+	sentAmount := uint64(500000000000000000) // 0.5 ETH
+	transferReq, err := cryptoHelper.CreateTransferRequest(
+		appId,
+		"transfer-1",
+		user1,
+		user2,
+		sentAmount,
+		executorPubKey,
+	)
+	require.NoError(t, err)
+
+	err = suite.SubmitRequest(transferReq)
+	require.NoError(t, err)
+
+	// Wait for transfer to be processed
+	err = suite.AssertRequestCompleted("transfer-1", 10*time.Second)
+	require.NoError(t, err)
+
+	// Wait for transfer events for both users
 	senderEvent, err := suite.WaitForEvent(user1, 10*time.Second)
 	require.NoError(t, err)
+	require.NotNil(t, senderEvent)
+
 	recipientEvent, err := suite.WaitForEvent(user2, 10*time.Second)
 	require.NoError(t, err)
+	require.NotNil(t, recipientEvent)
+
+	// Decrypt and verify sender event
 	decryptedSenderData, err := cryptoHelper.DecryptEvent(user1, senderEvent, executorPubKey)
 	require.NoError(t, err)
-	var senderEventData wasmCommon.SenderEvent
-	require.NoError(t, json.Unmarshal(decryptedSenderData, &senderEventData))
+
+	var senderEventData appCommon.SenderEvent
+	err = json.Unmarshal(decryptedSenderData, &senderEventData)
+	require.NoError(t, err)
 	require.Equal(t, "transfer_sent", senderEventData.Type)
 	require.Equal(t, user2, senderEventData.To)
 	require.Equal(t, sentAmount, senderEventData.Amount)
+
+	// Decrypt and verify recipient event
 	decryptedRecipientData, err := cryptoHelper.DecryptEvent(user2, recipientEvent, executorPubKey)
 	require.NoError(t, err)
-	var recipientEventData wasmCommon.RecipientEvent
-	require.NoError(t, json.Unmarshal(decryptedRecipientData, &recipientEventData))
+
+	var recipientEventData appCommon.RecipientEvent
+	err = json.Unmarshal(decryptedRecipientData, &recipientEventData)
+	require.NoError(t, err)
 	require.Equal(t, "transfer_received", recipientEventData.Type)
 	require.Equal(t, user1, recipientEventData.From)
 	require.Equal(t, sentAmount, recipientEventData.Amount)
+
+	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload("transfer-1")
 	require.NoError(t, err)
-	require.NoError(t, cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey))
-
-	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(appId, "deanon-1", auditor, executorPubKey)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
 	require.NoError(t, err)
-	require.NoError(t, suite.SubmitRequest(deanonReq))
-	require.NoError(t, suite.AssertRequestCompleted("deanon-1", 10*time.Second))
+
+	t.Log("Step 4: Sending deanonymization request as auditor")
+
+	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
+		appId,
+		"deanon-1",
+		auditor,
+		executorPubKey,
+	)
+	require.NoError(t, err)
+
+	err = suite.SubmitRequest(deanonReq)
+	require.NoError(t, err)
+
+	// Wait for deanonymization request to be processed
+	err = suite.AssertRequestCompleted("deanon-1", 10*time.Second)
+	require.NoError(t, err)
+
+	// Wait for deanonymization report
 	deanonReport, err := suite.WaitForDeanonymizationReport("deanon-1", 10*time.Second)
 	require.NoError(t, err)
+	require.NotNil(t, deanonReport)
+
+	// Decrypt and verify deanonymization report
 	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditor, deanonReport, executorPubKey)
 	require.NoError(t, err)
-	// Local struct to avoid depending on exact common type name
-	type reportStruct struct {
-		ApplicationID string                              `json:"applicationId"`
-		RequestID     string                              `json:"requestId"`
-		Accounts      map[string]*wasmCommon.AccountState `json:"accounts"`
-		Nonce         uint64                              `json:"nonce"`
-	}
-	var reportData reportStruct
-	require.NoError(t, json.Unmarshal(decryptedReport, &reportData))
+
+	var reportData appCommon.UnencryptedDeanonymizationReportData
+	err = json.Unmarshal(decryptedReport, &reportData)
+	require.NoError(t, err)
 	require.Equal(t, appId, reportData.ApplicationID)
 	require.Equal(t, "deanon-1", reportData.RequestID)
+
+	// Verify account information in the report
 	accounts := reportData.Accounts
 	require.Contains(t, accounts, user1)
 	require.Equal(t, uint64(1500000000000000000), accounts[user1].Balance)
+
 	require.Contains(t, accounts, user2)
 	require.Equal(t, uint64(500000000000000000), accounts[user2].Balance)
 
-	withdrawAmount := uint64(500000000000000000)
-	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(appId, "withdraw-1", user2, "0x1234567890123456789012345678901234567890", withdrawAmount, executorPubKey)
+	// Deanon report does not contain signature for now, possibly add later
+
+	// Step 5: As another user, send withdrawal request
+	t.Log("Step 5: Sending withdrawal request as user2")
+
+	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
+	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(
+		appId,
+		"withdraw-1",
+		user2,
+		"0x1234567890123456789012345678901234567890",
+		withdrawAmount,
+		executorPubKey,
+	)
 	require.NoError(t, err)
-	require.NoError(t, suite.SubmitRequest(withdrawalReq))
-	require.NoError(t, suite.AssertRequestCompleted("withdraw-1", 10*time.Second))
+
+	err = suite.SubmitRequest(withdrawalReq)
+	require.NoError(t, err)
+
+	// Wait for withdrawal to be processed
+	err = suite.AssertRequestCompleted("withdraw-1", 10*time.Second)
+	require.NoError(t, err)
+
+	// Wait for withdrawal event
 	withdrawalEvent, err := suite.WaitForEvent(user2, 10*time.Second)
 	require.NoError(t, err)
+	require.NotNil(t, withdrawalEvent)
+
+	// Decrypt and verify withdrawal event
 	decryptedWithdrawalData, err := cryptoHelper.DecryptEvent(user2, withdrawalEvent, executorPubKey)
 	require.NoError(t, err)
-	var withdrawalEventData wasmCommon.WithdrawalEvent
-	require.NoError(t, json.Unmarshal(decryptedWithdrawalData, &withdrawalEventData))
+
+	var withdrawalEventData appCommon.WithdrawalEvent
+	err = json.Unmarshal(decryptedWithdrawalData, &withdrawalEventData)
+	require.NoError(t, err)
 	require.Equal(t, "withdrawal", withdrawalEventData.Type)
 	require.Equal(t, "0x1234567890123456789012345678901234567890", withdrawalEventData.To)
 	require.Equal(t, withdrawAmount, withdrawalEventData.Amount)
+
+	// Wait for actual withdrawal to be recorded
 	withdrawal, err := suite.WaitForWithdrawal(appId, 10*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawal)
 	require.Equal(t, "0x1234567890123456789012345678901234567890", withdrawal.DestinationAddress)
 	require.Equal(t, withdrawAmount, withdrawal.Amount)
+
+	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload("withdraw-1")
 	require.NoError(t, err)
-	require.NoError(t, cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey))
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+
+	t.Log("system test completed successfully!")
 
 	suite.Cleanup()
 }

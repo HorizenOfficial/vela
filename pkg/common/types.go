@@ -29,8 +29,6 @@ type Request struct {
 	Timestamp int64 `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender string `json:"sender"`
-	// Signature is the signature of the sender
-	Signature []byte `json:"signature"`
 	// Value is the optional deposit value in WEI
 	Value uint64 `json:"value"`
 }
