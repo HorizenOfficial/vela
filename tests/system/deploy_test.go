@@ -1,4 +1,4 @@
-package main_test
+package main
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/crypto"
+	crypto "github.com/horizen-pes/pkg/crypto"
 )
 
 func TestDeployApp(t *testing.T) {

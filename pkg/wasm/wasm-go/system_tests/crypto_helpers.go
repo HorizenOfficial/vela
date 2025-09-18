@@ -130,3 +130,4 @@ func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayl
 	}
 	return nil
 }
+

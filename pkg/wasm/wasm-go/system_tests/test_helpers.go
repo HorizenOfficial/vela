@@ -204,7 +204,7 @@ func (s *SystemTestSuite) GetExecutorSigningKey() (*cryptotypes.PublicKeySecp256
 }
 
 func (s *SystemTestSuite) LoadWasmModule(t *testing.T, moduleFilename string) []byte {
-	wasmBytes, err := os.ReadFile("payment_app.wasm")
+	wasmBytes, err := os.ReadFile(moduleFilename)
 	require.NoError(t, err, "Failed to read WASM file")
 	return wasmBytes
 }
@@ -220,3 +220,4 @@ func (s *SystemTestSuite) Cleanup() error {
 	s.blockchainClient.ClearAllData()
 	return nil
 }
+
