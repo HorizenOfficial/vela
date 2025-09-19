@@ -53,7 +53,7 @@ func DefaultConfig() *Config {
 func ReadConfig() *Config {
 
 	if !fileExists(confFileName) {
-		log.Printf("File %s not found. Using default configuration for Manager.\n", confFileName);
+		log.Printf("File %s not found. Using default configuration for Executor.\n", confFileName);
 		return DefaultConfig();
 	}
 	// Load properties from file
