@@ -3,6 +3,7 @@
 package executor
 
 import (
+	"log"
 	"os"
 	"context"
 
@@ -52,7 +53,8 @@ func DefaultConfig() *Config {
 func ReadConfig() *Config {
 
 	if !fileExists(confFileName) {
-		panic("File conf not found. Please create it and restart.")
+		log.Printf("File %s not found. Using default configuration for Manager.\n", confFileName);
+		return DefaultConfig();
 	}
 	// Load properties from file
 	config, err := properties.LoadFile(confFileName, properties.UTF8)
@@ -60,9 +62,21 @@ func ReadConfig() *Config {
 		panic(err)
 	}
 	
-	stateKey, _ := crypto.LoadAESKeyFromFilePEM(config.MustGetString("StateKeyPEMFile"))
-	communicationKey, _ := crypto.ImportPrivateKeyP521FromHex(config.MustGetString("CommunicationKeyHex"))
-	signatureKey, _ := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("SignatureKeyHex"))
+	stateKey, err1 := crypto.LoadAESKeyFromFilePEM(config.MustGetString("StateKeyPEMFile"))
+	if err1 != nil {
+		log.Printf("Error loading state key from PEM file: %v\n", err1)
+		panic(err1)
+	}
+	communicationKey, err2 := crypto.ImportPrivateKeyP521FromHex(config.MustGetString("CommunicationKeyHex"))
+	if err2 != nil {
+		log.Printf("Error loading communication key from hex: %v\n", err2)
+		panic(err2)
+	}
+	signatureKey, err3 := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("SignatureKeyHex"))
+		if err3 != nil {
+		log.Printf("Error loading signature key from hex: %v\n", err3)
+		panic(err3)
+	}
 	
 	return &Config{
 		ServerType:       config.MustGetString("ServerType"),
