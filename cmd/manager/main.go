@@ -100,7 +100,7 @@ func main() {
 	defer cancel()
 
 	// Create the manager configuration
-	config := manager.DefaultConfig()
+	config := manager.ReadConfig()
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)
