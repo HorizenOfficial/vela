@@ -53,7 +53,7 @@ type Config struct {
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager
 func DefaultConfig() *Config {
-	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex("5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a")
+	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex("5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a") // well known private key for local development
 	return &Config{
 		BlockchainPollingInterval: 5,     // 5 seconds
 		ExecutorConnectionType:    "tcp", // or "vsock"
@@ -61,7 +61,7 @@ func DefaultConfig() *Config {
 			"url": "localhost:8080",
 		},
 		RpcURL: 			   "http://127.0.0.1:8545",
-		PrivateKey: 			*PrivateKey, // well known private key for local development
+		PrivateKey: 			*PrivateKey,
 		ProcessorAddress: 		"0xCfEB869F69431e42cd62bB3aB5De8C3fB4d92dB", // well known address for local development
 		KeyRegistryAddress: 	"0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1", // well known address for local development
 		MockBlockChainClient:    false,
@@ -84,7 +84,7 @@ func ReadConfig() *Config {
 	}
 	PrivateKey , err := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("PrivateKey"))
 	if err != nil {
-		log.Printf("Error loading PrivateKey from config file: %s.", err);
+		log.Printf("Error loading PrivateKey from config file: %v.", err);
 		panic(err)
 	}
 	return &Config{
