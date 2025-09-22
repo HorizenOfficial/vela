@@ -15,7 +15,6 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
 	commonEth "github.com/ethereum/go-ethereum/common"
@@ -65,14 +64,6 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 	if strings.TrimSpace(config.RpcURL) == "" {
 		return nil, fmt.Errorf("rpc url is empty")
 	}
-	if strings.TrimSpace(config.PrivateKey) == "" {
-		return nil, fmt.Errorf("private key is empty")
-	}
-
-	privKey, err := crypto.ImportPrivateKeySecp256k1FromHex(config.PrivateKey)
-    if err != nil {
-		return nil, fmt.Errorf("failed to parse private key: %w", err)
-	} 
 
 	if !commonEth.IsHexAddress(config.ProcessorAddress){
 		return nil, fmt.Errorf("processor address is not a valid hex address: %s", config.ProcessorAddress)
@@ -86,7 +77,7 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 		commonEth.HexToAddress(config.ProcessorAddress), 
 		commonEth.HexToAddress(config.KeyRegistryAddress), 
 		config.RpcURL, 
-		privKey)
+		&config.PrivateKey)
 
 	return bcClient, nil
 }	
@@ -100,7 +91,7 @@ func main() {
 	defer cancel()
 
 	// Create the manager configuration
-	config := manager.DefaultConfig()
+	config := manager.ReadConfig()
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)

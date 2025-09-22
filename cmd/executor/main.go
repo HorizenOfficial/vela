@@ -14,7 +14,7 @@ func main() {
 	defer cancel()
 
 	// Create the executor configuration
-	config := executor.DefaultConfig()
+	config := executor.ReadConfig()
 
 	// Create the WASM runtime
 	runtime := executor.NewMockRuntime()
