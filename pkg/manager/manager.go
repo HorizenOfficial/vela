@@ -175,6 +175,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
+	fmt.Println("Processing deploy app request:", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
@@ -197,8 +198,10 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		return fmt.Errorf("failed to persist application data: %w", err)
 	}
 
+	fmt.Println("Deployed application, Submit the state update to the blockchain")
 	// Submit the state update to the blockchain
 	if err = m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
+		fmt.Println("failed to submit state update")
 		return fmt.Errorf("failed to submit state update: %w", err)
 	}
 
