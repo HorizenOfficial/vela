@@ -21,6 +21,7 @@ const config: HardhatUserConfig = {
     paths: {
         cache: 'cache/hardhat',
     },
+    defaultNetwork: (process.env.NETWORK || "hardhat"),
     solidity: {
         compilers: [
             {
@@ -39,6 +40,11 @@ const config: HardhatUserConfig = {
             url: 'https://rpc.sepolia.org/',
             accounts,
         },
+        'local': {
+            url: 'http://localhost:8545/',
+            accounts,
+        }, 
+        
     },
 }
 
