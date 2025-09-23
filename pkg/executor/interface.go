@@ -3,11 +3,9 @@
 package executor
 
 import (
+	"context"
 	"log"
 	"os"
-	"context"
-	"os"
-
 
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
@@ -64,15 +62,15 @@ func DefaultConfig() *Config {
 func ReadConfig() *Config {
 
 	if !fileExists(confFileName) {
-		log.Printf("File %s not found. Using default configuration for Executor.\n", confFileName);
-		return DefaultConfig();
+		log.Printf("File %s not found. Using default configuration for Executor.\n", confFileName)
+		return DefaultConfig()
 	}
 	// Load properties from file
 	config, err := properties.LoadFile(confFileName, properties.UTF8)
 	if err != nil {
 		panic(err)
 	}
-	
+
 	stateKey, err1 := crypto.LoadAESKeyFromFilePEM(config.MustGetString("StateKeyPEMFile"))
 	if err1 != nil {
 		log.Printf("Error loading state key from PEM file: %v\n", err1)
@@ -84,17 +82,17 @@ func ReadConfig() *Config {
 		panic(err2)
 	}
 	signatureKey, err3 := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("SignatureKeyHex"))
-		if err3 != nil {
+	if err3 != nil {
 		log.Printf("Error loading signature key from hex: %v\n", err3)
 		panic(err3)
 	}
-	
+
 	return &Config{
 		ServerType:       config.MustGetString("ServerType"),
 		ServerAddr:       config.MustGetString("ServerAddr"),
 		StateKey:         *stateKey,
 		CommunicationKey: communicationKey,
-		SignatureKey:     signatureKey,	
+		SignatureKey:     signatureKey,
 	}
 }
 

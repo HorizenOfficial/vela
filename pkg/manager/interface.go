@@ -1,16 +1,14 @@
 package manager
 
 import (
+	"context"
 	"log"
 	"os"
-	"context"
-	"os"
 
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/magiconair/properties"
-	"github.com/horizen-pes/pkg/crypto"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-
+	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/crypto"
+	"github.com/magiconair/properties"
 )
 
 const confFileName = "manager.conf"
@@ -39,7 +37,7 @@ type Config struct {
 	// Rpc address of the blockchain node
 	RpcURL string
 	// TODO this is the priv key of the account used to sign transactions. For production, it should be managed by a secure vault.
-	PrivateKey           cryptotypes.PrivateKeySecp256k1 
+	PrivateKey cryptotypes.PrivateKeySecp256k1
 
 	// Address of the ProcessorEndpoint contract
 	ProcessorAddress string
@@ -64,7 +62,7 @@ func DefaultConfig() *Config {
 	if executorServerPort == "" {
 		executorServerPort = "8080"
 	}
-	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex("5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a") // well known private key for local development
+	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex(os.Getenv("MANAGER_PRIVATE_KEY")) // well known private key for local development
 	dataPath := os.Getenv("MANAGER_DATA_FOLDER")
 	if dataPath == "" {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
@@ -77,7 +75,6 @@ func DefaultConfig() *Config {
 	if nodePort == "" {
 		nodePort = "8545"
 	}
-	privateKey := os.Getenv("MANAGER_PRIVATE_KEY")
 	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
 	keyRegistryAddress := os.Getenv("CHAIN_KEYREGISTRY_ADDRESS")
 
@@ -87,8 +84,8 @@ func DefaultConfig() *Config {
 		ExecutorConnectionParams: map[string]string{
 			"url": executorServerAddress + ":" + executorServerPort,
 		},
-		RpcURL: 			   "http://127.0.0.1:8545",
-		PrivateKey: 			*PrivateKey,
+		RpcURL:               "http://" + nodeUrl + ":" + nodePort,
+		PrivateKey:           *PrivateKey,
 		ProcessorAddress:     processorAddress,
 		KeyRegistryAddress:   keyRegistryAddress,
 		MockBlockChainClient: false,
@@ -101,30 +98,30 @@ func DefaultConfig() *Config {
 
 func ReadConfig() *Config {
 	if !fileExists(confFileName) {
-		log.Printf("File %s not found. Using default configuration for Manager.\n", confFileName);
-		return DefaultConfig();
+		log.Printf("File %s not found. Using default configuration for Manager.\n", confFileName)
+		return DefaultConfig()
 	}
 	// Load properties from file
 	config, err := properties.LoadFile(confFileName, properties.UTF8)
 	if err != nil {
 		panic(err)
 	}
-	PrivateKey , err := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("PrivateKey"))
+	PrivateKey, err := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("PrivateKey"))
 	if err != nil {
-		log.Printf("Error loading PrivateKey from config file: %v.", err);
+		log.Printf("Error loading PrivateKey from config file: %v.", err)
 		panic(err)
 	}
 	return &Config{
-		BlockchainPollingInterval:	config.MustGetInt64("BlockchainPollingInterval"),
-		ExecutorConnectionType:    	config.MustGetString("ExecutorConnectionType"),
+		BlockchainPollingInterval: config.MustGetInt64("BlockchainPollingInterval"),
+		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{
 			"url": config.MustGetString("ExecutorConnectionUrl"),
 		},
-		RpcURL: 			  	config.MustGetString("RpcUrl"),
-		PrivateKey: 		   	*PrivateKey,
-		ProcessorAddress: 		config.MustGetString("ProcessorAddress"),
-		KeyRegistryAddress: 	config.MustGetString("KeyRegistryAddress"),
-		MockBlockChainClient:   config.MustGetBool("MockBlockChainClient"),
+		RpcURL:               config.MustGetString("RpcUrl"),
+		PrivateKey:           *PrivateKey,
+		ProcessorAddress:     config.MustGetString("ProcessorAddress"),
+		KeyRegistryAddress:   config.MustGetString("KeyRegistryAddress"),
+		MockBlockChainClient: config.MustGetBool("MockBlockChainClient"),
 		// Data layer configuration
 		DataLayerType:          config.MustGetString("DataLayerType"),
 		DataLayerDBPath:        config.MustGetString("DataLayerDBPath"),
