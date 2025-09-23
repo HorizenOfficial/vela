@@ -11,12 +11,18 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
     docker build -t horizen-pes-chain -f dockerfiles/chain/Dockerfile . 
     ```
 
-2) Create an .env file using .env.template as draft
-
-3) Start the environment with:
+2) Switch to "dockerfiles" folder
 
     ```
     cd dockerfiles
+    ```
+
+3) Create an .env file using .env.template as draft
+
+
+4) Start the environment with:
+
+    ```
     docker compose up 
     ```
 
