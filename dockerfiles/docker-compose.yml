@@ -24,6 +24,8 @@ services:
     environment:
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT
+    depends_on:
+      - chain
   manager:
     image: horizen-pes-manager
     container_name: horizen-pes-manager
@@ -45,6 +47,7 @@ services:
       - horizen-pes-manager-data:${MANAGER_DATA_FOLDER:-/data}
     depends_on:
       - executor 
+      - chain
   chain:
     image: horizen-pes-chain
     container_name: horizen-pes-chain
