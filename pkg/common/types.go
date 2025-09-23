@@ -1,6 +1,10 @@
 // Package common provide the data structures used in the application.
 package common
 
+import (
+	"math/big"
+)
+
 // RequestType represents the type of request being sent to the TEE
 type RequestType string
 
@@ -103,3 +107,9 @@ type PlainEvent struct {
 	// Data is the encrypted event data
 	Data []byte `json:"data"`
 }
+
+func StringToBigInt(s string) (*big.Int, bool) {
+	i, ok := new(big.Int).SetString(s, 10)
+	return i, ok
+}
+

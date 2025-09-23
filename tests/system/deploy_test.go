@@ -26,11 +26,14 @@ func TestDeployApp(t *testing.T) {
 	err = suite.AddUserKeys("test-user", userKey.PublicKey().Bytes())
 	require.NoError(t, err)
 
+	RequestID := "233"
+	ApplicationId := "1"
+
 	// 4. Submit deploy request
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
-		ApplicationID: "test-app",
-		RequestID:     "test-deploy-1",
+		ApplicationID: ApplicationId,
+		RequestID:      RequestID,
 		Payload:       []byte("deploy-payload"),
 		Sender:        "test-user",
 		Timestamp:     time.Now().Unix(),
@@ -39,16 +42,16 @@ func TestDeployApp(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. Assert app state created in DB
-	appState, err := suite.WaitForAppStateInDB("test-app", 10*time.Second)
+	appState, err := suite.WaitForAppStateInDB(ApplicationId, 10*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, appState)
 
 	// 6. Assert app state created in blockchain
-	appState, err = suite.WaitForAppStateInBlockchain("test-app", 10*time.Second)
+	appState, err = suite.WaitForAppStateInBlockchain(ApplicationId, 10*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, appState)
 
 	// 7. Assert request marked as done
-	err = suite.AssertRequestCompleted("test-deploy-1", 10*time.Second)
+	err = suite.AssertRequestCompleted(RequestID, 10*time.Second)
 	require.NoError(t, err)
 }

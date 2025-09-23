@@ -9,13 +9,12 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
-	commonEth "github.com/ethereum/go-ethereum/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
 //go:generate mkdir -p ../../contract_abis
@@ -46,8 +45,8 @@ type ChainClient interface {
 type BlockChainClient struct {
 	mu                       sync.RWMutex
 	connected                bool
-	processorAddress         commonEth.Address
-	keyRegistryAddress       commonEth.Address
+	processorAddress         ethCommon.Address
+	keyRegistryAddress       ethCommon.Address
 	rpcURL                   string
 	processorBoundContract   *bind.BoundContract
 	processorEndpoint        *processorendpoint.ProcessorEndpoint
@@ -71,12 +70,7 @@ func toRequestType(i uint8) common.RequestType {
 	}
 }
 
-func stringToBigInt(s string) (*big.Int, bool) {
-	i, ok := new(big.Int).SetString(s, 10)
-	return i, ok
-}
-
-func NewBlockChainClient(processor commonEth.Address, keyRegistry commonEth.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
+func NewBlockChainClient(processor ethCommon.Address, keyRegistry ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:    processor,
 		keyRegistryAddress:  keyRegistry,
@@ -160,7 +154,7 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := stringToBigInt(requestID)
+	reqId, ok := common.StringToBigInt(requestID)
 	if !ok {
 		return fmt.Errorf("invalid request ID: %s", requestID)
 	}
@@ -186,7 +180,7 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := stringToBigInt(requestID)
+	reqId, ok := common.StringToBigInt(requestID)
 	if !ok {
 		return fmt.Errorf("invalid request ID: %s", requestID)
 	}
@@ -217,12 +211,12 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := stringToBigInt(update.RequestID)
+	reqId, ok := common.StringToBigInt(update.RequestID)
 	if !ok {
 		return fmt.Errorf("invalid request ID: %s", update.RequestID)
 	}
 
-	appId, ok := stringToBigInt(update.ApplicationID)
+	appId, ok := common.StringToBigInt(update.ApplicationID)
 	if !ok {
 		return fmt.Errorf("invalid application ID: %s", update.ApplicationID)
 	}
@@ -236,7 +230,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	for i, withdrawal := range update.Withdrawals {
 		amount := new(big.Int).SetUint64(withdrawal.Amount)
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
-			Receiver: commonEth.HexToAddress(withdrawal.DestinationAddress),
+			Receiver: ethCommon.HexToAddress(withdrawal.DestinationAddress),
 			Amount:   amount,
 		}
 	}
@@ -274,7 +268,7 @@ func (c *BlockChainClient) GetPublicKey(ctx context.Context, address string) ([]
 
 	pubKey, err := bind.Call(c.keyRegistryBoundContract,
 		&bind.CallOpts{Pending: false},
-		c.keyRegistryEndpoint.PackGetPK(commonEth.HexToAddress(address)),
+		c.keyRegistryEndpoint.PackGetPK(ethCommon.HexToAddress(address)),
 		c.keyRegistryEndpoint.UnpackGetPK)
 
 	if err != nil {

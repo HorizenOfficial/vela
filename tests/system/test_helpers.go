@@ -61,7 +61,8 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	default:
 		t.Fatalf("Unknown app type: %s", appType)
 	}
-	exec := executor.NewStatelessExecutor(execConfig, runtime, server)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server)
+	require.NoError(t, err)
 
 	// Create event channel
 	eventChannel := make(chan interface{}, 100)
