@@ -9,6 +9,7 @@ require (
 	github.com/elliotchance/orderedmap/v3 v3.1.0
 	github.com/ethereum/go-ethereum v1.16.1
 	github.com/google/go-cmp v0.5.9
+	github.com/magiconair/properties v1.8.10
 	github.com/mdlayher/vsock v1.2.1
 	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
