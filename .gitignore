@@ -6,7 +6,6 @@
 /dist/
 /*.exe
 contract_abis/
-pkg/blockchain/contracts/
 
 *.test
 *.out

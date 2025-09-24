@@ -37,17 +37,12 @@ jobs:
       - name: Download Go dependencies
         run: go mod download
 
-      # Install dependencies for abigen
-      - name: Install abigen and solc
+      # Install solc
+      - name: Install solc
         run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
           sudo apt-get install -y solc
-          go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
-
-      # Generate contracts bindings
-      - name: Generate contracts bindings
-        run: go generate ./...
 
       # Build a Go project
       - name: Build Go project
@@ -100,17 +95,12 @@ jobs:
       - name: Download Go dependencies
         run: go mod download
 
-      # Install dependencies for abigen
-      - name: Install abigen and solc
+      # Install dependencies for solc
+      - name: Install solc
         run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
           sudo apt-get install -y solc
-          go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
-
-      # Generate contracts bindings
-      - name: Generate contracts bindings
-        run: go generate ./...
 
       # Build a Go project
       - name: Build Go project
