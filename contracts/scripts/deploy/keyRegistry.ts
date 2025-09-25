@@ -8,7 +8,7 @@ async function deploy()  {
   //deploy 
   const KeyRegistry = await ethers.getContractFactory("KeyRegistry");
   const keyRegistry = await KeyRegistry.deploy();
-  await keyRegistry.deploymentTransaction().wait();
+  await keyRegistry.deploymentTransaction()!.wait();
 
   console.log(`contract deployed at ${await keyRegistry.getAddress()}`);
 }
