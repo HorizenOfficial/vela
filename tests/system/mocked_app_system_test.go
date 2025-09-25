@@ -1,6 +1,7 @@
-package test_system
+package system
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -55,4 +56,17 @@ func TestDeployApp(t *testing.T) {
 	// 7. Assert request marked as done
 	err = suite.AssertRequestCompleted(RequestID, 10*time.Second)
 	require.NoError(t, err)
+}
+
+func TestMockRuntimeAppFullSystemFlow(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	suite := NewSystemTestSuite(t, "mock-runtime")
+	defer suite.Cleanup()
+	// Load wasm bytecode for the wasm app
+	wasmBytecode := []byte("mock-runtime-app-bytecode")
+
+	ExecTestAppFullSystemFlow(t, suite, wasmBytecode)
 }
