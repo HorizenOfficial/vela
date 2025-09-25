@@ -24,7 +24,12 @@ func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Addre
 
 	teeContract := tee.NewTeeAuthenticator()
 
-	teeContractInstance := teeContract.Instance(nodeClient, teeSignerAddress)
+	//generate mock secp251r1 pk
+	pk := make([]byte, 133)
+	for i := range pk {
+		pk[i] = 1
+	}
+	teeContractInstance := teeContract.Instance(nodeClient, teeSignerAddress, pk)
 
 	return &SimTeeAuthenticatorHelper{
 		t:                   t,
