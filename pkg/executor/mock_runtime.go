@@ -100,14 +100,14 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			return nil, nil, nil, fmt.Errorf("failed to unmarshal payload instructions: %w", err)
 		}
 
-		typ, _ := instructions["type"].(string)
+		typ := instructions["type"].(string)
 		switch typ {
 		case "transfer":
-			transfer, _ := instructions["transfer"].(map[string]interface{})
+			transfer := instructions["transfer"].(map[string]interface{})
 			if transfer == nil {
 				return nil, nil, nil, fmt.Errorf("transfer instruction is nil")
 			}
-			to, _ := transfer["to"].(string)
+			to := transfer["to"].(string)
 			amount := toUint64(transfer["amount"])
 
 			// Ensure sender exists and has balance
@@ -142,11 +142,11 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			events = append(events, senderEvent, recipientEvent)
 
 		case "withdraw":
-			withdraw, _ := instructions["withdraw"].(map[string]interface{})
+			withdraw := instructions["withdraw"].(map[string]interface{})
 			if withdraw == nil {
 				return nil, nil, nil, fmt.Errorf("withdraw instruction is nil")
 			}
-			to, _ := withdraw["to"].(string)
+			to := withdraw["to"].(string)
 			amount := toUint64(withdraw["amount"])
 
 			senderAcct := accounts[sender]
