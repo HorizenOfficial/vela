@@ -2,12 +2,7 @@ import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
 import { KeyRegistry } from '../typechain-types';
-import * as crypto from 'crypto';
-
-function _getRandomHexString(length: number): string {
-  const bytes = crypto.randomBytes(length);
-  return '0x' + bytes.toString('hex');
-}
+import { getRandomHexString } from './util';
 
 describe('KeyRegistry Test', function () {
     let signers: Signer[];
@@ -24,8 +19,8 @@ describe('KeyRegistry Test', function () {
     })
 
     it('should save key and retrieve', async function () {
-        let key1 = _getRandomHexString(length);
-        let key2 = _getRandomHexString(length);
+        let key1 = getRandomHexString(length);
+        let key2 = getRandomHexString(length);
 
         let tx = await keyRegistry.connect(signers[0]).registerPK(key1);
         await tx.wait();
@@ -37,7 +32,7 @@ describe('KeyRegistry Test', function () {
     })
 
     it('should emit event', async function () {
-        let key1 = _getRandomHexString(length);
+        let key1 = getRandomHexString(length);
 
         await expect( 
             keyRegistry.connect(signers[0]).registerPK(key1)
@@ -46,7 +41,7 @@ describe('KeyRegistry Test', function () {
     })
 
     it('should fail if wrong length', async function () {
-        let key1 = _getRandomHexString(length+10);
+        let key1 = getRandomHexString(length+10);
 
         await expect( 
             keyRegistry.connect(signers[0]).registerPK(key1)
