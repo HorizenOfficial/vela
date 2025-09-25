@@ -1,0 +1,66 @@
+version: "3"
+
+networks:
+  pes_network:
+    ipam:
+      config:
+        - subnet: ${INTERNAL_NETWORK_SUBNET}
+  inet:     
+
+volumes:
+  horizen-pes-manager-data:  
+  horizen-pes-chain-data:
+
+services:
+  executor:
+    image: horizen-pes-executor
+    container_name: horizen-pes-executor
+    restart: always
+    ports:
+      - "${EXECUTOR_IP_PORT}:${EXECUTOR_IP_PORT}"
+    networks:
+      pes_network:
+        ipv4_address: ${EXECUTOR_IP_ADDRESS}
+    environment:
+      - EXECUTOR_IP_ADDRESS
+      - EXECUTOR_IP_PORT
+    depends_on:
+      - chain
+  manager:
+    image: horizen-pes-manager
+    container_name: horizen-pes-manager
+    restart: always 
+    environment:
+      - EXECUTOR_IP_ADDRESS
+      - EXECUTOR_IP_PORT  
+      - MANAGER_PRIVATE_KEY
+      - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
+      - CHAIN_RPC_ADDRESS
+      - CHAIN_RPC_PORT
+      - CHAIN_PROCESSOR_ADDRESS
+      - CHAIN_KEYREGISTRY_ADDRESS
+    networks:
+      pes_network:
+        ipv4_address: ${MANAGER_IP_ADDRESS}
+      inet:    
+    volumes:
+      - horizen-pes-manager-data:${MANAGER_DATA_FOLDER:-/data}
+    depends_on:
+      - executor 
+      - chain
+  chain:
+    image: horizen-pes-chain
+    container_name: horizen-pes-chain
+    restart: always 
+    environment:
+      - DATA_FOLDER=${CHAIN_DATA_FOLDER:-/data}
+      - RPCPORT=${CHAIN_RPC_PORT:-8545}
+    ports:
+      - "${CHAIN_RPC_PORT}:${CHAIN_RPC_PORT}"
+    networks:
+      pes_network:
+        ipv4_address: ${CHAIN_RPC_ADDRESS}
+      inet:    
+    volumes:
+      - horizen-pes-chain-data:${CHAIN_DATA_FOLDER:-/data} 
+

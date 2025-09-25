@@ -1,0 +1,16 @@
+/.idea/**
+/.vscode/**
+
+/bin/
+/build/
+/dist/
+/*.exe
+contract_abis/
+
+*.test
+*.out
+*.log
+*.tmp
+TODO.md
+.env
+*.bkp
