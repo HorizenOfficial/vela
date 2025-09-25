@@ -1,9 +1,11 @@
 package system
 
 import (
-	"github.com/stretchr/testify/require"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/crypto"
@@ -22,7 +24,8 @@ func TestDeployApp(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Add user keys to registry
-	userKey, _ := crypto.GeneratePrivateKeyP521()
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
 	err = suite.AddUserKeys("test-user", userKey.PublicKey().Bytes())
 	require.NoError(t, err)
 
@@ -33,7 +36,7 @@ func TestDeployApp(t *testing.T) {
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
 		ApplicationID: ApplicationId,
-		RequestID:      RequestID,
+		RequestID:     RequestID,
 		Payload:       []byte("deploy-payload"),
 		Sender:        "test-user",
 		Timestamp:     time.Now().Unix(),
@@ -54,4 +57,17 @@ func TestDeployApp(t *testing.T) {
 	// 7. Assert request marked as done
 	err = suite.AssertRequestCompleted(RequestID, 10*time.Second)
 	require.NoError(t, err)
+}
+
+func TestMockRuntimeAppFullSystemFlow(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	suite := NewSystemTestSuite(t, "mock-runtime")
+	defer suite.Cleanup()
+	// Load wasm bytecode for the wasm app
+	wasmBytecode := []byte("mock-runtime-app-bytecode")
+
+	ExecTestAppFullSystemFlow(t, suite, wasmBytecode)
 }

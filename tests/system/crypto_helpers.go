@@ -227,7 +227,6 @@ func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayl
 		return fmt.Errorf("failed to build message to sign: %w", err)
 	}
 
-
 	payload.Signature[64] -= 27 //SigToPub requires v field < 4
 	// Recover the public key from the signature
 	recoveredPubKey, err := ethCrypto.SigToPub(msg, payload.Signature)

@@ -125,12 +125,21 @@ Before running `abigen`, install contracts dependencies:
 cd contracts
 npm install
 ```
+Go bindings are generated using the `go generate` command, which in turn invokes the `abigen` tool. The resulting files are committed to this repository to make them available for dependent packages. If you modify the contracts, you must regenerate these files.
 
-`abigen` is run using `go generate` command.
-So, before compiling, it is necessary to run the following:
+Remove existing generated files:
+
 ```bash
-go generate ./...
+    rm -fr pkg/blockchain/contracts/*
 ```
+
+Run the Go code generator:
+
+```bash
+    go generate ./...
+```
+
+Finally, commit the newly generated files to the repository.
 
 ## Testing
 

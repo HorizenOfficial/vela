@@ -40,12 +40,6 @@ RUN go mod download
 # Copy the rest of the source code
 COPY . .
 
-#Install abigen
-RUN go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
-
-#Generate contract bindings
-RUN go generate ./...
-
 # Build the manager binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o /manager ./cmd/manager
 
