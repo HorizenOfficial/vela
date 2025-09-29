@@ -9,6 +9,7 @@ import (
 
 	"github.com/horizen-pes/app/simple/app"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/testutil"
 	pes_wasm "github.com/horizen-pes/pkg/wasm"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +56,6 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(initialStateBytes, &initialState)
 	require.NoError(t, err)
 	require.Equal(t, appId, initialState.AppID)
-	require.Equal(t, uint64(0), initialState.Counter)
 	require.Empty(t, initialState.Accounts)
 
 	// 2. User1 Deposits funds
@@ -68,7 +68,6 @@ func TestSimpleAppIntegration(t *testing.T) {
 	var depositState app.ApplicationInternalState
 	err = json.Unmarshal(depositState1Bytes, &depositState)
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), depositState.Counter)
 	require.Len(t, depositState.Accounts, 1)
 	require.Equal(t, deposit1Amount, depositState.Accounts[user1Address].Balance)
 
@@ -81,7 +80,6 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	err = json.Unmarshal(depositState2Bytes, &depositState)
 	require.NoError(t, err)
-	require.Equal(t, uint64(2), depositState.Counter)
 	require.Len(t, depositState.Accounts, 2)
 	require.Equal(t, deposit2Amount, depositState.Accounts[user2Address].Balance)
 
@@ -107,7 +105,6 @@ func TestSimpleAppIntegration(t *testing.T) {
 	var withdrawState app.ApplicationInternalState
 	err = json.Unmarshal(withdrawStateBytes, &withdrawState)
 	require.NoError(t, err)
-	require.Equal(t, uint64(2), withdrawState.Counter) // Counter doesn't change on withdraw
 	require.Equal(t, deposit1Amount-withdrawAmount, withdrawState.Accounts[user1Address].Balance)
 
 	require.Equal(t, recipient1Address, withdrawals[0].DestinationAddress)
@@ -124,5 +121,29 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, appId, report["applicationId"])
 	require.Equal(t, requestId, report["requestId"])
-	require.Equal(t, float64(2), report["counter"]) // json unmarshals numbers to float64
+	t.Log(" Report:\n", testutil.PrettyPrintJSON(report))
+
+	// 5. Compare addresses
+	compareInstructions := app.CompareInstructions{
+		TargetAddress: user2Address,
+	}
+	payload = app.PayloadInstructions{
+		Type:            "compare_addresses",
+		CompareAccounts: &compareInstructions,
+	}
+
+	payloadBytes, err = json.Marshal(payload)
+	require.NoError(t, err)
+
+	compareStateBytes, events, withdrawals, err := runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, withdrawStateBytes, wasmBytes)
+	require.NoError(t, err)
+	require.NotNil(t, compareStateBytes)
+	require.Len(t, events, 1)
+	require.Len(t, withdrawals, 0)
+
+	var eventData map[string]interface{}
+	err = json.Unmarshal(events[0].Data, &eventData)
+	require.NoError(t, err)
+	t.Log("Event:\n", testutil.PrettyPrintJSON(eventData))
+
 }

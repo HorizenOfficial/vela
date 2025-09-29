@@ -20,7 +20,6 @@ type AccountState struct {
 type ApplicationInternalState struct {
 	AppID    string                   `json:"appId"`
 	Accounts map[string]*AccountState `json:"accounts"`
-	Counter  uint64                   `json:"counter"`
 }
 
 // WithdrawInstruction represents instructions for withdrawing funds
@@ -29,10 +28,15 @@ type WithdrawInstruction struct {
 	Amount uint64 `json:"amount"`
 }
 
+type CompareInstructions struct {
+	TargetAddress string `json:"targetAddress"`
+}
+
 // PayloadInstructions represents the deserialized payload instructions
 type PayloadInstructions struct {
-	Type     string               `json:"type"`
-	Withdraw *WithdrawInstruction `json:"withdraw,omitempty"`
+	Type            string               `json:"type"`
+	CompareAccounts *CompareInstructions `json:"compare,omitempty"`
+	Withdraw        *WithdrawInstruction `json:"withdraw,omitempty"`
 }
 
 // --- High-Level Application Logic ---
@@ -41,7 +45,6 @@ func LoadModule(appId string) []byte {
 	initialState := &ApplicationInternalState{
 		AppID:    appId,
 		Accounts: make(map[string]*AccountState),
-		Counter:  0,
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
@@ -66,13 +69,11 @@ func DepositFunds(sender string, value uint64, stateJSON string) wasmCommon.Depo
 
 	// Add deposit to sender's balance
 	currentState.Accounts[sender].Balance += value
-	currentState.Counter++
 
 	// Create deposit event
 	eventData := map[string]interface{}{
-		"type":    "deposit",
-		"amount":  value,
-		"counter": currentState.Counter,
+		"type":   "deposit",
+		"amount": value,
 	}
 	eventDataBytes, err := json.Marshal(eventData)
 	if err != nil {
@@ -109,6 +110,45 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 		}
 
 		switch instructions.Type {
+		case "compare_addresses":
+			if instructions.CompareAccounts == nil {
+				return wasmCommon.ProcessResult{Error: "Compare instruction is missing"}
+			}
+			targetAddress := instructions.CompareAccounts.TargetAddress
+
+			// Validate accounts to be compared
+			if currentState.Accounts[targetAddress] == nil {
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", targetAddress)}
+			}
+
+			targetBalance := currentState.Accounts[targetAddress].Balance
+			senderBalance := currentState.Accounts[sender].Balance
+
+			var cmp = ""
+			if targetBalance < senderBalance {
+				cmp = " richer then "
+			} else if targetBalance > senderBalance {
+				cmp = " poorer then "
+			} else {
+				cmp = " as wealthy as "
+			}
+			sentence := "I am " + string(sender) + " and I am" + cmp + "than " + string(targetAddress)
+
+			// Create action event
+			eventData := map[string]interface{}{
+				"type":     "compare_accounts",
+				"sentence": sentence,
+			}
+			eventDataBytes, err := json.Marshal(eventData)
+			if err != nil {
+				return wasmCommon.ProcessResult{Error: "Failed to serialize event data"}
+			}
+
+			events = append(events, common.PlainEvent{
+				UserID: sender,
+				Data:   eventDataBytes,
+			})
+
 		case "withdraw":
 			if instructions.Withdraw == nil {
 				return wasmCommon.ProcessResult{Error: "Withdraw instruction is missing"}
@@ -179,7 +219,6 @@ func GenerateDeanonymizationReport(appId, requestId, stateJSON string) wasmCommo
 		"applicationId": appId,
 		"requestId":     requestId,
 		"accounts":      currentState.Accounts,
-		"counter":       currentState.Counter,
 	}
 
 	// Serialize the report
