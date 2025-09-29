@@ -2,8 +2,9 @@ package communication
 
 import (
 	"context"
-	"github.com/horizen-pes/pkg/common"
 	"net"
+
+	"github.com/horizen-pes/pkg/common"
 )
 
 // ExecutorClient defines the interface for communication with the WASM Executor.
@@ -16,11 +17,11 @@ type ExecutorClient interface {
 	// Close closes the connection to the executor
 	Close() error
 	// SendProcessRequest sends a request to the executor and returns the response
-	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	// SendDeployApp deploys a new application to the executor
 	SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
 	// SendGenerateDeanonymizationReport generates a deanonymization report
-	SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error)
+	SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
 	// SetClientRequestHandler sets the handler for incoming requests from server
 	SetClientRequestHandler(handler ClientRequestHandler)
 }
@@ -36,24 +37,21 @@ type ExecutorServer interface {
 	Stop() error
 	// SetRequestHandler sets the handler for incoming requests
 	SetRequestHandler(handler RequestHandler)
-	// SendGetUserKeys requests user keys from the connected client
-	SendGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error)
 }
 
-// ClientRequestHandler defines the interface for handling requests from server to client
+// ClientRequestHandler defines the interface for handling requests from server (the executor) to client (the manager)
 type ClientRequestHandler interface {
-	// HandleGetUserKeys retrieves user keys for the specified application and users
-	HandleGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error)
+	//TBD: add here any request needed
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor
 type RequestHandler interface {
 	// HandleProcessRequest processes a request and returns the response
-	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	// HandleDeployApp deploys a new application
 	HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
 	// HandleGenerateDeanonymizationReport generates a deanonymization report
-	HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error)
+	HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
 }
 
 type ConnectionFactory interface {

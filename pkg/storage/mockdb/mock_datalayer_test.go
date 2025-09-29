@@ -24,7 +24,7 @@ func TestNewMockDataLayer(t *testing.T) {
 }
 
 // TestApplicationStateStore tests the full functionality of the MockDataLayer,
-// covering all the methods of the ApplicationStateStore, ApplicationUserKeyStore,
+// covering all the methods of the ApplicationStateStore
 // and ApplicationReportStore interfaces. It checks for correct data storage and
 // retrieval, error handling for non-existent data, behavior after closing the store,
 // and concurrent access.
@@ -119,30 +119,6 @@ func TestApplicationStateStore(t *testing.T) {
 		}
 	})
 
-	t.Run("StoreAndGetUserKey", func(t *testing.T) {
-		store := createStore()
-		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		userID := "user-id-1"
-		expectedPublicKey := []byte("some-public-key-bytes-1")
-		err := store.StoreUserKey(ctx, userID, expectedPublicKey)
-		require.NoError(t, err, "StoreUserKey should not error")
-		actualPublicKey, err := store.GetUserKey(ctx, userID)
-		require.NoError(t, err, "GetUserKey for existing ID should not error")
-		require.NotNil(t, actualPublicKey, "GetUserKey should return non-nil public key")
-		assert.True(t, bytes.Equal(expectedPublicKey, actualPublicKey), "Retrieved User Key mismatch")
-	})
-
-	t.Run("GetNonExistentUserKey", func(t *testing.T) {
-		store := createStore()
-		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		_, err := store.GetUserKey(ctx, "non-existent-user-id")
-		require.Error(t, err, "Expected an error when getting non-existent user key")
-		var notFoundErr *storageErrors.Error
-		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
-			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
-		}
-	})
-
 	t.Run("CloseStore", func(t *testing.T) {
 		store := createStore()
 		err := store.Close()
@@ -173,14 +149,7 @@ func TestApplicationStateStore(t *testing.T) {
 			},
 			"StoreDeanonymizationReport": func() error {
 				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
-			},
-			"GetUserKey": func() error {
-				_, err := store.GetUserKey(ctx, "any-id")
-				return err
-			},
-			"StoreUserKey": func() error {
-				return store.StoreUserKey(ctx, "test-user", []byte("key"))
-			},
+			}
 		}
 
 		for name, op := range operations {

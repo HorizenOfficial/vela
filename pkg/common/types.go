@@ -9,6 +9,8 @@ import (
 type RequestType string
 
 const (
+	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
+	AssociateKey RequestType = "associatekey"
 	// Deploy represents a request to deploy a new application
 	Deploy RequestType = "deploy"
 	// Process is used for processing a batch of requests
@@ -27,7 +29,8 @@ type Request struct {
 	RequestID string `json:"requestId"`
 	// RequestType is the type of request
 	RequestType RequestType `json:"requestType"`
-	// Payload is the encrypted payload for the request
+	// Payload is the payload for the request
+	// All payloads except the one for AssociateKey are encrypted
 	Payload []byte `json:"payload"`
 	// Timestamp is the time the request was submitted
 	Timestamp int64 `json:"timestamp"`
@@ -112,4 +115,3 @@ func StringToBigInt(s string) (*big.Int, bool) {
 	i, ok := new(big.Int).SetString(s, 10)
 	return i, ok
 }
-

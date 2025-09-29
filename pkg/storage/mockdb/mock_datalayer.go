@@ -120,31 +120,6 @@ func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID s
 	return report, nil
 }
 
-// StoreUserKey stores a user's public key.
-func (d *MockDataLayer) StoreUserKey(ctx context.Context, userID string, publicKey []byte) error {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-	if err := d.checkClosed(); err != nil {
-		return err
-	}
-	d.keys[userID] = publicKey
-	return nil
-}
-
-// GetUserKey retrieves a user's public key.
-func (d *MockDataLayer) GetUserKey(ctx context.Context, userID string) ([]byte, error) {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
-	if err := d.checkClosed(); err != nil {
-		return nil, err
-	}
-	publicKey, exists := d.keys[userID]
-	if !exists {
-		return nil, errors.ErrNotFound("public key not found for user: " + userID)
-	}
-	return publicKey, nil
-}
-
 // Close marks the mock data layer as closed.
 func (d *MockDataLayer) Close() error {
 	d.mutex.Lock()
@@ -173,7 +148,6 @@ func (d *MockDataLayer) ListVersions() ([][]byte, error) {
 }
 
 var _ storage.ApplicationStateStore = (*MockDataLayer)(nil)
-var _ storage.ApplicationUserKeyStore = (*MockDataLayer)(nil)
 var _ storage.ApplicationReportStore = (*MockDataLayer)(nil)
 
 var _ storage.DataLayer = (*MockDataLayer)(nil)
