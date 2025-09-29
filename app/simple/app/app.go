@@ -126,13 +126,13 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 
 			var cmp = ""
 			if targetBalance < senderBalance {
-				cmp = " richer than "
+				cmp = "richer than"
 			} else if targetBalance > senderBalance {
-				cmp = " poorer than "
+				cmp = "poorer than"
 			} else {
-				cmp = " as wealthy as "
+				cmp = "as wealthy as"
 			}
-			sentence := "I am " + string(sender) + " and I am" + cmp + string(targetAddress)
+			sentence := sender + " is " + cmp + " " + targetAddress
 
 			// Create action event
 			eventData := map[string]interface{}{

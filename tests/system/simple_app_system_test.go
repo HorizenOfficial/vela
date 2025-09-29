@@ -15,8 +15,8 @@ import (
 	"github.com/horizen-pes/pkg/testutil"
 )
 
-// buildAndLoadSimpleApp is a helper function to build the wasm module and read its bytecode.
-func buildAndLoadSimpleApp(t *testing.T) []byte {
+// buildAndLoadWasmModule is a helper function to build the wasm module and read its bytecode.
+func buildAndLoadWasmModule(t *testing.T) []byte {
 	// Get the project root directory to construct absolute paths
 	_, b, _, ok := runtime.Caller(0)
 	require.True(t, ok)
@@ -43,7 +43,7 @@ func TestDeploySimpleApp(t *testing.T) {
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
-	wasmBytecode := buildAndLoadSimpleApp(t)
+	wasmBytecode := buildAndLoadWasmModule(t)
 
 	// 2. Start executor
 	err := suite.StartExecutor()
@@ -97,7 +97,7 @@ func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
 	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
 	defer suite.Cleanup()
 
-	wasmBytecode := buildAndLoadSimpleApp(t)
+	wasmBytecode := buildAndLoadWasmModule(t)
 
 	testutil.ExecTestAppFullSystemFlow(t, suite, wasmBytecode)
 }

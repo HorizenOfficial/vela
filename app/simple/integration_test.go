@@ -24,23 +24,24 @@ const (
 	recipient1Address = "0xadd0000000000000000000000000000000000003"
 )
 
-// buildWasmModule runs `make build` to compile the wasm module.
-func buildWasmModule(t *testing.T) {
+// buildAndLoadWasmModule runs `make build` to compile and load the wasm module.
+func buildAndLoadWasmModule(t *testing.T) []byte {
 	t.Helper()
 	cmd := exec.Command("make", "build")
 	cmd.Dir = "." // Run in the current directory
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "failed to build wasm module: %s", string(output))
-}
-
-func TestSimpleAppIntegration(t *testing.T) {
-	// Build the wasm module first
-	buildWasmModule(t)
 
 	// Read the wasm module
 	wasmBytes, err := os.ReadFile(wasmModulePath)
 	require.NoError(t, err)
 	require.NotEmpty(t, wasmBytes)
+	return wasmBytes
+}
+
+func TestSimpleAppIntegration(t *testing.T) {
+	// Build and load the wasm module
+	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
 	runtime := pes_wasm.NewWasmtimeRuntime()
