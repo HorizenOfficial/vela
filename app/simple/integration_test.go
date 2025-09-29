@@ -1,0 +1,128 @@
+package main_test
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"testing"
+
+	"github.com/horizen-pes/app/simple/app"
+	"github.com/horizen-pes/pkg/common"
+	pes_wasm "github.com/horizen-pes/pkg/wasm"
+	"github.com/stretchr/testify/require"
+)
+
+var _ = []common.Withdrawal{}
+
+const (
+	wasmModulePath    = "build/simple_app.wasm"
+	appId             = "simple_app_test"
+	user1Address      = "0xadd0000000000000000000000000000000000001"
+	user2Address      = "0xadd0000000000000000000000000000000000002"
+	recipient1Address = "0xadd0000000000000000000000000000000000003"
+)
+
+// buildWasmModule runs `make build` to compile the wasm module.
+func buildWasmModule(t *testing.T) {
+	t.Helper()
+	cmd := exec.Command("make", "build")
+	cmd.Dir = "." // Run in the current directory
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "failed to build wasm module: %s", string(output))
+}
+
+func TestSimpleAppIntegration(t *testing.T) {
+	// Build the wasm module first
+	buildWasmModule(t)
+
+	// Read the wasm module
+	wasmBytes, err := os.ReadFile(wasmModulePath)
+	require.NoError(t, err)
+	require.NotEmpty(t, wasmBytes)
+
+	// Create a new wasmtime runtime
+	runtime := pes_wasm.NewWasmtimeRuntime()
+	defer runtime.Close()
+
+	ctx := context.Background()
+
+	// 1. Load the module
+	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	var initialState app.ApplicationInternalState
+	err = json.Unmarshal(initialStateBytes, &initialState)
+	require.NoError(t, err)
+	require.Equal(t, appId, initialState.AppID)
+	require.Equal(t, uint64(0), initialState.Counter)
+	require.Empty(t, initialState.Accounts)
+
+	// 2. User1 Deposits funds
+	deposit1Amount := uint64(1000)
+	depositState1Bytes, depositEvents, err := runtime.Deposit(ctx, appId, user1Address, deposit1Amount, initialStateBytes, wasmBytes)
+	require.NoError(t, err)
+	require.NotNil(t, depositState1Bytes)
+	require.Len(t, depositEvents, 1)
+
+	var depositState app.ApplicationInternalState
+	err = json.Unmarshal(depositState1Bytes, &depositState)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), depositState.Counter)
+	require.Len(t, depositState.Accounts, 1)
+	require.Equal(t, deposit1Amount, depositState.Accounts[user1Address].Balance)
+
+	// 2. User2 Deposits funds (more than previous user)
+	deposit2Amount := uint64(2000)
+	depositState2Bytes, depositEvents, err := runtime.Deposit(ctx, appId, user2Address, deposit2Amount, depositState1Bytes, wasmBytes)
+	require.NoError(t, err)
+	require.NotNil(t, depositState2Bytes)
+	require.Len(t, depositEvents, 1)
+
+	err = json.Unmarshal(depositState2Bytes, &depositState)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), depositState.Counter)
+	require.Len(t, depositState.Accounts, 2)
+	require.Equal(t, deposit2Amount, depositState.Accounts[user2Address].Balance)
+
+	// 3. Process a withdraw request for user1
+	withdrawAmount := uint64(200)
+	withdrawInstruction := app.WithdrawInstruction{
+		To:     recipient1Address,
+		Amount: withdrawAmount,
+	}
+	payload := app.PayloadInstructions{
+		Type:     "withdraw",
+		Withdraw: &withdrawInstruction,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	withdrawStateBytes, withdrawEvents, withdrawals, err := runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, depositState2Bytes, wasmBytes)
+	require.NoError(t, err)
+	require.NotNil(t, withdrawStateBytes)
+	require.Len(t, withdrawEvents, 1)
+	require.Len(t, withdrawals, 1)
+
+	var withdrawState app.ApplicationInternalState
+	err = json.Unmarshal(withdrawStateBytes, &withdrawState)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), withdrawState.Counter) // Counter doesn't change on withdraw
+	require.Equal(t, deposit1Amount-withdrawAmount, withdrawState.Accounts[user1Address].Balance)
+
+	require.Equal(t, recipient1Address, withdrawals[0].DestinationAddress)
+	require.Equal(t, withdrawAmount, withdrawals[0].Amount)
+
+	// 4. Generate deanonymization report
+	requestId := "report-123"
+	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, requestId, nil, withdrawStateBytes, wasmBytes)
+	require.NoError(t, err)
+	require.NotNil(t, reportBytes)
+
+	var report map[string]interface{}
+	err = json.Unmarshal(reportBytes, &report)
+	require.NoError(t, err)
+	require.Equal(t, appId, report["applicationId"])
+	require.Equal(t, requestId, report["requestId"])
+	require.Equal(t, float64(2), report["counter"]) // json unmarshals numbers to float64
+}
