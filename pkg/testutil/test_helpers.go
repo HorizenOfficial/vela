@@ -106,13 +106,16 @@ func (s *SystemTestSuite) StartExecutor() error {
 }
 
 func (s *SystemTestSuite) AddUserKeys(userID string, publicKey []byte) error {
+	//TODO: Rimuovere!!!
+
 	// Register in a blockchain client
-	err := s.blockchainClient.RegisterPublicKey(s.ctx, userID, publicKey)
-	if err == nil {
-		// Register in data layer
-		return s.dataLayer.StoreUserKey(s.ctx, userID, publicKey)
-	}
-	return err
+	//err := s.blockchainClient.RegisterPublicKey(s.ctx, userID, publicKey)
+	//if err == nil {
+	// Register in data layer
+	//	return s.dataLayer.StoreUserKey(s.ctx, userID, publicKey)
+	//}
+	//return err
+	return nil
 }
 
 func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {

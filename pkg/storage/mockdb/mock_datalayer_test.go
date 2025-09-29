@@ -149,7 +149,7 @@ func TestApplicationStateStore(t *testing.T) {
 			},
 			"StoreDeanonymizationReport": func() error {
 				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
-			}
+			},
 		}
 
 		for name, op := range operations {

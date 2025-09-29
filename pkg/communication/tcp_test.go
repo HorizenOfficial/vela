@@ -194,10 +194,9 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			StateRoot:      sha256.Sum256([]byte("test-state-root")),
 			EncryptedState: []byte("test-encrypted-state"),
 		}
-		senderKey := []byte("test-sender-key")
 		wasmModule := []byte("test-wasm-module")
 
-		_, _, err := client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
+		_, _, err := client.SendProcessRequest(ctx, req, appState, wasmModule)
 		require.NoError(t, err, "Client request %d should succeed", i)
 
 	}
@@ -254,7 +253,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	// Create a mock request handler that returns errors
 	serverHandler := &MockRequestHandler{
-		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 			return nil, nil, assert.AnError
 		},
 	}
@@ -305,10 +304,9 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
-	senderKey := []byte("test-sender-key")
 	wasmModule := []byte("test-wasm-module")
 
-	_, _, err = client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
+	_, _, err = client.SendProcessRequest(ctx, req, appState, wasmModule)
 	assert.Error(t, err, "Client request should return error")
 	assert.Contains(t, err.Error(), "server error", "Error should indicate server error")
 
@@ -321,7 +319,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	ctx := context.Background()
 	// Create a mock request handler that simulates slow processing
 	serverHandler := &MockRequestHandler{
-		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 			// Simulate slow processing that exceeds timeout
 			// check is performed each 5 seconds, and timeout is 30 seconds, so 35 is the worst case
 			time.Sleep(35 * time.Second)
@@ -370,11 +368,10 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
-	senderKey := []byte("test-sender-key")
 	wasmModule := []byte("test-wasm-module")
 
 	start := time.Now()
-	_, _, err = client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
+	_, _, err = client.SendProcessRequest(ctx, req, appState, wasmModule)
 	elapsed := time.Since(start)
 
 	// Should timeout and return an error

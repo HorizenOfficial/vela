@@ -8,16 +8,16 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	dbtypes "github.com/horizen-pes/pkg/common/dbstate"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
 )
 
 // StatelessExecutor implements the Executor interface
 type StatelessExecutor struct {
-	config   *Config
-	runtime  Runtime
-	server   communication.ExecutorServer
-	keyStore KeyStore
+	config  *Config
+	runtime Runtime
+	server  communication.ExecutorServer
 	*MsgToSignBuilder
 }
 
@@ -84,17 +84,23 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, fmt.Errorf("state root mismatch: got %x, want %x", stateRoot, appState.StateRoot)
 	}
 
+	//parse the state
+	dbState, err := dbtypes.DeserializeDBState(decryptedState)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
+	}
+
 	// Decrypt the request payload
-	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, req.Sender)
+	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, req.Sender, dbState.GetKeyStore())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to decrypt request payload: %w", err)
 	}
 
 	// If the request contains a deposit, handle it first
-	var tempState = decryptedState
+	var tempState = dbState.GetAppState()
 	var depositEvents []common.PlainEvent
 	if req.Value > 0 {
-		tempState, depositEvents, err = e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, decryptedState, wasmModule)
+		tempState, depositEvents, err = e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to process deposit in WASM runtime: %w", err)
 		}
@@ -102,27 +108,34 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	// Invoke WASM method to process the request
-	newState, events, withdrawals, err := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
+	newWasmState, events, withdrawals, err := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to process request in WASM runtime: %w", err)
 	}
 	log.Printf("Executor: Successfully processed request %s", req.RequestID)
 
+	//recreate new dbstate
+	dbState.SetAppState(newWasmState)
+	newDbState, err := dbState.Serialize()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to serialize new state: %w", err)
+	}
+
 	// Encrypt the new state and events
-	encryptedNewState, err := crypto.EncryptWithAES(e.config.StateKey, newState)
+	encryptedNewState, err := crypto.EncryptWithAES(e.config.StateKey, newDbState)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt new application state: %w", err)
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
-	encryptedEvents, err := e.encryptEvents(ctx, events, req.ApplicationID, e.config.CommunicationKey, e.server)
+	encryptedEvents, err := e.encryptEvents(ctx, events, req.ApplicationID, e.config.CommunicationKey, e.server, dbState.GetKeyStore())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt events: %w", err)
 	}
 	log.Printf("Executor: Successfully encrypted new application state")
 
 	// Create state root hash
-	newStateRoot := sha256.Sum256(newState)
+	newStateRoot := sha256.Sum256(newDbState)
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
@@ -142,14 +155,14 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	updatePayload.Signature = signature
 
 	// Create the new application state
-	newAppState := &common.ApplicationState{
+	newApplicationState := &common.ApplicationState{
 		ApplicationID:  req.ApplicationID,
 		StateRoot:      newStateRoot,
 		EncryptedState: encryptedNewState,
 	}
 
 	log.Printf("Executor: Successfully processed request %s", req.RequestID)
-	return updatePayload, newAppState, nil
+	return updatePayload, newApplicationState, nil
 }
 
 // HandleDeployApp implements the RequestHandler interface
@@ -215,20 +228,26 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		return nil, fmt.Errorf("state root mismatch: got %x, want %x", hash, appState.StateRoot)
 	}
 
+	// Parse the state
+	dbState, err := dbtypes.DeserializeDBState(decryptedState)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize state: %w", err)
+	}
+
 	// Decrypt the request payload
-	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, req.Sender)
+	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, req.Sender, dbState.GetKeyStore())
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt Payload: %w", err)
 	}
 
 	// Generate the report using the runtime
-	reportData, err := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, req.RequestID, decryptedPayload, decryptedState, wasmModule)
+	reportData, err := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, req.RequestID, decryptedPayload, dbState.GetAppState(), wasmModule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate deanonymization report: %w", err)
 	}
 
 	// Encrypt the report
-	encryptedReport, err := e.encryptDeanonymizationReport(e.config.CommunicationKey, req.Sender, reportData)
+	encryptedReport, err := e.encryptDeanonymizationReport(e.config.CommunicationKey, req.Sender, reportData, dbState.GetKeyStore())
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
 	}
@@ -271,7 +290,7 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 	return signature, nil
 }
 
-func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId string, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer) ([]common.Event, error) {
+func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId string, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore dbtypes.KeyStore) ([]common.Event, error) {
 	if len(events) == 0 {
 		return nil, nil // No events to encrypt
 	}
@@ -287,12 +306,12 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 
 	for i, event := range events {
 		// retrieve user Secp521r1_PubKey
-		userKey, exists := e.keyStore[event.UserID]
+		userKey, exists := keyStore[event.UserID]
 		if !exists {
 			return nil, fmt.Errorf("no Secp521r1_PubKey found for user %s", event.UserID)
 		}
 		// Encrypt the event data
-		encryptedData, err := crypto.Encrypt(key, &userKey, event.Data)
+		encryptedData, err := crypto.Encrypt(key, userKey, event.Data)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt event data: %w", err)
 		}
@@ -309,19 +328,19 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	return encryptedEvents, nil
 }
 
-func (e *StatelessExecutor) encryptDeanonymizationReport(key *cryptotypes.PrivateKeyP521, requester string, reportData []byte) ([]byte, error) {
+func (e *StatelessExecutor) encryptDeanonymizationReport(key *cryptotypes.PrivateKeyP521, requester string, reportData []byte, keyStore dbtypes.KeyStore) ([]byte, error) {
 	if len(reportData) == 0 {
 		return reportData, nil // No report to encrypt
 	}
 
 	// retrieve user Secp521r1_PubKey
-	requesterPublicKey, exists := e.keyStore[requester]
+	requesterPublicKey, exists := keyStore[requester]
 	if !exists {
 		return nil, fmt.Errorf("no Secp521r1_PubKey found for user %s", requester)
 	}
 
 	// Encrypt the report data
-	encryptedReport, err := crypto.Encrypt(key, &requesterPublicKey, reportData)
+	encryptedReport, err := crypto.Encrypt(key, requesterPublicKey, reportData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
 	}
@@ -343,18 +362,18 @@ func DecryptState(encryptedState []byte, decryptionKey cryptotypes.AES256Key) ([
 	return decryptedState, nil
 }
 
-func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKeyP521, payload []byte, sender string) ([]byte, error) {
+func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKeyP521, payload []byte, sender string, keyStore dbtypes.KeyStore) ([]byte, error) {
 	if len(payload) == 0 {
 		return payload, nil // No payload to decrypt
 	}
 
 	// retrieve sender Secp521r1_PubKey
-	userKey, exists := e.keyStore[sender]
+	userKey, exists := keyStore[sender]
 	if !exists {
 		return nil, fmt.Errorf("no Secp521r1_PubKey found for sender %s", sender)
 	}
 
-	decryptedPayload, err := crypto.Decrypt(&userKey, decryptionKey, payload)
+	decryptedPayload, err := crypto.Decrypt(userKey, decryptionKey, payload)
 	if err != nil {
 		return nil, fmt.Errorf("payload decryption failed: %w", err)
 	}
