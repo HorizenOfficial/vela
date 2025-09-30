@@ -33,7 +33,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         uint256 applicationId,
         bytes32 prevStateRoot,
         bytes32 newStateRoot,
-        uint256 processedRequestId,
+        bytes32 processedRequestId,
         bytes[] memory events,
         Structs.WithdrawalRequest[] memory withdrawalRequests,
         bytes calldata signature

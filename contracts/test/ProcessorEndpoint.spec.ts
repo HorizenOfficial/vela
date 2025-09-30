@@ -27,36 +27,118 @@ describe('ProcessorEndpoint Test', function () {
 
     })
 
+
+
     it('should save multiple requests and retrieve', async function () {
-        await expect(
-            processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0)
-        ).to.emit(processorEndpoint, "RequestSubmitted");
-        
-        await expect(
-            processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100})
-        ).to.emit(processorEndpoint, "RequestSubmitted");
 
         let length = await processorEndpoint.getPendingRequestsSize();
-        expect(length).eql(BigInt(2));
+        expect(length).eql(BigInt(0));
 
         //retrieve
         let queue = await processorEndpoint.getPendingRequests();
+        expect(queue.length).eql(0)
+
+        let [currentReq, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(false)
+        expect(currentReq[3]).eql("0x0000000000000000000000000000000000000000000000000000000000000000"); //requestId
+
+        let isNextPending = await processorEndpoint.isCurrentPendingRequest("0x0000000000000000000000000000000000000000000000000000000000000000");
+        expect(isNextPending).eql(false);
+
+        let value = 0
+        await expect(
+            processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", value)
+        ).to.emit(processorEndpoint, "RequestSubmitted");
+        
+        [currentReq, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+        expect(currentReq[0]).eql(protocolVersion); //protocolVersion
+        expect(currentReq[1]).eql(applicationId); //applicationId
+        expect(currentReq[2]).eql(BigInt(1)); //requestType
+        expect(currentReq[4]).eql("0x01"); //payload
+        expect(currentReq[6]).eql(await signers[0].getAddress()); //sender
+        expect(currentReq[7]).eql(BigInt(0)); //value
+
+        let rq = await processorEndpoint.requestById(currentReq.requestId);
+        expect(rq[0]).eql(protocolVersion); //protocolVersion
+        expect(rq[1]).eql(applicationId); //applicationId
+        expect(rq[2]).eql(BigInt(1)); //requestType
+        expect(rq[4]).eql("0x01"); //payload
+        expect(rq[6]).eql(await signers[0].getAddress()); //sender
+        expect(rq[7]).eql(BigInt(0)); //value
+
+        length = await processorEndpoint.getPendingRequestsSize();
+        expect(length).eql(BigInt(1));
+
+        isNextPending = await processorEndpoint.isCurrentPendingRequest(currentReq.requestId);
+        expect(isNextPending).eql(true);
+
+
+        //*********************************************************************************** */
+        //second request with value       
+
+        let processorBalanceBefore = await ethers.provider.getBalance(processorEndpoint.getAddress());
+        let userBalanceBefore = await ethers.provider.getBalance(await signers[0].getAddress());
+
+
+        value = 100
+        let tx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", value, {value: value})
+        await expect(tx).to.emit(processorEndpoint, "RequestSubmitted");
+
+        //check refund
+        let receipt = await tx.wait();
+        let gasUsed = receipt.gasUsed * receipt.gasPrice;
+        let expectedUserBalanceAfter = userBalanceBefore - BigInt(gasUsed) - BigInt(value);
+        let userBalanceAfter = await ethers.provider.getBalance(await signers[0].getAddress());
+        expect(userBalanceAfter).eql(expectedUserBalanceAfter);
+
+
+        let processorBalanceAfter = await ethers.provider.getBalance(processorEndpoint.getAddress());
+        expect(processorBalanceAfter).eql(processorBalanceBefore + BigInt(value));
+
+        length = await processorEndpoint.getPendingRequestsSize();
+        expect(length).eql(BigInt(2));
+
+        //retrieve
+        queue = await processorEndpoint.getPendingRequests();
         expect(queue.length).eql(2);
 
         //check data in pages
         expect(queue[0][0]).eql(protocolVersion); //protocolVersion
         expect(queue[0][1]).eql(applicationId); //applicationId
         expect(queue[0][2]).eql(BigInt(1)); //requestType
-        expect(queue[0][3]).eql(BigInt(0)); //requestId
         expect(queue[0][4]).eql("0x01"); //payload
         expect(queue[0][6]).eql(await signers[0].getAddress()); //sender
+        expect(queue[0][7]).eql(BigInt(0)); //value
 
         expect(queue[1][0]).eql(protocolVersion); //protocolVersion
         expect(queue[1][1]).eql(applicationId); //applicationId
         expect(queue[1][2]).eql(BigInt(2)); //requestType
-        expect(queue[1][3]).eql(BigInt(1)); //requestId
         expect(queue[1][4]).eql("0x02"); //payload
         expect(queue[1][6]).eql(await signers[0].getAddress()); //sender
+        expect(queue[1][7]).eql(BigInt(100)); //value
+
+        [currentReq, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+        expect(currentReq.requestId).eql(queue[0].requestId); //requestId
+
+        isNextPending = await processorEndpoint.isCurrentPendingRequest(queue[1].requestId);
+        expect(isNextPending).eql(false);
+
+    })
+
+    it('should not save requests with wrong protocol version', async function () {
+        let wrongProtocolVersion = 2;
+        await expect(
+            processorEndpoint.submitRequest(wrongProtocolVersion, applicationId, 1, "0x01", 100) //value should be 100 but it is 0
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidProtocolVersion")
+    })
+
+    it('should not save requests with wrong application Id', async function () {
+        let wrongAppId = 333;
+        await expect(
+            processorEndpoint.submitRequest(protocolVersion, wrongAppId, 1, "0x01", 100) //value should be 100 but it is 0
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidApplicationId")
     })
 
     it('should not save requests with wrong value', async function () {
@@ -90,31 +172,84 @@ describe('ProcessorEndpoint Test', function () {
         let length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(2));
 
+        let requestQueue = await processorEndpoint.getPendingRequests();
+
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+        expect(currentPendingRequest.requestId).eql(requestQueue[0].requestId); //requestId
+
+
+        // Check that only the current request can be marked as completed or failed
+        await expect(
+            processorEndpoint.markRequestCompleted(requestQueue[1].requestId) //try to complete the second request
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
+
+
+        await expect(
+            processorEndpoint.markRequestFailed(requestQueue[1].requestId) //try to complete the second request
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
+
         //set as completed and check is not in the queue
-        let completeTx = await processorEndpoint.markRequestCompleted(0);
-        await completeTx.wait();
+        await expect(
+            processorEndpoint.markRequestCompleted(currentPendingRequest.requestId)
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0);
+
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(1));
 
-        let req = await processorEndpoint.requests(0);
-        expect(req[7]).eql(BigInt(1)); //completed
+        [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
+        expect(currentPendingRequest.requestId).eql(requestQueue[1].requestId); //requestId
 
         //get balance prior to fail
         let balanceBefore = await ethers.provider.getBalance(await signers[0].getAddress());
         //set as failed and check is not in the queue
-        let failedTx = await processorEndpoint.markRequestFailed(1);
-        let receipt = await failedTx.wait();
+        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
+        await expect(
+           failedTx
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 1);
+
+
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(0));
  
-        req = await processorEndpoint.requests(1);
-        expect(req[7]).eql(BigInt(2)); //failed
-
-        //check refund
+         //check refund
+        let receipt = await failedTx.wait();
         let gasUsed = receipt.gasUsed * receipt.gasPrice;
         let expectedBalanceAfter = balanceBefore - BigInt(gasUsed) + 100n;
         let balanceAfter = await ethers.provider.getBalance(await signers[0].getAddress());
         expect(balanceAfter).eql(expectedBalanceAfter);
+
+        [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(false);
+
+        // Insert another request to check that the queue works after all were set to complete/fail
+        submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x03", 0);
+        await submitTx.wait();
+       
+        [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
+
+        length = await processorEndpoint.getPendingRequestsSize();
+        expect(length).eql(BigInt(1));
+
+    });
+
+    it('should not complete a request from wrong account', async function () {
+        //insert requests
+        let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
+        await submitTx.wait();
+
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+
+        //set as completed
+       await expect(processorEndpoint.connect(signers[1]).markRequestCompleted(currentPendingRequest.requestId)).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
+           
+       // set failed
+       await expect(processorEndpoint.connect(signers[1]).markRequestFailed(currentPendingRequest.requestId)).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
+      
+
     });
 
     it('should not re-mark as completed an already completed request', async function () {
@@ -122,14 +257,17 @@ describe('ProcessorEndpoint Test', function () {
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
         await submitTx.wait();
 
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+
         //set as completed
-        let completeTx = await processorEndpoint.markRequestCompleted(0);
+        let completeTx = await processorEndpoint.markRequestCompleted(currentPendingRequest.requestId);
         await completeTx.wait();
         
         //try again to set as completed
         await expect(
-            processorEndpoint.markRequestCompleted(0)
-        ).to.be.revertedWithCustomError(processorEndpoint, "RequestIsAlreadyCompletedOrFailed");
+            processorEndpoint.markRequestCompleted(currentPendingRequest.requestId)
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
     it('should not re-mark as failed an already failed request', async function () {
@@ -137,14 +275,17 @@ describe('ProcessorEndpoint Test', function () {
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
         await submitTx.wait();
 
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+
         //set as failed
-        let failedTx = await processorEndpoint.markRequestFailed(0);
+        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
         await failedTx.wait();
         
         //try again to set as failed
         await expect(
-            processorEndpoint.markRequestFailed(0)
-        ).to.be.revertedWithCustomError(processorEndpoint, "RequestIsAlreadyCompletedOrFailed");
+            processorEndpoint.markRequestFailed(currentPendingRequest.requestId)
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
     it('should mark as failed not refunded if smart contract refuses refund', async function () {
@@ -155,12 +296,19 @@ describe('ProcessorEndpoint Test', function () {
         let submitTx = await fallbackFailure.insertRequestOnProcessorEndpoint(processorEndpoint, protocolVersion, applicationId, 1, "0x01", 0);
         await submitTx.wait();
 
+        let balanceBefore = await ethers.provider.getBalance(processorEndpoint.getAddress());
+
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
         //set as failed
-        let failedTx = await processorEndpoint.markRequestFailed(0);
-        await failedTx.wait();
-        //check status
-        let req = await processorEndpoint.requests(0);
-        expect(req[7]).eql(BigInt(3)); //failed not refunded
+        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
+        await expect(
+           failedTx
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 2); //2 means failed not refunded
+
+        let balanceAfter = await ethers.provider.getBalance(processorEndpoint.getAddress());
+ 
+        expect(balanceAfter).eql(balanceBefore); //failed not refunded
     });
 
 
@@ -168,7 +316,7 @@ describe('ProcessorEndpoint Test', function () {
         //no requests present
         //try to set as failed
         await expect(
-            processorEndpoint.markRequestFailed(0)
+            processorEndpoint.markRequestFailed("0x0000000000000000000000000000000000000000000000000000000000000000")
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
@@ -179,50 +327,76 @@ describe('ProcessorEndpoint Test', function () {
         submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100}); //value 100 in the failed
         await submitTx.wait();
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], []);
-        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [], signature);
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], []);
+        // try first with wrong sender
+        await expect(processorEndpoint.connect(signers[1]).stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [], signature)).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
+
+
+        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [], signature);
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql("0x1234000000000000000000000000000000000000000000000000000000000000");
         //check if completed
-        let req = await processorEndpoint.requests(0);
-        expect(req[7]).eql(BigInt(1)); //completed
 
-        signature = await ethSignStateUpdate(signers[0], applicationId, "0x1234000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 1, [], []);
-        updateTx = await processorEndpoint.stateUpdate(applicationId, "0x1234000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 1, [], [], signature); 
+        await expect(
+           updateTx
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0); 
+
+        [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+        signature = await ethSignStateUpdate(signers[0], applicationId, "0x1234000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], []);
+        updateTx = await processorEndpoint.stateUpdate(applicationId, "0x1234000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [], signature); 
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql("0x1234560000000000000000000000000000000000000000000000000000000000");
         //check if completed
-        req = await processorEndpoint.requests(1);
-        expect(req[7]).eql(BigInt(1)); //completed
+       await expect(
+           updateTx
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0); 
     });
 
     it('should not update status with wrong prev root', async function () {
-        //insert request
+        //insert requests
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
         await submitTx.wait();
+        submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
+        await submitTx.wait();
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], []);
-        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [], signature); 
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], []);
+        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [], signature); 
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql("0x1234000000000000000000000000000000000000000000000000000000000000");
 
-        signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 0, [], []);
+        [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+        signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], []);
         await expect(
-            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 0, [], [], signature) //wrong prev value
+            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [], signature) //wrong prev value
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidStateRoot");
     });
 
     it('should not update status with invalid signature', async function () {
-        let invalidSignature = await ethSignStateUpdate(signers[1], 0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 0, [], []); //signed by signer[1] instead of [0]
+       //insert requests
+        let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
+        await submitTx.wait();
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+
+        let invalidSignature = await ethSignStateUpdate(signers[1], 0, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], []); //signed by signer[1] instead of [0]
 
         await expect(
-            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", 0, [], [], invalidSignature)
+            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234560000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [], invalidSignature)
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidSignature");
     });
 
     it('should update status with correct signature and transfer', async function () {
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100}); //value is 100
         await submitTx.wait();
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
 
         //save balance before
         let addr1 = await signers[1].getAddress();
@@ -230,39 +404,45 @@ describe('ProcessorEndpoint Test', function () {
         let balance1Before = await ethers.provider.getBalance(addr1);
         let balance2Before = await ethers.provider.getBalance(addr2);
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [[addr1, 50], [addr2, 50]]);
-        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [[addr1, 50], [addr2, 50]], signature);
-        await updateTx.wait();
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [[addr1, 49], [addr2, 51]]);
+        let updateTx = await processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [[addr1, 49], [addr2, 51]], signature);
+        await expect(updateTx).to.emit(processorEndpoint, "Withdrawal").withArgs(currentPendingRequest.applicationId, currentPendingRequest.requestId, addr1,   BigInt(49)); 
+        await expect(updateTx).to.emit(processorEndpoint, "Withdrawal").withArgs(currentPendingRequest.applicationId, currentPendingRequest.requestId, addr2,   BigInt(51)); 
+
         expect(await processorEndpoint.stateRoot()).eql("0x1234000000000000000000000000000000000000000000000000000000000000");
 
         //check balance after
         let balance1After = await ethers.provider.getBalance(addr1);
         let balance2After = await ethers.provider.getBalance(addr2);
 
-        expect(balance1After).eql(balance1Before + 50n);
-        expect(balance2After).eql(balance2Before + 50n);
+        expect(balance1After).eql(balance1Before + 49n);
+        expect(balance2After).eql(balance2Before + 51n);
     });
 
     it('should update status and emit event', async function () {
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 0);
         await submitTx.wait();
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x1234"], []);
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, ["0x1234"], []);
         await expect(
-            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, ["0x1234"], [], signature)
-        ).to.emit(processorEndpoint, "UserEvent").withArgs(applicationId, 0, "0x1234");
+            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, ["0x1234"], [], signature)
+        ).to.emit(processorEndpoint, "UserEvent").withArgs(applicationId, currentPendingRequest.requestId, "0x1234");
     });
 
     it('should not update status with wrong transfer values', async function () {
         let submitTx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", 100, {value: 100}); //value is 100
         await submitTx.wait();
+        let [currentPendingRequest, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
 
         let addr1 = await signers[1].getAddress();
         let addr2 = await signers[2].getAddress();
 
-        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [[addr1, 100], [addr2, 100]]);
+        let signature = await ethSignStateUpdate(signers[0], applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [[addr1, 100], [addr2, 100]]);
         await expect(
-            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", 0, [], [[addr1, 100], [addr2, 100]], signature) //sum of values is 200
+            processorEndpoint.stateUpdate(applicationId, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [[addr1, 100], [addr2, 100]], signature) //sum of values is 200
         ).to.be.revertedWithCustomError(processorEndpoint, "InsufficientBalance");
     });
 

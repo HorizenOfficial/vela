@@ -29,7 +29,8 @@ func TestDeployApp(t *testing.T) {
 	err = suite.AddUserKeys("test-user", userKey.PublicKey().Bytes())
 	require.NoError(t, err)
 
-	RequestID := "233"
+	RequestID := "1233"
+
 	ApplicationId := "1"
 
 	// 4. Submit deploy request

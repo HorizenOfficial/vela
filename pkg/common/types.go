@@ -2,6 +2,8 @@
 package common
 
 import (
+	"encoding/hex"
+	"fmt"
 	"math/big"
 )
 
@@ -113,3 +115,17 @@ func StringToBigInt(s string) (*big.Int, bool) {
 	return i, ok
 }
 
+func RequestIdStringTo32Byte(s string) ([32]byte, error) {
+
+	arr, err := hex.DecodeString(s)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("requestId string is not a valid hex string: %w", err)
+	}	
+	if len(arr) > 32 {
+		return [32]byte{}, fmt.Errorf("requestId string must not be more than 32 bytes long, got %d", len(arr))
+	}
+
+	var arr32 [32]byte
+	copy(arr32[:], arr)
+	return arr32, nil
+}

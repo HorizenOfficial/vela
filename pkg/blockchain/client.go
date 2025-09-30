@@ -2,6 +2,7 @@ package blockchain
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -130,10 +131,11 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 	output := make([]*common.Request, 0, len(listOfRequests))
 	for _, request := range listOfRequests {
 		//TODO check that all big.Int can fit in a Uint64. If not, the specific request should be marked as failed
+		requestId := hex.EncodeToString(request.RequestId[:])
 		req := &common.Request{
 			ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
 			ApplicationID:   request.ApplicationId.String(),
-			RequestID:       request.RequestId.String(),
+			RequestID:       requestId,
 			RequestType:     toRequestType(request.RequestType),
 			Payload:         request.Payload,
 			Timestamp:       request.Timestamp.Int64(),
@@ -154,8 +156,8 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := common.StringToBigInt(requestID)
-	if !ok {
+	reqId, err := common.RequestIdStringTo32Byte(requestID)
+	if err != nil {
 		return fmt.Errorf("invalid request ID: %s", requestID)
 	}
 
@@ -180,8 +182,8 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := common.StringToBigInt(requestID)
-	if !ok {
+	reqId, err := common.RequestIdStringTo32Byte(requestID)
+	if err != nil {
 		return fmt.Errorf("invalid request ID: %s", requestID)
 	}
 
@@ -207,12 +209,12 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.connected == false {
+	if !c.connected {
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, ok := common.StringToBigInt(update.RequestID)
-	if !ok {
+	reqId, err := common.RequestIdStringTo32Byte(update.RequestID)
+	if err != nil {
 		return fmt.Errorf("invalid request ID: %s", update.RequestID)
 	}
 

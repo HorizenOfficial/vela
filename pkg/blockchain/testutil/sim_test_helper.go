@@ -265,13 +265,13 @@ func (s *SimTestHelper) GetStateRoot() [32]byte {
 	return oldStateRoot
 }
 
-func (s *SimTestHelper) GetRequest(requestID string) processorendpoint.RequestsOutput {
-	reqId, ok := common.StringToBigInt(requestID)
-	require.True(s.t, ok, "invalid request ID")
+func (s *SimTestHelper) GetRequest(requestID string) processorendpoint.RequestByIdOutput {
+	reqId, err := common.RequestIdStringTo32Byte(requestID)
+	require.NoError(s.t, err, "invalid request ID")
 	request, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
-		s.processEndpointContract.PackRequests(reqId),
-		s.processEndpointContract.UnpackRequests)
+		s.processEndpointContract.PackRequestById(reqId),
+		s.processEndpointContract.UnpackRequestById)
 	require.NoError(s.t, err)
 	return request
 }
@@ -314,26 +314,6 @@ func (s *SimTestHelper) Close() {
 	}
 }
 
-func (c *SimTestHelper) WaitForRequestCompletion(requestID string, timeout time.Duration) (RequestStatus, error) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	timeoutCh := time.After(timeout)
-
-	for {
-		select {
-		case <-ticker.C:
-			req := c.GetRequest(requestID)
-			if req.Status == 0 { //POSTED
-				continue
-			}
-			return RequestStatus(req.Status), nil
-
-		case <-timeoutCh:
-			return 0, fmt.Errorf("timeout waiting for request %s to complete", requestID)
-		}
-	}
-}
 
 func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCommon.Address, value *big.Int) *ethTypes.Transaction {
 
