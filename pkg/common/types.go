@@ -35,6 +35,7 @@ type Request struct {
 	// Timestamp is the time the request was submitted
 	Timestamp int64 `json:"timestamp"`
 	// Sender is the address of the sender
+	//TODO: change the type to go-ethereum/common/Address
 	Sender string `json:"sender"`
 	// Value is the optional deposit value in WEI
 	Value uint64 `json:"value"`
@@ -45,6 +46,7 @@ type Event struct {
 	// ApplicationID is the ID of the application
 	ApplicationID string `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
+	//TODO: change the type to go-ethereum/common/Address
 	UserID string `json:"userId"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`

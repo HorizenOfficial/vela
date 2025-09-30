@@ -162,7 +162,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 	switch req.RequestType {
 	case common.Deploy:
 		return m.processDeployApp(ctx, req)
-	case common.Process:
+	case common.Process, common.AssociateKey:
 		return m.processProcessRequest(ctx, req)
 	case common.Deanonymize:
 		return m.processDeanonymization(ctx, req)
@@ -209,6 +209,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 // processProcessRequest processes a process request
 func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
+	fmt.Println("Processing Process app request:", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")

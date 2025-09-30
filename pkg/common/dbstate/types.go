@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
 const (
-	// keySize is the size in bytes of a key in the keyStore map
-	keySize = 20
+	// keySize is the size in bytes of a key in the keyStore map (20 bytes)
+	keySize = ethCommon.AddressLength
 	// valSize is the size in bytes of a PublicKeyP521
 	valSize = 133
 )
@@ -18,8 +20,14 @@ type DBState struct {
 	keyStore KeyStore
 	appState []byte
 }
+type KeyStore map[ethCommon.Address]*cryptotypes.PublicKeyP521
 
-type KeyStore map[string]*cryptotypes.PublicKeyP521
+func NewDBState(initialAppState []byte) *DBState {
+	return &DBState{
+		keyStore: make(map[ethCommon.Address]*cryptotypes.PublicKeyP521),
+		appState: initialAppState,
+	}
+}
 
 // Serialize converts the DBState struct into a byte slice.
 // The format is:
@@ -36,7 +44,7 @@ func (s *DBState) Serialize() ([]byte, error) {
 
 	// Write each key-value pair
 	for k, v := range s.keyStore {
-		keyBytes := []byte(k)
+		keyBytes := k.Bytes()
 		if len(keyBytes) != keySize {
 			return nil, fmt.Errorf("key '%s' has incorrect size: expected %d, got %d", k, keySize, len(keyBytes))
 		}
@@ -58,6 +66,10 @@ func (s *DBState) GetAppState() []byte {
 
 func (s *DBState) SetAppState(appState []byte) {
 	s.appState = appState
+}
+
+func (s *DBState) AddKey(user ethCommon.Address, key cryptotypes.PublicKeyP521) {
+	s.keyStore[user] = &key
 }
 
 func (s *DBState) GetKeyStore() KeyStore {
@@ -97,7 +109,7 @@ func DeserializeDBState(data []byte) (*DBState, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse public key for key %s: %w", string(keyBuf), err)
 		}
-		ks[string(keyBuf)] = val
+		ks[ethCommon.BytesToAddress(keyBuf)] = val
 	}
 
 	// The rest of the reader is the appState
