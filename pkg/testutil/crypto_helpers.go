@@ -206,6 +206,30 @@ func (c *CryptoHelper) DecryptDeanonymizationReport(userID string, report *commo
 	return decryptedReport, nil
 }
 
+// CreateProcessRequest creates an encrypted process request with a raw payload
+func (c *CryptoHelper) CreateProcessRequest(appID, requestID, sender string, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	senderKey, err := c.GetUserKey(sender)
+	if err != nil {
+		return nil, err
+	}
+
+	// Encrypt payload
+	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt process payload: %w", err)
+	}
+
+	return &common.Request{
+		ApplicationID: appID,
+		RequestID:     requestID,
+		RequestType:   common.Process,
+		Payload:       encryptedPayload,
+		Sender:        sender,
+		Timestamp:     time.Now().Unix(),
+		Value:         0,
+	}, nil
+}
+
 func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *cryptotypes.PublicKeySecp256k1) error {
 	// Create the original payload that was signed
 	originalPayload := &common.UpdatePayload{

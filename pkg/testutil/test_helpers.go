@@ -15,7 +15,8 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
-	"github.com/horizen-pes/pkg/storage/mockdb"
+	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
 	"github.com/horizen-pes/pkg/wasm"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
@@ -26,12 +27,13 @@ type SystemTestSuite struct {
 	manager            manager.Manager
 	executor           executor.Executor
 	blockchainClient   *blockchain.MockClient
-	dataLayer          *mockdb.MockDataLayer
+	dataLayer          storage.DataLayer
 	eventChannel       chan interface{}
 	ctx                context.Context
 	cancel             context.CancelFunc
 	executorCommKey    *cryptotypes.PrivateKeyP521      // Executor's communication key for testing
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
+	dbPath             string
 }
 
 func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
@@ -39,14 +41,26 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
-	dataLayer := mockdb.NewMockDataLayer()
-
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory("localhost:8080")
 	executorClient := communication.NewClient(factory)
 
 	// Create manager
 	config := manager.ReadConfig()
+
+	// Create a temporary directory for the database
+	dbPath, err := os.MkdirTemp("", "horizen-pes-test-db")
+	require.NoError(t, err)
+
+	cfg := versioned_leveldb.VersionedLevelDBConfig{
+		DBPath:         dbPath,
+		VersionsToKeep: config.DataLayerNumOfVersions,
+	}
+	// mock DL
+	//dataLayer := mockdb.NewMockDataLayer()
+	dataLayer, err := versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
+	require.NoError(t, err)
+
 	mgr := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
 
 	// Create executor
@@ -80,6 +94,7 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 		cancel:             cancel,
 		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
 		executorSigningKey: execConfig.SignatureKey,     // Store the executor's signing key
+		dbPath:             dbPath,
 	}
 }
 
@@ -173,9 +188,11 @@ func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*c
 	for {
 		select {
 		case event := <-s.eventChannel:
-			log.Printf("TESTING: Received event: %+v", event)
 			if evt, ok := event.(common.Event); ok && evt.UserID == userID {
+				log.Printf("TESTING: Received event: %+v", event.(common.Event))
 				return &evt, nil
+			} else {
+				log.Printf("TESTING: Received unexpected event: %+v", event)
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for event for user %s", userID)
@@ -265,11 +282,17 @@ func (s *SystemTestSuite) Cleanup() error {
 
 	s.blockchainClient.ClearAllData()
 
+	// Remove the temporary database directory
+	if s.dbPath != "" {
+		os.RemoveAll(s.dbPath)
+	}
+
 	return nil
 }
 
 func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []byte) {
 	const appId = "1"
+	timeout_value := 100 * time.Second
 
 	// we use an eth address as user and auditor IDs
 	userAddress := fmt.Sprintf("0xadd%037x", 1)
@@ -320,15 +343,15 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for app to be deployed
-	appState, err := suite.WaitForAppStateInDB(appId, 100*time.Second)
+	appState, err := suite.WaitForAppStateInDB(appId, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, appState)
 
-	appState, err = suite.WaitForAppStateInBlockchain(appId, 100*time.Second)
+	appState, err = suite.WaitForAppStateInBlockchain(appId, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, appState)
 
-	err = suite.AssertRequestCompleted(RequestID, 100*time.Second)
+	err = suite.AssertRequestCompleted(RequestID, timeout_value)
 	require.NoError(t, err)
 
 	// Verify updatePayload signature
@@ -354,11 +377,11 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for deposit to be processed
-	err = suite.AssertRequestCompleted(RequestID, 100*time.Second)
+	err = suite.AssertRequestCompleted(RequestID, timeout_value)
 	require.NoError(t, err)
 
 	// Wait for deposit event
-	depositEvent, err := suite.WaitForEvent(userAddress, 10*time.Second)
+	depositEvent, err := suite.WaitForEvent(userAddress, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, depositEvent)
 
@@ -394,11 +417,11 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for deanonymization request to be processed
-	err = suite.AssertRequestCompleted(RequestID, 10*time.Second)
+	err = suite.AssertRequestCompleted(RequestID, timeout_value)
 	require.NoError(t, err)
 
 	// Wait for deanonymization report
-	deanonReport, err := suite.WaitForDeanonymizationReport(RequestID, 10*time.Second)
+	deanonReport, err := suite.WaitForDeanonymizationReport(RequestID, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, deanonReport)
 
@@ -437,11 +460,11 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for withdrawal to be processed
-	err = suite.AssertRequestCompleted(RequestID, 10*time.Second)
+	err = suite.AssertRequestCompleted(RequestID, timeout_value)
 	require.NoError(t, err)
 
 	// Wait for withdrawal event
-	withdrawalEvent, err := suite.WaitForEvent(userAddress, 10*time.Second)
+	withdrawalEvent, err := suite.WaitForEvent(userAddress, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawalEvent)
 
@@ -457,7 +480,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.Equal(t, withdrawAmount, withdrawalEventData.Amount)
 
 	// Wait for actual withdrawal to be recorded
-	withdrawal, err := suite.WaitForWithdrawal(appId, 10*time.Second)
+	withdrawal, err := suite.WaitForWithdrawal(appId, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawal)
 	require.Equal(t, recipientAddress, withdrawal.DestinationAddress)

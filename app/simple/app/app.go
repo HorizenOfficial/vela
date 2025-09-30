@@ -17,9 +17,12 @@ type AccountState struct {
 }
 
 // ApplicationInternalState represents the internal state of the application
+// Note that we are storing a counter because we will increment it when the action is processed. This is done for
+// have a new state.
 type ApplicationInternalState struct {
 	AppID    string                   `json:"appId"`
 	Accounts map[string]*AccountState `json:"accounts"`
+	Counter  uint64                   `json:"counter"`
 }
 
 // WithdrawInstruction represents instructions for withdrawing funds
@@ -45,6 +48,7 @@ func LoadModule(appId string) []byte {
 	initialState := &ApplicationInternalState{
 		AppID:    appId,
 		Accounts: make(map[string]*AccountState),
+		Counter:  0,
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
@@ -134,6 +138,9 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 			sentence := sender + " is " + cmp + " " + targetAddress
 
+			// increment the counter, just to change the state
+			currentState.Counter++
+
 			// Create action event
 			eventData := map[string]interface{}{
 				"type":     "compare_accounts",
@@ -219,6 +226,7 @@ func GenerateDeanonymizationReport(appId, requestId, stateJSON string) wasmCommo
 		"applicationId": appId,
 		"requestId":     requestId,
 		"accounts":      currentState.Accounts,
+		"counter":       currentState.Counter,
 	}
 
 	// Serialize the report

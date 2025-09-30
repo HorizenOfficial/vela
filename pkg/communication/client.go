@@ -35,6 +35,8 @@ func NewClient(factory ConnectionFactory) *Client {
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
 		reqTimeout:      30 * time.Second,
+		// For debugging it can be useful to use huge timeout values
+		// reqTimeout: 30 * time.Hour,
 	}
 }
 

@@ -116,7 +116,6 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 	}
 }
 
-
 // processRequestsFromChain retrieves pending requests from the blockchain and processes them
 func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
 
@@ -154,7 +153,6 @@ func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
 
 }
 
-
 // processRequest processes a request
 func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) error {
 	if !m.isRunning {
@@ -188,6 +186,13 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 	// Store the application state and WASM bytecode
 	versionID := sha256.Sum256(append(appState.StateRoot[:], req.Payload...))
+	var leadingPayloadBytes = []byte{0}
+	if len(req.Payload) > 32 {
+		leadingPayloadBytes = req.Payload[:32]
+	} else {
+		leadingPayloadBytes = req.Payload[:]
+	}
+	log.Printf("VersionID %x - stateRoot: %x, req.Payload %x", string(versionID[:]), string(appState.StateRoot[:]), leadingPayloadBytes)
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
@@ -215,7 +220,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
-	
+
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
@@ -242,6 +247,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 
 	// Store the updated application state
 	versionID := sha256.Sum256(updatedState.StateRoot[:])
+	log.Printf("VersionID %x - stateRoot: %x", string(versionID[:]), string(updatedState.StateRoot[:]))
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
@@ -267,7 +273,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
-	
+
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
