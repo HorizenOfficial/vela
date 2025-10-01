@@ -86,7 +86,13 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	} else {
 		require.NotNil(s.t, teeSigner, "teeSigner address must be provided when not using mock contracts")
 		teeContract := *tee.NewTeeAuthenticator()
-		constructorInput := teeContract.PackConstructor(s.Deployer.From, *teeSigner)
+		
+		//generate mock secp251r1 pk
+		pk := make([]byte, 133)
+		for i := range pk {
+			pk[i] = 1
+		}
+		constructorInput := teeContract.PackConstructor(s.Deployer.From, *teeSigner, pk)
 		teeDeployParams := bind.DeploymentParams{
 			Contracts: []*bind.MetaData{&tee.TeeAuthenticatorMetaData},
 			Inputs:    map[string][]byte{tee.TeeAuthenticatorMetaData.ID: constructorInput},
