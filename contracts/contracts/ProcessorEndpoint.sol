@@ -215,15 +215,15 @@ contract ProcessorEndpoint is AccessControl {
     }
 
 
-    function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bool success) {
+    function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {
         uint256 numOfRequests = getPendingRequestsSize();
         if (numOfRequests > 0){
             bytes32 requestId = _requestIdByOrder[_head];
-            return (requestById[requestId], true);
+            return (requestById[requestId], stateRoot, true);
         }
         else {
             Structs.PendingRequest memory emptyReq;
-            return (emptyReq, false);
+            return (emptyReq, bytes32(0), false);
         }
 
     }
