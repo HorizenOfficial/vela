@@ -124,6 +124,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		appData.SetAppState(newWasmState)
 	}
 
+	//increment appNonce
+	appData.IncrementNonce()
+
 	//serialize the new app data
 	newAppData, err := appData.Serialize()
 	if err != nil {

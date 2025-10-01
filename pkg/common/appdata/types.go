@@ -82,6 +82,10 @@ func (s *AppData) GetKeyStore() KeyStore {
 	return s.appKeys
 }
 
+func (s *AppData) IncrementNonce() {
+	s.appNonce = s.appNonce + 1
+}
+
 // DeserializeAppData converts a byte slice back into an AppData struct.
 func DeserializeAppData(data []byte) (*AppData, error) {
 	reader := bytes.NewReader(data)
