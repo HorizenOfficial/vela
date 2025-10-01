@@ -104,7 +104,7 @@ func DecryptWithAES(key cryptotypes.AES256Key, message []byte) ([]byte, error) {
 // encryptedData: event.EncryptedData field from UserEvent.
 func DecryptUserEvent(receiverPrivKeyHex string, encryptedData []byte) ([]byte, error) {
 	// Import receiver private key
-	receiverPrivKey, err := cryptotypes.ImportPrivateKeyP521FromHex(receiverPrivKeyHex)
+	receiverPrivKey, err := ImportPrivateKeyP521FromHex(receiverPrivKeyHex)
 	if err != nil {
 		return nil, fmt.Errorf("invalid receiver private key: %w", err)
 	}
@@ -115,7 +115,7 @@ func DecryptUserEvent(receiverPrivKeyHex string, encryptedData []byte) ([]byte, 
 	senderPubKeyBytes := encryptedData[:133]
 	ciphertext := encryptedData[133:]
 	senderPubKeyHex := hex.EncodeToString(senderPubKeyBytes)
-	senderPubKey, err := cryptotypes.ImportPublicKeyP521FromHex(senderPubKeyHex)
+	senderPubKey, err := ImportPublicKeyP521FromHex(senderPubKeyHex)
 	if err != nil {
 		return nil, fmt.Errorf("invalid sender public key: %w", err)
 	}
