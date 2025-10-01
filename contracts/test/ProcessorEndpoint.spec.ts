@@ -38,31 +38,39 @@ describe('ProcessorEndpoint Test', function () {
         let queue = await processorEndpoint.getPendingRequests();
         expect(queue.length).eql(0)
 
-        let [currentReq, success] = await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(false)
-        expect(currentReq[3]).eql("0x0000000000000000000000000000000000000000000000000000000000000000"); //requestId
+        let [currentReq, exists] = await processorEndpoint.getNextPendingRequest();
+        expect(exists).eql(false)
+        expect(currentReq.requestId).eql("0x0000000000000000000000000000000000000000000000000000000000000000"); 
 
         let isNextPending = await processorEndpoint.isCurrentPendingRequest("0x0000000000000000000000000000000000000000000000000000000000000000");
         expect(isNextPending).eql(false);
 
         let value = 0
-        await expect(
-            processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", value)
-        ).to.emit(processorEndpoint, "RequestSubmitted");
+        let tx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", value)
+        await expect(tx).to.emit(processorEndpoint, "RequestSubmitted");
+        let receipt = await tx.wait();
+        expect(receipt.logs.length).eql(1);
+        const parsedLog = processorEndpoint.interface.parseLog(receipt.logs[0]);
+        expect(parsedLog.name).eql("RequestSubmitted");
+        expect(parsedLog.args.sender).eql(await signers[0].getAddress());
+        let eventRequestId = parsedLog.args.requestId;
+
         
-        [currentReq, success] = await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true)
+        [currentReq, exists] = await processorEndpoint.getNextPendingRequest();
+        expect(exists).eql(true)
         expect(currentReq[0]).eql(protocolVersion); //protocolVersion
         expect(currentReq[1]).eql(applicationId); //applicationId
         expect(currentReq[2]).eql(BigInt(1)); //requestType
         expect(currentReq[4]).eql("0x01"); //payload
         expect(currentReq[6]).eql(await signers[0].getAddress()); //sender
         expect(currentReq[7]).eql(BigInt(0)); //value
+        expect(currentReq.requestId).eql(eventRequestId); 
 
         let rq = await processorEndpoint.requestById(currentReq.requestId);
         expect(rq[0]).eql(protocolVersion); //protocolVersion
         expect(rq[1]).eql(applicationId); //applicationId
         expect(rq[2]).eql(BigInt(1)); //requestType
+        expect(rq.requestId).eql(currentReq.requestId); 
         expect(rq[4]).eql("0x01"); //payload
         expect(rq[6]).eql(await signers[0].getAddress()); //sender
         expect(rq[7]).eql(BigInt(0)); //value
@@ -82,11 +90,11 @@ describe('ProcessorEndpoint Test', function () {
 
 
         value = 100
-        let tx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", value, {value: value})
+        tx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", value, {value: value})
         await expect(tx).to.emit(processorEndpoint, "RequestSubmitted");
 
         //check refund
-        let receipt = await tx.wait();
+        receipt = await tx.wait();
         let gasUsed = receipt.gasUsed * receipt.gasPrice;
         let expectedUserBalanceAfter = userBalanceBefore - BigInt(gasUsed) - BigInt(value);
         let userBalanceAfter = await ethers.provider.getBalance(await signers[0].getAddress());
@@ -118,8 +126,8 @@ describe('ProcessorEndpoint Test', function () {
         expect(queue[1][6]).eql(await signers[0].getAddress()); //sender
         expect(queue[1][7]).eql(BigInt(100)); //value
 
-        [currentReq, success] = await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true)
+        [currentReq, exists] = await processorEndpoint.getNextPendingRequest();
+        expect(exists).eql(true)
         expect(currentReq.requestId).eql(queue[0].requestId); //requestId
 
         isNextPending = await processorEndpoint.isCurrentPendingRequest(queue[1].requestId);

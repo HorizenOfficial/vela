@@ -27,7 +27,7 @@ contract ProcessorEndpoint is AccessControl {
     //events
     event Withdrawal(uint256 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
-    event RequestCompleted(bytes32 indexed requestId, Structs.RequestStatus status);
+    event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status);
     event UserEvent(uint256 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
     event StateRootUpdate(uint256 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     //errors
@@ -103,6 +103,14 @@ contract ProcessorEndpoint is AccessControl {
         return requestId;
     }
 
+    function _removeRequest() private {
+
+        delete requestById[_requestIdByOrder[_head]];
+        delete _requestIdByOrder[_head];
+        _head++;
+
+    }
+
     function markRequestCompleted(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
@@ -111,11 +119,9 @@ contract ProcessorEndpoint is AccessControl {
 
     function _markRequestCompleted(bytes32 requestId) private {
 
-        delete requestById[requestId];
-        delete _requestIdByOrder[_head];
-        _head++;
+       _removeRequest();
 
-        emit RequestCompleted(requestId, Structs.RequestStatus.COMPLETED);
+        emit RequestCompleted(requestId, Structs.RequestResult.COMPLETED);
     }
 
     function markRequestFailed(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
@@ -124,15 +130,13 @@ contract ProcessorEndpoint is AccessControl {
         address sender = requestById[requestId].sender;
         uint256 value = requestById[requestId].value;
 
-        delete requestById[requestId];
-        delete _requestIdByOrder[_head];
-        _head++;
+       _removeRequest();
 
         //refunds
         (bool refunded, ) = payable(sender).call{value: value}("");
 
-        if(refunded) emit RequestCompleted(requestId, Structs.RequestStatus.FAILED_REFUNDED); 
-        else emit RequestCompleted(requestId, Structs.RequestStatus.FAILED_NOT_REFUNDED); 
+        if(refunded) emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED); 
+        else emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED); 
 
     }
 
@@ -146,9 +150,9 @@ contract ProcessorEndpoint is AccessControl {
     }
 
     function getPendingRequests() public view returns(Structs.PendingRequest[] memory) {
-        uint256 setSize = getPendingRequestsSize();
+        uint256 numOfPendingRequests = getPendingRequestsSize();
 
-        Structs.PendingRequest[] memory res = new Structs.PendingRequest[](setSize);
+        Structs.PendingRequest[] memory res = new Structs.PendingRequest[](numOfPendingRequests);
         uint256 i = _head;
         while(i < _tail) {
             bytes32 requestId = _requestIdByOrder[i];
