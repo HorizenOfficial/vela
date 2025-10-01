@@ -42,57 +42,99 @@ func buildAndLoadWasmModule(t *testing.T) []byte {
 	return wasmBytecode
 }
 
+// deploySimpleApp is a helper function to deploy the simple app wasm module.
+func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID, deployReqID, sender string, wasmBytecode []byte) {
+	t.Helper()
+	timeout := 20 * time.Second
+
+	// Create and submit deploy request
+	deployReq := &common.Request{
+		RequestType:   common.Deploy,
+		ApplicationID: appID,
+		RequestID:     deployReqID,
+		Payload:       wasmBytecode,
+		Sender:        sender,
+		Timestamp:     time.Now().Unix(),
+	}
+	require.NoError(t, suite.SubmitRequest(deployReq))
+
+	// Wait for app to be deployed
+	_, err := suite.WaitForAppStateInDB(appID, timeout)
+	require.NoError(t, err)
+	_, err = suite.WaitForAppStateInBlockchain(appID, timeout)
+	require.NoError(t, err)
+	require.NoError(t, suite.AssertRequestCompleted(deployReqID, timeout))
+
+	// Verify updatePayload signature
+	executorSigningKey, err := suite.GetExecutorSigningKey()
+	require.NoError(t, err)
+	payload, err := suite.GetRequestUpdatePayload(deployReqID)
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+}
+
+// depositToSimpleApp is a helper function to deposit funds into the simple app.
+func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID, reqID, user string, amount uint64) {
+	t.Helper()
+	timeout := 10 * time.Second
+
+	// Get executor's communication key for encryption
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
+	// Create and submit deposit request
+	depositReq, err := cryptoHelper.CreateDepositRequest(
+		appID,
+		reqID,
+		user,
+		amount,
+		executorPubKey,
+	)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(depositReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Wait for, decrypt and verify deposit event
+	depositEvent, err := suite.WaitForEvent(user, timeout)
+	require.NoError(t, err)
+	decryptedDepositData, err := cryptoHelper.DecryptEvent(user, depositEvent, executorPubKey)
+	require.NoError(t, err)
+
+	var depositEventData appCommon.DepositEvent
+	err = json.Unmarshal(decryptedDepositData, &depositEventData)
+	require.NoError(t, err)
+	require.Equal(t, "deposit", depositEventData.Type)
+	require.Equal(t, amount, depositEventData.Amount)
+
+	// Verify updatePayload signature
+	executorSigningKey, err := suite.GetExecutorSigningKey()
+	require.NoError(t, err)
+	payload, err := suite.GetRequestUpdatePayload(reqID)
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+}
+
 func TestDeploySimpleApp(t *testing.T) {
 	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
 	defer suite.Cleanup()
 
-	timeout_value := 100 * time.Second
-
 	// 1. Build and load wasm bytecode
 	wasmBytecode := buildAndLoadWasmModule(t)
 
-	// 2. Start executor
-	err := suite.StartExecutor()
-	require.NoError(t, err)
+	// 2. Start services
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
 
-	// 3. Start manager
-	err = suite.StartManager()
+	// 3. Create user and add their key to the registry
+	cryptoHelper := testutil.NewCryptoHelper()
+	userKey, err := cryptoHelper.GenerateUserKey("test-user")
 	require.NoError(t, err)
+	require.NoError(t, suite.AddUserKeys("test-user", userKey.PublicKey().Bytes()))
 
-	// 4. Add user keys to registry
-	userKey, err := crypto.GeneratePrivateKeyP521()
-	require.NoError(t, err)
-	err = suite.AddUserKeys("test-user", userKey.PublicKey().Bytes())
-	require.NoError(t, err)
-
-	RequestID := "233"
-	ApplicationId := "1"
-
-	// 5. Submit deploy request
-	deployReq := &common.Request{
-		RequestType:   common.Deploy,
-		ApplicationID: ApplicationId,
-		RequestID:     RequestID,
-		Payload:       wasmBytecode,
-		Sender:        "test-user",
-		Timestamp:     time.Now().Unix(),
-	}
-	err = suite.SubmitRequest(deployReq)
-	require.NoError(t, err)
-
-	// 6. Assert app state created in DB
-	appState, err := suite.WaitForAppStateInDB(ApplicationId, timeout_value)
-	require.NoError(t, err)
-	require.NotNil(t, appState)
-
-	// 7. Assert app state created in blockchain
-	appState, err = suite.WaitForAppStateInBlockchain(ApplicationId, timeout_value)
-	require.NoError(t, err)
-	require.NotNil(t, appState)
-
-	// 8. Assert request marked as done
-	err = suite.AssertRequestCompleted(RequestID, timeout_value)
-	require.NoError(t, err)
+	// 4. Deploy the application
+	deploySimpleApp(t, suite, cryptoHelper, "1", "233", "test-user", wasmBytecode)
 }
 
 func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
@@ -137,116 +179,22 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, suite.AddUserKeys("user2", user2Key.PublicKey().Bytes()))
 
 	// 4. Deploy the application
-	deployReqID := "1"
 	appID := "1"
-	deployReq := &common.Request{
-		RequestType:   common.Deploy,
-		ApplicationID: appID,
-		RequestID:     deployReqID,
-		Payload:       wasmBytecode,
-		Sender:        "user1",
-		Timestamp:     time.Now().Unix(),
-	}
-	require.NoError(t, suite.SubmitRequest(deployReq))
+	deploySimpleApp(t, suite, cryptoHelper, appID, "1", "user1", wasmBytecode)
 
-	// Wait for app to be deployed
-	appState, err := suite.WaitForAppStateInDB(appID, timeout_value)
-	require.NoError(t, err)
-	require.NotNil(t, appState)
+	// 5. User1 deposits funds
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "2", "user1", 2000)
 
-	appState, err = suite.WaitForAppStateInBlockchain(appID, timeout_value)
-	require.NoError(t, err)
-	require.NotNil(t, appState)
-
-	require.NoError(t, suite.AssertRequestCompleted(deployReqID, 20*time.Second))
-
-	// Get executor's signing key for signature verification
-	executorSigningKey, err := suite.GetExecutorSigningKey()
-	require.NoError(t, err)
-
-	// Verify updatePayload signature
-	payload, err := suite.GetRequestUpdatePayload(deployReqID)
-	require.NoError(t, err)
-	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
-	require.NoError(t, err)
+	// 6. User2 deposits funds
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "3", "user2", 1000)
 
 	// Get executor's communication key for encryption, for now get from the test suite
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
 
-	// 5. User1 deposits funds
-	deposit1ReqID := "2"
-	deposit1Amount := uint64(2000)
-	deposit1Req, err := cryptoHelper.CreateDepositRequest(
-		appID,
-		deposit1ReqID,
-		"user1",
-		deposit1Amount,
-		executorPubKey,
-	)
-	require.NoError(t, err)
-	require.NoError(t, suite.SubmitRequest(deposit1Req))
-	require.NoError(t, suite.AssertRequestCompleted(deposit1ReqID, timeout_value))
-
-	// Wait for deposit event
-	deposit1Event, err := suite.WaitForEvent("user1", timeout_value)
-	require.NoError(t, err)
-	require.NotNil(t, deposit1Event)
-
-	// Decrypt and verify deposit event
-	decryptedDepositData, err := cryptoHelper.DecryptEvent("user1", deposit1Event, executorPubKey)
-	require.NoError(t, err)
-
-	var depositEventData appCommon.DepositEvent
-	err = json.Unmarshal(decryptedDepositData, &depositEventData)
-	require.NoError(t, err)
-	require.Equal(t, "deposit", depositEventData.Type)
-	require.Equal(t, deposit1Amount, depositEventData.Amount)
-
-	// Verify updatePayload signature
-	payload, err = suite.GetRequestUpdatePayload(deposit1ReqID)
-	require.NoError(t, err)
-	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
-	require.NoError(t, err)
-
-	// 6. User2 deposits funds
-	deposit2ReqID := "3"
-	deposit2Amount := uint64(1000)
-	deposit2Req, err := cryptoHelper.CreateDepositRequest(
-		appID,
-		deposit2ReqID,
-		"user2",
-		deposit2Amount,
-		executorPubKey,
-	)
-	require.NoError(t, err)
-	require.NoError(t, suite.SubmitRequest(deposit2Req))
-	require.NoError(t, suite.AssertRequestCompleted(deposit2ReqID, timeout_value))
-
-	// Wait for deposit event
-	deposit2Event, err := suite.WaitForEvent("user2", timeout_value)
-	require.NoError(t, err)
-	require.NotNil(t, deposit2Event)
-
-	// Decrypt and verify deposit event
-	decryptedDepositData, err = cryptoHelper.DecryptEvent("user2", deposit2Event, executorPubKey)
-	require.NoError(t, err)
-
-	err = json.Unmarshal(decryptedDepositData, &depositEventData)
-	require.NoError(t, err)
-	require.Equal(t, "deposit", depositEventData.Type)
-	require.Equal(t, deposit2Amount, depositEventData.Amount)
-
-	// Verify updatePayload signature
-	payload, err = suite.GetRequestUpdatePayload(deposit2ReqID)
-	require.NoError(t, err)
-	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
-	require.NoError(t, err)
-
 	// 7. User1 compares balances with User2
 	compareReqID := "4"
 	comparePayload := `{"type":"compare_addresses","compare":{"targetAddress":"user2"}}`
-	require.NoError(t, err)
 	compareReq, err := cryptoHelper.CreateProcessRequest(
 		appID,
 		compareReqID,
