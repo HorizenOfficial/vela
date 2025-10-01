@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	// keySize is the size in bytes of a key in the keyStore map (20 bytes)
-	keySize = ethCommon.AddressLength
-	// valSize is the size in bytes of a PublicKeyP521
-	valSize = 133
+	// KeyStore_KeySize is the size in bytes of a key in the appKeys map (20 bytes)
+	KeyStore_KeySize = ethCommon.AddressLength
+	// KeyStore_ValSize is the size in bytes of a value in the appKeys map (a PublicKeyP521)
+	KeyStore_ValSize = 133
 )
 
 type AppData struct {
@@ -31,7 +31,7 @@ func NewAppData(initialAppState []byte) *AppData {
 	}
 }
 
-// Serialize converts the AppState struct into a byte slice.
+// Serialize converts the AppData struct into a byte slice.
 // The format is:
 // - Nonce (uint64)
 // - Number of keys (uint32)
@@ -53,8 +53,8 @@ func (s *AppData) Serialize() ([]byte, error) {
 	// Write each key-value pair
 	for k, v := range s.appKeys {
 		keyBytes := k.Bytes()
-		if len(keyBytes) != keySize {
-			return nil, fmt.Errorf("key '%s' has incorrect size: expected %d, got %d", k, keySize, len(keyBytes))
+		if len(keyBytes) != KeyStore_KeySize {
+			return nil, fmt.Errorf("key '%s' has incorrect size: expected %d, got %d", k, KeyStore_KeySize, len(keyBytes))
 		}
 		buf.Write(keyBytes)
 		buf.Write(v.Bytes())
@@ -99,7 +99,7 @@ func DeserializeAppData(data []byte) (*AppData, error) {
 	}
 
 	// Check for sufficient data for all key-value pairs
-	expectedMapSize := int(numKeys) * (keySize + valSize)
+	expectedMapSize := int(numKeys) * (KeyStore_KeySize + KeyStore_ValSize)
 	if reader.Len() < expectedMapSize {
 		return nil, fmt.Errorf("insufficient data for key-value pairs: need %d, have %d", expectedMapSize, reader.Len())
 	}
@@ -107,12 +107,12 @@ func DeserializeAppData(data []byte) (*AppData, error) {
 	// Read each key-value pair
 	ks := make(KeyStore)
 	for i := uint32(0); i < numKeys; i++ {
-		keyBuf := make([]byte, keySize)
+		keyBuf := make([]byte, KeyStore_KeySize)
 		if _, err := reader.Read(keyBuf); err != nil { // Should not fail due to length check above
 			return nil, fmt.Errorf("failed to read key %d: %w", i, err)
 		}
 
-		valBuf := make([]byte, valSize)
+		valBuf := make([]byte, KeyStore_ValSize)
 		if _, err := reader.Read(valBuf); err != nil { // Should not fail
 			return nil, fmt.Errorf("failed to read value for key %s: %w", string(keyBuf), err)
 		}

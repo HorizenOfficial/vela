@@ -93,9 +93,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
 	if req.RequestType == common.AssociateKey {
+		//request  of type associate key: the payload is not encrypted and contains the new key
 		log.Printf("Associating new key - RequestID %s", req.RequestID)
 
-		//request  of type associate key: the payload contains the new key
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to parse keyP521 in request payload: %w", err)
@@ -124,13 +124,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		appData.SetAppState(newWasmState)
 	}
 
-	//serialize the new db state
+	//serialize the new app data
 	newAppData, err := appData.Serialize()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to serialize new appData: %w", err)
 	}
 
-	// Encrypt the new state and events
+	// Encrypt the new app data and events
 	encryptedNewAppData, err := crypto.EncryptWithAES(e.config.StateKey, newAppData)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt new appData: %w", err)
@@ -141,9 +141,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt events: %w", err)
 	}
-	log.Printf("Executor: Successfully encrypted new application state")
+	log.Printf("Executor: Successfully encrypted new application data")
 
-	// Create state root hash
+	// Create appdata root hash
 	newStateRoot := sha256.Sum256(newAppData)
 
 	// Create the update payload

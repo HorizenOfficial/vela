@@ -314,6 +314,7 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 }
 
 // handleServerRequest handles requests initiated by the server
+// NOTE: for now no messages are supported on this direction, but the method is present for future use cases
 func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
 	switch msg.Type {
 	default:
