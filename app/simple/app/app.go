@@ -18,7 +18,7 @@ type AccountState struct {
 
 // ApplicationInternalState represents the internal state of the application
 // Note that we are storing a counter because we will increment it when the action is processed. This is done for
-// have a new state.
+// having a state update.
 type ApplicationInternalState struct {
 	AppID    string                   `json:"appId"`
 	Accounts map[string]*AccountState `json:"accounts"`
@@ -121,6 +121,9 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			targetAddress := instructions.CompareAccounts.TargetAddress
 
 			// Validate accounts to be compared
+			if currentState.Accounts[sender] == nil {
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", sender)}
+			}
 			if currentState.Accounts[targetAddress] == nil {
 				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", targetAddress)}
 			}

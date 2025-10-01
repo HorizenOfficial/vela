@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/testutil"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
@@ -293,4 +292,152 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	t.Log("Deanonymization report:\n", testutil.PrettyPrintJSON(reportData))
 
 	// Deanon report does not contain signature for now, possibly add later
+}
+
+func TestSimpleApp_NegativeScenarios(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+	timeout_value := 10 * time.Second
+
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+	defer suite.Cleanup()
+
+	// 1. Build and load wasm bytecode
+	wasmBytecode := buildAndLoadWasmModule(t)
+
+	// 2. Start services
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	// 3. Create user and add their key to the registry
+	cryptoHelper := testutil.NewCryptoHelper()
+	user1Key, err := cryptoHelper.GenerateUserKey("user1")
+	require.NoError(t, err)
+	require.NoError(t, suite.AddUserKeys("user1", user1Key.PublicKey().Bytes()))
+
+	// 4. Deploy the application
+	appID := "1"
+	deploySimpleApp(t, suite, cryptoHelper, appID, "1", "user1", wasmBytecode)
+
+	// 5. User1 deposits funds
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "2", "user1", 1000)
+
+	// Get executor's communication key for encryption
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
+	// --- Negative Test Cases ---
+
+	t.Run("withdraw with insufficient balance", func(t *testing.T) {
+		reqID := "neg-1"
+		// User1 has 1000, tries to withdraw 2000
+		payload := `{"type":"withdraw","withdraw":{"to":"0xadd0000000000000000000000000000000000003","amount":2000}}`
+		processReq, err := cryptoHelper.CreateProcessRequest(
+			appID,
+			reqID,
+			"user1",
+			[]byte(payload),
+			executorPubKey,
+		)
+		require.NoError(t, err)
+		require.NoError(t, suite.SubmitRequest(processReq))
+
+		// Assert request is completed with error
+		err = suite.AssertRequestCompleted(reqID, timeout_value)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "has failed")
+
+		// Get the update payload and check for error
+		_, err = suite.GetRequestUpdatePayload(reqID)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("unsupported instruction type", func(t *testing.T) {
+		reqID := "neg-2"
+		payload := `{"type":"invalid_action"}`
+		processReq, err := cryptoHelper.CreateProcessRequest(
+			appID,
+			reqID,
+			"user1",
+			[]byte(payload),
+			executorPubKey,
+		)
+		require.NoError(t, err)
+		require.NoError(t, suite.SubmitRequest(processReq))
+
+		// Assert request is completed with error
+		err = suite.AssertRequestCompleted(reqID, timeout_value)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "has failed")
+
+		// Get the update payload and check for error
+		_, err = suite.GetRequestUpdatePayload(reqID)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("compare with non-existent target account", func(t *testing.T) {
+		reqID := "neg-3"
+		nonExistentUser := "0xadd0000000000000000000000000000000000099"
+		payload := `{"type":"compare_addresses","compare":{"targetAddress":"` + nonExistentUser + `"}}`
+		processReq, err := cryptoHelper.CreateProcessRequest(
+			appID,
+			reqID,
+			"user1",
+			[]byte(payload),
+			executorPubKey,
+		)
+		require.NoError(t, err)
+		require.NoError(t, suite.SubmitRequest(processReq))
+
+		// Assert request is completed with error
+		err = suite.AssertRequestCompleted(reqID, timeout_value)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "has failed")
+
+		// Get the update payload and check for error
+		_, err = suite.GetRequestUpdatePayload(reqID)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("withdraw with missing instruction", func(t *testing.T) {
+		reqID := "neg-4"
+		payload := `{"type":"withdraw"}` // Missing withdraw payload
+		processReq, err := cryptoHelper.CreateProcessRequest(
+			appID,
+			reqID,
+			"user1",
+			[]byte(payload),
+			executorPubKey,
+		)
+		require.NoError(t, err)
+		require.NoError(t, suite.SubmitRequest(processReq))
+
+		// Assert request is completed with error
+		err = suite.AssertRequestCompleted(reqID, timeout_value)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "has failed")
+	})
+
+	t.Run("compare with missing instruction", func(t *testing.T) {
+		reqID := "neg-5"
+		payload := `{"type":"compare_addresses"}` // Missing compare payload
+		processReq, err := cryptoHelper.CreateProcessRequest(
+			appID,
+			reqID,
+			"user1",
+			[]byte(payload),
+			executorPubKey,
+		)
+		require.NoError(t, err)
+		require.NoError(t, suite.SubmitRequest(processReq))
+
+		// Assert request is completed with error
+		err = suite.AssertRequestCompleted(reqID, timeout_value)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "has failed")
+	})
 }
