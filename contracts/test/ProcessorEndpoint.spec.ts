@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { BigNumberish, Signer } from 'ethers';
 import { ethSignStateUpdate } from '../scripts/util';
+import { ADDRESS_ZERO, BYTES_ZERO, getRandomHexString } from './util';
 
 describe('ProcessorEndpoint Test', function () {
     let signers: Signer[]
@@ -9,11 +10,14 @@ describe('ProcessorEndpoint Test', function () {
     let protocolVersion: BigNumberish;
     let applicationId: BigNumberish;
 
+
     beforeEach(async function () {
         signers = await ethers.getSigners();
         //deploy helper contracts
         let TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-        let teeAuthenticator = await TeeAuthenticator.deploy(signers[0], signers[0]);
+        let teeAuthenticator = await TeeAuthenticator.deploy(signers[0], ADDRESS_ZERO, BYTES_ZERO);
+        let pkLength = Number(await teeAuthenticator.PK_LENGTH());
+        await teeAuthenticator.updateTee(signers[0], getRandomHexString(pkLength));
 
         let AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
         let authorityRegistry = await AuthorityRegistry.deploy(signers[0]);

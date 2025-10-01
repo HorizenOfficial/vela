@@ -1,9 +1,9 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
+import { APPLICATION_ID } from './util';
 
 describe('AuthorityRegistry Test', function () {
-    const APPLICATION_ID = 0;
     let signers: Signer[];
     let authorityRegistry: any;
     let testAddr: string;
