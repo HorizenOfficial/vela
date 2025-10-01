@@ -42,7 +42,8 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	factory := communication.NewTCPConnectionFactory("localhost:8080")
+	execConfig := executor.DefaultConfig()
+	factory := communication.NewTCPConnectionFactory(execConfig.ServerAddr)
 	executorClient := communication.NewClient(factory)
 
 	// Create manager
@@ -64,8 +65,6 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	mgr := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
 
 	// Create executor
-	execConfig := executor.DefaultConfig() // just to generate keys
-
 	server := communication.NewServer(factory)
 	var runtime executor.Runtime
 	switch appType {
@@ -99,22 +98,38 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 }
 
 func (s *SystemTestSuite) StartManager() error {
+	errChan := make(chan error, 1)
+
 	go func() {
 		if err := s.manager.Start(s.ctx); err != nil {
-			s.t.Errorf("Manager failed: %v", err)
+			errChan <- err
 		}
+		close(errChan)
 	}()
+
+	// Wait for a result from the goroutine
+	if err := <-errChan; err != nil {
+		s.t.Fatalf("Manager failed to start: %v", err)
+	}
 
 	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
 func (s *SystemTestSuite) StartExecutor() error {
+	errChan := make(chan error, 1)
+
 	go func() {
 		if err := s.executor.Start(s.ctx); err != nil {
-			s.t.Errorf("Executor failed: %v", err)
+			errChan <- err
 		}
+		close(errChan)
 	}()
+
+	// Wait for a result from the goroutine
+	if err := <-errChan; err != nil {
+		s.t.Fatalf("Executor failed to start: %v", err)
+	}
 
 	time.Sleep(100 * time.Millisecond)
 	return nil
