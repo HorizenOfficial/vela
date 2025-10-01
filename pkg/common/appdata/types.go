@@ -1,4 +1,4 @@
-package dbstate
+package appdata
 
 import (
 	"bytes"
@@ -16,34 +16,42 @@ const (
 	valSize = 133
 )
 
-type DBState struct {
-	keyStore KeyStore
+type AppData struct {
+	appNonce uint64
+	appKeys  KeyStore
 	appState []byte
 }
 type KeyStore map[ethCommon.Address]*cryptotypes.PublicKeyP521
 
-func NewDBState(initialAppState []byte) *DBState {
-	return &DBState{
-		keyStore: make(map[ethCommon.Address]*cryptotypes.PublicKeyP521),
+func NewAppData(initialAppState []byte) *AppData {
+	return &AppData{
+		appNonce: 0,
+		appKeys:  make(map[ethCommon.Address]*cryptotypes.PublicKeyP521),
 		appState: initialAppState,
 	}
 }
 
-// Serialize converts the DBState struct into a byte slice.
+// Serialize converts the AppState struct into a byte slice.
 // The format is:
+// - Nonce (uint64)
 // - Number of keys (uint32)
 // - Key-value pairs (keySize + valSize each)
 // - appState (variable length)
-func (s *DBState) Serialize() ([]byte, error) {
+func (s *AppData) Serialize() ([]byte, error) {
 	var buf bytes.Buffer
 
+	// Write the nonce
+	if err := binary.Write(&buf, binary.BigEndian, s.appNonce); err != nil {
+		return nil, fmt.Errorf("failed to write nonce: %w", err)
+	}
+
 	// Write the number of keys as a uint32
-	if err := binary.Write(&buf, binary.BigEndian, uint32(len(s.keyStore))); err != nil {
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(s.appKeys))); err != nil {
 		return nil, fmt.Errorf("failed to write key count: %w", err)
 	}
 
 	// Write each key-value pair
-	for k, v := range s.keyStore {
+	for k, v := range s.appKeys {
 		keyBytes := k.Bytes()
 		if len(keyBytes) != keySize {
 			return nil, fmt.Errorf("key '%s' has incorrect size: expected %d, got %d", k, keySize, len(keyBytes))
@@ -58,27 +66,31 @@ func (s *DBState) Serialize() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// DBState struct and its methods...
-
-func (s *DBState) GetAppState() []byte {
+func (s *AppData) GetAppState() []byte {
 	return s.appState
 }
 
-func (s *DBState) SetAppState(appState []byte) {
+func (s *AppData) SetAppState(appState []byte) {
 	s.appState = appState
 }
 
-func (s *DBState) AddKey(user ethCommon.Address, key cryptotypes.PublicKeyP521) {
-	s.keyStore[user] = &key
+func (s *AppData) AddKey(user ethCommon.Address, key cryptotypes.PublicKeyP521) {
+	s.appKeys[user] = &key
 }
 
-func (s *DBState) GetKeyStore() KeyStore {
-	return s.keyStore
+func (s *AppData) GetKeyStore() KeyStore {
+	return s.appKeys
 }
 
-// DeserializeDBState converts a byte slice back into a DBState struct.
-func DeserializeDBState(data []byte) (*DBState, error) {
+// DeserializeAppData converts a byte slice back into an AppData struct.
+func DeserializeAppData(data []byte) (*AppData, error) {
 	reader := bytes.NewReader(data)
+
+	// Read the nonce
+	var nonce uint64
+	if err := binary.Read(reader, binary.BigEndian, &nonce); err != nil {
+		return nil, fmt.Errorf("failed to read nonce: %w", err)
+	}
 
 	// Read the number of keys
 	var numKeys uint32
@@ -118,8 +130,9 @@ func DeserializeDBState(data []byte) (*DBState, error) {
 		return nil, fmt.Errorf("failed to read appState: %w", err)
 	}
 
-	return &DBState{
-		keyStore: ks,
+	return &AppData{
+		appNonce: nonce,
+		appKeys:  ks,
 		appState: appState,
 	}, nil
 }
