@@ -10,6 +10,8 @@ import (
 )
 
 const (
+	//version of the AppData format - increment in case of future changes
+	Version_1 = 1
 	// KeyStore_KeySize is the size in bytes of a key in the appKeys map (20 bytes)
 	KeyStore_KeySize = ethCommon.AddressLength
 	// KeyStore_ValSize is the size in bytes of a value in the appKeys map (a PublicKeyP521)
@@ -17,6 +19,7 @@ const (
 )
 
 type AppData struct {
+	version  uint8
 	appNonce uint64
 	appKeys  KeyStore
 	appState []byte
@@ -25,6 +28,7 @@ type KeyStore map[ethCommon.Address]*cryptotypes.PublicKeyP521
 
 func NewAppData(initialAppState []byte) *AppData {
 	return &AppData{
+		version:  Version_1,
 		appNonce: 0,
 		appKeys:  make(map[ethCommon.Address]*cryptotypes.PublicKeyP521),
 		appState: initialAppState,
@@ -33,12 +37,18 @@ func NewAppData(initialAppState []byte) *AppData {
 
 // Serialize converts the AppData struct into a byte slice.
 // The format is:
+// - Version (uint8)
 // - Nonce (uint64)
 // - Number of keys (uint32)
-// - Key-value pairs (keySize + valSize each)
+// - Key-value pairs (KeyStore_KeySize + KeyStore_ValSize each)
 // - appState (variable length)
 func (s *AppData) Serialize() ([]byte, error) {
 	var buf bytes.Buffer
+
+	// Write the version
+	if err := binary.Write(&buf, binary.BigEndian, s.version); err != nil {
+		return nil, fmt.Errorf("failed to write version: %w", err)
+	}
 
 	// Write the nonce
 	if err := binary.Write(&buf, binary.BigEndian, s.appNonce); err != nil {
@@ -90,6 +100,12 @@ func (s *AppData) IncrementNonce() {
 func DeserializeAppData(data []byte) (*AppData, error) {
 	reader := bytes.NewReader(data)
 
+	// Read the version
+	var version uint8
+	if err := binary.Read(reader, binary.BigEndian, &version); err != nil {
+		return nil, fmt.Errorf("failed to read version: %w", err)
+	}
+
 	// Read the nonce
 	var nonce uint64
 	if err := binary.Read(reader, binary.BigEndian, &nonce); err != nil {
@@ -135,6 +151,7 @@ func DeserializeAppData(data []byte) (*AppData, error) {
 	}
 
 	return &AppData{
+		version:  version,
 		appNonce: nonce,
 		appKeys:  ks,
 		appState: appState,

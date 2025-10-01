@@ -43,6 +43,7 @@ func TestAppDataSerializationDeserialization(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 5. Check that they are the same
+	assert.Equal(t, appData.version, deserializedAppData.version, "Version should be the same")
 	assert.Equal(t, appData.appNonce, deserializedAppData.appNonce, "Nonce should be the same")
 	assert.Equal(t, appData.appState, deserializedAppData.appState, "appState should be the same")
 	assert.Equal(t, len(appData.appKeys), len(deserializedAppData.appKeys), "Number of keys should be the same")
