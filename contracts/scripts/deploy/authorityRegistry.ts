@@ -10,8 +10,8 @@ async function deploy()  {
   `)
   //deploy 
   const AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
-  const authorityRegistry = await AuthorityRegistry.deploy(process.env.AUTHREGISTRY_OWNER);
-  await authorityRegistry.deploymentTransaction().wait();
+  const authorityRegistry = await AuthorityRegistry.deploy(process.env.AUTHREGISTRY_OWNER!);
+  await authorityRegistry.deploymentTransaction()!.wait();
 
   console.log(`contract deployed at ${await authorityRegistry.getAddress()}`);
 }

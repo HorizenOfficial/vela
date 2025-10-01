@@ -9,10 +9,11 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/crypto"
+	testutil "github.com/horizen-pes/pkg/testutil"
 )
 
 func TestDeployApp(t *testing.T) {
-	suite := NewSystemTestSuite(t, "mock-runtime")
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime")
 	defer suite.Cleanup()
 
 	// 1. Start executor
@@ -65,10 +66,10 @@ func TestMockRuntimeAppFullSystemFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	suite := NewSystemTestSuite(t, "mock-runtime")
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime")
 	defer suite.Cleanup()
 	// Load wasm bytecode for the wasm app
 	wasmBytecode := []byte("mock-runtime-app-bytecode")
 
-	ExecTestAppFullSystemFlow(t, suite, wasmBytecode)
+	testutil.ExecTestAppFullSystemFlow(t, suite, wasmBytecode)
 }
