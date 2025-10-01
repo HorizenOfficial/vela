@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 
@@ -96,6 +97,29 @@ func DecryptWithAES(key cryptotypes.AES256Key, message []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to decrypt message: %w", err)
 	}
 	return plainMessage, nil
+}
+
+// DecryptUserEvent decrypts the encryptedData from a ProcessorEndpointUserEvent.
+// receiverPrivKeyHex: hex string of the receiver's secp521r1 private key.
+// encryptedData: event.EncryptedData field from UserEvent.
+func DecryptUserEvent(receiverPrivKeyHex string, encryptedData []byte) ([]byte, error) {
+	// Import receiver private key
+	receiverPrivKey, err := cryptotypes.ImportPrivateKeyP521FromHex(receiverPrivKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("invalid receiver private key: %w", err)
+	}
+	// Check for sender pubkey (first 133 bytes)
+	if len(encryptedData) < 133 {
+		return nil, fmt.Errorf("encrypted data too short")
+	}
+	senderPubKeyBytes := encryptedData[:133]
+	ciphertext := encryptedData[133:]
+	senderPubKeyHex := hex.EncodeToString(senderPubKeyBytes)
+	senderPubKey, err := cryptotypes.ImportPublicKeyP521FromHex(senderPubKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("invalid sender public key: %w", err)
+	}
+	return Decrypt(senderPubKey, receiverPrivKey, ciphertext)
 }
 
 func deriveAES256Key(secret []byte) (cryptotypes.AES256Key, error) {

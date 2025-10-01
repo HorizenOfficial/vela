@@ -2,6 +2,8 @@ package blockchain
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -14,6 +16,7 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/crypto"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
@@ -311,4 +314,72 @@ func (c *BlockChainClient) Close() error {
 
 	c.connected = false
 	return nil
+}
+
+// GetPrivateBalance scans UserEvent logs backwards and returns the user's private balance.
+// privKeyHex: secp521r1 private key in hex format.
+func (c *BlockChainClient) GetPrivateBalance(ctx context.Context, address string, privKeyHex string, applicationID uint64) (uint64, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return 0, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	contractAddr := c.processorAddress
+	latestBlock, err := c.client.BlockByNumber(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get latest block: %w", err)
+	}
+	blockNumber := latestBlock.NumberU64()
+
+	parsedABI, err := processorendpoint.ProcessorEndpointMetaData.ParseABI()
+	if err != nil {
+		return 0, fmt.Errorf("cannot parse ABI: %w", err)
+	}
+	userEventSig := parsedABI.Events["UserEvent"].ID
+
+	for blockNumber > 0 {
+		query := ethereum.FilterQuery{
+			Addresses: []ethCommon.Address{contractAddr},
+			FromBlock: big.NewInt(int64(blockNumber)),
+			ToBlock:   big.NewInt(int64(blockNumber)),
+			Topics:    [][]ethCommon.Hash{{userEventSig}},
+		}
+		logs, err := c.client.FilterLogs(ctx, query)
+		if err != nil {
+			return 0, fmt.Errorf("failed to filter logs: %w", err)
+		}
+		for _, vLog := range logs {
+			event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
+			if err != nil {
+				continue
+			}
+			// filter by application id
+			appIdBig := big.NewInt(int64(applicationID))
+			if event.ApplicationId.Cmp(appIdBig) != 0 {
+				continue
+			}
+			decrypted, err := crypto.DecryptUserEvent(privKeyHex, event.EncryptedData)
+			if err != nil {
+				continue
+			}
+			var payload map[string]interface{}
+			if err := json.Unmarshal(decrypted, &payload); err != nil {
+				continue
+			}
+			if balanceVal, ok := payload["balance"]; ok {
+				switch b := balanceVal.(type) {
+				case float64:
+					return uint64(b), nil
+				case int:
+					return uint64(b), nil
+				case uint64:
+					return b, nil
+				}
+			}
+		}
+		blockNumber--
+	}
+	return 0, errors.New("balance not found")
 }

@@ -23,6 +23,7 @@ type MockClient struct {
 	reports          map[string]*common.DeanonymizationReport
 	updatePayloads   map[string]*common.UpdatePayload
 	publicKeys       map[string][]byte
+	privateBalances	 map[string]uint64
 	eventSubscribers []chan<- interface{}
 }
 
@@ -37,6 +38,7 @@ func NewMockClient() *MockClient {
 		reports:         make(map[string]*common.DeanonymizationReport),
 		updatePayloads:  make(map[string]*common.UpdatePayload),
 		publicKeys:      make(map[string][]byte),
+		privateBalances: make(map[string]uint64),
 	}
 }
 
@@ -62,6 +64,11 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) err
 	// Store the request
 	c.requests.Set(req.RequestID, req)
 	c.pendingRequests.Set(req.RequestID, req)
+
+	// Update privateBalances for deposits
+	if req.Value > 0 {
+		c.privateBalances[req.Sender] += req.Value
+	}
 
 	return nil
 }
@@ -295,6 +302,21 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID stri
 	}
 
 	return report, nil
+}
+
+// mocked, using only deposit data
+func (c *MockClient) GetPrivateBalance(ctx context.Context, address string, privKeyHex string, applicationID uint64) (uint64, error) {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+
+    if c.privateBalances == nil {
+        return 0, nil
+    }
+    balance, ok := c.privateBalances[address]
+    if !ok {
+        return 0, nil
+    }
+    return uint64(balance), nil
 }
 
 // Close closes the blockchain client
