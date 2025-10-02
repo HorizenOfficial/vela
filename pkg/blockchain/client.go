@@ -324,7 +324,7 @@ func (c *BlockChainClient) Close() error {
 
 // GetPrivateBalance scans UserEvent logs backwards and returns all the events that are decryptable in the last block in which a decryptable event is present. 
 // If f!=nil, events should be decryptable and f should return true
-func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId uint64, fromBlock *uint64, toBlock *uint64, f func([]byte) bool) ([][]byte, error) {
+func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, f func([]byte) bool) ([][]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -336,22 +336,12 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 
 	contractAddr := c.processorAddress
 	//check from block
-	var fromBlockValue uint64;
-	if fromBlock == nil {
+	if fromBlock == 0 {
 		latestBlock, err := c.client.BlockByNumber(ctx, nil)
 		if err != nil {
 			return EMPTY, fmt.Errorf("failed to get latest block: %w", err)
 		}
-		fromBlockValue = latestBlock.NumberU64()
-	} else {
-		fromBlockValue = *fromBlock
-	}
-	//check to block
-	var toBlockValue uint64;
-	if toBlock == nil {
-		toBlockValue = 0
-	} else {
-		toBlockValue = *toBlock
+		fromBlock = latestBlock.NumberU64()
 	}
 
 	parsedABI, err := processorendpoint.ProcessorEndpointMetaData.ParseABI()
@@ -374,14 +364,13 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 
 	//needed for event filter
 	userEventSig := parsedABI.Events["UserEvent"].ID
-	appIdBig := big.NewInt(int64(applicationId))
-	appIdHash := ethCommon.BigToHash(appIdBig)
+	appIdHash := ethCommon.BigToHash(&applicationId)
 
-	for blockNumber := fromBlockValue; blockNumber >= toBlockValue; blockNumber-- {
+	for blockNumber := fromBlock; blockNumber >= toBlock; blockNumber-- {
 		query := ethereum.FilterQuery{
 			Addresses: []ethCommon.Address{contractAddr},
-			FromBlock: big.NewInt(int64(blockNumber)),
-			ToBlock:   big.NewInt(int64(blockNumber)),
+			FromBlock: new(big.Int).SetUint64(blockNumber),
+			ToBlock:   new(big.Int).SetUint64(blockNumber),
 			Topics:    [][]ethCommon.Hash{{userEventSig}, {appIdHash}},
 		} //in this way we avoid problems for too bigs interval and we avoid to invert the sort by block
 
