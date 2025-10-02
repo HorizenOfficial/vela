@@ -29,11 +29,12 @@ var (
 )
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
-	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, testHelper.KeyRegistryAddress, "", nil)
+	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, testHelper.KeyRegistryAddress, testHelper.TeeSignerAddress, "", nil)
 	blockchainClient.client = testHelper.Client()
 
 	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, testHelper.ProcessorContractAddress)
 	blockchainClient.keyRegistryBoundContract = blockchainClient.keyRegistryEndpoint.Instance(blockchainClient.client, testHelper.KeyRegistryAddress)
+	blockchainClient.teeAuthBoundContract = blockchainClient.teeAuthEndpoint.Instance(blockchainClient.client, testHelper.TeeSignerAddress)
 
 	blockchainClient.account = testHelper.ManagerAccount
 	blockchainClient.connected = true
