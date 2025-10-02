@@ -132,6 +132,10 @@ contract ProcessorEndpoint is AccessControl {
 
        _removeRequest();
 
+        if (value == 0) {
+            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED); 
+            return;
+        }
         //refunds
         (bool refunded, ) = payable(sender).call{value: value}("");
 
@@ -154,10 +158,11 @@ contract ProcessorEndpoint is AccessControl {
 
         Structs.PendingRequest[] memory res = new Structs.PendingRequest[](numOfPendingRequests);
         uint256 i = _head;
+        uint256 j = 0;
         while(i < _tail) {
             bytes32 requestId = _requestIdByOrder[i];
-            res[i] = requestById[requestId];
-            unchecked { ++i; }
+            res[j] = requestById[requestId];
+            unchecked { ++i; ++j;}
         }
 
         return res;

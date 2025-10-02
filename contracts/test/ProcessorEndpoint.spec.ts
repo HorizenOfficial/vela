@@ -224,6 +224,9 @@ describe('ProcessorEndpoint Test', function () {
         expect(stateRoot).eql(initialStateRoot)
         expect(currentPendingRequest.requestId).eql(requestQueue[1].requestId); //requestId
 
+        requestQueue = await processorEndpoint.getPendingRequests();
+        expect(requestQueue.length).eql(1)
+
         //get balance prior to fail
         let balanceBefore = await ethers.provider.getBalance(await signers[0].getAddress());
         //set as failed and check is not in the queue
@@ -321,8 +324,10 @@ describe('ProcessorEndpoint Test', function () {
         //insert request from smart contract
         let FallbackFailure = await ethers.getContractFactory("FallbackFailure");
         let fallbackFailure = await FallbackFailure.deploy();
-        
-        let submitTx = await fallbackFailure.insertRequestOnProcessorEndpoint(processorEndpoint, protocolVersion, applicationId, 1, "0x01", 0);
+       
+        // Check that if value == 0, it does not refund
+        let value = 0
+        let submitTx = await fallbackFailure.insertRequestOnProcessorEndpoint(processorEndpoint, protocolVersion, applicationId, 1, "0x01", value);
         await submitTx.wait();
 
         let balanceBefore = await ethers.provider.getBalance(processorEndpoint.getAddress());
@@ -333,9 +338,28 @@ describe('ProcessorEndpoint Test', function () {
         let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
         await expect(
            failedTx
-        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 2); //2 means failed not refunded
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 1); //1 means failed  refunded
 
         let balanceAfter = await ethers.provider.getBalance(processorEndpoint.getAddress());
+ 
+        expect(balanceAfter).eql(balanceBefore); //failed not refunded
+
+        // Check that if value > 0, it tries to refund but fails and marks as failed not refunded
+        value = 100
+        submitTx = await fallbackFailure.insertRequestOnProcessorEndpoint(processorEndpoint, protocolVersion, applicationId, 1, "0x02", value, {value: value});
+        await submitTx.wait();
+
+        balanceBefore = await ethers.provider.getBalance(processorEndpoint.getAddress());
+
+        [currentPendingRequest, _, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+        //set as failed
+        failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
+        await expect(
+           failedTx
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 2); //2 means failed not refunded
+
+        balanceAfter = await ethers.provider.getBalance(processorEndpoint.getAddress());
  
         expect(balanceAfter).eql(balanceBefore); //failed not refunded
     });
