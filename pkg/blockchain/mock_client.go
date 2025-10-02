@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
 	"github.com/elliotchance/orderedmap/v3"
+	"github.com/horizen-pes/pkg/common"
 )
 
 // MockClient is a mock implementation of the blockchain client for testing
@@ -216,19 +216,6 @@ func (c *MockClient) RegisterPublicKey(ctx context.Context, address string, publ
 	return nil
 }
 
-// GetPublicKey gets the public key for an address
-func (c *MockClient) GetPublicKey(ctx context.Context, address string) ([]byte, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	publicKey, exists := c.publicKeys[address]
-	if !exists {
-		return nil, fmt.Errorf("public key not found for address: %s", address)
-	}
-
-	return publicKey, nil
-}
-
 // SubscribeToEvents subscribes to events from the blockchain
 func (c *MockClient) SubscribeToEvents(ctx context.Context, eventCh chan<- interface{}) error {
 	c.mu.Lock()
@@ -326,7 +313,7 @@ func (c *MockClient) ClearAllData() {
 	c.publicKeys = make(map[string][]byte)
 	c.withdrawals = make(map[string]*[]common.Withdrawal)
 	c.reports = make(map[string]*common.DeanonymizationReport)
-	c.failedRequests =orderedmap.NewOrderedMap[string, *common.Request]()
+	c.failedRequests = orderedmap.NewOrderedMap[string, *common.Request]()
 	c.updatePayloads = make(map[string]*common.UpdatePayload)
 }
 

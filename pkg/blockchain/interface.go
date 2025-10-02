@@ -18,8 +18,6 @@ type Client interface {
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
 	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
 	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
-	// GetPublicKey gets the public key for an address
-	GetPublicKey(ctx context.Context, address string) ([]byte, error)
 	// Close closes the blockchain client
 	Close() error
 	// Connect connects to the blockchain
