@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -20,8 +19,8 @@ func NewMockRuntime() *MockRuntime {
 	return &MockRuntime{}
 }
 
-// LoadModule loads a WASM module and returns initial state and state root
-func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, [32]byte, error) {
+// LoadModule loads a WASM module and returns initial state
+func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error) {
 	log.Printf("Mock Runtime: Loading mock runtime module for application %s (wasm size: %d bytes)", appId, len(wasm))
 
 	// Create initial application state (generic map-based representation)
@@ -33,12 +32,11 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte)
 
 	stateBytes, err := json.Marshal(initialState)
 	if err != nil {
-		return nil, [32]byte{}, fmt.Errorf("failed to marshal initial state: %w", err)
+		return nil, fmt.Errorf("failed to marshal initial state: %w", err)
 	}
 
-	stateRoot := sha256.Sum256(stateBytes)
 	log.Printf("Mock Runtime: Successfully loaded mock runtime module for application %s", appId)
-	return stateBytes, stateRoot, nil
+	return stateBytes, nil
 }
 
 func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {

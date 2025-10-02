@@ -61,6 +61,7 @@ func (s *AppData) Serialize() ([]byte, error) {
 	}
 
 	// Write each key-value pair
+	// Note: the same order is not guaranted between differrent calls of this method!
 	for k, v := range s.appKeys {
 		keyBytes := k.Bytes()
 		if len(keyBytes) != KeyStore_KeySize {

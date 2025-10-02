@@ -102,7 +102,6 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 
 		appData.AddKey(ethCommon.HexToAddress(req.Sender), *keyToAssociate)
-
 	} else {
 		//any other case: decrypt the payload and forward to the WASM to obtain the new state
 
@@ -114,15 +113,15 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 
 		// Invoke WASM method to process the request
-		var newWasmState []byte
-		newWasmState, events, withdrawals, err = e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
+		tempState, events, withdrawals, err = e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to process request in WASM runtime: %w", err)
 		}
 		log.Printf("Executor: Successfully processed request %s", req.RequestID)
-
-		appData.SetAppState(newWasmState)
 	}
+
+	//set the updated state
+	appData.SetAppState(tempState)
 
 	//increment appNonce
 	appData.IncrementNonce()
@@ -186,7 +185,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	wasmModule := req.Payload
 
 	// Load the module and get initial state
-	initialAppState, _, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
+	initialAppState, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load WASM module: %w", err)
 	}
