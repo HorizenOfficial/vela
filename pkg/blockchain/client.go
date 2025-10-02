@@ -365,13 +365,14 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	//needed for event filter
 	userEventSig := parsedABI.Events["UserEvent"].ID
 	appIdHash := ethCommon.BigToHash(&applicationId)
+	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
 
 	for blockNumber := fromBlock; blockNumber >= toBlock; blockNumber-- {
 		query := ethereum.FilterQuery{
 			Addresses: []ethCommon.Address{contractAddr},
 			FromBlock: new(big.Int).SetUint64(blockNumber),
 			ToBlock:   new(big.Int).SetUint64(blockNumber),
-			Topics:    [][]ethCommon.Hash{{userEventSig}, {appIdHash}},
+			Topics:    topicsHash,
 		} //in this way we avoid problems for too bigs interval and we avoid to invert the sort by block
 
 		logs, err := c.client.FilterLogs(ctx, query)
