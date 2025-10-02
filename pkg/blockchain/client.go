@@ -2,7 +2,7 @@ package blockchain
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
+	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/crypto"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -50,11 +51,14 @@ type BlockChainClient struct {
 	connected                bool
 	processorAddress         ethCommon.Address
 	keyRegistryAddress       ethCommon.Address
+	teeAuthAddress			 ethCommon.Address
 	rpcURL                   string
 	processorBoundContract   *bind.BoundContract
 	processorEndpoint        *processorendpoint.ProcessorEndpoint
 	keyRegistryBoundContract *bind.BoundContract
 	keyRegistryEndpoint      *keyregistry.KeyRegistry
+	teeAuthBoundContract     *bind.BoundContract
+	teeAuthEndpoint          *tee.TeeAuthenticator
 	client                   ChainClient
 	privKey                  *cryptotypes.PrivateKeySecp256k1
 	account                  *bind.TransactOpts
@@ -73,13 +77,15 @@ func toRequestType(i uint8) common.RequestType {
 	}
 }
 
-func NewBlockChainClient(processor ethCommon.Address, keyRegistry ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
+func NewBlockChainClient(processor ethCommon.Address, keyRegistry ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:    processor,
 		keyRegistryAddress:  keyRegistry,
+		teeAuthAddress:		 teeAuthenticator,
 		rpcURL:              rpcURL,
 		processorEndpoint:   processorendpoint.NewProcessorEndpoint(),
 		keyRegistryEndpoint: keyregistry.NewKeyRegistry(),
+		teeAuthEndpoint:	 tee.NewTeeAuthenticator(),
 		privKey:             key,
 	}
 }
@@ -316,70 +322,89 @@ func (c *BlockChainClient) Close() error {
 	return nil
 }
 
-// GetPrivateBalance scans UserEvent logs backwards and returns the user's private balance.
-// privKeyHex: secp521r1 private key in hex format.
-func (c *BlockChainClient) GetPrivateBalance(ctx context.Context, address string, privKeyHex string, applicationID uint64) (uint64, error) {
+// GetPrivateBalance scans UserEvent logs backwards and returns all the events that are decryptable in the last block in which a decryptable event is present. 
+// If f!=nil, events should be decryptable and f should return true
+func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId uint64, fromBlock *uint64, toBlock *uint64, f func([]byte) bool) ([][]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	EMPTY := [][]byte{}
+
 	if !c.connected {
-		return 0, fmt.Errorf("client not connected, call Connect first")
+		return EMPTY, fmt.Errorf("client not connected, call Connect first")
 	}
 
 	contractAddr := c.processorAddress
-	latestBlock, err := c.client.BlockByNumber(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get latest block: %w", err)
+	//check from block
+	var fromBlockValue uint64;
+	if fromBlock == nil {
+		latestBlock, err := c.client.BlockByNumber(ctx, nil)
+		if err != nil {
+			return EMPTY, fmt.Errorf("failed to get latest block: %w", err)
+		}
+		fromBlockValue = latestBlock.NumberU64()
+	} else {
+		fromBlockValue = *fromBlock
 	}
-	blockNumber := latestBlock.NumberU64()
+	//check to block
+	var toBlockValue uint64;
+	if toBlock == nil {
+		toBlockValue = 0
+	} else {
+		toBlockValue = *toBlock
+	}
 
 	parsedABI, err := processorendpoint.ProcessorEndpointMetaData.ParseABI()
 	if err != nil {
-		return 0, fmt.Errorf("cannot parse ABI: %w", err)
+		return EMPTY, fmt.Errorf("cannot parse ABI: %w", err)
 	}
-	userEventSig := parsedABI.Events["UserEvent"].ID
 
-	for blockNumber > 0 {
+	//retrieve tee public key (needed to decrypt)
+	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.teeAuthEndpoint.PackPubSecp521r1(),
+		c.teeAuthEndpoint.UnpackPubSecp521r1)
+	if err != nil {
+		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
+	}
+	importedPubSecp521r1, err := crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
+	if err != nil {
+		return nil, fmt.Errorf("cannot import pubSecp521r1: %w", err)
+	}
+
+	//needed for event filter
+	userEventSig := parsedABI.Events["UserEvent"].ID
+	appIdBig := big.NewInt(int64(applicationId))
+	appIdHash := ethCommon.BigToHash(appIdBig)
+
+	for blockNumber := fromBlockValue; blockNumber >= toBlockValue; blockNumber-- {
 		query := ethereum.FilterQuery{
 			Addresses: []ethCommon.Address{contractAddr},
 			FromBlock: big.NewInt(int64(blockNumber)),
 			ToBlock:   big.NewInt(int64(blockNumber)),
-			Topics:    [][]ethCommon.Hash{{userEventSig}},
-		}
+			Topics:    [][]ethCommon.Hash{{userEventSig}, {appIdHash}},
+		} //in this way we avoid problems for too bigs interval and we avoid to invert the sort by block
+
 		logs, err := c.client.FilterLogs(ctx, query)
 		if err != nil {
-			return 0, fmt.Errorf("failed to filter logs: %w", err)
+			return EMPTY, fmt.Errorf("failed to filter logs: %w", err)
 		}
+		
+		var events [][]byte
 		for _, vLog := range logs {
 			event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
 			if err != nil {
 				continue
 			}
-			// filter by application id
-			appIdBig := big.NewInt(int64(applicationID))
-			if event.ApplicationId.Cmp(appIdBig) != 0 {
-				continue
-			}
-			decrypted, err := crypto.DecryptUserEvent(privKeyHex, event.EncryptedData)
-			if err != nil {
-				continue
-			}
-			var payload map[string]interface{}
-			if err := json.Unmarshal(decrypted, &payload); err != nil {
-				continue
-			}
-			if balanceVal, ok := payload["balance"]; ok {
-				switch b := balanceVal.(type) {
-				case float64:
-					return uint64(b), nil
-				case int:
-					return uint64(b), nil
-				case uint64:
-					return b, nil
-				}
+			decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
+			if err != nil && (f == nil || f(decrypted)) {
+				//found decryptable event that pass filter function
+				events = append(events, decrypted)
 			}
 		}
-		blockNumber--
+		if len(events) > 0 { //at least one event is found in this block
+			return events, nil 
+		}
 	}
-	return 0, errors.New("balance not found")
+	return EMPTY, errors.New("no event found")
 }
