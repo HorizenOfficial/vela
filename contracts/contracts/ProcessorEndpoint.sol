@@ -60,8 +60,6 @@ contract ProcessorEndpoint is AccessControl {
             updateStatusOperator == address(0)
         ) revert AddressCantBeZero();
 
-        _head = 0;
-        _tail = 0;
         teeAuthenticator = _teeAuthenticator;
         authorityRegistry = _authorityRegistry; 
         _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
@@ -158,7 +156,7 @@ contract ProcessorEndpoint is AccessControl {
 
         Structs.PendingRequest[] memory res = new Structs.PendingRequest[](numOfPendingRequests);
         uint256 i = _head;
-        uint256 j = 0;
+        uint256 j;
         while(i < _tail) {
             bytes32 requestId = _requestIdByOrder[i];
             res[j] = requestById[requestId];
@@ -226,17 +224,15 @@ contract ProcessorEndpoint is AccessControl {
             bytes32 requestId = _requestIdByOrder[_head];
             return (requestById[requestId], stateRoot, true);
         }
-        else {
-            Structs.PendingRequest memory emptyReq;
-            return (emptyReq, bytes32(0), false);
-        }
 
+        Structs.PendingRequest memory emptyReq;
+        return (emptyReq, bytes32(0), false);
+ 
     }
 
     function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
         return getPendingRequestsSize() > 0 && _requestIdByOrder[_head] == requestId;
     }
-
 
     function generateRequestId(
         address sender,
