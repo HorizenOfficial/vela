@@ -63,6 +63,12 @@ func TestGetPendingRequests(t *testing.T) {
 
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 
+	currentStateRoot := testHelper.GetStateRoot()
+	pendingRequest, stateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, pendingRequest, "There should be no pending request")
+	require.Equal(t, currentStateRoot, stateRoot)
+
 	//*****************************************************
 	// submit request
 	transferValue := big.NewInt(1203055)
@@ -89,6 +95,22 @@ func TestGetPendingRequests(t *testing.T) {
 
 	require.Equal(t, testHelper.Submitter.From.String(), request.Sender, "Sender should match")
 	require.Equal(t, transferValue.Uint64(), request.Value, "Value should match")
+
+	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, request.RequestID, pendingRequest.RequestID, "Payload should match")
+	require.Equal(t, strconv.Itoa(int(testHelper.ProtocolVersion)), pendingRequest.ProtocolVersion, "Protocol version should match")
+	require.Equal(t, applicationId.String(), pendingRequest.ApplicationID, "Application ID should match")
+	require.Equal(t, common.Process, pendingRequest.RequestType, "Request type should match")
+	require.Equal(t, payload, pendingRequest.Payload, "Payload should match")
+	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
+
+	require.Equal(t, testHelper.Submitter.From.String(), pendingRequest.Sender, "Sender should match")
+	require.Equal(t, transferValue.Uint64(), pendingRequest.Value, "Value should match")
+
+
+	require.Equal(t, currentStateRoot, stateRoot)
+
 
 }
 

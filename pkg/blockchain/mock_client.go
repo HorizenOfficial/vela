@@ -62,6 +62,7 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) err
 	// Store the request
 	c.requests.Set(req.RequestID, req)
 	c.pendingRequests.Set(req.RequestID, req)
+	
 
 	return nil
 }
@@ -76,8 +77,34 @@ func (c *MockClient) GetPendingRequests(ctx context.Context) ([]*common.Request,
 		requests = append(requests, req)
 	}
 
+
 	return requests, nil
 }
+
+// GetNextPendingRequest gets the next pending request and the current stateRoot from the blockchain
+func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var req *common.Request
+	if c.pendingRequests.Len() > 0 {
+		req = c.pendingRequests.Front().Value
+	}
+
+	var stateRoot [32]byte
+
+	appState, err := c.GetApplicationState(ctx, req.ApplicationID)
+	if err != nil {
+		return req, [32]byte{}, nil
+	}
+
+	if appState != nil {
+		stateRoot = appState.StateRoot
+	}
+	return req, stateRoot, nil
+
+}
+
 
 // MarkRequestFailed marks a request as failed
 func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID string) error {

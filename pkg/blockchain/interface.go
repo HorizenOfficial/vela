@@ -12,6 +12,8 @@ import (
 type Client interface {
 	// GetPendingRequests gets pending requests from the blockchain
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
+	// GetNextPendingRequest gets next pending request and current state root from the blockchain
+	GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error)
 	// MarkRequestFailed marks a request as failed
 	MarkRequestFailed(ctx context.Context, requestID string) error
 	// SubmitStateUpdate submits a state update to the blockchain

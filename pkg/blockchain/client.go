@@ -148,6 +148,47 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 	return output, nil
 }
 
+
+func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error){
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return nil, [32]byte{}, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	output, err := bind.Call(c.processorBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.processorEndpoint.PackGetNextPendingRequest(),
+		c.processorEndpoint.UnpackGetNextPendingRequest)
+
+	if err != nil {
+		return nil, [32]byte{}, fmt.Errorf("call returned error: %w", err)
+	}
+
+	stateRoot := output.Arg1
+	if !output.Success {
+		return nil, stateRoot, nil
+	}
+	
+	request := output.Arg0
+
+	requestId := hex.EncodeToString(request.RequestId[:])
+	req := &common.Request{
+		ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
+		ApplicationID:   request.ApplicationId.String(),
+		RequestID:       requestId,
+		RequestType:     toRequestType(request.RequestType),
+		Payload:         request.Payload,
+		Timestamp:       request.Timestamp.Int64(),
+		Sender:          request.Sender.String(),
+		Value:           request.Value.Uint64(),
+	}
+
+	
+	return req, stateRoot, nil
+}
+
 func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

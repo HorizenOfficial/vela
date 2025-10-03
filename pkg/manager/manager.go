@@ -125,31 +125,32 @@ func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
 		return
 	}
 
-	// Get pending requests from the blockchain
-	requests, err := m.blockchainClient.GetPendingRequests(ctx)
+	// Get next pending request from the blockchain
+	request, _, err := m.blockchainClient.GetNextPendingRequest(ctx)
 	if err != nil {
-		log.Printf("Manager: Failed to get pending requests: %v", err)
+		log.Printf("Manager: Failed to get pending request: %v", err)
 		return
 	}
 
-	// Process each request
-	for _, req := range requests {
-		m.mu.RLock()
-		if !m.isRunning {
-			log.Printf("Manager has stopped, exiting request processing loop")
-			m.mu.RUnlock()
-			return
+	if request == nil {
+		log.Printf("Manager: No pending requests found")
+		return
+	}
+	// Process request
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.isRunning {
+		log.Printf("Manager has stopped, exiting request processing loop")
+		return
+	}
+	if err := m.processRequest(ctx, request); err != nil {
+		// Log the error and mark the request as failed
+		log.Printf("Manager: Failed to process request %s: %v", request.RequestID, err)
+		if err = m.blockchainClient.MarkRequestFailed(ctx, request.RequestID); err != nil {
+			log.Printf("Manager: Failed to mark request %s as failed: %v", request.RequestID, err)
 		}
-		if err := m.processRequest(ctx, req); err != nil {
-			// Log the error and mark the request as failed
-			log.Printf("Manager: Failed to process request %s: %v", req.RequestID, err)
-			if err = m.blockchainClient.MarkRequestFailed(ctx, req.RequestID); err != nil {
-				log.Printf("Manager: Failed to mark request %s as failed: %v", req.RequestID, err)
-			}
-		} else {
-			log.Printf("Manager: Processed and marked as completed request %s", req.RequestID)
-		}
-		m.mu.RUnlock()
+	} else {
+		log.Printf("Manager: Processed and marked as completed request %s", request.RequestID)
 	}
 
 }
