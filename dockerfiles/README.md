@@ -36,5 +36,5 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
 
 ## Where to go next: 
 
-- The Anvil chain node is created empty: to have a running dev environmnet you must deploy the contracts using the hardhat scripts in the contracts/ folder. After having deployed them, be sure to update the  CHAIN_PROCESSOR_ADDRESS and in the .env file with the address of the smart contracts, and restart the docker compose.
+- The Anvil chain node is created empty: to have a running dev environmnet you must deploy the contracts using the hardhat scripts in the contracts/ folder. After having deployed them, be sure to update the  CHAIN_PROCESSOR_ADDRESS in the .env file with the address of the ProcessorEndpoint smart contract, and restart the docker compose.
 
