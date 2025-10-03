@@ -38,6 +38,7 @@ contract ProcessorEndpoint is AccessControl {
     error InvalidRequestId();
     error InvalidStateRoot();
     error InvalidSignature();
+    error InvalidPayload();
     error InsufficientBalance();
     error AuthorityNotAllowed();
 
@@ -75,9 +76,12 @@ contract ProcessorEndpoint is AccessControl {
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
         //check value
         if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
-        //check authorization
-        if(requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
 
+        if (requestType == Structs.RequestType.ASSOCIATEKEY) {
+            //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
+            if (payload.length != 133) revert InvalidPayload();
+        }else if  (requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
+        
         //create request
         bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, value, _tail);
         requestById[requestId] = 

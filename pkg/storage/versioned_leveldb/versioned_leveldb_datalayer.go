@@ -232,53 +232,6 @@ func (s *LevelDbStorageAdapter) Close() error {
 	return s.db.Close()
 }
 
-// LevelDBUserKeyStore is a non-versioned store for user keys.
-type LevelDBUserKeyStore struct {
-	Adapter *LevelDbStorageAdapter
-	closableStore
-}
-
-func NewLevelDBUserKeyStore(dbPath string) (*LevelDBUserKeyStore, error) {
-	adapter, err := NewLevelDbStorageAdapter(dbPath)
-	if err != nil {
-		return nil, err
-	}
-	return &LevelDBUserKeyStore{Adapter: adapter}, nil
-}
-
-func (s *LevelDBUserKeyStore) StoreUserKey(ctx context.Context, userID string, publicKey []byte) error {
-	if err := s.checkClosed("user key store"); err != nil {
-		return err
-	}
-	key := []byte(userKeyPrefix + userID)
-	err := s.Adapter.Put(key, publicKey)
-	if err != nil {
-		return fmt.Errorf("failed to store user key in LevelDB: %w", err)
-	}
-	return nil
-}
-
-func (s *LevelDBUserKeyStore) GetUserKey(ctx context.Context, userID string) ([]byte, error) {
-	if err := s.checkClosed("user key store"); err != nil {
-		return nil, err
-	}
-	key := []byte(userKeyPrefix + userID)
-	value, err := s.Adapter.Get(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user key from LevelDB: %w", err)
-	}
-	if value == nil {
-		return nil, storageErrors.ErrNotFound("public key not found for user: " + userID)
-	}
-	return value, nil
-}
-
-func (s *LevelDBUserKeyStore) Close() error {
-	return s.close(s.Adapter.Close)
-}
-
-var _ storage.ApplicationUserKeyStore = (*LevelDBUserKeyStore)(nil)
-
 // LevelDBReportStore is a non-versioned store for reports.
 type LevelDBReportStore struct {
 	Adapter *LevelDbStorageAdapter
@@ -338,7 +291,6 @@ var _ storage.ApplicationReportStore = (*LevelDBReportStore)(nil)
 // LevelDBDataLayer implements the DataLayer interface using LevelDB.
 type LevelDBDataLayer struct {
 	*VersionedLevelDBAppStateStore
-	*LevelDBUserKeyStore
 	*LevelDBReportStore
 }
 
@@ -354,11 +306,6 @@ func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*LevelDBDataLayer
 		return nil, err
 	}
 
-	userKeyStore, err := NewLevelDBUserKeyStore(filepath.Join(cfg.DBPath, "userkeys"))
-	if err != nil {
-		return nil, err
-	}
-
 	reportStore, err := NewLevelDBReportStore(filepath.Join(cfg.DBPath, "reports"))
 	if err != nil {
 		return nil, err
@@ -366,16 +313,12 @@ func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*LevelDBDataLayer
 
 	return &LevelDBDataLayer{
 		VersionedLevelDBAppStateStore: appStateStore,
-		LevelDBUserKeyStore:           userKeyStore,
 		LevelDBReportStore:            reportStore,
 	}, nil
 }
 
 func (d *LevelDBDataLayer) Close() error {
 	if err := d.VersionedLevelDBAppStateStore.Close(); err != nil {
-		return err
-	}
-	if err := d.LevelDBUserKeyStore.Close(); err != nil {
 		return err
 	}
 	if err := d.LevelDBReportStore.Close(); err != nil {

@@ -202,38 +202,6 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 	})
 
-	t.Run("StoreAndGetUserKey", func(t *testing.T) {
-		// Tests the fundamental store and get operations for a user's public key,
-		// ensuring data is retrieved correctly and without errors.
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		userID := "versioned-leveldb-user-id-1"
-		expectedPublicKey := []byte("versioned-leveldb-public-key-bytes-1")
-		err = store.StoreUserKey(ctx, userID, expectedPublicKey)
-		require.NoError(t, err, "StoreUserKey should not return an error")
-		actualPublicKey, err := store.GetUserKey(ctx, userID)
-		require.NoError(t, err, "GetUserKey for existing ID should not return an error")
-		require.NotNil(t, actualPublicKey, "GetUserKey should return non-nil public key")
-		assert.True(t, bytes.Equal(expectedPublicKey, actualPublicKey), "Retrieved User Key mismatch")
-	})
-
-	t.Run("GetNonExistentUserKey", func(t *testing.T) {
-		// Ensures that trying to get a user key with an ID that does not
-		// exist returns a 'NotFound' error.
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		_, err = store.GetUserKey(ctx, "versioned-leveldb-non-existent-user-id")
-		require.Error(t, err, "Expected an error when getting non-existent user key")
-		var notFoundErr *storageErrors.Error
-		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
-			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
-		}
-	})
-
 	t.Run("OperationsAfterClose", func(t *testing.T) {
 		// Verifies that all data manipulation and retrieval operations return a
 		// 'StorageIsClosed' error after the database instance has been closed.
@@ -262,13 +230,6 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			"StoreDeanonymizationReport": func() error {
 				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
 			},
-			"GetUserKey": func() error {
-				_, err := store.GetUserKey(ctx, "any-id")
-				return err
-			},
-			"StoreUserKey": func() error {
-				return store.StoreUserKey(ctx, "test-user", []byte("key"))
-			},
 		}
 
 		for name, op := range operations {
@@ -282,21 +243,6 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 				}
 			})
 		}
-	})
-
-	t.Run("StoreWithEmptyKeyAndValue", func(t *testing.T) {
-		// Checks that the database correctly handles storing and retrieving an
-		// entry with an empty key and an empty value.
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		err = store.StoreUserKey(ctx, "", []byte{})
-		require.NoError(t, err, "Storing an empty key and value should not produce an error")
-
-		val, err := store.GetUserKey(ctx, "")
-		require.NoError(t, err, "Getting an empty key should not produce an error")
-		assert.Equal(t, []byte{}, val, "Expected an empty value")
 	})
 
 	t.Run("StoreWithLargeValue", func(t *testing.T) {

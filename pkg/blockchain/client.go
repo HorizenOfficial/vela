@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -22,9 +21,6 @@ import (
 //go:generate mkdir -p ./contracts/processorendpoint
 //go:generate solc --combined-json abi,bin ../../contracts/contracts/ProcessorEndpoint.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/ProcessorEndpointAbi/combined.json --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
-//go:generate mkdir -p ./contracts/keyregistry
-//go:generate solc --combined-json abi,bin ../../contracts/contracts/KeyRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/KeyRegistryAbi --overwrite
-//go:generate abigen --v2 --combined-json ../../contract_abis/KeyRegistryAbi/combined.json --pkg keyregistry --type KeyRegistry --out ./contracts/keyregistry/KeyRegistry.go
 
 type ChainClient interface {
 	ethereum.BlockNumberReader
@@ -44,18 +40,15 @@ type ChainClient interface {
 }
 
 type BlockChainClient struct {
-	mu                       sync.RWMutex
-	connected                bool
-	processorAddress         ethCommon.Address
-	keyRegistryAddress       ethCommon.Address
-	rpcURL                   string
-	processorBoundContract   *bind.BoundContract
-	processorEndpoint        *processorendpoint.ProcessorEndpoint
-	keyRegistryBoundContract *bind.BoundContract
-	keyRegistryEndpoint      *keyregistry.KeyRegistry
-	client                   ChainClient
-	privKey                  *cryptotypes.PrivateKeySecp256k1
-	account                  *bind.TransactOpts
+	mu                     sync.RWMutex
+	connected              bool
+	processorAddress       ethCommon.Address
+	rpcURL                 string
+	processorBoundContract *bind.BoundContract
+	processorEndpoint      *processorendpoint.ProcessorEndpoint
+	client                 ChainClient
+	privKey                *cryptotypes.PrivateKeySecp256k1
+	account                *bind.TransactOpts
 }
 
 func toRequestType(i uint8) common.RequestType {
@@ -71,14 +64,12 @@ func toRequestType(i uint8) common.RequestType {
 	}
 }
 
-func NewBlockChainClient(processor ethCommon.Address, keyRegistry ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
+func NewBlockChainClient(processor ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
-		processorAddress:    processor,
-		keyRegistryAddress:  keyRegistry,
-		rpcURL:              rpcURL,
-		processorEndpoint:   processorendpoint.NewProcessorEndpoint(),
-		keyRegistryEndpoint: keyregistry.NewKeyRegistry(),
-		privKey:             key,
+		processorAddress:  processor,
+		rpcURL:            rpcURL,
+		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
+		privKey:           key,
 	}
 }
 
@@ -97,7 +88,6 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	}
 
 	c.processorBoundContract = c.processorEndpoint.Instance(c.client, c.processorAddress)
-	c.keyRegistryBoundContract = c.keyRegistryEndpoint.Instance(c.client, c.keyRegistryAddress)
 
 	chainID, err := c.client.ChainID(ctx)
 	if err != nil {
@@ -260,47 +250,6 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 }
 
-func (c *BlockChainClient) GetPublicKey(ctx context.Context, address string) ([]byte, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return nil, fmt.Errorf("client not connected, call Connect first")
-	}
-
-	pubKey, err := bind.Call(c.keyRegistryBoundContract,
-		&bind.CallOpts{Pending: false},
-		c.keyRegistryEndpoint.PackGetPK(ethCommon.HexToAddress(address)),
-		c.keyRegistryEndpoint.UnpackGetPK)
-
-	if err != nil {
-		return nil, fmt.Errorf("call returned error: %w", err)
-	}
-
-	return pubKey, nil
-}
-
-func (c *BlockChainClient) RegisterPK(ctx context.Context, publicKey []byte) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return fmt.Errorf("client not connected, call Connect first")
-	}
-
-	tx, err := bind.Transact(c.processorBoundContract, c.account, c.keyRegistryEndpoint.PackRegisterPK(publicKey))
-	if err != nil {
-		return fmt.Errorf("failed to submit transaction: %w", err)
-	}
-
-	// wait for transaction inclusion
-	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
-		return fmt.Errorf("error waiting for tx inclusion: %w", err)
-	}
-	return nil
-
-}
-
 // Close closes the blockchain client
 func (c *BlockChainClient) Close() error {
 	c.mu.Lock()
@@ -308,7 +257,6 @@ func (c *BlockChainClient) Close() error {
 
 	c.client = nil
 	c.processorBoundContract = nil
-	c.keyRegistryBoundContract = nil
 	c.account = nil
 
 	c.connected = false
