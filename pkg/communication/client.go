@@ -115,14 +115,13 @@ func (c *Client) SetClientRequestHandler(handler ClientRequestHandler) {
 }
 
 // SendProcessRequest sends a process request and waits for response
-func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: ProcessRequestMessage,
 		Data: ProcessRequestData{
 			Request:          req,
 			ApplicationState: appState,
-			SenderKey:        senderKey,
 			WasmModule:       wasmModule,
 		},
 	}
@@ -185,14 +184,13 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*commo
 }
 
 // SendGenerateDeanonymizationReport sends a deanonymization request and waits for response
-func (c *Client) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
+func (c *Client) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: DeanonymizationRequestMessage,
 		Data: DeanonymizationRequestData{
 			Request:          req,
 			ApplicationState: appState,
-			SenderKey:        senderKey,
 			WasmModule:       wasmModule,
 		},
 	}
@@ -316,44 +314,11 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 }
 
 // handleServerRequest handles requests initiated by the server
+// NOTE: for now no messages are supported on this direction, but the method is present for future use cases
 func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
 	switch msg.Type {
-	case GetUserKeysRequestMessage:
-		c.handleGetUserKeysRequest(ctx, msg)
 	default:
 		log.Printf("Client: Warning: unknown message type: %v\n", msg.Type)
-	}
-}
-
-// handleGetUserKeysRequest handles GetUserKeys requests from server
-func (c *Client) handleGetUserKeysRequest(ctx context.Context, msg *Message) {
-	if c.requestHandler == nil {
-		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
-		return
-	}
-
-	reqData, err := extractData[GetUserKeysRequestData](msg.Data)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
-		return
-	}
-
-	userKeys, err := c.requestHandler.HandleGetUserKeys(ctx, reqData.Users)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
-		return
-	}
-
-	response := Message{
-		ID:   msg.ID,
-		Type: GetUserKeysResponseMessage,
-		Data: GetUserKeysResponseData{
-			UserKeys: userKeys,
-		},
-	}
-
-	if err := c.sendMessage(response); err != nil {
-		log.Printf("Client: Failed to send HandleGetUserKeys response: %v", err)
 	}
 }
 
