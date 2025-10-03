@@ -8,9 +8,8 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
+	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,11 +28,10 @@ var (
 )
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
-	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, testHelper.KeyRegistryAddress, "", nil)
+	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, "", nil)
 	blockchainClient.client = testHelper.Client()
 
 	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, testHelper.ProcessorContractAddress)
-	blockchainClient.keyRegistryBoundContract = blockchainClient.keyRegistryEndpoint.Instance(blockchainClient.client, testHelper.KeyRegistryAddress)
 
 	blockchainClient.account = testHelper.ManagerAccount
 	blockchainClient.connected = true
@@ -49,7 +47,6 @@ func setupSimTestHelperManualMining(t *testing.T) *testutil.SimTestHelper {
 func setupSimTestHelperAutoMining(t *testing.T) *testutil.SimTestHelper {
 	return testutil.NewSimTestHelper(t, true, true, nil)
 }
-
 
 func TestGetPendingRequests(t *testing.T) {
 
@@ -207,33 +204,4 @@ func TestSubmitStateUpdate(t *testing.T) {
 	res, err = blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res), "There should be 0 pending request")
-}
-
-func TestGetPublicKey(t *testing.T) {
-
-	testHelper := setupSimTestHelperManualMining(t)
-	defer testHelper.Close()
-
-	blockchainClient := SetupNewBlockChainClient(testHelper)
-
-	res, err := blockchainClient.GetPublicKey(context.Background(), testHelper.Submitter.From.Hex())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be no key")
-
-	userEncryptKey, err := crypto.GeneratePrivateKeyP521()
-	require.NoError(t, err)
-	userEncryptPubKey := userEncryptKey.PublicKey().Bytes()
-
-	tx, err := testHelper.RegisterUserKey(testHelper.Submitter, userEncryptPubKey)
-	require.NoError(t, err)
-
-	testHelper.MineBlock()
-	// wait for transaction inclusion
-	testHelper.WaitMined(tx)
-
-	res, err = blockchainClient.GetPublicKey(context.Background(), testHelper.Submitter.From.Hex())
-
-	require.NoError(t, err)
-	require.Equal(t, userEncryptPubKey, res)
-
 }

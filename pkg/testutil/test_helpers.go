@@ -105,16 +105,6 @@ func (s *SystemTestSuite) StartExecutor() error {
 	return nil
 }
 
-func (s *SystemTestSuite) AddUserKeys(userID string, publicKey []byte) error {
-	// Register in a blockchain client
-	err := s.blockchainClient.RegisterPublicKey(s.ctx, userID, publicKey)
-	if err == nil {
-		// Register in data layer
-		return s.dataLayer.StoreUserKey(s.ctx, userID, publicKey)
-	}
-	return err
-}
-
 func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {
 	return s.blockchainClient.SubmitRequest(s.ctx, req)
 }
@@ -276,25 +266,9 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	cryptoHelper := NewCryptoHelper()
 
-	t.Log("Step 0: Setup user keys for encryption/decryption")
+	t.Log("Step 0: Starting system components and deploying app")
 
-	// Generate user and auditor keys
-	user1Key, err := cryptoHelper.GenerateUserKey(user1)
-	require.NoError(t, err)
-	user2Key, err := cryptoHelper.GenerateUserKey(user2)
-	require.NoError(t, err)
-	auditorKey, err := cryptoHelper.GenerateUserKey(auditor)
-	require.NoError(t, err)
-
-	// Register keys in the system
-	err = suite.AddUserKeys(user1, user1Key.PublicKey().Bytes())
-	require.NoError(t, err)
-	err = suite.AddUserKeys(user2, user2Key.PublicKey().Bytes())
-	require.NoError(t, err)
-	err = suite.AddUserKeys(auditor, auditorKey.PublicKey().Bytes())
-	require.NoError(t, err)
-
-	t.Log("Step 1: Starting system components and deploying app")
+	var err error
 
 	err = suite.StartExecutor()
 	require.NoError(t, err)
@@ -338,6 +312,43 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	payload, err := suite.GetRequestUpdatePayload(RequestID)
 	require.NoError(t, err)
 	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+
+	t.Log("Step 1: Setup user keys for encryption/decryption")
+
+	// Generate user and auditor keys
+	user1Key, err := cryptoHelper.GenerateUserKey(user1)
+	require.NoError(t, err)
+	user2Key, err := cryptoHelper.GenerateUserKey(user2)
+	require.NoError(t, err)
+	auditorKey, err := cryptoHelper.GenerateUserKey(auditor)
+	require.NoError(t, err)
+
+	//register key 1
+	RequestID = "2130"
+	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, user1, user1Key.PublicKey())
+	require.NoError(t, err)
+	err = suite.SubmitRequest(associateKey1Req)
+	require.NoError(t, err)
+	err = suite.AssertRequestCompleted(RequestID, 100*time.Second)
+	require.NoError(t, err)
+
+	//register key 2
+	RequestID = "2131"
+	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, user2, user2Key.PublicKey())
+	require.NoError(t, err)
+	err = suite.SubmitRequest(associateKey2Req)
+	require.NoError(t, err)
+	err = suite.AssertRequestCompleted(RequestID, 100*time.Second)
+	require.NoError(t, err)
+
+	//register key 3
+	RequestID = "2132"
+	associateKey3Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, auditor, auditorKey.PublicKey())
+	require.NoError(t, err)
+	err = suite.SubmitRequest(associateKey3Req)
+	require.NoError(t, err)
+	err = suite.AssertRequestCompleted(RequestID, 100*time.Second)
 	require.NoError(t, err)
 
 	t.Log("Step 2: Sending deposit request")

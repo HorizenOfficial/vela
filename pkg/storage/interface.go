@@ -40,15 +40,6 @@ type ApplicationStateStore interface {
 	Close() error
 }
 
-// ApplicationUserKeyStore defines the interface for managing user public keys.
-// This storage is not versioned
-type ApplicationUserKeyStore interface {
-	// StoreUserKey saves a user's public key, associating it with a userID.
-	StoreUserKey(ctx context.Context, userID string, publicKey []byte) error
-	// GetUserKey retrieves a user's public key by their userID.
-	GetUserKey(ctx context.Context, userID string) ([]byte, error)
-}
-
 // ApplicationReportStore defines the interface for managing deanonymization reports.
 // This storage is not versioned
 type ApplicationReportStore interface {
@@ -62,6 +53,5 @@ type ApplicationReportStore interface {
 // It provides a single point of access to all data storage functionality.
 type DataLayer interface {
 	ApplicationStateStore
-	ApplicationUserKeyStore
 	ApplicationReportStore
 }

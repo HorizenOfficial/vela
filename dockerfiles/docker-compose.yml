@@ -38,7 +38,6 @@ services:
       - CHAIN_RPC_ADDRESS
       - CHAIN_RPC_PORT
       - CHAIN_PROCESSOR_ADDRESS
-      - CHAIN_KEYREGISTRY_ADDRESS
     networks:
       pes_network:
         ipv4_address: ${MANAGER_IP_ADDRESS}

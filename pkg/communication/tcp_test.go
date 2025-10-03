@@ -14,14 +14,14 @@ import (
 
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
-	ProcessRequestFunc                func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	ProcessRequestFunc                func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
-	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error)
+	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
 }
 
-func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if m.ProcessRequestFunc != nil {
-		return m.ProcessRequestFunc(ctx, req, appState, senderKey, wasmModule)
+		return m.ProcessRequestFunc(ctx, req, appState, wasmModule)
 	}
 	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
@@ -61,9 +61,9 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 		nil
 }
 
-func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
+func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
 	if m.GenerateDeanonymizationReportFunc != nil {
-		return m.GenerateDeanonymizationReportFunc(ctx, req, appState, senderKey, wasmModule)
+		return m.GenerateDeanonymizationReportFunc(ctx, req, appState, wasmModule)
 	}
 	return &common.DeanonymizationReport{
 			ApplicationID:   req.ApplicationID,
@@ -76,17 +76,6 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 // MockClientRequestHandler is a mock implementation for testing the new client
 type MockClientRequestHandler struct {
 	GetUserKeysFunc func(ctx context.Context, users []string) (map[string][]byte, error)
-}
-
-func (m *MockClientRequestHandler) HandleGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
-	if m.GetUserKeysFunc != nil {
-		return m.GetUserKeysFunc(ctx, users)
-	}
-	userKeys := make(map[string][]byte)
-	for _, user := range users {
-		userKeys[user] = []byte("public-key-for-" + user)
-	}
-	return userKeys, nil
 }
 
 func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
@@ -128,10 +117,9 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
-	senderKey := []byte("test-sender-key")
 	wasmModule := []byte("test-wasm-module")
 
-	updatePayload, _, err := client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
+	updatePayload, _, err := client.SendProcessRequest(ctx, req, appState, wasmModule)
 	require.NoError(t, err)
 	assert.Equal(t, req.ApplicationID, updatePayload.ApplicationID)
 	assert.Equal(t, appState.StateRoot, updatePayload.PrevStateRoot)
@@ -149,139 +137,11 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), appState2.StateRoot)
 
 	// Test HandleGenerateDeanonymizationReport
-	report, err := client.SendGenerateDeanonymizationReport(ctx, req, appState, senderKey, wasmModule)
+	report, err := client.SendGenerateDeanonymizationReport(ctx, req, appState, wasmModule)
 	require.NoError(t, err)
 	assert.Equal(t, req.ApplicationID, report.ApplicationID)
 	assert.Equal(t, "test-report-id", report.ReportID)
 	assert.Equal(t, []byte("test-encrypted-report"), report.EncryptedReport)
-}
-
-func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
-	// Create a mock request handler for the server
-	serverHandler := &MockRequestHandler{}
-
-	// Create a mock client request handler
-	clientHandler := &MockClientRequestHandler{}
-
-	// Create a context
-	ctx := context.Background()
-
-	// Create a server
-	factory := NewTCPConnectionFactory(":8084")
-	server := NewServer(factory)
-	server.SetRequestHandler(serverHandler)
-	err := server.Start(ctx)
-	require.NoError(t, err)
-	defer server.Stop()
-
-	// Create a client
-	client := NewClient(factory)
-	client.SetClientRequestHandler(clientHandler)
-
-	// Test connecting to the server
-	err = client.Connect(ctx)
-	require.NoError(t, err)
-	defer client.Close()
-
-	// Give some time for the connection to be established
-	time.Sleep(100 * time.Millisecond)
-
-	// Test server requesting user keys from client
-	users := []string{"user1", "user2", "user3"}
-	userKeys, err := server.SendGetUserKeys(ctx, users)
-	require.NoError(t, err)
-	assert.Len(t, userKeys, 3)
-	assert.Equal(t, []byte("public-key-for-user1"), userKeys["user1"])
-	assert.Equal(t, []byte("public-key-for-user2"), userKeys["user2"])
-	assert.Equal(t, []byte("public-key-for-user3"), userKeys["user3"])
-}
-
-func TestTCPClientServer_ConcurrentBidirectionalCommunication(t *testing.T) {
-	// This test verifies that bi-directional communication works correctly
-	// even when client requests and server requests happen concurrently
-
-	// Create a mock request handler for the server
-	serverHandler := &MockRequestHandler{}
-
-	// Create a mock client request handler that simulates some processing time
-	clientHandler := &MockClientRequestHandler{
-		GetUserKeysFunc: func(ctx context.Context, users []string) (map[string][]byte, error) {
-			// Simulate some processing time
-			time.Sleep(50 * time.Millisecond)
-			userKeys := make(map[string][]byte)
-			for _, user := range users {
-				userKeys[user] = []byte("public-key-for-" + user)
-			}
-			return userKeys, nil
-		},
-	}
-
-	// Create a context
-	ctx := context.Background()
-
-	// Create a server
-	factory := NewTCPConnectionFactory(":8085")
-	server := NewServer(factory)
-	server.SetRequestHandler(serverHandler)
-	err := server.Start(ctx)
-	require.NoError(t, err)
-	defer server.Stop()
-
-	// Create a client
-	client := NewClient(factory)
-	client.SetClientRequestHandler(clientHandler)
-
-	// Test connecting to the server
-	err = client.Connect(ctx)
-	require.NoError(t, err)
-	defer client.Close()
-
-	// Give some time for the connection to be established
-	time.Sleep(100 * time.Millisecond)
-
-	// Create channels to coordinate concurrent operations
-	clientDone := make(chan error, 1)
-	serverDone := make(chan error, 1)
-
-	// Start a client request in a goroutine
-	go func() {
-		req := &common.Request{
-			ProtocolVersion: "1.0",
-			ApplicationID:   "test-app",
-			RequestID:       "test-request-id",
-			RequestType:     common.Process,
-			Payload:         []byte("test-encrypted-action"),
-			Timestamp:       time.Now().Unix(),
-			Sender:          "test-sender",
-			//Value:           0,
-		}
-		appState := &common.ApplicationState{
-			ApplicationID:  "test-app",
-			StateRoot:      sha256.Sum256([]byte("test-state-root")),
-			EncryptedState: []byte("test-encrypted-state"),
-		}
-		senderKey := []byte("test-sender-key")
-		wasmModule := []byte("test-wasm-module")
-
-		_, _, err := client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
-		clientDone <- err
-	}()
-
-	// Start a server request in a goroutine (with a small delay to ensure overlap)
-	go func() {
-		time.Sleep(25 * time.Millisecond) // Start server request while client request is in progress
-		users := []string{"user1", "user2"}
-		_, err := server.SendGetUserKeys(ctx, users)
-		serverDone <- err
-	}()
-
-	// Wait for both operations to complete
-	clientErr := <-clientDone
-	serverErr := <-serverDone
-
-	// Both operations should succeed without race conditions
-	assert.NoError(t, clientErr, "Client request should succeed")
-	assert.NoError(t, serverErr, "Server request should succeed")
 }
 
 func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
@@ -334,92 +194,12 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			StateRoot:      sha256.Sum256([]byte("test-state-root")),
 			EncryptedState: []byte("test-encrypted-state"),
 		}
-		senderKey := []byte("test-sender-key")
 		wasmModule := []byte("test-wasm-module")
 
-		_, _, err := client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
+		_, _, err := client.SendProcessRequest(ctx, req, appState, wasmModule)
 		require.NoError(t, err, "Client request %d should succeed", i)
 
-		// Server-initiated request
-		users := []string{"user1", "user2"}
-		userKeys, err := server.SendGetUserKeys(ctx, users)
-		require.NoError(t, err, "Server request %d should succeed", i)
-		assert.Len(t, userKeys, 2, "Should get keys for 2 users")
 	}
-}
-
-func TestTCPClientServer_DependantRequests(t *testing.T) {
-	// This test verifies that a server request can depend on a client request
-
-	clientHandler := &MockClientRequestHandler{
-		GetUserKeysFunc: func(ctx context.Context, users []string) (map[string][]byte, error) {
-			return map[string][]byte{"test-user": []byte("VERIFICATION_STRING")}, nil
-		},
-	}
-
-	var server *Server
-	// Server handler that calls GetUserKeys during ProcessRequest
-	serverHandler := &MockRequestHandler{
-		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
-			keys, err := server.SendGetUserKeys(ctx, []string{"test-user"})
-			if err != nil {
-				return nil, nil, err
-			}
-
-			return &common.UpdatePayload{
-				ApplicationID: req.ApplicationID,
-				PrevStateRoot: appState.StateRoot,
-				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
-				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
-				Signature:     keys["test-user"],
-			}, appState, nil
-		},
-	}
-
-	ctx := context.Background()
-
-	// Setup server
-	factory := NewTCPConnectionFactory(":8090")
-	server = NewServer(factory)
-	server.SetRequestHandler(serverHandler)
-	err := server.Start(ctx)
-	require.NoError(t, err)
-	defer server.Stop()
-
-	// Setup client
-	client := NewClient(factory)
-	client.SetClientRequestHandler(clientHandler)
-	err = client.Connect(ctx)
-	require.NoError(t, err)
-	defer client.Close()
-
-	time.Sleep(100 * time.Millisecond)
-
-	// Make the request that triggers the nested call
-	req := &common.Request{
-		ProtocolVersion: "1.0",
-		ApplicationID:   "test-app",
-		RequestID:       "test-request-id",
-		RequestType:     common.Process,
-		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       time.Now().Unix(),
-		Sender:          "test-sender",
-		//Value:           0,
-	}
-	appState := &common.ApplicationState{
-		ApplicationID:  "test-app",
-		StateRoot:      sha256.Sum256([]byte("test-state-root")),
-		EncryptedState: []byte("test-encrypted-state"),
-	}
-	senderKey := []byte("test-sender-key")
-	wasmModule := []byte("test-wasm-module")
-
-	// This should trigger GetUserKeys request from server to client
-	payload, _, err := client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
-	require.NoError(t, err)
-
-	require.Equal(t, []byte("VERIFICATION_STRING"), payload.Signature)
 }
 
 func TestTCPClientServer_ConnectionHandling(t *testing.T) {
@@ -473,7 +253,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	// Create a mock request handler that returns errors
 	serverHandler := &MockRequestHandler{
-		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 			return nil, nil, assert.AnError
 		},
 	}
@@ -524,18 +304,12 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
-	senderKey := []byte("test-sender-key")
 	wasmModule := []byte("test-wasm-module")
 
-	_, _, err = client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
+	_, _, err = client.SendProcessRequest(ctx, req, appState, wasmModule)
 	assert.Error(t, err, "Client request should return error")
 	assert.Contains(t, err.Error(), "server error", "Error should indicate server error")
 
-	// Test server request error handling
-	users := []string{"user1", "user2"}
-	_, err = server.SendGetUserKeys(ctx, users)
-	assert.Error(t, err, "Server request should return error")
-	assert.Contains(t, err.Error(), "client error", "Error should indicate client error")
 }
 
 func TestTCPClientServer_ServerTimeout(t *testing.T) {
@@ -545,7 +319,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	ctx := context.Background()
 	// Create a mock request handler that simulates slow processing
 	serverHandler := &MockRequestHandler{
-		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 			// Simulate slow processing that exceeds timeout
 			// check is performed each 5 seconds, and timeout is 30 seconds, so 35 is the worst case
 			time.Sleep(35 * time.Second)
@@ -594,63 +368,10 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
-	senderKey := []byte("test-sender-key")
 	wasmModule := []byte("test-wasm-module")
 
 	start := time.Now()
-	_, _, err = client.SendProcessRequest(ctx, req, appState, senderKey, wasmModule)
-	elapsed := time.Since(start)
-
-	// Should timeout and return an error
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "request timeout")
-	assert.Greater(t, elapsed, 30*time.Second, "Should timeout at least after 30 seconds")
-}
-
-func TestTCPClientServer_ClientTimeout(t *testing.T) {
-	if os.Getenv("CI_FLAG") != "" {
-		t.Skip("Skipping long running test in CI environment")
-	}
-
-	ctx := context.Background()
-	// Create a mock client request handler that simulates slow processing
-	clientHandler := &MockClientRequestHandler{
-		GetUserKeysFunc: func(ctx context.Context, users []string) (map[string][]byte, error) {
-			// Simulate slow processing that exceeds timeout
-			// check is performed each 5 seconds, and timeout is 30 seconds, so 35 is the worst case
-			time.Sleep(35 * time.Second)
-			userKeys := make(map[string][]byte)
-			for _, user := range users {
-				userKeys[user] = []byte("public-key-for-" + user)
-			}
-			return userKeys, nil
-		},
-	}
-
-	// Create a server
-	factory := NewTCPConnectionFactory(":8089")
-	server := NewServer(factory)
-	serverHandler := &MockRequestHandler{}
-	server.SetRequestHandler(serverHandler)
-	err := server.Start(context.Background())
-	require.NoError(t, err)
-	defer server.Stop()
-
-	// Create a client
-	client := NewClient(factory)
-	client.SetClientRequestHandler(clientHandler)
-
-	err = client.Connect(context.Background())
-	require.NoError(t, err)
-	defer client.Close()
-
-	// Give some time for the connection to be established
-	time.Sleep(100 * time.Millisecond)
-
-	users := []string{"user1", "user2"}
-
-	start := time.Now()
-	_, err = server.SendGetUserKeys(ctx, users)
+	_, _, err = client.SendProcessRequest(ctx, req, appState, wasmModule)
 	elapsed := time.Since(start)
 
 	// Should timeout and return an error

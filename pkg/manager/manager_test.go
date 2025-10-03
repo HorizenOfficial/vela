@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
-    "github.com/horizen-pes/pkg/blockchain"
+
+	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/storage"
@@ -38,17 +39,17 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID}, &common.ApplicationState{ApplicationID: req.ApplicationID}, nil
 }
 
-func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
+func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
 	if m.failure {
 		return nil, fmt.Errorf("failed to generate report")
-	}	
+	}
 	return &common.DeanonymizationReport{ReportID: req.RequestID}, nil
 }
 
-func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if m.failure {
 		return nil, nil, fmt.Errorf("failed to process request")
-	}	
+	}
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID}, appState, nil
 }
 
@@ -57,12 +58,13 @@ func (m *MockExecutorClient) SetClientRequestHandler(handler communication.Clien
 }
 
 const (
-	 sender = "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199"
+	sender = "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199"
 )
 
 type MockBCClientWithError struct {
 	blockchain.Client
 }
+
 func (c *MockBCClientWithError) Connect(ctx context.Context) error {
 	return fmt.Errorf("failed to connect blockchain client")
 }
@@ -73,7 +75,6 @@ func (c *MockBCClientWithError) Close() error {
 
 type MockDataLayerWithFailure struct {
 	storage.DataLayer
-	
 }
 
 func (d *MockDataLayerWithFailure) Close() error {
@@ -89,7 +90,6 @@ func TestStart(t *testing.T) {
 	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
-
 	// Start the manager but execClient fails to connect
 	manager.executorClient = &MockExecutorClient{failure: true}
 	err := manager.Start(context.Background())
@@ -104,14 +104,14 @@ func TestStart(t *testing.T) {
 	err = manager.Start(context.Background())
 	require.Error(t, err, "failed to connect to blockchain, should return error")
 	require.False(t, manager.isRunning, "Manager should not be running after failed start")
-	
+
 	// Reset the blockchain client
 	manager.blockchainClient = blockchain.NewMockClient()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	err = manager.Start(ctx)
 	require.NoError(t, err, "Failed to start manager")
-	
+
 	require.True(t, manager.isRunning, "Manager should be running after start")
 
 	err = manager.Start(context.Background())
@@ -137,7 +137,7 @@ func TestStop(t *testing.T) {
 	require.NoError(t, err, "Stopping a non-running manager should not return error")
 
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	err = manager.Start(ctx)
 	require.NoError(t, err, "Failed to start manager")
 	// Stopping the polling goroutine, otherwise Stop() will block forever
@@ -157,7 +157,7 @@ func TestStop(t *testing.T) {
 	err = manager.Stop()
 	require.Error(t, err, "Failed to stop executor, should return error")
 	require.True(t, manager.isRunning, "Manager should be running after failed stop")
-	
+
 	// Reset the blockchain client
 	manager.blockchainClient = blockchain.NewMockClient()
 
@@ -166,7 +166,7 @@ func TestStop(t *testing.T) {
 	err = manager.Stop()
 	require.Error(t, err, "Failed to stop executor, should return error")
 	require.True(t, manager.isRunning, "Manager should be running after failed stop")
-	
+
 	// Reset the blockchain client
 	manager.dataLayer = mockdb.NewMockDataLayer()
 
@@ -230,7 +230,7 @@ func TestProcessRequestsFromChain(t *testing.T) {
 	mockBCClient.ClearAllData()
 
 	// Deanonymize request
-	request =  createRequest(common.Deanonymize)
+	request = createRequest(common.Deanonymize)
 	err = mockBCClient.SubmitRequest(context.Background(), request)
 	require.NoError(t, err)
 
@@ -254,7 +254,6 @@ func TestProcessRequestsFromChain(t *testing.T) {
 
 }
 
-
 func createRequest(requestType common.RequestType) *common.Request {
 	requestId, err := blockchain.GenerateRandomID()
 	if err != nil {
@@ -266,7 +265,6 @@ func createRequest(requestType common.RequestType) *common.Request {
 
 func TestProcessRequestsFromChainWithFailure(t *testing.T) {
 	mockBCClient, manager := setupTest()
-
 
 	manager.executorClient = &MockExecutorClient{failure: true}
 
@@ -293,11 +291,11 @@ func TestProcessRequestsFromChainWithFailure(t *testing.T) {
 	require.Equal(t, request.ApplicationID, failedRequests[0].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, request.RequestType, failedRequests[0].RequestType, "Wrong RequestType")
 
-		// reset all
+	// reset all
 	mockBCClient.ClearAllData()
 
 	// Process request
-	request =  createRequest(common.Process)
+	request = createRequest(common.Process)
 	err = mockBCClient.SubmitRequest(context.Background(), request)
 	require.NoError(t, err)
 
@@ -323,7 +321,7 @@ func TestProcessRequestsFromChainWithFailure(t *testing.T) {
 	mockBCClient.ClearAllData()
 
 	// Deanonymize request
-	request =  createRequest(common.Deanonymize)
+	request = createRequest(common.Deanonymize)
 	err = mockBCClient.SubmitRequest(context.Background(), request)
 	require.NoError(t, err)
 
@@ -345,11 +343,10 @@ func TestProcessRequestsFromChainWithFailure(t *testing.T) {
 	require.Equal(t, request.ApplicationID, failedRequests[0].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, request.RequestType, failedRequests[0].RequestType, "Wrong RequestType")
 
-
 	// Invalid request type
 	// reset all
 	mockBCClient.ClearAllData()
-	request =  createRequest("invalidType")
+	request = createRequest("invalidType")
 	err = mockBCClient.SubmitRequest(context.Background(), request)
 	require.NoError(t, err)
 
@@ -384,7 +381,5 @@ func setupTest() (*blockchain.MockClient, *SecureProcessorManager) {
 		dataLayer:        mockDataLayer,
 		isRunning:        true}
 
-	// Prepare user key
-	processor.dataLayer.StoreUserKey(context.Background(), sender, []byte("user-key"))
 	return bcClient, processor
 }

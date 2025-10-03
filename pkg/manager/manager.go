@@ -116,7 +116,6 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 	}
 }
 
-
 // processRequestsFromChain retrieves pending requests from the blockchain and processes them
 func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
 
@@ -155,7 +154,6 @@ func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
 
 }
 
-
 // processRequest processes a request
 func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) error {
 	if !m.isRunning {
@@ -165,7 +163,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 	switch req.RequestType {
 	case common.Deploy:
 		return m.processDeployApp(ctx, req)
-	case common.Process:
+	case common.Process, common.AssociateKey:
 		return m.processProcessRequest(ctx, req)
 	case common.Deanonymize:
 		return m.processDeanonymization(ctx, req)
@@ -212,11 +210,12 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 // processProcessRequest processes a process request
 func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
+	fmt.Println("Processing Process app request:", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
-	
+
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
@@ -229,14 +228,8 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		return fmt.Errorf("failed to get wasm bytes: %w", err)
 	}
 
-	// Get the user key for the request sender
-	senderKey, err := m.dataLayer.GetUserKey(ctx, req.Sender)
-	if err != nil {
-		return fmt.Errorf("failed to get user key for sender %s: %w", req.Sender, err)
-	}
-
 	// Process the request
-	updatePayload, updatedState, err := m.executorClient.SendProcessRequest(ctx, req, appState, senderKey, wasmBytes)
+	updatePayload, updatedState, err := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
 	if err != nil {
 		return fmt.Errorf("failed to process request: %w", err)
 	}
@@ -268,7 +261,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
-	
+
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
@@ -281,14 +274,8 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		return fmt.Errorf("failed to get wasm bytes: %w", err)
 	}
 
-	// Get the user key for the request sender
-	senderKey, err := m.dataLayer.GetUserKey(ctx, req.Sender)
-	if err != nil {
-		return fmt.Errorf("failed to get user key for sender %s: %w", req.Sender, err)
-	}
-
 	// Generate the deanonymization report
-	report, err := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, senderKey, wasmBytes)
+	report, err := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
 	if err != nil {
 		return fmt.Errorf("failed to generate deanonymization report: %w", err)
 	}
@@ -307,26 +294,4 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 
 	log.Printf("Manager: Generated deanonymization report %s for application %s", report.ReportID, req.ApplicationID)
 	return nil
-}
-
-func (m *SecureProcessorManager) HandleGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if !m.isRunning {
-		log.Printf("Manager is not started yet, skipping")
-		return nil, fmt.Errorf("Manager is not started yet")
-	}
-
-	userKeys := make(map[string][]byte)
-	// Get user keys from the blockchain or data layer
-	for _, user := range users {
-		userKey, err := m.dataLayer.GetUserKey(ctx, user)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user {%s} key: %w", user, err)
-		}
-		userKeys[user] = userKey
-	}
-
-	return userKeys, nil
 }

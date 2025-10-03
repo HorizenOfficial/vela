@@ -182,6 +182,19 @@ describe('ProcessorEndpoint Test', function () {
         await submitTx.wait();
     })
 
+    it('should not save associatekey requests with wrong payload', async function () {
+        await expect(
+            processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 3, "0x01", 0, {value: 0}) 
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidPayload")
+    })
+
+    it('should save associatekey requests with correct payload', async function () {
+        const randomBytesArray = ethers.randomBytes(133);
+        const randomHexString = ethers.hexlify(randomBytesArray);
+        let submitTx = await processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 3, randomHexString, 0, {value: 0});
+        await submitTx.wait();
+    })
+
     it('should mark request as completed and failed (and refund if failed)', async function () {
         let initialStateRoot = await processorEndpoint.stateRoot();
         //insert requests

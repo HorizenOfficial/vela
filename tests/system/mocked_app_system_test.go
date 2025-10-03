@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/crypto"
 	testutil "github.com/horizen-pes/pkg/testutil"
 )
 
@@ -24,14 +23,7 @@ func TestDeployApp(t *testing.T) {
 	err = suite.StartManager()
 	require.NoError(t, err)
 
-	// 3. Add user keys to registry
-	userKey, err := crypto.GeneratePrivateKeyP521()
-	require.NoError(t, err)
-	err = suite.AddUserKeys("test-user", userKey.PublicKey().Bytes())
-	require.NoError(t, err)
-
 	RequestID := "1233"
-
 	ApplicationId := "1"
 
 	// 4. Submit deploy request
