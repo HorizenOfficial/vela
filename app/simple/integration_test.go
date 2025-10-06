@@ -50,7 +50,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module
-	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
 
 	var initialState app.ApplicationInternalState
@@ -160,7 +160,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module to get an initial state
-	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
 
 	t.Run("null payload json", func(t *testing.T) {
@@ -181,7 +181,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module to get an initial state
-	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
 
 	// 2. Create a populated state for testing
