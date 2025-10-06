@@ -9,9 +9,9 @@ import (
 
 const (
 	testAppId    = "test_app"
-	user1Address = "user1"
-	user2Address = "user2"
-	user3Address = "user3"
+	user1Address = "0xadd0000000000000000000000000000000000001"
+	user2Address = "0xadd0000000000000000000000000000000000002"
+	user3Address = "0xadd0000000000000000000000000000000000003"
 )
 
 func getInitialState(t *testing.T) (string, ApplicationInternalState) {

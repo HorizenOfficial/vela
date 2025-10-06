@@ -186,13 +186,6 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 	// Store the application state and WASM bytecode
 	versionID := sha256.Sum256(append(appState.StateRoot[:], req.Payload...))
-	var leadingPayloadBytes = []byte{0}
-	if len(req.Payload) > 32 {
-		leadingPayloadBytes = req.Payload[:32]
-	} else {
-		leadingPayloadBytes = req.Payload[:]
-	}
-	log.Printf("VersionID %x - stateRoot: %x, req.Payload %x", string(versionID[:]), string(appState.StateRoot[:]), leadingPayloadBytes)
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
