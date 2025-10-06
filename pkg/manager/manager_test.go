@@ -39,14 +39,14 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID}, &common.ApplicationState{ApplicationID: req.ApplicationID}, nil
 }
 
-func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.DeanonymizationReport, error) {
+func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
 	if m.failure {
 		return nil, fmt.Errorf("failed to generate report")
 	}
 	return &common.DeanonymizationReport{ReportID: req.RequestID}, nil
 }
 
-func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, senderKey []byte, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if m.failure {
 		return nil, nil, fmt.Errorf("failed to process request")
 	}
@@ -383,18 +383,12 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	err = mockBCClient.SubmitRequest(context.Background(), requestDeploy)
 	require.NoError(t, err)
 
-	requestProcess := createRequest(common.Process)
-	// Use a sender that has no key stored to simulate failure
-	requestProcess.Sender = "0x0000000000000000000000000000000000000000"
-	err = mockBCClient.SubmitRequest(context.Background(), requestProcess)
-	require.NoError(t, err)
-
 	requestReport := createRequest(common.Deanonymize)
 	err = mockBCClient.SubmitRequest(context.Background(), requestReport)
 	require.NoError(t, err)
 
 	pendingRequests, _ := mockBCClient.GetPendingRequests(context.Background())
-	require.Equal(t, 4, len(pendingRequests), "expected 4 pending request")
+	require.Equal(t, 3, len(pendingRequests), "expected 3 pending request")
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
@@ -404,18 +398,14 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, 0, len(pendingRequests), "expected 0 pending request")
 
 	failedRequests := mockBCClient.GetFailedRequests()
-	require.Equal(t, 2, len(failedRequests), "expected 2 failed request")
+	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 
 	require.Equal(t, requestInvalid.RequestID, failedRequests[0].RequestID, "Wrong requestID")
 	require.Equal(t, requestInvalid.ApplicationID, failedRequests[0].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, requestInvalid.RequestType, failedRequests[0].RequestType, "Wrong RequestType")
 
-	require.Equal(t, requestProcess.RequestID, failedRequests[1].RequestID, "Wrong requestID")
-	require.Equal(t, requestProcess.ApplicationID, failedRequests[1].ApplicationID, "Wrong ApplicationID")
-	require.Equal(t, requestProcess.RequestType, failedRequests[1].RequestType, "Wrong RequestType")
-
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 4, len(completedRequests), "expected 4 completed request")
+	require.Equal(t, 3, len(completedRequests), "expected 3 completed request")
 
 	// They should be in the same order of insertion
 	require.Equal(t, requestInvalid.RequestID, completedRequests[0].RequestID, "Wrong requestID")
@@ -426,13 +416,9 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, requestDeploy.ApplicationID, completedRequests[1].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, requestDeploy.RequestType, completedRequests[1].RequestType, "Wrong RequestType")
 
-	require.Equal(t, requestProcess.RequestID, completedRequests[2].RequestID, "Wrong requestID")
-	require.Equal(t, requestProcess.ApplicationID, completedRequests[2].ApplicationID, "Wrong ApplicationID")
-	require.Equal(t, requestProcess.RequestType, completedRequests[2].RequestType, "Wrong RequestType")
-
-	require.Equal(t, requestReport.RequestID, completedRequests[3].RequestID, "Wrong requestID")
-	require.Equal(t, requestReport.ApplicationID, completedRequests[3].ApplicationID, "Wrong ApplicationID")
-	require.Equal(t, requestReport.RequestType, completedRequests[3].RequestType, "Wrong RequestType")
+	require.Equal(t, requestReport.RequestID, completedRequests[2].RequestID, "Wrong requestID")
+	require.Equal(t, requestReport.ApplicationID, completedRequests[2].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestReport.RequestType, completedRequests[2].RequestType, "Wrong RequestType")
 
 }
 
@@ -446,7 +432,5 @@ func setupTest() (*blockchain.MockClient, *SecureProcessorManager) {
 		dataLayer:        mockDataLayer,
 		isRunning:        true}
 
-	// Prepare user key
-	processor.dataLayer.StoreUserKey(context.Background(), sender, []byte("user-key"))
 	return bcClient, processor
 }

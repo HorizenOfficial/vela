@@ -108,8 +108,8 @@ type Executor interface {
 
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
-	// LoadModule loads a module from bytecode
-	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, [32]byte, error)
+	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
+	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error)
 	// Deposit processes a deposit
 	Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
 	// ProcessRequest processes a request and returns the new state

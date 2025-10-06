@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { BigNumberish, Signer } from 'ethers';
 import { ethSignStateUpdate } from '../scripts/util';
+import { ADDRESS_ZERO, BYTES_ZERO, getRandomHexString } from './util';
 
 describe('ProcessorEndpoint Test', function () {
     let signers: Signer[]
@@ -9,11 +10,14 @@ describe('ProcessorEndpoint Test', function () {
     let protocolVersion: BigNumberish;
     let applicationId: BigNumberish;
 
+
     beforeEach(async function () {
         signers = await ethers.getSigners();
         //deploy helper contracts
         let TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-        let teeAuthenticator = await TeeAuthenticator.deploy(signers[0], signers[0]);
+        let teeAuthenticator = await TeeAuthenticator.deploy(signers[0], ADDRESS_ZERO, BYTES_ZERO);
+        let pkLength = Number(await teeAuthenticator.PK_LENGTH());
+        await teeAuthenticator.updateTee(signers[0], getRandomHexString(pkLength));
 
         let AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
         let authorityRegistry = await AuthorityRegistry.deploy(signers[0]);
@@ -77,6 +81,19 @@ describe('ProcessorEndpoint Test', function () {
     
     it('should save request that is not deanonymization from unauthorized authority', async function () {
         let submitTx = await processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 1, "0x01", 0);
+        await submitTx.wait();
+    })
+
+    it('should not save associatekey requests with wrong payload', async function () {
+        await expect(
+            processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 3, "0x01", 0, {value: 0}) 
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidPayload")
+    })
+
+    it('should save associatekey requests with correct payload', async function () {
+        const randomBytesArray = ethers.randomBytes(133);
+        const randomHexString = ethers.hexlify(randomBytesArray);
+        let submitTx = await processorEndpoint.connect(signers[1]).submitRequest(protocolVersion, applicationId, 3, randomHexString, 0, {value: 0});
         await submitTx.wait();
     })
 

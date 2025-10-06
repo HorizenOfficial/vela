@@ -107,52 +107,6 @@ func (s *Server) SetRequestHandler(handler RequestHandler) {
 	s.handler = handler
 }
 
-// SendGetUserKeys requests user keys from the connected client
-func (s *Server) SendGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
-	s.clientMu.RLock()
-	client := s.client
-	s.clientMu.RUnlock()
-
-	if client == nil {
-		return nil, fmt.Errorf("no client connected")
-	}
-
-	if len(users) == 0 {
-		return map[string][]byte{}, nil
-	}
-
-	// Create a request message
-	msg := Message{
-		ID:   generateID(),
-		Type: GetUserKeysRequestMessage,
-		Data: GetUserKeysRequestData{
-			Users: users,
-		},
-	}
-
-	// Send request and wait for response
-	respMsg, err := client.sendRequestAndWaitForResponse(ctx, msg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user keys: %w", err)
-	}
-
-	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
-		return nil, fmt.Errorf("client error: %s", errorData.Message)
-	}
-
-	if respMsg.Type != GetUserKeysResponseMessage {
-		return nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
-	}
-
-	respData, err := extractData[GetUserKeysResponseData](respMsg.Data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract response data: %w", err)
-	}
-
-	return respData.UserKeys, nil
-}
-
 // acceptConnections accepts incoming connections
 func (s *Server) acceptConnections(ctx context.Context) {
 	for {
@@ -366,7 +320,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Messag
 		return
 	}
 
-	updatePayload, updatedState, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.SenderKey, reqData.WasmModule)
+	updatePayload, updatedState, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -424,7 +378,7 @@ func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg
 		return
 	}
 
-	report, err := handler.HandleGenerateDeanonymizationReport(ctx, reqData.Request, reqData.ApplicationState, reqData.SenderKey, reqData.WasmModule)
+	report, err := handler.HandleGenerateDeanonymizationReport(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return

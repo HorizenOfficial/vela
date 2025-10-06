@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/horizen-pes/pkg/blockchain/contracts/authority"
-	"github.com/horizen-pes/pkg/blockchain/contracts/keyregistry"
 	"github.com/horizen-pes/pkg/blockchain/contracts/mocktee"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
@@ -37,13 +36,10 @@ type SimTestHelper struct {
 	ProtocolVersion uint8
 	sim             *simulated.Backend
 
-	processEndpointContract     *processorendpoint.ProcessorEndpoint
-	processEndpointInstance     *bind.BoundContract
-	keyRegistryContract         *keyregistry.KeyRegistry
-	keyRegistryContractInstance *bind.BoundContract
+	processEndpointContract *processorendpoint.ProcessorEndpoint
+	processEndpointInstance *bind.BoundContract
 
 	ProcessorContractAddress ethCommon.Address
-	KeyRegistryAddress       ethCommon.Address
 	TeeSignerAddress         ethCommon.Address
 	Deployer                 *bind.TransactOpts
 	Submitter                *bind.TransactOpts
@@ -61,7 +57,6 @@ func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
 	require.NoError(s.t, err, "failed to generate user private key")
 	return bind.NewKeyedTransactor(userPrivateKey, chainID)
 }
-
 
 func (s *SimTestHelper) Client() simulated.Client {
 	return s.sim.Client()
@@ -86,7 +81,13 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	} else {
 		require.NotNil(s.t, teeSigner, "teeSigner address must be provided when not using mock contracts")
 		teeContract := *tee.NewTeeAuthenticator()
-		constructorInput := teeContract.PackConstructor(s.Deployer.From, *teeSigner)
+
+		//generate mock secp251r1 pk
+		pk := make([]byte, 133)
+		for i := range pk {
+			pk[i] = 1
+		}
+		constructorInput := teeContract.PackConstructor(s.Deployer.From, *teeSigner, pk)
 		teeDeployParams := bind.DeploymentParams{
 			Contracts: []*bind.MetaData{&tee.TeeAuthenticatorMetaData},
 			Inputs:    map[string][]byte{tee.TeeAuthenticatorMetaData.ID: constructorInput},
@@ -148,24 +149,6 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	require.NoError(s.t, err)
 	fmt.Printf("Processor Endpoint contract deployed at address 0x%x\n", s.ProcessorContractAddress)
 
-	deployParams = bind.DeploymentParams{
-		Contracts: []*bind.MetaData{&keyregistry.KeyRegistryMetaData},
-	}
-
-	// create and submit the contract deployment
-	deployRes, err = bind.LinkAndDeploy(&deployParams, deployer)
-	require.NoError(s.t, err)
-
-	s.KeyRegistryAddress, tx = deployRes.Addresses[keyregistry.KeyRegistryMetaData.ID], deployRes.Txs[keyregistry.KeyRegistryMetaData.ID]
-
-	s.sim.Commit()
-
-	// wait for the pending contract to be deployed on-chain
-	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
-	require.NoError(s.t, err)
-
-	fmt.Printf("Key Registry contract deployed at address 0x%x\n", s.KeyRegistryAddress)
-
 }
 
 func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeSigner *ethCommon.Address) *SimTestHelper {
@@ -174,7 +157,6 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 		t:                       t,
 		ProtocolVersion:         uint8(0),
 		processEndpointContract: processorendpoint.NewProcessorEndpoint(),
-		keyRegistryContract:     keyregistry.NewKeyRegistry(),
 	}
 
 	helper.Submitter = helper.GenerateNewUser()
@@ -190,8 +172,6 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	helper.setupContracts(useMockContracts, teeSigner)
 
 	helper.processEndpointInstance = helper.processEndpointContract.Instance(helper.sim.Client(), helper.ProcessorContractAddress)
-
-	helper.keyRegistryContractInstance = helper.keyRegistryContract.Instance(helper.sim.Client(), helper.KeyRegistryAddress)
 
 	if autoMining {
 		go func() {
@@ -274,14 +254,6 @@ func (s *SimTestHelper) GetRequest(requestID string) processorendpoint.RequestsO
 		s.processEndpointContract.UnpackRequests)
 	require.NoError(s.t, err)
 	return request
-}
-
-func (s *SimTestHelper) RegisterUserKey(sender *bind.TransactOpts, userKey []byte) (*ethTypes.Transaction, error) {
-
-	tx, err := bind.Transact(s.keyRegistryContractInstance, sender, s.keyRegistryContract.PackRegisterPK(userKey[:]))
-
-	return tx, err
-
 }
 
 func (s *SimTestHelper) GetTxReceipt(tx *ethTypes.Transaction) (*ethTypes.Receipt, error) {
