@@ -46,7 +46,7 @@ jobs:
 
       # Install abigen (from go-ethereum)
       - name: Install abigen
-        run: go install github.com/ethereum/go-ethereum/cmd/abigen@latest
+        run: go install github.com/ethereum/go-ethereum/cmd/abigen@1.16.2-stable
 
       # Install TinyGo for WASM module
       - name: Install TinyGo
@@ -131,7 +131,7 @@ jobs:
 
       # Install abigen (from go-ethereum)
       - name: Install abigen
-        run: go install github.com/ethereum/go-ethereum/cmd/abigen@latest
+        run: go install github.com/ethereum/go-ethereum/cmd/abigen@1.16.2-stable
 
       # Install TinyGo for WASM module
       - name: Install TinyGo
