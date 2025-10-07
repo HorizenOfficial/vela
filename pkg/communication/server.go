@@ -43,6 +43,8 @@ func NewServer(factory ConnectionFactory) *Server {
 		factory:      factory,
 		shutdownChan: make(chan struct{}),
 		reqTimeout:   30 * time.Second,
+		// For debugging it can be useful to use huge timeout values
+		// reqTimeout: 30 * time.Hour,
 	}
 }
 

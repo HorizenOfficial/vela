@@ -235,6 +235,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 
 	// Store the updated application state
 	versionID := sha256.Sum256(updatedState.StateRoot[:])
+	log.Printf("VersionID %x - stateRoot: %x", string(versionID[:]), string(updatedState.StateRoot[:]))
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
