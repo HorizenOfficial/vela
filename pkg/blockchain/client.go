@@ -148,7 +148,7 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 
 	reqId, err := common.RequestIdStringTo32Byte(requestID)
 	if err != nil {
-		return fmt.Errorf("invalid request ID: %s", requestID)
+		return fmt.Errorf("invalid request ID %s: %w", requestID, err)
 	}
 
 	tx, err := bind.Transact(c.processorBoundContract, c.account, c.processorEndpoint.PackMarkRequestCompleted(reqId))
