@@ -372,13 +372,18 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 		return nil, fmt.Errorf("failed to write requestId to memory: %w", err)
 	}
 
+	payloadPtr, err := r.writeToMemory(appModule, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write payload to memory: %w", err)
+	}
+
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write state to memory: %w", err)
 	}
 
 	// Call the generate_deanonymization_report function
-	result, err := generateReportFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), requestIdPtr, int32(len(requestIdBytes)), statePtr, int32(len(state)))
+	result, err := generateReportFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), requestIdPtr, int32(len(requestIdBytes)), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call generate_deanonymization_report: %w", err)
 	}

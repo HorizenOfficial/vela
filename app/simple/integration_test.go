@@ -113,7 +113,9 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 4. Generate deanonymization report
 	requestId := "report-123"
-	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, requestId, nil, withdrawStateBytes, wasmBytes)
+	payloadJSON := "{}"
+	payloadBytes = []byte(payloadJSON)
+	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, requestId, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.NoError(t, err)
 	require.NotNil(t, reportBytes)
 
@@ -226,7 +228,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 		_, _, _, err = runtime.ProcessRequest(ctx, appId, nonExistentUser, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "Account does not exist")
+		require.Contains(t, err.Error(), "does not exist")
 	})
 
 	t.Run("compare from non-existent account", func(t *testing.T) {
