@@ -325,8 +325,8 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	var events [][]byte
 	query := ethereum.FilterQuery{
 		Addresses: []ethCommon.Address{contractAddr},
-		FromBlock: new(big.Int).SetUint64(fromBlock),
-		ToBlock:   new(big.Int).SetUint64(toBlock),
+		FromBlock: new(big.Int).SetUint64(toBlock),
+		ToBlock:   new(big.Int).SetUint64(fromBlock),
 		Topics:    topicsHash,
 	}
 
