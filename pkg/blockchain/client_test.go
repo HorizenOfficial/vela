@@ -28,7 +28,7 @@ var (
 )
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
-	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, testHelper.KeyRegistryAddress, testHelper.TeeSignerAddress, "", nil)
+	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, testHelper.TeeSignerAddress, "", nil)
 	blockchainClient.client = testHelper.Client()
 
 	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, testHelper.ProcessorContractAddress)

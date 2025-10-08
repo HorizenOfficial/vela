@@ -69,7 +69,7 @@ func toRequestType(i uint8) common.RequestType {
 	}
 }
 
-func NewBlockChainClient(processor ethCommon.Address, keyRegistry ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
+func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:  processor,
 		teeAuthAddress:		 teeAuthenticator,
