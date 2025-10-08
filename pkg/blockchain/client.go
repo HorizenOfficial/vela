@@ -342,7 +342,7 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 			continue
 		}
 		decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
-		if err != nil && (filter == nil || filter(decrypted)) {
+		if err == nil && (filter == nil || filter(decrypted)) {
 			//found decryptable event that pass filter function
 			events = append(events, decrypted)
 			if stopAtFirst {
