@@ -295,6 +295,9 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 		}
 		fromBlock = latestBlock.NumberU64()
 	}
+	if fromBlock < toBlock {
+		return EMPTY, fmt.Errorf("fromBlock should be >= than toBlock")
+	}
 
 	parsedABI, err := processorendpoint.ProcessorEndpointMetaData.ParseABI()
 	if err != nil {
@@ -320,31 +323,30 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
 
 	var events [][]byte
-	for blockNumber := fromBlock; blockNumber >= toBlock; blockNumber-- {
-		query := ethereum.FilterQuery{
-			Addresses: []ethCommon.Address{contractAddr},
-			FromBlock: new(big.Int).SetUint64(blockNumber),
-			ToBlock:   new(big.Int).SetUint64(blockNumber),
-			Topics:    topicsHash,
-		} //in this way we avoid problems for too bigs interval and we avoid to invert the sort by block
+	query := ethereum.FilterQuery{
+		Addresses: []ethCommon.Address{contractAddr},
+		FromBlock: new(big.Int).SetUint64(fromBlock),
+		ToBlock:   new(big.Int).SetUint64(toBlock),
+		Topics:    topicsHash,
+	}
 
-		logs, err := c.client.FilterLogs(ctx, query)
+	logs, err := c.client.FilterLogs(ctx, query)
+	if err != nil {
+		return EMPTY, fmt.Errorf("failed to filter logs: %w", err)
+	}
+	
+	for i := len(logs) - 1; i >= 0; i-- { //backwards search
+		vLog := logs[i]
+		event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
 		if err != nil {
-			return EMPTY, fmt.Errorf("failed to filter logs: %w", err)
+			continue
 		}
-		
-		for _, vLog := range logs {
-			event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
-			if err != nil {
-				continue
-			}
-			decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
-			if err != nil && (filter == nil || filter(decrypted)) {
-				//found decryptable event that pass filter function
-				events = append(events, decrypted)
-				if stopAtFirst {
-					return events, nil
-				}
+		decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
+		if err != nil && (filter == nil || filter(decrypted)) {
+			//found decryptable event that pass filter function
+			events = append(events, decrypted)
+			if stopAtFirst {
+				return events, nil
 			}
 		}
 	}
