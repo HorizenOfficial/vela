@@ -1,8 +1,8 @@
 package manager
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log"
 	"sync"
@@ -24,6 +24,7 @@ type SecureProcessorManager struct {
 	isRunning        bool
 	stopChan         chan struct{}
 	wg               sync.WaitGroup
+	endReorgTime	 time.Time
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -111,37 +112,71 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.processRequestsFromChain(ctx)
+			err := m.processRequestFromChain(ctx)
+			if err != nil {
+				log.Fatalf("Manager: Error processing requests from chain: %v, exiting", err)
+			}
 		}
 	}
 }
 
-// processRequestsFromChain retrieves pending requests from the blockchain and processes them
-func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
+// processRequestFromChain retrieves the next pending request from the blockchain and processes it
+func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
-		return
+		return nil
 	}
 
 	// Get next pending request from the blockchain
-	request, _, err := m.blockchainClient.GetNextPendingRequest(ctx)
+	request, stateRoot, err := m.blockchainClient.GetNextPendingRequest(ctx)
 	if err != nil {
 		log.Printf("Manager: Failed to get pending request: %v", err)
-		return
+		return nil
+	}
+
+	localStateRoot, err := m.dataLayer.LastVersionID()
+	if err != nil {
+		return fmt.Errorf("failed to get local state root: %w", err)
+	}
+
+	if !bytes.Equal(localStateRoot, stateRoot[:]) {
+		log.Printf("Manager: State root mismatch, expected %x, got %x. Checking if it is a REORG.", localStateRoot, stateRoot)
+
+		oldVersions, err := m.dataLayer.ListVersions()
+		if err != nil {
+			return fmt.Errorf("failed to get db old versions: %w", err)
+		}
+
+		for _, oldVersion := range oldVersions[1:] {
+			if bytes.Equal(oldVersion, stateRoot[:]) {
+				log.Printf("Manager: Found matching state root %x in db, REORG", stateRoot)
+				if m.endReorgTime.IsZero() {
+					log.Printf("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
+					m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
+				} else if time.Now().After(m.endReorgTime) {
+					log.Printf("Manager: REORG not solved within timeout")
+					return fmt.Errorf("REORG not solved within timeout")
+				}
+				return nil
+			}
+		}
+		return fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
+		
+	}
+	if !m.endReorgTime.IsZero() {
+		log.Printf("Manager: State roots match, REORG resolved")
+		m.endReorgTime = time.Time{}
 	}
 
 	if request == nil {
 		log.Printf("Manager: No pending requests found")
-		return
+		return nil
 	}
-	// Process request
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if !m.isRunning {
-		log.Printf("Manager has stopped, exiting request processing loop")
-		return
-	}
+
+
 	if err := m.processRequest(ctx, request); err != nil {
 		// Log the error and mark the request as failed
 		log.Printf("Manager: Failed to process request %s: %v", request.RequestID, err)
@@ -151,6 +186,7 @@ func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
 	} else {
 		log.Printf("Manager: Processed and marked as completed request %s", request.RequestID)
 	}
+	return nil
 
 }
 
@@ -186,7 +222,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Store the application state and WASM bytecode
-	versionID := sha256.Sum256(append(appState.StateRoot[:], req.Payload...))
+	versionID := appState.StateRoot[:]
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
@@ -235,7 +271,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Store the updated application state
-	versionID := sha256.Sum256(updatedState.StateRoot[:])
+	versionID := updatedState.StateRoot[:]
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],

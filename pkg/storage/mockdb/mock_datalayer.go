@@ -18,15 +18,21 @@ type MockDataLayer struct {
 	reports   map[string]*common.DeanonymizationReport
 	keys      map[string][]byte
 	isClosed  bool
+	versions [][]byte
 }
 
 // NewMockDataLayer creates a new mock data layer.
 func NewMockDataLayer() *MockDataLayer {
+	versions := make([][]byte, 0, 10)
+	initialVersion := [32]byte{}
+	versions = append(versions, initialVersion[:])
+
 	return &MockDataLayer{
 		states:    make(map[string]*common.ApplicationState),
 		bytecodes: make(map[string][]byte),
 		reports:   make(map[string]*common.DeanonymizationReport),
 		keys:      make(map[string][]byte),
+		versions:  versions,
 	}
 }
 
@@ -63,6 +69,8 @@ func (d *MockDataLayer) Store(
 			d.bytecodes[wasm.ApplicationID] = wasm.Bytecode
 		}
 	}
+
+	d.versions = append(d.versions, versionID)
 
 	return nil
 }
@@ -136,15 +144,16 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 
 // LastVersionID is a mock implementation of the LastVersionID method.
 func (d *MockDataLayer) LastVersionID() ([]byte, error) {
-	return []byte("mock_version_id"), nil
+	return d.versions[len(d.versions) - 1], nil
 }
 
 // ListVersions is a mock implementation of the ListVersions method.
 func (d *MockDataLayer) ListVersions() ([][]byte, error) {
-	return [][]byte{
-		[]byte("mock_version_id1"),
-		[]byte("mock_version_id2"),
-	}, nil
+	lifoVersions := make([][]byte, len(d.versions))
+	for i, v := range d.versions {
+		lifoVersions[len(d.versions)-1-i] = v
+	}
+	return lifoVersions, nil
 }
 
 var _ storage.ApplicationStateStore = (*MockDataLayer)(nil)

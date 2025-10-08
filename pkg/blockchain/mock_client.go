@@ -24,6 +24,8 @@ type MockClient struct {
 	updatePayloads   map[string]*common.UpdatePayload
 	publicKeys       map[string][]byte
 	eventSubscribers []chan<- interface{}
+	stateRoot	     [32]byte
+	mockedFunctions  map[string]interface{}
 }
 
 // NewMockClient creates a new mock blockchain client
@@ -37,7 +39,22 @@ func NewMockClient() *MockClient {
 		reports:         make(map[string]*common.DeanonymizationReport),
 		updatePayloads:  make(map[string]*common.UpdatePayload),
 		publicKeys:      make(map[string][]byte),
+		mockedFunctions: make(map[string]interface{}),
 	}
+}
+
+func (c *MockClient) AddMockedFunc(key string, mockedFunc interface{})  {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	c.mockedFunctions[key] = mockedFunc
+}
+
+func (c *MockClient) RemoveMockedFunc(key string)  {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	delete(c.mockedFunctions, key) 
 }
 
 // SubmitRequest submits a request to the blockchain
@@ -86,22 +103,16 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	if f, ok:= c.mockedFunctions["GetNextPendingRequest"]; ok {
+		return f.(func(context.Context) (*common.Request, [32]byte, error))(ctx)
+	}
 	var req *common.Request
 	if c.pendingRequests.Len() > 0 {
 		req = c.pendingRequests.Front().Value
 	}
 
-	var stateRoot [32]byte
 
-	appState, err := c.GetApplicationState(ctx, req.ApplicationID)
-	if err != nil {
-		return req, [32]byte{}, nil
-	}
-
-	if appState != nil {
-		stateRoot = appState.StateRoot
-	}
-	return req, stateRoot, nil
+	return req, c.stateRoot, nil
 
 }
 
@@ -176,6 +187,9 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if f, ok:= c.mockedFunctions["SubmitStateUpdate"]; ok {
+		return f.(func(context.Context, *common.UpdatePayload) error)(ctx, update)
+	}
 	// Complete the request if it exists
 	if !c.pendingRequests.Has(update.RequestID) {
 		return fmt.Errorf("request not found: %s", update.RequestID)
@@ -191,6 +205,8 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 		StateRoot:      update.NewStateRoot,
 		EncryptedState: nil, // State is stored separately in the data layer
 	}
+
+	c.stateRoot = update.NewStateRoot
 
 	// Emit events
 	c.emitEvents(update.Events)
@@ -342,6 +358,8 @@ func (c *MockClient) ClearAllData() {
 	c.reports = make(map[string]*common.DeanonymizationReport)
 	c.failedRequests = orderedmap.NewOrderedMap[string, *common.Request]()
 	c.updatePayloads = make(map[string]*common.UpdatePayload)
+	c.stateRoot = [32]byte{}
+	c.mockedFunctions = make(map[string]interface{})
 }
 
 // emitEvent emits an event to all subscribers
