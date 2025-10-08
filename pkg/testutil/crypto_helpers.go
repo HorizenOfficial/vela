@@ -46,6 +46,22 @@ func (c *CryptoHelper) GetUserKey(userID string) (*cryptotypes.PrivateKeyP521, e
 	return key, nil
 }
 
+// CreateAssociateKeyRequest creates an associate key request
+func (c *CryptoHelper) CreateAssociateKeyRequest(appID, requestID, sender string, key *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	// For associate key, the payload is unencrypted and contains the key to associate
+	payload := key.Bytes()
+
+	return &common.Request{
+		ApplicationID: appID,
+		RequestID:     requestID,
+		RequestType:   common.AssociateKey,
+		Payload:       payload,
+		Sender:        sender,
+		Timestamp:     time.Now().Unix(),
+		Value:         0,
+	}, nil
+}
+
 // CreateDepositRequest creates an encrypted deposit request
 func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, value uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
@@ -204,6 +220,30 @@ func (c *CryptoHelper) DecryptDeanonymizationReport(userID string, report *commo
 	}
 
 	return decryptedReport, nil
+}
+
+// CreateProcessRequest creates an encrypted process request with a raw payload
+func (c *CryptoHelper) CreateProcessRequest(appID, requestID, sender string, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	senderKey, err := c.GetUserKey(sender)
+	if err != nil {
+		return nil, err
+	}
+
+	// Encrypt payload
+	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt process payload: %w", err)
+	}
+
+	return &common.Request{
+		ApplicationID: appID,
+		RequestID:     requestID,
+		RequestType:   common.Process,
+		Payload:       encryptedPayload,
+		Sender:        sender,
+		Timestamp:     time.Now().Unix(),
+		Value:         0,
+	}, nil
 }
 
 func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *cryptotypes.PublicKeySecp256k1) error {

@@ -13,6 +13,24 @@ type PublicKeyP521 struct {
 	*ecdh.PublicKey
 }
 
+// Bytes returns the byte representation of the public key.
+func (p *PublicKeyP521) Bytes() []byte {
+	if p == nil || p.PublicKey == nil {
+		return nil
+	}
+	return p.PublicKey.Bytes()
+}
+
+// NewPublicKeyP521 creates a PublicKeyP521 from a byte slice.
+func NewPublicKeyP521(b []byte) (*PublicKeyP521, error) {
+	curve := ecdh.P521()
+	pub, err := curve.NewPublicKey(b)
+	if err != nil {
+		return nil, err
+	}
+	return &PublicKeyP521{pub}, nil
+}
+
 // PrivateKeyP521 is a private key with Elliptic Curve Diffie-Hellman over NIST P-521 curve, also known as secp521r1.
 // (This can be used for encryption/decription)
 type PrivateKeyP521 struct {

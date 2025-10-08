@@ -41,8 +41,6 @@ type Config struct {
 
 	// Address of the ProcessorEndpoint contract
 	ProcessorAddress string
-	// Address of the KeyRegistry contract
-	KeyRegistryAddress string
 	// Address of the TeeAuthenticator contract
 	TeeAuthAddress string
 
@@ -78,7 +76,6 @@ func DefaultConfig() *Config {
 		nodePort = "8545"
 	}
 	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
-	keyRegistryAddress := os.Getenv("CHAIN_KEYREGISTRY_ADDRESS")
 	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
 
 
@@ -91,7 +88,6 @@ func DefaultConfig() *Config {
 		RpcURL:               "http://" + nodeUrl + ":" + nodePort,
 		PrivateKey:           *PrivateKey,
 		ProcessorAddress:     processorAddress,
-		KeyRegistryAddress:   keyRegistryAddress,
 		TeeAuthAddress: 	  teeAuthAddress,
 
 		MockBlockChainClient: false,
@@ -126,7 +122,6 @@ func ReadConfig() *Config {
 		RpcURL:               config.MustGetString("RpcUrl"),
 		PrivateKey:           *PrivateKey,
 		ProcessorAddress:     config.MustGetString("ProcessorAddress"),
-		KeyRegistryAddress:   config.MustGetString("KeyRegistryAddress"),
 		TeeAuthAddress:	      config.MustGetString("TeeAuthenticatorAddress"),
 		MockBlockChainClient: config.MustGetBool("MockBlockChainClient"),
 		// Data layer configuration

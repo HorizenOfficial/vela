@@ -44,6 +44,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y solc
 
+      # Install abigen (from go-ethereum)
+      - name: Install abigen
+        run: go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
+
+      # Install TinyGo for WASM module
+      - name: Install TinyGo
+        run: |
+          wget https://github.com/tinygo-org/tinygo/releases/download/v0.39.0/tinygo_0.39.0_amd64.deb
+          sudo dpkg -i tinygo_0.39.0_amd64.deb
+
+      # ✅ Verify generated files consistency
+      - name: Verify generated files are up-to-date
+        timeout-minutes: 5
+        run: |
+          echo "Running go generate and checking for changes..."
+          set -x
+          go generate -v ./... || { echo "go generate failed"; exit 1; }
+          echo "Files after generation:"
+          git status
+          if [[ -n "$(git status --porcelain | grep "pkg/blockchain/contracts")" ]]; then
+            echo "❌ Generated files are out of date. Please run 'go generate ./...' and commit the results."
+            git diff
+            exit 1
+          else
+            echo "✅ Generated files are up-to-date."
+          fi
+
       # Build a Go project
       - name: Build Go project
         run: |
@@ -101,6 +128,33 @@ jobs:
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
           sudo apt-get install -y solc
+
+      # Install abigen (from go-ethereum)
+      - name: Install abigen
+        run: go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
+
+      # Install TinyGo for WASM module
+      - name: Install TinyGo
+        run: |
+          wget https://github.com/tinygo-org/tinygo/releases/download/v0.39.0/tinygo_0.39.0_amd64.deb
+          sudo dpkg -i tinygo_0.39.0_amd64.deb
+
+      # ✅ Verify generated files consistency
+      - name: Verify generated files are up-to-date
+        timeout-minutes: 5
+        run: |
+          echo "Running go generate and checking for changes..."
+          set -x
+          go generate -v ./... || { echo "go generate failed"; exit 1; }
+          echo "Files after generation:"
+          git status
+          if [[ -n "$(git status --porcelain | grep "pkg/blockchain/contracts")" ]]; then
+            echo "❌ Generated files are out of date. Please run 'go generate ./...' and commit the results."
+            git diff
+            exit 1
+          else
+            echo "✅ Generated files are up-to-date."
+          fi
 
       # Build a Go project
       - name: Build Go project

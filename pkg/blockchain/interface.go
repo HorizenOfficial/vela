@@ -20,8 +20,6 @@ type Client interface {
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
 	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
 	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
-	// GetPublicKey gets the public key for an address
-	GetPublicKey(ctx context.Context, address string) ([]byte, error)
 	// GetUserEvents gets decryptable user events in the given block range
 	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, f func([]byte) bool) ([][]byte, error)
 

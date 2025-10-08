@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 //they are isolated so they can be imported in multiple contracts without loops
 contract Structs {
     //type definitions
-    enum RequestType { DEPLOYAPP, PROCESS, DEANONYMIZATION }
+    enum RequestType { DEPLOYAPP, PROCESS, DEANONYMIZATION, ASSOCIATEKEY }
     enum RequestStatus { POSTED, COMPLETED, FAILED_REFUNDED, FAILED_NOT_REFUNDED }
     
     struct PendingRequest {

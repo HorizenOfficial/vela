@@ -5,8 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/horizen-pes/pkg/common"
 	"time"
+
+	"github.com/horizen-pes/pkg/common"
 )
 
 // MessageType represents the type of message being sent
@@ -27,10 +28,6 @@ const (
 	DeanonymizationRequestMessage
 	// DeanonymizationResponseMessage represents a response to a deanonymization request
 	DeanonymizationResponseMessage
-	// GetUserKeysRequestMessage represents a request from server to client for user keys
-	GetUserKeysRequestMessage
-	// GetUserKeysResponseMessage represents a response to a HandleGetUserKeys request
-	GetUserKeysResponseMessage
 	// ErrorMessage represents an error message
 	ErrorMessage
 )
@@ -54,8 +51,6 @@ type ProcessRequestData struct {
 	Request *common.Request `json:"request"`
 	// ApplicationState is the current state of the application
 	ApplicationState *common.ApplicationState `json:"applicationState"`
-	// SenderKey is the public key of the sender
-	SenderKey []byte `json:"senderKey"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
 }
@@ -88,8 +83,6 @@ type DeanonymizationRequestData struct {
 	Request *common.Request `json:"request"`
 	// ApplicationState is the current state of the application
 	ApplicationState *common.ApplicationState `json:"applicationState"`
-	// SenderKey is the public key of the sender
-	SenderKey []byte `json:"senderKey"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
 }
@@ -98,18 +91,6 @@ type DeanonymizationRequestData struct {
 type DeanonymizationResponseData struct {
 	// Report is the deanonymization report
 	Report *common.DeanonymizationReport `json:"report"`
-}
-
-// GetUserKeysRequestData represents data for a HandleGetUserKeys request message
-type GetUserKeysRequestData struct {
-	// Users is the list of users to get keys for
-	Users []string `json:"users"`
-}
-
-// GetUserKeysResponseData represents data for a HandleGetUserKeys response message
-type GetUserKeysResponseData struct {
-	// UserKeys is a map of user ID to their public key
-	UserKeys map[string][]byte `json:"userKeys"`
 }
 
 // ErrorData represents data for an error message

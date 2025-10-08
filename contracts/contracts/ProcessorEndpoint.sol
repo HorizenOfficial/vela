@@ -43,6 +43,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     error RequestIsAlreadyCompletedOrFailed(Structs.RequestStatus currentStatus);
     error InvalidStateRoot();
     error InvalidSignature();
+    error InvalidPayload();
     error InsufficientBalance();
     error AuthorityNotAllowed();
 
@@ -83,9 +84,12 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(uint256) {
         //check value
         if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
-        //check authorization
-        if(requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
 
+        if (requestType == Structs.RequestType.ASSOCIATEKEY) {
+            //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
+            if (payload.length != 133) revert InvalidPayload();
+        }else if  (requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
+        
         //create request
         uint256 requestId = requests.length;
         requests.push(
