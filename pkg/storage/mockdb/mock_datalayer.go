@@ -4,9 +4,10 @@ import (
 	"context"
 	"sync"
 
+	"errors"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/errors"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
 
 // MockDataLayer is a mock implementation of the data layer for testing.
@@ -23,23 +24,20 @@ type MockDataLayer struct {
 
 // NewMockDataLayer creates a new mock data layer.
 func NewMockDataLayer() *MockDataLayer {
-	versions := make([][]byte, 0, 10)
-	initialVersion := [32]byte{}
-	versions = append(versions, initialVersion[:])
 
 	return &MockDataLayer{
 		states:    make(map[string]*common.ApplicationState),
 		bytecodes: make(map[string][]byte),
 		reports:   make(map[string]*common.DeanonymizationReport),
 		keys:      make(map[string][]byte),
-		versions:  versions,
+		versions:  make([][]byte, 0),
 	}
 }
 
 // checkClosed returns an error if the mock data layer is closed.
 func (d *MockDataLayer) checkClosed() error {
 	if d.isClosed {
-		return errors.ErrStorageIsClosed("mock data layer is closed")
+		return storageErrors.ErrStorageIsClosed("mock data layer is closed")
 	}
 	return nil
 }
@@ -70,6 +68,7 @@ func (d *MockDataLayer) Store(
 		}
 	}
 
+
 	d.versions = append(d.versions, versionID)
 
 	return nil
@@ -84,7 +83,7 @@ func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID s
 	}
 	state, exists := d.states[applicationID]
 	if !exists {
-		return nil, errors.ErrNotFound("application state not found: " + applicationID)
+		return nil, storageErrors.ErrNotFound("application state not found: " + applicationID)
 	}
 	return state, nil
 }
@@ -98,7 +97,7 @@ func (d *MockDataLayer) GetWASMBytecode(ctx context.Context, applicationID strin
 	}
 	bytecode, exists := d.bytecodes[applicationID]
 	if !exists {
-		return nil, errors.ErrNotFound("wasm bytecode not found for application: " + applicationID)
+		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " + applicationID)
 	}
 	return bytecode, nil
 }
@@ -123,7 +122,7 @@ func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID s
 	}
 	report, exists := d.reports[reportID]
 	if !exists {
-		return nil, errors.ErrNotFound("deanonymization report not found: " + reportID)
+		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID)
 	}
 	return report, nil
 }
@@ -144,6 +143,10 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 
 // LastVersionID is a mock implementation of the LastVersionID method.
 func (d *MockDataLayer) LastVersionID() ([]byte, error) {
+	if len(d.versions) == 0 {
+		return nil, errors.New("no versions found in the db")
+	}
+	
 	return d.versions[len(d.versions) - 1], nil
 }
 

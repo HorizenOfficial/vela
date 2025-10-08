@@ -120,6 +120,19 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 	}
 }
 
+
+func (m *SecureProcessorManager) checkReorgTimeout() error {
+	if m.endReorgTime.IsZero() {
+		log.Printf("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
+		m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
+	} else if time.Now().After(m.endReorgTime) {
+		log.Printf("Manager: REORG not solved within timeout")
+		return fmt.Errorf("REORG not solved within timeout")
+	}
+	return nil
+
+}
+
 // processRequestFromChain retrieves the next pending request from the blockchain and processes it
 func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
 	m.mu.RLock()
@@ -139,11 +152,20 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 	localStateRoot, err := m.dataLayer.LastVersionID()
 	if err != nil {
-		return fmt.Errorf("failed to get local state root: %w", err)
+		if err.Error() == "no versions found in the db" {
+			localStateRoot = make([]byte, 32) // Initialize to zero state root if no versions exist
+		} else {
+			return fmt.Errorf("failed to get local state root: %w", err)
+		}
 	}
 
 	if !bytes.Equal(localStateRoot, stateRoot[:]) {
 		log.Printf("Manager: State root mismatch, expected %x, got %x. Checking if it is a REORG.", localStateRoot, stateRoot)
+		if stateRoot == [32]byte{} {
+			log.Printf("Manager: State root is zero, REORG")
+			// Don't look for older db versions, just mark as reorged and wait for next poll
+			return m.checkReorgTimeout()
+		}
 
 		oldVersions, err := m.dataLayer.ListVersions()
 		if err != nil {
@@ -153,14 +175,7 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		for _, oldVersion := range oldVersions[1:] {
 			if bytes.Equal(oldVersion, stateRoot[:]) {
 				log.Printf("Manager: Found matching state root %x in db, REORG", stateRoot)
-				if m.endReorgTime.IsZero() {
-					log.Printf("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
-					m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
-				} else if time.Now().After(m.endReorgTime) {
-					log.Printf("Manager: REORG not solved within timeout")
-					return fmt.Errorf("REORG not solved within timeout")
-				}
-				return nil
+				return m.checkReorgTimeout()
 			}
 		}
 		return fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
