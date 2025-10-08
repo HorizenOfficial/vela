@@ -95,7 +95,7 @@ func TestGetPendingRequests(t *testing.T) {
 
 	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, request.RequestID, pendingRequest.RequestID, "Payload should match")
+	require.Equal(t, request.RequestID, pendingRequest.RequestID, "RequestID should match")
 	require.Equal(t, strconv.Itoa(int(testHelper.ProtocolVersion)), pendingRequest.ProtocolVersion, "Protocol version should match")
 	require.Equal(t, applicationId.String(), pendingRequest.ApplicationID, "Application ID should match")
 	require.Equal(t, common.Process, pendingRequest.RequestType, "Request type should match")

@@ -140,7 +140,7 @@ func TestStart(t *testing.T) {
 	require.True(t, manager.isRunning, "Manager should be running after start")
 
 	err = manager.Start(context.Background())
-	require.Error(t, err, "Manager his already started, should return error")
+	require.Error(t, err, "Manager is already started, should return error")
 
 	// Stopping the polling goroutine
 	cancel()
