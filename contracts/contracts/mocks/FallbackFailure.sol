@@ -20,7 +20,7 @@ contract FallbackFailure {
         Structs.RequestType requestType, 
         bytes calldata payload, 
         uint256 value
-    ) public {
+    ) payable public {
         processorEndpoint.submitRequest{value:value}(protocolVersion, applicationId, requestType, payload, value);
     }
 }
