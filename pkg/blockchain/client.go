@@ -3,7 +3,6 @@ package blockchain
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -322,9 +321,14 @@ func (c *BlockChainClient) Close() error {
 	return nil
 }
 
-// GetPrivateBalance scans UserEvent logs backwards and returns all the events that are decryptable in the last block in which a decryptable event is present. 
-// If f!=nil, events should be decryptable and f should return true
-func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, f func([]byte) bool) ([][]byte, error) {
+// GetUserEvents scans UserEvent logs backwards and returns all the events that are decryptable with the given key
+// privKey: user key that will be used to decrypt events
+// applicationId: filter events by the given applicationId
+// fromBlock: block from which the function search events
+// toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
+// f: optional filter function for decrypted events
+// stopAtFirst: bool flag to stop at first found event
+func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -367,6 +371,7 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	appIdHash := ethCommon.BigToHash(&applicationId)
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
 
+	var events [][]byte
 	for blockNumber := fromBlock; blockNumber >= toBlock; blockNumber-- {
 		query := ethereum.FilterQuery{
 			Addresses: []ethCommon.Address{contractAddr},
@@ -380,21 +385,20 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 			return EMPTY, fmt.Errorf("failed to filter logs: %w", err)
 		}
 		
-		var events [][]byte
 		for _, vLog := range logs {
 			event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
 			if err != nil {
 				continue
 			}
 			decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
-			if err != nil && (f == nil || f(decrypted)) {
+			if err != nil && (filter == nil || filter(decrypted)) {
 				//found decryptable event that pass filter function
 				events = append(events, decrypted)
+				if stopAtFirst {
+					return events, nil
+				}
 			}
 		}
-		if len(events) > 0 { //at least one event is found in this block
-			return events, nil 
-		}
 	}
-	return EMPTY, errors.New("no event found")
+	return events, nil
 }
