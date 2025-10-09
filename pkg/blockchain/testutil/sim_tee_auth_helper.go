@@ -35,9 +35,6 @@ func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Addre
 
 func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload) bool {
 
-	reqId, ok := common.StringToBigInt(payload.RequestID)
-	require.True(s.t, ok, "invalid request ID: %s", payload.RequestID)
-
 	appId, ok := common.StringToBigInt(payload.ApplicationID)
 	require.True(s.t, ok, "invalid application ID: %s", payload.ApplicationID)
 
@@ -57,11 +54,14 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 		}
 	}
 
+	requestId, err := common.RequestIdStringTo32Byte(payload.RequestID)
+	require.NoError(s.t, err, "invalid request ID: %s", payload.RequestID)
+
 	params := s.teeContract.PackCheckSignature(
 		appId,
 		payload.PrevStateRoot,
 		payload.NewStateRoot,
-		reqId,
+		requestId,
 		events,
 		withdrawals,
 		payload.Signature,

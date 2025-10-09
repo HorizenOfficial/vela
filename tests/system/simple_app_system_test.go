@@ -130,7 +130,7 @@ func TestDeploySimpleApp(t *testing.T) {
 	cryptoHelper := testutil.NewCryptoHelper()
 
 	// 4. Deploy the application
-	deploySimpleApp(t, suite, cryptoHelper, "1", "233", "test-user", wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, "1", "1233", "test-user", wasmBytecode)
 }
 
 func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
@@ -176,11 +176,11 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	// 4. Deploy the application
 	appID := "1"
-	RequestID := "1"
-	deploySimpleApp(t, suite, cryptoHelper, appID, "1", user1Address, wasmBytecode)
+	RequestID := "01"
+	deploySimpleApp(t, suite, cryptoHelper, appID, RequestID, user1Address, wasmBytecode)
 
 	//register key 1
-	RequestID = "2"
+	RequestID = "02"
 	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user1Address, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
@@ -189,7 +189,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	//register key 3
-	RequestID = "3"
+	RequestID = "03"
 	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user2Address, user2Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey2Req)
@@ -198,17 +198,17 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "4", user1Address, 2000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "04", user1Address, 2000)
 
 	// 6. User2 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "5", user2Address, 1000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "05", user2Address, 1000)
 
 	// Get executor's communication key for encryption, for now get from the test suite
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
 
 	// 7. User1 compares balances with User2
-	compareReqID := "6"
+	compareReqID := "06"
 	payload := map[string]interface{}{
 		"type": "compare_addresses",
 		"compare": map[string]string{
@@ -275,8 +275,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	// 9: Sending deanonymization request as auditor
 
-	RequestID = "7"
-
+	RequestID = "07"
 	auditorAddress := fmt.Sprintf("0xadd%037x", 2)
 	auditorPrivateKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
 	require.NoError(t, err)
@@ -289,7 +288,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	deanonReqPayload := []byte(`{"type":"deanonymization","query":"full_report","tag":"SIMPLE_TAG"}`)
 
-	RequestID = "8"
+	RequestID = "08"
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
 		appID,
 		RequestID,
@@ -350,11 +349,11 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 
 	// 4. Deploy the application
 	appID := "1"
-	deploySimpleApp(t, suite, cryptoHelper, appID, "1", userAddress, wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, appID, "01", userAddress, wasmBytecode)
 
 	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
-	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, "2", userAddress, user1Key.PublicKey())
+	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, "02", userAddress, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
 	require.NoError(t, err)
@@ -362,7 +361,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "3", userAddress, 1000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "03", userAddress, 1000)
 
 	// Get executor's communication key for encryption
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
