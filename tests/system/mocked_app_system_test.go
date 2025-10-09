@@ -23,7 +23,7 @@ func TestDeployApp(t *testing.T) {
 	err = suite.StartManager()
 	require.NoError(t, err)
 
-	RequestID := "1233"
+	RequestID := "233"
 	ApplicationId := "1"
 
 	// 4. Submit deploy request
