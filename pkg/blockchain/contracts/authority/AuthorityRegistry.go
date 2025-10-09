@@ -241,7 +241,7 @@ func (AuthorityRegistryAddedAuthority) ContractEventName() string {
 // Solidity: event AddedAuthority(uint256 indexed applicationId, address indexed authority)
 func (authorityRegistry *AuthorityRegistry) UnpackAddedAuthorityEvent(log *types.Log) (*AuthorityRegistryAddedAuthority, error) {
 	event := "AddedAuthority"
-	if len(log.Topics) == 0 || log.Topics[0] != authorityRegistry.abi.Events[event].ID {
+	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AuthorityRegistryAddedAuthority)
@@ -283,7 +283,7 @@ func (AuthorityRegistryOwnershipTransferred) ContractEventName() string {
 // Solidity: event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
 func (authorityRegistry *AuthorityRegistry) UnpackOwnershipTransferredEvent(log *types.Log) (*AuthorityRegistryOwnershipTransferred, error) {
 	event := "OwnershipTransferred"
-	if len(log.Topics) == 0 || log.Topics[0] != authorityRegistry.abi.Events[event].ID {
+	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AuthorityRegistryOwnershipTransferred)
@@ -325,7 +325,7 @@ func (AuthorityRegistryRemovedAuthority) ContractEventName() string {
 // Solidity: event RemovedAuthority(uint256 indexed applicationId, address indexed authority)
 func (authorityRegistry *AuthorityRegistry) UnpackRemovedAuthorityEvent(log *types.Log) (*AuthorityRegistryRemovedAuthority, error) {
 	event := "RemovedAuthority"
-	if len(log.Topics) == 0 || log.Topics[0] != authorityRegistry.abi.Events[event].ID {
+	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AuthorityRegistryRemovedAuthority)
@@ -610,7 +610,7 @@ func (OwnableOwnershipTransferred) ContractEventName() string {
 // Solidity: event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
 func (ownable *Ownable) UnpackOwnershipTransferredEvent(log *types.Log) (*OwnableOwnershipTransferred, error) {
 	event := "OwnershipTransferred"
-	if len(log.Topics) == 0 || log.Topics[0] != ownable.abi.Events[event].ID {
+	if log.Topics[0] != ownable.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(OwnableOwnershipTransferred)
