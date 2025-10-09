@@ -209,7 +209,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 	}
 }
 
-func GenerateDeanonymizationReport(appId, requestId, stateJSON string) wasmCommon.DeanonymizationResult {
+func GenerateDeanonymizationReport(stateJSON string) wasmCommon.DeanonymizationResult {
 	// Deserialize current state
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
@@ -218,9 +218,7 @@ func GenerateDeanonymizationReport(appId, requestId, stateJSON string) wasmCommo
 
 	// Create deanonymization report
 	report := map[string]interface{}{
-		"applicationId": appId,
-		"requestId":     requestId,
-		"accounts":      currentState.Accounts,
+		"accounts": currentState.Accounts,
 	}
 
 	// Serialize the report

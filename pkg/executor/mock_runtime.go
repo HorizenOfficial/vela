@@ -184,8 +184,8 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, requestId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
-	log.Printf("Mock Runtime: Generating deanonymization report, id: %s,for application %s", requestId, appId)
+func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
+	log.Printf("Mock Runtime: Generating deanonymization report for application %s", appId)
 
 	var currentState map[string]interface{}
 	if err := json.Unmarshal(state, &currentState); err != nil {
@@ -193,10 +193,8 @@ func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId s
 	}
 
 	report := map[string]interface{}{
-		"applicationId": appId,
-		"requestId":     requestId,
-		"accounts":      currentState["accounts"],
-		"nonce":         currentState["nonce"],
+		"accounts": currentState["accounts"],
+		"nonce":    currentState["nonce"],
 	}
 
 	reportBytes, err := json.Marshal(report)

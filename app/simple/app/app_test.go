@@ -370,10 +370,9 @@ func TestProcessRequest(t *testing.T) {
 
 func TestGenerateDeanonymizationReport(t *testing.T) {
 	stateJSON, state := getPopulatedState(t)
-	requestId := "report-1"
 
 	t.Run("successful report generation", func(t *testing.T) {
-		result := GenerateDeanonymizationReport(testAppId, requestId, stateJSON)
+		result := GenerateDeanonymizationReport(stateJSON)
 		require.Empty(t, result.Error)
 		require.NotNil(t, result.Report)
 
@@ -381,16 +380,13 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 		err := json.Unmarshal(result.Report, &report)
 		require.NoError(t, err)
 
-		require.Equal(t, testAppId, report["applicationId"])
-		require.Equal(t, requestId, report["requestId"])
-
 		accountsData, ok := report["accounts"].(map[string]interface{})
 		require.True(t, ok)
 		require.Len(t, accountsData, len(state.Accounts))
 	})
 
 	t.Run("report with invalid state", func(t *testing.T) {
-		result := GenerateDeanonymizationReport(testAppId, requestId, "{invalid json}")
+		result := GenerateDeanonymizationReport("{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Equal(t, "Failed to parse application state", result.Error)
 	})

@@ -364,9 +364,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	}
 
 	// Generate deanonymization report
-	var requestID string = "report-req"
-
-	reportBytes, err := runtime.GenerateDeanonymizationReport(context.Background(), appId, "report-req", []byte(""), serializedState, wasmBytes)
+	reportBytes, err := runtime.GenerateDeanonymizationReport(context.Background(), appId, []byte(""), serializedState, wasmBytes)
 	if err != nil {
 		t.Fatalf("GenerateDeanonymizationReport failed: %v", err)
 	}
@@ -378,14 +376,6 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	}
 
 	// Verify report contents
-	if report["applicationId"] != appId {
-		t.Errorf("Expected applicationId %s, got %v", appId, report["applicationId"])
-	}
-
-	if report["requestId"] != requestID {
-		t.Errorf("Expected requestId %s, got %v", requestID, report["requestId"])
-	}
-
 	totalAccounts, ok := report["accounts"].(map[string]interface{})
 	if !ok || len(totalAccounts) != 2 {
 		t.Errorf("Expected totalAccounts 2, got %v", report["totalAccounts"])

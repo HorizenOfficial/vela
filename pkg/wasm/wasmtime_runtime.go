@@ -345,31 +345,16 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, requestId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
-	log.Printf("Wasmtime Runtime: Generating deanonymization report, id: %s, for application %s", requestId, appId)
-
+func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get or load module: %w", err)
 	}
 
-	// Get the generate_deanonymization_report function
+	// Call the WASM function to generate the report
 	generateReportFunc := appModule.instance.GetFunc(r.store, "generate_deanonymization_report")
 	if generateReportFunc == nil {
-		return nil, fmt.Errorf("generate_deanonymization_report function not found in WASM module")
-	}
-
-	// Write parameters to memory
-	appIdBytes := []byte(appId)
-	appIdPtr, err := r.writeToMemory(appModule, appIdBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write appId to memory: %w", err)
-	}
-
-	requestIdBytes := []byte(requestId)
-	requestIdPtr, err := r.writeToMemory(appModule, requestIdBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write requestId to memory: %w", err)
+		return nil, fmt.Errorf("function generate_deanonymization_report not found in wasm module")
 	}
 
 	statePtr, err := r.writeToMemory(appModule, state)
@@ -377,8 +362,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 		return nil, fmt.Errorf("failed to write state to memory: %w", err)
 	}
 
-	// Call the generate_deanonymization_report function
-	result, err := generateReportFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), requestIdPtr, int32(len(requestIdBytes)), statePtr, int32(len(state)))
+	result, err := generateReportFunc.Call(r.store, statePtr, len(state))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call generate_deanonymization_report: %w", err)
 	}

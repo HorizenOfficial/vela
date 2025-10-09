@@ -52,13 +52,6 @@ type RecipientEvent struct {
 
 type WithdrawalEvent = SenderEvent
 
-type UnencryptedDeanonymizationReportData struct {
-	ApplicationID string                   `json:"applicationId"`
-	RequestID     string                   `json:"requestId"`
-	Accounts      map[string]*AccountState `json:"accounts"`
-	Nonce         uint64                   `json:"nonce"`
-}
-
 // AccountState mirrors the app-level state shape for serialization without introducing a reverse import.
 type AccountState struct {
 	Address string `json:"address"`
