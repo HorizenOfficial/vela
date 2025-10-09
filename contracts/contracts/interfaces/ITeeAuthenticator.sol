@@ -12,4 +12,7 @@ interface ITeeAuthenticator {
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         bytes memory signature
     ) external view returns(bool);
+
+    function getTeeSigner() external view returns(address);
+    function getPubSecp521r1() external view returns(bytes memory);
 }

@@ -307,8 +307,8 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	//retrieve tee public key (needed to decrypt)
 	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
 		&bind.CallOpts{Pending: false},
-		c.teeAuthEndpoint.PackPubSecp521r1(),
-		c.teeAuthEndpoint.UnpackPubSecp521r1)
+		c.teeAuthEndpoint.PackGetPubSecp521r1(),
+		c.teeAuthEndpoint.UnpackGetPubSecp521r1)
 	if err != nil {
 		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
 	}

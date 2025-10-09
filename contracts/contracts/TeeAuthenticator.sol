@@ -60,4 +60,11 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);
         return recovered == teeSigner;
     }
+
+    function getTeeSigner() external view override returns(address) {
+        return teeSigner;
+    }
+    function getPubSecp521r1() external view returns(bytes memory) {
+        return pubSecp521r1;
+    }
 }

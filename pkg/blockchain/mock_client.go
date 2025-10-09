@@ -293,21 +293,6 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID stri
 	return report, nil
 }
 
-// mocked, using only deposit data
-func (c *MockClient) GetPrivateBalance(ctx context.Context, address string, privKeyHex string, applicationID uint64) (uint64, error) {
-    c.mu.RLock()
-    defer c.mu.RUnlock()
-
-    if c.privateBalances == nil {
-        return 0, nil
-    }
-    balance, ok := c.privateBalances[address]
-    if !ok {
-        return 0, nil
-    }
-    return uint64(balance), nil
-}
-
 func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	return [][]byte{}, nil
 }

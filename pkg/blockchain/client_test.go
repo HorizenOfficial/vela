@@ -10,6 +10,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,17 +42,14 @@ func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainCli
 
 }
 
-func setupSimTestHelperManualMining(t *testing.T) *testutil.SimTestHelper {
-	return testutil.NewSimTestHelper(t, false, true, nil)
+func setupSimTestHelper(t *testing.T, autoMining bool, teePubSecp521r1 []byte) *testutil.SimTestHelper {
+	return testutil.NewSimTestHelper(t, autoMining, true, nil, teePubSecp521r1)
 }
 
-func setupSimTestHelperAutoMining(t *testing.T) *testutil.SimTestHelper {
-	return testutil.NewSimTestHelper(t, true, true, nil)
-}
 
 func TestGetPendingRequests(t *testing.T) {
 
-	testHelper := setupSimTestHelperManualMining(t)
+	testHelper := setupSimTestHelper(t, false, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -92,7 +90,7 @@ func TestGetPendingRequests(t *testing.T) {
 
 func TestMarkRequestCompleted(t *testing.T) {
 
-	testHelper := setupSimTestHelperAutoMining(t)
+	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -119,7 +117,7 @@ func TestMarkRequestCompleted(t *testing.T) {
 
 func TestMarkRequestFailed(t *testing.T) {
 
-	testHelper := setupSimTestHelperAutoMining(t)
+	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -143,7 +141,7 @@ func TestMarkRequestFailed(t *testing.T) {
 
 func TestSubmitStateUpdate(t *testing.T) {
 
-	testHelper := setupSimTestHelperAutoMining(t)
+	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -184,3 +182,61 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res), "There should be 0 pending request")
 }
+
+func TestGetUserEvents(t *testing.T) {
+	//generate secp521r1 pair for TEE and user
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate tee private key")
+	teePub := teeKey.PublicKey()
+
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate user private key")
+	userPub := userKey.PublicKey()
+	
+	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// submit request and state update
+	transferValue := big.NewInt(1000000)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	testHelper.WaitMined(tx)
+	res, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	//encrypt event payload with TEE private key and user public key
+	message := "test message"
+	encryptedMessage, err := crypto.Encrypt(teeKey, userPub, []byte(message))
+	require.NoError(t, err)
+
+	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: encryptedMessage}}
+	withdrawals := []common.Withdrawal{
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
+	}
+
+	oldStateRoot := testHelper.GetStateRoot()
+
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID: res[0].ApplicationID,
+		RequestID:     res[0].RequestID,
+		PrevStateRoot: oldStateRoot,
+		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
+		Events:        events[:],
+		Withdrawals:   withdrawals,
+		Signature:     signature[:],
+	}
+
+	//complete state update
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+
+	//retrieve and decrypt user events
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true);
+	require.NoError(t, err)
+	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
+
+	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
+}
+
