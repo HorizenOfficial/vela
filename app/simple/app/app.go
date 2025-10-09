@@ -45,6 +45,14 @@ type ReportPayloadInstructions struct {
 	IncludeTag string `json:"tag,omitempty"`
 }
 
+// DeanonymizationReport represents the structure of the deanonymization report.
+type DeanonymizationReport struct {
+	Tag           string                   `json:"tag,omitempty"`
+	ApplicationID string                   `json:"applicationId"`
+	RequestID     string                   `json:"requestId"`
+	Accounts      map[string]*AccountState `json:"accounts"`
+}
+
 // --- High-Level Application Logic ---
 
 func LoadModule(appId string) []byte {
@@ -215,7 +223,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 	}
 }
 
-func GenerateDeanonymizationReport(appId, requestId, payloadJSON string, stateJSON string) wasmCommon.DeanonymizationResult {
+func GenerateDeanonymizationReport(appId, requestId, payloadJSON, stateJSON string) wasmCommon.DeanonymizationResult {
 	// Deserialize payload
 	var payload ReportPayloadInstructions
 	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
@@ -228,17 +236,17 @@ func GenerateDeanonymizationReport(appId, requestId, payloadJSON string, stateJS
 		return wasmCommon.DeanonymizationResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
 	}
 
-	report := map[string]interface{}{}
+	// Create deanonymization report
+	report := DeanonymizationReport{
+		ApplicationID: appId,
+		RequestID:     requestId,
+		Accounts:      currentState.Accounts,
+	}
 
 	// read contents of the payload and decide how to build the report. In this simple case just add a tag if any
 	if payload.IncludeTag != "" {
-		report["tag"] = payload.IncludeTag
+		report.Tag = payload.IncludeTag
 	}
-
-	// Create deanonymization report
-	report["applicationId"] = appId
-	report["requestId"] = requestId
-	report["accounts"] = currentState.Accounts
 
 	// Serialize the report
 	reportBytes, err := json.Marshal(report)
