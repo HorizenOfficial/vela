@@ -134,3 +134,18 @@ func RequestIdStringTo32Byte(s string) ([32]byte, error) {
 	copy(arr32[:], arr)
 	return arr32, nil
 }
+
+func RequestTypeToUint8(rt RequestType) (uint8, error) { //according to the order in the smart contract
+    switch rt {
+    case Deploy:
+        return 0, nil
+    case Process:
+        return 1, nil
+    case Deanonymize:
+        return 2, nil
+    case AssociateKey:
+        return 3, nil
+    default:
+        return 0, fmt.Errorf("unknown RequestType: %s", rt)
+    }
+}

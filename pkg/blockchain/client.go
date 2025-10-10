@@ -197,6 +197,63 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 
 }
 
+// SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, req *common.Request) ([32]byte, error) {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+
+    var EMPTY [32]byte
+
+    if !c.connected {
+        return EMPTY, fmt.Errorf("client not connected, call Connect first")
+    }
+
+    // Parse parameters
+    protocolVersion, err := strconv.ParseUint(req.ProtocolVersion, 10, 8)
+    if err != nil {
+        return EMPTY, fmt.Errorf("invalid protocol version: %w", err)
+    }
+    appId, ok := common.StringToBigInt(req.ApplicationID)
+    if !ok {
+        return EMPTY, fmt.Errorf("invalid application ID: %s", req.ApplicationID)
+    }
+    value := new(big.Int).SetUint64(req.Value)
+	reqType, err := common.RequestTypeToUint8(req.RequestType)
+	if err != nil {
+		return EMPTY, fmt.Errorf("invalid request type: %w", err)
+	}
+
+    // Pack the transaction data using the generated binding
+    data := c.processorEndpoint.PackSubmitRequest(uint8(protocolVersion), appId, reqType, req.Payload, value)
+    // Set the value for the transaction (msg.value)
+    c.account.Value = value
+
+    // Send the transaction
+    tx, err := bind.Transact(c.processorBoundContract, c.account, data)
+    if err != nil {
+        return EMPTY, fmt.Errorf("failed to submit transaction: %w", err)
+    }
+
+    // Wait for transaction to be mined
+    receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
+    if err != nil {
+        return EMPTY, fmt.Errorf("error waiting for tx inclusion: %w", err)
+    }
+    if receipt.Status != 1 {
+        return EMPTY, fmt.Errorf("transaction failed")
+    }
+
+    // Parse the returned requestId from the transaction receipt logs
+    for _, vLog := range receipt.Logs {
+        event, err := c.processorEndpoint.UnpackRequestSubmittedEvent(vLog)
+        if err == nil {
+            return event.RequestId, nil
+        }
+    }
+
+    return EMPTY, fmt.Errorf("requestId not found in logs")
+}
+
 func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
 	// This is the only thing that has to be done on the blockchain for deanonymization reports
 	return c.MarkRequestCompleted(ctx, update.ReportID)

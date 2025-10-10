@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"strconv"
 	"testing"
+	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
@@ -45,7 +46,6 @@ func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainCli
 func setupSimTestHelper(t *testing.T, autoMining bool, teePubSecp521r1 []byte) *testutil.SimTestHelper {
 	return testutil.NewSimTestHelper(t, autoMining, true, nil, teePubSecp521r1)
 }
-
 
 func TestGetPendingRequests(t *testing.T) {
 
@@ -192,7 +192,7 @@ func TestGetUserEvents(t *testing.T) {
 	userKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err, "failed to generate user private key")
 	userPub := userKey.PublicKey()
-	
+
 	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
 	defer testHelper.Close()
 
@@ -233,10 +233,58 @@ func TestGetUserEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	//retrieve and decrypt user events
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true);
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
 
 	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
+}
+
+func TestSubmitRequest(t *testing.T) {
+	// mock private key for the client
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Prepare a request
+	req := &common.Request{
+		ProtocolVersion: "0",
+		ApplicationID:   "1",
+		RequestID:       "",
+		RequestType:     common.Deploy,
+		Payload:         []byte("test-payload"),
+		Timestamp:       time.Now().Unix(),
+		Sender:          "", 
+		Value:           1,
+	}
+
+	// Submit the request
+	requestId, err := blockchainClient.SubmitRequest(context.Background(), req)
+	if err != nil {
+		t.Fatalf("SubmitRequest failed: %v", err)
+	}
+
+	// Get pending requests
+	pending, err := blockchainClient.GetPendingRequests(context.Background())
+	if err != nil {
+		t.Fatalf("GetPendingRequests failed: %v", err)
+	}
+
+	// Check that the submitted request is present and matches
+	found := false
+	for _, r := range pending {
+		reqIdAsString, err := common.RequestIdStringTo32Byte(r.RequestID)
+		require.NoError(t, err)
+		if reqIdAsString == requestId {
+			found = true
+			if r.ProtocolVersion != req.ProtocolVersion || r.ApplicationID != req.ApplicationID || r.RequestType != req.RequestType || string(r.Payload) != string(req.Payload) || r.Value != req.Value {
+				t.Errorf("Request fields do not match: got %+v, want %+v", r, req)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("Submitted request not found in pending requests")
+	}
 }
 
