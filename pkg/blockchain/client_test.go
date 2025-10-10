@@ -128,13 +128,20 @@ func TestMarkRequestCompleted(t *testing.T) {
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
+	requestId := res[0].RequestID
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
 	require.NoError(t, err)
 
 	res, err = blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res), "There should be zero pending request")
+
+	// Test error
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
+
 
 }
 
@@ -177,20 +184,18 @@ func TestSubmitStateUpdate(t *testing.T) {
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
 
-	res, err := blockchainClient.GetPendingRequests(context.Background())
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
 
-	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
+	events := [1]common.Event{{ApplicationID: res.ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
 		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
 	}
 
-	oldStateRoot := testHelper.GetStateRoot()
-
 	signature := [65]byte{}
 	payload := &common.UpdatePayload{
-		ApplicationID: res[0].ApplicationID,
-		RequestID:     res[0].RequestID,
+		ApplicationID: res.ApplicationID,
+		RequestID:     res.RequestID,
 		PrevStateRoot: oldStateRoot,
 		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
 		Events:        events[:],
@@ -201,7 +206,45 @@ func TestSubmitStateUpdate(t *testing.T) {
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
-	res, err = blockchainClient.GetPendingRequests(context.Background())
+	listOfRes, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be 0 pending request")
+	require.Equal(t, 0, len(listOfRes), "There should be 0 pending request")
+
+	// Test error - NonceTooLow
+	blockchainClient.account.Nonce = big.NewInt(0)
+	blockchainClient.account.GasLimit = 100000 //more than enough to avoid out of gas error
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg := err.(ReorgError)
+	require.True(t, isReorg)
+
+	blockchainClient.account.Nonce = nil //reset nonce to let it be fetched from the network
+	blockchainClient.account.GasLimit = 0 //reset gas limit to let it be estimated
+
+	// Test error - wrong application id
+
+	payload.ApplicationID = "9999"
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidApplicationId")
+
+	// Test error - wrong prev state root
+	payload.ApplicationID = res.ApplicationID
+	
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
+
+	// Test error - wrong request id
+	payload.PrevStateRoot = payload.NewStateRoot
+	payload.NewStateRoot = [32]byte{0x07, 0x08, 0x09}
+	payload.RequestID = "9999999999999999999999999999999999999999999999999999999999999999"
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
+
+
+
 }

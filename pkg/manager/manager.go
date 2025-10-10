@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -155,7 +156,8 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		if err.Error() == "no versions found in the db" {
 			localStateRoot = make([]byte, 32) // Initialize to zero state root if no versions exist
 		} else {
-			return fmt.Errorf("failed to get local state root: %w", err)
+			log.Printf("Manager: Failed to get local state root: %v", err)
+			return nil
 		}
 	}
 
@@ -169,7 +171,8 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 		oldVersions, err := m.dataLayer.ListVersions()
 		if err != nil {
-			return fmt.Errorf("failed to get db old versions: %w", err)
+			log.Printf("Manager: Failed to get db old versions: %v", err)
+			return nil
 		}
 
 		for _, oldVersion := range oldVersions[1:] {
@@ -191,7 +194,6 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		return nil
 	}
 
-
 	if err := m.processRequest(ctx, request); err != nil {
 		// Log the error and mark the request as failed
 		log.Printf("Manager: Failed to process request %s: %v", request.RequestID, err)
@@ -199,7 +201,7 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 			log.Printf("Manager: Failed to mark request %s as failed: %v", request.RequestID, err)
 		}
 	} else {
-		log.Printf("Manager: Processed and marked as completed request %s", request.RequestID)
+		log.Printf("Manager: Processed request %s", request.RequestID)
 	}
 	return nil
 
@@ -225,7 +227,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
-	fmt.Println("Processing deploy app request:", req.RequestID)
+	log.Printf("Processing deploy app request: %x", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
@@ -245,13 +247,24 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: req.Payload}},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to persist application data: %w", err)
+		log.Printf("failed to submit state update: %v", err)
+		return nil
 	}
 
-	fmt.Println("Deployed application, Submit the state update to the blockchain")
+	log.Printf("Deployed application, submit the state update to the blockchain")
 	// Submit the state update to the blockchain
 	if err = m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
-		fmt.Println("failed to submit state update")
+		log.Printf("Failed to submit state update for error: %v", err)
+		log.Printf("Rollback the application state to previous version")
+		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
+			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
+			log.Fatalf("Failed to rollback application state: %v", err)
+		}
+		
+		if _, ok := err.(blockchain.ReorgError); ok {
+			log.Printf("REORG, do not call MarkFailed, wait for next poll")
+			return nil
+		}
 		return fmt.Errorf("failed to submit state update: %w", err)
 	}
 
@@ -270,13 +283,20 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
-		return fmt.Errorf("failed to get application state: %w", err)
+		log.Printf("GetApplicationState returns an error: %v", err)
+		if strings.Contains(err.Error(), "application state not found") {
+			// This can happen if the deploy transaction was not mined yet, mark request as failed
+			return err
+		}
+		// Other errors are likely db errors, retry on next poll
+		return nil
 	}
 
 	// Get the WASM module for the application
 	wasmBytes, err := m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
 	if err != nil {
-		return fmt.Errorf("failed to get wasm bytes: %w", err)
+		log.Printf("GetWASMBytecode returns an error: %v", err)
+		return nil
 	}
 
 	// Process the request
@@ -295,11 +315,23 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to persist application state: %w", err)
+		log.Printf("failed to submit state update: %v", err)
+		return nil
 	}
 
 	// Submit the state update to the blockchain
 	if err = m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
+		log.Printf("Failed to submit state update for error: %v", err)
+		log.Printf("Rollback the application state to previous version")
+		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
+			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
+			log.Fatalf("Failed to rollback application state: %v", err)
+		}
+		
+		if _, ok := err.(blockchain.ReorgError); ok {
+			log.Printf("REORG, do not call MarkFailed, wait for next poll")
+			return nil
+		}
 		return fmt.Errorf("failed to submit state update: %w", err)
 	}
 
@@ -317,13 +349,20 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
-		return fmt.Errorf("failed to get application state: %w", err)
+		log.Printf("GetApplicationState returns an error: %v", err)
+		if strings.Contains(err.Error(), "application state not found") {
+			// This can happen if the deploy transaction was not mined yet, mark request as failed
+			return err
+		}
+		// Other errors are likely db errors, retry on next poll
+		return nil
 	}
 
 	// Get the WASM module for the application
 	wasmBytes, err := m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
 	if err != nil {
-		return fmt.Errorf("failed to get wasm bytes: %w", err)
+		log.Printf("GetWASMBytecode returns an error: %v", err)
+		return nil
 	}
 
 	// Generate the deanonymization report
@@ -335,13 +374,15 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	// Store the deanonymization report
 	err = m.dataLayer.StoreDeanonymizationReport(ctx, report)
 	if err != nil {
-		return fmt.Errorf("failed to persist deanonymization report: %w", err)
+		log.Printf("StoreDeanonymizationReport returns an error: %v", err)
+		return nil
 	}
 
 	// Submit the deanonymization report to the blockchain
 	err = m.blockchainClient.SubmitDeanonymizationReport(ctx, report)
 	if err != nil {
-		return fmt.Errorf("failed to submit deanonymization report: %w", err)
+		log.Printf("SubmitDeanonymizationReport returns an error: %v", err)
+		return nil
 	}
 
 	log.Printf("Manager: Generated deanonymization report %s for application %s", report.ReportID, req.ApplicationID)

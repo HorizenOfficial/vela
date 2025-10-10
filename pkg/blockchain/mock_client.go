@@ -10,6 +10,7 @@ import (
 
 	"github.com/elliotchance/orderedmap/v3"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/testutil"
 )
 
 // MockClient is a mock implementation of the blockchain client for testing
@@ -25,7 +26,7 @@ type MockClient struct {
 	publicKeys       map[string][]byte
 	eventSubscribers []chan<- interface{}
 	stateRoot	     [32]byte
-	mockedFunctions  map[string]interface{}
+	*testutil.MockFunctions
 }
 
 // NewMockClient creates a new mock blockchain client
@@ -39,23 +40,10 @@ func NewMockClient() *MockClient {
 		reports:         make(map[string]*common.DeanonymizationReport),
 		updatePayloads:  make(map[string]*common.UpdatePayload),
 		publicKeys:      make(map[string][]byte),
-		mockedFunctions: make(map[string]interface{}),
+		MockFunctions:   testutil.NewMockFunctions(),
 	}
 }
 
-func (c *MockClient) AddMockedFunc(key string, mockedFunc interface{})  {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	c.mockedFunctions[key] = mockedFunc
-}
-
-func (c *MockClient) RemoveMockedFunc(key string)  {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	delete(c.mockedFunctions, key) 
-}
 
 // SubmitRequest submits a request to the blockchain
 func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) error {
@@ -103,7 +91,7 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if f, ok:= c.mockedFunctions["GetNextPendingRequest"]; ok {
+	if f, ok:= c.GetMockedFunc("GetNextPendingRequest"); ok {
 		return f.(func(context.Context) (*common.Request, [32]byte, error))(ctx)
 	}
 	var req *common.Request
@@ -121,6 +109,10 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if f, ok:= c.GetMockedFunc("MarkRequestFailed"); ok {
+		return f.(func(context.Context, string) (error))(ctx, requestID)
+	}
 
 	if !c.pendingRequests.Has(requestID) {
 		return fmt.Errorf("request not found: %s", requestID)
@@ -187,7 +179,7 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if f, ok:= c.mockedFunctions["SubmitStateUpdate"]; ok {
+	if f, ok:= c.GetMockedFunc("SubmitStateUpdate"); ok {
 		return f.(func(context.Context, *common.UpdatePayload) error)(ctx, update)
 	}
 	// Complete the request if it exists
@@ -301,6 +293,9 @@ func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID string) (
 func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if f, ok:= c.GetMockedFunc("SubmitDeanonymizationReport"); ok {
+		return f.(func(context.Context, *common.DeanonymizationReport) (error))(ctx, report)
+	}
 
 	// Complete the request if it exists
 	if !c.pendingRequests.Has(report.ReportID) {
@@ -331,7 +326,10 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID stri
 func (c *MockClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
+	
+	if f, ok:= c.GetMockedFunc("Close"); ok {
+		return f.(func() (error))()
+	}
 	// Close all event subscribers
 	c.eventSubscribers = nil
 
@@ -342,6 +340,9 @@ func (c *MockClient) Close() error {
 func (c *MockClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if f, ok:= c.GetMockedFunc("Connect"); ok {
+		return f.(func(context.Context) (error))(ctx)
+	}
 
 	return nil
 }
@@ -359,7 +360,7 @@ func (c *MockClient) ClearAllData() {
 	c.failedRequests = orderedmap.NewOrderedMap[string, *common.Request]()
 	c.updatePayloads = make(map[string]*common.UpdatePayload)
 	c.stateRoot = [32]byte{}
-	c.mockedFunctions = make(map[string]interface{})
+	c.MockedFunctions = make(map[string]interface{})
 }
 
 // emitEvent emits an event to all subscribers
