@@ -45,7 +45,7 @@ func NewMockClient() *MockClient {
 }
 
 // SubmitRequest submits a request to the blockchain
-func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) error {
+func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) ([32]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -53,7 +53,7 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) err
 	if req.RequestID == "" {
 		id, err := GenerateRandomID()
 		if err != nil {
-			return fmt.Errorf("failed to generate request ID: %w", err)
+			return [32]byte{}, fmt.Errorf("failed to generate request ID: %w", err)
 		}
 		req.RequestID = id
 	}
@@ -72,7 +72,7 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) err
 		c.privateBalances[req.Sender] += req.Value
 	}
 
-	return nil
+	return [32]byte{}, nil
 }
 
 // GetPendingRequests gets pending requests from the blockchain
