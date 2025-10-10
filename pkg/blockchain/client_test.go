@@ -137,11 +137,12 @@ func TestMarkRequestCompleted(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 
-	// Test error
+	// Test that completing the same request results in ProcessorEndpointInvalidRequestId
 	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
-
+	_, isReorgErr := err.(ReorgError)
+	require.True(t, isReorgErr)
 
 }
 
@@ -230,6 +231,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 	// Test error - wrong prev state root
 	payload.ApplicationID = res.ApplicationID
+	payload.PrevStateRoot = [32]byte{0x07, 0x08, 0xaa, 0xbb, 0xee}
 	
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	_, isReorg = err.(ReorgError)
@@ -244,7 +246,5 @@ func TestSubmitStateUpdate(t *testing.T) {
 	_, isReorg = err.(ReorgError)
 	require.True(t, isReorg)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
-
-
 
 }

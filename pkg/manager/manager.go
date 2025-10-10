@@ -154,7 +154,7 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 	localStateRoot, err := m.dataLayer.LastVersionID()
 	if err != nil {
 		if err.Error() == "no versions found in the db" {
-			localStateRoot = make([]byte, 32) // Initialize to zero state root if no versions exist
+			localStateRoot = make([]byte, 32) // Initialize to zero state root if no version exists
 		} else {
 			log.Printf("Manager: Failed to get local state root: %v", err)
 			return nil
@@ -177,7 +177,7 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 		for _, oldVersion := range oldVersions[1:] {
 			if bytes.Equal(oldVersion, stateRoot[:]) {
-				log.Printf("Manager: Found matching state root %x in db, REORG", stateRoot)
+				log.Printf("Manager: Found matching state root %x in db, REORG. Checking if the timeout is expired", stateRoot)
 				return m.checkReorgTimeout()
 			}
 		}
@@ -227,7 +227,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
-	log.Printf("Processing deploy app request: %x", req.RequestID)
+	log.Printf("Processing deploy app request: %s", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
@@ -274,7 +274,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 // processProcessRequest processes a process request
 func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
-	fmt.Println("Processing Process app request:", req.RequestID)
+	log.Printf("Processing Process app request: %s", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
@@ -307,7 +307,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 
 	// Store the updated application state
 	versionID := updatedState.StateRoot[:]
-	log.Printf("VersionID %x - stateRoot: %x", string(versionID[:]), string(updatedState.StateRoot[:]))
+	log.Printf("VersionID %x - stateRoot: %x", versionID[:], updatedState.StateRoot[:])
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
