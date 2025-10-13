@@ -49,8 +49,18 @@ func NewWasmtimeRuntime() *WasmtimeRuntime {
 
 // Helper function to write data to WASM memory and return pointer
 func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) (int32, error) {
+	if module == nil {
+		return 0, fmt.Errorf("module is nil")
+	}
 	if module.memory == nil {
 		return 0, fmt.Errorf("memory not initialized")
+	}
+
+	// If data is empty, we don't need to allocate memory.
+	// An empty payload might be a valid input for some operations, therefore
+	// we return a null pointer, and the guest will see a length of 0.
+	if len(data) == 0 {
+		return 0, nil
 	}
 
 	// Get the allocate function from WASM
@@ -91,6 +101,9 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 
 // Helper function to read data from WASM memory
 func (r *WasmtimeRuntime) readFromMemory(module *ApplicationModule, ptr int32, length int32) ([]byte, error) {
+	if module == nil {
+		return nil, fmt.Errorf("module is nil")
+	}
 	if module.memory == nil {
 		return nil, fmt.Errorf("memory not initialized")
 	}
@@ -357,12 +370,18 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 		return nil, fmt.Errorf("function generate_deanonymization_report not found in wasm module")
 	}
 
+	payloadPtr, err := r.writeToMemory(appModule, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write payload to memory: %w", err)
+	}
+
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write state to memory: %w", err)
 	}
 
-	result, err := generateReportFunc.Call(r.store, statePtr, len(state))
+	// Call the generate_deanonymization_report function
+	result, err := generateReportFunc.Call(r.store, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call generate_deanonymization_report: %w", err)
 	}
@@ -392,6 +411,10 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	resultPtr, ok := result.(int32)
 	if !ok {
 		return nil, fmt.Errorf("wasm module returned unexpected type")
+	}
+
+	if resultPtr == 0 {
+		return nil, fmt.Errorf("wasm module returned a null pointer, possibly due to an allocation failure or invalid input")
 	}
 
 	// Read the length prefix (first 4 bytes as uint32)

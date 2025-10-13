@@ -100,7 +100,7 @@ func TestDepositFunds(t *testing.T) {
 	t.Run("deposit with invalid state", func(t *testing.T) {
 		result := DepositFunds(user1Address, 100, "{invalid json}")
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Failed to parse application state", result.Error)
+		require.Contains(t, result.Error, "Failed to parse application state")
 	})
 }
 
@@ -147,7 +147,7 @@ func TestProcessRequest(t *testing.T) {
 
 		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Insufficient balance for withdrawal", result.Error)
+		require.Contains(t, result.Error, "Insufficient balance for withdrawal")
 	})
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {
@@ -163,7 +163,7 @@ func TestProcessRequest(t *testing.T) {
 
 		result := ProcessRequest("nonexistent", string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Account does not exist", result.Error)
+		require.Contains(t, result.Error, "does not exist")
 	})
 
 	t.Run("withdraw with missing instruction", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestProcessRequest(t *testing.T) {
 
 		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Withdraw instruction is missing", result.Error)
+		require.Contains(t, result.Error, "Withdraw instruction is missing")
 	})
 
 	t.Run("withdraw zero amount", func(t *testing.T) {
@@ -325,7 +325,7 @@ func TestProcessRequest(t *testing.T) {
 
 		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Compare instruction is missing", result.Error)
+		require.Contains(t, result.Error, "Compare instruction is missing")
 	})
 
 	t.Run("unsupported instruction type", func(t *testing.T) {
@@ -341,13 +341,13 @@ func TestProcessRequest(t *testing.T) {
 	t.Run("invalid payload json", func(t *testing.T) {
 		result := ProcessRequest(user1Address, "{invalid json}", stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Failed to parse payload instructions", result.Error)
+		require.Contains(t, result.Error, "Failed to parse payload instructions")
 	})
 
 	t.Run("invalid state json", func(t *testing.T) {
 		result := ProcessRequest(user1Address, "{}", "{invalid json}")
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Failed to parse application state", result.Error)
+		require.Contains(t, result.Error, "Failed to parse application state")
 	})
 
 	t.Run("empty payload", func(t *testing.T) {
@@ -370,9 +370,10 @@ func TestProcessRequest(t *testing.T) {
 
 func TestGenerateDeanonymizationReport(t *testing.T) {
 	stateJSON, state := getPopulatedState(t)
+	payloadJSON := `{"tag":"SIMPLE_REPORT"}`
 
 	t.Run("successful report generation", func(t *testing.T) {
-		result := GenerateDeanonymizationReport(stateJSON)
+		result := GenerateDeanonymizationReport(payloadJSON, stateJSON)
 		require.Empty(t, result.Error)
 		require.NotNil(t, result.Report)
 
@@ -386,8 +387,14 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 	})
 
 	t.Run("report with invalid state", func(t *testing.T) {
-		result := GenerateDeanonymizationReport("{invalid json}")
+		result := GenerateDeanonymizationReport("{}", "{invalid json}")
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Failed to parse application state", result.Error)
+		require.Contains(t, result.Error, "Failed to parse application state")
+	})
+
+	t.Run("report with invalid payload", func(t *testing.T) {
+		result := GenerateDeanonymizationReport("{invalid json}", "{}")
+		require.NotEmpty(t, result.Error)
+		require.Contains(t, result.Error, "Failed to parse payload")
 	})
 }

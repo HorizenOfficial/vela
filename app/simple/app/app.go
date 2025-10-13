@@ -39,6 +39,18 @@ type PayloadInstructions struct {
 	Withdraw        *WithdrawInstruction `json:"withdraw,omitempty"`
 }
 
+// ReportPayloadInstructions represent a specific information on how to generate a report
+// In this simple app its a custom tag to add to the report
+type ReportPayloadInstructions struct {
+	IncludeTag string `json:"tag,omitempty"`
+}
+
+// DeanonymizationReport represents the structure of the deanonymization report.
+type DeanonymizationReport struct {
+	Tag      string                   `json:"tag,omitempty"`
+	Accounts map[string]*AccountState `json:"accounts"`
+}
+
 // --- High-Level Application Logic ---
 
 func LoadModule(appId string) []byte {
@@ -56,7 +68,7 @@ func LoadModule(appId string) []byte {
 func DepositFunds(sender string, value uint64, stateJSON string) wasmCommon.DepositResult {
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return wasmCommon.DepositResult{Error: "Failed to parse application state"}
+		return wasmCommon.DepositResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
 	}
 
 	// Ensure sender account exists
@@ -77,7 +89,7 @@ func DepositFunds(sender string, value uint64, stateJSON string) wasmCommon.Depo
 	}
 	eventDataBytes, err := json.Marshal(eventData)
 	if err != nil {
-		return wasmCommon.DepositResult{Error: "Failed to serialize event data"}
+		return wasmCommon.DepositResult{Error: fmt.Sprintf("Failed to serialize event data: %+v", eventData)}
 	}
 
 	events := []common.PlainEvent{{
@@ -88,7 +100,7 @@ func DepositFunds(sender string, value uint64, stateJSON string) wasmCommon.Depo
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(&currentState)
 	if err != nil {
-		return wasmCommon.DepositResult{Error: "Failed to serialize new state"}
+		return wasmCommon.DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %+v", &currentState)}
 	}
 	return wasmCommon.DepositResult{State: newStateBytes, Events: events}
 }
@@ -97,7 +109,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 	// Deserialize current state
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return wasmCommon.ProcessResult{Error: "Failed to parse application state"}
+		return wasmCommon.ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
 	}
 
 	var events []common.PlainEvent
@@ -106,13 +118,13 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 	if payloadJSON != "" {
 		var instructions PayloadInstructions
 		if err := json.Unmarshal([]byte(payloadJSON), &instructions); err != nil {
-			return wasmCommon.ProcessResult{Error: "Failed to parse payload instructions"}
+			return wasmCommon.ProcessResult{Error: fmt.Sprintf("Failed to parse payload instructions: %s", payloadJSON)}
 		}
 
 		switch instructions.Type {
 		case "compare_addresses":
 			if instructions.CompareAccounts == nil {
-				return wasmCommon.ProcessResult{Error: "Compare instruction is missing"}
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Compare instruction is missing in payload: %s", payloadJSON)}
 			}
 			targetAddress := instructions.CompareAccounts.TargetAddress
 
@@ -144,7 +156,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 			eventDataBytes, err := json.Marshal(eventData)
 			if err != nil {
-				return wasmCommon.ProcessResult{Error: "Failed to serialize event data"}
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Failed to serialize event data: %+v", eventData)}
 			}
 
 			events = append(events, common.PlainEvent{
@@ -154,16 +166,16 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 
 		case "withdraw":
 			if instructions.Withdraw == nil {
-				return wasmCommon.ProcessResult{Error: "Withdraw instruction is missing"}
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Withdraw instruction is missing in payload: %s", payloadJSON)}
 			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[sender] == nil {
-				return wasmCommon.ProcessResult{Error: "Account does not exist"}
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Account %s does not exist", sender)}
 			}
 
 			if currentState.Accounts[sender].Balance < instructions.Withdraw.Amount {
-				return wasmCommon.ProcessResult{Error: "Insufficient balance for withdrawal"}
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", sender)}
 			}
 
 			// Execute withdrawal
@@ -184,7 +196,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
 			if err != nil {
-				return wasmCommon.ProcessResult{Error: "Failed to serialize withdraw event data"}
+				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Failed to serialize withdraw event data: %+v", withdrawEventData)}
 			}
 
 			events = append(events, common.PlainEvent{
@@ -200,7 +212,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(currentState)
 	if err != nil {
-		return wasmCommon.ProcessResult{Error: "Failed to serialize new state"}
+		return wasmCommon.ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %+v", currentState)}
 	}
 	return wasmCommon.ProcessResult{
 		State:       newStateBytes,
@@ -209,22 +221,33 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 	}
 }
 
-func GenerateDeanonymizationReport(stateJSON string) wasmCommon.DeanonymizationResult {
+func GenerateDeanonymizationReport(payloadJSON, stateJSON string) wasmCommon.DeanonymizationResult {
+	// Deserialize payload
+	var payload ReportPayloadInstructions
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+		return wasmCommon.DeanonymizationResult{Error: fmt.Sprintf("Failed to parse payload: %s", payloadJSON)}
+	}
+
 	// Deserialize current state
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return wasmCommon.DeanonymizationResult{Error: "Failed to parse application state"}
+		return wasmCommon.DeanonymizationResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
 	}
 
 	// Create deanonymization report
-	report := map[string]interface{}{
-		"accounts": currentState.Accounts,
+	report := DeanonymizationReport{
+		Accounts: currentState.Accounts,
+	}
+
+	// read contents of the payload and decide how to build the report. In this simple case just add a tag if any
+	if payload.IncludeTag != "" {
+		report.Tag = payload.IncludeTag
 	}
 
 	// Serialize the report
 	reportBytes, err := json.Marshal(report)
 	if err != nil {
-		return wasmCommon.DeanonymizationResult{Error: "Failed to serialize deanonymization report"}
+		return wasmCommon.DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %+v", report)}
 	}
 	return wasmCommon.DeanonymizationResult{Report: reportBytes}
 }

@@ -112,15 +112,16 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.Equal(t, withdrawAmount, withdrawals[0].Amount)
 
 	// 4. Generate deanonymization report
-	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, nil, withdrawStateBytes, wasmBytes)
+	payloadJSON := `{"tag":"my_custom_tag"}`
+	payloadBytes = []byte(payloadJSON)
+	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.NoError(t, err)
 	require.NotNil(t, reportBytes)
 
 	var report map[string]interface{}
 	err = json.Unmarshal(reportBytes, &report)
 	require.NoError(t, err)
-	//require.Equal(t, appId, report["applicationId"])
-	//require.Equal(t, requestId, report["requestId"])
+	require.Equal(t, "my_custom_tag", report["tag"])
 	t.Log(" Report:\n", testutil.PrettyPrintJSON(report))
 
 	// 5. Compare addresses
@@ -225,7 +226,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 		_, _, _, err = runtime.ProcessRequest(ctx, appId, nonExistentUser, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "Account does not exist")
+		require.Contains(t, err.Error(), "does not exist")
 	})
 
 	t.Run("compare from non-existent account", func(t *testing.T) {
@@ -262,5 +263,129 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		_, _, _, err = runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Compare instruction is missing")
+	})
+
+	t.Run("unsupported instruction type", func(t *testing.T) {
+		payload := `{"type":"invalid_instruction"}`
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, []byte(payload), populatedStateBytes, wasmBytes)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Unsupported instruction type")
+	})
+
+	t.Run("invalid payload json", func(t *testing.T) {
+		payload := `{"type":"withdraw","withdraw":{"to":`
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, []byte(payload), populatedStateBytes, wasmBytes)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Failed to parse payload instructions")
+	})
+}
+
+func TestSimpleAppIntegration_NilData(t *testing.T) {
+	// Build and load the wasm module
+	wasmBytes := buildAndLoadWasmModule(t)
+
+	// Create a new wasmtime runtime
+	runtime := pes_wasm.NewWasmtimeRuntime()
+	defer runtime.Close()
+
+	ctx := context.Background()
+
+	// Load the module to get an initial state for some tests
+	initialStateBytes, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	t.Run("deposit with nil state", func(t *testing.T) {
+		// This should fail inside the wasm module because a nil state is not valid JSON.
+		// This test verifies that the runtime correctly handles passing a nil slice to wasm.
+		_, _, err := runtime.Deposit(ctx, appId, user1Address, 1000, nil, wasmBytes)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Failed to parse application state")
+	})
+
+	t.Run("generate report with nil payload", func(t *testing.T) {
+		// The simple_app expects a JSON object for the payload. Passing nil results in an
+		// empty string, which is invalid JSON, causing an error inside wasm.
+		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, nil, initialStateBytes, wasmBytes)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Failed to parse payload")
+	})
+
+	t.Run("generate report with nil state", func(t *testing.T) {
+		// This should fail inside the wasm module because a nil state is not valid JSON.
+		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), nil, wasmBytes)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Failed to parse application state")
+	})
+}
+
+func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
+	runtime := pes_wasm.NewWasmtimeRuntime()
+	defer runtime.Close()
+
+	ctx := context.Background()
+	// A dummy state, as we expect failures before the state is even used.
+	initialStateBytes := []byte(`{"appId":"simple_app_test","accounts":{}}`)
+
+	t.Run("load module with nil wasm", func(t *testing.T) {
+		_, err := runtime.LoadModule(ctx, appId, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to compile WASM module")
+	})
+
+	t.Run("load module with invalid wasm", func(t *testing.T) {
+		_, err := runtime.LoadModule(ctx, appId, []byte("invalid wasm"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to compile WASM module")
+	})
+
+	// For other functions, the error will come from getOrLoadModule -> LoadModule
+	t.Run("deposit with nil wasm", func(t *testing.T) {
+		_, _, err := runtime.Deposit(ctx, appId, user1Address, 1000, initialStateBytes, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to load module")
+	})
+
+	t.Run("process request with nil wasm", func(t *testing.T) {
+		payload := []byte(`{"type":"withdraw","withdraw":{"to":"some_address","amount":100}}`)
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, payload, initialStateBytes, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to load module")
+	})
+
+	t.Run("generate report with nil wasm", func(t *testing.T) {
+		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), initialStateBytes, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to load module")
+	})
+}
+
+func TestSimpleAppIntegration_InvalidState(t *testing.T) {
+	// Build and load the wasm module
+	wasmBytes := buildAndLoadWasmModule(t)
+
+	// Create a new wasmtime runtime
+	runtime := pes_wasm.NewWasmtimeRuntime()
+	defer runtime.Close()
+
+	ctx := context.Background()
+	invalidState := []byte("{invalid-state}")
+
+	t.Run("deposit with invalid state", func(t *testing.T) {
+		_, _, err := runtime.Deposit(ctx, appId, user1Address, 1000, invalidState, wasmBytes)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Failed to parse application state")
+	})
+
+	t.Run("process request with invalid state", func(t *testing.T) {
+		payload := []byte(`{"type":"withdraw","withdraw":{"to":"some_address","amount":100}}`)
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, payload, invalidState, wasmBytes)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Failed to parse application state")
+	})
+
+	t.Run("generate report with invalid state", func(t *testing.T) {
+		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), invalidState, wasmBytes)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
 }
