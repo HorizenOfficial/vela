@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/crypto"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -183,7 +185,71 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.Equal(t, 0, len(res), "There should be 0 pending request")
 }
 
-func TestGetUserEvents(t *testing.T) {
+func TestGetUserEvents_StopAtFirst(t *testing.T) {
+	//generate secp521r1 pair for TEE and user
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate tee private key")
+	teePub := teeKey.PublicKey()
+
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate user private key")
+	userPub := userKey.PublicKey()
+	
+	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// submit request and state update with message event
+	messageSkipped := "test message skipped"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, messageSkipped, teeKey, userPub);
+	message := "test message"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message, teeKey, userPub);
+
+	//retrieve and decrypt user events
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
+
+	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
+}
+
+func TestGetUserEvents_MultipleEvents(t *testing.T) {
+	//generate secp521r1 pair for TEE and user
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate tee private key")
+	teePub := teeKey.PublicKey()
+
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate user private key")
+	userPub := userKey.PublicKey()
+	
+	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// submit request and state update with message event
+	message1 := "test message 1"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message1, teeKey, userPub);
+	message2 := "test message 2"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message2, teeKey, userPub);
+	message3 := "test message 3"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message3, teeKey, userPub);
+
+	//retrieve and decrypt user events
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, false)
+	require.NoError(t, err)
+	require.Equal(t, 3, len(userEvents), "There should be 3 user event")
+
+	// they are in reverse order
+	require.Equal(t, []byte(message1), userEvents[2], "Decrypted message should match original (1)")
+	require.Equal(t, []byte(message2), userEvents[1], "Decrypted message should match original (2)")
+	require.Equal(t, []byte(message3), userEvents[0], "Decrypted message should match original (2)")
+
+}
+
+func TestGetUserEvents_WithFilter(t *testing.T) {
 	//generate secp521r1 pair for TEE and user
 	teeKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err, "failed to generate tee private key")
@@ -198,6 +264,68 @@ func TestGetUserEvents(t *testing.T) {
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
 
+	// submit request and state update with message event
+	messageTrue := "test message - true"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, messageTrue, teeKey, userPub);
+	messageFalse := "test message - false"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, messageFalse, teeKey, userPub);
+
+	//filter function
+	filter := func(data []byte) bool {
+    	return strings.Contains(string(data), "true")
+	}
+
+	//retrieve and decrypt user events
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, filter, false)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
+	require.Equal(t, []byte(messageTrue), userEvents[0], "Decrypted message should match the one that passes the filter")
+
+}
+
+func TestGetUserEvents_OtherUsersEvents(t *testing.T) {
+	//generate secp521r1 pair for TEE and user
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate tee private key")
+	teePub := teeKey.PublicKey()
+
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate user private key")
+	userPub := userKey.PublicKey()
+
+	//generate key for another user
+	otherUserKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate other user private key")
+	otherUserPub := otherUserKey.PublicKey()
+	
+	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// submit request and state update with message event
+	message := "test message"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message, teeKey, userPub);
+	messageOther := "test message - for other user"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, messageOther, teeKey, otherUserPub);
+
+	//retrieve and decrypt user events
+	// for user
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
+	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
+
+	// for other user
+	otherUserEvents, err := blockchainClient.GetUserEvents(context.Background(), *otherUserKey, *applicationId, 0, 0, nil, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(otherUserEvents), "There should be 1 user event (other)")
+	require.Equal(t, []byte(messageOther), otherUserEvents[0], "Decrypted message should match original (other)")
+}
+
+func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockchainClient *BlockChainClient, testHelper *testutil.SimTestHelper, 
+	message string, senderPrivKey *cryptotypes.PrivateKeyP521, receiverPubKey *cryptotypes.PublicKeyP521,
+) {
 	// submit request and state update
 	transferValue := big.NewInt(1000000)
 	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
@@ -206,13 +334,12 @@ func TestGetUserEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	//encrypt event payload with TEE private key and user public key
-	message := "test message"
-	encryptedMessage, err := crypto.Encrypt(teeKey, userPub, []byte(message))
+	encryptedMessage, err := crypto.Encrypt(senderPrivKey, receiverPubKey, []byte(message))
 	require.NoError(t, err)
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: encryptedMessage}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 0},
 	}
 
 	oldStateRoot := testHelper.GetStateRoot()
@@ -231,13 +358,7 @@ func TestGetUserEvents(t *testing.T) {
 	//complete state update
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
-
-	//retrieve and decrypt user events
 	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
-
-	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
 }
 
 func TestSubmitRequest(t *testing.T) {
@@ -287,4 +408,3 @@ func TestSubmitRequest(t *testing.T) {
 		t.Errorf("Submitted request not found in pending requests")
 	}
 }
-

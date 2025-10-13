@@ -429,6 +429,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		appId,
 		RequestID,
 		auditorAddress,
+		[]byte("{}"), // empty payload, no specific info to handle
 		executorPubKey,
 	)
 	require.NoError(t, err)

@@ -36,11 +36,12 @@ func process_request(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen 
 }
 
 //export generate_deanonymization_report
-func generate_deanonymization_report(appIdPtr *byte, appIdLen int32, requestIdPtr *byte, requestIdLen int32, statePtr *byte, stateLen int32) *byte {
+func generate_deanonymization_report(appIdPtr *byte, appIdLen int32, requestIdPtr *byte, requestIdLen int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
 	appId := utils.PtrToString(appIdPtr, appIdLen)
 	requestId := utils.PtrToString(requestIdPtr, requestIdLen)
+	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
-	result := app.GenerateDeanonymizationReport(appId, requestId, stateJSON)
+	result := app.GenerateDeanonymizationReport(appId, requestId, payloadJSON, stateJSON)
 	return utils.SerializeAndWriteResult(result)
 }
 
