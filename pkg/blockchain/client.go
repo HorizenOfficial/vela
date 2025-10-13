@@ -102,6 +102,10 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 }
 
 func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
+	if chainErr == nil {
+		return nil
+	}
+
 	if strings.Contains(chainErr.Error(), "nonce too low") {
 		return ReorgError{causedBy: chainErr}
 	}
@@ -111,19 +115,19 @@ func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
 	}
 	rawUnpackedErr, unpack_err := c.processorEndpoint.UnpackError(raw)
 	if unpack_err != nil {
-		return fmt.Errorf("call returned error: %w", chainErr)
+		return fmt.Errorf("call returned unknown error: %w", chainErr)
 	}
 	err := fmt.Errorf("call returned error: %T", rawUnpackedErr)
-	if _, ok := rawUnpackedErr.(*processorendpoint.ProcessorEndpointInvalidApplicationId); ok {
+
+	switch rawUnpackedErr.(type) {
+	case *processorendpoint.ProcessorEndpointInvalidApplicationId,
+		 *processorendpoint.ProcessorEndpointInvalidStateRoot,
+		 *processorendpoint.ProcessorEndpointInvalidRequestId:
 		return ReorgError{causedBy: err}
+	default:
+		return fmt.Errorf("contract revert: %T", err)
 	}
-	if _, ok := rawUnpackedErr.(*processorendpoint.ProcessorEndpointInvalidStateRoot); ok {
-		return ReorgError{causedBy: err}
-	}
-	if _, ok := rawUnpackedErr.(*processorendpoint.ProcessorEndpointInvalidRequestId); ok {
-		return ReorgError{causedBy: err}
-	}
-	return err
+
 }
 
 // GetPendingRequests gets pending requests from the blockchain
@@ -190,6 +194,7 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 	request := output.Arg0
 
 	requestId := hex.EncodeToString(request.RequestId[:])
+	//TODO check that all big.Int can fit in a Uint64. If not, the specific request should be marked as failed
 	req := &common.Request{
 		ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
 		ApplicationID:   request.ApplicationId.String(),
@@ -205,6 +210,19 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 	return req, stateRoot, nil
 }
 
+func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) error {
+	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
+	if err != nil {
+		return c.UnpackProcessorEndpointError(err)
+	}
+
+	// wait for transaction inclusion
+	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
+		return fmt.Errorf("error waiting for tx inclusion: %w", err)
+	}
+	return nil
+}
+
 func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -218,16 +236,7 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 		return fmt.Errorf("invalid request ID %s: %w", requestID, err)
 	}
 
-	tx, err := bind.Transact(c.processorBoundContract, c.account, c.processorEndpoint.PackMarkRequestCompleted(reqId))
-	if err != nil {
-		return c.UnpackProcessorEndpointError(err)
-	}
-
-	// wait for transaction inclusion
-	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
-		return fmt.Errorf("error waiting for tx inclusion: %w", err)
-	}
-	return nil
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(reqId))
 
 }
 
@@ -241,19 +250,10 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 
 	reqId, err := common.RequestIdStringTo32Byte(requestID)
 	if err != nil {
-		return fmt.Errorf("invalid request ID: %s", requestID)
+		return fmt.Errorf("invalid request ID %s: %w", requestID, err)
 	}
 
-	tx, err := bind.Transact(c.processorBoundContract, c.account, c.processorEndpoint.PackMarkRequestFailed(reqId))
-	if err != nil {
-		return c.UnpackProcessorEndpointError(err)
-	}
-
-	// wait for transaction inclusion
-	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
-		return fmt.Errorf("error waiting for tx inclusion: %w", err)
-	}
-	return nil
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(reqId))
 
 }
 
@@ -272,7 +272,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	reqId, err := common.RequestIdStringTo32Byte(update.RequestID)
 	if err != nil {
-		return fmt.Errorf("invalid request ID: %s", update.RequestID)
+		return fmt.Errorf("invalid request ID %s: %w", update.RequestID, err)
 	}
 
 	appId, ok := common.StringToBigInt(update.ApplicationID)
@@ -304,16 +304,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		update.Signature,
 	)
 
-	tx, err := bind.Transact(c.processorBoundContract, c.account, params)
-	if err != nil {
-		return c.UnpackProcessorEndpointError(err)
-	}
-
-	// wait for transaction inclusion
-	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
-		return fmt.Errorf("error waiting for tx inclusion: %w", err)
-	}
-	return nil
+	return c.sendTxAndWaitMined(ctx, params)
 
 }
 

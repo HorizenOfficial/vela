@@ -164,7 +164,7 @@ func (d *MockDataLayer) Close() error {
 }
 
 // Rollback is a mock implementation of the Rollback method.
-// versionID is ignored in current mock implementation
+// For now, only the StateRoot is restored.
 func (d *MockDataLayer) Rollback(versionID []byte) error {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()

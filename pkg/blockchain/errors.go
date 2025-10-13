@@ -11,3 +11,7 @@ type ReorgError struct {
 func (e ReorgError) Error() string {
 	return  fmt.Sprintf("Possible reorg on chain, received error: %v", e.causedBy)
 }
+
+func (e ReorgError) Unwrap() error {
+	return e.causedBy
+}

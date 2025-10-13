@@ -241,16 +241,6 @@ func (c *MockClient) GetApplicationState(ctx context.Context, applicationID stri
 	return state, nil
 }
 
-// RegisterPublicKey registers a public key for an address
-func (c *MockClient) RegisterPublicKey(ctx context.Context, address string, publicKey []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.publicKeys[address] = publicKey
-
-	return nil
-}
-
 // SubscribeToEvents subscribes to events from the blockchain
 func (c *MockClient) SubscribeToEvents(ctx context.Context, eventCh chan<- interface{}) error {
 	c.mu.Lock()

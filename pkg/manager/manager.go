@@ -225,6 +225,27 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 	}
 }
 
+func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updatePayload *common.UpdatePayload) error {
+	// Submit the state update to the blockchain
+	if err := m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
+		log.Printf("Failed to submit state update for error: %v", err)
+		log.Printf("Rollback the application state to previous version")
+		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
+			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
+			log.Fatalf("Failed to rollback application state: %v", err)
+		}
+		
+		if _, ok := err.(blockchain.ReorgError); ok {
+			log.Printf("REORG, do not call MarkFailed, wait for next poll")
+			return nil
+		}
+		return fmt.Errorf("failed to submit state update: %w", err)
+	}
+
+	log.Printf("Manager: Processed request %s for application %s", updatePayload.RequestID, updatePayload.ApplicationID)
+	return nil
+}
+
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
 	log.Printf("Processing deploy app request: %s", req.RequestID)
@@ -252,24 +273,8 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	log.Printf("Deployed application, submit the state update to the blockchain")
-	// Submit the state update to the blockchain
-	if err = m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
-		log.Printf("Failed to submit state update for error: %v", err)
-		log.Printf("Rollback the application state to previous version")
-		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
-			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
-			log.Fatalf("Failed to rollback application state: %v", err)
-		}
-		
-		if _, ok := err.(blockchain.ReorgError); ok {
-			log.Printf("REORG, do not call MarkFailed, wait for next poll")
-			return nil
-		}
-		return fmt.Errorf("failed to submit state update: %w", err)
-	}
+	return m.submitStateOnChain(ctx, updatePayload)
 
-	log.Printf("Manager: Deployed application %s", appState.ApplicationID)
-	return nil
 }
 
 // processProcessRequest processes a process request
@@ -319,24 +324,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		return nil
 	}
 
-	// Submit the state update to the blockchain
-	if err = m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
-		log.Printf("Failed to submit state update for error: %v", err)
-		log.Printf("Rollback the application state to previous version")
-		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
-			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
-			log.Fatalf("Failed to rollback application state: %v", err)
-		}
-		
-		if _, ok := err.(blockchain.ReorgError); ok {
-			log.Printf("REORG, do not call MarkFailed, wait for next poll")
-			return nil
-		}
-		return fmt.Errorf("failed to submit state update: %w", err)
-	}
-
-	log.Printf("Manager: Processed request %s for application %s", req.RequestID, req.ApplicationID)
-	return nil
+	return m.submitStateOnChain(ctx, updatePayload)
 }
 
 // processDeanonymization processes a deanonymization request
