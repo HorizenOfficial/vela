@@ -25,7 +25,6 @@ type MockClient struct {
 	reports          map[string]*common.DeanonymizationReport
 	updatePayloads   map[string]*common.UpdatePayload
 	publicKeys       map[string][]byte
-	privateBalances	 map[string]uint64
 	eventSubscribers []chan<- interface{}
 }
 
@@ -40,7 +39,6 @@ func NewMockClient() *MockClient {
 		reports:         make(map[string]*common.DeanonymizationReport),
 		updatePayloads:  make(map[string]*common.UpdatePayload),
 		publicKeys:      make(map[string][]byte),
-		privateBalances: make(map[string]uint64),
 	}
 }
 
@@ -66,11 +64,6 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) err
 	// Store the request
 	c.requests.Set(req.RequestID, req)
 	c.pendingRequests.Set(req.RequestID, req)
-
-	// Update privateBalances for deposits
-	if req.Value > 0 {
-		c.privateBalances[req.Sender] += req.Value
-	}
 
 	return nil
 }
