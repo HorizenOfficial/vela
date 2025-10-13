@@ -166,15 +166,13 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destina
 }
 
 // CreateDeanonymizationRequest creates an encrypted deanonymization request
-func (c *CryptoHelper) CreateDeanonymizationRequest(appID, requestID, sender string, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDeanonymizationRequest(appID, requestID, sender string, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
 	}
 
 	// For deanonymization, payload can contain specific query parameters
-	payload := []byte(`{"type":"deanonymization","query":"full_report"}`)
-
 	// Encrypt payload
 	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
 	if err != nil {
