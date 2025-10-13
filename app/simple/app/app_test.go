@@ -384,6 +384,7 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 
 		require.Equal(t, testAppId, report["applicationId"])
 		require.Equal(t, requestId, report["requestId"])
+		require.Equal(t, "SIMPLE_REPORT", report["tag"])
 
 		accountsData, ok := report["accounts"].(map[string]interface{})
 		require.True(t, ok)
