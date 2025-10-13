@@ -381,6 +381,8 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 		err := json.Unmarshal(result.Report, &report)
 		require.NoError(t, err)
 
+		require.Equal(t, "SIMPLE_REPORT", report["tag"])
+
 		accountsData, ok := report["accounts"].(map[string]interface{})
 		require.True(t, ok)
 		require.Len(t, accountsData, len(state.Accounts))
