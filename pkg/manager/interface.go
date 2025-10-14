@@ -79,7 +79,7 @@ func DefaultConfig() *Config {
 	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
 
 	return &Config{
-		ReorgTimeout:              60, // 1 minute
+		ReorgTimeout:              180, // 3 minutes
 		BlockchainPollingInterval: 5,     // 5 seconds
 		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
@@ -112,7 +112,7 @@ func ReadConfig() *Config {
 		panic(err)
 	}
 	return &Config{
-		ReorgTimeout:              config.GetInt64("ReorgTimeout", 60),
+		ReorgTimeout:              config.GetInt64("ReorgTimeout", 180), // 3 minutes
 		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
 		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{

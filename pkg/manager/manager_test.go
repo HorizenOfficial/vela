@@ -13,6 +13,7 @@ import (
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/storage/mockdb"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -238,7 +239,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	require.Equal(t, 0, len(failedRequests), "expected 0 failed request")
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
 	require.Equal(t, request.RequestID, completedRequests[1].RequestID, "Wrong requestID")
 	require.Equal(t, request.ApplicationID, completedRequests[1].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, request.RequestType, completedRequests[1].RequestType, "Wrong RequestType")
@@ -262,7 +263,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	require.Equal(t, 0, len(failedRequests), "expected 0 failed request")
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 3, len(completedRequests), "expected 3 completed request")
+	require.Equal(t, 3, len(completedRequests), "expected 3 completed requests")
 	require.Equal(t, request.RequestID, completedRequests[2].RequestID, "Wrong requestID")
 	require.Equal(t, request.ApplicationID, completedRequests[2].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, request.RequestType, completedRequests[2].RequestType, "Wrong RequestType")
@@ -460,7 +461,8 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	// Check that the local db has been reverted to the initial state
 	_, err = manager.dataLayer.LastVersionID()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no versions found in the db")
+	dbErr, ok := err.(*storageErrors.Error)
+	require.True(t, ok && dbErr.Code == storageErrors.NoVersionInDb)
 
 
 	completedRequests = mockBCClient.GetCompletedRequests()
@@ -477,7 +479,8 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	// Check that the local db has been reverted to the initial state
 	_, err = manager.dataLayer.LastVersionID()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no versions found in the db")
+	dbErr, ok = err.(*storageErrors.Error)
+	require.True(t, ok && dbErr.Code == storageErrors.NoVersionInDb)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
@@ -707,9 +710,6 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 }
 
 
-
-
-
 func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
@@ -757,7 +757,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
 	require.Equal(t, 1, len(pendingRequests), "expected 1 pending request")
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
 
 	db_version, err = manager.dataLayer.LastVersionID()
 	require.NoError(t, err)
@@ -806,7 +806,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
 	require.Equal(t, 0, len(pendingRequests), "expected 0 pending request")
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 3, len(completedRequests), "expected 3 completed request")
+	require.Equal(t, 3, len(completedRequests), "expected 3 completed requests")
 
 	db_version, err = manager.dataLayer.LastVersionID()
 	require.NoError(t, err)
@@ -828,33 +828,40 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	err = manager.processRequestFromChain(context.Background())
 	require.Error(t, err, "Should return error due to unrecoverable disalignment between DB and chain")
 
-	// test reorg not solved within timeout
+
+	// test reorg not solved within timeout. The local db is reverted to the same state of the chain and the request is executed
+	//Remove all old requests and reset to the initial state root
+
+	mockBCClient.ClearAllData()
+	//Re-submit old request
+	err = mockBCClient.SubmitRequest(context.Background(), request1)
+	require.NoError(t, err)
+
 	manager.config.ReorgTimeout = 1 // 1 second
 
-	mockedGetNextPendingRequest = func(context.Context) (*common.Request, [32]byte, error) {
-		return request1, initialStateRootOnChain, nil
-	}
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedGetNextPendingRequest)
-
-	// SubmitStateUpdate should not be called in case of reorg
-	mockBCClient.AddMockedFunc("SubmitStateUpdate", mockedSubmitStateUpdatePanics)
-
+	// First processRequestFromChain sets the reorg timeout
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
 
 	// wait for more than reorg timeout
 	// Instead of sleeping, we will simulate the time.Sleep by manipulating the endReorgTime
 	manager.endReorgTime = manager.endReorgTime.Add(-2 * time.Second) // go back in time by 2 seconds
-	err = manager.processRequestFromChain(context.Background())
-	require.Error(t, err, "Should return error due to reorg not solved within timeout")
 
-	// Check that, even if the timeout has been reached, if the state roots match, the reorg is resolved
-	// Solve the reorg and process the last request
-	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
-	mockBCClient.RemoveMockedFunc("SubmitStateUpdate")
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
-	require.True(t, bytes.Equal(stateRootOnChain3[:], db_version), "State root in DB should be equal to state root on chain")
+
+	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
+	require.Equal(t, 0, len(pendingRequests), "expected 0 pending request")
+	completedRequests = mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+
+
+	db_version, err = manager.dataLayer.LastVersionID()
+	require.NoError(t, err)
+
+	_, stateRootOnChain, err := mockBCClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(stateRootOnChain[:], db_version), "State root in DB should be equal to state root on chain")
 
 }
 

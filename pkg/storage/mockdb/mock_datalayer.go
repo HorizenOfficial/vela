@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"errors"
-
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/storage"
@@ -205,7 +203,7 @@ func (d *MockDataLayer) LastVersionID() ([]byte, error) {
 	}
 
 	if len(d.versions) == 0 {
-		return nil, errors.New("no versions found in the db")
+		return nil, storageErrors.ErrNoVersionInDb("No version in db")
 	}
 	
 	return d.versions[len(d.versions) - 1], nil

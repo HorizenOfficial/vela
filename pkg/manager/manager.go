@@ -13,6 +13,7 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/storage"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
 
 // SecureProcessorManager is an implementation of the Manager interface
@@ -25,7 +26,7 @@ type SecureProcessorManager struct {
 	isRunning        bool
 	stopChan         chan struct{}
 	wg               sync.WaitGroup
-	endReorgTime	 time.Time
+	endReorgTime     time.Time
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -122,18 +123,6 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 }
 
 
-func (m *SecureProcessorManager) checkReorgTimeout() error {
-	if m.endReorgTime.IsZero() {
-		log.Printf("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
-		m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
-	} else if time.Now().After(m.endReorgTime) {
-		log.Printf("Manager: REORG not solved within timeout")
-		return fmt.Errorf("REORG not solved within timeout")
-	}
-	return nil
-
-}
-
 // processRequestFromChain retrieves the next pending request from the blockchain and processes it
 func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
 	m.mu.RLock()
@@ -153,7 +142,7 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 	localStateRoot, err := m.dataLayer.LastVersionID()
 	if err != nil {
-		if err.Error() == "no versions found in the db" {
+		if dbErr, ok := err.(*storageErrors.Error); ok && dbErr.Code == storageErrors.NoVersionInDb {
 			localStateRoot = make([]byte, 32) // Initialize to zero state root if no version exists
 		} else {
 			log.Printf("Manager: Failed to get local state root: %v", err)
@@ -163,36 +152,45 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 	if !bytes.Equal(localStateRoot, stateRoot[:]) {
 		log.Printf("Manager: State root mismatch, expected %x, got %x. Checking if it is a REORG.", localStateRoot, stateRoot)
-		if stateRoot == [32]byte{} {
-			log.Printf("Manager: State root is zero, REORG")
-			// Don't look for older db versions, just mark as reorged and wait for next poll
-			return m.checkReorgTimeout()
-		}
 
-		oldVersions, err := m.dataLayer.ListVersions()
+		isReorg, err := m.checkIfReorg(stateRoot)
 		if err != nil {
-			log.Printf("Manager: Failed to get db old versions: %v", err)
+			log.Printf("Manager: Failed to check for reorg: %v", err)
 			return nil
 		}
 
-		for _, oldVersion := range oldVersions[1:] {
-			if bytes.Equal(oldVersion, stateRoot[:]) {
-				log.Printf("Manager: Found matching state root %x in db, REORG. Checking if the timeout is expired", stateRoot)
-				return m.checkReorgTimeout()
+		if isReorg {
+			if m.endReorgTime.IsZero() {
+				log.Printf("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
+				m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
+				return nil
+			} 
+			if time.Now().Before(m.endReorgTime)  {
+				log.Printf("Manager: REORG timeout not expired yet. Keep waiting...")
+				return nil
 			}
+			log.Printf("Manager: REORG not solved within timeout => Rollback the DB")
+			if err := m.dataLayer.Rollback(stateRoot[:]); err != nil {
+				log.Printf("Manager: Error while rolling back the DB: %v. ", err)
+				return nil
+			}
+
+		} else {
+			return fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
 		}
-		return fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
-		
+
 	}
+
 	if !m.endReorgTime.IsZero() {
 		log.Printf("Manager: State roots match, REORG resolved")
 		m.endReorgTime = time.Time{}
 	}
 
 	if request == nil {
-		log.Printf("Manager: No pending requests found")
 		return nil
 	}
+
+	log.Printf("Manager: processing request %x", request.RequestID)
 
 	if err := m.processRequest(ctx, request); err != nil {
 		// Log the error and mark the request as failed
@@ -204,6 +202,29 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		log.Printf("Manager: Processed request %s", request.RequestID)
 	}
 	return nil
+
+}
+
+func (m *SecureProcessorManager) checkIfReorg(stateRoot [32]byte) (bool, error) {
+	if stateRoot == [32]byte{} {
+		log.Printf("Manager: State root is zero, REORG")
+		// Don't look for older db versions, just mark as reorged and wait for next poll
+		return true, nil
+	}
+
+	oldVersions, err := m.dataLayer.ListVersions()
+	if err != nil {
+		log.Printf("Manager: Failed to get db old versions: %v", err)
+		return false, err
+	}
+
+	for _, oldVersion := range oldVersions[1:] {
+		if bytes.Equal(oldVersion, stateRoot[:]) {
+			log.Printf("Manager: Found matching state root %x in db, REORG. Checking if the timeout is expired", stateRoot)
+			return true, nil
+		}
+	}
+	return false, nil
 
 }
 
@@ -234,7 +255,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
 			log.Fatalf("Failed to rollback application state: %v", err)
 		}
-		
+
 		if _, ok := err.(blockchain.ReorgError); ok {
 			log.Printf("REORG, do not call MarkFailed, wait for next poll")
 			return nil
@@ -312,7 +333,8 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 
 	// Store the updated application state
 	versionID := updatedState.StateRoot[:]
-	log.Printf("VersionID %x - stateRoot: %x", versionID[:], updatedState.StateRoot[:])
+	log.Printf("VersionID %x", versionID[:])
+
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
