@@ -3,9 +3,11 @@ package blockchain
 
 import (
 	"context"
+	"math/big"
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
 // Client defines the interface for interacting with the blockchain
@@ -18,6 +20,9 @@ type Client interface {
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
 	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
 	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
+	// GetUserEvents gets decryptable user events in the given block range
+	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
+
 	// Close closes the blockchain client
 	Close() error
 	// Connect connects to the blockchain

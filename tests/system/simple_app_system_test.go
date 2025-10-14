@@ -130,7 +130,7 @@ func TestDeploySimpleApp(t *testing.T) {
 	cryptoHelper := testutil.NewCryptoHelper()
 
 	// 4. Deploy the application
-	deploySimpleApp(t, suite, cryptoHelper, "1", "1233", "test-user", wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, "1", "2333", "test-user", wasmBytecode)
 }
 
 func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
@@ -176,11 +176,11 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	// 4. Deploy the application
 	appID := "1"
-	RequestID := "01"
+	RequestID := "11"
 	deploySimpleApp(t, suite, cryptoHelper, appID, RequestID, user1Address, wasmBytecode)
 
 	//register key 1
-	RequestID = "02"
+	RequestID = "22"
 	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user1Address, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
@@ -189,7 +189,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	//register key 3
-	RequestID = "03"
+	RequestID = "33"
 	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user2Address, user2Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey2Req)
@@ -198,17 +198,17 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "04", user1Address, 2000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "44", user1Address, 2000)
 
 	// 6. User2 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "05", user2Address, 1000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "55", user2Address, 1000)
 
 	// Get executor's communication key for encryption, for now get from the test suite
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
 
 	// 7. User1 compares balances with User2
-	compareReqID := "06"
+	compareReqID := "66"
 	payload := map[string]interface{}{
 		"type": "compare_addresses",
 		"compare": map[string]string{
@@ -349,19 +349,19 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 
 	// 4. Deploy the application
 	appID := "1"
-	deploySimpleApp(t, suite, cryptoHelper, appID, "01", userAddress, wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, appID, "11", userAddress, wasmBytecode)
 
 	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
-	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, "02", userAddress, user1Key.PublicKey())
+	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, "22", userAddress, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
 	require.NoError(t, err)
-	err = suite.AssertRequestCompleted("2", timeout_value)
+	err = suite.AssertRequestCompleted("22", timeout_value)
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "03", userAddress, 1000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "33", userAddress, 1000)
 
 	// Get executor's communication key for encryption
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
@@ -370,7 +370,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	// --- Negative Test Cases ---
 
 	t.Run("withdraw with insufficient balance", func(t *testing.T) {
-		reqID := "neg-1"
+		reqID := "1011"
 		// User1 has 1000, tries to withdraw 2000
 		payload := `{"type":"withdraw","withdraw":{"to":"0xadd0000000000000000000000000000000000003","amount":2000}}`
 		processReq, err := cryptoHelper.CreateProcessRequest(
@@ -395,7 +395,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("unsupported instruction type", func(t *testing.T) {
-		reqID := "neg-2"
+		reqID := "1022"
 		payload := `{"type":"invalid_action"}`
 		processReq, err := cryptoHelper.CreateProcessRequest(
 			appID,
@@ -419,7 +419,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("compare with non-existent target account", func(t *testing.T) {
-		reqID := "neg-3"
+		reqID := "1033"
 		nonExistentUser := "0xadd0000000000000000000000000000000000099"
 		payload := `{"type":"compare_addresses","compare":{"targetAddress":"` + nonExistentUser + `"}}`
 		processReq, err := cryptoHelper.CreateProcessRequest(
@@ -444,7 +444,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("withdraw with missing instruction", func(t *testing.T) {
-		reqID := "neg-4"
+		reqID := "1044"
 		payload := `{"type":"withdraw"}` // Missing withdraw payload
 		processReq, err := cryptoHelper.CreateProcessRequest(
 			appID,
@@ -463,7 +463,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("compare with missing instruction", func(t *testing.T) {
-		reqID := "neg-5"
+		reqID := "1055"
 		payload := `{"type":"compare_addresses"}` // Missing compare payload
 		processReq, err := cryptoHelper.CreateProcessRequest(
 			appID,

@@ -41,6 +41,8 @@ type Config struct {
 
 	// Address of the ProcessorEndpoint contract
 	ProcessorAddress string
+	// Address of the TeeAuthenticator contract
+	TeeAuthAddress string
 
 	// DataLayerType specifies the database implementation to use. Supported values: "versioned_leveldb", "mockdb".
 	DataLayerType string
@@ -74,6 +76,8 @@ func DefaultConfig() *Config {
 		nodePort = "8545"
 	}
 	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
+	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
+
 
 	return &Config{
 		BlockchainPollingInterval: 5,     // 5 seconds
@@ -84,6 +88,8 @@ func DefaultConfig() *Config {
 		RpcURL:               "http://" + nodeUrl + ":" + nodePort,
 		PrivateKey:           *PrivateKey,
 		ProcessorAddress:     processorAddress,
+		TeeAuthAddress: 	  teeAuthAddress,
+
 		MockBlockChainClient: false,
 		// Data layer configuration
 		DataLayerType:          "versioned_leveldb",
@@ -116,6 +122,7 @@ func ReadConfig() *Config {
 		RpcURL:               config.MustGetString("RpcUrl"),
 		PrivateKey:           *PrivateKey,
 		ProcessorAddress:     config.MustGetString("ProcessorAddress"),
+		TeeAuthAddress:	      config.MustGetString("TeeAuthenticatorAddress"),
 		MockBlockChainClient: config.MustGetBool("MockBlockChainClient"),
 		// Data layer configuration
 		DataLayerType:          config.MustGetString("DataLayerType"),
