@@ -275,8 +275,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	// 9: Sending deanonymization request as auditor
 
-	RequestID = "05"
-
+	RequestID = "07"
 	auditorAddress := fmt.Sprintf("0xadd%037x", 2)
 	auditorPrivateKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
 	require.NoError(t, err)
@@ -287,10 +286,14 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	err = suite.AssertRequestCompleted(RequestID, timeout_value)
 	require.NoError(t, err)
 
+	deanonReqPayload := []byte(`{"type":"deanonymization","query":"full_report","tag":"SIMPLE_TAG"}`)
+
+	RequestID = "08"
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
 		appID,
 		RequestID,
 		auditorAddress,
+		deanonReqPayload,
 		executorPubKey,
 	)
 	require.NoError(t, err)
@@ -463,6 +466,25 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 		reqID := "neg-5"
 		payload := `{"type":"compare_addresses"}` // Missing compare payload
 		processReq, err := cryptoHelper.CreateProcessRequest(
+			appID,
+			reqID,
+			userAddress,
+			[]byte(payload),
+			executorPubKey,
+		)
+		require.NoError(t, err)
+		require.NoError(t, suite.SubmitRequest(processReq))
+
+		// Assert request is completed with error
+		err = suite.AssertRequestCompleted(reqID, timeout_value)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "has failed")
+	})
+
+	t.Run("invalid deanonimization payload", func(t *testing.T) {
+		reqID := "neg-6"
+		payload := `{"type":"deanonymization","query":"full_report","tag":}`
+		processReq, err := cryptoHelper.CreateDeanonymizationRequest(
 			appID,
 			reqID,
 			userAddress,
