@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/horizen-pes/app/simple/utils"
-
 	"github.com/horizen-pes/pkg/common"
 	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
 )
@@ -60,7 +58,7 @@ func LoadModule(appId string) []byte {
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
-		return utils.WasmSerializationError
+		return []byte(wasmCommon.WasmSerializationError)
 	}
 	return stateJSON
 }

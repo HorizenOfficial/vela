@@ -14,8 +14,6 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
-const WasmSerializationError = "{}"
-
 type ApplicationModule struct {
 	module   *wasmtime.Module
 	instance *wasmtime.Instance
@@ -443,7 +441,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	}
 
 	// WasmSerializationError (`{}`) is returned by the wasm module if serialization fails
-	if string(resultBytes) == WasmSerializationError {
+	if string(resultBytes) == appCommon.WasmSerializationError {
 		return nil, fmt.Errorf("wasm module failed to serialize response/error")
 	}
 

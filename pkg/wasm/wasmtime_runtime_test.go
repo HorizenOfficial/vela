@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bytecodealliance/wasmtime-go"
+	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,6 +80,7 @@ func TestExtractResultBytes(t *testing.T) {
 	defer runtime.Close()
 
 	// Setup a mock memory for testing, using the runtime's store
+	// 1 is the minimum size in WebAssembly pages (WebAssembly page size = 64 KiB (65,536 bytes))
 	memType := wasmtime.NewMemoryType(1, false, 0)
 	memory, err := wasmtime.NewMemory(runtime.store, memType)
 	require.NoError(t, err)
@@ -90,10 +92,11 @@ func TestExtractResultBytes(t *testing.T) {
 	dataWithLen := make([]byte, 4+len(testData))
 	binary.LittleEndian.PutUint32(dataWithLen, uint32(len(testData)))
 	copy(dataWithLen[4:], testData)
+	// [0x0b,0x00,0x00,0x00, 0x68,..,0x64]
 
 	// Copy the prepared data into the wasm memory
 	memSlice := memory.UnsafeData(runtime.store)
-	testPtr := int32(100) // Arbitrary starting position
+	testPtr := int32(100) // Arbitrary starting position, it is safe because we configures the slice to be 64K
 	copy(memSlice[testPtr:], dataWithLen)
 
 	t.Run("successful extraction", func(t *testing.T) {
@@ -122,7 +125,7 @@ func TestExtractResultBytes(t *testing.T) {
 
 	t.Run("serialization error", func(t *testing.T) {
 		// Write the serialization error constant to memory
-		errorData := []byte(WasmSerializationError)
+		errorData := []byte(appCommon.WasmSerializationError)
 		errorWithLen := make([]byte, 4+len(errorData))
 		binary.LittleEndian.PutUint32(errorWithLen, uint32(len(errorData)))
 		copy(errorWithLen[4:], errorData)

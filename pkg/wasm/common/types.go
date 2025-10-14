@@ -4,6 +4,9 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
+// WasmSerializationError is a generic error for failed WASM serialization.
+const WasmSerializationError = "{}"
+
 // TODO add applicationId to the definitions where appropriate, in future we will have many differnt apps
 
 // DepositResult represents the result of a deposit operation
