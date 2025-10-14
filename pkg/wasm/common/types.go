@@ -54,9 +54,3 @@ type RecipientEvent struct {
 }
 
 type WithdrawalEvent = SenderEvent
-
-// AccountState mirrors the app-level state shape for serialization without introducing a reverse import.
-type AccountState struct {
-	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
-}
