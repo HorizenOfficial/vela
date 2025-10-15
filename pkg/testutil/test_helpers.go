@@ -461,13 +461,9 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	// just check that we have a base64 string representing the raw report data
 	jsonStr, ok := report["reportDataBytes"].(string)
-	if !ok {
-		log.Fatal("reportDataBytes is not a string")
-	}
+	require.True(t, ok, "reportDataBytes is not a string")
 	_, err = base64.StdEncoding.DecodeString(jsonStr)
-	if err != nil {
-		log.Fatal(err)
-	}
+	require.NoError(t, err, "bytes are not base64 encoded")
 
 	// Deanon report does not contain signature for now, possibly add later
 
