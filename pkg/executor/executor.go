@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -251,13 +252,20 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	}
 
 	// Generate the report using the runtime
-	reportData, err := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, req.RequestID, decryptedPayload, appData.GetAppState(), wasmModule)
+	reportData, err := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, decryptedPayload, appData.GetAppState(), wasmModule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate deanonymization report: %w", err)
 	}
 
 	// Encrypt the report
-	encryptedReport, err := e.encryptDeanonymizationReport(e.config.CommunicationKey, senderAddress, reportData, appData.GetKeyStore())
+	encryptedReport, err := e.encryptDeanonymizationReport(
+		req.ApplicationID,
+		req.RequestID,
+		e.config.CommunicationKey,
+		senderAddress,
+		reportData,
+		appData.GetKeyStore(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
 	}
@@ -352,9 +360,9 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	return encryptedEvents, nil
 }
 
-func (e *StatelessExecutor) encryptDeanonymizationReport(key *cryptotypes.PrivateKeyP521, requester ethCommon.Address, reportData []byte, keyStore appdata.KeyStore) ([]byte, error) {
+func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId, requestId string, key *cryptotypes.PrivateKeyP521, requester ethCommon.Address, reportData []byte, keyStore appdata.KeyStore) ([]byte, error) {
 	if len(reportData) == 0 {
-		return reportData, nil // No report to encrypt
+		return nil, fmt.Errorf("no report data found")
 	}
 
 	// retrieve user Secp521r1_PubKey
@@ -363,8 +371,21 @@ func (e *StatelessExecutor) encryptDeanonymizationReport(key *cryptotypes.Privat
 		return nil, fmt.Errorf("no Secp521r1_PubKey found for user %s", requester)
 	}
 
+	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct of the reportData.
+	// therefore we decide to add the raw bytes into a separate field
+	data := make(map[string]interface{})
+	data["applicationId"] = applicationId
+	data["requestId"] = requestId
+	data["reportDataBytes"] = reportData
+
+	// Marshal the updated report data
+	updatedReportData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal updated deanonymization report: %w", err)
+	}
+
 	// Encrypt the report data
-	encryptedReport, err := crypto.Encrypt(key, requesterPublicKey, reportData)
+	encryptedReport, err := crypto.Encrypt(key, requesterPublicKey, updatedReportData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
 	}

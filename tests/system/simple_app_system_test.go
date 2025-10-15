@@ -2,6 +2,7 @@ package system
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -314,14 +315,27 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditorAddress, deanonReport, executorPubKey)
 	require.NoError(t, err)
 
-	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct, but we do assume that
-	// we have at least an appId and a reportId
-	var reportData map[string]interface{}
-	err = json.Unmarshal(decryptedReport, &reportData)
+	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct for the report data, but we do assume that
+	// we have an appId, a reportId, and the data in separate fields
+	var report map[string]interface{}
+	err = json.Unmarshal(decryptedReport, &report)
 	require.NoError(t, err)
-	require.Equal(t, appID, reportData["applicationId"])
-	require.Equal(t, RequestID, reportData["requestId"])
-	t.Log("Deanonymization report:\n", testutil.PrettyPrintJSON(reportData))
+	require.Equal(t, appID, report["applicationId"])
+	require.Equal(t, RequestID, report["requestId"])
+
+	jsonStr, ok := report["reportDataBytes"].(string)
+	require.True(t, ok, "reportDataBytes is not a string")
+	jsonBytes, err := base64.StdEncoding.DecodeString(jsonStr)
+	require.NoError(t, err, "bytes are not base64 encoded")
+
+	// in the simple app we know how the data bytes are formatted
+	var reportData map[string]interface{}
+	err = json.Unmarshal(jsonBytes, &reportData)
+	require.NoError(t, err)
+	require.Equal(t, "SIMPLE_TAG", reportData["tag"])
+
+	t.Log("Deanonymization report:\n", testutil.PrettyPrintJSON(report))
+	t.Log("Deanonymization report data:\n", testutil.PrettyPrintJSON(reportData))
 
 	// Deanon report does not contain signature for now, possibly add later
 }

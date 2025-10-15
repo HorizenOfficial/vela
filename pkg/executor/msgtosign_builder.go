@@ -25,7 +25,7 @@ type withdrawalTuple struct {
 func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	bytesArrayType, err := abi.NewType("bytes[]", "", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failure creating byte array type: %w",err)
+		return nil, fmt.Errorf("failure creating byte array type: %w", err)
 	}
 
 	eventsArgs := abi.Arguments{{Type: bytesArrayType}}
@@ -35,17 +35,17 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 		{Name: "amount", Type: "uint256"},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failure creating withdrawal array type: %w",err)
+		return nil, fmt.Errorf("failure creating withdrawal array type: %w", err)
 	}
 	withdrawalsArgs := abi.Arguments{{Type: WithdrawalRequestArrayType}}
 
 	uint256Type, err := abi.NewType("uint256", "", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failure creatinguint256 type: %w",err)
+		return nil, fmt.Errorf("failure creatinguint256 type: %w", err)
 	}
-	bytes32Type, _ := abi.NewType("bytes32", "", nil)
+	bytes32Type, err := abi.NewType("bytes32", "", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failure creating bytes32 type: %w",err)
+		return nil, fmt.Errorf("failure creating bytes32 type: %w", err)
 	}
 	msgArgs := abi.Arguments{
 		{Type: uint256Type},
@@ -61,7 +61,6 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 }
 
 func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
-
 
 	appId, ok := common.StringToBigInt(updatePayload.ApplicationID)
 	if !ok {
@@ -118,7 +117,7 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	}
 
 	hash := ethCrypto.Keccak256(encoded)
-	
+
 	hash = accounts.TextHash(hash)
 	return hash, nil
 
