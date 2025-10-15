@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -325,14 +324,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.Equal(t, RequestID, report["requestId"])
 
 	jsonStr, ok := report["reportDataBytes"].(string)
-	if !ok {
-		log.Fatal("reportDataBytes is not a string")
-	}
-
+	require.True(t, ok, "reportDataBytes is not a string")
 	jsonBytes, err := base64.StdEncoding.DecodeString(jsonStr)
-	if err != nil {
-		log.Fatal(err)
-	}
+	require.NoError(t, err, "bytes are not base64 encoded")
 
 	// in the simple app we know how the data bytes are formatted
 	var reportData map[string]interface{}
