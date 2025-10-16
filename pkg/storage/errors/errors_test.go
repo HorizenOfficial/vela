@@ -53,4 +53,10 @@ func TestError(t *testing.T) {
 		assert.Equal(t, errors.StorageIsClosed, err.Code)
 		assert.Equal(t, "storage is closed", err.Message)
 	})
+
+	t.Run("ErrNoVersionInDb", func(t *testing.T) {
+		err := errors.ErrNoVersionInDb("no versions found in the db")
+		assert.Equal(t, errors.NoVersionInDb, err.Code)
+		assert.Equal(t, "no versions found in the db", err.Message)
+	})
 }
