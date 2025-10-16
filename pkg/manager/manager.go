@@ -14,6 +14,11 @@ import (
 	"github.com/horizen-pes/pkg/storage"
 )
 
+// As of now we support only one app having this ID
+const (
+	admittedAppID = "1"
+)
+
 // SecureProcessorManager is an implementation of the Manager interface
 type SecureProcessorManager struct {
 	config           *Config
@@ -178,6 +183,18 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
+
+	// check admitted appID. TODO: This check will be removed in future
+	if req.ApplicationID != admittedAppID {
+		return fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	}
+
+	// check if app was already deployed
+	_, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
+	if err == nil {
+		return fmt.Errorf("application %s was already deployed", req.ApplicationID)
+	}
+
 	// Deploy the application
 	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req)
 	if err != nil {

@@ -126,11 +126,81 @@ func TestDeploySimpleApp(t *testing.T) {
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
 
-	// 3. Create user and add their key to the registry
+	// 3. Deploy the application
 	cryptoHelper := testutil.NewCryptoHelper()
-
-	// 4. Deploy the application
 	deploySimpleApp(t, suite, cryptoHelper, "1", "1233", "test-user", wasmBytecode)
+}
+
+// this will be modified when we support an app id other that "1"
+func TestDeploySimpleAppNegativeCase(t *testing.T) {
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+	defer suite.Cleanup()
+
+	// 1. Build and load wasm bytecode
+	wasmBytecode := buildAndLoadWasmModule(t)
+
+	// 2. Start services
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	// 3. Try to deploy an application  with ID != 1
+	timeout := 10 * time.Second
+
+	appID := "33"
+	reqID := "22"
+
+	// Create and submit deploy request
+	deployReq := &common.Request{
+		RequestType:   common.Deploy,
+		ApplicationID: appID,
+		RequestID:     reqID,
+		Payload:       wasmBytecode,
+		Sender:        "test-user",
+		Timestamp:     time.Now().Unix(),
+	}
+	require.NoError(t, suite.SubmitRequest(deployReq))
+
+	// Waiting invain for app to be deployed
+	_, err := suite.WaitForAppStateInDB(appID, timeout)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "timeout")
+
+	failedRequests := suite.GetFailedRequest()
+	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
+	require.Equal(t, reqID, failedRequests[0].RequestID, "Wrong requestID")
+	require.Equal(t, appID, failedRequests[0].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, common.Deploy, failedRequests[0].RequestType, "Wrong Request Type")
+
+	// 4. Deploy the application with ID = 1
+	cryptoHelper := testutil.NewCryptoHelper()
+	deploySimpleApp(t, suite, cryptoHelper, "1", "1233", "test-user", wasmBytecode)
+
+	// 5. Now try to redeploy the same app id
+	appID = "1"
+	reqID = "223"
+
+	// Create and submit deploy request
+	deployReq = &common.Request{
+		RequestType:   common.Deploy,
+		ApplicationID: appID,
+		RequestID:     reqID,
+		Payload:       wasmBytecode,
+		Sender:        "test-user",
+		Timestamp:     time.Now().Unix(),
+	}
+	require.NoError(t, suite.SubmitRequest(deployReq))
+
+	// we can not use suite.WaitForAppStateInDB(appID, timeout) here because we would be succesful, sice it checks the dataLayer
+	// and we do have the appId from the previous step
+	time.Sleep(timeout)
+
+	// check that we have one more failed request
+	failedRequests = suite.GetFailedRequest()
+	require.Equal(t, 2, len(failedRequests), "expected 1 failed request")
+	require.Equal(t, reqID, failedRequests[1].RequestID, "Wrong requestID")
+	require.Equal(t, appID, failedRequests[1].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, common.Deploy, failedRequests[1].RequestType, "Wrong Request Type")
+
 }
 
 func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
