@@ -197,7 +197,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 
 	// check that we have one more failed request
 	failedRequests = suite.GetFailedRequest()
-	require.Equal(t, 2, len(failedRequests), "expected 1 failed request")
+	require.Equal(t, 2, len(failedRequests), "expected 2 failed request")
 	require.Equal(t, reqID, failedRequests[1].RequestID, "Wrong requestID")
 	require.Equal(t, appID, failedRequests[1].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, common.Deploy, failedRequests[1].RequestType, "Wrong Request Type")
