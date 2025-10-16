@@ -439,7 +439,7 @@ func TestSubmitRequest(t *testing.T) {
 	value := big.NewInt(1)
 
 	// Submit the request
-	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, &requestType, payload, value)
+	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, value)
 	require.NoError(t, err)
 	// Get pending requests
 	pending, err := blockchainClient.GetPendingRequests(context.Background())

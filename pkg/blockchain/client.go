@@ -265,7 +265,7 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
-func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType *common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
     c.mu.RLock()
     defer c.mu.RUnlock()
 
