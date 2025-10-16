@@ -137,7 +137,7 @@ func (s *SystemTestSuite) StartExecutor() error {
 }
 
 func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {
-	return s.blockchainClient.SubmitRequest(s.ctx, req)
+	return s.blockchainClient.SendRequestToChain(s.ctx, req) //use test function in mock_client
 }
 
 func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duration) (*common.ApplicationState, error) {

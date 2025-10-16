@@ -48,7 +48,6 @@ func setupSimTestHelper(t *testing.T, autoMining bool, teePubSecp521r1 []byte) *
 	return testutil.NewSimTestHelper(t, autoMining, true, nil, teePubSecp521r1)
 }
 
-
 func TestGetPendingRequests(t *testing.T) {
 
 	testHelper := setupSimTestHelper(t, false, nil)
@@ -323,7 +322,7 @@ func TestGetUserEvents_WithFilter(t *testing.T) {
 	userKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err, "failed to generate user private key")
 	userPub := userKey.PublicKey()
-	
+
 	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
 	defer testHelper.Close()
 
@@ -423,4 +422,52 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 	//complete state update
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
+}
+
+func TestSubmitRequest(t *testing.T) {
+	// mock private key for the client
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Prepare a request
+	protocolVersion := uint8(0)
+	applicationId := big.NewInt(1)
+	requestType := common.Deploy
+	payload := []byte("test-payload")
+	value := big.NewInt(1)
+
+	// Submit the request
+	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, value)
+	require.NoError(t, err)
+	// Get pending requests
+	pending, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	//check block number > 0
+	require.True(t, blockNumber > 0, "Returned block number shouldn't be 0")
+	// Check that the submitted request is present and matches
+	found := false
+	// Convert types for comparison
+	protocolVersionStr := strconv.FormatUint(uint64(protocolVersion), 10)
+	applicationIdStr := applicationId.String()
+	valueUint := value.Uint64()
+	
+	for _, r := range pending {
+		if r.RequestID == requestId {
+			found = true
+
+			if  r.ProtocolVersion != protocolVersionStr || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value != valueUint {
+				t.Errorf(
+					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
+					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.Value,
+					protocolVersionStr, applicationIdStr, requestType, string(payload), valueUint,
+				)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("Submitted request not found in pending requests")
+	}
 }
