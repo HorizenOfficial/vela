@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
@@ -368,19 +367,14 @@ func TestSubmitRequest(t *testing.T) {
 	blockchainClient := SetupNewBlockChainClient(testHelper)
 
 	// Prepare a request
-	req := &common.Request{
-		ProtocolVersion: "0",
-		ApplicationID:   "1",
-		RequestID:       "",
-		RequestType:     common.Deploy,
-		Payload:         []byte("test-payload"),
-		Timestamp:       time.Now().Unix(),
-		Sender:          "", 
-		Value:           1,
-	}
+	protocolVersion := uint8(0)
+	applicationId := big.NewInt(1)
+	requestType := common.Deploy
+	payload := []byte("test-payload")
+	value := big.NewInt(1)
 
 	// Submit the request
-	requestId, err := blockchainClient.SubmitRequest(context.Background(), req)
+	requestId, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, &requestType, payload, value)
 	if err != nil {
 		t.Fatalf("SubmitRequest failed: %v", err)
 	}
@@ -393,13 +387,21 @@ func TestSubmitRequest(t *testing.T) {
 
 	// Check that the submitted request is present and matches
 	found := false
+	// Convert types for comparison
+	protocolVersionStr := strconv.FormatUint(uint64(protocolVersion), 10)
+	applicationIdStr := applicationId.String()
+	valueUint := value.Uint64()
+	
 	for _, r := range pending {
-		reqIdAsString, err := common.RequestIdStringTo32Byte(r.RequestID)
-		require.NoError(t, err)
-		if reqIdAsString == requestId {
+		if r.RequestID == requestId {
 			found = true
-			if r.ProtocolVersion != req.ProtocolVersion || r.ApplicationID != req.ApplicationID || r.RequestType != req.RequestType || string(r.Payload) != string(req.Payload) || r.Value != req.Value {
-				t.Errorf("Request fields do not match: got %+v, want %+v", r, req)
+
+			if  r.ProtocolVersion != protocolVersionStr || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value != valueUint {
+				t.Errorf(
+					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
+					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.Value,
+					protocolVersionStr, applicationIdStr, requestType, string(payload), valueUint,
+				)
 			}
 		}
 	}

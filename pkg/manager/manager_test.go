@@ -179,7 +179,7 @@ func TestProcessRequestsFromChain(t *testing.T) {
 
 	// Deploy request
 	request := createRequest(common.Deploy)
-	err := mockBCClient.SubmitRequest(context.Background(), request)
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	pendingRequests, _ := mockBCClient.GetPendingRequests(context.Background())
@@ -205,7 +205,7 @@ func TestProcessRequestsFromChain(t *testing.T) {
 
 	// Process request
 	request = createRequest(common.Process)
-	err = mockBCClient.SubmitRequest(context.Background(), request)
+	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -231,7 +231,7 @@ func TestProcessRequestsFromChain(t *testing.T) {
 
 	// Deanonymize request
 	request = createRequest(common.Deanonymize)
-	err = mockBCClient.SubmitRequest(context.Background(), request)
+	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -270,7 +270,7 @@ func TestProcessRequestsFromChainWithFailure(t *testing.T) {
 
 	// Deploy request
 	request := createRequest(common.Deploy)
-	err := mockBCClient.SubmitRequest(context.Background(), request)
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	pendingRequests, _ := mockBCClient.GetPendingRequests(context.Background())
@@ -296,7 +296,7 @@ func TestProcessRequestsFromChainWithFailure(t *testing.T) {
 
 	// Process request
 	request = createRequest(common.Process)
-	err = mockBCClient.SubmitRequest(context.Background(), request)
+	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -322,7 +322,7 @@ func TestProcessRequestsFromChainWithFailure(t *testing.T) {
 
 	// Deanonymize request
 	request = createRequest(common.Deanonymize)
-	err = mockBCClient.SubmitRequest(context.Background(), request)
+	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -347,7 +347,7 @@ func TestProcessRequestsFromChainWithFailure(t *testing.T) {
 	// reset all
 	mockBCClient.ClearAllData()
 	request = createRequest("invalidType")
-	err = mockBCClient.SubmitRequest(context.Background(), request)
+	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -376,15 +376,15 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	// Prepare different requests
 
 	requestInvalid := createRequest("invalidType")
-	err := mockBCClient.SubmitRequest(context.Background(), requestInvalid)
+	err := mockBCClient.SendRequestToChain(context.Background(), requestInvalid)
 	require.NoError(t, err)
 
 	requestDeploy := createRequest(common.Deploy)
-	err = mockBCClient.SubmitRequest(context.Background(), requestDeploy)
+	err = mockBCClient.SendRequestToChain(context.Background(), requestDeploy)
 	require.NoError(t, err)
 
 	requestReport := createRequest(common.Deanonymize)
-	err = mockBCClient.SubmitRequest(context.Background(), requestReport)
+	err = mockBCClient.SendRequestToChain(context.Background(), requestReport)
 	require.NoError(t, err)
 
 	pendingRequests, _ := mockBCClient.GetPendingRequests(context.Background())

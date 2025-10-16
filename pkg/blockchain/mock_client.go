@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
 	"sync"
 	"time"
 
@@ -42,8 +43,8 @@ func NewMockClient() *MockClient {
 	}
 }
 
-// SubmitRequest submits a request to the blockchain
-func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) ([32]byte, error) {
+// SendRequestToChain is a TEST FUNCTION that submits a request to the blockchain
+func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -51,7 +52,7 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) ([3
 	if req.RequestID == "" {
 		id, err := GenerateRandomID()
 		if err != nil {
-			return [32]byte{}, fmt.Errorf("failed to generate request ID: %w", err)
+			return fmt.Errorf("failed to generate request ID: %w", err)
 		}
 		req.RequestID = id
 	}
@@ -65,7 +66,35 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) ([3
 	c.requests.Set(req.RequestID, req)
 	c.pendingRequests.Set(req.RequestID, req)
 
-	return [32]byte{}, nil
+	return nil
+}
+
+// SubmitRequest submits a request to the blockchain according to the official interface
+func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType *common.RequestType, payload []byte, value *big.Int) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Generate a request ID
+	id, err := GenerateRandomID()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate request ID: %w", err)
+	}
+	//prepare request
+	req := &common.Request{
+		ProtocolVersion: strconv.FormatUint(uint64(protocolVersion), 10),		
+		ApplicationID:   applicationId.String(),
+		RequestID:		 id,
+		RequestType:     *requestType,
+		Payload:         payload,
+		Value:           value.Uint64(),
+	}
+
+	err = c.SendRequestToChain(ctx, req)
+	if err != nil {
+			return "", fmt.Errorf("failed to send request: %w", err)
+	}
+
+	return id, nil
 }
 
 // GetPendingRequests gets pending requests from the blockchain

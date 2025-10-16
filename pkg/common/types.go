@@ -21,6 +21,21 @@ const (
 	Deanonymize RequestType = "deanonymize"
 )
 
+func (rt RequestType) ToUint8() (uint8, error) {
+    switch rt {
+    case Deploy:
+        return 0, nil
+    case Process:
+        return 1, nil
+    case Deanonymize:
+        return 2, nil
+    case AssociateKey:
+        return 3, nil
+    default:
+        return 0, fmt.Errorf("unknown RequestType: %s", rt)
+    }
+}
+
 // Request represents a request to the system
 type Request struct {
 	// ProtocolVersion is the version of the protocol being used
@@ -116,8 +131,7 @@ type PlainEvent struct {
 }
 
 func StringToBigInt(s string) (*big.Int, bool) {
-	i, ok := new(big.Int).SetString(s, 10)
-	return i, ok
+	return new(big.Int).SetString(s, 10)
 }
 
 func RequestIdStringTo32Byte(s string) ([32]byte, error) {
@@ -135,17 +149,6 @@ func RequestIdStringTo32Byte(s string) ([32]byte, error) {
 	return arr32, nil
 }
 
-func RequestTypeToUint8(rt RequestType) (uint8, error) { //according to the order in the smart contract
-    switch rt {
-    case Deploy:
-        return 0, nil
-    case Process:
-        return 1, nil
-    case Deanonymize:
-        return 2, nil
-    case AssociateKey:
-        return 3, nil
-    default:
-        return 0, fmt.Errorf("unknown RequestType: %s", rt)
-    }
+func RequestId32ByteToString(b [32]byte) string {
+	return hex.EncodeToString(b[:])
 }

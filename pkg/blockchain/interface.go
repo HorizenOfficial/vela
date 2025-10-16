@@ -13,7 +13,7 @@ import (
 // Client defines the interface for interacting with the blockchain
 type Client interface {
 	// SubmitRequest submits a request to the blockchain
-	SubmitRequest(ctx context.Context, req *common.Request) ([32]byte, error);
+	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType *common.RequestType, payload []byte, value *big.Int) (string, error)
 	// GetPendingRequests gets pending requests from the blockchain
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
 	// MarkRequestFailed marks a request as failed
@@ -34,7 +34,7 @@ type Client interface {
 // TestClient defines the interface for testing the blockchain client
 type TestClient interface {
 	// SubmitRequest submits a request to the blockchain
-	SubmitRequest(ctx context.Context, req *common.Request) error
+	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType *common.RequestType, payload []byte, value *big.Int) (string, error)
 	// RegisterPublicKey registers a public key for an address
 	RegisterPublicKey(ctx context.Context, address string, publicKey []byte) error
 	// SubscribeToEvents subscribes to events from the blockchain
