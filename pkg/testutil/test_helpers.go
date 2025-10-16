@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -457,14 +458,20 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditorAddress, deanonReport, executorPubKey)
 	require.NoError(t, err)
 
-	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct, but we do assume that
-	// we have at least an appId and a reportId
-	var reportData map[string]interface{}
-	err = json.Unmarshal(decryptedReport, &reportData)
+	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct for the report data, but we do assume that
+	// we have an appId, a reportId, and the raw data bytes in a separate field
+	var report map[string]interface{}
+	err = json.Unmarshal(decryptedReport, &report)
 	require.NoError(t, err)
-	require.Equal(t, appId, reportData["applicationId"])
-	require.Equal(t, RequestID, reportData["requestId"])
-	t.Log("Deanonymization report:\n", PrettyPrintJSON(reportData))
+	require.Equal(t, appId, report["applicationId"])
+	require.Equal(t, RequestID, report["requestId"])
+	t.Log("Deanonymization report:\n", PrettyPrintJSON(report))
+
+	// just check that we have a base64 string representing the raw report data
+	jsonStr, ok := report["reportDataBytes"].(string)
+	require.True(t, ok, "reportDataBytes is not a string")
+	_, err = base64.StdEncoding.DecodeString(jsonStr)
+	require.NoError(t, err, "bytes are not base64 encoded")
 
 	// Deanon report does not contain signature for now, possibly add later
 

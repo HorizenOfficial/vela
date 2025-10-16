@@ -14,8 +14,6 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
-const WasmSerializationError = "{}"
-
 type ApplicationModule struct {
 	module   *wasmtime.Module
 	instance *wasmtime.Instance
@@ -57,7 +55,7 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 	}
 
 	// If data is empty, we don't need to allocate memory.
-        // An empty payload might be a valid input for some operations, therefore
+	// An empty payload might be a valid input for some operations, therefore
 	// we return a null pointer, and the guest will see a length of 0.
 	if len(data) == 0 {
 		return 0, nil
@@ -358,31 +356,16 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, requestId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
-	log.Printf("Wasmtime Runtime: Generating deanonymization report, id: %s, for application %s", requestId, appId)
-
+func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get or load module: %w", err)
 	}
 
-	// Get the generate_deanonymization_report function
+	// Call the WASM function to generate the report
 	generateReportFunc := appModule.instance.GetFunc(r.store, "generate_deanonymization_report")
 	if generateReportFunc == nil {
-		return nil, fmt.Errorf("generate_deanonymization_report function not found in WASM module")
-	}
-
-	// Write parameters to memory
-	appIdBytes := []byte(appId)
-	appIdPtr, err := r.writeToMemory(appModule, appIdBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write appId to memory: %w", err)
-	}
-
-	requestIdBytes := []byte(requestId)
-	requestIdPtr, err := r.writeToMemory(appModule, requestIdBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write requestId to memory: %w", err)
+		return nil, fmt.Errorf("function generate_deanonymization_report not found in wasm module")
 	}
 
 	payloadPtr, err := r.writeToMemory(appModule, payload)
@@ -396,7 +379,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	}
 
 	// Call the generate_deanonymization_report function
-	result, err := generateReportFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), requestIdPtr, int32(len(requestIdBytes)), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
+	result, err := generateReportFunc.Call(r.store, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call generate_deanonymization_report: %w", err)
 	}
@@ -458,7 +441,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	}
 
 	// WasmSerializationError (`{}`) is returned by the wasm module if serialization fails
-	if string(resultBytes) == WasmSerializationError {
+	if string(resultBytes) == appCommon.WasmSerializationError {
 		return nil, fmt.Errorf("wasm module failed to serialize response/error")
 	}
 
