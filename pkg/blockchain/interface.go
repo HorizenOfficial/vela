@@ -4,7 +4,6 @@ package blockchain
 import (
 	"context"
 	"math/big"
-	"time"
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
