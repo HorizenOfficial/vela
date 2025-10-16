@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
 	"sync"
 	"time"
 
@@ -46,9 +47,7 @@ func NewMockClient() *MockClient {
 	}
 }
 
-
-// SubmitRequest submits a request to the blockchain
-func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) error {
+func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -72,6 +71,28 @@ func (c *MockClient) SubmitRequest(ctx context.Context, req *common.Request) err
 	
 
 	return nil
+}
+
+// SubmitRequest submits a request to the blockchain according to the official interface
+func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	//prepare request
+	req := &common.Request{
+		ProtocolVersion: strconv.FormatUint(uint64(protocolVersion), 10),		
+		ApplicationID:   applicationId.String(),
+		RequestType:     requestType,
+		Payload:         payload,
+		Value:           value.Uint64(),
+	}
+
+	err := c.SendRequestToChain(ctx, req)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	return req.RequestID, 0, nil
 }
 
 // GetPendingRequests gets pending requests from the blockchain

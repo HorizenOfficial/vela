@@ -264,6 +264,51 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 
 }
 
+// SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+
+    if !c.connected {
+        return "", 0, fmt.Errorf("client not connected, call Connect first")
+    }
+
+	reqType, err := requestType.ToUint8()
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid request type: %w", err)
+	}
+
+    // Pack the transaction data using the generated binding
+    data := c.processorEndpoint.PackSubmitRequest(protocolVersion, applicationId, reqType, payload, value)
+    // Set the value for the transaction (msg.value)
+    c.account.Value = value
+
+    // Send the transaction
+    tx, err := bind.Transact(c.processorBoundContract, c.account, data)
+    if err != nil {
+        return "", 0, fmt.Errorf("failed to submit transaction: %w", err)
+    }
+
+    // Wait for transaction to be mined
+    receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
+    if err != nil {
+        return "", 0, fmt.Errorf("error waiting for tx inclusion: %w", err)
+    }
+    if receipt.Status != 1 {
+        return "", 0, fmt.Errorf("transaction failed")
+    }
+
+    // Parse the returned requestId from the transaction receipt logs
+    for _, vLog := range receipt.Logs {
+        event, err := c.processorEndpoint.UnpackRequestSubmittedEvent(vLog)
+        if err == nil {
+            return common.RequestId32ByteToString(event.RequestId), receipt.BlockNumber.Uint64(), nil
+        }
+    }
+
+    return "", 0, fmt.Errorf("requestId not found in logs")
+}
+
 func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
 	// This is the only thing that has to be done on the blockchain for deanonymization reports
 	return c.MarkRequestCompleted(ctx, update.ReportID)
