@@ -66,8 +66,12 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 		return nil, fmt.Errorf("processor address is not a valid hex address")
 	}
 
+	if !ethCommon.IsHexAddress(config.TeeAuthAddress){
+		return nil, fmt.Errorf("teeauthenticator address is not a valid hex address")
+	}
 	bcClient := blockchain.NewBlockChainClient(
 		ethCommon.HexToAddress(config.ProcessorAddress),
+		ethCommon.HexToAddress(config.TeeAuthAddress), 
 		config.RpcURL,
 		&config.PrivateKey)
 

@@ -370,11 +370,10 @@ func TestProcessRequest(t *testing.T) {
 
 func TestGenerateDeanonymizationReport(t *testing.T) {
 	stateJSON, state := getPopulatedState(t)
-	requestId := "report-1"
 	payloadJSON := `{"tag":"SIMPLE_REPORT"}`
 
 	t.Run("successful report generation", func(t *testing.T) {
-		result := GenerateDeanonymizationReport(testAppId, requestId, payloadJSON, stateJSON)
+		result := GenerateDeanonymizationReport(payloadJSON, stateJSON)
 		require.Empty(t, result.Error)
 		require.NotNil(t, result.Report)
 
@@ -382,8 +381,6 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 		err := json.Unmarshal(result.Report, &report)
 		require.NoError(t, err)
 
-		require.Equal(t, testAppId, report["applicationId"])
-		require.Equal(t, requestId, report["requestId"])
 		require.Equal(t, "SIMPLE_REPORT", report["tag"])
 
 		accountsData, ok := report["accounts"].(map[string]interface{})
@@ -392,13 +389,13 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 	})
 
 	t.Run("report with invalid state", func(t *testing.T) {
-		result := GenerateDeanonymizationReport(testAppId, requestId, "{}", "{invalid json}")
+		result := GenerateDeanonymizationReport("{}", "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
 
 	t.Run("report with invalid payload", func(t *testing.T) {
-		result := GenerateDeanonymizationReport(testAppId, requestId, "{invalid json}", "{}")
+		result := GenerateDeanonymizationReport("{invalid json}", "{}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse payload")
 	})

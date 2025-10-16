@@ -14,7 +14,9 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
+	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/crypto"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
@@ -44,9 +46,12 @@ type BlockChainClient struct {
 	mu                     sync.RWMutex
 	connected              bool
 	processorAddress       ethCommon.Address
+	teeAuthAddress			 ethCommon.Address
 	rpcURL                 string
 	processorBoundContract *bind.BoundContract
 	processorEndpoint      *processorendpoint.ProcessorEndpoint
+	teeAuthBoundContract     *bind.BoundContract
+	teeAuthEndpoint          *tee.TeeAuthenticator
 	client                 ChainClient
 	privKey                *cryptotypes.PrivateKeySecp256k1
 	account                *bind.TransactOpts
@@ -65,11 +70,13 @@ func toRequestType(i uint8) common.RequestType {
 	}
 }
 
-func NewBlockChainClient(processor ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
+func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:  processor,
+		teeAuthAddress:		 teeAuthenticator,
 		rpcURL:            rpcURL,
 		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
+		teeAuthEndpoint:	 tee.NewTeeAuthenticator(),
 		privKey:           key,
 	}
 }
@@ -319,4 +326,88 @@ func (c *BlockChainClient) Close() error {
 
 	c.connected = false
 	return nil
+}
+
+// GetUserEvents scans UserEvent logs backwards and returns all the events that are decryptable with the given key
+// privKey: user key that will be used to decrypt events
+// applicationId: filter events by the given applicationId
+// fromBlock: block from which the function search events
+// toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
+// f: optional filter function for decrypted events
+// stopAtFirst: bool flag to stop at first found event
+func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	EMPTY := [][]byte{}
+
+	if !c.connected {
+		return EMPTY, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	contractAddr := c.processorAddress
+	//check from block
+	if fromBlock == 0 {
+		latestBlock, err := c.client.BlockByNumber(ctx, nil)
+		if err != nil {
+			return EMPTY, fmt.Errorf("failed to get latest block: %w", err)
+		}
+		fromBlock = latestBlock.NumberU64()
+	}
+	if fromBlock < toBlock {
+		return EMPTY, fmt.Errorf("fromBlock should be >= than toBlock")
+	}
+
+	parsedABI, err := processorendpoint.ProcessorEndpointMetaData.ParseABI()
+	if err != nil {
+		return EMPTY, fmt.Errorf("cannot parse ABI: %w", err)
+	}
+
+	//retrieve tee public key (needed to decrypt)
+	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.teeAuthEndpoint.PackGetPubSecp521r1(),
+		c.teeAuthEndpoint.UnpackGetPubSecp521r1)
+	if err != nil {
+		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
+	}
+	importedPubSecp521r1, err := crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
+	if err != nil {
+		return nil, fmt.Errorf("cannot import pubSecp521r1: %w", err)
+	}
+
+	//needed for event filter
+	userEventSig := parsedABI.Events["UserEvent"].ID
+	appIdHash := ethCommon.BigToHash(&applicationId)
+	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
+
+	var events [][]byte
+	query := ethereum.FilterQuery{
+		Addresses: []ethCommon.Address{contractAddr},
+		FromBlock: new(big.Int).SetUint64(toBlock),
+		ToBlock:   new(big.Int).SetUint64(fromBlock),
+		Topics:    topicsHash,
+	}
+
+	logs, err := c.client.FilterLogs(ctx, query)
+	if err != nil {
+		return EMPTY, fmt.Errorf("failed to filter logs: %w", err)
+	}
+	
+	for i := len(logs) - 1; i >= 0; i-- { //backwards search
+		vLog := logs[i]
+		event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
+		if err != nil {
+			continue
+		}
+		decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
+		if err == nil && (filter == nil || filter(decrypted)) {
+			//found decryptable event that pass filter function
+			events = append(events, decrypted)
+			if stopAtFirst {
+				return events, nil
+			}
+		}
+	}
+	return events, nil
 }

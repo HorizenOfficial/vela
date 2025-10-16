@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/horizen-pes/app/simple/utils"
-
 	"github.com/horizen-pes/pkg/common"
 	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
 )
@@ -47,10 +45,8 @@ type ReportPayloadInstructions struct {
 
 // DeanonymizationReport represents the structure of the deanonymization report.
 type DeanonymizationReport struct {
-	Tag           string                   `json:"tag,omitempty"`
-	ApplicationID string                   `json:"applicationId"`
-	RequestID     string                   `json:"requestId"`
-	Accounts      map[string]*AccountState `json:"accounts"`
+	Tag      string                   `json:"tag,omitempty"`
+	Accounts map[string]*AccountState `json:"accounts"`
 }
 
 // --- High-Level Application Logic ---
@@ -62,7 +58,7 @@ func LoadModule(appId string) []byte {
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
-		return utils.WasmSerializationError
+		return []byte(wasmCommon.WasmSerializationError)
 	}
 	return stateJSON
 }
@@ -223,7 +219,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 	}
 }
 
-func GenerateDeanonymizationReport(appId, requestId, payloadJSON, stateJSON string) wasmCommon.DeanonymizationResult {
+func GenerateDeanonymizationReport(payloadJSON, stateJSON string) wasmCommon.DeanonymizationResult {
 	// Deserialize payload
 	var payload ReportPayloadInstructions
 	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
@@ -238,9 +234,7 @@ func GenerateDeanonymizationReport(appId, requestId, payloadJSON, stateJSON stri
 
 	// Create deanonymization report
 	report := DeanonymizationReport{
-		ApplicationID: appId,
-		RequestID:     requestId,
-		Accounts:      currentState.Accounts,
+		Accounts: currentState.Accounts,
 	}
 
 	// read contents of the payload and decide how to build the report. In this simple case just add a tag if any

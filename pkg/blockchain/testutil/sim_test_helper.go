@@ -62,7 +62,7 @@ func (s *SimTestHelper) Client() simulated.Client {
 	return s.sim.Client()
 }
 
-func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethCommon.Address) {
+func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethCommon.Address, teePubSecp521r1 []byte) {
 	// use the default deployer: it simply creates, signs and submits the deployment transactions
 	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
 
@@ -71,6 +71,11 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	if useMockContracts {
 		teeDeployParams := bind.DeploymentParams{
 			Contracts: []*bind.MetaData{&mocktee.MockTeeAuthenticatorMetaData},
+			Inputs: map[string][]byte{
+				mocktee.MockTeeAuthenticatorMetaData.ID: mocktee.NewMockTeeAuthenticator().PackConstructor(
+					*teeSigner, teePubSecp521r1,
+				),
+			},
 		}
 
 		// create and submit the contract deployment
@@ -82,12 +87,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 		require.NotNil(s.t, teeSigner, "teeSigner address must be provided when not using mock contracts")
 		teeContract := *tee.NewTeeAuthenticator()
 
-		//generate mock secp251r1 pk
-		pk := make([]byte, 133)
-		for i := range pk {
-			pk[i] = 1
-		}
-		constructorInput := teeContract.PackConstructor(s.Deployer.From, *teeSigner, pk)
+		constructorInput := teeContract.PackConstructor(s.Deployer.From, *teeSigner, teePubSecp521r1)
 		teeDeployParams := bind.DeploymentParams{
 			Contracts: []*bind.MetaData{&tee.TeeAuthenticatorMetaData},
 			Inputs:    map[string][]byte{tee.TeeAuthenticatorMetaData.ID: constructorInput},
@@ -151,7 +151,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 
 }
 
-func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeSigner *ethCommon.Address) *SimTestHelper {
+func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeSigner *ethCommon.Address, teePubSecp521r1 []byte) *SimTestHelper {
 
 	helper := &SimTestHelper{
 		t:                       t,
@@ -169,7 +169,18 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 		helper.ManagerAccount.From: {Balance: big.NewInt(9e18)},
 	})
 
-	helper.setupContracts(useMockContracts, teeSigner)
+	if teeSigner == nil {
+		//generate mock tee signer
+		teeSignerKey, err := ethCrypto.GenerateKey()
+		require.NoError(t, err, "failed to generate tee signer private key")
+		teeSignerAddress := ethCrypto.PubkeyToAddress(teeSignerKey.PublicKey)
+		teeSigner = &teeSignerAddress
+	}
+	if teePubSecp521r1 == nil {
+		//generate mock secp251r1 pk
+		teePubSecp521r1 = make([]byte, 133)
+	}
+	helper.setupContracts(useMockContracts, teeSigner, teePubSecp521r1)
 
 	helper.processEndpointInstance = helper.processEndpointContract.Instance(helper.sim.Client(), helper.ProcessorContractAddress)
 

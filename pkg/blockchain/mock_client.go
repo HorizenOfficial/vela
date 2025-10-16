@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
 	"github.com/elliotchance/orderedmap/v3"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
 // MockClient is a mock implementation of the blockchain client for testing
@@ -310,6 +312,10 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID stri
 	}
 
 	return report, nil
+}
+
+func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+	return [][]byte{}, nil
 }
 
 // Close closes the blockchain client
