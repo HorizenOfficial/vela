@@ -24,6 +24,9 @@ type Manager interface {
 
 // Config defines the configuration for the Secure Processor Manager
 type Config struct {
+	// ReorgTimeout is the max time interval for waiting for a reorg to be resolved (in seconds)
+	ReorgTimeout int64
+
 	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests
 	BlockchainPollingInterval int64
 	// ExecutorConnectionType is the type of connection to use for the executor
@@ -80,6 +83,7 @@ func DefaultConfig() *Config {
 
 
 	return &Config{
+		ReorgTimeout:              180, // 3 minutes
 		BlockchainPollingInterval: 5,     // 5 seconds
 		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
@@ -114,7 +118,8 @@ func ReadConfig() *Config {
 		panic(err)
 	}
 	return &Config{
-		BlockchainPollingInterval: config.MustGetInt64("BlockchainPollingInterval"),
+		ReorgTimeout:              config.GetInt64("ReorgTimeout", 180), // 3 minutes
+		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
 		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{
 			"url": config.MustGetString("ExecutorConnectionUrl"),
