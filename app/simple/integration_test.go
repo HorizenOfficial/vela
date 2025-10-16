@@ -112,18 +112,15 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.Equal(t, withdrawAmount, withdrawals[0].Amount)
 
 	// 4. Generate deanonymization report
-	requestId := "report-123"
 	payloadJSON := `{"tag":"my_custom_tag"}`
 	payloadBytes = []byte(payloadJSON)
-	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, requestId, payloadBytes, withdrawStateBytes, wasmBytes)
+	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.NoError(t, err)
 	require.NotNil(t, reportBytes)
 
 	var report map[string]interface{}
 	err = json.Unmarshal(reportBytes, &report)
 	require.NoError(t, err)
-	require.Equal(t, appId, report["applicationId"])
-	require.Equal(t, requestId, report["requestId"])
 	require.Equal(t, "my_custom_tag", report["tag"])
 	t.Log(" Report:\n", testutil.PrettyPrintJSON(report))
 
@@ -308,14 +305,14 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	t.Run("generate report with nil payload", func(t *testing.T) {
 		// The simple_app expects a JSON object for the payload. Passing nil results in an
 		// empty string, which is invalid JSON, causing an error inside wasm.
-		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, "report-1", nil, initialStateBytes, wasmBytes)
+		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, nil, initialStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse payload")
 	})
 
 	t.Run("generate report with nil state", func(t *testing.T) {
 		// This should fail inside the wasm module because a nil state is not valid JSON.
-		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, "report-1", []byte("{}"), nil, wasmBytes)
+		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), nil, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -356,7 +353,7 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 	})
 
 	t.Run("generate report with nil wasm", func(t *testing.T) {
-		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, "report-1", []byte("{}"), initialStateBytes, nil)
+		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
@@ -387,7 +384,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	})
 
 	t.Run("generate report with invalid state", func(t *testing.T) {
-		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, "report-1", []byte("{}"), invalidState, wasmBytes)
+		_, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})

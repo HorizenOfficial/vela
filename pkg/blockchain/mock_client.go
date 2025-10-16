@@ -12,6 +12,7 @@ import (
 
 	"github.com/elliotchance/orderedmap/v3"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/testutil"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
@@ -27,6 +28,8 @@ type MockClient struct {
 	updatePayloads   map[string]*common.UpdatePayload
 	publicKeys       map[string][]byte
 	eventSubscribers []chan<- interface{}
+	stateRoot	     [32]byte
+	*testutil.MockFunctions
 }
 
 // NewMockClient creates a new mock blockchain client
@@ -40,10 +43,10 @@ func NewMockClient() *MockClient {
 		reports:         make(map[string]*common.DeanonymizationReport),
 		updatePayloads:  make(map[string]*common.UpdatePayload),
 		publicKeys:      make(map[string][]byte),
+		MockFunctions:   testutil.NewMockFunctions(),
 	}
 }
 
-// SendRequestToChain is a TEST FUNCTION that submits a request to the blockchain
 func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -65,6 +68,7 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 	// Store the request
 	c.requests.Set(req.RequestID, req)
 	c.pendingRequests.Set(req.RequestID, req)
+	
 
 	return nil
 }
@@ -91,7 +95,7 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 
 	err = c.SendRequestToChain(ctx, req)
 	if err != nil {
-			return "", fmt.Errorf("failed to send request: %w", err)
+		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 
 	return id, nil
@@ -107,13 +111,37 @@ func (c *MockClient) GetPendingRequests(ctx context.Context) ([]*common.Request,
 		requests = append(requests, req)
 	}
 
+
 	return requests, nil
 }
+
+// GetNextPendingRequest gets the next pending request and the current stateRoot from the blockchain
+func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if f, ok:= c.GetMockedFunc("GetNextPendingRequest"); ok {
+		return f.(func(context.Context) (*common.Request, [32]byte, error))(ctx)
+	}
+	var req *common.Request
+	if c.pendingRequests.Len() > 0 {
+		req = c.pendingRequests.Front().Value
+	}
+
+
+	return req, c.stateRoot, nil
+
+}
+
 
 // MarkRequestFailed marks a request as failed
 func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if f, ok:= c.GetMockedFunc("MarkRequestFailed"); ok {
+		return f.(func(context.Context, string) (error))(ctx, requestID)
+	}
 
 	if !c.pendingRequests.Has(requestID) {
 		return fmt.Errorf("request not found: %s", requestID)
@@ -180,6 +208,9 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if f, ok:= c.GetMockedFunc("SubmitStateUpdate"); ok {
+		return f.(func(context.Context, *common.UpdatePayload) error)(ctx, update)
+	}
 	// Complete the request if it exists
 	if !c.pendingRequests.Has(update.RequestID) {
 		return fmt.Errorf("request not found: %s", update.RequestID)
@@ -195,6 +226,8 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 		StateRoot:      update.NewStateRoot,
 		EncryptedState: nil, // State is stored separately in the data layer
 	}
+
+	c.stateRoot = update.NewStateRoot
 
 	// Emit events
 	c.emitEvents(update.Events)
@@ -235,16 +268,6 @@ func (c *MockClient) GetApplicationState(ctx context.Context, applicationID stri
 	}
 
 	return state, nil
-}
-
-// RegisterPublicKey registers a public key for an address
-func (c *MockClient) RegisterPublicKey(ctx context.Context, address string, publicKey []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.publicKeys[address] = publicKey
-
-	return nil
 }
 
 // SubscribeToEvents subscribes to events from the blockchain
@@ -289,6 +312,9 @@ func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID string) (
 func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if f, ok:= c.GetMockedFunc("SubmitDeanonymizationReport"); ok {
+		return f.(func(context.Context, *common.DeanonymizationReport) (error))(ctx, report)
+	}
 
 	// Complete the request if it exists
 	if !c.pendingRequests.Has(report.ReportID) {
@@ -323,7 +349,10 @@ func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.Priv
 func (c *MockClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
+	
+	if f, ok:= c.GetMockedFunc("Close"); ok {
+		return f.(func() (error))()
+	}
 	// Close all event subscribers
 	c.eventSubscribers = nil
 
@@ -334,6 +363,9 @@ func (c *MockClient) Close() error {
 func (c *MockClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if f, ok:= c.GetMockedFunc("Connect"); ok {
+		return f.(func(context.Context) (error))(ctx)
+	}
 
 	return nil
 }
@@ -350,6 +382,8 @@ func (c *MockClient) ClearAllData() {
 	c.reports = make(map[string]*common.DeanonymizationReport)
 	c.failedRequests = orderedmap.NewOrderedMap[string, *common.Request]()
 	c.updatePayloads = make(map[string]*common.UpdatePayload)
+	c.stateRoot = [32]byte{}
+	c.MockedFunctions = make(map[string]interface{})
 }
 
 // emitEvent emits an event to all subscribers

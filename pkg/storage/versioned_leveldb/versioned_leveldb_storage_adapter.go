@@ -104,7 +104,7 @@ func (s *VersionedLevelDbStorageAdapter) LastVersionID() ([]byte, error) {
 		return nil, fmt.Errorf("failed to get versions for LastVersionID: %w", err)
 	}
 	if len(versions) == 0 {
-		return nil, errors.New("no versions found in the db")
+		return nil, storageErrors.ErrNoVersionInDb("no versions found in the db")
 	}
 	return versions[0], nil
 }

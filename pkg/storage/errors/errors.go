@@ -15,6 +15,8 @@ const (
 	VersionNotFound = "version_not_found"
 	// StorageIsClosed is a code for when the storage is closed.
 	StorageIsClosed = "storage_is_closed"
+	// NoVersionInDb is a code for when the storage has not version yet.
+	NoVersionInDb = "no_versions_found_in_the_db"
 )
 
 // Error is a custom error type used by the storage package.
@@ -57,3 +59,6 @@ func ErrVersionNotFound(versionID []byte) *Error {
 
 // ErrStorageIsClosed creates a new Error instance with "storage_is_closed" code.
 func ErrStorageIsClosed(message string) *Error { return NewError(StorageIsClosed, message) }
+
+// ErrNoVersionInDb creates a new Error instance with "no_versions_found_in_the_db" code.
+func ErrNoVersionInDb(message string) *Error { return NewError(NoVersionInDb, message) }
