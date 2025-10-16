@@ -439,17 +439,14 @@ func TestSubmitRequest(t *testing.T) {
 	value := big.NewInt(1)
 
 	// Submit the request
-	requestId, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, &requestType, payload, value)
-	if err != nil {
-		t.Fatalf("SubmitRequest failed: %v", err)
-	}
-
+	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, &requestType, payload, value)
+	require.NoError(t, err)
 	// Get pending requests
 	pending, err := blockchainClient.GetPendingRequests(context.Background())
-	if err != nil {
-		t.Fatalf("GetPendingRequests failed: %v", err)
-	}
+	require.NoError(t, err)
 
+	//check block number > 0
+	require.True(t, blockNumber > 0, "Returned block number shouldn't be 0")
 	// Check that the submitted request is present and matches
 	found := false
 	// Convert types for comparison
