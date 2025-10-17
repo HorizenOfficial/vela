@@ -65,7 +65,7 @@ func DefaultConfig() *Config {
 	if executorServerPort == "" {
 		executorServerPort = "8080"
 	}
-	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex(os.Getenv("MANAGER_PRIVATE_KEY")) // well known private key for local development
+	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex(os.Getenv("MANAGER_KEY_SECP256")) // well known private key for local development
 	dataPath := os.Getenv("MANAGER_DATA_FOLDER")
 	if dataPath == "" {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
@@ -81,18 +81,17 @@ func DefaultConfig() *Config {
 	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
 	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
 
-
 	return &Config{
-		ReorgTimeout:              180, // 3 minutes
+		ReorgTimeout:              180,   // 3 minutes
 		BlockchainPollingInterval: 5,     // 5 seconds
 		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
 			"url": executorServerAddress + ":" + executorServerPort,
 		},
-		RpcURL:               "http://" + nodeUrl + ":" + nodePort,
-		PrivateKey:           *PrivateKey,
-		ProcessorAddress:     processorAddress,
-		TeeAuthAddress: 	  teeAuthAddress,
+		RpcURL:           "http://" + nodeUrl + ":" + nodePort,
+		PrivateKey:       *PrivateKey,
+		ProcessorAddress: processorAddress,
+		TeeAuthAddress:   teeAuthAddress,
 
 		MockBlockChainClient: false,
 		// Data layer configuration
@@ -127,7 +126,7 @@ func ReadConfig() *Config {
 		RpcURL:               config.MustGetString("RpcUrl"),
 		PrivateKey:           *PrivateKey,
 		ProcessorAddress:     config.MustGetString("ProcessorAddress"),
-		TeeAuthAddress:	      config.MustGetString("TeeAuthenticatorAddress"),
+		TeeAuthAddress:       config.MustGetString("TeeAuthenticatorAddress"),
 		MockBlockChainClient: config.MustGetBool("MockBlockChainClient"),
 		// Data layer configuration
 		DataLayerType:          config.MustGetString("DataLayerType"),

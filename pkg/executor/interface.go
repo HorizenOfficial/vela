@@ -35,12 +35,8 @@ type Config struct {
 	SignatureKey *cryptotypes.PrivateKeySecp256k1 // Key used for signing updatePayload
 }
 
-// DefaultConfig returns the default configuration
+// DefaultConfig returns the default configuration (possibly overridden by env variables)
 func DefaultConfig() *Config {
-	stateKey, _ := crypto.GenerateAESKey()
-	communicationKey, _ := crypto.GeneratePrivateKeyP521()
-	signatureKey, _ := crypto.GeneratePrivateKeySecp256k1()
-
 	serverAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
 	if serverAddress == "" {
 		serverAddress = "localhost"
@@ -48,6 +44,31 @@ func DefaultConfig() *Config {
 	serverPort := os.Getenv("EXECUTOR_IP_PORT")
 	if serverPort == "" {
 		serverPort = "8080"
+	}
+
+	var stateKey cryptotypes.AES256Key
+	stateKeyFromEnv := os.Getenv("EXECUTOR_KEY_AES")
+	if stateKeyFromEnv == "" {
+		stateKey, _ = crypto.GenerateAESKey()
+	} else {
+		stateKeyImported, _ := crypto.ImportKeyAESFromHex(stateKeyFromEnv)
+		stateKey = *stateKeyImported
+	}
+
+	var communicationKey *cryptotypes.PrivateKeyP521
+	communicationKeyFromEnv := os.Getenv("EXECUTOR_KEY_P521")
+	if communicationKeyFromEnv == "" {
+		communicationKey, _ = crypto.GeneratePrivateKeyP521()
+	} else {
+		communicationKey, _ = crypto.ImportPrivateKeyP521FromHex(communicationKeyFromEnv)
+	}
+
+	var signatureKey *cryptotypes.PrivateKeySecp256k1
+	signatureKeyFromEnv := os.Getenv("EXECUTOR_KEY_SECP256")
+	if signatureKeyFromEnv == "" {
+		signatureKey, _ = crypto.GeneratePrivateKeySecp256k1()
+	} else {
+		signatureKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(communicationKeyFromEnv)
 	}
 
 	return &Config{
