@@ -76,6 +76,10 @@ func DefaultConfig() *Config {
 	if dataPath == "" {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
 	}
+	nodeProtocol := os.Getenv("CHAIN_RPC_PROTOCOL")
+	if nodeProtocol == "" {
+		nodeProtocol = "http"
+	}
 	nodeUrl := os.Getenv("CHAIN_RPC_ADDRESS")
 	if nodeUrl == "" {
 		nodeUrl = "127.0.0.1"
@@ -94,7 +98,7 @@ func DefaultConfig() *Config {
 		ExecutorConnectionParams: map[string]string{
 			"url": executorServerAddress + ":" + executorServerPort,
 		},
-		RpcURL:           "http://" + nodeUrl + ":" + nodePort,
+		RpcURL:           nodeProtocol + "://" + nodeUrl + ":" + nodePort,
 		PrivateKey:       *privateKey,
 		ProcessorAddress: processorAddress,
 		TeeAuthAddress:   teeAuthAddress,
