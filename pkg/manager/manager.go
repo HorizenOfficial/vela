@@ -127,7 +127,6 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 	}
 }
 
-
 // processRequestFromChain retrieves the next pending request from the blockchain and processes it
 func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
 	m.mu.RLock()
@@ -169,8 +168,8 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 				log.Printf("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
 				m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
 				return nil
-			} 
-			if time.Now().Before(m.endReorgTime)  {
+			}
+			if time.Now().Before(m.endReorgTime) {
 				log.Printf("Manager: REORG timeout not expired yet. Keep waiting...")
 				return nil
 			}
@@ -239,6 +238,12 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
+
+	// check admitted appID. TODO: This check will be removed in future
+	if req.ApplicationID != admittedAppID {
+		return fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	}
+
 	switch req.RequestType {
 	case common.Deploy:
 		return m.processDeployApp(ctx, req)
@@ -278,11 +283,6 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
-	}
-
-	// check admitted appID. TODO: This check will be removed in future
-	if req.ApplicationID != admittedAppID {
-		return fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
 	// check if app was already deployed

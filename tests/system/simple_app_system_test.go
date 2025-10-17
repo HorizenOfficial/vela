@@ -191,7 +191,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
-	// we can not use suite.WaitForAppStateInDB(appID, timeout) here because we would be succesful, sice it checks the dataLayer
+	// we can not use suite.WaitForAppStateInDB(appID, timeout) here because we would be successful, sice it checks the dataLayer
 	// and we do have the appId from the previous step
 	time.Sleep(timeout)
 
