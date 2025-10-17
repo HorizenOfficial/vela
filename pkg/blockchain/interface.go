@@ -23,6 +23,8 @@ type Client interface {
 	// GetUserEvents gets decryptable user events in the given block range
 	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
 
+	GetRequestCompletedEvent(ctx context.Context, requestID string,  fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
+
 	// Close closes the blockchain client
 	Close() error
 	// Connect connects to the blockchain

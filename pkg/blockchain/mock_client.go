@@ -10,9 +10,24 @@ import (
 	"time"
 
 	"github.com/elliotchance/orderedmap/v3"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
+
+func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, TeeSignerAddress ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
+	blockchainClient := NewBlockChainClient(ProcessorContractAddress, TeeSignerAddress, "", nil)
+	blockchainClient.client = client
+
+	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, ProcessorContractAddress)
+	blockchainClient.teeAuthBoundContract = blockchainClient.teeAuthEndpoint.Instance(blockchainClient.client, TeeSignerAddress)
+
+	blockchainClient.account = ManagerAccount
+	blockchainClient.connected = true
+
+	return blockchainClient
+}
 
 // MockClient is a mock implementation of the blockchain client for testing
 type MockClient struct {
@@ -288,6 +303,10 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID stri
 
 func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	return [][]byte{}, nil
+}
+
+func (c *MockClient) GetRequestCompletedEvent(ctx context.Context, requestID string, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
+	return nil, nil
 }
 
 // Close closes the blockchain client

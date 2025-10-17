@@ -15,8 +15,8 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/crypto"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/crypto"
 )
 
 //go:generate mkdir -p ../../contract_abis
@@ -45,12 +45,12 @@ type BlockChainClient struct {
 	mu                     sync.RWMutex
 	connected              bool
 	processorAddress       ethCommon.Address
-	teeAuthAddress			 ethCommon.Address
+	teeAuthAddress         ethCommon.Address
 	rpcURL                 string
 	processorBoundContract *bind.BoundContract
 	processorEndpoint      *processorendpoint.ProcessorEndpoint
-	teeAuthBoundContract     *bind.BoundContract
-	teeAuthEndpoint          *tee.TeeAuthenticator
+	teeAuthBoundContract   *bind.BoundContract
+	teeAuthEndpoint        *tee.TeeAuthenticator
 	client                 ChainClient
 	privKey                *cryptotypes.PrivateKeySecp256k1
 	account                *bind.TransactOpts
@@ -72,10 +72,10 @@ func toRequestType(i uint8) common.RequestType {
 func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:  processor,
-		teeAuthAddress:		 teeAuthenticator,
+		teeAuthAddress:    teeAuthenticator,
 		rpcURL:            rpcURL,
 		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
-		teeAuthEndpoint:	 tee.NewTeeAuthenticator(),
+		teeAuthEndpoint:   tee.NewTeeAuthenticator(),
 		privKey:           key,
 	}
 }
@@ -300,11 +300,6 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 		return EMPTY, fmt.Errorf("fromBlock should be >= than toBlock")
 	}
 
-	parsedABI, err := processorendpoint.ProcessorEndpointMetaData.ParseABI()
-	if err != nil {
-		return EMPTY, fmt.Errorf("cannot parse ABI: %w", err)
-	}
-
 	//retrieve tee public key (needed to decrypt)
 	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
 		&bind.CallOpts{Pending: false},
@@ -319,7 +314,8 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	}
 
 	//needed for event filter
-	userEventSig := parsedABI.Events["UserEvent"].ID
+	userEventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointUserEventEventName)
+	
 	appIdHash := ethCommon.BigToHash(&applicationId)
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
 
@@ -335,7 +331,7 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	if err != nil {
 		return EMPTY, fmt.Errorf("failed to filter logs: %w", err)
 	}
-	
+
 	for i := len(logs) - 1; i >= 0; i-- { //backwards search
 		vLog := logs[i]
 		event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
@@ -352,4 +348,66 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 		}
 	}
 	return events, nil
+}
+
+func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, requestID string, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	if fromBlock == 0 {
+		latestBlock, err := c.client.BlockByNumber(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get latest block: %w", err)
+		}
+		fromBlock = latestBlock.NumberU64()
+	}
+
+	if fromBlock < toBlock {
+		return nil, fmt.Errorf("fromBlock should be >= than toBlock")
+	}
+
+
+	eventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointRequestCompletedEventName)
+	reqId, err := common.RequestIdStringTo32Byte(requestID)
+	if  err != nil {
+		return nil, fmt.Errorf("invalid request ID %s: %w", requestID, err)
+	}
+	reqIdHash := ethCommon.BytesToHash(reqId[:])
+	topicsHash := [][]ethCommon.Hash{{eventSig}, {reqIdHash}}
+
+	query := ethereum.FilterQuery{
+		Addresses: []ethCommon.Address{c.processorAddress},
+		FromBlock: new(big.Int).SetUint64(toBlock),
+		ToBlock:   new(big.Int).SetUint64(fromBlock),
+		Topics:    topicsHash,
+	}
+
+	logs, err := c.client.FilterLogs(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter logs: %w", err)
+	}
+
+	if len(logs) == 0 {
+		return nil, nil
+	}
+
+	if len(logs) > 1 {
+		return nil, fmt.Errorf("found more than 1 log for requestID: %s", requestID)
+	}
+
+	event, err := c.processorEndpoint.UnpackRequestCompletedEvent(&logs[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack log: %w", err)
+	}
+
+	status, err := common.UInt8ToRequestResultStatus(event.Status)
+	if err != nil {
+		return nil, fmt.Errorf("unknown status: %w", err)
+	}
+
+	return &common.RequestResult{Status: status}, nil
 }
