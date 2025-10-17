@@ -113,9 +113,6 @@ func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
 		return nil
 	}
 
-	if strings.Contains(chainErr.Error(), "nonce too low") {
-		return ReorgError{causedBy: chainErr}
-	}
 	raw, hasRevertErrorData := ethclient.RevertErrorData(chainErr)
 	if !hasRevertErrorData {
 		return fmt.Errorf("call returned error: %w", chainErr)
@@ -124,18 +121,30 @@ func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
 	if unpack_err != nil {
 		return fmt.Errorf("call returned unknown error: %w", chainErr)
 	}
-	err := fmt.Errorf("call returned error: %T", rawUnpackedErr)
-
-	switch rawUnpackedErr.(type) {
-	case *processorendpoint.ProcessorEndpointInvalidApplicationId,
-		 *processorendpoint.ProcessorEndpointInvalidStateRoot,
-		 *processorendpoint.ProcessorEndpointInvalidRequestId:
-		return ReorgError{causedBy: err}
-	default:
-		return fmt.Errorf("contract revert: %T", err)
-	}
+	return fmt.Errorf("contract revert: %T", rawUnpackedErr)
 
 }
+
+func (c *BlockChainClient) UnpackProcessorEndpointErrorAndCheckForReorg(chainErr error) error {
+	if chainErr == nil {
+		return nil
+	}
+
+	if strings.Contains(chainErr.Error(), "nonce too low") {
+		return ReorgError{causedBy: chainErr}
+	}
+
+	unpackedError := c.UnpackProcessorEndpointError(chainErr)
+
+	if strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidApplicationId") ||
+	   strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidStateRoot") || 
+	   strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidRequestId") {
+		return ReorgError{causedBy: unpackedError}
+	}
+	return unpackedError
+
+}
+
 
 // GetPendingRequests gets pending requests from the blockchain
 func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Request, error) {
@@ -152,7 +161,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 		c.processorEndpoint.UnpackGetPendingRequests)
 
 	if err != nil {
-		return nil, c.UnpackProcessorEndpointError(err)
+		return nil, c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
 	}
 
 	output := make([]*common.Request, 0, len(listOfRequests))
@@ -190,7 +199,7 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		c.processorEndpoint.UnpackGetNextPendingRequest)
 
 	if err != nil {
-		return nil, [32]byte{}, c.UnpackProcessorEndpointError(err)
+		return nil, [32]byte{}, c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
 	}
 
 	stateRoot := output.Arg1
@@ -220,13 +229,18 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) error {
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
 	if err != nil {
-		return c.UnpackProcessorEndpointError(err)
+		return c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
 	}
 
 	// wait for transaction inclusion
-	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
+	receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
+	if err != nil {
 		return fmt.Errorf("error waiting for tx inclusion: %w", err)
 	}
+
+    if receipt.Status != 1 {
+        return fmt.Errorf("transaction failed")
+    }
 	return nil
 }
 
@@ -286,7 +300,7 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
     // Send the transaction
     tx, err := bind.Transact(c.processorBoundContract, c.account, data)
     if err != nil {
-        return "", 0, fmt.Errorf("failed to submit transaction: %w", err)
+        return "", 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
     }
 
     // Wait for transaction to be mined
