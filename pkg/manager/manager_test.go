@@ -12,8 +12,8 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/storage/mockdb"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,25 +22,25 @@ type MockExecutorClient struct {
 }
 
 func NewMockExecutorClient() *MockExecutorClient {
-	return &MockExecutorClient{ MockFunctions: testutil.NewMockFunctions()}
+	return &MockExecutorClient{MockFunctions: testutil.NewMockFunctions()}
 }
 
 func (m *MockExecutorClient) Connect(ctx context.Context) error {
-	if f, ok:= m.GetMockedFunc("Connect"); ok {
-		return f.(func() (error))()
-	}	
+	if f, ok := m.GetMockedFunc("Connect"); ok {
+		return f.(func() error)()
+	}
 	return nil
 }
 
 func (m *MockExecutorClient) Close() error {
-	if f, ok:= m.GetMockedFunc("Close"); ok {
-		return f.(func() (error))()
-	}	
+	if f, ok := m.GetMockedFunc("Close"); ok {
+		return f.(func() error)()
+	}
 	return nil
 }
 
 func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
-	if f, ok:= m.GetMockedFunc("SendDeployApp"); ok {
+	if f, ok := m.GetMockedFunc("SendDeployApp"); ok {
 		return f.(func(context.Context, *common.Request) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req)
 	}
 	stateRoot := m.generateRandomStateRoot()
@@ -48,20 +48,20 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 }
 
 func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
-	if f, ok:= m.GetMockedFunc("SendGenerateDeanonymizationReport"); ok {
+	if f, ok := m.GetMockedFunc("SendGenerateDeanonymizationReport"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
 	}
 	return &common.DeanonymizationReport{ReportID: req.RequestID}, nil
 }
 
 func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
-	if f, ok:= m.GetMockedFunc("SendProcessRequest"); ok {
+	if f, ok := m.GetMockedFunc("SendProcessRequest"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req, appState, wasmModule)
 	}
 
 	stateRoot := m.generateRandomStateRoot()
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, PrevStateRoot: appState.StateRoot, NewStateRoot: stateRoot},
-	 &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
+		&common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
 }
 
 func (m *MockExecutorClient) SetClientRequestHandler(handler communication.ClientRequestHandler) {
@@ -83,13 +83,12 @@ const (
 	sender = "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199"
 )
 
-
-func createRequest(requestType common.RequestType) *common.Request {
+func createRequest(requestType common.RequestType, appID string) *common.Request {
 	requestId, err := blockchain.GenerateRandomID()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to generate random ID: %v", err))
 	}
-	request := &common.Request{ProtocolVersion: "1.0", ApplicationID: "app1", RequestID: requestId, RequestType: requestType, Sender: sender}
+	request := &common.Request{ProtocolVersion: "1.0", ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender}
 	return request
 }
 
@@ -103,9 +102,9 @@ func TestStart(t *testing.T) {
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() (error) {
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
 		return fmt.Errorf("Connect failed")
-	}) 
+	})
 	err := manager.Start(context.Background())
 	require.Error(t, err, "Failed to connect to executor, should return error")
 	require.False(t, manager.isRunning, "Manager should not be running after failed start")
@@ -114,7 +113,7 @@ func TestStart(t *testing.T) {
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("Connect")
 
 	// Start the manager but blockchainClient fails to connect
-	bcClient.AddMockedFunc("Connect", func(context.Context) error {	 return fmt.Errorf("failed to connect blockchain client") })
+	bcClient.AddMockedFunc("Connect", func(context.Context) error { return fmt.Errorf("failed to connect blockchain client") })
 
 	err = manager.Start(context.Background())
 	require.Error(t, err, "failed to connect to blockchain, should return error")
@@ -159,9 +158,9 @@ func TestStop(t *testing.T) {
 	cancel()
 
 	// Stop the manager but execClient fails to stop
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Close", func() (error) {
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Close", func() error {
 		return fmt.Errorf("Close failed")
-	}) 
+	})
 	err = manager.Stop()
 	require.Error(t, err, "Failed to stop executor, should return error")
 	require.True(t, manager.isRunning, "Manager should be running after failed stop")
@@ -170,7 +169,7 @@ func TestStop(t *testing.T) {
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("Close")
 
 	// Stop the manager but blockchainClient fails to stop
-	bcClient.AddMockedFunc("Close", func() error {return fmt.Errorf("failed to close blockchain client") })
+	bcClient.AddMockedFunc("Close", func() error { return fmt.Errorf("failed to close blockchain client") })
 
 	err = manager.Stop()
 	require.Error(t, err, "Failed to stop executor, should return error")
@@ -180,7 +179,7 @@ func TestStop(t *testing.T) {
 	bcClient.RemoveMockedFunc("Close")
 
 	// Stop the manager but DataLayer fails to stop
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Close", func() error {return fmt.Errorf("failed to close data layer") })
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Close", func() error { return fmt.Errorf("failed to close data layer") })
 
 	err = manager.Stop()
 	require.Error(t, err, "Failed to stop executor, should return error")
@@ -197,7 +196,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Deploy request
-	request := createRequest(common.Deploy)
+	request := createRequest(common.Deploy, "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -221,7 +220,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	require.Equal(t, request.RequestType, completedRequests[0].RequestType, "Wrong RequestType")
 
 	// Process request
-	request = createRequest(common.Process)
+	request = createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -245,7 +244,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	require.Equal(t, request.RequestType, completedRequests[1].RequestType, "Wrong RequestType")
 
 	// Deanonymize request
-	request = createRequest(common.Deanonymize)
+	request = createRequest(common.Deanonymize, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -274,7 +273,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Deploy request
-	request := createRequest(common.Deploy)
+	request := createRequest(common.Deploy, "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -285,7 +284,7 @@ func TestMarkRequestFailed(t *testing.T) {
 
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
 		return nil, nil, fmt.Errorf("failed to deploy app")
-	})	
+	})
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
 
@@ -305,7 +304,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendDeployApp")
 
 	// Process request
-	request = createRequest(common.Process)
+	request = createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -333,7 +332,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	mockBCClient.ClearAllData()
 
 	// Deanonymize request
-	request = createRequest(common.Deanonymize)
+	request = createRequest(common.Deanonymize, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -360,7 +359,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	// Invalid request type
 	// reset all
 	mockBCClient.ClearAllData()
-	request = createRequest("invalidType")
+	request = createRequest("invalidType", "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -388,7 +387,7 @@ func TestMarkRequestFailed(t *testing.T) {
 func TestMarkRequestFailedWithError(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
-	request := createRequest("invalidType")
+	request := createRequest("invalidType", "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -407,16 +406,97 @@ func TestMarkRequestFailedWithError(t *testing.T) {
 	failedRequests := mockBCClient.GetFailedRequests()
 	require.Equal(t, 0, len(failedRequests), "expected 0 failed request")
 
+}
+
+func TestProcessRequestsFromChainMixed(t *testing.T) {
+	mockBCClient, manager := setupTest()
+
+	// Prepare different requests
+
+	// Failure expected
+	requestInvalid := createRequest("invalidType", "1")
+	err := mockBCClient.SendRequestToChain(context.Background(), requestInvalid)
+	require.NoError(t, err)
+
+	requestDeploy := createRequest(common.Deploy, "1")
+	err = mockBCClient.SendRequestToChain(context.Background(), requestDeploy)
+	require.NoError(t, err)
+
+	requestReport := createRequest(common.Deanonymize, "1")
+	err = mockBCClient.SendRequestToChain(context.Background(), requestReport)
+	require.NoError(t, err)
+
+	// redeploy the same appId (failure expected)
+	requestReDeploy := createRequest(common.Deploy, "1")
+	err = mockBCClient.SendRequestToChain(context.Background(), requestReDeploy)
+	require.NoError(t, err)
+
+	// deploy an app with an appID other than "1" (failure expected)
+	// TODO it will change in future
+	requestDeployWrongId := createRequest(common.Deploy, "33")
+	err = mockBCClient.SendRequestToChain(context.Background(), requestDeployWrongId)
+	require.NoError(t, err)
+
+	pendingRequests, _ := mockBCClient.GetPendingRequests(context.Background())
+	require.Equal(t, 5, len(pendingRequests), "expected 5 pending request")
+	completedRequests := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
+
+	for i := 0; i < 5; i++ {
+		err = manager.processRequestFromChain(context.Background())
+		require.NoError(t, err)
+	}
+
+	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
+	require.Equal(t, 0, len(pendingRequests), "expected 0 pending request")
+
+	failedRequests := mockBCClient.GetFailedRequests()
+	require.Equal(t, 3, len(failedRequests), "expected 3 failed request")
+
+	require.Equal(t, requestInvalid.RequestID, failedRequests[0].RequestID, "Wrong requestID")
+	require.Equal(t, requestInvalid.ApplicationID, failedRequests[0].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestInvalid.RequestType, failedRequests[0].RequestType, "Wrong RequestType")
+
+	require.Equal(t, requestReDeploy.RequestID, failedRequests[1].RequestID, "Wrong requestID")
+	require.Equal(t, requestReDeploy.ApplicationID, failedRequests[1].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestReDeploy.RequestType, failedRequests[1].RequestType, "Wrong RequestType")
+
+	require.Equal(t, requestDeployWrongId.RequestID, failedRequests[2].RequestID, "Wrong requestID")
+	require.Equal(t, requestDeployWrongId.ApplicationID, failedRequests[2].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestDeployWrongId.RequestType, failedRequests[2].RequestType, "Wrong RequestType")
+
+	completedRequests = mockBCClient.GetCompletedRequests()
+	require.Equal(t, 5, len(completedRequests), "expected 5 completed request")
+
+	// They should be in the same order of insertion
+	require.Equal(t, requestInvalid.RequestID, completedRequests[0].RequestID, "Wrong requestID")
+	require.Equal(t, requestInvalid.ApplicationID, completedRequests[0].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestInvalid.RequestType, completedRequests[0].RequestType, "Wrong RequestType")
+
+	require.Equal(t, requestDeploy.RequestID, completedRequests[1].RequestID, "Wrong requestID")
+	require.Equal(t, requestDeploy.ApplicationID, completedRequests[1].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestDeploy.RequestType, completedRequests[1].RequestType, "Wrong RequestType")
+
+	require.Equal(t, requestReport.RequestID, completedRequests[2].RequestID, "Wrong requestID")
+	require.Equal(t, requestReport.ApplicationID, completedRequests[2].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestReport.RequestType, completedRequests[2].RequestType, "Wrong RequestType")
+
+	require.Equal(t, requestReDeploy.RequestID, completedRequests[3].RequestID, "Wrong requestID")
+	require.Equal(t, requestReDeploy.ApplicationID, completedRequests[3].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestReDeploy.RequestType, completedRequests[3].RequestType, "Wrong RequestType")
+
+	require.Equal(t, requestDeployWrongId.RequestID, completedRequests[4].RequestID, "Wrong requestID")
+	require.Equal(t, requestDeployWrongId.ApplicationID, completedRequests[4].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, requestDeployWrongId.RequestType, completedRequests[4].RequestType, "Wrong RequestType")
 
 }
 
 func TestProcessDeployAppWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
-	request := createRequest(common.Deploy)
+	request := createRequest(common.Deploy, "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
-
 
 	// Test executor failure
 	expectedError := "failed to deploy app"
@@ -433,7 +513,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	// Test data layer failure. In this case, it shouldn't return an error (son MarkFailed is not called) but it shouldn't call stateUpdate on chain either
 	expectedError = "failed to store state"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) (error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		return fmt.Errorf("%s", expectedError)
 	})
 
@@ -464,7 +544,6 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	dbErr, ok := err.(*storageErrors.Error)
 	require.True(t, ok && dbErr.Code == storageErrors.NoVersionInDb)
 
-
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
@@ -485,15 +564,13 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
-
-
 }
 
 func TestProcessProcessRequestWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Deploy the application first
-	deployRequest := createRequest(common.Deploy)
+	deployRequest := createRequest(common.Deploy, "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -504,28 +581,28 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	oldDbVersion, err := manager.dataLayer.LastVersionID()
 	require.NoError(t, err)
 
-	request := createRequest(common.Process)
+	request := createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	// Failure in GetApplicationState. If the application wasn't already deployed, the request should be marked as failed
-	request.ApplicationID = "invalid app" 
+	request.ApplicationID = "invalid app"
 	err = manager.processProcessRequest(context.Background(), request)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "application state not found")
-	
+
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	//Other failures in GetApplicationState, it may a temp error => the request shouldn't be marked as failed
-	request.ApplicationID = deployRequest.ApplicationID 
+	request.ApplicationID = deployRequest.ApplicationID
 
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, string) (*common.ApplicationState, error) {
 		return nil, fmt.Errorf("error")
 	})
 	err = manager.processProcessRequest(context.Background(), request)
 	require.NoError(t, err)
-	
+
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
@@ -537,12 +614,11 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	})
 	err = manager.processProcessRequest(context.Background(), request)
 	require.NoError(t, err)
-	
+
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetWASMBytecode")
-
 
 	// Test failure in executor
 	expectedError := "failed to execute app"
@@ -560,7 +636,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	// Test data layer failure. In this case, it shouldn't return an error (son MarkFailed is not called) but it shouldn't call stateUpdate on chain either
 	expectedError = "failed to store state"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) (error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		return fmt.Errorf("%s", expectedError)
 	})
 
@@ -590,7 +666,6 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, oldDbVersion, newDbVersion)
 
-
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
@@ -610,15 +685,13 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-
-
 }
 
 func TestProcessProcessDeanonymization(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Deploy the application first
-	deployRequest := createRequest(common.Deploy)
+	deployRequest := createRequest(common.Deploy, "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -626,28 +699,28 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	request := createRequest(common.Process)
+	request := createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	// Failure in GetApplicationState. If the application wasn't already deployed, the request should be marked as failed
-	request.ApplicationID = "invalid app" 
+	request.ApplicationID = "invalid app"
 	err = manager.processDeanonymization(context.Background(), request)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "application state not found")
-	
+
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	//Other failures in GetApplicationState, it may a temp error => the request shouldn't be marked as failed
-	request.ApplicationID = deployRequest.ApplicationID 
+	request.ApplicationID = deployRequest.ApplicationID
 
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, string) (*common.ApplicationState, error) {
 		return nil, fmt.Errorf("error")
 	})
 	err = manager.processDeanonymization(context.Background(), request)
 	require.NoError(t, err)
-	
+
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
@@ -659,12 +732,11 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 	})
 	err = manager.processDeanonymization(context.Background(), request)
 	require.NoError(t, err)
-	
+
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetWASMBytecode")
-
 
 	// Test failure in executor
 	expectedError := "failed to execute app"
@@ -682,7 +754,7 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 
 	// Test data layer failure. In this case, it shouldn't return an error (son MarkFailed is not called) but it shouldn't call stateUpdate on chain either
 	expectedError = "failed to store report"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("StoreDeanonymizationReport", func(context.Context, *common.DeanonymizationReport) (error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("StoreDeanonymizationReport", func(context.Context, *common.DeanonymizationReport) error {
 		return fmt.Errorf("%s", expectedError)
 	})
 
@@ -695,20 +767,17 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("StoreDeanonymizationReport")
 
 	// Test blockchain failures. For deanonymization, any error shouldn't mark the request as failed
-	mockBCClient.AddMockedFunc("SubmitDeanonymizationReport", func(context.Context, *common.DeanonymizationReport) (error) {
+	mockBCClient.AddMockedFunc("SubmitDeanonymizationReport", func(context.Context, *common.DeanonymizationReport) error {
 		return fmt.Errorf("some other error")
 	})
 
 	err = manager.processDeanonymization(context.Background(), request)
 	require.NoError(t, err)
 
-
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-
 }
-
 
 func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	mockBCClient, manager := setupTest()
@@ -718,15 +787,15 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute some requests just to have different versions in the DB
-	request1 := createRequest(common.Deploy)
+	request1 := createRequest(common.Deploy, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request1)
 	require.NoError(t, err)
 
-	request2 := createRequest(common.Process)
+	request2 := createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request2)
 	require.NoError(t, err)
 
-	request3 := createRequest(common.Process)
+	request3 := createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request3)
 	require.NoError(t, err)
 
@@ -816,7 +885,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	require.True(t, bytes.Equal(stateRootOnChain3[:], db_version), "State root in DB should be equal to state root on chain")
 
 	// test unrecoverable disalignment between DB and chain
-	request4 := createRequest(common.Process)
+	request4 := createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request4)
 	require.NoError(t, err)
 
@@ -827,7 +896,6 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 
 	err = manager.processRequestFromChain(context.Background())
 	require.Error(t, err, "Should return error due to unrecoverable disalignment between DB and chain")
-
 
 	// test reorg not solved within timeout. The local db is reverted to the same state of the chain and the request is executed
 	//Remove all old requests and reset to the initial state root
@@ -855,7 +923,6 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-
 	db_version, err = manager.dataLayer.LastVersionID()
 	require.NoError(t, err)
 
@@ -869,12 +936,11 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Setup the application
-	request := createRequest(common.Deploy)
+	request := createRequest(common.Deploy, "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
-
 
 	//**********************
 	// Check that if GetNextPendingRequest returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
@@ -894,8 +960,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err, "processRequestFromChain should not return an error if GetNextPendingRequest fails")
 
-
-	request1 := createRequest(common.Process)
+	request1 := createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request1)
 	require.NoError(t, err)
 	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
@@ -934,16 +999,14 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 
 }
 
-
-
 func setupTest() (*blockchain.MockClient, *SecureProcessorManager) {
 	mockDataLayer := mockdb.NewMockDataLayer()
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
 
 	processor := &SecureProcessorManager{
-		config: &Config{ReorgTimeout: 60},
-		executorClient: execClient,
+		config:           &Config{ReorgTimeout: 60},
+		executorClient:   execClient,
 		blockchainClient: bcClient,
 		dataLayer:        mockDataLayer,
 		isRunning:        true}
