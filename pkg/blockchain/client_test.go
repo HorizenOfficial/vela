@@ -39,7 +39,6 @@ func setupSimTestHelper(t *testing.T, autoMining bool, teePubSecp521r1 []byte) *
 	return testutil.NewSimTestHelper(t, autoMining, true, nil, teePubSecp521r1)
 }
 
-
 func TestGetPendingRequests(t *testing.T) {
 
 	testHelper := setupSimTestHelper(t, false, nil)
@@ -51,6 +50,12 @@ func TestGetPendingRequests(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 0, len(res), "There should be zero pending request")
+
+	currentStateRoot := testHelper.GetStateRoot()
+	pendingRequest, stateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, pendingRequest, "There should be no pending request")
+	require.Equal(t, currentStateRoot, stateRoot)
 
 	//*****************************************************
 	// submit request
@@ -79,6 +84,22 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, testHelper.Submitter.From.String(), request.Sender, "Sender should match")
 	require.Equal(t, transferValue.Uint64(), request.Value, "Value should match")
 
+	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, request.RequestID, pendingRequest.RequestID, "RequestID should match")
+	require.Equal(t, strconv.Itoa(int(testHelper.ProtocolVersion)), pendingRequest.ProtocolVersion, "Protocol version should match")
+	require.Equal(t, applicationId.String(), pendingRequest.ApplicationID, "Application ID should match")
+	require.Equal(t, common.Process, pendingRequest.RequestType, "Request type should match")
+	require.Equal(t, payload, pendingRequest.Payload, "Payload should match")
+	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
+
+	require.Equal(t, testHelper.Submitter.From.String(), pendingRequest.Sender, "Sender should match")
+	require.Equal(t, transferValue.Uint64(), pendingRequest.Value, "Value should match")
+
+
+	require.Equal(t, currentStateRoot, stateRoot)
+
+
 }
 
 func TestMarkRequestCompleted(t *testing.T) {
@@ -98,13 +119,21 @@ func TestMarkRequestCompleted(t *testing.T) {
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
+	requestId := res[0].RequestID
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
 	require.NoError(t, err)
 
 	res, err = blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res), "There should be zero pending request")
+
+	// Test that completing the same request results in ProcessorEndpointInvalidRequestId
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
+	_, isReorgErr := err.(ReorgError)
+	require.True(t, isReorgErr)
 
 }
 
@@ -147,20 +176,18 @@ func TestSubmitStateUpdate(t *testing.T) {
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
 
-	res, err := blockchainClient.GetPendingRequests(context.Background())
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
 
-	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
+	events := [1]common.Event{{ApplicationID: res.ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
 		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
 	}
 
-	oldStateRoot := testHelper.GetStateRoot()
-
 	signature := [65]byte{}
 	payload := &common.UpdatePayload{
-		ApplicationID: res[0].ApplicationID,
-		RequestID:     res[0].RequestID,
+		ApplicationID: res.ApplicationID,
+		RequestID:     res.RequestID,
 		PrevStateRoot: oldStateRoot,
 		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
 		Events:        events[:],
@@ -171,9 +198,46 @@ func TestSubmitStateUpdate(t *testing.T) {
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
-	res, err = blockchainClient.GetPendingRequests(context.Background())
+	listOfRes, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be 0 pending request")
+	require.Equal(t, 0, len(listOfRes), "There should be 0 pending request")
+
+	// Test error - NonceTooLow
+	blockchainClient.account.Nonce = big.NewInt(0)
+	blockchainClient.account.GasLimit = 100000 //more than enough to avoid out of gas error
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg := err.(ReorgError)
+	require.True(t, isReorg)
+
+	blockchainClient.account.Nonce = nil //reset nonce to let it be fetched from the network
+	blockchainClient.account.GasLimit = 0 //reset gas limit to let it be estimated
+
+	// Test error - wrong application id
+
+	payload.ApplicationID = "9999"
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidApplicationId")
+
+	// Test error - wrong prev state root
+	payload.ApplicationID = res.ApplicationID
+	payload.PrevStateRoot = [32]byte{0x07, 0x08, 0xaa, 0xbb, 0xee}
+	
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
+
+	// Test error - wrong request id
+	payload.PrevStateRoot = payload.NewStateRoot
+	payload.NewStateRoot = [32]byte{0x07, 0x08, 0x09}
+	payload.RequestID = "9999999999999999999999999999999999999999999999999999999999999999"
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
+
 }
 
 func TestGetUserEvents_StopAtFirst(t *testing.T) {
@@ -249,7 +313,7 @@ func TestGetUserEvents_WithFilter(t *testing.T) {
 	userKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err, "failed to generate user private key")
 	userPub := userKey.PublicKey()
-	
+
 	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
 	defer testHelper.Close()
 
@@ -352,8 +416,56 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 }
 
 
-func TestGetRequestCompletedEvent(t *testing.T) {
 
+func TestSubmitRequest(t *testing.T) {
+	// mock private key for the client
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Prepare a request
+	protocolVersion := uint8(0)
+	applicationId := big.NewInt(1)
+	requestType := common.Deploy
+	payload := []byte("test-payload")
+	value := big.NewInt(1)
+
+	// Submit the request
+	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, value)
+	require.NoError(t, err)
+	// Get pending requests
+	pending, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	//check block number > 0
+	require.True(t, blockNumber > 0, "Returned block number shouldn't be 0")
+	// Check that the submitted request is present and matches
+	found := false
+	// Convert types for comparison
+	protocolVersionStr := strconv.FormatUint(uint64(protocolVersion), 10)
+	applicationIdStr := applicationId.String()
+	valueUint := value.Uint64()
+	
+	for _, r := range pending {
+		if r.RequestID == requestId {
+			found = true
+
+			if  r.ProtocolVersion != protocolVersionStr || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value != valueUint {
+				t.Errorf(
+					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
+					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.Value,
+					protocolVersionStr, applicationIdStr, requestType, string(payload), valueUint,
+				)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("Submitted request not found in pending requests")
+	}
+}
+
+func TestGetRequestCompletedEvent(t *testing.T) {
 	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 

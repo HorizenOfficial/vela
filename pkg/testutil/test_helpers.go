@@ -137,7 +137,7 @@ func (s *SystemTestSuite) StartExecutor() error {
 }
 
 func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {
-	return s.blockchainClient.SubmitRequest(s.ctx, req)
+	return s.blockchainClient.SendRequestToChain(s.ctx, req) //use test function in mock_client
 }
 
 func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duration) (*common.ApplicationState, error) {
@@ -151,13 +151,21 @@ func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duratio
 		case <-ticker.C:
 			state, err := s.dataLayer.GetApplicationState(s.ctx, appID)
 			if err == nil {
+				s.t.Log("AppID found on data layer", appID)
 				return state, nil
 			}
+			// this will print every tick
+			//s.t.Log("err: ", err.Error())
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for app state %s", appID)
 
 		}
 	}
+}
+
+func (s *SystemTestSuite) GetFailedRequest() []*common.Request {
+	failedReq := s.blockchainClient.GetFailedRequests()
+	return failedReq
 }
 
 func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time.Duration) (*common.ApplicationState, error) {
