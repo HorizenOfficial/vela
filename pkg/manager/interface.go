@@ -53,6 +53,9 @@ type Config struct {
 	DataLayerDBPath string
 	// DataLayerNumOfVersions specifies how many historical versions to keep. Only used by "versioned_leveldb".
 	DataLayerNumOfVersions int
+
+	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
+	DeanonymizationReportPath string
 }
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager
@@ -99,6 +102,7 @@ func DefaultConfig() *Config {
 		DataLayerType:          "versioned_leveldb",
 		DataLayerDBPath:        dataPath,
 		DataLayerNumOfVersions: 10, // useful only for versioned leveldb
+		DeanonymizationReportPath: "",
 	}
 }
 
@@ -133,6 +137,7 @@ func ReadConfig() *Config {
 		DataLayerType:          config.MustGetString("DataLayerType"),
 		DataLayerDBPath:        config.MustGetString("DataLayerDBPath"),
 		DataLayerNumOfVersions: config.MustGetInt("DataLayerNumOfVersions"),
+		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
 	}
 }
 
