@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
-	"github.com/horizen-pes/pkg/communication"
 	"log"
 
+	"github.com/horizen-pes/pkg/communication"
+
 	"github.com/horizen-pes/pkg/executor"
+	"github.com/horizen-pes/pkg/wasm"
 )
 
 func main() {
@@ -17,7 +19,7 @@ func main() {
 	config := executor.ReadConfig()
 
 	// Create the WASM runtime
-	runtime := executor.NewMockRuntime()
+	runtime := wasm.NewWasmtimeRuntime()
 
 	// Create the appropriate server based on configuration
 	var server communication.ExecutorServer
