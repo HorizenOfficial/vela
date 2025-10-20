@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/testutil"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
@@ -228,7 +229,12 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user1Address := fmt.Sprintf("0xadd%037x", 1)
 	user2Address := fmt.Sprintf("0xadd%037x", 2)
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+	mgrConfig := manager.ReadConfig()
+	tempDir, err := os.MkdirTemp("", "reports_system_test")
+	require.NoError(t, err)
+	mgrConfig.DeanonymizationReportPath = tempDir
+
+	suite := testutil.NewSystemTestSuiteWithMgrConfig(t, "wasm-runtime", mgrConfig)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -381,9 +387,23 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, deanonReport)
 
-	// Decrypt and verify deanonymization report
+	// 4. Read and decrypt the report
+	reportFilePath := filepath.Join(tempDir, appID+"_"+RequestID)
+	encryptedReportBytes, err := os.ReadFile(reportFilePath)
+	require.NoError(t, err, "The report file should be saved to the filesystem")
+
+	// sanity check of the serialized data
+	var serializedEncryptedReport common.DeanonymizationReport
+	err = json.Unmarshal(encryptedReportBytes, &serializedEncryptedReport)
+	require.NoError(t, err)
+
+	// Decrypt and verify both forms of deanonymization report
 	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditorAddress, deanonReport, executorPubKey)
 	require.NoError(t, err)
+	serializedDecryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditorAddress, &serializedEncryptedReport, executorPubKey)
+	require.NoError(t, err)
+
+	require.True(t, bytes.Equal(decryptedReport, serializedDecryptedReport))
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct for the report data, but we do assume that
 	// we have an appId, a reportId, and the data in separate fields

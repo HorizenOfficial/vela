@@ -84,25 +84,24 @@ func DefaultConfig() *Config {
 	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
 	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
 
-
 	return &Config{
-		ReorgTimeout:              180, // 3 minutes
+		ReorgTimeout:              180,   // 3 minutes
 		BlockchainPollingInterval: 5,     // 5 seconds
 		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
 			"url": executorServerAddress + ":" + executorServerPort,
 		},
-		RpcURL:               "http://" + nodeUrl + ":" + nodePort,
-		PrivateKey:           *PrivateKey,
-		ProcessorAddress:     processorAddress,
-		TeeAuthAddress: 	  teeAuthAddress,
+		RpcURL:           "http://" + nodeUrl + ":" + nodePort,
+		PrivateKey:       *PrivateKey,
+		ProcessorAddress: processorAddress,
+		TeeAuthAddress:   teeAuthAddress,
 
 		MockBlockChainClient: false,
 		// Data layer configuration
-		DataLayerType:          "versioned_leveldb",
-		DataLayerDBPath:        dataPath,
-		DataLayerNumOfVersions: 10, // useful only for versioned leveldb
-		DeanonymizationReportPath: "",
+		DataLayerType:             "versioned_leveldb",
+		DataLayerDBPath:           dataPath,
+		DataLayerNumOfVersions:    10, // useful only for versioned leveldb
+		DeanonymizationReportPath: "", // optional, default to not-there semantic
 	}
 }
 
@@ -131,12 +130,12 @@ func ReadConfig() *Config {
 		RpcURL:               config.MustGetString("RpcUrl"),
 		PrivateKey:           *PrivateKey,
 		ProcessorAddress:     config.MustGetString("ProcessorAddress"),
-		TeeAuthAddress:	      config.MustGetString("TeeAuthenticatorAddress"),
+		TeeAuthAddress:       config.MustGetString("TeeAuthenticatorAddress"),
 		MockBlockChainClient: config.MustGetBool("MockBlockChainClient"),
 		// Data layer configuration
-		DataLayerType:          config.MustGetString("DataLayerType"),
-		DataLayerDBPath:        config.MustGetString("DataLayerDBPath"),
-		DataLayerNumOfVersions: config.MustGetInt("DataLayerNumOfVersions"),
+		DataLayerType:             config.MustGetString("DataLayerType"),
+		DataLayerDBPath:           config.MustGetString("DataLayerDBPath"),
+		DataLayerNumOfVersions:    config.MustGetInt("DataLayerNumOfVersions"),
 		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
 	}
 }

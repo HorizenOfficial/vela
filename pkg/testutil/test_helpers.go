@@ -35,9 +35,15 @@ type SystemTestSuite struct {
 	executorCommKey    *cryptotypes.PrivateKeyP521      // Executor's communication key for testing
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 	dbPath             string
+	reportsPath        string
 }
 
 func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
+	config := manager.ReadConfig()
+	return NewSystemTestSuiteWithMgrConfig(t, appType, config)
+}
+
+func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manager.Config) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create mock components
@@ -48,7 +54,14 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	executorClient := communication.NewClient(factory)
 
 	// Create manager
-	config := manager.ReadConfig()
+	var err error
+	var reportsPath string = ""
+	if config.DeanonymizationReportPath != "" {
+		// Create a temporary directory for reports, we overwrite this optional setting
+		// because this is a test environment
+		reportsPath, err = os.MkdirTemp("", "test-reports")
+		require.NoError(t, err)
+	}
 
 	// Create a temporary directory for the database
 	dbPath, err := os.MkdirTemp("", "horizen-pes-test-db")
@@ -58,7 +71,7 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 		DBPath:         dbPath,
 		VersionsToKeep: config.DataLayerNumOfVersions,
 	}
-	// mock DL
+
 	//dataLayer := mockdb.NewMockDataLayer()
 	dataLayer, err := versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
 	require.NoError(t, err)
@@ -95,6 +108,7 @@ func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
 		executorSigningKey: execConfig.SignatureKey,     // Store the executor's signing key
 		dbPath:             dbPath,
+		reportsPath:        reportsPath,
 	}
 }
 
@@ -299,6 +313,11 @@ func (s *SystemTestSuite) Cleanup() error {
 	// Remove the temporary database directory
 	if s.dbPath != "" {
 		os.RemoveAll(s.dbPath)
+	}
+
+	// Remove the temporary reports directory
+	if s.reportsPath != "" {
+		os.RemoveAll(s.reportsPath)
 	}
 
 	return nil
