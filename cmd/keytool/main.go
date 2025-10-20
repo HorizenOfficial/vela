@@ -6,6 +6,8 @@ import (
 	"github.com/horizen-pes/pkg/crypto"
 )
 
+// Simple tool to generate a random set of keys
+// Useful for initial setup of the environemnt
 func main() {
 	log.Println("Generating random key pairs..")
 	keyAES, _ := crypto.GenerateAESKey()
