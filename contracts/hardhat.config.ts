@@ -40,6 +40,10 @@ const config: HardhatUserConfig = {
             url: 'https://rpc.sepolia.org/',
             accounts,
         },
+        'horizen-l3-testnet': {
+            url: 'https://horizen-rpc-testnet.appchain.base.org/',
+            accounts,
+        },
         'local': {
             url: 'http://localhost:8545/',
             accounts,

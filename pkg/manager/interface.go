@@ -58,7 +58,7 @@ type Config struct {
 	DeanonymizationReportPath string
 }
 
-// DefaultConfig returns the default configuration for the Secure Processor Manager
+// DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
 func DefaultConfig() *Config {
 	executorServerAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
 	if executorServerAddress == "" {
@@ -68,10 +68,20 @@ func DefaultConfig() *Config {
 	if executorServerPort == "" {
 		executorServerPort = "8080"
 	}
-	PrivateKey, _ := crypto.ImportPrivateKeySecp256k1FromHex(os.Getenv("MANAGER_PRIVATE_KEY")) // well known private key for local development
+	var privateKey *cryptotypes.PrivateKeySecp256k1
+	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")
+	if privateKeyFromEnv == "" {
+		privateKey, _ = crypto.GeneratePrivateKeySecp256k1()
+	} else {
+		privateKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
+	}
 	dataPath := os.Getenv("MANAGER_DATA_FOLDER")
 	if dataPath == "" {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
+	}
+	nodeProtocol := os.Getenv("CHAIN_RPC_PROTOCOL")
+	if nodeProtocol == "" {
+		nodeProtocol = "http"
 	}
 	nodeUrl := os.Getenv("CHAIN_RPC_ADDRESS")
 	if nodeUrl == "" {
@@ -91,8 +101,8 @@ func DefaultConfig() *Config {
 		ExecutorConnectionParams: map[string]string{
 			"url": executorServerAddress + ":" + executorServerPort,
 		},
-		RpcURL:           "http://" + nodeUrl + ":" + nodePort,
-		PrivateKey:       *PrivateKey,
+		RpcURL:           nodeProtocol + "://" + nodeUrl + ":" + nodePort,
+		PrivateKey:       *privateKey,
 		ProcessorAddress: processorAddress,
 		TeeAuthAddress:   teeAuthAddress,
 

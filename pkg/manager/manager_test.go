@@ -15,6 +15,7 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
+	cryptos "github.com/horizen-pes/pkg/crypto"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/require"
@@ -96,12 +97,11 @@ func createRequest(requestType common.RequestType, appID string) *common.Request
 }
 
 func TestStart(t *testing.T) {
-
 	mockDataLayer := mockdb.NewMockDataLayer()
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
-
-	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10}, bcClient, mockDataLayer, execClient)
+	key, _ := cryptos.GeneratePrivateKeySecp256k1()
+	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
@@ -114,7 +114,6 @@ func TestStart(t *testing.T) {
 
 	// Reset the executor client
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("Connect")
-
 	// Start the manager but blockchainClient fails to connect
 	bcClient.AddMockedFunc("Connect", func(context.Context) error { return fmt.Errorf("failed to connect blockchain client") })
 
@@ -124,13 +123,11 @@ func TestStart(t *testing.T) {
 
 	// Reset the blockchain client
 	bcClient.RemoveMockedFunc("Connect")
-
 	ctx, cancel := context.WithCancel(context.Background())
 	err = manager.Start(ctx)
 	require.NoError(t, err, "Failed to start manager")
 
 	require.True(t, manager.isRunning, "Manager should be running after start")
-
 	err = manager.Start(context.Background())
 	require.Error(t, err, "Manager is already started, should return error")
 
@@ -145,8 +142,8 @@ func TestStop(t *testing.T) {
 	mockDataLayer := mockdb.NewMockDataLayer()
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
-
-	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10}, bcClient, mockDataLayer, execClient)
+	key, _ := cryptos.GeneratePrivateKeySecp256k1()
+	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Stop a manager that is not running
