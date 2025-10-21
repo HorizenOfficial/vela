@@ -25,7 +25,7 @@ type Client interface {
 	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
 	// GetUserEvents gets decryptable user events in the given block range
 	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
-
+	// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
 	GetRequestCompletedEvent(ctx context.Context, requestID string,  fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
 
 	// Close closes the blockchain client
