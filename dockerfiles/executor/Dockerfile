@@ -25,19 +25,16 @@ RUN go mod download
 COPY . .
 
 # Build the manager binary
-RUN CGO_ENABLED=1 GOOS=linux go build -o /executor ./cmd/executor/main.go
-
-# --- Runtime Stage ---
-FROM alpine:latest
+RUN CGO_ENABLED=1 GOOS=linux go build -o /executor ./cmd/executor
 
 # Create a non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN addgroup appgroup && adduser appuser && adduser appuser appgroup
 
 # Set the user
 USER appuser
 
 # Copy the built binary from the builder stage
-COPY --from=builder /executor /executor
+#COPY --from=builder /executor /executor
 
 # Set the entrypoint
 ENTRYPOINT ["/executor"]
