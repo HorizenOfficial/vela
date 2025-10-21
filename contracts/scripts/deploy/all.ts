@@ -30,8 +30,8 @@ async function deploy()  {
   var teeAuthenticatorAddr =  await teeAuthenticator.getAddress();
   console.log(`TeeAuthenticator`)
   console.log(`  contract address: ${teeAuthenticatorAddr}`);
-  console.log(`  Tee signer address: ${process.env.TEE_SIGNER!}`);
-  console.log(`  Tee PUB_SECP521R1: ${process.env.TEE_PUB_SECP521R1!}`);
+  console.log(`  Tee signer address (executor address): ${process.env.TEE_SIGNER!}`);
+  console.log(`  Tee PUB_SECP521R1 (executor P521 pub key): ${process.env.TEE_PUB_SECP521R1!}`);
 
   //deploy 
   const ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");

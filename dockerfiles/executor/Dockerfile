@@ -2,7 +2,7 @@
 FROM debian:bullseye-slim AS builder
 
 # Install base dependencies
-RUN apt-get update && apt-get install -y wget
+RUN apt-get update && apt-get install -y wget gcc
 
 # Manually install a specific version of Go
 ENV GO_VERSION=1.24.0
@@ -25,7 +25,7 @@ RUN go mod download
 COPY . .
 
 # Build the manager binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /executor ./cmd/executor
+RUN CGO_ENABLED=1 GOOS=linux go build -o /executor ./cmd/executor/main.go
 
 # --- Runtime Stage ---
 FROM alpine:latest
