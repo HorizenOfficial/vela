@@ -9,6 +9,7 @@ networks:
 
 volumes:
   horizen-pes-manager-data:  
+  horizen-pes-manager-reports:
   horizen-pes-chain-data:
 
 services:
@@ -38,6 +39,8 @@ services:
       - EXECUTOR_KEY_SECP256
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
+      # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
+      - MANAGER_REPORTS_FOLDER
       - CHAIN_RPC_PROTOCOL
       - CHAIN_RPC_ADDRESS
       - CHAIN_RPC_PORT
@@ -49,6 +52,9 @@ services:
       inet:    
     volumes:
       - horizen-pes-manager-data:${MANAGER_DATA_FOLDER:-/data}
+      # We must set a default path if .env does not set it, otherwise compose will throw an error
+      # If the optional feature is not enabled, we will simply have an empty volume
+      - horizen-pes-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
     depends_on:
       - executor 
       - chain

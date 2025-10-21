@@ -94,6 +94,8 @@ func DefaultConfig() *Config {
 	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
 	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
 
+	reportsPath := os.Getenv("MANAGER_REPORTS_FOLDER")
+
 	return &Config{
 		ReorgTimeout:              180,   // 3 minutes
 		BlockchainPollingInterval: 5,     // 5 seconds
@@ -110,8 +112,8 @@ func DefaultConfig() *Config {
 		// Data layer configuration
 		DataLayerType:             "versioned_leveldb",
 		DataLayerDBPath:           dataPath,
-		DataLayerNumOfVersions:    10, // useful only for versioned leveldb
-		DeanonymizationReportPath: "", // optional, default to not-there semantic
+		DataLayerNumOfVersions:    10,          // useful only for versioned leveldb
+		DeanonymizationReportPath: reportsPath, // optional, default to not-there semantic
 	}
 }
 
