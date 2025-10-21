@@ -38,6 +38,8 @@ services:
       - CHAIN_RPC_ADDRESS
       - CHAIN_RPC_PORT
       - CHAIN_PROCESSOR_ADDRESS
+      - BLOCKCHAIN_POLLING_INTERVAL
+      - REORG_TIMEOUT
     networks:
       pes_network:
         ipv4_address: ${MANAGER_IP_ADDRESS}
