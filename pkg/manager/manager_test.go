@@ -910,7 +910,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 
 	manager.config.ReorgTimeout = 1 // 1 second
 
-	// First ProcessRequestFromChain sets the reorg timeout
+	// First processRequestFromChain sets the reorg timeout
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
 
@@ -946,7 +946,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	require.NoError(t, err)
 
 	//**********************
-	// Check that if GetNextPendingRequest returns an error, ProcessRequestFromChain doesn't execute the request and doesn't return an error
+	// Check that if GetNextPendingRequest returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
 	//**********************
 
 	mockedGetNextPendingRequest := func(context.Context) (*common.Request, [32]byte, error) {
@@ -961,7 +961,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", mockedSubmitStateUpdatePanics)
 
 	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err, "ProcessRequestFromChain should not return an error if GetNextPendingRequest fails")
+	require.NoError(t, err, "processRequestFromChain should not return an error if GetNextPendingRequest fails")
 
 	request1 := createRequest(common.Process, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request1)
@@ -969,7 +969,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
 
 	//**********************
-	// Check that if LastVersionID returns an error, ProcessRequestFromChain doesn't execute the request and doesn't return an error
+	// Check that if LastVersionID returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
 	//**********************
 
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("LastVersionID", func() ([]byte, error) {
@@ -977,12 +977,12 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	})
 
 	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err, "ProcessRequestFromChain should not return an error if LastVersionID fails")
+	require.NoError(t, err, "processRequestFromChain should not return an error if LastVersionID fails")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("LastVersionID")
 
 	//**********************
-	// Check that if ListVersions returns an error, ProcessRequestFromChain doesn't execute the request and doesn't return an error
+	// Check that if ListVersions returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
 	//**********************
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("ListVersions", func() ([][]byte, error) {
 		return nil, fmt.Errorf("ListVersions error")
@@ -995,7 +995,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedGetNextPendingRequest)
 
 	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err, "ProcessRequestFromChain should not return an error if ListVersions fails")
+	require.NoError(t, err, "processRequestFromChain should not return an error if ListVersions fails")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("ListVersions")
 	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
