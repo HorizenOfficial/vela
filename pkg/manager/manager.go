@@ -72,6 +72,8 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
 
+	log.Printf("Manager starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
+
 	m.isRunning = true
 	return nil
 }

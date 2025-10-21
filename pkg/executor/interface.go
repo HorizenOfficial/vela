@@ -35,12 +35,8 @@ type Config struct {
 	SignatureKey *cryptotypes.PrivateKeySecp256k1 // Key used for signing updatePayload
 }
 
-// DefaultConfig returns the default configuration
+// DefaultConfig returns the default configuration (possibly overridden by env variables)
 func DefaultConfig() *Config {
-	stateKey, _ := crypto.GenerateAESKey()
-	communicationKey, _ := crypto.GeneratePrivateKeyP521()
-	signatureKey, _ := crypto.GeneratePrivateKeySecp256k1()
-
 	serverAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
 	if serverAddress == "" {
 		serverAddress = "localhost"
@@ -48,6 +44,45 @@ func DefaultConfig() *Config {
 	serverPort := os.Getenv("EXECUTOR_IP_PORT")
 	if serverPort == "" {
 		serverPort = "8080"
+	}
+
+	var stateKey cryptotypes.AES256Key
+	stateKeyFromEnv := os.Getenv("EXECUTOR_KEY_AES")
+	if stateKeyFromEnv == "" {
+		stateKey, _ = crypto.GenerateAESKey()
+	} else {
+		stateKeyImported, err1 := crypto.ImportKeyAESFromHex(stateKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading AES key from hex string: %v\n", err1)
+			panic(err1)
+		}
+		stateKey = *stateKeyImported
+	}
+
+	var communicationKey *cryptotypes.PrivateKeyP521
+	communicationKeyFromEnv := os.Getenv("EXECUTOR_KEY_P521")
+	if communicationKeyFromEnv == "" {
+		communicationKey, _ = crypto.GeneratePrivateKeyP521()
+	} else {
+		communicationKeyImported, err1 := crypto.ImportPrivateKeyP521FromHex(communicationKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading P521 key from hex string: %v\n", err1)
+			panic(err1)
+		}
+		communicationKey = communicationKeyImported
+	}
+
+	var signatureKey *cryptotypes.PrivateKeySecp256k1
+	signatureKeyFromEnv := os.Getenv("EXECUTOR_KEY_SECP256")
+	if signatureKeyFromEnv == "" {
+		signatureKey, _ = crypto.GeneratePrivateKeySecp256k1()
+	} else {
+		signatureKeyImported, err1 := crypto.ImportPrivateKeySecp256k1FromHex(signatureKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading Secp256 key from hex string: %v\n", err1)
+			panic(err1)
+		}
+		signatureKey = signatureKeyImported
 	}
 
 	return &Config{

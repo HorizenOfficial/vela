@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -86,4 +87,21 @@ func LoadAESKeyFromFilePEM(filename string) (*cryptotypes.AES256Key, error) {
 	var key cryptotypes.AES256Key
 	copy(key[:], pemBlock.Bytes)
 	return &key, nil
+}
+
+// ImportKeyAESFromHex imports a AES  key from an hex string.
+func ImportKeyAESFromHex(hexKey string) (*cryptotypes.AES256Key, error) {
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hex string: %w", err)
+	}
+
+	var key cryptotypes.AES256Key
+	copy(key[:], keyBytes)
+	return &key, nil
+}
+
+// ExportKeyAESToHex exports a AES key to a hex string.
+func ExportKeyAESToHex(privKey *cryptotypes.AES256Key) string {
+	return hex.EncodeToString(privKey[:])
 }
