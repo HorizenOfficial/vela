@@ -51,7 +51,11 @@ func DefaultConfig() *Config {
 	if stateKeyFromEnv == "" {
 		stateKey, _ = crypto.GenerateAESKey()
 	} else {
-		stateKeyImported, _ := crypto.ImportKeyAESFromHex(stateKeyFromEnv)
+		stateKeyImported, err1 := crypto.ImportKeyAESFromHex(stateKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading AES key from hex string: %v\n", err1)
+			panic(err1)
+		}
 		stateKey = *stateKeyImported
 	}
 
@@ -60,7 +64,12 @@ func DefaultConfig() *Config {
 	if communicationKeyFromEnv == "" {
 		communicationKey, _ = crypto.GeneratePrivateKeyP521()
 	} else {
-		communicationKey, _ = crypto.ImportPrivateKeyP521FromHex(communicationKeyFromEnv)
+		communicationKeyImported, err1 := crypto.ImportPrivateKeyP521FromHex(communicationKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading P521 key from hex string: %v\n", err1)
+			panic(err1)
+		}
+		communicationKey = communicationKeyImported
 	}
 
 	var signatureKey *cryptotypes.PrivateKeySecp256k1
@@ -68,7 +77,12 @@ func DefaultConfig() *Config {
 	if signatureKeyFromEnv == "" {
 		signatureKey, _ = crypto.GeneratePrivateKeySecp256k1()
 	} else {
-		signatureKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(communicationKeyFromEnv)
+		signatureKeyImported, err1 := crypto.ImportPrivateKeySecp256k1FromHex(signatureKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading Secp256 key from hex string: %v\n", err1)
+			panic(err1)
+		}
+		signatureKey = signatureKeyImported
 	}
 
 	return &Config{
