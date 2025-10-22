@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -52,7 +55,7 @@ func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Conte
 	if f, ok := m.GetMockedFunc("SendGenerateDeanonymizationReport"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
 	}
-	return &common.DeanonymizationReport{ReportID: req.RequestID}, nil
+	return &common.DeanonymizationReport{ApplicationID: req.ApplicationID, ReportID: req.RequestID}, nil
 }
 
 func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
@@ -1009,4 +1012,87 @@ func setupTest() (*blockchain.MockClient, *SecureProcessorManager) {
 		isRunning:        true}
 
 	return bcClient, processor
+}
+
+func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
+	mockBCClient, manager := setupTest()
+
+	// Create a temporary directory for the reports
+	tempDir, err := os.MkdirTemp("", "reports")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Deploy the application first
+	deployRequest := createRequest(common.Deploy, "1")
+	err = mockBCClient.SendRequestToChain(context.Background(), deployRequest)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+	completedRequests := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+
+	// Case 1: DeanonymizationReportPath is not set, so the report should not be saved to the filesystem
+	// Create a deanonymization request
+	request := createRequest(common.Deanonymize, "1")
+	err = mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+	manager.config.DeanonymizationReportPath = ""
+	err = manager.processDeanonymization(context.Background(), request)
+	require.NoError(t, err)
+	completedRequests = mockBCClient.GetCompletedRequests()
+	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	// Check that the report file does not exist
+	reportFilePath := filepath.Join(tempDir, request.ApplicationID+"_"+request.RequestID)
+	_, err = os.Stat(reportFilePath)
+	require.True(t, os.IsNotExist(err), "Report file should not exist when DeanonymizationReportPath is not set")
+	// check we have it in the data layer
+	storedReport, err := manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
+	require.NoError(t, err)
+	require.Equal(t, storedReport.ReportID, request.RequestID)
+
+	// Case 2: DeanonymizationReportPath is set, so the report should be saved to the filesystem
+	// Create a deanonymization request
+	request = createRequest(common.Deanonymize, "1")
+	err = mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+	manager.config.DeanonymizationReportPath = tempDir
+	err = manager.processDeanonymization(context.Background(), request)
+	require.NoError(t, err)
+	completedRequests = mockBCClient.GetCompletedRequests()
+	require.Equal(t, 3, len(completedRequests), "expected 3 completed request")
+	// Check that the report file exists
+	reportFilePath = filepath.Join(tempDir, request.ApplicationID+"_"+request.RequestID)
+	_, err = os.Stat(reportFilePath)
+	require.NoError(t, err, "Report file should exist when DeanonymizationReportPath is set")
+	// Read the report from the filesystem and verify its contents
+	reportBytes, err := os.ReadFile(reportFilePath)
+	require.NoError(t, err)
+	var report common.DeanonymizationReport
+	err = json.Unmarshal(reportBytes, &report)
+	require.NoError(t, err)
+	require.Equal(t, request.RequestID, report.ReportID, "Report ID should match the request ID")
+	require.Equal(t, request.ApplicationID, report.ApplicationID, "Report App ID should match the request App ID")
+	// check we have it also in the data layer
+	storedReport, err = manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
+	require.NoError(t, err)
+	require.Equal(t, storedReport.ReportID, request.RequestID)
+
+	// Case 3: Error creating the directory
+	// Create a deanonymization request
+	request = createRequest(common.Deanonymize, "1")
+	err = mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+	// Set the path to a read-only directory to simulate an error
+	readOnlyDir := filepath.Join(tempDir, "readonly")
+	err = os.Mkdir(readOnlyDir, 0555)
+	require.NoError(t, err)
+	manager.config.DeanonymizationReportPath = filepath.Join(readOnlyDir, "reports")
+	err = manager.processDeanonymization(context.Background(), request)
+	require.NoError(t, err, "processDeanonymization should not return an error even if it fails to create the directory")
+	completedRequests = mockBCClient.GetCompletedRequests()
+	require.Equal(t, 4, len(completedRequests), "expected 4 completed request")
+	// check we have it also in the data layer
+	storedReport, err = manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
+	require.NoError(t, err)
+	require.Equal(t, storedReport.ReportID, request.RequestID)
 }

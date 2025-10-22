@@ -55,6 +55,9 @@ type Config struct {
 	DataLayerDBPath string
 	// DataLayerNumOfVersions specifies how many historical versions to keep. Only used by "versioned_leveldb".
 	DataLayerNumOfVersions int
+
+	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
+	DeanonymizationReportPath string
 }
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
@@ -93,6 +96,8 @@ func DefaultConfig() *Config {
 	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
 	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
 
+	reportsPath := os.Getenv("MANAGER_REPORTS_FOLDER")
+  
 	reorgTimeoutEnvVar := os.Getenv("REORG_TIMEOUT")
 	reorgTimeout, err := strconv.ParseInt(reorgTimeoutEnvVar, 10, 32)
 	if err != nil {
@@ -121,9 +126,10 @@ func DefaultConfig() *Config {
 
 		MockBlockChainClient: false,
 		// Data layer configuration
-		DataLayerType:          "versioned_leveldb",
-		DataLayerDBPath:        dataPath,
-		DataLayerNumOfVersions: 10, // useful only for versioned leveldb
+		DataLayerType:             "versioned_leveldb",
+		DataLayerDBPath:           dataPath,
+		DataLayerNumOfVersions:    10,          // useful only for versioned leveldb
+		DeanonymizationReportPath: reportsPath, // optional, default to not-there semantic
 	}
 }
 
@@ -155,9 +161,10 @@ func ReadConfig() *Config {
 		TeeAuthAddress:       config.MustGetString("TeeAuthenticatorAddress"),
 		MockBlockChainClient: config.MustGetBool("MockBlockChainClient"),
 		// Data layer configuration
-		DataLayerType:          config.MustGetString("DataLayerType"),
-		DataLayerDBPath:        config.MustGetString("DataLayerDBPath"),
-		DataLayerNumOfVersions: config.MustGetInt("DataLayerNumOfVersions"),
+		DataLayerType:             config.MustGetString("DataLayerType"),
+		DataLayerDBPath:           config.MustGetString("DataLayerDBPath"),
+		DataLayerNumOfVersions:    config.MustGetInt("DataLayerNumOfVersions"),
+		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
 	}
 }
 
