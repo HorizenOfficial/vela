@@ -19,16 +19,9 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
+
 )
 
-type RequestStatus uint8
-
-const (
-	RequestPending RequestStatus = iota
-	RequestCompleted
-	RequestFailedRefunded
-	RequestFailedNotRefunded
-)
 
 type SimTestHelper struct {
 	t *testing.T
@@ -47,6 +40,8 @@ type SimTestHelper struct {
 	autoMining               bool
 	cancel                   context.CancelFunc
 }
+
+
 
 func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
 	// Since we are using a simulated backend, we will get the chain ID
@@ -332,3 +327,4 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelper {
 	return NewSimTeeAuthenticatorHelper(s.t, s.TeeSignerAddress, s.sim.Client())
 }
+

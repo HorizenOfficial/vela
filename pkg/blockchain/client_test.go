@@ -31,16 +31,7 @@ var (
 )
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
-	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, testHelper.TeeSignerAddress, "", nil)
-	blockchainClient.client = testHelper.Client()
-
-	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, testHelper.ProcessorContractAddress)
-	blockchainClient.teeAuthBoundContract = blockchainClient.teeAuthEndpoint.Instance(blockchainClient.client, testHelper.TeeSignerAddress)
-
-	blockchainClient.account = testHelper.ManagerAccount
-	blockchainClient.connected = true
-
-	return blockchainClient
+	return SetupNewBlockChainClientConnected(testHelper.Client(), testHelper.ProcessorContractAddress,  testHelper.TeeSignerAddress, testHelper.ManagerAccount)
 
 }
 
@@ -424,6 +415,8 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 	require.NoError(t, err)
 }
 
+
+
 func TestSubmitRequest(t *testing.T) {
 	// mock private key for the client
 	testHelper := setupSimTestHelper(t, true, nil)
@@ -470,4 +463,110 @@ func TestSubmitRequest(t *testing.T) {
 	if !found {
 		t.Errorf("Submitted request not found in pending requests")
 	}
+}
+
+func TestGetRequestCompletedEvent(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	//*****************************************************
+	// submit request
+	transferValue := big.NewInt(0)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+
+	// wait for transaction inclusion
+	testHelper.WaitMined(tx)
+
+	receipt, err := testHelper.GetTxReceipt(tx)
+	require.NoError(t, err)
+	requestBlock := receipt.BlockNumber.Uint64()
+
+	res, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
+	require.NoError(t, err)
+
+	event, err := blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, requestBlock, requestBlock + 1)
+	require.Error(t, err)
+	require.Nil(t, event)
+
+
+	// First check where for sure there is not the event, ie in the block where the request was mined
+	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, requestBlock, 0)
+	require.NoError(t, err)
+	require.Nil(t, event, "RequestCompletedEvent shouldn't be found")
+
+	// Check now from the tip, it should be found because the MarkRequestCompleted was successful
+	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, 0, requestBlock + 1)
+	require.NoError(t, err)
+	require.NotNil(t, event, "RequestCompletedEvent should be found")
+
+	require.True(t, event.Status == common.RequestResultOK)
+
+
+	// Try with a failure
+	transferValue = big.NewInt(1000000)
+	tx = testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+
+	// wait for transaction inclusion
+	testHelper.WaitMined(tx)
+
+	receipt, err = testHelper.GetTxReceipt(tx)
+	require.NoError(t, err)
+	requestBlock = receipt.BlockNumber.Uint64()
+
+	res, err = blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID)
+	require.NoError(t, err)
+
+	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, 0, requestBlock + 1)
+	require.NoError(t, err)
+	require.NotNil(t, event, "RequestCompletedEvent should be found")
+
+	require.True(t, event.Status == common.RequestResultFailed)
+
+	// Try with a state update
+	tx = testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	// wait for transaction inclusion
+	testHelper.WaitMined(tx)
+
+	receipt, err = testHelper.GetTxReceipt(tx)
+	require.NoError(t, err)
+	requestBlock = receipt.BlockNumber.Uint64()
+
+	res, err = blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
+	withdrawals := []common.Withdrawal{
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
+	}
+
+	oldStateRoot := testHelper.GetStateRoot()
+
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID: res[0].ApplicationID,
+		RequestID:     res[0].RequestID,
+		PrevStateRoot: oldStateRoot,
+		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
+		Events:        events[:],
+		Withdrawals:   withdrawals,
+		Signature:     signature[:],
+	}
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+
+	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, 0, requestBlock + 1)
+	require.NoError(t, err)
+	require.NotNil(t, event, "RequestCompletedEvent should be found")
+
+	require.True(t, event.Status == common.RequestResultOK)
+
 }

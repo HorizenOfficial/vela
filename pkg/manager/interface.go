@@ -2,8 +2,10 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
@@ -95,10 +97,24 @@ func DefaultConfig() *Config {
 	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
 
 	reportsPath := os.Getenv("MANAGER_REPORTS_FOLDER")
+  
+	reorgTimeoutEnvVar := os.Getenv("REORG_TIMEOUT")
+	reorgTimeout, err := strconv.ParseInt(reorgTimeoutEnvVar, 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert REORG_TIMEOUT for error %v, using default value", err)
+		reorgTimeout = 180
+	}
+
+	blockchainPollingIntervalEnvVar := os.Getenv("BLOCKCHAIN_POLLING_INTERVAL")
+	blockchainPollingInterval, err := strconv.ParseInt(blockchainPollingIntervalEnvVar, 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert BLOCKCHAIN_POLLING_INTERVAL for error %v, using default value", err)
+		blockchainPollingInterval = 5
+	}
 
 	return &Config{
-		ReorgTimeout:              180,   // 3 minutes
-		BlockchainPollingInterval: 5,     // 5 seconds
+		ReorgTimeout:              reorgTimeout, 
+		BlockchainPollingInterval: blockchainPollingInterval,     
 		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
 			"url": executorServerAddress + ":" + executorServerPort,

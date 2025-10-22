@@ -130,6 +130,35 @@ type PlainEvent struct {
 	Data []byte `json:"data"`
 }
 
+// RequestResultStatus represents the final status of a request after the execution
+type RequestResultStatus uint8
+
+const (
+	RequestResultOK RequestResultStatus = iota
+	RequestResultFailed 
+	RequestResultFailedNotRefunded
+	RequestResultUnknown
+)
+
+// RequestResult represents the result on chain of a request (eg successful or failed with its error )
+type RequestResult struct {
+	Status RequestResultStatus
+	FailureReason string
+}
+
+func UInt8ToRequestResultStatus(i uint8) (RequestResultStatus, error) {
+switch i {
+	case 0:
+		return RequestResultOK, nil
+	case 1:
+		return RequestResultFailed, nil
+	case 2:
+		return RequestResultFailedNotRefunded, nil
+	default:
+		return RequestResultUnknown, fmt.Errorf("unknown request status value %d", i)
+	}
+}
+
 func StringToBigInt(s string) (*big.Int, bool) {
 	return new(big.Int).SetString(s, 10)
 }
