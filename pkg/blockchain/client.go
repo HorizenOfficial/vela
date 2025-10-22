@@ -11,13 +11,14 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
+	"github.com/ethereum/go-ethereum/core/types"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/crypto"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/crypto"
 )
 
 //go:generate mkdir -p ../../contract_abis
@@ -46,12 +47,12 @@ type BlockChainClient struct {
 	mu                     sync.RWMutex
 	connected              bool
 	processorAddress       ethCommon.Address
-	teeAuthAddress			 ethCommon.Address
+	teeAuthAddress         ethCommon.Address
 	rpcURL                 string
 	processorBoundContract *bind.BoundContract
 	processorEndpoint      *processorendpoint.ProcessorEndpoint
-	teeAuthBoundContract     *bind.BoundContract
-	teeAuthEndpoint          *tee.TeeAuthenticator
+	teeAuthBoundContract   *bind.BoundContract
+	teeAuthEndpoint        *tee.TeeAuthenticator
 	client                 ChainClient
 	privKey                *cryptotypes.PrivateKeySecp256k1
 	account                *bind.TransactOpts
@@ -73,10 +74,10 @@ func toRequestType(i uint8) common.RequestType {
 func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:  processor,
-		teeAuthAddress:		 teeAuthenticator,
+		teeAuthAddress:    teeAuthenticator,
 		rpcURL:            rpcURL,
 		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
-		teeAuthEndpoint:	 tee.NewTeeAuthenticator(),
+		teeAuthEndpoint:   tee.NewTeeAuthenticator(),
 		privKey:           key,
 	}
 }
@@ -113,9 +114,6 @@ func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
 		return nil
 	}
 
-	if strings.Contains(chainErr.Error(), "nonce too low") {
-		return ReorgError{causedBy: chainErr}
-	}
 	raw, hasRevertErrorData := ethclient.RevertErrorData(chainErr)
 	if !hasRevertErrorData {
 		return fmt.Errorf("call returned error: %w", chainErr)
@@ -124,18 +122,30 @@ func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
 	if unpack_err != nil {
 		return fmt.Errorf("call returned unknown error: %w", chainErr)
 	}
-	err := fmt.Errorf("call returned error: %T", rawUnpackedErr)
-
-	switch rawUnpackedErr.(type) {
-	case *processorendpoint.ProcessorEndpointInvalidApplicationId,
-		 *processorendpoint.ProcessorEndpointInvalidStateRoot,
-		 *processorendpoint.ProcessorEndpointInvalidRequestId:
-		return ReorgError{causedBy: err}
-	default:
-		return fmt.Errorf("contract revert: %T", err)
-	}
+	return fmt.Errorf("contract revert: %T", rawUnpackedErr)
 
 }
+
+func (c *BlockChainClient) UnpackProcessorEndpointErrorAndCheckForReorg(chainErr error) error {
+	if chainErr == nil {
+		return nil
+	}
+
+	if strings.Contains(chainErr.Error(), "nonce too low") {
+		return ReorgError{causedBy: chainErr}
+	}
+
+	unpackedError := c.UnpackProcessorEndpointError(chainErr)
+
+	if strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidApplicationId") ||
+	   strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidStateRoot") || 
+	   strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidRequestId") {
+		return ReorgError{causedBy: unpackedError}
+	}
+	return unpackedError
+
+}
+
 
 // GetPendingRequests gets pending requests from the blockchain
 func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Request, error) {
@@ -152,7 +162,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 		c.processorEndpoint.UnpackGetPendingRequests)
 
 	if err != nil {
-		return nil, c.UnpackProcessorEndpointError(err)
+		return nil, c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
 	}
 
 	output := make([]*common.Request, 0, len(listOfRequests))
@@ -190,7 +200,7 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		c.processorEndpoint.UnpackGetNextPendingRequest)
 
 	if err != nil {
-		return nil, [32]byte{}, c.UnpackProcessorEndpointError(err)
+		return nil, [32]byte{}, c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
 	}
 
 	stateRoot := output.Arg1
@@ -220,13 +230,18 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) error {
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
 	if err != nil {
-		return c.UnpackProcessorEndpointError(err)
+		return c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
 	}
 
 	// wait for transaction inclusion
-	if _, err := bind.WaitMined(ctx, c.client, tx.Hash()); err != nil {
+	receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
+	if err != nil {
 		return fmt.Errorf("error waiting for tx inclusion: %w", err)
 	}
+
+    if receipt.Status != 1 {
+        return fmt.Errorf("transaction failed")
+    }
 	return nil
 }
 
@@ -286,7 +301,7 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
     // Send the transaction
     tx, err := bind.Transact(c.processorBoundContract, c.account, data)
     if err != nil {
-        return "", 0, fmt.Errorf("failed to submit transaction: %w", err)
+        return "", 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
     }
 
     // Wait for transaction to be mined
@@ -392,20 +407,10 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 
 	contractAddr := c.processorAddress
 	//check from block
-	if fromBlock == 0 {
-		latestBlock, err := c.client.BlockByNumber(ctx, nil)
-		if err != nil {
-			return EMPTY, fmt.Errorf("failed to get latest block: %w", err)
-		}
-		fromBlock = latestBlock.NumberU64()
-	}
-	if fromBlock < toBlock {
-		return EMPTY, fmt.Errorf("fromBlock should be >= than toBlock")
-	}
 
-	parsedABI, err := processorendpoint.ProcessorEndpointMetaData.ParseABI()
+	fromBlock, err := c.checkQueryFromBlock(ctx, fromBlock, toBlock)
 	if err != nil {
-		return EMPTY, fmt.Errorf("cannot parse ABI: %w", err)
+		return EMPTY, err
 	}
 
 	//retrieve tee public key (needed to decrypt)
@@ -422,7 +427,8 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	}
 
 	//needed for event filter
-	userEventSig := parsedABI.Events["UserEvent"].ID
+	userEventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointUserEventEventName)
+	
 	appIdHash := ethCommon.BigToHash(&applicationId)
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
 
@@ -438,21 +444,108 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	if err != nil {
 		return EMPTY, fmt.Errorf("failed to filter logs: %w", err)
 	}
-	
+
 	for i := len(logs) - 1; i >= 0; i-- { //backwards search
 		vLog := logs[i]
-		event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
-		if err != nil {
-			continue
-		}
-		decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
-		if err == nil && (filter == nil || filter(decrypted)) {
-			//found decryptable event that pass filter function
-			events = append(events, decrypted)
-			if stopAtFirst {
-				return events, nil
+		if !vLog.Removed {
+			event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
+			if err != nil {
+				continue
 			}
+			decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
+			if err == nil && (filter == nil || filter(decrypted)) {
+				//found decryptable event that pass filter function
+				events = append(events, decrypted)
+				if stopAtFirst {
+					return events, nil
+				}
+			}
+
 		}
 	}
 	return events, nil
+}
+
+
+func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock uint64, toBlock uint64) (uint64, error) {
+	if fromBlock == 0 {
+		latestBlock, err := c.client.BlockByNumber(ctx, nil)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get latest block: %w", err)
+		}
+		fromBlock = latestBlock.NumberU64()
+	}
+
+	if fromBlock < toBlock {
+		return 0, fmt.Errorf("fromBlock should be >= than toBlock")
+	}
+
+	return fromBlock, nil
+}
+
+// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
+// requestID: identifier of the request
+// fromBlock: block from which the function search events
+// toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
+func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, requestID string, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	fromBlock, err := c.checkQueryFromBlock(ctx, fromBlock, toBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	reqId, err := common.RequestIdStringTo32Byte(requestID)
+	if  err != nil {
+		return nil, fmt.Errorf("invalid request ID %s: %w", requestID, err)
+	}
+	reqIdHash := ethCommon.BytesToHash(reqId[:])
+
+	eventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointRequestCompletedEventName)
+	topicsHash := [][]ethCommon.Hash{{eventSig}, {reqIdHash}}
+
+	query := ethereum.FilterQuery{
+		Addresses: []ethCommon.Address{c.processorAddress},
+		FromBlock: new(big.Int).SetUint64(toBlock),
+		ToBlock:   new(big.Int).SetUint64(fromBlock),
+		Topics:    topicsHash,
+	}
+
+	logs, err := c.client.FilterLogs(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter logs: %w", err)
+	}
+
+	valid_logs := make([]types.Log, 0)
+
+	for _, log := range logs {
+		if !log.Removed  {
+			valid_logs = append(valid_logs, log)
+		}
+	}
+
+	if len(valid_logs) == 0 {
+		return nil, nil
+	}
+
+	if len(valid_logs) > 1 {
+		return nil, fmt.Errorf("found more than 1 log for requestID: %s", requestID)
+	}
+
+	event, err := c.processorEndpoint.UnpackRequestCompletedEvent(&valid_logs[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack log: %w", err)
+	}
+
+	status, err := common.UInt8ToRequestResultStatus(event.Status)
+	if err != nil {
+		return nil, fmt.Errorf("unknown status: %w", err)
+	}
+
+	return &common.RequestResult{Status: status}, nil
 }
