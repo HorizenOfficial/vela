@@ -13,14 +13,17 @@ func TestCheckSignature(t *testing.T) {
 	applicationId := "1"
 	execConfig := DefaultConfig()
 
-	builder, err :=  NewMsgToSignBuilder()
+	builder, err := NewMsgToSignBuilder()
 	require.NoError(t, err)
+
+	qqq, _ := CreateNewKeySet()
 
 	executor := &StatelessExecutor{
 		config:           execConfig,
 		MsgToSignBuilder: builder,
+		keySet:           qqq,
 	}
-	executorAddress := ethCrypto.PubkeyToAddress(execConfig.SignatureKey.PrivateKey.PublicKey)
+	executorAddress := ethCrypto.PubkeyToAddress(*executor.keySet.SigningKey.PublicKey().PublicKey)
 
 	testHelper := testutil.NewSimTestHelper(t, false, false, &executorAddress, nil)
 	defer testHelper.Close()

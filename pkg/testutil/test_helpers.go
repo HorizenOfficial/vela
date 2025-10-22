@@ -89,7 +89,10 @@ func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manag
 		t.Log("wasm app type: ", appType)
 		runtime = wasm.NewWasmtimeRuntime()
 	}
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server)
+	// TODO temp
+	qqq, _ := executor.CreateNewKeySet()
+	// Create the executor
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, qqq)
 	require.NoError(t, err)
 
 	// Create event channel
@@ -105,8 +108,8 @@ func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manag
 		eventChannel:       eventChannel,
 		ctx:                ctx,
 		cancel:             cancel,
-		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
-		executorSigningKey: execConfig.SignatureKey,     // Store the executor's signing key
+		executorCommKey:    &qqq.CommunicationKey, // Store the executor's communication key
+		executorSigningKey: &qqq.SigningKey,       // Store the executor's signing key
 		dbPath:             dbPath,
 		reportsPath:        reportsPath,
 	}
