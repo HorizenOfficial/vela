@@ -53,3 +53,21 @@ func TestSaveLoadAESKeyPEM(t *testing.T) {
 		t.Fatal("loaded key does not match original key")
 	}
 }
+
+func TestSaveLoadAESKeyHEX(t *testing.T) {
+	key, err := GenerateAESKey()
+	if err != nil {
+		t.Fatalf("failed to generate aes key: %v", err)
+	}
+
+	str := ExportKeyAESToHex(&key)
+
+	loadedKey, err := ImportKeyAESFromHex(str)
+	if err != nil {
+		t.Fatalf("failed to import aes key: %v", err)
+	}
+
+	if !bytes.Equal(key[:], loadedKey[:]) {
+		t.Fatal("loaded key does not match original key")
+	}
+}
