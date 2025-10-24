@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/horizen-pes/pkg/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -864,6 +865,41 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		require.Error(t, err, "WASM for AppB should be gone after rollback")
 		var notFoundErr *storageErrors.Error
 		require.True(t, errors.As(err, &notFoundErr) && notFoundErr.Code == storageErrors.NotFound)
+	})
+
+	t.Run("StoreAndGetEnclaveKeySetRecovery", func(t *testing.T) {
+		// Tests the store and get operations for EnclaveKeySetRecovery.
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+		expectedRecoveryData := &executor.EnclaveKeySetRecovery{
+			RecoveryType:       1,
+			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
+			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
+		}
+		err = store.StoreEnclaveKeySetRecovery(ctx, expectedRecoveryData)
+		require.NoError(t, err, "StoreEnclaveKeySetRecovery should not return an error")
+		actualRecoveryData, err := store.GetEnclaveKeySetRecovery(ctx)
+		require.NoError(t, err, "GetEnclaveKeySetRecovery should not return an error")
+		require.NotNil(t, actualRecoveryData, "GetEnclaveKeySetRecovery should return non-nil data")
+		if diff := cmp.Diff(expectedRecoveryData, actualRecoveryData); diff != "" {
+			t.Errorf("Retrieved EnclaveKeySetRecovery mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("GetNonExistentEnclaveKeySetRecovery", func(t *testing.T) {
+		// Ensures that trying to get non-existent recovery data returns a 'NotFound' error.
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+		_, err = store.GetEnclaveKeySetRecovery(ctx)
+		require.Error(t, err, "Expected an error when getting non-existent recovery data")
+		var notFoundErr *storageErrors.Error
+		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
+			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
+		}
 	})
 
 	t.Run("ConcurrentRollbackAndWrite", func(t *testing.T) {

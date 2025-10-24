@@ -7,6 +7,7 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
+	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
@@ -14,13 +15,14 @@ import (
 // MockDataLayer is a mock implementation of the data layer for testing.
 // It is safe for concurrent use.
 type MockDataLayer struct {
-	mutex     sync.RWMutex
-	states    map[string]*common.ApplicationState
-	bytecodes map[string][]byte
-	reports   map[string]*common.DeanonymizationReport
-	keys      map[string][]byte
-	isClosed  bool
-	versions [][]byte
+	mutex              sync.RWMutex
+	states             map[string]*common.ApplicationState
+	bytecodes          map[string][]byte
+	reports            map[string]*common.DeanonymizationReport
+	keys               map[string][]byte
+	enclaveKeyRecovery *executor.EnclaveKeySetRecovery
+	isClosed           bool
+	versions           [][]byte
 	*testutil.MockFunctions
 }
 
@@ -123,8 +125,8 @@ func (d *MockDataLayer) StoreDeanonymizationReport(ctx context.Context, report *
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	if f, ok:= d.GetMockedFunc("StoreDeanonymizationReport"); ok {
-		return f.(func(context.Context, *common.DeanonymizationReport) (error))(ctx, report)
+	if f, ok := d.GetMockedFunc("StoreDeanonymizationReport"); ok {
+		return f.(func(context.Context, *common.DeanonymizationReport) error)(ctx, report)
 	}
 
 	if err := d.checkClosed(); err != nil {
@@ -146,6 +148,40 @@ func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID s
 		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID)
 	}
 	return report, nil
+}
+
+// StoreEnclaveKeySetRecovery stores the enclave key set recovery data.
+func (d *MockDataLayer) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *executor.EnclaveKeySetRecovery) error {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	if f, ok := d.GetMockedFunc("StoreEnclaveKeySetRecovery"); ok {
+		return f.(func(context.Context, *executor.EnclaveKeySetRecovery) error)(ctx, recoveryData)
+	}
+
+	if err := d.checkClosed(); err != nil {
+		return err
+	}
+	d.enclaveKeyRecovery = recoveryData
+	return nil
+}
+
+// GetEnclaveKeySetRecovery retrieves the enclave key set recovery data.
+func (d *MockDataLayer) GetEnclaveKeySetRecovery(ctx context.Context) (*executor.EnclaveKeySetRecovery, error) {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	if f, ok := d.GetMockedFunc("GetEnclaveKeySetRecovery"); ok {
+		return f.(func(context.Context) (*executor.EnclaveKeySetRecovery, error))(ctx)
+	}
+
+	if err := d.checkClosed(); err != nil {
+		return nil, err
+	}
+	if d.enclaveKeyRecovery == nil {
+		return nil, storageErrors.ErrNotFound("enclave key set recovery data not found")
+	}
+	return d.enclaveKeyRecovery, nil
 }
 
 // Close marks the mock data layer as closed.
@@ -179,7 +215,6 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 		return nil
 	}
 
-
 	for i, v := range d.versions {
 		if string(v) == string(versionID) {
 			d.versions = d.versions[:i+1]
@@ -188,7 +223,7 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 			}
 
 			return nil
-		}		
+		}
 	}
 	return fmt.Errorf("versionID not found: %x", versionID)
 }
@@ -198,7 +233,7 @@ func (d *MockDataLayer) LastVersionID() ([]byte, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok:= d.GetMockedFunc("LastVersionID"); ok {
+	if f, ok := d.GetMockedFunc("LastVersionID"); ok {
 		return f.(func() ([]byte, error))()
 	}
 
@@ -214,10 +249,10 @@ func (d *MockDataLayer) ListVersions() ([][]byte, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok:= d.GetMockedFunc("ListVersions"); ok {
+	if f, ok := d.GetMockedFunc("ListVersions"); ok {
 		return f.(func() ([][]byte, error))()
 	}
-	
+
 	lifoVersions := make([][]byte, len(d.versions))
 	for i, v := range d.versions {
 		lifoVersions[len(d.versions)-1-i] = v

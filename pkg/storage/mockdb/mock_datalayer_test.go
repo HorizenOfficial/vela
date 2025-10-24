@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/executor"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/assert"
@@ -150,6 +151,13 @@ func TestApplicationStateStore(t *testing.T) {
 			"StoreDeanonymizationReport": func() error {
 				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
 			},
+			"StoreEnclaveKeySetRecovery": func() error {
+				return store.StoreEnclaveKeySetRecovery(ctx, &executor.EnclaveKeySetRecovery{})
+			},
+			"GetEnclaveKeySetRecovery": func() error {
+				_, err := store.GetEnclaveKeySetRecovery(ctx)
+				return err
+			},
 		}
 
 		for name, op := range operations {
@@ -200,6 +208,35 @@ func TestApplicationStateStore(t *testing.T) {
 			}(i)
 		}
 		wg.Wait()
+	})
+
+	t.Run("StoreAndGetEnclaveKeySetRecovery", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+		expectedRecoveryData := &executor.EnclaveKeySetRecovery{
+			RecoveryType:       1,
+			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
+			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
+		}
+		err := store.StoreEnclaveKeySetRecovery(ctx, expectedRecoveryData)
+		require.NoError(t, err, "StoreEnclaveKeySetRecovery should not error")
+		actualRecoveryData, err := store.GetEnclaveKeySetRecovery(ctx)
+		require.NoError(t, err, "GetEnclaveKeySetRecovery for existing data should not error")
+		require.NotNil(t, actualRecoveryData, "GetEnclaveKeySetRecovery should return a non-nil data")
+		if diff := cmp.Diff(expectedRecoveryData, actualRecoveryData); diff != "" {
+			t.Errorf("Retrieved EnclaveKeySetRecovery mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("GetNonExistentEnclaveKeySetRecovery", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+		_, err := store.GetEnclaveKeySetRecovery(ctx)
+		require.Error(t, err, "Expected an error when getting non-existent recovery data")
+		var notFoundErr *storageErrors.Error
+		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
+			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
+		}
 	})
 
 	t.Run("StoreArays", func(t *testing.T) {
