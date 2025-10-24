@@ -108,7 +108,7 @@ For running `abigen`, check to have `solc` installed:
 ```bash
 solc --version
 ```
-Version 0.8.30 must be used.
+solc version 0.8.30 must be used.
 In order to install the proper version of `solc` we suggest to use [solc-select](https://github.com/crytic/solc-select) (a tool to quickly switch between Solidity compiler versions):
 
 ```bash
@@ -117,6 +117,8 @@ solc-select use 0.8.30 --always-install
 ```
 
 For installing `abigen`:
+(Version 1.16.2 must be used)
+
 ```bash
 go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
 ```
