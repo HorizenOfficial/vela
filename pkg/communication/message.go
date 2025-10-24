@@ -30,10 +30,14 @@ const (
 	DeanonymizationResponseMessage
 	// ErrorMessage represents an error message
 	ErrorMessage
-	// ExecutorToManagerHandShakeMessage represents a handshake message from executor to manager
-	ExecutorToManagerHandShakeMessage
-	// ManagerToExecutorHandShakeMessage represents a handshake message from manager to executor
-	ManagerToExecutorHandShakeMessage
+	// GetKeysetRecoveryRequestMessage represents a handshake message from executor to manager
+	GetKeysetRecoveryRequestMessage
+	// GetKeysetRecoveryResponseMessage represents a handshake message from manager to executor
+	GetKeysetRecoveryResponseMessage
+	// SetKeysetRecoveryRequestMessage represents a request to set the keyset recovery data from executor to manager
+	SetKeysetRecoveryRequestMessage
+	// SetKeysetRecoveryResponseMessage represents a response to a set keyset recovery request from manager to executor
+	SetKeysetRecoveryResponseMessage
 )
 
 // Message represents a message exchanged between components
@@ -105,13 +109,24 @@ type ErrorData struct {
 	Message string `json:"message"`
 }
 
-// ExecutorHandShakeRequestData represents data for a handshake message from executor to manager
-type ExecutorHandShakeRequestData struct {
+// GetKeysetRecoveryRequestData represents data for a message from executor to manager
+type GetKeysetRecoveryRequestData struct {
 	Message string `json:"message"`
 }
 
-// ManagerHandShakeResponseData represents data for a handshake message from manager to executor
-type ManagerHandShakeResponseData struct {
+// GetKeysetRecoveryResponseData represents data for a message from manager to executor
+type GetKeysetRecoveryResponseData struct {
+	DataFound      bool                          `json:"dataFound"`
+	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
+}
+
+// SetKeysetRecoveryRequestData represents data for a set keyset recovery request message
+type SetKeysetRecoveryRequestData struct {
+	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
+}
+
+// SetKeysetRecoveryResponseData represents data for a set keyset recovery response message
+type SetKeysetRecoveryResponseData struct {
 	Message string `json:"message"`
 }
 

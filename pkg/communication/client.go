@@ -225,8 +225,8 @@ func (c *Client) SendGenerateDeanonymizationReport(ctx context.Context, req *com
 func (c *Client) HandShake(ctx context.Context, message string) (string, error) {
 	msg := Message{
 		ID:   generateID(),
-		Type: ExecutorToManagerHandShakeMessage,
-		Data: ExecutorHandShakeRequestData{
+		Type: GetKeysetRecoveryRequestMessage,
+		Data: GetKeysetRecoveryRequestData{
 			Message: message,
 		},
 	}
@@ -241,16 +241,39 @@ func (c *Client) HandShake(ctx context.Context, message string) (string, error) 
 		return "", fmt.Errorf("server error: %s", errorData.Message)
 	}
 
-	if respMsg.Type != ManagerToExecutorHandShakeMessage {
+	if respMsg.Type != GetKeysetRecoveryResponseMessage {
 		return "", fmt.Errorf("unexpected response type: %v", respMsg.Type)
 	}
 
-	respData, err := extractData[ManagerHandShakeResponseData](respMsg.Data)
+	respData, err := extractData[GetKeysetRecoveryResponseData](respMsg.Data)
 	if err != nil {
 		return "", fmt.Errorf("failed to extract response data: %w", err)
 	}
 
-	return respData.Message, nil
+	if respData.DataFound {
+		// TODO recover the keys
+	} else {
+		// TODO create and store the keys
+		recv := &common.EnclaveKeySetRecovery{
+			RecoveryType:       1,
+			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
+			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
+		}
+
+		msg2 := Message{
+			ID:   generateID(),
+			Type: SetKeysetRecoveryRequestMessage,
+			Data: SetKeysetRecoveryRequestData{
+				KeySetRecovery: recv,
+			},
+		}
+		err := c.sendMessage(msg2)
+		if err != nil {
+			return "ERROR", err
+		}
+	}
+
+	return "TODO", nil
 }
 
 // sendRequestAndWaitForResponse sends a request and waits for the response
@@ -275,7 +298,7 @@ func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message)
 
 	// Send message
 	if err := c.sendMessage(msg); err != nil {
-		return nil, fmt.Errorf("failed to send message: %w", err)
+		return nil, fmt.Errorf("%s: failed to send message: %w", c.idLogTag, err)
 	}
 
 	// Wait for response or timeout
@@ -352,40 +375,75 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 // handleServerRequest handles requests initiated by the server
 func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
 	switch msg.Type {
-	case ExecutorToManagerHandShakeMessage:
-		c.handleHandShake(ctx, msg)
+	case GetKeysetRecoveryRequestMessage:
+		c.handleExecutorHandShake(ctx, msg)
+	case SetKeysetRecoveryRequestMessage:
+		c.handleSetKeysetRecoveryRequest(ctx, msg)
 	default:
 		log.Printf("%s: Warning: unknown message type: %v\n", c.idLogTag, msg.Type)
 	}
 }
 
-// handleHandShake handles Executor messages from the server
-func (c *Client) handleHandShake(ctx context.Context, msg *Message) {
+// handleExecutorHandShake handles Executor messages from the server
+func (c *Client) handleExecutorHandShake(ctx context.Context, msg *Message) {
 	if c.requestHandler == nil {
 		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
 		return
 	}
 
-	reqData, err := extractData[ExecutorHandShakeRequestData](msg.Data)
+	// TODO string message data not used, is it useful?
+	_, err := extractData[GetKeysetRecoveryRequestData](msg.Data)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
 		return
 	}
 
-	// TODO The ClientRequestHandler interface is not fully implemented here, so we need to cast it.
-	// This is not ideal, but it's the only way to access the HandleHandShake method.
 	// A better solution would be to have a more specific interface for the client request handler.
-	type handShakeHandler interface {
-		HandleHandShakeExecutorRequest(ctx context.Context, message string) (string, error)
+	recv, err := c.requestHandler.HandleGetKeysetRecoveryRequest(ctx)
+
+	var dataFound bool
+	var respRecv *common.EnclaveKeySetRecovery
+
+	if err != nil {
+		log.Printf("%s: KeysetRecovery not found in data layer: %v", c.idLogTag, err)
+		dataFound = false
+		respRecv = nil
+	} else {
+		dataFound = true
+		respRecv = recv
 	}
 
-	handler, ok := c.requestHandler.(handShakeHandler)
-	if !ok {
-		c.sendErrorResponse(msg.ID, "UNSUPPORTED", fmt.Errorf("request handler does not support HandleHandShake"))
+	response := Message{
+		ID:   msg.ID,
+		Type: GetKeysetRecoveryResponseMessage,
+		Data: GetKeysetRecoveryResponseData{
+			DataFound:      dataFound,
+			KeySetRecovery: respRecv,
+		},
+	}
+
+	log.Printf("%s: Sending response to executor", c.idLogTag)
+	err = c.sendMessage(response)
+	if err != nil {
+		log.Printf("%s: Failed to send GetKeysetRecoveryResponseMessage response: %v", c.idLogTag, err)
+		return
+	}
+}
+
+// handleSetKeysetRecoveryRequest handles a request to set the keyset recovery data
+func (c *Client) handleSetKeysetRecoveryRequest(ctx context.Context, msg *Message) {
+	if c.requestHandler == nil {
+		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
 		return
 	}
 
-	responseMessage, err := handler.HandleHandShakeExecutorRequest(ctx, reqData.Message)
+	reqData, err := extractData[SetKeysetRecoveryRequestData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	err = c.requestHandler.HandleSetKeysetRecoveryRequest(ctx, reqData.KeySetRecovery)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -393,16 +451,16 @@ func (c *Client) handleHandShake(ctx context.Context, msg *Message) {
 
 	response := Message{
 		ID:   msg.ID,
-		Type: ManagerToExecutorHandShakeMessage,
-		Data: ManagerHandShakeResponseData{
-			Message: responseMessage,
+		Type: SetKeysetRecoveryResponseMessage,
+		Data: SetKeysetRecoveryResponseData{
+			Message: "TODO",
 		},
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("%s: Failed to send HandleHandShake response: %v", c.idLogTag, err)
+		log.Printf("%s: Failed to send HandleSetKeysetRecoveryRequest response: %v", c.idLogTag, err)
 	}
-	log.Printf("%s: HandShake handled successfully, ID=%s", c.idLogTag, msg.ID)
+	log.Printf("%s: SetKeysetRecoveryRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // sendErrorResponse sends an error response

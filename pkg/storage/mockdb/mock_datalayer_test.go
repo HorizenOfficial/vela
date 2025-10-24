@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/executor"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/assert"
@@ -152,7 +151,7 @@ func TestApplicationStateStore(t *testing.T) {
 				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
 			},
 			"StoreEnclaveKeySetRecovery": func() error {
-				return store.StoreEnclaveKeySetRecovery(ctx, &executor.EnclaveKeySetRecovery{})
+				return store.StoreEnclaveKeySetRecovery(ctx, &common.EnclaveKeySetRecovery{})
 			},
 			"GetEnclaveKeySetRecovery": func() error {
 				_, err := store.GetEnclaveKeySetRecovery(ctx)
@@ -213,7 +212,7 @@ func TestApplicationStateStore(t *testing.T) {
 	t.Run("StoreAndGetEnclaveKeySetRecovery", func(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		expectedRecoveryData := &executor.EnclaveKeySetRecovery{
+		expectedRecoveryData := &common.EnclaveKeySetRecovery{
 			RecoveryType:       1,
 			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
 			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},

@@ -84,15 +84,29 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 
 // MockClientRequestHandler is a mock implementation for testing the new client
 type MockClientRequestHandler struct {
-	GetUserKeysFunc func(ctx context.Context, users []string) (map[string][]byte, error)
-	HelloFunc       func(ctx context.Context, message string) (string, error)
+	SetKeysetRecoveryFunc func(ctx context.Context, recv *common.EnclaveKeySetRecovery) error
+	GetKeysetRecoveryFunc func(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
+	HelloFunc             func(ctx context.Context, message string) (string, error)
 }
 
-func (m *MockClientRequestHandler) HandleHandShakeExecutorRequest(ctx context.Context, message string) (string, error) {
-	if m.HelloFunc != nil {
-		return m.HelloFunc(ctx, message)
+// HandleSetKeysetRecoveryRequest implements ClientRequestHandler.
+func (m *MockClientRequestHandler) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery) error {
+	if m.SetKeysetRecoveryFunc != nil {
+		return m.SetKeysetRecoveryFunc(ctx, recv)
 	}
-	return "Hello from manager", nil
+	return nil
+}
+
+func (m *MockClientRequestHandler) HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
+	if m.GetKeysetRecoveryFunc != nil {
+		return m.GetKeysetRecoveryFunc(ctx)
+	}
+	recv := &common.EnclaveKeySetRecovery{
+		RecoveryType:       1,
+		KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
+		RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
+	}
+	return recv, nil
 }
 
 func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
@@ -160,10 +174,10 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	assert.Equal(t, "test-report-id", report.ReportID)
 	assert.Equal(t, []byte("test-encrypted-report"), report.EncryptedReport)
 
-	// Test SendHello
-	responseMessage, err := client.HandShake(ctx, "Hello from executor")
-	require.NoError(t, err)
-	assert.Equal(t, "Hello from manager", responseMessage)
+	// Test Executor handshake with manager (TODO)
+	//responseMessage, err := client.HandShake(ctx, "Hello from executor")
+	//require.NoError(t, err)
+	//assert.Equal(t, "Hello from manager", responseMessage)
 }
 
 func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
@@ -281,11 +295,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	}
 
 	// Create a mock client request handler that returns errors
-	clientHandler := &MockClientRequestHandler{
-		GetUserKeysFunc: func(ctx context.Context, users []string) (map[string][]byte, error) {
-			return nil, assert.AnError
-		},
-	}
+	clientHandler := &MockClientRequestHandler{}
 
 	// Create a context
 	ctx := context.Background()

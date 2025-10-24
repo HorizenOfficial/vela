@@ -7,7 +7,6 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
@@ -20,7 +19,7 @@ type MockDataLayer struct {
 	bytecodes          map[string][]byte
 	reports            map[string]*common.DeanonymizationReport
 	keys               map[string][]byte
-	enclaveKeyRecovery *executor.EnclaveKeySetRecovery
+	enclaveKeyRecovery *common.EnclaveKeySetRecovery
 	isClosed           bool
 	versions           [][]byte
 	*testutil.MockFunctions
@@ -58,8 +57,8 @@ func (d *MockDataLayer) Store(
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	if f, ok:= d.GetMockedFunc("Store"); ok {
-		return f.(func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) (error))(ctx, versionID, stateArray, wasmArray)
+	if f, ok := d.GetMockedFunc("Store"); ok {
+		return f.(func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error)(ctx, versionID, stateArray, wasmArray)
 	}
 	if err := d.checkClosed(); err != nil {
 		return err
@@ -77,7 +76,6 @@ func (d *MockDataLayer) Store(
 		}
 	}
 
-
 	d.versions = append(d.versions, versionID)
 
 	return nil
@@ -88,7 +86,7 @@ func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID s
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok:= d.GetMockedFunc("GetApplicationState"); ok {
+	if f, ok := d.GetMockedFunc("GetApplicationState"); ok {
 		return f.(func(context.Context, string) (*common.ApplicationState, error))(ctx, applicationID)
 	}
 
@@ -107,7 +105,7 @@ func (d *MockDataLayer) GetWASMBytecode(ctx context.Context, applicationID strin
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok:= d.GetMockedFunc("GetWASMBytecode"); ok {
+	if f, ok := d.GetMockedFunc("GetWASMBytecode"); ok {
 		return f.(func(context.Context, string) ([]byte, error))(ctx, applicationID)
 	}
 	if err := d.checkClosed(); err != nil {
@@ -151,12 +149,12 @@ func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID s
 }
 
 // StoreEnclaveKeySetRecovery stores the enclave key set recovery data.
-func (d *MockDataLayer) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *executor.EnclaveKeySetRecovery) error {
+func (d *MockDataLayer) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *common.EnclaveKeySetRecovery) error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
 	if f, ok := d.GetMockedFunc("StoreEnclaveKeySetRecovery"); ok {
-		return f.(func(context.Context, *executor.EnclaveKeySetRecovery) error)(ctx, recoveryData)
+		return f.(func(context.Context, *common.EnclaveKeySetRecovery) error)(ctx, recoveryData)
 	}
 
 	if err := d.checkClosed(); err != nil {
@@ -167,12 +165,12 @@ func (d *MockDataLayer) StoreEnclaveKeySetRecovery(ctx context.Context, recovery
 }
 
 // GetEnclaveKeySetRecovery retrieves the enclave key set recovery data.
-func (d *MockDataLayer) GetEnclaveKeySetRecovery(ctx context.Context) (*executor.EnclaveKeySetRecovery, error) {
+func (d *MockDataLayer) GetEnclaveKeySetRecovery(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
 	if f, ok := d.GetMockedFunc("GetEnclaveKeySetRecovery"); ok {
-		return f.(func(context.Context) (*executor.EnclaveKeySetRecovery, error))(ctx)
+		return f.(func(context.Context) (*common.EnclaveKeySetRecovery, error))(ctx)
 	}
 
 	if err := d.checkClosed(); err != nil {
@@ -189,8 +187,8 @@ func (d *MockDataLayer) Close() error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	if f, ok:= d.GetMockedFunc("Close"); ok {
-		return f.(func() ( error))()
+	if f, ok := d.GetMockedFunc("Close"); ok {
+		return f.(func() error)()
 	}
 
 	d.isClosed = true
@@ -203,14 +201,14 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok:= d.GetMockedFunc("Rollback"); ok {
-		return f.(func([]byte) (error))(versionID)
+	if f, ok := d.GetMockedFunc("Rollback"); ok {
+		return f.(func([]byte) error)(versionID)
 	}
 
 	var initialState = [32]byte{}
 	if string(versionID) == string(initialState[:]) {
 		d.versions = make([][]byte, 0)
-		d.states =   make(map[string]*common.ApplicationState)
+		d.states = make(map[string]*common.ApplicationState)
 		d.bytecodes = make(map[string][]byte)
 		return nil
 	}
@@ -240,8 +238,8 @@ func (d *MockDataLayer) LastVersionID() ([]byte, error) {
 	if len(d.versions) == 0 {
 		return nil, storageErrors.ErrNoVersionInDb("No version in db")
 	}
-	
-	return d.versions[len(d.versions) - 1], nil
+
+	return d.versions[len(d.versions)-1], nil
 }
 
 // ListVersions is a mock implementation of the ListVersions method.

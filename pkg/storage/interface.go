@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/executor"
 )
 
 // ApplicationStateStore defines the interface for managing versioned application state,
@@ -54,9 +53,9 @@ type ApplicationReportStore interface {
 // This storage is not versioned.
 type EnclaveKeyStore interface {
 	// StoreEnclaveKeySetRecovery saves the enclave key set recovery data.
-	StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *executor.EnclaveKeySetRecovery) error
+	StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *common.EnclaveKeySetRecovery) error
 	// GetEnclaveKeySetRecovery retrieves the enclave key set recovery data.
-	GetEnclaveKeySetRecovery(ctx context.Context) (*executor.EnclaveKeySetRecovery, error)
+	GetEnclaveKeySetRecovery(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
 }
 
 // DataLayer is a composite interface that combines all the application's storage interfaces.

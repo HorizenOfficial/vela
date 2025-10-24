@@ -181,3 +181,13 @@ func RequestIdStringTo32Byte(s string) ([32]byte, error) {
 func RequestId32ByteToString(b [32]byte) string {
 	return hex.EncodeToString(b[:])
 }
+
+// EnclaveKeySetRecovery contains the data needed to recover the EnclaveKeySet.
+type EnclaveKeySetRecovery struct {
+	// RecoveryType is the type of recovery data.
+	RecoveryType int `json:"recoveryType"`
+	// KeySetCiphertext is the encrypted EnclaveKeySet.
+	KeySetCiphertext []byte `json:"keySetCiphertext"`
+	// RecoveryCiphertext is the master key used to encrypt the EnclaveKeySet.
+	RecoveryCiphertext []byte `json:"recoveryCiphertext"`
+}

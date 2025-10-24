@@ -9,6 +9,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/horizen-pes/pkg/common"
 )
 
 // ClientConnection represents a connection to a client
@@ -175,44 +177,86 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, idLogTag st
 
 	// We do not want to use a go routine here because we do want this method to block until a valid response is handled
 	log.Printf("%s: Sending handshake message to client %s", idLogTag, conn.RemoteAddr())
-	response, err := client.SendHandShake(ctx, "Hello from executor")
+	err := client.SendHandShake(ctx, "Hello from executor")
 	if err != nil {
 		log.Printf("%s: Failed to send handshake message: %v", idLogTag, err)
 		return
 	}
-	log.Printf("%s: Received handshake response from client: %s", idLogTag, response)
 }
 
 // SendHandShake sends a handshake message to the client and waits for a response.
-func (c *ClientConnection) SendHandShake(ctx context.Context, message string) (string, error) {
+func (c *ClientConnection) SendHandShake(ctx context.Context, message string) error {
 	msg := Message{
 		ID:   generateID(),
-		Type: ExecutorToManagerHandShakeMessage,
-		Data: ExecutorHandShakeRequestData{
+		Type: GetKeysetRecoveryRequestMessage,
+		Data: GetKeysetRecoveryRequestData{
 			Message: message,
 		},
 	}
 
+	log.Printf("%s: Sending GetKeysetRecoveryRequestMessage (type %d) msg to Manager", c.idLogTag, GetKeysetRecoveryRequestMessage)
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	if respMsg.Type == ErrorMessage {
 		errorData, _ := extractData[ErrorData](respMsg.Data)
-		return "", fmt.Errorf("client error: %s", errorData.Message)
+		return fmt.Errorf("client error: %s", errorData.Message)
 	}
 
-	if respMsg.Type != ManagerToExecutorHandShakeMessage {
-		return "", fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	if respMsg.Type != GetKeysetRecoveryResponseMessage {
+		return fmt.Errorf("unexpected response type: %v", respMsg.Type)
 	}
 
-	respData, err := extractData[ManagerHandShakeResponseData](respMsg.Data)
+	respData, err := extractData[GetKeysetRecoveryResponseData](respMsg.Data)
 	if err != nil {
-		return "", fmt.Errorf("failed to extract response data: %w", err)
+		return fmt.Errorf("failed to extract response data: %w", err)
 	}
 
-	return respData.Message, nil
+	if respData.DataFound {
+		// TODO recover the keys
+		log.Printf("%s: key found on manager, recovering them... (TODO)", c.idLogTag)
+	} else {
+		// TODO create and store the keys
+		log.Printf("%s: key not found on manager, creating them... (dummy, actually TODO)", c.idLogTag)
+		recv := &common.EnclaveKeySetRecovery{
+			RecoveryType:       1,
+			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
+			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
+		}
+
+		msg2 := Message{
+			ID:   generateID(),
+			Type: SetKeysetRecoveryRequestMessage,
+			Data: SetKeysetRecoveryRequestData{
+				KeySetRecovery: recv,
+			},
+		}
+
+		log.Printf("%s: sending key set recovery to manager", c.idLogTag)
+		respMsg, err = c.sendRequestAndWaitForResponse(ctx, msg2)
+		if err != nil {
+			return err
+		}
+
+		if respMsg.Type == ErrorMessage {
+			errorData, _ := extractData[ErrorData](respMsg.Data)
+			return fmt.Errorf("client error: %s", errorData.Message)
+		}
+
+		if respMsg.Type != SetKeysetRecoveryResponseMessage {
+			return fmt.Errorf("unexpected response type: %v", respMsg.Type)
+		}
+
+		respData, err := extractData[SetKeysetRecoveryResponseData](respMsg.Data)
+		if err != nil {
+			return fmt.Errorf("failed to extract response data: %w", err)
+		}
+		log.Printf("%s: key set recovery data stored on manager, tag %s", c.idLogTag, respData.Message)
+	}
+
+	return nil
 }
 
 // close closes the client connection
@@ -350,8 +394,8 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg *Message
 		c.handleDeployAppRequest(ctx, msg, handler)
 	case DeanonymizationRequestMessage:
 		c.handleDeanonymizationRequest(ctx, msg, handler)
-	case ExecutorToManagerHandShakeMessage:
-		c.handleHandShake(ctx, msg, handler)
+		//	case GetKeysetRecoveryRequestMessage:
+	//	c.handleHandShake(ctx, msg, handler)
 	default:
 		c.sendErrorResponse(msg.ID, "UNKNOWN_REQUEST", fmt.Errorf("unknown request type: %v", msg.Type))
 	}
@@ -443,9 +487,10 @@ func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg
 	log.Printf("%s: Deanonymization handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
+/*
 // handleHandShake handles ExecutorHello messages
 func (c *ClientConnection) handleHandShake(ctx context.Context, msg *Message, handler RequestHandler) {
-	reqData, err := extractData[ExecutorHandShakeRequestData](msg.Data)
+	reqData, err := extractData[GetKeysetRecoveryRequestData](msg.Data)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
 		return
@@ -459,8 +504,8 @@ func (c *ClientConnection) handleHandShake(ctx context.Context, msg *Message, ha
 
 	response := Message{
 		ID:   msg.ID,
-		Type: ManagerToExecutorHandShakeMessage,
-		Data: ManagerHandShakeResponseData{
+		Type: GetKeysetRecoveryResponseMessage,
+		Data: GetKeysetRecoveryResponseData{
 			Message: responseMessage,
 		},
 	}
@@ -470,6 +515,7 @@ func (c *ClientConnection) handleHandShake(ctx context.Context, msg *Message, ha
 	}
 	log.Printf("%s: Hello handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
+*/
 
 // sendErrorResponse sends an error response
 func (c *ClientConnection) sendErrorResponse(requestID string, code string, err error) {

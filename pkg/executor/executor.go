@@ -40,7 +40,7 @@ func CreateNewKeySet() (*EnclaveKeySet, error) {
 // GenerateEnclaveKeySet creates a new keyset from scratch.
 // It will be used at the first initialization.
 // It returns the new keyset and the recovery structure.
-func GenerateEnclaveKeySet() (*EnclaveKeySet, *EnclaveKeySetRecovery, error) {
+func GenerateEnclaveKeySet() (*EnclaveKeySet, *common.EnclaveKeySetRecovery, error) {
 	// 1. Create a new AES master key.
 	masterKey, err := crypto.GenerateAESKey()
 	if err != nil {
@@ -66,7 +66,7 @@ func GenerateEnclaveKeySet() (*EnclaveKeySet, *EnclaveKeySetRecovery, error) {
 	}
 
 	// 5. Create the recovery structure.
-	recovery := &EnclaveKeySetRecovery{
+	recovery := &common.EnclaveKeySetRecovery{
 		RecoveryType:       0,
 		KeySetCiphertext:   encryptedKeySet,
 		RecoveryCiphertext: masterKey[:],
@@ -77,7 +77,7 @@ func GenerateEnclaveKeySet() (*EnclaveKeySet, *EnclaveKeySetRecovery, error) {
 
 // RestoreEnclaveKeySet recovers a keyset from a recovery previously stored.
 // It will be used when starting the executors after the first init.
-func RestoreEnclaveKeySet(recovery *EnclaveKeySetRecovery) (*EnclaveKeySet, error) {
+func RestoreEnclaveKeySet(recovery *common.EnclaveKeySetRecovery) (*EnclaveKeySet, error) {
 	// 1. Use the RecoveryCiphertext as the master key to decrypt the KeySetCiphertext.
 	var masterKey cryptotypes.AES256Key
 	copy(masterKey[:], recovery.RecoveryCiphertext)

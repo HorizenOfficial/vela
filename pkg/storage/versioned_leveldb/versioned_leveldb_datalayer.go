@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -23,7 +22,6 @@ const (
 	appStatePrefix              = "appstate_"
 	wasmPrefix                  = "wasm_"
 	deanonymizationReportPrefix = "deanon_"
-	userKeyPrefix               = "userkey_"
 	enclaveKeyRecoveryPrefix    = "enclavekeyrecovery_"
 )
 
@@ -304,7 +302,7 @@ func NewLevelDBEnclaveKeyStore(dbPath string) (*LevelDBEnclaveKeyStore, error) {
 	return &LevelDBEnclaveKeyStore{Adapter: adapter}, nil
 }
 
-func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *executor.EnclaveKeySetRecovery) error {
+func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *common.EnclaveKeySetRecovery) error {
 	if err := s.checkClosed("enclave key store"); err != nil {
 		return err
 	}
@@ -320,7 +318,7 @@ func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context,
 	return nil
 }
 
-func (s *LevelDBEnclaveKeyStore) GetEnclaveKeySetRecovery(ctx context.Context) (*executor.EnclaveKeySetRecovery, error) {
+func (s *LevelDBEnclaveKeyStore) GetEnclaveKeySetRecovery(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
 	if err := s.checkClosed("enclave key store"); err != nil {
 		return nil, err
 	}
@@ -332,7 +330,7 @@ func (s *LevelDBEnclaveKeyStore) GetEnclaveKeySetRecovery(ctx context.Context) (
 	if value == nil {
 		return nil, storageErrors.ErrNotFound("enclave key set recovery data not found")
 	}
-	recoveryData := &executor.EnclaveKeySetRecovery{}
+	recoveryData := &common.EnclaveKeySetRecovery{}
 	err = json.Unmarshal(value, recoveryData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal enclave key set recovery data: %w", err)

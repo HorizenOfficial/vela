@@ -36,13 +36,3 @@ func DeserializeEnclaveKeySet(data []byte) (*EnclaveKeySet, error) {
 	}
 	return &ks, nil
 }
-
-// EnclaveKeySetRecovery contains the data needed to recover the EnclaveKeySet.
-type EnclaveKeySetRecovery struct {
-	// RecoveryType is the type of recovery data.
-	RecoveryType int
-	// KeySetCiphertext is the encrypted EnclaveKeySet.
-	KeySetCiphertext []byte
-	// RecoveryCiphertext is the master key used to encrypt the EnclaveKeySet.
-	RecoveryCiphertext []byte
-}

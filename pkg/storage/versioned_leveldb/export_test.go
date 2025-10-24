@@ -10,8 +10,6 @@ var (
 	TestWasmPrefix = wasmPrefix
 	// TestDeanonymizationReportPrefix is the prefix for deanonymization report keys.
 	TestDeanonymizationReportPrefix = deanonymizationReportPrefix
-	// TestUserKeyPrefix is the prefix for user key keys.
-	TestUserKeyPrefix = userKeyPrefix
 )
 
 // GetAdapter_ForTest returns the underlying VersionedLevelDbStorageAdapter instance for testing purposes.

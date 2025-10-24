@@ -117,6 +117,17 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	require.NoError(t, err)
 }
 
+func TestExecutorManagerStart(t *testing.T) {
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+	defer suite.Cleanup()
+
+	// 2. Start services
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	time.Sleep(3 * time.Second)
+}
+
 func TestDeploySimpleApp(t *testing.T) {
 	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
 	defer suite.Cleanup()

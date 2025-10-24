@@ -43,8 +43,8 @@ type ExecutorServer interface {
 
 // ClientRequestHandler defines the interface for handling requests from server (the executor) to client (the manager)
 type ClientRequestHandler interface {
-	//TBD: add here any request needed
-	HandleHandShakeExecutorRequest(ctx context.Context, message string) (string, error)
+	HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
+	HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery) error
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor

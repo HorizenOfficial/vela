@@ -24,17 +24,23 @@ const (
 	admittedAppID = "1"
 )
 
+type ExecutorHandShake struct {
+	isComplete bool
+	mu         sync.RWMutex
+}
+
 // SecureProcessorManager is an implementation of the Manager interface
 type SecureProcessorManager struct {
-	config           *Config
-	blockchainClient blockchain.Client
-	executorClient   communication.ExecutorClient
-	dataLayer        storage.DataLayer
-	mu               sync.RWMutex
-	isRunning        bool
-	stopChan         chan struct{}
-	wg               sync.WaitGroup
-	endReorgTime     time.Time
+	config            *Config
+	blockchainClient  blockchain.Client
+	executorClient    communication.ExecutorClient
+	dataLayer         storage.DataLayer
+	mu                sync.RWMutex
+	isRunning         bool
+	executorHandShake ExecutorHandShake
+	stopChan          chan struct{}
+	wg                sync.WaitGroup
+	endReorgTime      time.Time
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -52,6 +58,25 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 	return manager
 }
 
+func (m *SecureProcessorManager) waiterLocked() {
+	fmt.Println("Manager: ############################ Waiting for the executor to compete the handshake...")
+
+	// Busy-wait loop (less efficient than a channel)
+	for {
+		m.executorHandShake.mu.Lock()
+		if m.executorHandShake.isComplete {
+			m.executorHandShake.mu.Unlock()
+			break
+		}
+		m.executorHandShake.mu.Unlock()
+
+		// Sleep briefly to avoid consuming all CPU resources (busy-waiting)
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	fmt.Println("Manager: ############################## Executor completed handshake! Continuing execution.")
+}
+
 // Start starts the manager
 func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	m.mu.Lock()
@@ -65,6 +90,9 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	if err := m.executorClient.Connect(ctx, "Manager"); err != nil {
 		return fmt.Errorf("failed to connect to executor: %w", err)
 	}
+
+	// TODO wait the executor completes the handshake, that means he creates the keyset and sends us the recovery data
+	m.waiterLocked()
 
 	// Connect to the blockchain
 	if err := m.blockchainClient.Connect(ctx); err != nil {
@@ -112,10 +140,40 @@ func (m *SecureProcessorManager) Stop() error {
 	return nil
 }
 
-// HandleHandShakeExecutorRequest implements the ClientRequestHandler interface.
-func (m *SecureProcessorManager) HandleHandShakeExecutorRequest(ctx context.Context, message string) (string, error) {
-	log.Printf("Manager: Received handshake message from executor: %s", message)
-	return "Hello from manager", nil
+// HandleGetKeysetRecoveryRequest implements the ClientRequestHandler interface.
+func (m *SecureProcessorManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
+	log.Printf("Manager: Received GetKeysetRecovery message from executor")
+
+	recv, err := m.dataLayer.GetEnclaveKeySetRecovery(ctx)
+	if err != nil {
+		log.Printf("Manager: Failed to get keyset recovery: %v", err)
+		return nil, err
+	}
+
+	return recv, nil
+}
+
+// HandleSetKeysetRecoveryRequest implements communication.ClientRequestHandler.
+func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery) error {
+	log.Printf("Manager: Received SetKeysetRecovery message from executor")
+
+	err := m.dataLayer.StoreEnclaveKeySetRecovery(ctx, recv)
+
+	if err != nil {
+		log.Printf("Manager: Failed to set keyset recovery: %v", err)
+		return err
+	}
+
+	log.Printf("Manager: KeysetRecovery data stored in data layer")
+
+	// set the handshake as completed
+	{
+		m.executorHandShake.mu.Lock()
+		log.Printf("Manager: setting handshake as completed")
+		m.executorHandShake.isComplete = true
+		m.executorHandShake.mu.Unlock()
+	}
+	return nil
 }
 
 // pollBlockchain polls the blockchain for new requests
