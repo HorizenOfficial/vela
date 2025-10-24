@@ -108,12 +108,12 @@ For running `abigen`, check to have `solc` installed:
 ```bash
 solc --version
 ```
-For installing `solc`:
+Version 0.8.30 must be used.
+In order to install the proper version of `solc` we suggest to use [solc-select](https://github.com/crytic/solc-select) (a tool to quickly switch between Solidity compiler versions):
 
 ```bash
-sudo add-apt-repository ppa:ethereum/ethereum
-sudo apt-get update
-sudo apt-get install solc
+pip3 install solc-select
+solc-select use 0.8.30 --always-install
 ```
 
 For installing `abigen`:
