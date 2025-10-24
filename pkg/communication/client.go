@@ -26,6 +26,7 @@ type Client struct {
 	reqTimeout      time.Duration
 	factory         ConnectionFactory
 	requestHandler  ClientRequestHandler
+	idLogTag        string
 }
 
 // NewClient creates a new client with the specified connection factory
@@ -41,7 +42,7 @@ func NewClient(factory ConnectionFactory) *Client {
 }
 
 // Connect establishes a connection using the connection factory
-func (c *Client) Connect(ctx context.Context) error {
+func (c *Client) Connect(ctx context.Context, idLogTag string) error {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
 
@@ -59,11 +60,12 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.reader = bufio.NewReader(conn)
 	c.writer = bufio.NewWriter(conn)
 	c.connected = true
+	c.idLogTag = idLogTag
 
 	// Start the message reader goroutine
 	go MessageReaderLoop(
 		ctx,
-		"Client",
+		idLogTag,
 		c.conn,
 		c.reader,
 		c.shutdown,
@@ -219,6 +221,38 @@ func (c *Client) SendGenerateDeanonymizationReport(ctx context.Context, req *com
 	return respData.Report, nil
 }
 
+// HandShake sends a message and waits for response
+func (c *Client) HandShake(ctx context.Context, message string) (string, error) {
+	msg := Message{
+		ID:   generateID(),
+		Type: ExecutorToManagerHandShakeMessage,
+		Data: ExecutorHandShakeRequestData{
+			Message: message,
+		},
+	}
+
+	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
+	if err != nil {
+		return "", err
+	}
+
+	if respMsg.Type == ErrorMessage {
+		errorData, _ := extractData[ErrorData](respMsg.Data)
+		return "", fmt.Errorf("server error: %s", errorData.Message)
+	}
+
+	if respMsg.Type != ManagerToExecutorHandShakeMessage {
+		return "", fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	}
+
+	respData, err := extractData[ManagerHandShakeResponseData](respMsg.Data)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract response data: %w", err)
+	}
+
+	return respData.Message, nil
+}
+
 // sendRequestAndWaitForResponse sends a request and waits for the response
 func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message) (*Message, error) {
 	// Create response channel
@@ -272,11 +306,11 @@ func (c *Client) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
-	log.Printf("MagBytes length before delimiter: %d", len(data))
+	log.Printf("%s: MagBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add delimiter
 	data = append(data, delimiter)
-	log.Printf("MagBytes length after delimiter: %d", len(data))
+	log.Printf("%s: MagBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write message with delimiter
 	if _, err := c.writer.Write(data); err != nil {
@@ -306,7 +340,7 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 			// Channel is open and has room, send the response
 		default:
 			// Channel is full or closed, ignore and log the issue
-			log.Printf("Client: Warning: response channel for request ID %s is full or closed, ignoring response\n", msg.ID)
+			log.Printf("%s: Warning: response channel for request ID %s is full or closed, ignoring response\n", c.idLogTag, msg.ID)
 		}
 		return
 	}
@@ -316,17 +350,64 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 }
 
 // handleServerRequest handles requests initiated by the server
-// NOTE: for now no messages are supported on this direction, but the method is present for future use cases
 func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
 	switch msg.Type {
+	case ExecutorToManagerHandShakeMessage:
+		c.handleHandShake(ctx, msg)
 	default:
-		log.Printf("Client: Warning: unknown message type: %v\n", msg.Type)
+		log.Printf("%s: Warning: unknown message type: %v\n", c.idLogTag, msg.Type)
 	}
+}
+
+// handleHandShake handles Executor messages from the server
+func (c *Client) handleHandShake(ctx context.Context, msg *Message) {
+	if c.requestHandler == nil {
+		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
+		return
+	}
+
+	reqData, err := extractData[ExecutorHandShakeRequestData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	// TODO The ClientRequestHandler interface is not fully implemented here, so we need to cast it.
+	// This is not ideal, but it's the only way to access the HandleHandShake method.
+	// A better solution would be to have a more specific interface for the client request handler.
+	type handShakeHandler interface {
+		HandleHandShakeExecutorRequest(ctx context.Context, message string) (string, error)
+	}
+
+	handler, ok := c.requestHandler.(handShakeHandler)
+	if !ok {
+		c.sendErrorResponse(msg.ID, "UNSUPPORTED", fmt.Errorf("request handler does not support HandleHandShake"))
+		return
+	}
+
+	responseMessage, err := handler.HandleHandShakeExecutorRequest(ctx, reqData.Message)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+		return
+	}
+
+	response := Message{
+		ID:   msg.ID,
+		Type: ManagerToExecutorHandShakeMessage,
+		Data: ManagerHandShakeResponseData{
+			Message: responseMessage,
+		},
+	}
+
+	if err := c.sendMessage(response); err != nil {
+		log.Printf("%s: Failed to send HandleHandShake response: %v", c.idLogTag, err)
+	}
+	log.Printf("%s: HandShake handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // sendErrorResponse sends an error response
 func (c *Client) sendErrorResponse(requestID string, code string, err error) {
-	log.Printf("Client: Sending error response: ID=%s, Code=%s, Message=%s", requestID, code, err.Error())
+	log.Printf("%s: Sending error response: ID=%s, Code=%s, Message=%s", c.idLogTag, requestID, code, err.Error())
 	response := Message{
 		ID:   requestID,
 		Type: ErrorMessage,
@@ -337,7 +418,7 @@ func (c *Client) sendErrorResponse(requestID string, code string, err error) {
 	}
 
 	if sendErr := c.sendMessage(response); sendErr != nil {
-		log.Printf("Client: Failed to send error response: %v", sendErr)
+		log.Printf("%s: Failed to send error response: %v", c.idLogTag, sendErr)
 	}
 }
 

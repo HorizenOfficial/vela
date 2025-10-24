@@ -105,6 +105,11 @@ type StatelessExecutor struct {
 	keySet *EnclaveKeySet
 }
 
+// HandleHandShakeManagerResponse implements communication.RequestHandler.
+func (e *StatelessExecutor) HandleHandShakeManagerResponse(ctx context.Context, message string) (string, error) {
+	panic("unimplemented")
+}
+
 // NewStatelessExecutor creates a new stateless executor
 func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, keySet *EnclaveKeySet) (*StatelessExecutor, error) {
 	msgBuilder, err := NewMsgToSignBuilder()
@@ -133,7 +138,7 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 	case "v-sock":
 		log.Printf("Executor: Starting v-socket executor server on CID %d, Port %d", e.config.ServerCid, e.config.ServerPort)
 	}
-	return e.server.Start(ctx)
+	return e.server.Start(ctx, "Executor")
 }
 
 // Stop stops the executor server

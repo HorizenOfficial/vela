@@ -25,11 +25,16 @@ type MockExecutorClient struct {
 	*testutil.MockFunctions
 }
 
+// HandShake implements communication.ExecutorClient.
+func (m *MockExecutorClient) HandShake(ctx context.Context, message string) (string, error) {
+	panic("unimplemented")
+}
+
 func NewMockExecutorClient() *MockExecutorClient {
 	return &MockExecutorClient{MockFunctions: testutil.NewMockFunctions()}
 }
 
-func (m *MockExecutorClient) Connect(ctx context.Context) error {
+func (m *MockExecutorClient) Connect(ctx context.Context, tag string) error {
 	if f, ok := m.GetMockedFunc("Connect"); ok {
 		return f.(func() error)()
 	}

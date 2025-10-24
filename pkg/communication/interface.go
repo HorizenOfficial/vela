@@ -13,7 +13,7 @@ import (
 // and the server can send requests to the client.
 type ExecutorClient interface {
 	// Connect establishes a connection to the executor
-	Connect(ctx context.Context) error
+	Connect(ctx context.Context, identityLogTag string) error
 	// Close closes the connection to the executor
 	Close() error
 	// SendProcessRequest sends a request to the executor and returns the response
@@ -24,6 +24,8 @@ type ExecutorClient interface {
 	SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
 	// SetClientRequestHandler sets the handler for incoming requests from server
 	SetClientRequestHandler(handler ClientRequestHandler)
+	// HandShake send an initial hand shake message to the manager
+	HandShake(ctx context.Context, message string) (string, error)
 }
 
 // ExecutorServer defines the interface for communication with the Manager.
@@ -32,7 +34,7 @@ type ExecutorClient interface {
 // and the server can send requests to the client.
 type ExecutorServer interface {
 	// Start starts the server
-	Start(ctx context.Context) error
+	Start(ctx context.Context, identityLogTag string) error
 	// Stop stops the server
 	Stop() error
 	// SetRequestHandler sets the handler for incoming requests
@@ -42,6 +44,7 @@ type ExecutorServer interface {
 // ClientRequestHandler defines the interface for handling requests from server (the executor) to client (the manager)
 type ClientRequestHandler interface {
 	//TBD: add here any request needed
+	HandleHandShakeExecutorRequest(ctx context.Context, message string) (string, error)
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor
@@ -52,6 +55,8 @@ type RequestHandler interface {
 	HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
 	// HandleGenerateDeanonymizationReport generates a deanonymization report
 	HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+	// HandleHandShakeManagerResponse handles a handshake message from the executor
+	HandleHandShakeManagerResponse(ctx context.Context, message string) (string, error)
 }
 
 type ConnectionFactory interface {

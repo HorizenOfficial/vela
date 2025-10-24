@@ -30,6 +30,10 @@ const (
 	DeanonymizationResponseMessage
 	// ErrorMessage represents an error message
 	ErrorMessage
+	// ExecutorToManagerHandShakeMessage represents a handshake message from executor to manager
+	ExecutorToManagerHandShakeMessage
+	// ManagerToExecutorHandShakeMessage represents a handshake message from manager to executor
+	ManagerToExecutorHandShakeMessage
 )
 
 // Message represents a message exchanged between components
@@ -98,6 +102,16 @@ type ErrorData struct {
 	// Code is the error code
 	Code string `json:"code"`
 	// Message is the error message
+	Message string `json:"message"`
+}
+
+// ExecutorHandShakeRequestData represents data for a handshake message from executor to manager
+type ExecutorHandShakeRequestData struct {
+	Message string `json:"message"`
+}
+
+// ManagerHandShakeResponseData represents data for a handshake message from manager to executor
+type ManagerHandShakeResponseData struct {
 	Message string `json:"message"`
 }
 

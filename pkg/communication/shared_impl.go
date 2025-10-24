@@ -25,6 +25,7 @@ func MessageReaderLoop(
 	closeConnection func(),
 ) {
 	defer closeConnection()
+	log.Printf("%s: Entering message reader loop!", logPrefix)
 
 	// A constant for the read timeout, long enough to handle a brief pause in data flow
 	const readTimeout = 1 * time.Second

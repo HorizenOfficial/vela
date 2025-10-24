@@ -17,6 +17,15 @@ type MockRequestHandler struct {
 	ProcessRequestFunc                func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
 	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+	HelloFunc                         func(ctx context.Context, message string) (string, error)
+}
+
+// HandleHandShakeManagerResponse implements RequestHandler.
+func (m *MockRequestHandler) HandleHandShakeManagerResponse(ctx context.Context, message string) (string, error) {
+	if m.HelloFunc != nil {
+		return m.HelloFunc(ctx, message)
+	}
+	return "Hello from manager", nil
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
@@ -76,6 +85,14 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 // MockClientRequestHandler is a mock implementation for testing the new client
 type MockClientRequestHandler struct {
 	GetUserKeysFunc func(ctx context.Context, users []string) (map[string][]byte, error)
+	HelloFunc       func(ctx context.Context, message string) (string, error)
+}
+
+func (m *MockClientRequestHandler) HandleHandShakeExecutorRequest(ctx context.Context, message string) (string, error) {
+	if m.HelloFunc != nil {
+		return m.HelloFunc(ctx, message)
+	}
+	return "Hello from manager", nil
 }
 
 func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
@@ -86,7 +103,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	factory := NewTCPConnectionFactory(":8083")
 	server := NewServer(factory)
 	server.SetRequestHandler(serverHandler)
-	err := server.Start(ctx)
+	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
@@ -94,7 +111,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	client := NewClient(factory)
 
 	// Test connecting to the server
-	err = client.Connect(ctx)
+	err = client.Connect(ctx, "Client")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -142,6 +159,11 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	assert.Equal(t, req.ApplicationID, report.ApplicationID)
 	assert.Equal(t, "test-report-id", report.ReportID)
 	assert.Equal(t, []byte("test-encrypted-report"), report.EncryptedReport)
+
+	// Test SendHello
+	responseMessage, err := client.HandShake(ctx, "Hello from executor")
+	require.NoError(t, err)
+	assert.Equal(t, "Hello from manager", responseMessage)
 }
 
 func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
@@ -160,7 +182,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 	factory := NewTCPConnectionFactory(":8086")
 	server := NewServer(factory)
 	server.SetRequestHandler(serverHandler)
-	err := server.Start(ctx)
+	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
@@ -169,7 +191,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 	client.SetClientRequestHandler(clientHandler)
 
 	// Test connecting to the server
-	err = client.Connect(ctx)
+	err = client.Connect(ctx, "Client")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -215,7 +237,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 	factory := NewTCPConnectionFactory(":8087")
 	server := NewServer(factory)
 	server.SetRequestHandler(serverHandler)
-	err := server.Start(ctx)
+	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
@@ -223,7 +245,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		client := NewClient(factory)
 
-		err = client.Connect(ctx)
+		err = client.Connect(ctx, "Client")
 		require.NoError(t, err, "Connection %d should succeed", i)
 
 		// Give some time for the connection to be established
@@ -272,7 +294,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	factory := NewTCPConnectionFactory(":8088")
 	server := NewServer(factory)
 	server.SetRequestHandler(serverHandler)
-	err := server.Start(ctx)
+	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
@@ -281,7 +303,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	client.SetClientRequestHandler(clientHandler)
 
 	// Test connecting to the server
-	err = client.Connect(ctx)
+	err = client.Connect(ctx, "Client")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -312,6 +334,54 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 }
 
+func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
+	// This test verifies that the server can send a request to the client
+	// and receive a response.
+
+	// Create a mock request handler for the server
+	serverHandler := &MockRequestHandler{}
+
+	// Use a channel to signal when the hello message has been handled
+	helloHandled := make(chan bool, 1)
+
+	// Create a mock client request handler
+	clientHandler := &MockClientRequestHandler{
+		HelloFunc: func(ctx context.Context, message string) (string, error) {
+			assert.Equal(t, "Hello from executor", message)
+			helloHandled <- true
+			return "Hello from manager", nil
+		},
+	}
+
+	// Create a context
+	ctx := context.Background()
+
+	// Create a server
+	factory := NewTCPConnectionFactory(":8090")
+	server := NewServer(factory)
+	server.SetRequestHandler(serverHandler)
+	err := server.Start(ctx, "Server")
+	require.NoError(t, err)
+	defer server.Stop()
+
+	// Create a client
+	client := NewClient(factory)
+	client.SetClientRequestHandler(clientHandler)
+
+	// Test connecting to the server
+	err = client.Connect(ctx, "Client")
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Wait for the hello message to be handled or timeout
+	select {
+	case <-helloHandled:
+		// Success
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for hello message to be handled")
+	}
+}
+
 func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
@@ -338,7 +408,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	factory := NewTCPConnectionFactory(":8089")
 	server := NewServer(factory)
 	server.SetRequestHandler(serverHandler)
-	err := server.Start(context.Background())
+	err := server.Start(context.Background(), "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
@@ -347,7 +417,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	clientHandler := &MockClientRequestHandler{}
 	client.SetClientRequestHandler(clientHandler)
 
-	err = client.Connect(context.Background())
+	err = client.Connect(context.Background(), "Client")
 	require.NoError(t, err)
 	defer client.Close()
 

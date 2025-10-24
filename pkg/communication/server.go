@@ -22,6 +22,7 @@ type ClientConnection struct {
 	pendingMu       sync.Mutex
 	shutdown        chan struct{}
 	reqTimeout      time.Duration
+	idLogTag        string
 }
 
 // Server is a unified server implementation of the ExecutorServer interface
@@ -49,7 +50,7 @@ func NewServer(factory ConnectionFactory) *Server {
 }
 
 // Start starts the server and begins listening for connections
-func (s *Server) Start(ctx context.Context) error {
+func (s *Server) Start(ctx context.Context, idLogTag string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -67,7 +68,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.isRunning = true
 
 	// Start accepting connections in a goroutine
-	go s.acceptConnections(ctx)
+	go s.acceptConnections(ctx, idLogTag)
 
 	return nil
 }
@@ -108,7 +109,7 @@ func (s *Server) SetRequestHandler(handler RequestHandler) {
 }
 
 // acceptConnections accepts incoming connections
-func (s *Server) acceptConnections(ctx context.Context) {
+func (s *Server) acceptConnections(ctx context.Context, idLogTag string) {
 	for {
 		select {
 		case <-s.shutdownChan:
@@ -125,19 +126,19 @@ func (s *Server) acceptConnections(ctx context.Context) {
 			case <-s.shutdownChan:
 				return
 			default:
-				log.Printf("Server: Error accepting connection: %v", err)
+				log.Printf("%s: Error accepting connection: %v", idLogTag, err)
 				continue
 			}
 		}
 
 		// Handle new client connection
-		go s.handleNewClient(ctx, conn)
+		go s.handleNewClient(ctx, conn, idLogTag)
 	}
 }
 
 // handleNewClient handles a new client connection
-func (s *Server) handleNewClient(ctx context.Context, conn net.Conn) {
-	log.Printf("Server: New client connected from %s", conn.RemoteAddr())
+func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, idLogTag string) {
+	log.Printf("%s: New client connected from %s", idLogTag, conn.RemoteAddr())
 
 	client := &ClientConnection{
 		conn:            conn,
@@ -147,6 +148,7 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn) {
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
 		reqTimeout:      s.reqTimeout,
+		idLogTag:        idLogTag,
 	}
 
 	// Set as current client (only one client supported)
@@ -160,7 +162,7 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn) {
 	// Start client message handling
 	go MessageReaderLoop(
 		ctx,
-		"Server",
+		idLogTag,
 		client.conn,
 		client.reader,
 		client.shutdown,
@@ -170,6 +172,47 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn) {
 		client.close,
 	)
 	go client.cleanupLoop()
+
+	// We do not want to use a go routine here because we do want this method to block until a valid response is handled
+	log.Printf("%s: Sending handshake message to client %s", idLogTag, conn.RemoteAddr())
+	response, err := client.SendHandShake(ctx, "Hello from executor")
+	if err != nil {
+		log.Printf("%s: Failed to send handshake message: %v", idLogTag, err)
+		return
+	}
+	log.Printf("%s: Received handshake response from client: %s", idLogTag, response)
+}
+
+// SendHandShake sends a handshake message to the client and waits for a response.
+func (c *ClientConnection) SendHandShake(ctx context.Context, message string) (string, error) {
+	msg := Message{
+		ID:   generateID(),
+		Type: ExecutorToManagerHandShakeMessage,
+		Data: ExecutorHandShakeRequestData{
+			Message: message,
+		},
+	}
+
+	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
+	if err != nil {
+		return "", err
+	}
+
+	if respMsg.Type == ErrorMessage {
+		errorData, _ := extractData[ErrorData](respMsg.Data)
+		return "", fmt.Errorf("client error: %s", errorData.Message)
+	}
+
+	if respMsg.Type != ManagerToExecutorHandShakeMessage {
+		return "", fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	}
+
+	respData, err := extractData[ManagerHandShakeResponseData](respMsg.Data)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract response data: %w", err)
+	}
+
+	return respData.Message, nil
 }
 
 // close closes the client connection
@@ -251,11 +294,11 @@ func (c *ClientConnection) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
-	log.Printf("Server: MsgBytes length before delimiter: %d", len(data))
+	log.Printf("%s: MsgBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add newline delimiter
 	data = append(data, delimiter)
-	log.Printf("Server: MsgBytes length after delimiter: %d", len(data))
+	log.Printf("%s: MsgBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write a message
 	if _, err := c.writer.Write(data); err != nil {
@@ -307,6 +350,8 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg *Message
 		c.handleDeployAppRequest(ctx, msg, handler)
 	case DeanonymizationRequestMessage:
 		c.handleDeanonymizationRequest(ctx, msg, handler)
+	case ExecutorToManagerHandShakeMessage:
+		c.handleHandShake(ctx, msg, handler)
 	default:
 		c.sendErrorResponse(msg.ID, "UNKNOWN_REQUEST", fmt.Errorf("unknown request type: %v", msg.Type))
 	}
@@ -336,9 +381,9 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Messag
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Server: Failed to send HandleProcessRequest response: %v", err)
+		log.Printf("%s: Failed to send HandleProcessRequest response: %v", c.idLogTag, err)
 	}
-	log.Printf("Server: ProcessRequest handled successfully, ID=%s", msg.ID)
+	log.Printf("%s: ProcessRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // handleDeployAppRequest handles DeployApp messages
@@ -365,9 +410,9 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Mess
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Server: Failed to send HandleDeployApp response: %v", err)
+		log.Printf("%s: Failed to send HandleDeployApp response: %v", c.idLogTag, err)
 	}
-	log.Printf("Server: DeployApp handled successfully, ID=%s", msg.ID)
+	log.Printf("%s: DeployApp handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // handleDeanonymizationRequest handles deanonymization messages
@@ -393,14 +438,42 @@ func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("Server: Failed to send deanonymization response: %v", err)
+		log.Printf("%s: Failed to send deanonymization response: %v", c.idLogTag, err)
 	}
-	log.Printf("Server: Deanonymization handled successfully, ID=%s", msg.ID)
+	log.Printf("%s: Deanonymization handled successfully, ID=%s", c.idLogTag, msg.ID)
+}
+
+// handleHandShake handles ExecutorHello messages
+func (c *ClientConnection) handleHandShake(ctx context.Context, msg *Message, handler RequestHandler) {
+	reqData, err := extractData[ExecutorHandShakeRequestData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	responseMessage, err := handler.HandleHandShakeManagerResponse(ctx, reqData.Message)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+		return
+	}
+
+	response := Message{
+		ID:   msg.ID,
+		Type: ManagerToExecutorHandShakeMessage,
+		Data: ManagerHandShakeResponseData{
+			Message: responseMessage,
+		},
+	}
+
+	if err := c.sendMessage(response); err != nil {
+		log.Printf("%s: Failed to send HandleHello response: %v", c.idLogTag, err)
+	}
+	log.Printf("%s: Hello handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // sendErrorResponse sends an error response
 func (c *ClientConnection) sendErrorResponse(requestID string, code string, err error) {
-	log.Printf("Server: Sending error response: ID=%s, Code=%s, Error=%v", requestID, code, err)
+	log.Printf("%s: Sending error response: ID=%s, Code=%s, Error=%v", c.idLogTag, requestID, code, err)
 	response := Message{
 		ID:   requestID,
 		Type: ErrorMessage,
@@ -411,7 +484,7 @@ func (c *ClientConnection) sendErrorResponse(requestID string, code string, err 
 	}
 
 	if sendErr := c.sendMessage(response); sendErr != nil {
-		log.Printf("Server: Failed to send error response: %v", sendErr)
+		log.Printf("%s: Failed to send error response: %v", c.idLogTag, sendErr)
 	}
 }
 
@@ -438,7 +511,7 @@ func (c *ClientConnection) cleanupTimedOutRequests() {
 
 	for id, req := range c.pendingRequests {
 		if now.After(req.Timeout) {
-			log.Printf("Server: Cleaning up timed out request: %s", id)
+			log.Printf("%s: Cleaning up timed out request: %s", c.idLogTag, id)
 			close(req.ResponseChan)
 			delete(c.pendingRequests, id)
 		}

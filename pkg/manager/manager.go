@@ -62,7 +62,7 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	}
 
 	// Connect to the executor
-	if err := m.executorClient.Connect(ctx); err != nil {
+	if err := m.executorClient.Connect(ctx, "Manager"); err != nil {
 		return fmt.Errorf("failed to connect to executor: %w", err)
 	}
 
@@ -75,7 +75,7 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
 
-	log.Printf("Manager starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
+	log.Printf("Manager: starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
 
 	m.isRunning = true
 	return nil
@@ -110,6 +110,12 @@ func (m *SecureProcessorManager) Stop() error {
 
 	m.isRunning = false
 	return nil
+}
+
+// HandleHandShakeExecutorRequest implements the ClientRequestHandler interface.
+func (m *SecureProcessorManager) HandleHandShakeExecutorRequest(ctx context.Context, message string) (string, error) {
+	log.Printf("Manager: Received handshake message from executor: %s", message)
+	return "Hello from manager", nil
 }
 
 // pollBlockchain polls the blockchain for new requests

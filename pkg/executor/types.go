@@ -11,9 +11,10 @@ import (
 type EnclaveKeySet struct {
 	// Key used for encrypting/decrypting the state exchanged between executor and manager.
 	StateKey crypto.AES256Key
-	// Key used for signing the messages sent from the executor to the manager.
+	// Key used for signing the messages (update payload) sent from the executor to the tee autenticator through the manager.
 	SigningKey crypto.PrivateKeySecp256k1
-	// Key used for deriving the shared secret between the executor and the app.
+	// Key used for encrypting/decrypting the payloads, events and reports.
+	// Sender and receiver keys must Elliptic Curve Diffie-Hellman over NIST curve
 	CommunicationKey crypto.PrivateKeyP521
 }
 
