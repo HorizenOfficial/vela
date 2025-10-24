@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/common/testutil"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
@@ -356,6 +357,11 @@ func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.Priv
 
 func (c *MockClient) GetRequestCompletedEvent(ctx context.Context, requestID string, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
 	return nil, nil
+}
+
+func (c *MockClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
+	key, err := crypto.GeneratePrivateKeyP521()
+	return key.PublicKey(), err
 }
 
 // Close closes the blockchain client

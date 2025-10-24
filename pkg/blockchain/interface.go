@@ -27,6 +27,8 @@ type Client interface {
 	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
 	// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
 	GetRequestCompletedEvent(ctx context.Context, requestID string,  fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
+	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
+	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
 
 	// Close closes the blockchain client
 	Close() error
