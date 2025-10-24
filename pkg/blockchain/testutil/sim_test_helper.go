@@ -217,6 +217,8 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId *big.Int, requestTyp
 		reqType = 1
 	case common.Deanonymize:
 		reqType = 2
+	case common.AssociateKey:
+		reqType = 3
 	default:
 		panic("Unsupported request type")
 	}
