@@ -295,7 +295,7 @@ func (AccessControlRoleAdminChanged) ContractEventName() string {
 // Solidity: event RoleAdminChanged(bytes32 indexed role, bytes32 indexed previousAdminRole, bytes32 indexed newAdminRole)
 func (accessControl *AccessControl) UnpackRoleAdminChangedEvent(log *types.Log) (*AccessControlRoleAdminChanged, error) {
 	event := "RoleAdminChanged"
-	if len(log.Topics) == 0 || log.Topics[0] != accessControl.abi.Events[event].ID {
+	if log.Topics[0] != accessControl.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AccessControlRoleAdminChanged)
@@ -338,7 +338,7 @@ func (AccessControlRoleGranted) ContractEventName() string {
 // Solidity: event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)
 func (accessControl *AccessControl) UnpackRoleGrantedEvent(log *types.Log) (*AccessControlRoleGranted, error) {
 	event := "RoleGranted"
-	if len(log.Topics) == 0 || log.Topics[0] != accessControl.abi.Events[event].ID {
+	if log.Topics[0] != accessControl.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AccessControlRoleGranted)
@@ -381,7 +381,7 @@ func (AccessControlRoleRevoked) ContractEventName() string {
 // Solidity: event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)
 func (accessControl *AccessControl) UnpackRoleRevokedEvent(log *types.Log) (*AccessControlRoleRevoked, error) {
 	event := "RoleRevoked"
-	if len(log.Topics) == 0 || log.Topics[0] != accessControl.abi.Events[event].ID {
+	if log.Topics[0] != accessControl.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AccessControlRoleRevoked)
@@ -680,7 +680,7 @@ func (AuthorityRegistryAddedAuthority) ContractEventName() string {
 // Solidity: event AddedAuthority(uint256 indexed applicationId, address indexed authority)
 func (authorityRegistry *AuthorityRegistry) UnpackAddedAuthorityEvent(log *types.Log) (*AuthorityRegistryAddedAuthority, error) {
 	event := "AddedAuthority"
-	if len(log.Topics) == 0 || log.Topics[0] != authorityRegistry.abi.Events[event].ID {
+	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AuthorityRegistryAddedAuthority)
@@ -722,7 +722,7 @@ func (AuthorityRegistryOwnershipTransferred) ContractEventName() string {
 // Solidity: event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
 func (authorityRegistry *AuthorityRegistry) UnpackOwnershipTransferredEvent(log *types.Log) (*AuthorityRegistryOwnershipTransferred, error) {
 	event := "OwnershipTransferred"
-	if len(log.Topics) == 0 || log.Topics[0] != authorityRegistry.abi.Events[event].ID {
+	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AuthorityRegistryOwnershipTransferred)
@@ -764,7 +764,7 @@ func (AuthorityRegistryRemovedAuthority) ContractEventName() string {
 // Solidity: event RemovedAuthority(uint256 indexed applicationId, address indexed authority)
 func (authorityRegistry *AuthorityRegistry) UnpackRemovedAuthorityEvent(log *types.Log) (*AuthorityRegistryRemovedAuthority, error) {
 	event := "RemovedAuthority"
-	if len(log.Topics) == 0 || log.Topics[0] != authorityRegistry.abi.Events[event].ID {
+	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(AuthorityRegistryRemovedAuthority)
@@ -1168,7 +1168,7 @@ func (IAccessControlRoleAdminChanged) ContractEventName() string {
 // Solidity: event RoleAdminChanged(bytes32 indexed role, bytes32 indexed previousAdminRole, bytes32 indexed newAdminRole)
 func (iAccessControl *IAccessControl) UnpackRoleAdminChangedEvent(log *types.Log) (*IAccessControlRoleAdminChanged, error) {
 	event := "RoleAdminChanged"
-	if len(log.Topics) == 0 || log.Topics[0] != iAccessControl.abi.Events[event].ID {
+	if log.Topics[0] != iAccessControl.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(IAccessControlRoleAdminChanged)
@@ -1211,7 +1211,7 @@ func (IAccessControlRoleGranted) ContractEventName() string {
 // Solidity: event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)
 func (iAccessControl *IAccessControl) UnpackRoleGrantedEvent(log *types.Log) (*IAccessControlRoleGranted, error) {
 	event := "RoleGranted"
-	if len(log.Topics) == 0 || log.Topics[0] != iAccessControl.abi.Events[event].ID {
+	if log.Topics[0] != iAccessControl.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(IAccessControlRoleGranted)
@@ -1254,7 +1254,7 @@ func (IAccessControlRoleRevoked) ContractEventName() string {
 // Solidity: event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)
 func (iAccessControl *IAccessControl) UnpackRoleRevokedEvent(log *types.Log) (*IAccessControlRoleRevoked, error) {
 	event := "RoleRevoked"
-	if len(log.Topics) == 0 || log.Topics[0] != iAccessControl.abi.Events[event].ID {
+	if log.Topics[0] != iAccessControl.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(IAccessControlRoleRevoked)
@@ -1653,7 +1653,7 @@ func (OwnableOwnershipTransferred) ContractEventName() string {
 // Solidity: event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
 func (ownable *Ownable) UnpackOwnershipTransferredEvent(log *types.Log) (*OwnableOwnershipTransferred, error) {
 	event := "OwnershipTransferred"
-	if len(log.Topics) == 0 || log.Topics[0] != ownable.abi.Events[event].ID {
+	if log.Topics[0] != ownable.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(OwnableOwnershipTransferred)
@@ -2553,7 +2553,7 @@ func (ProcessorEndpointRequestCompleted) ContractEventName() string {
 // Solidity: event RequestCompleted(bytes32 indexed requestId, uint8 status)
 func (processorEndpoint *ProcessorEndpoint) UnpackRequestCompletedEvent(log *types.Log) (*ProcessorEndpointRequestCompleted, error) {
 	event := "RequestCompleted"
-	if len(log.Topics) == 0 || log.Topics[0] != processorEndpoint.abi.Events[event].ID {
+	if log.Topics[0] != processorEndpoint.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(ProcessorEndpointRequestCompleted)
@@ -2595,7 +2595,7 @@ func (ProcessorEndpointRequestSubmitted) ContractEventName() string {
 // Solidity: event RequestSubmitted(bytes32 indexed requestId, address indexed sender)
 func (processorEndpoint *ProcessorEndpoint) UnpackRequestSubmittedEvent(log *types.Log) (*ProcessorEndpointRequestSubmitted, error) {
 	event := "RequestSubmitted"
-	if len(log.Topics) == 0 || log.Topics[0] != processorEndpoint.abi.Events[event].ID {
+	if log.Topics[0] != processorEndpoint.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(ProcessorEndpointRequestSubmitted)
@@ -2638,7 +2638,7 @@ func (ProcessorEndpointRoleAdminChanged) ContractEventName() string {
 // Solidity: event RoleAdminChanged(bytes32 indexed role, bytes32 indexed previousAdminRole, bytes32 indexed newAdminRole)
 func (processorEndpoint *ProcessorEndpoint) UnpackRoleAdminChangedEvent(log *types.Log) (*ProcessorEndpointRoleAdminChanged, error) {
 	event := "RoleAdminChanged"
-	if len(log.Topics) == 0 || log.Topics[0] != processorEndpoint.abi.Events[event].ID {
+	if log.Topics[0] != processorEndpoint.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(ProcessorEndpointRoleAdminChanged)
@@ -2681,7 +2681,7 @@ func (ProcessorEndpointRoleGranted) ContractEventName() string {
 // Solidity: event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)
 func (processorEndpoint *ProcessorEndpoint) UnpackRoleGrantedEvent(log *types.Log) (*ProcessorEndpointRoleGranted, error) {
 	event := "RoleGranted"
-	if len(log.Topics) == 0 || log.Topics[0] != processorEndpoint.abi.Events[event].ID {
+	if log.Topics[0] != processorEndpoint.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(ProcessorEndpointRoleGranted)
@@ -2724,7 +2724,7 @@ func (ProcessorEndpointRoleRevoked) ContractEventName() string {
 // Solidity: event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)
 func (processorEndpoint *ProcessorEndpoint) UnpackRoleRevokedEvent(log *types.Log) (*ProcessorEndpointRoleRevoked, error) {
 	event := "RoleRevoked"
-	if len(log.Topics) == 0 || log.Topics[0] != processorEndpoint.abi.Events[event].ID {
+	if log.Topics[0] != processorEndpoint.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(ProcessorEndpointRoleRevoked)
@@ -2768,7 +2768,7 @@ func (ProcessorEndpointStateRootUpdate) ContractEventName() string {
 // Solidity: event StateRootUpdate(uint256 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot)
 func (processorEndpoint *ProcessorEndpoint) UnpackStateRootUpdateEvent(log *types.Log) (*ProcessorEndpointStateRootUpdate, error) {
 	event := "StateRootUpdate"
-	if len(log.Topics) == 0 || log.Topics[0] != processorEndpoint.abi.Events[event].ID {
+	if log.Topics[0] != processorEndpoint.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(ProcessorEndpointStateRootUpdate)
@@ -2811,7 +2811,7 @@ func (ProcessorEndpointUserEvent) ContractEventName() string {
 // Solidity: event UserEvent(uint256 indexed applicationId, bytes32 indexed requestId, bytes encryptedData)
 func (processorEndpoint *ProcessorEndpoint) UnpackUserEventEvent(log *types.Log) (*ProcessorEndpointUserEvent, error) {
 	event := "UserEvent"
-	if len(log.Topics) == 0 || log.Topics[0] != processorEndpoint.abi.Events[event].ID {
+	if log.Topics[0] != processorEndpoint.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(ProcessorEndpointUserEvent)
@@ -2855,7 +2855,7 @@ func (ProcessorEndpointWithdrawal) ContractEventName() string {
 // Solidity: event Withdrawal(uint256 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount)
 func (processorEndpoint *ProcessorEndpoint) UnpackWithdrawalEvent(log *types.Log) (*ProcessorEndpointWithdrawal, error) {
 	event := "Withdrawal"
-	if len(log.Topics) == 0 || log.Topics[0] != processorEndpoint.abi.Events[event].ID {
+	if log.Topics[0] != processorEndpoint.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(ProcessorEndpointWithdrawal)

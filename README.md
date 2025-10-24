@@ -118,7 +118,7 @@ sudo apt-get install solc
 
 For installing `abigen`:
 ```bash
-go install github.com/ethereum/go-ethereum/cmd/abigen@latest
+go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
 ```
 Before running `abigen`, install contracts dependencies:
 ```bash

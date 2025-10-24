@@ -479,7 +479,7 @@ func (OwnableOwnershipTransferred) ContractEventName() string {
 // Solidity: event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
 func (ownable *Ownable) UnpackOwnershipTransferredEvent(log *types.Log) (*OwnableOwnershipTransferred, error) {
 	event := "OwnershipTransferred"
-	if len(log.Topics) == 0 || log.Topics[0] != ownable.abi.Events[event].ID {
+	if log.Topics[0] != ownable.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(OwnableOwnershipTransferred)
@@ -1268,7 +1268,7 @@ func (TeeAuthenticatorOwnershipTransferred) ContractEventName() string {
 // Solidity: event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
 func (teeAuthenticator *TeeAuthenticator) UnpackOwnershipTransferredEvent(log *types.Log) (*TeeAuthenticatorOwnershipTransferred, error) {
 	event := "OwnershipTransferred"
-	if len(log.Topics) == 0 || log.Topics[0] != teeAuthenticator.abi.Events[event].ID {
+	if log.Topics[0] != teeAuthenticator.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(TeeAuthenticatorOwnershipTransferred)
@@ -1312,7 +1312,7 @@ func (TeeAuthenticatorTeeUpdate) ContractEventName() string {
 // Solidity: event TeeUpdate(address oldTee, address newTee, bytes oldPubSecp521r1, bytes newPubSecp521r1)
 func (teeAuthenticator *TeeAuthenticator) UnpackTeeUpdateEvent(log *types.Log) (*TeeAuthenticatorTeeUpdate, error) {
 	event := "TeeUpdate"
-	if len(log.Topics) == 0 || log.Topics[0] != teeAuthenticator.abi.Events[event].ID {
+	if log.Topics[0] != teeAuthenticator.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(TeeAuthenticatorTeeUpdate)
