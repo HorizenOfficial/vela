@@ -62,6 +62,7 @@ func DefaultConfig() *Config {
 	var communicationKey *cryptotypes.PrivateKeyP521
 	communicationKeyFromEnv := os.Getenv("EXECUTOR_KEY_P521")
 	if communicationKeyFromEnv == "" {
+		log.Printf("EXECUTOR_KEY_P521 property not found. Generating a brand new key\n")
 		communicationKey, _ = crypto.GeneratePrivateKeyP521()
 	} else {
 		communicationKeyImported, err1 := crypto.ImportPrivateKeyP521FromHex(communicationKeyFromEnv)
@@ -69,12 +70,15 @@ func DefaultConfig() *Config {
 			log.Printf("Error loading P521 key from hex string: %v\n", err1)
 			panic(err1)
 		}
+		log.Printf("P521 key loaded from hex string\n")
+		log.Printf("Public key is: %v\n", crypto.ExportPublicKeyP521ToHex(communicationKeyImported.PublicKey()))
 		communicationKey = communicationKeyImported
 	}
 
 	var signatureKey *cryptotypes.PrivateKeySecp256k1
 	signatureKeyFromEnv := os.Getenv("EXECUTOR_KEY_SECP256")
 	if signatureKeyFromEnv == "" {
+		log.Printf("EXECUTOR_KEY_SECP256 property not found. Generating a brand new key\n")
 		signatureKey, _ = crypto.GeneratePrivateKeySecp256k1()
 	} else {
 		signatureKeyImported, err1 := crypto.ImportPrivateKeySecp256k1FromHex(signatureKeyFromEnv)
@@ -82,6 +86,8 @@ func DefaultConfig() *Config {
 			log.Printf("Error loading Secp256 key from hex string: %v\n", err1)
 			panic(err1)
 		}
+		log.Printf("Signature Secp256 key loaded from hex string\n")
+		log.Printf("Address is: %v\n", signatureKeyImported.PublicKey().Address())
 		signatureKey = signatureKeyImported
 	}
 
