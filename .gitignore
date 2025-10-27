@@ -3,3 +3,6 @@
 /cmd/keytool/keytool
 .env
 .env_*
+*.draft
+*.bkp
+main	
