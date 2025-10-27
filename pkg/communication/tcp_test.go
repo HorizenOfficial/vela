@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,14 +19,6 @@ type MockRequestHandler struct {
 	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
 	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
 	HelloFunc                         func(ctx context.Context, message string) (string, error)
-}
-
-// HandleHandShakeManagerResponse implements RequestHandler.
-func (m *MockRequestHandler) HandleHandShakeManagerResponse(ctx context.Context, message string) (string, error) {
-	if m.HelloFunc != nil {
-		return m.HelloFunc(ctx, message)
-	}
-	return "Hello from manager", nil
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
@@ -363,10 +356,22 @@ func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
 	// Create a context
 	ctx := context.Background()
 
+	// Add a waitgroup to ensure the server-side goroutine completes
+	var wg sync.WaitGroup
+
 	// Create a server
 	factory := NewTCPConnectionFactory(":8090")
 	server := NewServer(factory)
 	server.SetRequestHandler(serverHandler)
+	server.SetConnectionHandler(func(ctx context.Context, conn ServerConnection) {
+		wg.Add(1)
+		// When a client connects, send a request to it.
+		go func() {
+			defer wg.Done()
+			_, _, err := conn.GetKeysetRecovery(ctx)
+			require.NoError(t, err)
+		}()
+	})
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
@@ -387,6 +392,9 @@ func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for hello message to be handled")
 	}
+
+	// Wait for the server-side goroutine to finish
+	wg.Wait()
 }
 
 func TestTCPClientServer_ServerTimeout(t *testing.T) {

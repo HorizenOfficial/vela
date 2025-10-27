@@ -29,15 +29,16 @@ type ClientConnection struct {
 
 // Server is a unified server implementation of the ExecutorServer interface
 type Server struct {
-	factory      ConnectionFactory
-	listener     net.Listener
-	isRunning    bool
-	mu           sync.Mutex
-	client       *ClientConnection
-	clientMu     sync.RWMutex
-	handler      RequestHandler
-	shutdownChan chan struct{}
-	reqTimeout   time.Duration
+	factory           ConnectionFactory
+	listener          net.Listener
+	isRunning         bool
+	mu                sync.Mutex
+	client            *ClientConnection
+	clientMu          sync.RWMutex
+	handler           RequestHandler
+	connectionHandler ConnectionHandler
+	shutdownChan      chan struct{}
+	reqTimeout        time.Duration
 }
 
 // NewServer creates a new server with the specified connection factory
@@ -95,7 +96,7 @@ func (s *Server) Stop() error {
 	// Close client connection
 	s.clientMu.Lock()
 	if s.client != nil {
-		s.client.close()
+		s.client.internalClose()
 		s.client = nil
 	}
 	s.clientMu.Unlock()
@@ -108,6 +109,13 @@ func (s *Server) SetRequestHandler(handler RequestHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handler = handler
+}
+
+// SetConnectionHandler sets the handler for new client connections.
+func (s *Server) SetConnectionHandler(handler ConnectionHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.connectionHandler = handler
 }
 
 // acceptConnections accepts incoming connections
@@ -156,7 +164,7 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, idLogTag st
 	// Set as current client (only one client supported)
 	s.clientMu.Lock()
 	if s.client != nil {
-		s.client.close()
+		s.client.internalClose()
 	}
 	s.client = client
 	s.clientMu.Unlock()
@@ -171,30 +179,64 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, idLogTag st
 		func(ctx context.Context, msg *Message) {
 			client.routeIncomingMessage(ctx, msg, s)
 		},
-		client.close,
+		client.internalClose,
 	)
 	go client.cleanupLoop()
 
-	// We do not want to use a go routine here because we do want this method to block until a valid response is handled
-	log.Printf("%s: Sending handshake message to client %s", idLogTag, conn.RemoteAddr())
-	err := client.SendHandShake(ctx, "Hello from executor")
-	if err != nil {
-		log.Printf("%s: Failed to send handshake message: %v", idLogTag, err)
-		return
+	s.mu.Lock()
+	handler := s.connectionHandler
+	s.mu.Unlock()
+
+	if handler != nil {
+		// We use a goroutine to avoid blocking the accept loop
+		go handler(ctx, client)
 	}
 }
 
-// SendHandShake sends a handshake message to the client and waits for a response.
-func (c *ClientConnection) SendHandShake(ctx context.Context, message string) error {
+// GetKeysetRecovery sends a request to the client to get the keyset recovery data.
+func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: GetKeysetRecoveryRequestMessage,
 		Data: GetKeysetRecoveryRequestData{
-			Message: message,
+			Message: "get_keyset_recovery",
 		},
 	}
 
 	log.Printf("%s: Sending GetKeysetRecoveryRequestMessage (type %d) msg to Manager", c.idLogTag, GetKeysetRecoveryRequestMessage)
+	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
+	if err != nil {
+		return false, nil, err
+	}
+
+	if respMsg.Type == ErrorMessage {
+		errorData, _ := extractData[ErrorData](respMsg.Data)
+		return false, nil, fmt.Errorf("client error: %s", errorData.Message)
+	}
+
+	if respMsg.Type != GetKeysetRecoveryResponseMessage {
+		return false, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	}
+
+	respData, err := extractData[GetKeysetRecoveryResponseData](respMsg.Data)
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to extract response data: %w", err)
+	}
+
+	return respData.DataFound, respData.KeySetRecovery, nil
+}
+
+// SetKeysetRecovery sends a request to the client to set the keyset recovery data.
+func (c *ClientConnection) SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery) error {
+	msg := Message{
+		ID:   generateID(),
+		Type: SetKeysetRecoveryRequestMessage,
+		Data: SetKeysetRecoveryRequestData{
+			KeySetRecovery: recovery,
+		},
+	}
+
+	log.Printf("%s: sending key set recovery to manager", c.idLogTag)
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
 		return err
@@ -205,62 +247,25 @@ func (c *ClientConnection) SendHandShake(ctx context.Context, message string) er
 		return fmt.Errorf("client error: %s", errorData.Message)
 	}
 
-	if respMsg.Type != GetKeysetRecoveryResponseMessage {
+	if respMsg.Type != SetKeysetRecoveryResponseMessage {
 		return fmt.Errorf("unexpected response type: %v", respMsg.Type)
 	}
 
-	respData, err := extractData[GetKeysetRecoveryResponseData](respMsg.Data)
+	_, err = extractData[SetKeysetRecoveryResponseData](respMsg.Data)
 	if err != nil {
 		return fmt.Errorf("failed to extract response data: %w", err)
-	}
-
-	if respData.DataFound {
-		// TODO recover the keys
-		log.Printf("%s: key found on manager, recovering them... (TODO)", c.idLogTag)
-	} else {
-		// TODO create and store the keys
-		log.Printf("%s: key not found on manager, creating them... (dummy, actually TODO)", c.idLogTag)
-		recv := &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
-			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
-			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
-		}
-
-		msg2 := Message{
-			ID:   generateID(),
-			Type: SetKeysetRecoveryRequestMessage,
-			Data: SetKeysetRecoveryRequestData{
-				KeySetRecovery: recv,
-			},
-		}
-
-		log.Printf("%s: sending key set recovery to manager", c.idLogTag)
-		respMsg, err = c.sendRequestAndWaitForResponse(ctx, msg2)
-		if err != nil {
-			return err
-		}
-
-		if respMsg.Type == ErrorMessage {
-			errorData, _ := extractData[ErrorData](respMsg.Data)
-			return fmt.Errorf("client error: %s", errorData.Message)
-		}
-
-		if respMsg.Type != SetKeysetRecoveryResponseMessage {
-			return fmt.Errorf("unexpected response type: %v", respMsg.Type)
-		}
-
-		respData, err := extractData[SetKeysetRecoveryResponseData](respMsg.Data)
-		if err != nil {
-			return fmt.Errorf("failed to extract response data: %w", err)
-		}
-		log.Printf("%s: key set recovery data stored on manager, tag %s", c.idLogTag, respData.Message)
 	}
 
 	return nil
 }
 
-// close closes the client connection
-func (c *ClientConnection) close() {
+// Close closes the client connection
+func (c *ClientConnection) Close() {
+	c.internalClose()
+}
+
+// internalClose closes the client connection
+func (c *ClientConnection) internalClose() {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
 
@@ -394,8 +399,7 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg *Message
 		c.handleDeployAppRequest(ctx, msg, handler)
 	case DeanonymizationRequestMessage:
 		c.handleDeanonymizationRequest(ctx, msg, handler)
-		//	case GetKeysetRecoveryRequestMessage:
-	//	c.handleHandShake(ctx, msg, handler)
+
 	default:
 		c.sendErrorResponse(msg.ID, "UNKNOWN_REQUEST", fmt.Errorf("unknown request type: %v", msg.Type))
 	}
@@ -486,36 +490,6 @@ func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg
 	}
 	log.Printf("%s: Deanonymization handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
-
-/*
-// handleHandShake handles ExecutorHello messages
-func (c *ClientConnection) handleHandShake(ctx context.Context, msg *Message, handler RequestHandler) {
-	reqData, err := extractData[GetKeysetRecoveryRequestData](msg.Data)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
-		return
-	}
-
-	responseMessage, err := handler.HandleHandShakeManagerResponse(ctx, reqData.Message)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
-		return
-	}
-
-	response := Message{
-		ID:   msg.ID,
-		Type: GetKeysetRecoveryResponseMessage,
-		Data: GetKeysetRecoveryResponseData{
-			Message: responseMessage,
-		},
-	}
-
-	if err := c.sendMessage(response); err != nil {
-		log.Printf("%s: Failed to send HandleHello response: %v", c.idLogTag, err)
-	}
-	log.Printf("%s: Hello handled successfully, ID=%s", c.idLogTag, msg.ID)
-}
-*/
 
 // sendErrorResponse sends an error response
 func (c *ClientConnection) sendErrorResponse(requestID string, code string, err error) {

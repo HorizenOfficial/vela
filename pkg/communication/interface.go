@@ -37,7 +37,20 @@ type ExecutorServer interface {
 	Stop() error
 	// SetRequestHandler sets the handler for incoming requests
 	SetRequestHandler(handler RequestHandler)
+	// SetConnectionHandler sets the handler for new client connections.
+	SetConnectionHandler(handler ConnectionHandler)
 }
+
+// ServerConnection defines the interface for a server-side client connection,
+// allowing the server to send requests to the client.
+type ServerConnection interface {
+	GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error)
+	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery) error
+	Close()
+}
+
+// ConnectionHandler is a function that handles a new client connection.
+type ConnectionHandler func(ctx context.Context, conn ServerConnection)
 
 // ClientRequestHandler defines the interface for handling requests from server (the executor) to client (the manager)
 type ClientRequestHandler interface {
@@ -53,8 +66,6 @@ type RequestHandler interface {
 	HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
 	// HandleGenerateDeanonymizationReport generates a deanonymization report
 	HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
-	// HandleHandShakeManagerResponse handles a handshake message from the executor
-	HandleHandShakeManagerResponse(ctx context.Context, message string) (string, error)
 }
 
 type ConnectionFactory interface {

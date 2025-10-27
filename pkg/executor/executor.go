@@ -105,13 +105,8 @@ type StatelessExecutor struct {
 	keySet *EnclaveKeySet
 }
 
-// HandleHandShakeManagerResponse implements communication.RequestHandler.
-func (e *StatelessExecutor) HandleHandShakeManagerResponse(ctx context.Context, message string) (string, error) {
-	panic("unimplemented")
-}
-
 // NewStatelessExecutor creates a new stateless executor
-func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, keySet *EnclaveKeySet) (*StatelessExecutor, error) {
+func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer) (*StatelessExecutor, error) {
 	msgBuilder, err := NewMsgToSignBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup msg to sign builder: %w", err)
@@ -122,12 +117,59 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 		runtime:          runtime,
 		server:           server,
 		MsgToSignBuilder: msgBuilder,
-		keySet:           keySet,
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
+	// Set the connection handler to perform handshake
+	executor.server.SetConnectionHandler(executor.handleNewConnection)
 
 	return executor, nil
+}
+
+func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn communication.ServerConnection) {
+	log.Printf("Executor: New connection established, starting handshake")
+	keySet, err := e.performHandshake(ctx, conn)
+	if err != nil {
+		log.Printf("Executor: Handshake failed: %v", err)
+		conn.Close()
+		return
+	}
+	e.keySet = keySet
+	log.Printf("Executor: Handshake successful")
+}
+
+func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communication.ServerConnection) (*EnclaveKeySet, error) {
+	log.Printf("Executor: Performing key recovery handshake")
+
+	found, recoveryData, err := conn.GetKeysetRecovery(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get keyset recovery data: %w", err)
+	}
+
+	var keySet *EnclaveKeySet
+	if found {
+		log.Printf("Executor: Keyset recovery data found, restoring keyset...")
+		keySet, err = RestoreEnclaveKeySet(recoveryData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
+		}
+		log.Printf("Executor: Keyset restored successfully")
+	} else {
+		log.Printf("Executor: Keyset recovery data not found, generating new keyset...")
+		var newRecoveryData *common.EnclaveKeySetRecovery
+		keySet, newRecoveryData, err = GenerateEnclaveKeySet()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate enclave keyset: %w", err)
+		}
+
+		err = conn.SetKeysetRecovery(ctx, newRecoveryData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set keyset recovery data: %w", err)
+		}
+		log.Printf("Executor: New keyset generated and sent to manager for storage")
+	}
+
+	return keySet, nil
 }
 
 // Start starts the executor server

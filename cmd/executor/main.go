@@ -34,10 +34,8 @@ func main() {
 		log.Fatalf("Unsupported server type: %s", config.ServerType)
 	}
 
-	// TODO temp
-	qqq, _ := executor.CreateNewKeySet()
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(config, runtime, server, qqq)
+	exec, err := executor.NewStatelessExecutor(config, runtime, server)
 	if err != nil {
 		log.Fatalf("Error creating executor: %v", err)
 	}
