@@ -107,6 +107,7 @@ func TestStart(t *testing.T) {
 	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
 	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
+	manager.waitForHandshake = func() {}
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
@@ -150,6 +151,7 @@ func TestStop(t *testing.T) {
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
 	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
+	manager.waitForHandshake = func() {}
 
 	// Stop a manager that is not running
 	err := manager.Stop()
