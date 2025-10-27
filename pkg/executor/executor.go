@@ -153,7 +153,12 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		if err != nil {
 			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
 		}
-		log.Printf("Executor: Keyset restored successfully")
+		log.Printf("Executor: Keyset restored successfully, confirming ")
+		err = conn.KeysetRecoverySuccess(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
+		}
+
 	} else {
 		log.Printf("Executor: Keyset recovery data not found, generating new keyset...")
 		var newRecoveryData *common.EnclaveKeySetRecovery

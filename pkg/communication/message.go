@@ -28,8 +28,6 @@ const (
 	DeanonymizationRequestMessage
 	// DeanonymizationResponseMessage represents a response to a deanonymization request
 	DeanonymizationResponseMessage
-	// ErrorMessage represents an error message
-	ErrorMessage
 	// GetKeysetRecoveryRequestMessage represents a handshake message from executor to manager
 	GetKeysetRecoveryRequestMessage
 	// GetKeysetRecoveryResponseMessage represents a handshake message from manager to executor
@@ -38,6 +36,11 @@ const (
 	SetKeysetRecoveryRequestMessage
 	// SetKeysetRecoveryResponseMessage represents a response to a set keyset recovery request from manager to executor
 	SetKeysetRecoveryResponseMessage
+	// KeysetRecoverySuccessMessage represent a confirmation from executor to manager confirming the recovery of keyset
+	KeysetRecoverySuccessMessage
+
+	// ErrorMessage represents an error message
+	ErrorMessage
 )
 
 // Message represents a message exchanged between components
@@ -127,6 +130,11 @@ type SetKeysetRecoveryRequestData struct {
 
 // SetKeysetRecoveryResponseData represents data for a set keyset recovery response message
 type SetKeysetRecoveryResponseData struct {
+	Message string `json:"message"`
+}
+
+// KeysetRecoverySuccess represents data for a keyset recovery success message
+type KeysetRecoverySuccessData struct {
 	Message string `json:"message"`
 }
 

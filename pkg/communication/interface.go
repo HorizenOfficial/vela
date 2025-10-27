@@ -46,6 +46,7 @@ type ExecutorServer interface {
 type ServerConnection interface {
 	GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error)
 	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery) error
+	KeysetRecoverySuccess(ctx context.Context) error
 	Close()
 }
 
@@ -56,6 +57,7 @@ type ConnectionHandler func(ctx context.Context, conn ServerConnection)
 type ClientRequestHandler interface {
 	HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
 	HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery) error
+	HandleKeysetRecoverySuccess(ctx context.Context) error
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor

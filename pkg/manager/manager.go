@@ -31,18 +31,18 @@ type ExecutorHandShake struct {
 
 // SecureProcessorManager is an implementation of the Manager interface
 type SecureProcessorManager struct {
-	config              *Config
-	blockchainClient    blockchain.Client
-	executorClient      communication.ExecutorClient
-	dataLayer           storage.DataLayer
-	mu                  sync.RWMutex
-	isRunning           bool
-	executorHandShake   ExecutorHandShake
-	stopChan            chan struct{}
-	wg                  sync.WaitGroup
-	endReorgTime        time.Time
-	waitForHandshake    func()
-	completeHandshake   func()
+	config            *Config
+	blockchainClient  blockchain.Client
+	executorClient    communication.ExecutorClient
+	dataLayer         storage.DataLayer
+	mu                sync.RWMutex
+	isRunning         bool
+	executorHandShake ExecutorHandShake
+	stopChan          chan struct{}
+	wg                sync.WaitGroup
+	endReorgTime      time.Time
+	waitForHandshake  func()
+	completeHandshake func()
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -178,6 +178,15 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 	}
 
 	log.Printf("Manager: KeysetRecovery data stored in data layer")
+
+	// set the handshake as completed
+	m.completeHandshake()
+	return nil
+}
+
+// HandleKeysetRecoverySuccess implements communication.ClientRequestHandler.
+func (m *SecureProcessorManager) HandleKeysetRecoverySuccess(ctx context.Context) error {
+	log.Printf("Manager: Received KeysetRecoverySuccess message from executor")
 
 	// set the handshake as completed
 	m.completeHandshake()

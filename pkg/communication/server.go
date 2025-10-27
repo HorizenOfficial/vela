@@ -226,6 +226,22 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 	return respData.DataFound, respData.KeySetRecovery, nil
 }
 
+// KeysetRecoverySuccess sends a confirmation to the client for the keyset recovery.
+func (c *ClientConnection) KeysetRecoverySuccess(ctx context.Context) error {
+	msg := Message{
+		ID:   generateID(),
+		Type: KeysetRecoverySuccessMessage,
+		Data: KeysetRecoverySuccessData{},
+	}
+
+	log.Printf("%s: sending key set recovery success to manager", c.idLogTag)
+	err := c.sendMessage(msg)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // SetKeysetRecovery sends a request to the client to set the keyset recovery data.
 func (c *ClientConnection) SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery) error {
 	msg := Message{

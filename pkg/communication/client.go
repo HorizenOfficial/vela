@@ -324,6 +324,8 @@ func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
 		c.handleExecutorHandShake(ctx, msg)
 	case SetKeysetRecoveryRequestMessage:
 		c.handleSetKeysetRecoveryRequest(ctx, msg)
+	case KeysetRecoverySuccessMessage:
+		c.handleKeysetRecoverySuccess(ctx, msg)
 	default:
 		log.Printf("%s: Warning: unknown message type: %v\n", c.idLogTag, msg.Type)
 	}
@@ -373,6 +375,26 @@ func (c *Client) handleExecutorHandShake(ctx context.Context, msg *Message) {
 		log.Printf("%s: Failed to send GetKeysetRecoveryResponseMessage response: %v", c.idLogTag, err)
 		return
 	}
+}
+
+func (c *Client) handleKeysetRecoverySuccess(ctx context.Context, msg *Message) {
+	if c.requestHandler == nil {
+		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
+		return
+	}
+
+	_, err := extractData[KeysetRecoverySuccessData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	err = c.requestHandler.HandleKeysetRecoverySuccess(ctx)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+		return
+	}
+
 }
 
 // handleSetKeysetRecoveryRequest handles a request to set the keyset recovery data
