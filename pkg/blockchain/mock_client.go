@@ -42,7 +42,6 @@ type MockClient struct {
 	withdrawals      map[string]*[]common.Withdrawal
 	reports          map[string]*common.DeanonymizationReport
 	updatePayloads   map[string]*common.UpdatePayload
-	publicKeys       map[string][]byte
 	eventSubscribers []chan<- interface{}
 	stateRoot	     [32]byte
 	*testutil.MockFunctions
@@ -58,7 +57,6 @@ func NewMockClient() *MockClient {
 		withdrawals:     make(map[string]*[]common.Withdrawal),
 		reports:         make(map[string]*common.DeanonymizationReport),
 		updatePayloads:  make(map[string]*common.UpdatePayload),
-		publicKeys:      make(map[string][]byte),
 		MockFunctions:   testutil.NewMockFunctions(),
 	}
 }
@@ -396,7 +394,6 @@ func (c *MockClient) ClearAllData() {
 	c.requests = orderedmap.NewOrderedMap[string, *common.Request]()
 	c.pendingRequests = orderedmap.NewOrderedMap[string, *common.Request]()
 	c.states = make(map[string]*common.ApplicationState)
-	c.publicKeys = make(map[string][]byte)
 	c.withdrawals = make(map[string]*[]common.Withdrawal)
 	c.reports = make(map[string]*common.DeanonymizationReport)
 	c.failedRequests = orderedmap.NewOrderedMap[string, *common.Request]()
