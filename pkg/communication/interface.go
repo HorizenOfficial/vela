@@ -24,8 +24,6 @@ type ExecutorClient interface {
 	SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
 	// SetClientRequestHandler sets the handler for incoming requests from server
 	SetClientRequestHandler(handler ClientRequestHandler)
-	// HandShake send an initial hand shake message to the manager
-	HandShake(ctx context.Context, message string) (string, error)
 }
 
 // ExecutorServer defines the interface for communication with the Manager.

@@ -221,61 +221,6 @@ func (c *Client) SendGenerateDeanonymizationReport(ctx context.Context, req *com
 	return respData.Report, nil
 }
 
-// HandShake sends a message and waits for response
-func (c *Client) HandShake(ctx context.Context, message string) (string, error) {
-	msg := Message{
-		ID:   generateID(),
-		Type: GetKeysetRecoveryRequestMessage,
-		Data: GetKeysetRecoveryRequestData{
-			Message: message,
-		},
-	}
-
-	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
-	if err != nil {
-		return "", err
-	}
-
-	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
-		return "", fmt.Errorf("server error: %s", errorData.Message)
-	}
-
-	if respMsg.Type != GetKeysetRecoveryResponseMessage {
-		return "", fmt.Errorf("unexpected response type: %v", respMsg.Type)
-	}
-
-	respData, err := extractData[GetKeysetRecoveryResponseData](respMsg.Data)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract response data: %w", err)
-	}
-
-	if respData.DataFound {
-		// TODO recover the keys
-	} else {
-		// TODO create and store the keys
-		recv := &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
-			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
-			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
-		}
-
-		msg2 := Message{
-			ID:   generateID(),
-			Type: SetKeysetRecoveryRequestMessage,
-			Data: SetKeysetRecoveryRequestData{
-				KeySetRecovery: recv,
-			},
-		}
-		err := c.sendMessage(msg2)
-		if err != nil {
-			return "ERROR", err
-		}
-	}
-
-	return "TODO", nil
-}
-
 // sendRequestAndWaitForResponse sends a request and waits for the response
 func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message) (*Message, error) {
 	// Create response channel
