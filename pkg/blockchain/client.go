@@ -413,16 +413,9 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	}
 
 	//retrieve tee public key (needed to decrypt)
-	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
-		&bind.CallOpts{Pending: false},
-		c.teeAuthEndpoint.PackGetPubSecp521r1(),
-		c.teeAuthEndpoint.UnpackGetPubSecp521r1)
+	importedPubSecp521r1, err := c.GetTeePublicKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
-	}
-	importedPubSecp521r1, err := crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
-	if err != nil {
-		return nil, fmt.Errorf("cannot import pubSecp521r1: %w", err)
+		return nil, fmt.Errorf("cannot get public key: %w", err)
 	}
 
 	//needed for event filter
@@ -463,6 +456,23 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 		}
 	}
 	return events, nil
+}
+
+func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+	
+	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.teeAuthEndpoint.PackGetPubSecp521r1(),
+		c.teeAuthEndpoint.UnpackGetPubSecp521r1)
+	if err != nil {
+		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
+	}
+	return crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
 }
 
 func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock uint64, toBlock uint64) (uint64, error) {
