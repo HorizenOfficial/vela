@@ -25,6 +25,9 @@ services:
     environment:
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT
+      - EXECUTOR_KEY_AES
+      - EXECUTOR_KEY_P521
+      - EXECUTOR_KEY_SECP256
     depends_on:
       - chain
   manager:
@@ -34,9 +37,6 @@ services:
     environment:
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT  
-      - EXECUTOR_KEY_AES
-      - EXECUTOR_KEY_P521
-      - EXECUTOR_KEY_SECP256
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
@@ -57,6 +57,8 @@ services:
       # We must set a default path if .env does not set it, otherwise compose will throw an error
       # If the optional feature is not enabled, we will simply have an empty volume
       - horizen-pes-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
+      # WASM input folder
+      - ./wasms:${MANAGER_INPUT_WASMS:-/input_wasms}
     depends_on:
       - executor 
       - chain

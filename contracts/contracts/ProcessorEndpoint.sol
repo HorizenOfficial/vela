@@ -230,7 +230,7 @@ contract ProcessorEndpoint is AccessControl {
         }
 
         Structs.PendingRequest memory emptyReq;
-        return (emptyReq, bytes32(0), false);
+        return (emptyReq, stateRoot, false);
  
     }
 

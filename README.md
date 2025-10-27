@@ -105,22 +105,28 @@ For local testing and development:
 The interaction with the contracts on chain is managed using a Geth tool called `abigen`, that can convert contract code into Go code that can be used directly in Go applications. For more information, see [Go contract binding](https://geth.ethereum.org/docs/developers/dapp-developer/native-bindings-v2). 
 
 For running `abigen`, check to have `solc` installed:
+
 ```bash
 solc --version
 ```
-For installing `solc`:
+
+solc version 0.8.30 must be used. <br/>
+In order to install the proper version of `solc` we suggest to use [solc-select](https://github.com/crytic/solc-select) (a tool to quickly switch between Solidity compiler versions):
 
 ```bash
-sudo add-apt-repository ppa:ethereum/ethereum
-sudo apt-get update
-sudo apt-get install solc
+pip3 install solc-select
+solc-select use 0.8.30 --always-install
 ```
 
-For installing `abigen`:
+For installing `abigen`: <br/>
+(Version 1.16.2 must be used)
+
 ```bash
-go install github.com/ethereum/go-ethereum/cmd/abigen@latest
+go install github.com/ethereum/go-ethereum/cmd/abigen@v1.16.2
 ```
+
 Before running `abigen`, install contracts dependencies:
+
 ```bash
 cd contracts
 npm install

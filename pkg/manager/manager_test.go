@@ -96,6 +96,15 @@ func createRequest(requestType common.RequestType, appID string) *common.Request
 	return request
 }
 
+func createRequestWithPayload(requestType common.RequestType, appID string, payload []byte) *common.Request {
+	requestId, err := blockchain.GenerateRandomID()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to generate random ID: %v", err))
+	}
+	request := &common.Request{ProtocolVersion: "1.0", ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, Payload: payload}
+	return request
+}
+
 func TestStart(t *testing.T) {
 	mockDataLayer := mockdb.NewMockDataLayer()
 	bcClient := blockchain.NewMockClient()
@@ -196,7 +205,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Deploy request
-	request := createRequest(common.Deploy, "1")
+	request := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -273,7 +282,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Deploy request
-	request := createRequest(common.Deploy, "1")
+	request := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -418,7 +427,7 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	err := mockBCClient.SendRequestToChain(context.Background(), requestInvalid)
 	require.NoError(t, err)
 
-	requestDeploy := createRequest(common.Deploy, "1")
+	requestDeploy := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), requestDeploy)
 	require.NoError(t, err)
 
@@ -427,13 +436,13 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.NoError(t, err)
 
 	// redeploy the same appId (failure expected)
-	requestReDeploy := createRequest(common.Deploy, "1")
+	requestReDeploy := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), requestReDeploy)
 	require.NoError(t, err)
 
 	// deploy an app with an appID other than "1" (failure expected)
 	// TODO it will change in future
-	requestDeployWrongId := createRequest(common.Deploy, "33")
+	requestDeployWrongId := createRequestWithPayload(common.Deploy, "33", []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), requestDeployWrongId)
 	require.NoError(t, err)
 
@@ -494,7 +503,7 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 func TestProcessDeployAppWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
-	request := createRequest(common.Deploy, "1")
+	request := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -570,7 +579,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Deploy the application first
-	deployRequest := createRequest(common.Deploy, "1")
+	deployRequest := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -691,7 +700,7 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Deploy the application first
-	deployRequest := createRequest(common.Deploy, "1")
+	deployRequest := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -787,7 +796,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute some requests just to have different versions in the DB
-	request1 := createRequest(common.Deploy, "1")
+	request1 := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), request1)
 	require.NoError(t, err)
 
@@ -936,7 +945,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
 	// Setup the application
-	request := createRequest(common.Deploy, "1")
+	request := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -1023,7 +1032,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Deploy the application first
-	deployRequest := createRequest(common.Deploy, "1")
+	deployRequest := createRequestWithPayload(common.Deploy, "1", []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())

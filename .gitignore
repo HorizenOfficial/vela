@@ -1,4 +1,8 @@
 /cmd/manager/manager
+/cmd/executor/executor
+/cmd/keytool/keytool
+.env
+.env_*
 *.draft
 *.bkp
 main	
