@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/horizen-pes/pkg/common/crypto"
+	pesCrypto "github.com/horizen-pes/pkg/crypto"
 )
 
 // EnclaveKeySet contains all the keys used by the executor.
@@ -16,6 +17,45 @@ type EnclaveKeySet struct {
 	// Key used for encrypting/decrypting the payloads, events and reports.
 	// Sender and receiver keys must Elliptic Curve Diffie-Hellman over NIST curve
 	CommunicationKey crypto.PrivateKeyP521
+}
+
+// enclaveKeySetJSON is a helper struct for JSON marshaling/unmarshaling
+type enclaveKeySetJSON struct {
+	StateKey         crypto.AES256Key `json:"StateKey"`
+	SigningKey       []byte           `json:"SigningKey"`
+	CommunicationKey []byte           `json:"CommunicationKey"`
+}
+
+// MarshalJSON returns the JSON representation of the EnclaveKeySet.
+func (ks *EnclaveKeySet) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&enclaveKeySetJSON{
+		StateKey:         ks.StateKey,
+		SigningKey:       ks.SigningKey.Bytes(),
+		CommunicationKey: ks.CommunicationKey.Bytes(),
+	})
+}
+
+// UnmarshalJSON deserializes the JSON representation of the EnclaveKeySet.
+func (ks *EnclaveKeySet) UnmarshalJSON(data []byte) error {
+	var jks enclaveKeySetJSON
+	if err := json.Unmarshal(data, &jks); err != nil {
+		return fmt.Errorf("failed to unmarshal enclave key set JSON: %w", err)
+	}
+
+	signingKey, err := pesCrypto.NewPrivateKeySecp256k1FromBytes(jks.SigningKey)
+	if err != nil {
+		return fmt.Errorf("failed to deserialize signing key: %w", err)
+	}
+	communicationKey, err := pesCrypto.NewPrivateKeyP521FromBytes(jks.CommunicationKey)
+	if err != nil {
+		return fmt.Errorf("failed to deserialize communication key: %w", err)
+	}
+
+	ks.StateKey = jks.StateKey
+	ks.SigningKey = *signingKey
+	ks.CommunicationKey = *communicationKey
+
+	return nil
 }
 
 // Serialize returns the JSON representation of the EnclaveKeySet.

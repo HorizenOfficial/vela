@@ -3,11 +3,13 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"io"
 
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"golang.org/x/crypto/hkdf"
 )
@@ -105,4 +107,23 @@ func deriveAES256Key(secret []byte) (cryptotypes.AES256Key, error) {
 		return cryptotypes.AES256Key{}, fmt.Errorf("failed to derive key: %w", err)
 	}
 	return cryptotypes.AES256Key(key), nil
+}
+
+// NewPrivateKeyP521FromBytes creates a PrivateKeyP521 from a byte slice.
+func NewPrivateKeyP521FromBytes(b []byte) (*cryptotypes.PrivateKeyP521, error) {
+	curve := ecdh.P521()
+	priv, err := curve.NewPrivateKey(b)
+	if err != nil {
+		return nil, err
+	}
+	return &cryptotypes.PrivateKeyP521{PrivateKey: priv}, nil
+}
+
+// NewPrivateKeySecp256k1FromBytes creates a PrivateKeySecp256k1 from a byte slice.
+func NewPrivateKeySecp256k1FromBytes(b []byte) (*cryptotypes.PrivateKeySecp256k1, error) {
+	priv, err := ethCrypto.ToECDSA(b)
+	if err != nil {
+		return nil, err
+	}
+	return &cryptotypes.PrivateKeySecp256k1{PrivateKey: priv}, nil
 }

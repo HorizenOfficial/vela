@@ -37,6 +37,14 @@ type PrivateKeyP521 struct {
 	*ecdh.PrivateKey
 }
 
+// Bytes returns the byte representation of the private key.
+func (p *PrivateKeyP521) Bytes() []byte {
+	if p == nil || p.PrivateKey == nil {
+		return nil
+	}
+	return p.PrivateKey.Bytes()
+}
+
 // PublicKey returns the public key associated with a private key.
 func (p *PrivateKeyP521) PublicKey() *PublicKeyP521 {
 	return &PublicKeyP521{p.PrivateKey.PublicKey()}
@@ -72,6 +80,14 @@ func (p *PublicKeySecp256k1) Address() string {
 // (This is the curve used in Bitcoin and Ethereum)
 type PrivateKeySecp256k1 struct {
 	*ecdsa.PrivateKey
+}
+
+// Bytes returns the byte representation of the private key.
+func (p *PrivateKeySecp256k1) Bytes() []byte {
+	if p == nil || p.PrivateKey == nil {
+		return nil
+	}
+	return crypto.FromECDSA(p.PrivateKey)
 }
 
 // PublicKey returns the public key associated with a private key.
