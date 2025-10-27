@@ -461,6 +461,9 @@ func TestSubmitRequest(t *testing.T) {
 	if !found {
 		t.Errorf("Submitted request not found in pending requests")
 	}
+
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	require.NoError(t, err)
 }
 
 func TestGetTeePublicKey(t *testing.T) {

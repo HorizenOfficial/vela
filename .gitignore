@@ -1,1 +1,4 @@
 /cmd/manager/manager
+*.draft
+*.bkp
+main	
