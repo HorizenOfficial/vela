@@ -459,6 +459,12 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 }
 
 func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+	
 	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
 		&bind.CallOpts{Pending: false},
 		c.teeAuthEndpoint.PackGetPubSecp521r1(),
