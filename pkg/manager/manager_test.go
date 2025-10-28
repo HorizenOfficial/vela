@@ -107,7 +107,6 @@ func TestStart(t *testing.T) {
 	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
 	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
-	manager.waitForHandshake = func() {}
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
@@ -121,7 +120,15 @@ func TestStart(t *testing.T) {
 	// Reset the executor client
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("Connect")
 	// Start the manager but blockchainClient fails to connect
-	bcClient.AddMockedFunc("Connect", func(context.Context) error { return fmt.Errorf("failed to connect blockchain client") })
+	bcClient.AddMockedFunc("Connect", func(context.Context) error {
+		return fmt.Errorf("failed to connect blockchain client")
+	})
+
+	// Mock successful executor client connection and handshake completion
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
+		go manager.completeHandshake()
+		return nil
+	})
 
 	err = manager.Start(context.Background())
 	require.Error(t, err, "failed to connect to blockchain, should return error")
@@ -140,6 +147,7 @@ func TestStart(t *testing.T) {
 	// Stopping the polling goroutine
 	cancel()
 	manager.wg.Wait()
+	t.Log("TestStart completed")
 
 }
 
@@ -151,13 +159,18 @@ func TestStop(t *testing.T) {
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
 	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
-	manager.waitForHandshake = func() {}
 
 	// Stop a manager that is not running
 	err := manager.Stop()
 	require.NoError(t, err, "Stopping a non-running manager should not return error")
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Mock successful executor client connection and handshake completion
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
+		go manager.completeHandshake()
+		return nil
+	})
 
 	err = manager.Start(ctx)
 	require.NoError(t, err, "Failed to start manager")

@@ -25,8 +25,8 @@ const (
 )
 
 type ExecutorHandShake struct {
-	isComplete bool
-	mu         sync.RWMutex
+	isComplete chan struct{}
+	once       sync.Once
 }
 
 // SecureProcessorManager is an implementation of the Manager interface
@@ -53,41 +53,38 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 		executorClient:   executorClient,
 		dataLayer:        dataLayer,
 		stopChan:         make(chan struct{}),
+		executorHandShake: ExecutorHandShake{
+			isComplete: make(chan struct{}),
+		},
 	}
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
 
 	// Set up the functions which open and close the handshake between manager and executor
-	manager.waitForHandshake = manager.waitForHandshakeLocked
-	manager.completeHandshake = manager.completeHandshakeLocked
+	manager.waitForHandshake = manager.waitForHandshakeChannel
+	manager.completeHandshake = manager.completeHandshakeChannel
 
 	return manager
 }
 
-func (m *SecureProcessorManager) waitForHandshakeLocked() {
-	fmt.Println("Manager: ############################ Waiting for the executor to compete the handshake...")
-
-	// Busy-wait loop (less efficient than a channel)
-	for {
-		m.executorHandShake.mu.Lock()
-		if m.executorHandShake.isComplete {
-			m.executorHandShake.mu.Unlock()
-			break
-		}
-		m.executorHandShake.mu.Unlock()
-
-		// Sleep briefly to avoid consuming all CPU resources (busy-waiting)
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	fmt.Println("Manager: ############################## Executor completed handshake! Continuing execution.")
+func (m *SecureProcessorManager) waitForHandshakeChannel() {
+	log.Println("Manager: ############################ Waiting for the executor to complete the handshake...")
+	// If the channel is not yet closed and has no value buffered, the goroutine blocks there forever, waiting
+	// for someone to close the channel.
+	<-m.executorHandShake.isComplete
+	log.Println("Manager: ############################## Executor completed handshake! Continuing execution.")
 }
 
-func (m *SecureProcessorManager) completeHandshakeLocked() {
-	m.executorHandShake.mu.Lock()
-	log.Printf("Manager: setting handshake as completed")
-	m.executorHandShake.isComplete = true
-	m.executorHandShake.mu.Unlock()
+func (m *SecureProcessorManager) completeHandshakeChannel() {
+	// Channels can only be closed once. If you try to close it a second time it panics.
+	// sync.Once guarantees that no matter how many goroutines attempt to mark the handshake complete, the
+	// channel is only closed once
+	m.executorHandShake.once.Do(func() {
+		log.Println("Manager: setting handshake as completed")
+		// When you close a channel, all current receivers unblock immediately, all future receives <-ch also
+		// return instantly (zero value) and the channel transitions into a permanent done state
+		close(m.executorHandShake.isComplete)
+	})
 }
 
 // Start starts the manager
