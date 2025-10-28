@@ -106,7 +106,7 @@ func TestStart(t *testing.T) {
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
+	manager := NewSecureProcessorManager(&Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
@@ -126,7 +126,7 @@ func TestStart(t *testing.T) {
 
 	// Mock successful executor client connection and handshake completion
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
-		go manager.completeExecutorHandshake()
+		go manager.completeExecutorHandshake(nil)
 		return nil
 	})
 
@@ -157,7 +157,7 @@ func TestStop(t *testing.T) {
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
+	manager := NewSecureProcessorManager(&Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Stop a manager that is not running
@@ -168,7 +168,7 @@ func TestStop(t *testing.T) {
 
 	// Mock successful executor client connection and handshake completion
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
-		go manager.completeExecutorHandshake()
+		go manager.completeExecutorHandshake(nil)
 		return nil
 	})
 

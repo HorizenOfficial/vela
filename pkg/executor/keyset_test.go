@@ -31,7 +31,7 @@ func TestGenerateAndRestoreEnclaveKeySet(t *testing.T) {
 	require.Equal(t, generatedSerialized, restoredSerialized, "Restored key set should be identical to generated key set")
 }
 
-func TestCheckSignature2(t *testing.T) {
+func TestCheckSignature(t *testing.T) {
 	applicationId := "1"
 	execConfig := DefaultConfig()
 
@@ -75,20 +75,22 @@ func TestCheckSignature2(t *testing.T) {
 	require.True(t, result, "Signature verification failed")
 }
 
-func TestDumpKeys2(t *testing.T) {
+func TestDumpKeys(t *testing.T) {
 
 	execConfig := DefaultConfig()
 
 	builder, err := NewMsgToSignBuilder()
 	require.NoError(t, err)
 
-	qqq, _ := CreateNewKeySet()
+	ks, err := CreateNewKeySet()
+	require.NoError(t, err)
 
 	executor := &StatelessExecutor{
 		config:           execConfig,
 		MsgToSignBuilder: builder,
-		keySet:           qqq,
+		keySet:           ks,
 	}
 
 	executor.DumpPublicKeys()
+	executor.DumpPrivateKeys()
 }

@@ -83,7 +83,8 @@ type MockClientRequestHandler struct {
 
 // HandleKeysetRecoverySuccess implements ClientRequestHandler.
 func (m *MockClientRequestHandler) HandleKeysetRecoverySuccess(ctx context.Context) error {
-	panic("unimplemented")
+	// For testing purposes, we can just return nil or log something.
+	return nil
 }
 
 // HandleSetKeysetRecoveryRequest implements ClientRequestHandler.

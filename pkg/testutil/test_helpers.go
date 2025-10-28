@@ -149,7 +149,8 @@ func (s *SystemTestSuite) StartManager() error {
 
 	// Wait for a result from the goroutine
 	if err := <-errChan; err != nil {
-		s.t.Fatalf("Manager failed to start: %v", err)
+		log.Printf("Manager failed to start: %v", err)
+		return err
 	}
 
 	time.Sleep(100 * time.Millisecond)

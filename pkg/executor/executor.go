@@ -43,9 +43,23 @@ func (e *StatelessExecutor) DumpPublicKeys() {
 		return
 	}
 
-        // TODO complete all the dumps
 	keyP521StrPub := crypto.ExportPublicKeyP521ToHex(e.keySet.CommunicationKey.PublicKey())
+	keySecp256k1StrPub := crypto.ExportPublicKeySecp256k1ToHex(e.keySet.SigningKey.PublicKey())
 	log.Println("###: Communication key P521 (public): 0x" + keyP521StrPub)
+	log.Println("###: Signing key Secp256k1 (public):  0x" + keySecp256k1StrPub)
+}
+
+func (e *StatelessExecutor) DumpPrivateKeys() {
+	if e.keySet == nil {
+		log.Printf("Executor: nothing to print, keyset is null")
+		return
+	}
+
+	keyP521StrPriv := crypto.ExportPrivateKeyP521ToHex(&e.keySet.CommunicationKey)
+	keySecp256k1StrPriv := crypto.ExportPrivateKeySecp256k1ToHex(&e.keySet.SigningKey)
+	log.Println("###: Communication key P521 (private): 0x" + keyP521StrPriv)
+	log.Println("###: Signing key Secp256k1 (private):  0x" + keySecp256k1StrPriv)
+	log.Printf("###: State key AES256 (raw): %x", e.keySet.StateKey)
 }
 
 // GenerateEnclaveKeySet creates a new keyset from scratch.
