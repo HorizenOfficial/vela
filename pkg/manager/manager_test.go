@@ -126,7 +126,7 @@ func TestStart(t *testing.T) {
 
 	// Mock successful executor client connection and handshake completion
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
-		go manager.completeHandshake()
+		go manager.completeExecutorHandshake()
 		return nil
 	})
 
@@ -168,7 +168,7 @@ func TestStop(t *testing.T) {
 
 	// Mock successful executor client connection and handshake completion
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
-		go manager.completeHandshake()
+		go manager.completeExecutorHandshake()
 		return nil
 	})
 

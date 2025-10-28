@@ -338,7 +338,6 @@ func (c *Client) handleExecutorHandShake(ctx context.Context, msg *Message) {
 		return
 	}
 
-	// TODO string message data not used, is it useful?
 	_, err := extractData[GetKeysetRecoveryRequestData](msg.Data)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
@@ -419,9 +418,7 @@ func (c *Client) handleSetKeysetRecoveryRequest(ctx context.Context, msg *Messag
 	response := Message{
 		ID:   msg.ID,
 		Type: SetKeysetRecoveryResponseMessage,
-		Data: SetKeysetRecoveryResponseData{
-			Message: "TODO",
-		},
+		Data: SetKeysetRecoveryResponseData{},
 	}
 
 	if err := c.sendMessage(response); err != nil {

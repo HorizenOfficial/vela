@@ -114,7 +114,6 @@ type ErrorData struct {
 
 // GetKeysetRecoveryRequestData represents data for a message from executor to manager
 type GetKeysetRecoveryRequestData struct {
-	Message string `json:"message"`
 }
 
 // GetKeysetRecoveryResponseData represents data for a message from manager to executor
@@ -130,12 +129,10 @@ type SetKeysetRecoveryRequestData struct {
 
 // SetKeysetRecoveryResponseData represents data for a set keyset recovery response message
 type SetKeysetRecoveryResponseData struct {
-	Message string `json:"message"`
 }
 
-// KeysetRecoverySuccess represents data for a keyset recovery success message
+// KeysetRecoverySuccessData represents data for a keyset recovery success message
 type KeysetRecoverySuccessData struct {
-	Message string `json:"message"`
 }
 
 // generateID generates a simple unique ID for message correlation

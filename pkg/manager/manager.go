@@ -41,8 +41,6 @@ type SecureProcessorManager struct {
 	stopChan          chan struct{}
 	wg                sync.WaitGroup
 	endReorgTime      time.Time
-	waitForHandshake  func()
-	completeHandshake func()
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -60,28 +58,25 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
 
-	// Set up the functions which open and close the handshake between manager and executor
-	manager.waitForHandshake = manager.waitForHandshakeChannel
-	manager.completeHandshake = manager.completeHandshakeChannel
-
 	return manager
 }
 
-func (m *SecureProcessorManager) waitForHandshakeChannel() {
-	log.Println("Manager: ############################ Waiting for the executor to complete the handshake...")
+func (m *SecureProcessorManager) waitForExecutorHandshake() {
+	log.Println("Manager: Waiting for the executor to complete the handshake...")
 	// If the channel is not yet closed and has no value buffered, the goroutine blocks there forever, waiting
 	// for someone to close the channel.
 	<-m.executorHandShake.isComplete
-	log.Println("Manager: ############################## Executor completed handshake! Continuing execution.")
+	log.Println("Manager: ... executor completed handshake! Continuing execution.")
 }
 
-func (m *SecureProcessorManager) completeHandshakeChannel() {
+func (m *SecureProcessorManager) completeExecutorHandshake() {
 	// Channels can only be closed once. If you try to close it a second time it panics.
+	// We have just one go routine that completes the handshake, but to be on the safe side
 	// sync.Once guarantees that no matter how many goroutines attempt to mark the handshake complete, the
-	// channel is only closed once
+	// channel is only closed once.
 	m.executorHandShake.once.Do(func() {
 		log.Println("Manager: setting handshake as completed")
-		// When you close a channel, all current receivers unblock immediately, all future receives <-ch also
+		// When a channel is closed all current receivers unblock immediately, all future receives <-ch also
 		// return instantly (zero value) and the channel transitions into a permanent done state
 		close(m.executorHandShake.isComplete)
 	})
@@ -101,8 +96,16 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to executor: %w", err)
 	}
 
-	// TODO wait the executor completes the handshake, that means he creates the keyset and sends us the recovery data
-	m.waitForHandshake()
+	// The handshake ensures the executor has a valid keyset before the manager starts
+	// processing any requests from the blockchain, which rely on this keyset for cryptographic operations.
+	// The process is as follows:
+	// 1. The executor initiates the handshake upon a new connection from the manager.
+	// 2. The executor requests the key set recovery data from the manager.
+	// 3. If the manager has the data (i.e., this is not the first run), it sends the data to the executor.
+	//    The executor restores its keyset and notifies the manager of the successful recovery.
+	// 4. If the manager does not have the data (i.e., this is the first run), the executor generates a new
+	//    keyset and sends the recovery data to the manager, which stores it for future use.
+	m.waitForExecutorHandshake()
 
 	// Connect to the blockchain
 	if err := m.blockchainClient.Connect(ctx); err != nil {
@@ -177,7 +180,7 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 	log.Printf("Manager: KeysetRecovery data stored in data layer")
 
 	// set the handshake as completed
-	m.completeHandshake()
+	m.completeExecutorHandshake()
 	return nil
 }
 
@@ -186,7 +189,7 @@ func (m *SecureProcessorManager) HandleKeysetRecoverySuccess(ctx context.Context
 	log.Printf("Manager: Received KeysetRecoverySuccess message from executor")
 
 	// set the handshake as completed
-	m.completeHandshake()
+	m.completeExecutorHandshake()
 	return nil
 }
 

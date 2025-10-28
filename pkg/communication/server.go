@@ -198,9 +198,7 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 	msg := Message{
 		ID:   generateID(),
 		Type: GetKeysetRecoveryRequestMessage,
-		Data: GetKeysetRecoveryRequestData{
-			Message: "get_keyset_recovery",
-		},
+		Data: GetKeysetRecoveryRequestData{},
 	}
 
 	log.Printf("%s: Sending GetKeysetRecoveryRequestMessage (type %d) msg to Manager", c.idLogTag, GetKeysetRecoveryRequestMessage)
