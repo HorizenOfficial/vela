@@ -17,6 +17,7 @@ import (
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
 	"github.com/horizen-pes/pkg/wasm"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
@@ -40,10 +41,18 @@ type SystemTestSuite struct {
 
 func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
 	config := manager.ReadConfig()
-	return NewSystemTestSuiteWithMgrConfig(t, appType, config)
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet()
+	require.NoError(t, err)
+	return NewSystemTestSuiteWithMgrConfig(t, appType, config, keySet, newRecoveryData)
 }
 
-func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manager.Config) *SystemTestSuite {
+func NewSystemTestSuiteWithMgrConfig(
+	t *testing.T,
+	appType string,
+	config *manager.Config,
+	keySet *executor.EnclaveKeySet,
+	recoveryData *common.EnclaveKeySetRecovery,
+) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create mock components
@@ -72,9 +81,13 @@ func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manag
 		VersionsToKeep: config.DataLayerNumOfVersions,
 	}
 
-	//dataLayer := mockdb.NewMockDataLayer()
-	dataLayer, err := versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
-	require.NoError(t, err)
+	var dataLayer storage.DataLayer = nil
+	if config.DataLayerType == "mockdb" {
+		dataLayer = mockdb.NewMockDataLayer()
+	} else {
+		dataLayer, err = versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
+		require.NoError(t, err)
+	}
 
 	mgr := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
 
@@ -94,29 +107,34 @@ func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manag
 	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server)
 	require.NoError(t, err)
 
-	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet()
-	require.NoError(t, err)
-
-	dataLayer.StoreEnclaveKeySetRecovery(ctx, newRecoveryData)
+	if keySet != nil && recoveryData != nil {
+		err := dataLayer.StoreEnclaveKeySetRecovery(ctx, recoveryData)
+		require.NoError(t, err)
+	}
 
 	// Create event channel
 	eventChannel := make(chan interface{}, 100)
 	blockchainClient.SubscribeToEvents(ctx, eventChannel)
 
-	return &SystemTestSuite{
-		t:                  t,
-		manager:            mgr,
-		executor:           exec,
-		blockchainClient:   blockchainClient,
-		dataLayer:          dataLayer,
-		eventChannel:       eventChannel,
-		ctx:                ctx,
-		cancel:             cancel,
-		executorCommKey:    &keySet.CommunicationKey, // Store the executor's communication key
-		executorSigningKey: &keySet.SigningKey,       // Store the executor's signing key
-		dbPath:             dbPath,
-		reportsPath:        reportsPath,
+	suite := &SystemTestSuite{
+		t:                t,
+		manager:          mgr,
+		executor:         exec,
+		blockchainClient: blockchainClient,
+		dataLayer:        dataLayer,
+		eventChannel:     eventChannel,
+		ctx:              ctx,
+		cancel:           cancel,
+		dbPath:           dbPath,
+		reportsPath:      reportsPath,
 	}
+
+	if keySet != nil {
+		suite.executorCommKey = &keySet.CommunicationKey
+		suite.executorSigningKey = &keySet.SigningKey
+	}
+
+	return suite
 }
 
 func (s *SystemTestSuite) StartManager() error {
@@ -290,12 +308,15 @@ func (s *SystemTestSuite) GetExecutorCommunicationKey() (*cryptotypes.PublicKeyP
 	return s.executorCommKey.PublicKey(), nil
 }
 
-// GetExecutorSigningKey returns the executor's signing public key for encryption
 func (s *SystemTestSuite) GetExecutorSigningKey() (*cryptotypes.PublicKeySecp256k1, error) {
 	if s.executorSigningKey == nil {
 		return nil, fmt.Errorf("executor signing key not initialized")
 	}
 	return s.executorSigningKey.PublicKey(), nil
+}
+
+func (s *SystemTestSuite) GetDataLayer() storage.DataLayer {
+	return s.dataLayer
 }
 
 func (s *SystemTestSuite) LoadWasmModule(t *testing.T, moduleFilename string) []byte {

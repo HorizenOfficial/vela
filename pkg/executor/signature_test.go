@@ -52,3 +52,21 @@ func TestCheckSignature(t *testing.T) {
 	result := teeSignerContract.CheckSignature(updatePayload)
 	require.True(t, result, "Signature verification failed")
 }
+
+func TestDumpKeys(t *testing.T) {
+
+	execConfig := DefaultConfig()
+
+	builder, err := NewMsgToSignBuilder()
+	require.NoError(t, err)
+
+	qqq, _ := CreateNewKeySet()
+
+	executor := &StatelessExecutor{
+		config:           execConfig,
+		MsgToSignBuilder: builder,
+		keySet:           qqq,
+	}
+
+	executor.DumpPublicKeys()
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/testutil"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
@@ -245,7 +246,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 	mgrConfig.DeanonymizationReportPath = tempDir
 
-	suite := testutil.NewSystemTestSuiteWithMgrConfig(t, "wasm-runtime", mgrConfig)
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet()
+	require.NoError(t, err)
+	suite := testutil.NewSystemTestSuiteWithMgrConfig(t, "wasm-runtime", mgrConfig, keySet, newRecoveryData)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode

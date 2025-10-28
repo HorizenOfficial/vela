@@ -37,6 +37,17 @@ func CreateNewKeySet() (*EnclaveKeySet, error) {
 	return keySet, nil
 }
 
+func (e *StatelessExecutor) DumpPublicKeys() {
+	if e.keySet == nil {
+		log.Printf("Executor: nothing to print, keyset is null")
+		return
+	}
+
+        // TODO complete all the dumps
+	keyP521StrPub := crypto.ExportPublicKeyP521ToHex(e.keySet.CommunicationKey.PublicKey())
+	log.Println("###: Communication key P521 (public): 0x" + keyP521StrPub)
+}
+
 // GenerateEnclaveKeySet creates a new keyset from scratch.
 // It will be used at the first initialization.
 // It returns the new keyset and the recovery structure.
@@ -166,6 +177,8 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate enclave keyset: %w", err)
 		}
+		// dump on log the pub keys
+		e.DumpPublicKeys()
 
 		err = conn.SetKeysetRecovery(ctx, newRecoveryData)
 		if err != nil {

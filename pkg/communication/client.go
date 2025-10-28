@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
+	util "github.com/horizen-pes/pkg/common/testutil"
 )
 
 // Client is a unified client implementation of the ExecutorClient interface
@@ -321,8 +322,10 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
 	switch msg.Type {
 	case GetKeysetRecoveryRequestMessage:
-		c.handleExecutorHandShake(ctx, msg)
+		log.Printf("%s: got message GetKeysetRecoveryRequestMessage type: %v\n", c.idLogTag, msg.Type)
+		c.handleGetKeysetRecoveryRequest(ctx, msg)
 	case SetKeysetRecoveryRequestMessage:
+		log.Printf("%s: got message SetKeysetRecoveryRequestMessage type: %v\n", c.idLogTag, msg.Type)
 		c.handleSetKeysetRecoveryRequest(ctx, msg)
 	case KeysetRecoverySuccessMessage:
 		c.handleKeysetRecoverySuccess(ctx, msg)
@@ -331,8 +334,9 @@ func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
 	}
 }
 
-// handleExecutorHandShake handles Executor messages from the server
-func (c *Client) handleExecutorHandShake(ctx context.Context, msg *Message) {
+// handleGetKeysetRecoveryRequest handles Executor messages from the server
+func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg *Message) {
+	log.Printf("%s: entering %s", c.idLogTag, util.FnName())
 	if c.requestHandler == nil {
 		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
 		return
@@ -344,7 +348,6 @@ func (c *Client) handleExecutorHandShake(ctx context.Context, msg *Message) {
 		return
 	}
 
-	// A better solution would be to have a more specific interface for the client request handler.
 	recv, err := c.requestHandler.HandleGetKeysetRecoveryRequest(ctx)
 
 	var dataFound bool
@@ -355,6 +358,12 @@ func (c *Client) handleExecutorHandShake(ctx context.Context, msg *Message) {
 		dataFound = false
 		respRecv = nil
 	} else {
+		if recv == nil {
+			c.sendErrorResponse(msg.ID, "Unexpected error: nil KeySet recovery data", err)
+			return
+		}
+
+		log.Printf("%s: KeysetRecovery found in data layer: %v", c.idLogTag, err)
 		dataFound = true
 		respRecv = recv
 	}

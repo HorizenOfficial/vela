@@ -174,6 +174,7 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 
 	if err != nil {
 		log.Printf("Manager: Failed to set keyset recovery: %v", err)
+		m.completeExecutorHandshake()
 		return err
 	}
 
