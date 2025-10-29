@@ -367,7 +367,7 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg *Messag
 	} else {
 		if recv == nil {
 			log.Printf("%s: Unexpected error: nil keySet recovery data", c.idLogTag)
-			c.sendErrorResponse(msg.ID, "Unexpected error: nil KeySet recovery data", fmt.Errorf("Nil recovery data"))
+			c.sendErrorResponse(msg.ID, "Unexpected error: nil KeySet recovery data", fmt.Errorf("nil recovery data"))
 			return
 		}
 
@@ -385,7 +385,7 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg *Messag
 		},
 	}
 
-	log.Printf("%s: Sending response to executor", c.idLogTag)
+	log.Printf("%s: Sending GetKeysetRecoveryResponseMessage to executor", c.idLogTag)
 	err = c.sendMessage(response)
 	if err != nil {
 		log.Printf("%s: Failed to send GetKeysetRecoveryResponseMessage response: %v", c.idLogTag, err)

@@ -1,6 +1,7 @@
 package communication
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -45,6 +46,9 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 		// Simulate restoring keyset
 		if recoveryData == nil {
 			return nil
+		}
+		if bytes.Equal(recoveryData.KeySetCiphertext, []byte("corrupted-keyset")) {
+			return fmt.Errorf("simulated restore error")
 		}
 		log.Printf("MockExecutor: simulating restoring keyset")
 		return m.conn.KeysetRecoverySuccess(ctx)
@@ -207,4 +211,24 @@ func TestHandshake_ManagerSetError(t *testing.T) {
 	require.Error(t, executor.handshakeError)
 	require.Contains(t, executor.handshakeError.Error(), "Test Set Error")
 	require.Nil(t, manager.recoveryData)
+}
+
+func TestHandshake_ExecutorRestoreFailure(t *testing.T) {
+	client, server, executor, manager := setupHandshakeTest(t)
+	defer client.Close()
+	defer server.Stop()
+
+	// Pre-set corrupted recovery data in manager
+	manager.recoveryData = &common.EnclaveKeySetRecovery{
+		RecoveryType:       1,
+		KeySetCiphertext:   []byte("corrupted-keyset"),
+		RecoveryCiphertext: []byte("corrupted-recovery"),
+	}
+
+	// Wait for handshake to complete
+	<-executor.handshakeDone
+
+	// Executor should see an error
+	require.Error(t, executor.handshakeError)
+	require.Contains(t, executor.handshakeError.Error(), "simulated restore error")
 }
