@@ -99,6 +99,7 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	}
 
 	c.processorBoundContract = c.processorEndpoint.Instance(c.client, c.processorAddress)
+	c.teeAuthBoundContract = c.teeAuthEndpoint.Instance(c.client, c.teeAuthAddress)
 
 	chainID, err := c.client.ChainID(ctx)
 	if err != nil {
@@ -299,12 +300,12 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	// Set the value for the transaction (msg.value)
 	c.account.Value = value
 
-    // Send the transaction
-    tx, err := bind.Transact(c.processorBoundContract, c.account, data)
+	// Send the transaction
+	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
 	c.account.Value = nil
-    if err != nil {
-        return "", 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
-    }
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
+	}
 
 	// Wait for transaction to be mined
 	receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
@@ -468,7 +469,7 @@ func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.Pu
 	if !c.connected {
 		return nil, fmt.Errorf("client not connected, call Connect first")
 	}
-	
+
 	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
 		&bind.CallOpts{Pending: false},
 		c.teeAuthEndpoint.PackGetPubSecp521r1(),
