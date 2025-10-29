@@ -81,8 +81,8 @@ type MockClientRequestHandler struct {
 	GetKeysetRecoveryFunc func(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
 }
 
-// HandleKeysetRecoverySuccess implements ClientRequestHandler.
-func (m *MockClientRequestHandler) HandleKeysetRecoverySuccess(ctx context.Context) error {
+// HandleKeysetRecoveryResult implements ClientRequestHandler.
+func (m *MockClientRequestHandler) HandleKeysetRecoveryResult(ctx context.Context, result error) error {
 	// For testing purposes, we can just return nil or log something.
 	return nil
 }

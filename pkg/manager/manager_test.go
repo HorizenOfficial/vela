@@ -174,6 +174,7 @@ func TestStop(t *testing.T) {
 	require.NoError(t, err, "Stopping a non-running manager should not return error")
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Mock successful executor client connection and handshake completion
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
@@ -183,8 +184,6 @@ func TestStop(t *testing.T) {
 
 	err = manager.Start(ctx)
 	require.NoError(t, err, "Failed to start manager")
-	// Stopping the polling goroutine, otherwise Stop() will block forever
-	cancel()
 
 	// Stop the manager but execClient fails to stop
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Close", func() error {

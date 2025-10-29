@@ -36,8 +36,8 @@ const (
 	SetKeysetRecoveryRequestMessage
 	// SetKeysetRecoveryResponseMessage represents a response to a set keyset recovery request from manager to executor
 	SetKeysetRecoveryResponseMessage
-	// KeysetRecoverySuccessMessage represent a confirmation from executor to manager confirming the recovery of keyset
-	KeysetRecoverySuccessMessage
+	// KeysetRecoveryResultMessage represent a confirmation from executor to manager confirming the recovery of keyset
+	KeysetRecoveryResultMessage
 
 	// ErrorMessage represents an error message
 	ErrorMessage
@@ -131,8 +131,9 @@ type SetKeysetRecoveryRequestData struct {
 type SetKeysetRecoveryResponseData struct {
 }
 
-// KeysetRecoverySuccessData represents data for a keyset recovery success message
-type KeysetRecoverySuccessData struct {
+// KeysetRecoveryResultData represents data for a keyset recovery success message
+type KeysetRecoveryResultData struct {
+	Error string `json:"error,omitempty"`
 }
 
 // generateID generates a simple unique ID for message correlation

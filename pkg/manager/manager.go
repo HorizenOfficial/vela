@@ -155,7 +155,12 @@ func (m *SecureProcessorManager) Stop() error {
 	}
 
 	// Signal the polling loop to stop
-	close(m.stopChan)
+	select {
+	case <-m.stopChan:
+	// already closed
+	default:
+		close(m.stopChan)
+	}
 
 	// Wait for the polling loop to stop
 	m.wg.Wait()
@@ -211,12 +216,15 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 	return nil
 }
 
-// HandleKeysetRecoverySuccess implements communication.ClientRequestHandler.
-func (m *SecureProcessorManager) HandleKeysetRecoverySuccess(ctx context.Context) error {
-	log.Printf("Manager: Received KeysetRecoverySuccess message from executor")
-
-	// set the handshake as completed
-	m.completeExecutorHandshake(nil)
+// HandleKeysetRecoveryResult implements communication.ClientRequestHandler.
+func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context, result error) error {
+	if result != nil {
+		log.Printf("Manager: Received KeysetRecoveryResult message from executor with error: %v", result)
+		m.completeExecutorHandshake(result)
+	} else {
+		log.Printf("Manager: Received KeysetRecoveryResult message from executor with success")
+		m.completeExecutorHandshake(nil)
+	}
 	return nil
 }
 

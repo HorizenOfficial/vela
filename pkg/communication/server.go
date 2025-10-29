@@ -224,15 +224,22 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 	return respData.DataFound, respData.KeySetRecovery, nil
 }
 
-// KeysetRecoverySuccess sends a confirmation to the client for the keyset recovery.
-func (c *ClientConnection) KeysetRecoverySuccess(ctx context.Context) error {
-	msg := Message{
-		ID:   generateID(),
-		Type: KeysetRecoverySuccessMessage,
-		Data: KeysetRecoverySuccessData{},
+// KeysetRecoveryResult sends a confirmation to the client for the keyset recovery.
+func (c *ClientConnection) KeysetRecoveryResult(ctx context.Context, result error) error {
+	var errMsg string
+	if result != nil {
+		errMsg = result.Error()
 	}
 
-	log.Printf("%s: sending key set recovery success to manager", c.idLogTag)
+	msg := Message{
+		ID:   generateID(),
+		Type: KeysetRecoveryResultMessage,
+		Data: KeysetRecoveryResultData{
+			Error: errMsg,
+		},
+	}
+
+	log.Printf("%s: sending key set recovery result to manager", c.idLogTag)
 	err := c.sendMessage(msg)
 	if err != nil {
 		return err
