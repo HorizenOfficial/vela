@@ -481,11 +481,11 @@ func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.Pu
 
 func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock uint64, toBlock uint64) (uint64, error) {
 	if fromBlock == 0 {
-		latestBlock, err := c.client.BlockByNumber(ctx, nil)
+		latestBlock, err := c.client.BlockNumber(ctx)
 		if err != nil {
-			return 0, fmt.Errorf("failed to get latest block: %w", err)
+			return 0, fmt.Errorf("failed to get latest block number: %w", err)
 		}
-		fromBlock = latestBlock.NumberU64()
+		fromBlock = latestBlock
 	}
 
 	if fromBlock < toBlock {
