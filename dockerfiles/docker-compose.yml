@@ -2,6 +2,7 @@ version: "3"
 
 networks:
   pes_network:
+    internal: true
     ipam:
       config:
         - subnet: ${INTERNAL_NETWORK_SUBNET}
@@ -17,8 +18,6 @@ services:
     image: horizen-pes-executor
     container_name: horizen-pes-executor
     restart: always
-    ports:
-      - "${EXECUTOR_IP_PORT}:${EXECUTOR_IP_PORT}"
     networks:
       pes_network:
         ipv4_address: ${EXECUTOR_IP_ADDRESS}
