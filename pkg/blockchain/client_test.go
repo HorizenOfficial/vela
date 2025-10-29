@@ -415,8 +415,6 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 	require.NoError(t, err)
 }
 
-
-
 func TestSubmitRequest(t *testing.T) {
 	// mock private key for the client
 	testHelper := setupSimTestHelper(t, true, nil)
@@ -463,6 +461,26 @@ func TestSubmitRequest(t *testing.T) {
 	if !found {
 		t.Errorf("Submitted request not found in pending requests")
 	}
+
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	require.NoError(t, err)
+}
+
+func TestGetTeePublicKey(t *testing.T) {
+	//generate key
+	key, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+	// create test with the key
+	testHelper := setupSimTestHelper(t, true, key.PublicKey().Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Get the Public Key
+	publicKey, err := blockchainClient.GetTeePublicKey(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, publicKey, "Public key should not be nil")
+	require.Equal(t, key.PublicKey().Bytes(), publicKey.Bytes(), "Public key not equal to the given one")
 }
 
 func TestGetRequestCompletedEvent(t *testing.T) {

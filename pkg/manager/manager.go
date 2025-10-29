@@ -401,6 +401,21 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		return fmt.Errorf("application %s was already deployed", req.ApplicationID)
 	}
 
+	//if the payload is empty, try to retrieve the wasm locally
+	if len(req.Payload) == 0 {
+		log.Printf("Empty payload received - trying to retrieve wasm locally")
+		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID+".wasm")
+		if !fileExists(wasmFilePath) {
+			return fmt.Errorf("failed to deploy application - wasm not found in both payload or local path: %v", wasmFilePath)
+		}
+		wasmBytesFromFile, err := os.ReadFile(wasmFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to deploy application - Error reading wasm file: %v", err)
+
+		}
+		req.Payload = wasmBytesFromFile
+	}
+
 	// Deploy the application
 	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req)
 	if err != nil {

@@ -11,8 +11,8 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
-	"github.com/ethereum/go-ethereum/core/types"
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
@@ -66,6 +66,8 @@ func toRequestType(i uint8) common.RequestType {
 		return common.Process
 	case 2:
 		return common.Deanonymize
+	case 3:
+		return common.AssociateKey
 	default:
 		return ""
 	}
@@ -115,7 +117,7 @@ func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
 	}
 
 	raw, hasRevertErrorData := ethclient.RevertErrorData(chainErr)
-	if !hasRevertErrorData {
+	if !hasRevertErrorData || len(raw) == 0 {
 		return fmt.Errorf("call returned error: %w", chainErr)
 	}
 	rawUnpackedErr, unpack_err := c.processorEndpoint.UnpackError(raw)
@@ -138,14 +140,13 @@ func (c *BlockChainClient) UnpackProcessorEndpointErrorAndCheckForReorg(chainErr
 	unpackedError := c.UnpackProcessorEndpointError(chainErr)
 
 	if strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidApplicationId") ||
-	   strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidStateRoot") || 
-	   strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidRequestId") {
+		strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidStateRoot") ||
+		strings.Contains(unpackedError.Error(), "ProcessorEndpointInvalidRequestId") {
 		return ReorgError{causedBy: unpackedError}
 	}
 	return unpackedError
 
 }
-
 
 // GetPendingRequests gets pending requests from the blockchain
 func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Request, error) {
@@ -185,8 +186,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 	return output, nil
 }
 
-
-func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error){
+func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -207,7 +207,7 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 	if !output.Success {
 		return nil, stateRoot, nil
 	}
-	
+
 	request := output.Arg0
 
 	requestId := hex.EncodeToString(request.RequestId[:])
@@ -223,7 +223,6 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		Value:           request.Value.Uint64(),
 	}
 
-	
 	return req, stateRoot, nil
 }
 
@@ -239,9 +238,9 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 		return fmt.Errorf("error waiting for tx inclusion: %w", err)
 	}
 
-    if receipt.Status != 1 {
-        return fmt.Errorf("transaction failed")
-    }
+	if receipt.Status != 1 {
+		return fmt.Errorf("transaction failed")
+	}
 	return nil
 }
 
@@ -258,6 +257,7 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 		return fmt.Errorf("invalid request ID %s: %w", requestID, err)
 	}
 
+	c.account.Value = nil
 	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(reqId))
 
 }
@@ -275,53 +275,55 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 		return fmt.Errorf("invalid request ID %s: %w", requestID, err)
 	}
 
+	c.account.Value = nil
 	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(reqId))
 
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
 func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
-    c.mu.RLock()
-    defer c.mu.RUnlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
-    if !c.connected {
-        return "", 0, fmt.Errorf("client not connected, call Connect first")
-    }
+	if !c.connected {
+		return "", 0, fmt.Errorf("client not connected, call Connect first")
+	}
 
 	reqType, err := requestType.ToUint8()
 	if err != nil {
 		return "", 0, fmt.Errorf("invalid request type: %w", err)
 	}
 
-    // Pack the transaction data using the generated binding
-    data := c.processorEndpoint.PackSubmitRequest(protocolVersion, applicationId, reqType, payload, value)
-    // Set the value for the transaction (msg.value)
-    c.account.Value = value
+	// Pack the transaction data using the generated binding
+	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, applicationId, reqType, payload, value)
+	// Set the value for the transaction (msg.value)
+	c.account.Value = value
 
     // Send the transaction
     tx, err := bind.Transact(c.processorBoundContract, c.account, data)
+	c.account.Value = nil
     if err != nil {
         return "", 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
     }
 
-    // Wait for transaction to be mined
-    receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
-    if err != nil {
-        return "", 0, fmt.Errorf("error waiting for tx inclusion: %w", err)
-    }
-    if receipt.Status != 1 {
-        return "", 0, fmt.Errorf("transaction failed")
-    }
+	// Wait for transaction to be mined
+	receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
+	if err != nil {
+		return "", 0, fmt.Errorf("error waiting for tx inclusion: %w", err)
+	}
+	if receipt.Status != 1 {
+		return "", 0, fmt.Errorf("transaction failed")
+	}
 
-    // Parse the returned requestId from the transaction receipt logs
-    for _, vLog := range receipt.Logs {
-        event, err := c.processorEndpoint.UnpackRequestSubmittedEvent(vLog)
-        if err == nil {
-            return common.RequestId32ByteToString(event.RequestId), receipt.BlockNumber.Uint64(), nil
-        }
-    }
+	// Parse the returned requestId from the transaction receipt logs
+	for _, vLog := range receipt.Logs {
+		event, err := c.processorEndpoint.UnpackRequestSubmittedEvent(vLog)
+		if err == nil {
+			return common.RequestId32ByteToString(event.RequestId), receipt.BlockNumber.Uint64(), nil
+		}
+	}
 
-    return "", 0, fmt.Errorf("requestId not found in logs")
+	return "", 0, fmt.Errorf("requestId not found in logs")
 }
 
 func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
@@ -371,6 +373,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		update.Signature,
 	)
 
+	c.account.Value = nil
 	return c.sendTxAndWaitMined(ctx, params)
 
 }
@@ -414,21 +417,14 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	}
 
 	//retrieve tee public key (needed to decrypt)
-	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
-		&bind.CallOpts{Pending: false},
-		c.teeAuthEndpoint.PackGetPubSecp521r1(),
-		c.teeAuthEndpoint.UnpackGetPubSecp521r1)
+	importedPubSecp521r1, err := c.GetTeePublicKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
-	}
-	importedPubSecp521r1, err := crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
-	if err != nil {
-		return nil, fmt.Errorf("cannot import pubSecp521r1: %w", err)
+		return nil, fmt.Errorf("cannot get public key: %w", err)
 	}
 
 	//needed for event filter
 	userEventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointUserEventEventName)
-	
+
 	appIdHash := ethCommon.BigToHash(&applicationId)
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
 
@@ -466,6 +462,22 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	return events, nil
 }
 
+func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+	
+	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.teeAuthEndpoint.PackGetPubSecp521r1(),
+		c.teeAuthEndpoint.UnpackGetPubSecp521r1)
+	if err != nil {
+		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
+	}
+	return crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
+}
 
 func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock uint64, toBlock uint64) (uint64, error) {
 	if fromBlock == 0 {
@@ -501,7 +513,7 @@ func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, request
 	}
 
 	reqId, err := common.RequestIdStringTo32Byte(requestID)
-	if  err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("invalid request ID %s: %w", requestID, err)
 	}
 	reqIdHash := ethCommon.BytesToHash(reqId[:])
@@ -524,7 +536,7 @@ func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, request
 	valid_logs := make([]types.Log, 0)
 
 	for _, log := range logs {
-		if !log.Removed  {
+		if !log.Removed {
 			valid_logs = append(valid_logs, log)
 		}
 	}

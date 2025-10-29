@@ -61,6 +61,10 @@ type Config struct {
 
 	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
 	DeanonymizationReportPath string
+
+	// InputWasmPath is the path where the wasm bytecode to be deployed is retrieved if not found in the payload
+	// (we may need to load it externally for GAS limitation)
+	InputWasmPath string
 }
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
@@ -84,6 +88,7 @@ func DefaultConfig() *Config {
 	if dataPath == "" {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
 	}
+	inputWasmPath := os.Getenv("MANAGER_INPUT_WASMS")
 	nodeProtocol := os.Getenv("CHAIN_RPC_PROTOCOL")
 	if nodeProtocol == "" {
 		nodeProtocol = "http"
@@ -141,6 +146,7 @@ func DefaultConfig() *Config {
 		DataLayerDBPath:           dataPath,
 		DataLayerNumOfVersions:    10,          // useful only for versioned leveldb
 		DeanonymizationReportPath: reportsPath, // optional, default to not-there semantic
+		InputWasmPath:             inputWasmPath,
 	}
 }
 
@@ -177,6 +183,7 @@ func ReadConfig() *Config {
 		DataLayerDBPath:           config.MustGetString("DataLayerDBPath"),
 		DataLayerNumOfVersions:    config.MustGetInt("DataLayerNumOfVersions"),
 		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
+		InputWasmPath:             config.GetString("InputWasmPath", ""),
 	}
 }
 

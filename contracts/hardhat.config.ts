@@ -41,11 +41,11 @@ const config: HardhatUserConfig = {
             accounts,
         },
         'horizen-l3-testnet': {
-            url: 'https://horizen-rpc-testnet.appchain.base.org/',
+            url: 'https://horizen-testnet.rpc.caldera.xyz/http',
             accounts,
         },
         'local': {
-            url: 'http://localhost:8545/',
+            url: 'http://10.10.40.30:8545/',
             accounts,
         }, 
         
