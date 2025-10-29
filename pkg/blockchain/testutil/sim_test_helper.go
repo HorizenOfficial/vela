@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"math/big"
 	"testing"
@@ -19,7 +20,6 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
-
 )
 
 
@@ -34,9 +34,11 @@ type SimTestHelper struct {
 
 	ProcessorContractAddress ethCommon.Address
 	TeeSignerAddress         ethCommon.Address
+	AuthorityAddress         ethCommon.Address
 	Deployer                 *bind.TransactOpts
 	Submitter                *bind.TransactOpts
 	ManagerAccount           *bind.TransactOpts
+	ManagerPrivKey			 *ecdsa.PrivateKey
 	autoMining               bool
 	cancel                   context.CancelFunc
 }
@@ -113,17 +115,17 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
 	require.NoError(s.t, err)
 
-	authorityAddress, tx := deployRes.Addresses[authority.AuthorityRegistryMetaData.ID], deployRes.Txs[authority.AuthorityRegistryMetaData.ID]
+	s.AuthorityAddress, tx = deployRes.Addresses[authority.AuthorityRegistryMetaData.ID], deployRes.Txs[authority.AuthorityRegistryMetaData.ID]
 
 	s.sim.Commit()
 
 	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
 	require.NoError(s.t, err)
-	fmt.Printf("Authority contract deployed at address 0x%x\n", authorityAddress)
+	fmt.Printf("Authority contract deployed at address 0x%x\n", s.AuthorityAddress)
 
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.TeeSignerAddress, authorityAddress, s.ManagerAccount.From)
+	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From)
 	// set up params to deploy an instance of the ProcessorEndpoint contract
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},
@@ -324,6 +326,17 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 	err = s.sim.Client().SendTransaction(context.Background(), signedTx)
 	require.NoError(s.t, err, "failed to send transaction")
 	return signedTx
+}
+
+func (s *SimTestHelper) AddAuthority(applicationId *big.Int, newAuthority ethCommon.Address) *ethTypes.Transaction {
+	authorityContract := authority.NewAuthorityRegistry()
+	authorityInstance := authorityContract.Instance(s.Client(), s.AuthorityAddress)
+
+
+	tx, err := bind.Transact(authorityInstance, s.Deployer, authorityContract.PackAddAllowedAuthority(applicationId, newAuthority))
+	require.NoError(s.t, err, "failed to send transaction")
+
+	return tx
 }
 
 func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelper {
