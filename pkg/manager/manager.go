@@ -182,7 +182,7 @@ func (m *SecureProcessorManager) HandleGetKeysetRecoveryRequest(ctx context.Cont
 
 	recv, err := m.dataLayer.GetEnclaveKeySetRecovery(ctx)
 	if err != nil {
-		log.Printf("Manager: Failed to get keyset recovery: %v", err)
+		log.Printf("Manager: could not get keyset recovery data: %v", err)
 		return nil, err
 	}
 

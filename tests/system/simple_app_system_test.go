@@ -119,7 +119,9 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 }
 
 func TestExecutorManagerStart(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+
+	config := manager.ReadConfig()
+	suite := testutil.NewSystemTestSuiteWithMgrConfig(t, "wasm-runtime", config, nil, nil)
 	defer suite.Cleanup()
 
 	// 2. Start services
@@ -246,6 +248,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 	mgrConfig.DeanonymizationReportPath = tempDir
 
+	// we need to pass the keys for having them in the test suite
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet()
 	require.NoError(t, err)
 	suite := testutil.NewSystemTestSuiteWithMgrConfig(t, "wasm-runtime", mgrConfig, keySet, newRecoveryData)

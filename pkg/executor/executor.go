@@ -45,8 +45,10 @@ func (e *StatelessExecutor) DumpPublicKeys() {
 
 	keyP521StrPub := crypto.ExportPublicKeyP521ToHex(e.keySet.CommunicationKey.PublicKey())
 	keySecp256k1StrPub := crypto.ExportPublicKeySecp256k1ToHex(e.keySet.SigningKey.PublicKey())
+	keySecp256k1StrAddress := e.keySet.SigningKey.PublicKey().Address()
 	log.Println("###: Communication key P521 (public): 0x" + keyP521StrPub)
 	log.Println("###: Signing key Secp256k1 (public):  0x" + keySecp256k1StrPub)
+	log.Println("###:             Secp256k1 (address): 0x" + keySecp256k1StrAddress)
 }
 
 func (e *StatelessExecutor) DumpPrivateKeys() {
@@ -178,6 +180,9 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		if err != nil {
 			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
 		}
+		e.keySet = keySet
+		e.DumpPublicKeys()
+
 		log.Printf("Executor: Keyset restored successfully, confirming ")
 		err = conn.KeysetRecoverySuccess(ctx)
 		if err != nil {
@@ -191,6 +196,8 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate enclave keyset: %w", err)
 		}
+		e.keySet = keySet
+
 		// dump on log the pub keys
 		e.DumpPublicKeys()
 

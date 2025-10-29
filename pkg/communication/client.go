@@ -12,6 +12,7 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	util "github.com/horizen-pes/pkg/common/testutil"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
 
 // Client is a unified client implementation of the ExecutorClient interface
@@ -354,16 +355,23 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg *Messag
 	var respRecv *common.EnclaveKeySetRecovery
 
 	if err != nil {
-		log.Printf("%s: KeysetRecovery not found in data layer: %v", c.idLogTag, err)
-		dataFound = false
-		respRecv = nil
+		if storageErrors.IsNotFound(err) {
+			log.Printf("%s: KeysetRecovery not found in data layer: %v", c.idLogTag, err)
+			dataFound = false
+			respRecv = nil
+		} else {
+			log.Printf("%s: Unexpected error from datalayer: %v", c.idLogTag, err)
+			c.sendErrorResponse(msg.ID, "Unexpected error from dataLayer ", err)
+			return
+		}
 	} else {
 		if recv == nil {
-			c.sendErrorResponse(msg.ID, "Unexpected error: nil KeySet recovery data", err)
+			log.Printf("%s: Unexpected error: nil keySet recovery data", c.idLogTag)
+			c.sendErrorResponse(msg.ID, "Unexpected error: nil KeySet recovery data", fmt.Errorf("Nil recovery data"))
 			return
 		}
 
-		log.Printf("%s: KeysetRecovery found in data layer: %v", c.idLogTag, err)
+		log.Printf("%s: KeysetRecovery found in data layer", c.idLogTag)
 		dataFound = true
 		respRecv = recv
 	}

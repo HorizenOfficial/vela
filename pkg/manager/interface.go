@@ -117,7 +117,7 @@ func DefaultConfig() *Config {
 	handshakeTimeout, err := strconv.ParseInt(handshakeTimeoutEnvVar, 10, 32)
 	if err != nil {
 		fmt.Printf("Failed to convert HANDSHAKE_TIMEOUT for error %v, using default value\n", err)
-		handshakeTimeout = 30
+		handshakeTimeout = 5
 	}
 
 	blockchainPollingIntervalEnvVar := os.Getenv("BLOCKCHAIN_POLLING_INTERVAL")
@@ -167,7 +167,7 @@ func ReadConfig() *Config {
 	}
 	return &Config{
 		ReorgTimeout:              config.GetInt64("ReorgTimeout", 180), // 3 minutes
-		HandshakeTimeout:          config.GetInt64("HandshakeTimeout", 30),
+		HandshakeTimeout:          config.GetInt64("HandshakeTimeout", 5),
 		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
 		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{

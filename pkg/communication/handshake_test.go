@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
 
 // mockExecutor is a mock implementation of the server-side (executor) handshake logic
@@ -142,7 +142,7 @@ func TestHandshake_FirstConnection(t *testing.T) {
 	defer server.Stop()
 
 	// Manager returns error on get because this is the very first connection
-	manager.getRecoveryError = assert.AnError
+	manager.getRecoveryError = storageErrors.NewError(storageErrors.NotFound, "Test Error")
 
 	// Wait for handshake to complete
 	<-executor.handshakeDone
@@ -179,16 +179,15 @@ func TestHandshake_ManagerGetError(t *testing.T) {
 	defer server.Stop()
 
 	// Manager returns error on get
-	manager.getRecoveryError = assert.AnError
+	manager.getRecoveryError = fmt.Errorf("Test Get Error")
 
 	// Wait for handshake to complete
 	<-executor.handshakeDone
 
-	// Executor should not see an error, because the client treats it as "not found"
-	// and proceeds to create a new key.
-	require.NoError(t, executor.handshakeError)
-	require.NotNil(t, manager.recoveryData)
-	require.Equal(t, []byte("new-keyset"), manager.recoveryData.KeySetCiphertext)
+	// Executor should see an error, because it is not a NotFound error
+	require.Error(t, executor.handshakeError)
+	require.Contains(t, executor.handshakeError.Error(), "Test Get Error")
+	require.Nil(t, manager.recoveryData)
 }
 
 func TestHandshake_ManagerSetError(t *testing.T) {
@@ -197,11 +196,10 @@ func TestHandshake_ManagerSetError(t *testing.T) {
 	defer server.Stop()
 
 	// Manager returns error on get, this is OK, the executor will create a new keyset
-	manager.getRecoveryError = fmt.Errorf("Not in datalayer")
+	manager.getRecoveryError = storageErrors.NewError(storageErrors.NotFound, "Test Error")
 
 	// Manager returns error on set
 	manager.setRecoveryError = fmt.Errorf("Test Set Error")
-	//manager.setRecoveryError = assert.AnError
 
 	// Wait for handshake to complete
 	<-executor.handshakeDone
