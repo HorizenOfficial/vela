@@ -6,3 +6,4 @@
 *.draft
 *.bkp
 main	
+.vscode/
