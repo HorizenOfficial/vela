@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 )
 
 // PublicKeyP521 is a public key with Elliptic Curve Diffie-Hellman over NIST P-521 curve, also known as secp521r1.
@@ -104,3 +105,22 @@ func (p *PrivateKeySecp256k1) Sign(digest []byte) ([]byte, error) {
 
 // Represents a AES-256-GCM key
 type AES256Key [32]byte
+
+// NewPrivateKeyP521FromBytes creates a PrivateKeyP521 from a byte slice.
+func NewPrivateKeyP521FromBytes(b []byte) (*PrivateKeyP521, error) {
+	curve := ecdh.P521()
+	priv, err := curve.NewPrivateKey(b)
+	if err != nil {
+		return nil, err
+	}
+	return &PrivateKeyP521{PrivateKey: priv}, nil
+}
+
+// NewPrivateKeySecp256k1FromBytes creates a PrivateKeySecp256k1 from a byte slice.
+func NewPrivateKeySecp256k1FromBytes(b []byte) (*PrivateKeySecp256k1, error) {
+	priv, err := ethCrypto.ToECDSA(b)
+	if err != nil {
+		return nil, err
+	}
+	return &PrivateKeySecp256k1{PrivateKey: priv}, nil
+}

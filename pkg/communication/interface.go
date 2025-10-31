@@ -45,8 +45,8 @@ type ExecutorServer interface {
 // allowing the server to send requests to the client.
 type ServerConnection interface {
 	GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error)
-	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery) error
-	KeysetRecoveryResult(ctx context.Context, result error) error
+	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
+	KeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error
 	Close()
 }
 
@@ -56,8 +56,8 @@ type ConnectionHandler func(ctx context.Context, conn ServerConnection)
 // ClientRequestHandler defines the interface for handling requests from server (the executor) to client (the manager)
 type ClientRequestHandler interface {
 	HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
-	HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery) error
-	HandleKeysetRecoveryResult(ctx context.Context, result error) error
+	HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
+	HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor

@@ -198,7 +198,7 @@ func (m *SecureProcessorManager) HandleGetKeysetRecoveryRequest(ctx context.Cont
 }
 
 // HandleSetKeysetRecoveryRequest implements communication.ClientRequestHandler.
-func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery) error {
+func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
 	log.Printf("Manager: Received SetKeysetRecovery message from executor")
 
 	err := m.dataLayer.StoreEnclaveKeySetRecovery(ctx, recv)
@@ -210,6 +210,8 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 	}
 
 	log.Printf("Manager: KeysetRecovery data stored in data layer")
+	log.Printf("Manager: Executor's public communication key (P521): %s", commPubKey)
+	log.Printf("Manager: Executor's signing key address (Secp256k1): %s", signingKeyAddr)
 
 	// set the handshake as completed
 	m.completeExecutorHandshake(nil)
@@ -217,12 +219,14 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 }
 
 // HandleKeysetRecoveryResult implements communication.ClientRequestHandler.
-func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context, result error) error {
+func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
 	if result != nil {
 		log.Printf("Manager: Received KeysetRecoveryResult message from executor with error: %v", result)
 		m.completeExecutorHandshake(result)
 	} else {
 		log.Printf("Manager: Received KeysetRecoveryResult message from executor with success")
+		log.Printf("Manager: Executor's public communication key (P521): %s", commPubKey)
+		log.Printf("Manager: Executor's signing key address (Secp256k1): %s", signingKeyAddr)
 		m.completeExecutorHandshake(nil)
 	}
 	return nil

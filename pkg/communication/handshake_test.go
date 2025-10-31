@@ -51,7 +51,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 			return fmt.Errorf("simulated restore error")
 		}
 		log.Printf("MockExecutor: simulating restoring keyset")
-		return m.conn.KeysetRecoveryResult(ctx, nil)
+		return m.conn.KeysetRecoveryResult(ctx, nil, "mock-comm-pub-key", "mock-signing-addr")
 	} else {
 		// Simulate generating new keyset
 		newRecoveryData := &common.EnclaveKeySetRecovery{
@@ -60,7 +60,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 			RecoveryCiphertext: []byte("new-recovery"),
 		}
 		log.Printf("MockExecutor: simulating new keyset")
-		return m.conn.SetKeysetRecovery(ctx, newRecoveryData)
+		return m.conn.SetKeysetRecovery(ctx, newRecoveryData, "mock-comm-pub-key", "mock-signing-addr")
 	}
 }
 
@@ -89,7 +89,7 @@ func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*comm
 	return m.recoveryData, nil
 }
 
-func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery) error {
+func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
 	log.Printf("MockExecutor: entering %s", testutil.FnName())
 	if m.setRecoveryError != nil {
 		return m.setRecoveryError
@@ -98,7 +98,7 @@ func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *
 	return nil
 }
 
-func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result error) error {
+func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
 	log.Printf("MockManager: entering %s", testutil.FnName())
 	if result == nil {
 		m.handshakeSuccessMutex.Lock()

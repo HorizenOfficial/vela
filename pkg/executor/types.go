@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/horizen-pes/pkg/common/crypto"
-	pesCrypto "github.com/horizen-pes/pkg/crypto"
 )
 
 // EnclaveKeySet contains all the keys used by the executor.
@@ -42,11 +41,11 @@ func (ks *EnclaveKeySet) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("failed to unmarshal enclave key set JSON: %w", err)
 	}
 
-	signingKey, err := pesCrypto.NewPrivateKeySecp256k1FromBytes(jks.SigningKey)
+	signingKey, err := crypto.NewPrivateKeySecp256k1FromBytes(jks.SigningKey)
 	if err != nil {
 		return fmt.Errorf("failed to deserialize signing key: %w", err)
 	}
-	communicationKey, err := pesCrypto.NewPrivateKeyP521FromBytes(jks.CommunicationKey)
+	communicationKey, err := crypto.NewPrivateKeyP521FromBytes(jks.CommunicationKey)
 	if err != nil {
 		return fmt.Errorf("failed to deserialize communication key: %w", err)
 	}

@@ -31,6 +31,20 @@ func TestGenerateAndRestoreEnclaveKeySet(t *testing.T) {
 	require.Equal(t, generatedSerialized, restoredSerialized, "Restored key set should be identical to generated key set")
 }
 
+func TestRestoreEnclaveKeySet_UnsupportedType(t *testing.T) {
+	// Create a recovery struct with an unsupported type
+	recovery := &common.EnclaveKeySetRecovery{
+		RecoveryType: 99, // Unsupported type
+	}
+
+	// Attempt to restore the keyset
+	_, err := RestoreEnclaveKeySet(recovery)
+
+	// Verify that an error is returned
+	require.Error(t, err, "RestoreEnclaveKeySet should return an error for unsupported recovery types")
+	require.Contains(t, err.Error(), "unsupported recovery type: 99", "Error message should indicate unsupported type")
+}
+
 func TestCheckSignature(t *testing.T) {
 	applicationId := "1"
 	execConfig := DefaultConfig()

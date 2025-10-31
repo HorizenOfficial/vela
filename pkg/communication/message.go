@@ -125,6 +125,8 @@ type GetKeysetRecoveryResponseData struct {
 // SetKeysetRecoveryRequestData represents data for a set keyset recovery request message
 type SetKeysetRecoveryRequestData struct {
 	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
+	CommPubKey     string                        `json:"commPubKey"`
+	SigningKeyAddr string                        `json:"signingKeyAddr"`
 }
 
 // SetKeysetRecoveryResponseData represents data for a set keyset recovery response message
@@ -133,7 +135,9 @@ type SetKeysetRecoveryResponseData struct {
 
 // KeysetRecoveryResultData represents data for a keyset recovery success message
 type KeysetRecoveryResultData struct {
-	Error string `json:"error,omitempty"`
+	Error          string `json:"error,omitempty"`
+	CommPubKey     string `json:"commPubKey,omitempty"`
+	SigningKeyAddr string `json:"signingKeyAddr,omitempty"`
 }
 
 // generateID generates a simple unique ID for message correlation

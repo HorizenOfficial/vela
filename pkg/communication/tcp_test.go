@@ -77,20 +77,20 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 
 // MockClientRequestHandler is a mock implementation for testing the new client
 type MockClientRequestHandler struct {
-	SetKeysetRecoveryFunc func(ctx context.Context, recv *common.EnclaveKeySetRecovery) error
+	SetKeysetRecoveryFunc func(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
 	GetKeysetRecoveryFunc func(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
 }
 
 // HandleKeysetRecoveryResult implements ClientRequestHandler.
-func (m *MockClientRequestHandler) HandleKeysetRecoveryResult(ctx context.Context, result error) error {
+func (m *MockClientRequestHandler) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
 	// For testing purposes, we can just return nil or log something.
 	return nil
 }
 
 // HandleSetKeysetRecoveryRequest implements ClientRequestHandler.
-func (m *MockClientRequestHandler) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery) error {
+func (m *MockClientRequestHandler) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
 	if m.SetKeysetRecoveryFunc != nil {
-		return m.SetKeysetRecoveryFunc(ctx, recv)
+		return m.SetKeysetRecoveryFunc(ctx, recv, commPubKey, signingKeyAddr)
 	}
 	return nil
 }

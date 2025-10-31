@@ -105,22 +105,27 @@ func GenerateEnclaveKeySet() (*EnclaveKeySet, *common.EnclaveKeySetRecovery, err
 // RestoreEnclaveKeySet recovers a keyset from a recovery previously stored.
 // It will be used when starting the executors after the first init.
 func RestoreEnclaveKeySet(recovery *common.EnclaveKeySetRecovery) (*EnclaveKeySet, error) {
-	// 1. Use the RecoveryCiphertext as the master key to decrypt the KeySetCiphertext.
-	var masterKey cryptotypes.AES256Key
-	copy(masterKey[:], recovery.RecoveryCiphertext)
+	switch recovery.RecoveryType {
+	case 0:
+		// 1. Use the RecoveryCiphertext as the master key to decrypt the KeySetCiphertext.
+		var masterKey cryptotypes.AES256Key
+		copy(masterKey[:], recovery.RecoveryCiphertext)
 
-	decryptedKeySet, err := crypto.DecryptWithAES(masterKey, recovery.KeySetCiphertext)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt key set: %w", err)
+		decryptedKeySet, err := crypto.DecryptWithAES(masterKey, recovery.KeySetCiphertext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt key set: %w", err)
+		}
+
+		// 2. Deserialize the decrypted data into an EnclaveKeySet.
+		keySet, err := DeserializeEnclaveKeySet(decryptedKeySet)
+		if err != nil {
+			return nil, err
+		}
+
+		return keySet, nil
+	default:
+		return nil, fmt.Errorf("unsupported recovery type: %d", recovery.RecoveryType)
 	}
-
-	// 2. Deserialize the decrypted data into an EnclaveKeySet.
-	keySet, err := DeserializeEnclaveKeySet(decryptedKeySet)
-	if err != nil {
-		return nil, err
-	}
-
-	return keySet, nil
 }
 
 // StatelessExecutor implements the Executor interface
@@ -179,20 +184,20 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		keySet, err = RestoreEnclaveKeySet(recoveryData)
 		if err != nil {
 			// Notify manager of failure
-			if notifyErr := conn.KeysetRecoveryResult(ctx, err); notifyErr != nil {
+			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
 				log.Printf("Executor: failed to send keyset recovery failure to manager: %v", notifyErr)
 			}
 			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
 		}
-		e.keySet = keySet
-		e.DumpPublicKeys()
+
+		commPubKey := crypto.ExportPublicKeyP521ToHex(keySet.CommunicationKey.PublicKey())
+		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
 		log.Printf("Executor: Keyset restored successfully, confirming ")
-		err = conn.KeysetRecoveryResult(ctx, nil)
+		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
 		}
-
 	} else {
 		log.Printf("Executor: Keyset recovery data not found, generating new keyset...")
 		var newRecoveryData *common.EnclaveKeySetRecovery
@@ -200,17 +205,20 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate enclave keyset: %w", err)
 		}
-		e.keySet = keySet
 
-		// dump on log the pub keys
-		e.DumpPublicKeys()
+		commPubKey := crypto.ExportPublicKeyP521ToHex(keySet.CommunicationKey.PublicKey())
+		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
-		err = conn.SetKeysetRecovery(ctx, newRecoveryData)
+		err = conn.SetKeysetRecovery(ctx, newRecoveryData, commPubKey, signingKeyAddr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to set keyset recovery data: %w", err)
 		}
 		log.Printf("Executor: New keyset generated and sent to manager for storage")
 	}
+
+	e.keySet = keySet
+	// this recomputes the pub keys and address, but it is cheap anyway and one time only operation
+	e.DumpPublicKeys()
 
 	return keySet, nil
 }
