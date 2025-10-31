@@ -36,7 +36,7 @@ func NewMockExecutorClient() *MockExecutorClient {
 
 func (m *MockExecutorClient) Connect(ctx context.Context, tag string) error {
 	if f, ok := m.GetMockedFunc("Connect"); ok {
-		return f.(func() error)()
+		return f.(func(context.Context, string) error)(ctx, tag)
 	}
 	return nil
 }
@@ -119,7 +119,7 @@ func TestStart(t *testing.T) {
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
 		return fmt.Errorf("Connect failed")
 	})
 	err := manager.Start(context.Background())
@@ -134,7 +134,7 @@ func TestStart(t *testing.T) {
 	})
 
 	// Mock successful executor client connection and handshake completion
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
 		go manager.completeExecutorHandshake(nil)
 		return nil
 	})
@@ -177,7 +177,7 @@ func TestStop(t *testing.T) {
 	defer cancel()
 
 	// Mock successful executor client connection and handshake completion
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
 		go manager.completeExecutorHandshake(nil)
 		return nil
 	})
