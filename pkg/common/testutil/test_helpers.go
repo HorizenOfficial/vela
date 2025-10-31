@@ -1,7 +1,5 @@
 package testutil
 
-import "runtime"
-
 type MockFunctions struct {
 	MockedFunctions map[string]interface{}
 }
@@ -23,9 +21,4 @@ func NewMockFunctions() *MockFunctions {
 	return &MockFunctions{
 		MockedFunctions: make(map[string]interface{}),
 	}
-}
-
-func FnName() string {
-	pc, _, _, _ := runtime.Caller(1)
-	return runtime.FuncForPC(pc).Name()
 }

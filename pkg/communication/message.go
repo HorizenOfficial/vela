@@ -52,7 +52,7 @@ type Message struct {
 
 // PendingRequest represents a request waiting for response
 type PendingRequest struct {
-	ResponseChan chan *Message
+	ResponseChan chan Message
 	Timeout      time.Time
 }
 

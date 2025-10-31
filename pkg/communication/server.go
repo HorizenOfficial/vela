@@ -176,7 +176,7 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, idLogTag st
 		client.conn,
 		client.reader,
 		client.shutdown,
-		func(ctx context.Context, msg *Message) {
+		func(ctx context.Context, msg Message) {
 			client.routeIncomingMessage(ctx, msg, s)
 		},
 		client.internalClose,
@@ -315,9 +315,9 @@ func (c *ClientConnection) internalClose() {
 }
 
 // sendRequestAndWaitForResponse sends a request and waits for the response
-func (c *ClientConnection) sendRequestAndWaitForResponse(ctx context.Context, msg Message) (*Message, error) {
+func (c *ClientConnection) sendRequestAndWaitForResponse(ctx context.Context, msg Message) (Message, error) {
 	// Create response channel
-	responseChan := make(chan *Message, 1)
+	responseChan := make(chan Message, 1)
 	pendingReq := &PendingRequest{
 		ResponseChan: responseChan,
 		Timeout:      time.Now().Add(c.reqTimeout),
@@ -337,20 +337,20 @@ func (c *ClientConnection) sendRequestAndWaitForResponse(ctx context.Context, ms
 
 	// Send message
 	if err := c.sendMessage(msg); err != nil {
-		return nil, fmt.Errorf("failed to send message: %w", err)
+		return Message{}, fmt.Errorf("failed to send message: %w", err)
 	}
 
 	// Wait for response or timeout
 	select {
 	case response, ok := <-responseChan:
 		if !ok {
-			return nil, fmt.Errorf("request timeout or response channel closed")
+			return Message{}, fmt.Errorf("request timeout or response channel closed")
 		}
 		return response, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return Message{}, ctx.Err()
 	case <-c.shutdown:
-		return nil, fmt.Errorf("client connection is shutting down")
+		return Message{}, fmt.Errorf("client connection is shutting down")
 	}
 }
 
@@ -386,7 +386,7 @@ func (c *ClientConnection) sendMessage(msg Message) error {
 }
 
 // routeIncomingMessage routes incoming messages to appropriate handlers
-func (c *ClientConnection) routeIncomingMessage(ctx context.Context, msg *Message, server *Server) {
+func (c *ClientConnection) routeIncomingMessage(ctx context.Context, msg Message, server *Server) {
 	// Check if this is a response to a pending request
 	c.pendingMu.Lock()
 	pendingReq, exists := c.pendingRequests[msg.ID]
@@ -407,7 +407,7 @@ func (c *ClientConnection) routeIncomingMessage(ctx context.Context, msg *Messag
 }
 
 // handleClientRequest handles requests initiated by the client
-func (c *ClientConnection) handleClientRequest(ctx context.Context, msg *Message, server *Server) {
+func (c *ClientConnection) handleClientRequest(ctx context.Context, msg Message, server *Server) {
 	server.mu.Lock()
 	handler := server.handler
 	server.mu.Unlock()
@@ -431,7 +431,7 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg *Message
 }
 
 // handleProcessRequest handles ProcessRequest messages
-func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Message, handler RequestHandler) {
+func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message, handler RequestHandler) {
 	reqData, err := extractData[ProcessRequestData](msg.Data)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
@@ -460,7 +460,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Messag
 }
 
 // handleDeployAppRequest handles DeployApp messages
-func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Message, handler RequestHandler) {
+func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Message, handler RequestHandler) {
 	reqData, err := extractData[DeployAppRequestData](msg.Data)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
@@ -489,7 +489,7 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg *Mess
 }
 
 // handleDeanonymizationRequest handles deanonymization messages
-func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg *Message, handler RequestHandler) {
+func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg Message, handler RequestHandler) {
 	reqData, err := extractData[DeanonymizationRequestData](msg.Data)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)

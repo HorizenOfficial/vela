@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/testutil"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
 
@@ -36,7 +35,7 @@ func (m *mockExecutor) handleConnection(ctx context.Context, conn ServerConnecti
 }
 
 func (m *mockExecutor) performHandshake(ctx context.Context) error {
-	log.Printf("MockExecutor: entering %s", testutil.FnName())
+	log.Printf("MockExecutor: entering %s", common.FnName())
 	found, recoveryData, err := m.conn.GetKeysetRecovery(ctx)
 	if err != nil {
 		return err
@@ -75,7 +74,7 @@ type mockManager struct {
 }
 
 func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
-	log.Printf("MockExecutor: entering %s", testutil.FnName())
+	log.Printf("MockExecutor: entering %s", common.FnName())
 	if m.getRecoveryError != nil {
 		return nil, m.getRecoveryError
 	}
@@ -90,7 +89,7 @@ func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*comm
 }
 
 func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
-	log.Printf("MockExecutor: entering %s", testutil.FnName())
+	log.Printf("MockExecutor: entering %s", common.FnName())
 	if m.setRecoveryError != nil {
 		return m.setRecoveryError
 	}
@@ -99,7 +98,7 @@ func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *
 }
 
 func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
-	log.Printf("MockManager: entering %s", testutil.FnName())
+	log.Printf("MockManager: entering %s", common.FnName())
 	if result == nil {
 		m.handshakeSuccessMutex.Lock()
 		m.handshakeSuccess = true
@@ -109,14 +108,14 @@ func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result err
 }
 
 func (m *mockManager) wasHandshakeSuccessful() bool {
-	log.Printf("MockExecutor: entering %s", testutil.FnName())
+	log.Printf("MockExecutor: entering %s", common.FnName())
 	m.handshakeSuccessMutex.Lock()
 	defer m.handshakeSuccessMutex.Unlock()
 	return m.handshakeSuccess
 }
 
-func setupHandshakeTest(t *testing.T) (*Client, *Server, *mockExecutor, *mockManager) {
-	log.Printf("MockExecutor: entering %s", testutil.FnName())
+func setupHandshakeTest(t *testing.T) (context.Context, *Client, *Server, *mockExecutor, *mockManager) {
+	log.Printf("MockExecutor: entering %s", common.FnName())
 	ctx := context.Background()
 	//factory := NewTCPConnectionFactory(":0") // Use :0 for random port
 	factory := NewTCPConnectionFactory("localhost:1234") // Use :0 for random port
@@ -136,19 +135,20 @@ func setupHandshakeTest(t *testing.T) (*Client, *Server, *mockExecutor, *mockMan
 	client := NewClient(clientFactory)
 	manager := &mockManager{t: t}
 	client.SetClientRequestHandler(manager)
-	err = client.Connect(ctx, "Manager")
-	require.NoError(t, err)
 
-	return client, server, executor, manager
+	return ctx, client, server, executor, manager
 }
 
 func TestHandshake_FirstConnection(t *testing.T) {
-	client, server, executor, manager := setupHandshakeTest(t)
+	ctx, client, server, executor, manager := setupHandshakeTest(t)
 	defer client.Close()
 	defer server.Stop()
 
 	// Manager returns error on get because this is the very first connection
 	manager.getRecoveryError = storageErrors.NewError(storageErrors.NotFound, "Test Error")
+
+	err := client.Connect(ctx, "Manager")
+	require.NoError(t, err)
 
 	// Wait for handshake to complete
 	<-executor.handshakeDone
@@ -159,7 +159,7 @@ func TestHandshake_FirstConnection(t *testing.T) {
 }
 
 func TestHandshake_Reconnection(t *testing.T) {
-	client, server, executor, manager := setupHandshakeTest(t)
+	ctx, client, server, executor, manager := setupHandshakeTest(t)
 	defer client.Close()
 	defer server.Stop()
 
@@ -169,6 +169,9 @@ func TestHandshake_Reconnection(t *testing.T) {
 		KeySetCiphertext:   []byte("existing-keyset"),
 		RecoveryCiphertext: []byte("existing-recovery"),
 	}
+
+	err := client.Connect(ctx, "Manager")
+	require.NoError(t, err)
 
 	// Wait for handshake to complete
 	<-executor.handshakeDone
@@ -180,12 +183,15 @@ func TestHandshake_Reconnection(t *testing.T) {
 }
 
 func TestHandshake_ManagerGetError(t *testing.T) {
-	client, server, executor, manager := setupHandshakeTest(t)
+	ctx, client, server, executor, manager := setupHandshakeTest(t)
 	defer client.Close()
 	defer server.Stop()
 
 	// Manager returns error on get
 	manager.getRecoveryError = fmt.Errorf("Test Get Error")
+
+	err := client.Connect(ctx, "Manager")
+	require.NoError(t, err)
 
 	// Wait for handshake to complete
 	<-executor.handshakeDone
@@ -197,7 +203,7 @@ func TestHandshake_ManagerGetError(t *testing.T) {
 }
 
 func TestHandshake_ManagerSetError(t *testing.T) {
-	client, server, executor, manager := setupHandshakeTest(t)
+	ctx, client, server, executor, manager := setupHandshakeTest(t)
 	defer client.Close()
 	defer server.Stop()
 
@@ -206,6 +212,9 @@ func TestHandshake_ManagerSetError(t *testing.T) {
 
 	// Manager returns error on set
 	manager.setRecoveryError = fmt.Errorf("Test Set Error")
+
+	err := client.Connect(ctx, "Manager")
+	require.NoError(t, err)
 
 	// Wait for handshake to complete
 	<-executor.handshakeDone
@@ -216,7 +225,7 @@ func TestHandshake_ManagerSetError(t *testing.T) {
 }
 
 func TestHandshake_ExecutorRestoreFailure(t *testing.T) {
-	client, server, executor, manager := setupHandshakeTest(t)
+	ctx, client, server, executor, manager := setupHandshakeTest(t)
 	defer client.Close()
 	defer server.Stop()
 
@@ -226,6 +235,9 @@ func TestHandshake_ExecutorRestoreFailure(t *testing.T) {
 		KeySetCiphertext:   []byte("corrupted-keyset"),
 		RecoveryCiphertext: []byte("corrupted-recovery"),
 	}
+
+	err := client.Connect(ctx, "Manager")
+	require.NoError(t, err)
 
 	// Wait for handshake to complete
 	<-executor.handshakeDone

@@ -21,7 +21,7 @@ func MessageReaderLoop(
 	conn net.Conn,
 	reader *bufio.Reader,
 	shutdownChan chan struct{},
-	routeMessage func(context.Context, *Message),
+	routeMessage func(context.Context, Message),
 	closeConnection func(),
 ) {
 	defer closeConnection()
@@ -112,6 +112,6 @@ func MessageReaderLoop(
 		// By creating this explicit copy, we ensure that each goroutine receives a pointer to its own message,
 		// that is local to this specific iteration of the loop
 		msgCopy := msg
-		go routeMessage(ctx, &msgCopy)
+		go routeMessage(ctx, msgCopy)
 	}
 }
