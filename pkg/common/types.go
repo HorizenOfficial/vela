@@ -131,6 +131,6 @@ type EnclaveKeySetRecovery struct {
 	RecoveryType int `json:"recoveryType"`
 	// KeySetCiphertext is the encrypted EnclaveKeySet.
 	KeySetCiphertext []byte `json:"keySetCiphertext"`
-	// RecoveryCiphertext is the criptographic data needed to recover the EnclaveKeySet.
+	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.
 	RecoveryCiphertext []byte `json:"recoveryCiphertext"`
 }
