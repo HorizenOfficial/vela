@@ -120,8 +120,9 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 
 func TestExecutorManagerStart(t *testing.T) {
 
-	config := manager.ReadConfig()
-	suite := testutil.NewSystemTestSuiteWithMgrConfig(t, "wasm-runtime", config, nil, nil)
+	mgrConfig := manager.ReadConfig()
+	execConfig := executor.ReadConfig()
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil)
 	defer suite.Cleanup()
 
 	// 2. Start services
@@ -244,14 +245,15 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user2Address := fmt.Sprintf("0xadd%037x", 2)
 
 	mgrConfig := manager.ReadConfig()
+	execConfig := executor.ReadConfig()
 	tempDir, err := os.MkdirTemp("", "reports_system_test")
 	require.NoError(t, err)
 	mgrConfig.DeanonymizationReportPath = tempDir
 
 	// we need to pass the keys for having them in the test suite
-	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet()
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithMgrConfig(t, "wasm-runtime", mgrConfig, keySet, newRecoveryData)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode

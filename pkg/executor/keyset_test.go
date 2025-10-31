@@ -11,7 +11,7 @@ import (
 
 func TestGenerateAndRestoreEnclaveKeySet(t *testing.T) {
 	// Test GenerateEnclaveKeySet
-	generatedKeySet, recovery, err := GenerateEnclaveKeySet()
+	generatedKeySet, recovery, err := GenerateEnclaveKeySet(0)
 	require.NoError(t, err, "GenerateEnclaveKeySet should not return an error")
 	require.NotNil(t, generatedKeySet, "Generated key set should not be nil")
 	require.NotNil(t, recovery, "Recovery data should not be nil")
@@ -29,6 +29,15 @@ func TestGenerateAndRestoreEnclaveKeySet(t *testing.T) {
 	require.NoError(t, err, "Failed to serialize restored key set")
 
 	require.Equal(t, generatedSerialized, restoredSerialized, "Restored key set should be identical to generated key set")
+}
+
+func TestGenerateEnclaveKeySet_UnsupportedType(t *testing.T) {
+	// Attempt to generate a keyset with an unsupported recovery type
+	_, _, err := GenerateEnclaveKeySet(99)
+
+	// Verify that an error is returned
+	require.Error(t, err, "GenerateEnclaveKeySet should return an error for unsupported recovery types")
+	require.Contains(t, err.Error(), "unsupported recovery type: 99", "Error message should indicate unsupported type")
 }
 
 func TestRestoreEnclaveKeySet_UnsupportedType(t *testing.T) {

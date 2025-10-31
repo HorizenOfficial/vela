@@ -67,39 +67,44 @@ func (e *StatelessExecutor) DumpPrivateKeys() {
 // GenerateEnclaveKeySet creates a new keyset from scratch.
 // It will be used at the first initialization.
 // It returns the new keyset and the recovery structure.
-func GenerateEnclaveKeySet() (*EnclaveKeySet, *common.EnclaveKeySetRecovery, error) {
-	// 1. Create a new AES master key.
-	masterKey, err := crypto.GenerateAESKey()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate master key: %w", err)
-	}
+func GenerateEnclaveKeySet(recoveryType int) (*EnclaveKeySet, *common.EnclaveKeySetRecovery, error) {
+	switch recoveryType {
+	case 0:
+		// 1. Create a new AES master key.
+		masterKey, err := crypto.GenerateAESKey()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate master key: %w", err)
+		}
 
-	// 2. Create a new EnclaveKeySet.
-	keySet, err := CreateNewKeySet()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create key set: %w", err)
-	}
+		// 2. Create a new EnclaveKeySet.
+		keySet, err := CreateNewKeySet()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create key set: %w", err)
+		}
 
-	// 3. Serialize the EnclaveKeySet.
-	serializedKeySet, err := keySet.Serialize()
-	if err != nil {
-		return nil, nil, err
-	}
+		// 3. Serialize the EnclaveKeySet.
+		serializedKeySet, err := keySet.Serialize()
+		if err != nil {
+			return nil, nil, err
+		}
 
-	// 4. Encrypt the serialized EnclaveKeySet with the master key.
-	encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encrypt key set: %w", err)
-	}
+		// 4. Encrypt the serialized EnclaveKeySet with the master key.
+		encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to encrypt key set: %w", err)
+		}
 
-	// 5. Create the recovery structure.
-	recovery := &common.EnclaveKeySetRecovery{
-		RecoveryType:       0,
-		KeySetCiphertext:   encryptedKeySet,
-		RecoveryCiphertext: masterKey[:],
-	}
+		// 5. Create the recovery structure.
+		recovery := &common.EnclaveKeySetRecovery{
+			RecoveryType:       0,
+			KeySetCiphertext:   encryptedKeySet,
+			RecoveryCiphertext: masterKey[:],
+		}
 
-	return keySet, recovery, nil
+		return keySet, recovery, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported recovery type: %d", recoveryType)
+	}
 }
 
 // RestoreEnclaveKeySet recovers a keyset from a recovery previously stored.
@@ -201,7 +206,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 	} else {
 		log.Printf("Executor: Keyset recovery data not found, generating new keyset...")
 		var newRecoveryData *common.EnclaveKeySetRecovery
-		keySet, newRecoveryData, err = GenerateEnclaveKeySet()
+		keySet, newRecoveryData, err = GenerateEnclaveKeySet(e.config.KeySetRecoveryType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate enclave keyset: %w", err)
 		}

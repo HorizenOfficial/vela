@@ -4,8 +4,10 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/horizen-pes/pkg/communication"
 
@@ -25,6 +27,8 @@ type Config struct {
 	ServerCid uint32
 	// ServerPort is the port for the v-socket server
 	ServerPort uint32
+	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
+	KeySetRecoveryType int
 }
 
 // DefaultConfig returns the default configuration (possibly overridden by env variables)
@@ -37,10 +41,17 @@ func DefaultConfig() *Config {
 	if serverPort == "" {
 		serverPort = "8080"
 	}
+	recTypeVar := os.Getenv("EXECUTOR_KEYSET_RECOVERY_TYPE")
+	recType, err := strconv.Atoi(recTypeVar)
+	if err != nil {
+		fmt.Printf("Failed to convert EXECUTOR_KEYSET_RECOVERY_TYPE for error %v, using default value\n", err)
+		recType = 0
+	}
 
 	return &Config{
-		ServerType: "tcp",
-		ServerAddr: serverAddress + ":" + serverPort,
+		ServerType:         "tcp",
+		ServerAddr:         serverAddress + ":" + serverPort,
+		KeySetRecoveryType: recType,
 	}
 }
 
@@ -57,8 +68,9 @@ func ReadConfig() *Config {
 	}
 
 	return &Config{
-		ServerType: config.MustGetString("ServerType"),
-		ServerAddr: config.MustGetString("ServerAddr"),
+		ServerType:         config.MustGetString("ServerType"),
+		ServerAddr:         config.MustGetString("ServerAddr"),
+		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
 	}
 }
 

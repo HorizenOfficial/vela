@@ -40,16 +40,18 @@ type SystemTestSuite struct {
 }
 
 func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
-	config := manager.ReadConfig()
-	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet()
+	mgrConfig := manager.ReadConfig()
+	execConfig := executor.ReadConfig()
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	return NewSystemTestSuiteWithMgrConfig(t, appType, config, keySet, newRecoveryData)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData)
 }
 
-func NewSystemTestSuiteWithMgrConfig(
+func NewSystemTestSuiteWithConfigs(
 	t *testing.T,
 	appType string,
-	config *manager.Config,
+	mgrConfig *manager.Config,
+	execConfig *executor.Config,
 	keySet *executor.EnclaveKeySet,
 	recoveryData *common.EnclaveKeySetRecovery,
 ) *SystemTestSuite {
@@ -58,14 +60,13 @@ func NewSystemTestSuiteWithMgrConfig(
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	execConfig := executor.DefaultConfig()
 	factory := communication.NewTCPConnectionFactory(execConfig.ServerAddr)
 	executorClient := communication.NewClient(factory)
 
 	// Create manager
 	var err error
 	var reportsPath string = ""
-	if config.DeanonymizationReportPath != "" {
+	if mgrConfig.DeanonymizationReportPath != "" {
 		// Create a temporary directory for reports, we overwrite this optional setting
 		// because this is a test environment
 		reportsPath, err = os.MkdirTemp("", "test-reports")
@@ -78,18 +79,18 @@ func NewSystemTestSuiteWithMgrConfig(
 
 	cfg := versioned_leveldb.VersionedLevelDBConfig{
 		DBPath:         dbPath,
-		VersionsToKeep: config.DataLayerNumOfVersions,
+		VersionsToKeep: mgrConfig.DataLayerNumOfVersions,
 	}
 
 	var dataLayer storage.DataLayer = nil
-	if config.DataLayerType == "mockdb" {
+	if mgrConfig.DataLayerType == "mockdb" {
 		dataLayer = mockdb.NewMockDataLayer()
 	} else {
 		dataLayer, err = versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
 		require.NoError(t, err)
 	}
 
-	mgr := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
+	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient)
 
 	// Create executor
 	server := communication.NewServer(factory)
