@@ -57,20 +57,6 @@ type BlockChainClient struct {
 	account                *bind.TransactOpts
 }
 
-func toRequestType(i uint8) common.RequestType {
-	switch i {
-	case 0:
-		return common.Deploy
-	case 1:
-		return common.Process
-	case 2:
-		return common.Deanonymize
-	case 3:
-		return common.AssociateKey
-	default:
-		return ""
-	}
-}
 
 func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
@@ -174,7 +160,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			ProtocolVersion: request.ProtocolVersion,
 			ApplicationID:   request.ApplicationId.String(),
 			RequestID:       requestId,
-			RequestType:     toRequestType(request.RequestType),
+			RequestType:     common.RequestType(request.RequestType),
 			Payload:         request.Payload,
 			Timestamp:       request.Timestamp.Int64(),
 			Sender:          request.Sender.String(),
@@ -216,7 +202,7 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		ProtocolVersion: request.ProtocolVersion,
 		ApplicationID:   request.ApplicationId.String(),
 		RequestID:       requestId,
-		RequestType:     toRequestType(request.RequestType),
+		RequestType:    common.RequestType(request.RequestType),
 		Payload:         request.Payload,
 		Timestamp:       request.Timestamp.Int64(),
 		Sender:          request.Sender.String(),
@@ -289,10 +275,7 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 		return "", 0, fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqType, err := requestType.ToUint8()
-	if err != nil {
-		return "", 0, fmt.Errorf("invalid request type: %w", err)
-	}
+	reqType := uint8(requestType)
 
 	// Pack the transaction data using the generated binding
 	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, applicationId, reqType, payload, value)

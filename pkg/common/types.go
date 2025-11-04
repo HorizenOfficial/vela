@@ -8,33 +8,35 @@ import (
 )
 
 // RequestType represents the type of request being sent to the TEE
-type RequestType string
+type RequestType uint8
 
 const (
-	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
-	AssociateKey RequestType = "associatekey"
 	// Deploy represents a request to deploy a new application
-	Deploy RequestType = "deploy"
+	Deploy RequestType = iota
 	// Process is used for processing a batch of requests
-	Process RequestType = "process"
+	Process  
 	// Deanonymize is used for deanonymization requests
-	Deanonymize RequestType = "deanonymize"
+	Deanonymize
+	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
+	AssociateKey 
 )
 
-func (rt RequestType) ToUint8() (uint8, error) {
-    switch rt {
-    case Deploy:
-        return 0, nil
-    case Process:
-        return 1, nil
-    case Deanonymize:
-        return 2, nil
-    case AssociateKey:
-        return 3, nil
-    default:
-        return 0, fmt.Errorf("unknown RequestType: %s", rt)
-    }
+func (rt RequestType) String() string {
+	switch rt {
+		case Deploy:		
+			return "deploy"
+		case Process:
+			return "process"
+		case Deanonymize:		
+			return "deanonymize"
+		case AssociateKey:
+			return "associatekey"
+		default:
+			return "unknown"
+	}
 }
+
+
 
 // Request represents a request to the system
 type Request struct {

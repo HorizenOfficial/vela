@@ -368,7 +368,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	// Invalid request type
 	// reset all
 	mockBCClient.ClearAllData()
-	request = createRequest("invalidType", "1")
+	request = createRequest(76, "1")
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -396,7 +396,7 @@ func TestMarkRequestFailed(t *testing.T) {
 func TestMarkRequestFailedWithError(t *testing.T) {
 	mockBCClient, manager := setupTest()
 
-	request := createRequest("invalidType", "1")
+	request := createRequest(77, "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -423,7 +423,7 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	// Prepare different requests
 
 	// Failure expected
-	requestInvalid := createRequest("invalidType", "1")
+	requestInvalid := createRequest(81, "1")
 	err := mockBCClient.SendRequestToChain(context.Background(), requestInvalid)
 	require.NoError(t, err)
 
