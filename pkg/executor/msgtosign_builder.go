@@ -82,7 +82,7 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	withdrawals := make([]withdrawalTuple, len(updatePayload.Withdrawals))
 
 	for i, withdrawal := range updatePayload.Withdrawals {
-		amount := new(big.Int).SetUint64(withdrawal.Amount)
+		amount := withdrawal.Amount
 
 		withdrawals[i] = withdrawalTuple{
 			Receiver: ethCommon.HexToAddress(withdrawal.DestinationAddress),

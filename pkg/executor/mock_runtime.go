@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 
 	"github.com/horizen-pes/pkg/common"
 )
@@ -39,7 +40,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte)
 	return stateBytes, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
+func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
 	log.Printf("Mock Runtime: Processing deposit for application %s ( value: %d wei for sender: %s )", appId, value, sender)
 
 	var currentState map[string]interface{}
@@ -51,11 +52,11 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, 
 	nonce := ensureNonce(currentState)
 
 	var events []common.PlainEvent
-	if value > 0 {
+	if value.Sign() == 1 {
 		// Ensure sender account exists
 		acct := ensureAccount(accounts, sender)
 		// Update balance
-		balance := toUint64(acct["balance"]) + value
+		balance := toUint64(acct["balance"]) + value.Uint64()
 		acct["balance"] = balance
 		// Increment nonce
 		nonce++
@@ -160,7 +161,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			nonce++
 			currentState["nonce"] = nonce
 
-			withdrawals = append(withdrawals, common.Withdrawal{DestinationAddress: to, Amount: amount})
+			withdrawals = append(withdrawals, common.Withdrawal{DestinationAddress: to, Amount: new(big.Int).SetUint64(amount)})
 
 			withdrawEvent := common.PlainEvent{
 				UserID: sender,

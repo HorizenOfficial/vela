@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"time"
 
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
@@ -58,12 +59,12 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID, requestID, sender string
 		Payload:       payload,
 		Sender:        sender,
 		Timestamp:     time.Now().Unix(),
-		Value:         0,
+		Value:         big.NewInt(0),
 	}, nil
 }
 
 // CreateDepositRequest creates an encrypted deposit request
-func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, value uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, value *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -90,7 +91,7 @@ func (c *CryptoHelper) CreateDepositRequest(appID, requestID, sender string, val
 }
 
 // CreateTransferRequest creates an encrypted transfer request
-func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient string, amount uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient string, amount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -123,12 +124,12 @@ func (c *CryptoHelper) CreateTransferRequest(appID, requestID, sender, recipient
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     time.Now().Unix(),
-		Value:         0, // No deposit for transfer
+		Value:         big.NewInt(0), // No deposit for transfer
 	}, nil
 }
 
 // CreateWithdrawalRequest creates an encrypted withdrawal request
-func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destinationAddress string, amount uint64, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destinationAddress string, amount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -161,7 +162,7 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID, requestID, sender, destina
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     time.Now().Unix(),
-		Value:         0, // No deposit for withdrawal
+		Value:         big.NewInt(0), // No deposit for withdrawal
 	}, nil
 }
 
@@ -186,7 +187,7 @@ func (c *CryptoHelper) CreateDeanonymizationRequest(appID, requestID, sender str
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     time.Now().Unix(),
-		Value:         0,
+		Value:         big.NewInt(0),
 	}, nil
 }
 
@@ -240,7 +241,7 @@ func (c *CryptoHelper) CreateProcessRequest(appID, requestID, sender string, pay
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     time.Now().Unix(),
-		Value:         0,
+		Value:         big.NewInt(0),
 	}, nil
 }
 

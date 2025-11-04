@@ -55,7 +55,7 @@ type Request struct {
 	//TODO: change the type to go-ethereum/common/Address
 	Sender string `json:"sender"`
 	// Value is the optional deposit value in WEI
-	Value uint64 `json:"value"`
+	Value *big.Int `json:"value"`
 }
 
 // Event represents an event to be emitted
@@ -74,7 +74,7 @@ type Withdrawal struct {
 	// DestinationAddress is the address to send the funds to
 	DestinationAddress string `json:"destinationAddress"`
 	// Amount is the amount to withdraw in WEI
-	Amount uint64 `json:"amount"`
+	Amount *big.Int `json:"amount"`
 }
 
 // UpdatePayload represents an update to the state

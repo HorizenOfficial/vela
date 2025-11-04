@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,7 +77,7 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 }
 
 // depositToSimpleApp is a helper function to deposit funds into the simple app.
-func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID, reqID, user string, amount uint64) {
+func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID, reqID, user string, amount *big.Int) {
 	t.Helper()
 	timeout := 100 * time.Second
 
@@ -275,10 +276,10 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "44", user1Address, 2000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "44", user1Address, big.NewInt(2000))
 
 	// 6. User2 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "55", user2Address, 1000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "55", user2Address, big.NewInt(1000))
 
 	// Get executor's communication key for encryption, for now get from the test suite
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
@@ -465,7 +466,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "33", userAddress, 1000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, "33", userAddress, big.NewInt(1000))
 
 	// Get executor's communication key for encryption
 	executorPubKey, err := suite.GetExecutorCommunicationKey()

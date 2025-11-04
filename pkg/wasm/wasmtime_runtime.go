@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/big"
 	"sync"
 
 	"github.com/bytecodealliance/wasmtime-go"
@@ -216,8 +217,8 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 }
 
 // Deposit processes a deposit
-func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
-	log.Printf("Wasmtime Runtime: Processing deposit for application %s (value: %d wei for sender: %s)", appId, value, sender)
+func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
+	log.Printf("Wasmtime Runtime: Processing deposit for application %s (value: %v wei for sender: %s)", appId, value, sender)
 
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
@@ -248,19 +249,23 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 		return nil, nil, fmt.Errorf("failed to write state to memory: %w", err)
 	}
 
+	if value == nil {
+		return nil, nil, fmt.Errorf("deposit value cannot be nil")
+	}
+	
+	if value.Sign() < 0 {
+		return nil, nil, fmt.Errorf("deposit value cannot be negative")
+	}
+
+	valueBytes := value.Bytes()
+	valuePtr, err := r.writeToMemory(appModule, valueBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to write value to memory: %w", err)
+	}
+
 	// Call the deposit function
-	//
-	// Note: wasmtime-go’s Call() API only accepts int64 for i64 parameters.
-	// Therefore, we must cast 'value' (uint64) to int64 to satisfy the API.
-	//
-	// The 64-bit pattern is passed unchanged into the WASM call. On the guest side,
-	// since the function signature expects a uint64, Go will interpret the bits
-	// correctly as an unsigned value.
-	//
-	// TODO: in the future we should replace uint64 with *big.Int for amounts,
-	// since values may exceed 64 bits. This will require redesigning
-	// the guest/host ABI to pass large integers (e.g., via memory + length).
-	result, err := depositFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), senderPtr, int32(len(senderBytes)), int64(value), statePtr, int32(len(state)))
+
+	result, err := depositFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), senderPtr, int32(len(senderBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to call deposit: %w", err)
 	}

@@ -5,6 +5,7 @@ package executor
 import (
 	"context"
 	"log"
+	"math/big"
 	"os"
 
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -152,7 +153,7 @@ type Runtime interface {
 	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
 	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error)
 	// Deposit processes a deposit
-	Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
+	Deposit(ctx context.Context, appId string, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
 	// ProcessRequest processes a request and returns the new state
 	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error)
 	// GenerateDeanonymizationReport generates a deanonymization report

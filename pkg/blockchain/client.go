@@ -179,7 +179,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			Payload:         request.Payload,
 			Timestamp:       request.Timestamp.Int64(),
 			Sender:          request.Sender.String(),
-			Value:           request.Value.Uint64(),
+			Value:           request.Value,
 		}
 
 		output = append(output, req)
@@ -221,7 +221,7 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		Payload:         request.Payload,
 		Timestamp:       request.Timestamp.Int64(),
 		Sender:          request.Sender.String(),
-		Value:           request.Value.Uint64(),
+		Value:           request.Value,
 	}
 
 	return req, stateRoot, nil
@@ -357,7 +357,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
 	for i, withdrawal := range update.Withdrawals {
-		amount := new(big.Int).SetUint64(withdrawal.Amount)
+		amount := withdrawal.Amount
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
 			Receiver: ethCommon.HexToAddress(withdrawal.DestinationAddress),
 			Amount:   amount,

@@ -1,6 +1,8 @@
 package common
 
 import (
+	"math/big"
+
 	"github.com/horizen-pes/pkg/common"
 )
 
@@ -32,25 +34,26 @@ type DeanonymizationResult struct {
 
 type DepositEvent struct {
 	Type    string `json:"type"`
-	Amount  uint64 `json:"amount"`
-	Balance uint64 `json:"balance"`
+	Amount  *big.Int `json:"amount"`
+	Balance *big.Int `json:"balance"`
 	Nonce   uint64 `json:"nonce"`
 }
 
 type SenderEvent struct {
 	Type    string `json:"type"`
 	To      string `json:"to"`
-	Amount  uint64 `json:"amount"`
-	Balance uint64 `json:"balance"`
+	Amount  *big.Int `json:"amount"`
+	Balance *big.Int `json:"balance"`
 	Nonce   uint64 `json:"nonce"`
 }
 
 type RecipientEvent struct {
 	Type    string `json:"type"`
 	From    string `json:"from"`
-	Amount  uint64 `json:"amount"`
-	Balance uint64 `json:"balance"`
+	Amount  *big.Int `json:"amount"`
+	Balance *big.Int `json:"balance"`
 	Nonce   uint64 `json:"nonce"`
 }
 
 type WithdrawalEvent = SenderEvent
+

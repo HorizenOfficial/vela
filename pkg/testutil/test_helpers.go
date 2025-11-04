@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"testing"
 	"time"
@@ -410,7 +411,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	t.Log("Step 2: Sending deposit request")
 
 	RequestID = "2134"
-	depositAmount := uint64(2000000000000000000)
+	depositAmount := big.NewInt(2000000000000000000)
 	depositReq, err := cryptoHelper.CreateDepositRequest(
 		appId,
 		RequestID,
@@ -499,7 +500,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	recipientAddress := "0x1234567890123456789012345678901234567890"
 
 	RequestID = "2137"
-	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
+	withdrawAmount := big.NewInt(500000000000000000) // 0.5 ETH
 	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(
 		appId,
 		RequestID,

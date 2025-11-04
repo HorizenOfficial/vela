@@ -83,7 +83,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
-	if req.Value > 0 {
+	if req.Value.Sign() > 0 {
 		tempState, depositEvents, err = e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to process deposit in WASM runtime: %w", err)

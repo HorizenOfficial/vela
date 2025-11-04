@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -30,8 +31,8 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 	state := ApplicationInternalState{
 		AppID: testAppId,
 		Accounts: map[string]*AccountState{
-			user1Address: {Address: user1Address, Balance: 1000},
-			user2Address: {Address: user2Address, Balance: 500},
+			user1Address: {Address: user1Address, Balance: big.NewInt(1000)},
+			user2Address: {Address: user2Address, Balance: big.NewInt(500)},
 		},
 	}
 	stateBytes, err := json.Marshal(state)
@@ -54,7 +55,7 @@ func TestLoadModule(t *testing.T) {
 func TestDepositFunds(t *testing.T) {
 	t.Run("deposit to new account", func(t *testing.T) {
 		stateJSON, _ := getInitialState(t)
-		depositAmount := uint64(100)
+		depositAmount := big.NewInt(100)
 
 		result := DepositFunds(user1Address, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
@@ -75,18 +76,20 @@ func TestDepositFunds(t *testing.T) {
 		err = json.Unmarshal(event.Data, &eventData)
 		require.NoError(t, err)
 		require.Equal(t, "deposit", eventData["type"])
-		require.Equal(t, float64(depositAmount), eventData["amount"])
+		floatValue, _ := depositAmount.Float64()
+		
+		require.Equal(t, floatValue, eventData["amount"])
 	})
 
 	t.Run("deposit to existing account", func(t *testing.T) {
 		_, state := getInitialState(t)
-		initialBalance := uint64(50)
+		initialBalance := big.NewInt(50)
 		state.Accounts[user1Address] = &AccountState{Address: user1Address, Balance: initialBalance}
 		stateBytes, err := json.Marshal(state)
 		require.NoError(t, err)
 		stateJSON := string(stateBytes)
 
-		depositAmount := uint64(100)
+		depositAmount := big.NewInt(100)
 		result := DepositFunds(user1Address, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
 
@@ -94,11 +97,12 @@ func TestDepositFunds(t *testing.T) {
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
 
-		require.Equal(t, initialBalance+depositAmount, newState.Accounts[user1Address].Balance)
+		sum := big.NewInt(0).Add(initialBalance, depositAmount)
+		require.Equal(t, sum, newState.Accounts[user1Address].Balance)
 	})
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		result := DepositFunds(user1Address, 100, "{invalid json}")
+		result := DepositFunds(user1Address, big.NewInt(100), "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
@@ -108,7 +112,7 @@ func TestProcessRequest(t *testing.T) {
 	stateJSON, _ := getPopulatedState(t)
 
 	t.Run("withdraw success", func(t *testing.T) {
-		withdrawAmount := uint64(200)
+		withdrawAmount := big.NewInt(200)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -127,7 +131,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, uint64(800), newState.Accounts[user1Address].Balance)
+		require.Equal(t, big.NewInt(800), newState.Accounts[user1Address].Balance)
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -139,7 +143,7 @@ func TestProcessRequest(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
 				To:     user3Address,
-				Amount: 2000,
+				Amount: big.NewInt(2000),
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
@@ -155,7 +159,7 @@ func TestProcessRequest(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
 				To:     user1Address,
-				Amount: 100,
+				Amount: big.NewInt(100),
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
@@ -177,7 +181,7 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("withdraw zero amount", func(t *testing.T) {
-		withdrawAmount := uint64(0)
+		withdrawAmount := big.NewInt(0)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -196,7 +200,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, uint64(1000), newState.Accounts[user1Address].Balance) // balance should not change
+		require.Equal(t, big.NewInt(1000), newState.Accounts[user1Address].Balance) // balance should not change
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -204,7 +208,7 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("withdraw exact balance", func(t *testing.T) {
-		withdrawAmount := uint64(500)
+		withdrawAmount := big.NewInt(500)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -223,7 +227,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, uint64(0), newState.Accounts[user2Address].Balance)
+		require.Equal(t, big.NewInt(0), newState.Accounts[user2Address].Balance)
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -276,8 +280,8 @@ func TestProcessRequest(t *testing.T) {
 		state := ApplicationInternalState{
 			AppID: testAppId,
 			Accounts: map[string]*AccountState{
-				user1Address: {Address: user1Address, Balance: 1000},
-				user2Address: {Address: user2Address, Balance: 1000},
+				user1Address: {Address: user1Address, Balance: big.NewInt(1000)},
+				user2Address: {Address: user2Address, Balance: big.NewInt(1000)},
 			},
 		}
 		stateBytes, err := json.Marshal(state)

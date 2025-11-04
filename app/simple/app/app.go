@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/horizen-pes/pkg/common"
 	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
@@ -11,7 +12,7 @@ import (
 // AccountState represents the state of a user account
 type AccountState struct {
 	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
+	Balance *big.Int `json:"balance"`
 }
 
 // ApplicationInternalState represents the internal state of the application
@@ -23,7 +24,7 @@ type ApplicationInternalState struct {
 // WithdrawInstruction represents instructions for withdrawing funds
 type WithdrawInstruction struct {
 	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
+	Amount *big.Int `json:"amount"`
 }
 
 type CompareInstructions struct {
@@ -63,7 +64,7 @@ func LoadModule(appId string) []byte {
 	return stateJSON
 }
 
-func DepositFunds(sender string, value uint64, stateJSON string) wasmCommon.DepositResult {
+func DepositFunds(sender string, value *big.Int, stateJSON string) wasmCommon.DepositResult {
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return wasmCommon.DepositResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
@@ -73,12 +74,12 @@ func DepositFunds(sender string, value uint64, stateJSON string) wasmCommon.Depo
 	if currentState.Accounts[sender] == nil {
 		currentState.Accounts[sender] = &AccountState{
 			Address: sender,
-			Balance: 0,
+			Balance: big.NewInt(0),
 		}
 	}
 
 	// Add deposit to sender's balance
-	currentState.Accounts[sender].Balance += value
+	currentState.Accounts[sender].Balance.Add(currentState.Accounts[sender].Balance, value)
 
 	// Create deposit event
 	eventData := map[string]interface{}{
@@ -138,13 +139,14 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			senderBalance := currentState.Accounts[sender].Balance
 
 			var cmp = ""
-			if targetBalance < senderBalance {
-				cmp = "richer than"
-			} else if targetBalance > senderBalance {
-				cmp = "poorer than"
-			} else {
-				cmp = "as wealthy as"
+			switch targetBalance.Cmp(senderBalance) {
+				case -1: cmp = "richer than"
+				case 1: cmp = "poorer than"
+				case 0: cmp = "as wealthy as"
+			
 			}
+
+
 			sentence := sender + " is " + cmp + " " + targetAddress
 
 			// Create action event
@@ -172,12 +174,12 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Account %s does not exist", sender)}
 			}
 
-			if currentState.Accounts[sender].Balance < instructions.Withdraw.Amount {
+			if currentState.Accounts[sender].Balance.Cmp(instructions.Withdraw.Amount) < 0 {
 				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", sender)}
 			}
 
 			// Execute withdrawal
-			currentState.Accounts[sender].Balance -= instructions.Withdraw.Amount
+			currentState.Accounts[sender].Balance.Sub(currentState.Accounts[sender].Balance, instructions.Withdraw.Amount)
 
 			// Create withdrawal
 			withdrawals = append(withdrawals, common.Withdrawal{

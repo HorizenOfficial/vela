@@ -82,7 +82,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Greater(t, request.Timestamp, int64(0), "Timestamp should match")
 
 	require.Equal(t, testHelper.Submitter.From.String(), request.Sender, "Sender should match")
-	require.Equal(t, transferValue.Uint64(), request.Value, "Value should match")
+	require.Equal(t, transferValue, request.Value, "Value should match")
 
 	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
 
 	require.Equal(t, testHelper.Submitter.From.String(), pendingRequest.Sender, "Sender should match")
-	require.Equal(t, transferValue.Uint64(), pendingRequest.Value, "Value should match")
+	require.Equal(t, transferValue, pendingRequest.Value, "Value should match")
 
 
 	require.Equal(t, currentStateRoot, stateRoot)
@@ -181,7 +181,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: res.ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: big.NewInt(10)},
 	}
 
 	signature := [65]byte{}
@@ -394,7 +394,7 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: encryptedMessage}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 0},
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: big.NewInt(0)},
 	}
 
 	oldStateRoot := testHelper.GetStateRoot()
@@ -443,17 +443,16 @@ func TestSubmitRequest(t *testing.T) {
 	// Convert types for comparison
 	protocolVersionStr := strconv.FormatUint(uint64(protocolVersion), 10)
 	applicationIdStr := applicationId.String()
-	valueUint := value.Uint64()
-	
+		
 	for _, r := range pending {
 		if r.RequestID == requestId {
 			found = true
 
-			if  r.ProtocolVersion != protocolVersionStr || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value != valueUint {
+			if  r.ProtocolVersion != protocolVersionStr || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value.Cmp(value) != 0 {
 				t.Errorf(
 					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
 					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.Value,
-					protocolVersionStr, applicationIdStr, requestType, string(payload), valueUint,
+					protocolVersionStr, applicationIdStr, requestType, string(payload), value,
 				)
 			}
 		}
@@ -562,7 +561,7 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: big.NewInt(10)},
 	}
 
 	oldStateRoot := testHelper.GetStateRoot()

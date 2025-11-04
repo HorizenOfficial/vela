@@ -17,10 +17,11 @@ func load_module(appIdPtr *byte, appIdLen int32) *byte {
 }
 
 //export deposit
-func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, value uint64, statePtr *byte, stateLen int32) *byte {
+func deposit(appIdPtr *byte, appIdLen int32, senderPtr *byte, senderLen int32, valuePtr *byte, valueLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = utils.PtrToString(appIdPtr, appIdLen)
 	sender := utils.PtrToString(senderPtr, senderLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
+	value := utils.PtrToDepositValue(valuePtr, valueLen)
 	result := app.DepositFunds(sender, value, stateJSON)
 	return utils.SerializeAndWriteResult(result)
 }

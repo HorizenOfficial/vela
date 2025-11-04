@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/binary"
 	"encoding/json"
+	"math/big"
 	"unsafe"
 
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
@@ -55,4 +56,14 @@ func SerializeAndWriteResult(result any) *byte {
 		return StringToPtr([]byte(appCommon.WasmSerializationError))
 	}
 	return StringToPtr(reportJSON)
+}
+
+// PtrToDepositValue converts a WASM pointer and length representing the value passed to a Deposit request to a Go big.Int pointer.
+// The value is expected to be non-negative
+func PtrToDepositValue(ptr *byte, length int32) *big.Int {
+	if ptr == nil || length == 0 {
+		return big.NewInt(0)
+	}
+
+	return new(big.Int).SetBytes(unsafe.Slice(ptr, length))
 }

@@ -3,6 +3,7 @@ package communication
 import (
 	"context"
 	"crypto/sha256"
+	"math/big"
 	"os"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 			PrevStateRoot: appState.StateRoot,
 			NewStateRoot:  newStateRoot,
 			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
+			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: big.NewInt(100)}},
 			Signature:     []byte("test-signature"),
 		},
 		&common.ApplicationState{
@@ -328,7 +329,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 				PrevStateRoot: appState.StateRoot,
 				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: big.NewInt(100)}},
 				Signature:     []byte("test-signature"),
 			}, appState, nil
 		},

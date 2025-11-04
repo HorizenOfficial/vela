@@ -98,7 +98,7 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 		ApplicationID:   applicationId.String(),
 		RequestType:     requestType,
 		Payload:         payload,
-		Value:           value.Uint64(),
+		Value:           value,
 	}
 
 	err := c.SendRequestToChain(ctx, req)

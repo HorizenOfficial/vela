@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"math/big"
 	"testing"
 )
 
@@ -77,7 +78,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 
 	appId := "test-app-123"
 	sender := "0x1234567890123456789012345678901234567890"
-	value := uint64(1000000000000000000)
+	value := big.NewInt(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -113,7 +114,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 		t.Fatal("Expected sender account to exist")
 	}
 
-	if state.Accounts[sender].Balance != value {
+	if state.Accounts[sender].Balance != value.Uint64() {
 		t.Errorf("Expected balance %d, got %d", value, state.Accounts[sender].Balance)
 	}
 
@@ -137,7 +138,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	sender := "0x1234567890123456789012345678901234567890"
 	recipient := "0x0987654321098765432109876543210987654321"
-	depositAmount := uint64(2000000000000000000) // 2 ETH
+	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
 	transferAmount := uint64(500000000000000000) // 0.5 ETH
 
 	// make a deposit
@@ -187,7 +188,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedSenderBalance := depositAmount - transferAmount
+	expectedSenderBalance := depositAmount.Uint64() - transferAmount
 	if state.Accounts[sender].Balance != expectedSenderBalance {
 		t.Errorf("Expected sender balance %d, got %d", expectedSenderBalance, state.Accounts[sender].Balance)
 	}
@@ -220,7 +221,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	sender := "0x1234567890123456789012345678901234567890"
 	withdrawTo := "0x0987654321098765432109876543210987654321"
-	depositAmount := uint64(2000000000000000000) // 2 ETH
+	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
 	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
 
 	// make a deposit
@@ -267,7 +268,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected withdrawal destination %s, got %s", withdrawTo, withdrawals[0].DestinationAddress)
 	}
 
-	if withdrawals[0].Amount != 500000000000000000 {
+	if withdrawals[0].Amount.Uint64() != 500000000000000000 {
 		t.Errorf("Expected withdrawal amount 500000000000000000, got %d", withdrawals[0].Amount)
 	}
 
@@ -282,7 +283,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedBalance := depositAmount - withdrawAmount
+	expectedBalance := depositAmount.Uint64() - withdrawAmount
 	if state.Accounts[sender].Balance != expectedBalance {
 		t.Errorf("Expected sender balance %d, got %d", expectedBalance, state.Accounts[sender].Balance)
 	}
@@ -342,7 +343,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 	sender1 := "0x1234567890123456789012345678901234567890"
 	sender2 := "0x0987654321098765432109876543210987654321"
-	value := uint64(1000000000000000000) // 1 ETH
+	value := big.NewInt(1000000000000000000) // 1 ETH
 
 	// Load module first
 	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)

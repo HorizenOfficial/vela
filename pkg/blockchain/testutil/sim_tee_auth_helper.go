@@ -2,7 +2,6 @@ package testutil
 
 import (
 	"fmt"
-	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
@@ -45,7 +44,7 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 
 	withdrawals := make([]tee.StructsWithdrawalRequest, len(payload.Withdrawals))
 	for i, withdrawal := range payload.Withdrawals {
-		amount := new(big.Int).SetUint64(withdrawal.Amount)
+		amount := withdrawal.Amount
 		require.True(s.t, ok, "invalid amount: %s", withdrawal.Amount)
 
 		withdrawals[i] = tee.StructsWithdrawalRequest{

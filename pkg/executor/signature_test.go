@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"math/big"
 	"testing"
 
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
@@ -27,7 +28,7 @@ func TestCheckSignature(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 1},
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: big.NewInt(1)},
 	}
 
 	updatePayload := &common.UpdatePayload{
