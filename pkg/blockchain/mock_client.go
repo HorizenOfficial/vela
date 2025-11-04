@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"strconv"
 	"sync"
 	"time"
 
@@ -94,7 +93,7 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 
 	//prepare request
 	req := &common.Request{
-		ProtocolVersion: strconv.FormatUint(uint64(protocolVersion), 10),		
+		ProtocolVersion: protocolVersion,		
 		ApplicationID:   applicationId.String(),
 		RequestType:     requestType,
 		Payload:         payload,

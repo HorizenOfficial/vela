@@ -92,7 +92,7 @@ func createRequest(requestType common.RequestType, appID string) *common.Request
 	if err != nil {
 		panic(fmt.Sprintf("Failed to generate random ID: %v", err))
 	}
-	request := &common.Request{ProtocolVersion: "1.0", ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender}
+	request := &common.Request{ProtocolVersion: 1, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender}
 	return request
 }
 
@@ -101,7 +101,7 @@ func createRequestWithPayload(requestType common.RequestType, appID string, payl
 	if err != nil {
 		panic(fmt.Sprintf("Failed to generate random ID: %v", err))
 	}
-	request := &common.Request{ProtocolVersion: "1.0", ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, Payload: payload}
+	request := &common.Request{ProtocolVersion: 1, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, Payload: payload}
 	return request
 }
 

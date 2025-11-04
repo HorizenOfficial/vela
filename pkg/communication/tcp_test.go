@@ -104,7 +104,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 
 	// Test HandleProcessRequest
 	req := &common.Request{
-		ProtocolVersion: "1.0",
+		ProtocolVersion: 1,
 		ApplicationID:   "test-app",
 		RequestID:       "test-request-id",
 		RequestType:     common.Process,
@@ -181,7 +181,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		// Client-initiated request
 		req := &common.Request{
-			ProtocolVersion: "1.0",
+			ProtocolVersion: 1,
 			ApplicationID:   "test-app",
 			RequestID:       "test-request-id",
 			RequestType:     common.Process,
@@ -232,7 +232,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 
 		// Perform a simple request to verify connection works
 		req := &common.Request{
-			ProtocolVersion: "1.0",
+			ProtocolVersion: 1,
 			ApplicationID:   "test-app",
 			RequestID:       "test-request-id",
 			RequestType:     common.Deploy,
@@ -291,7 +291,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 	// Test client request error handling
 	req := &common.Request{
-		ProtocolVersion: "1.0",
+		ProtocolVersion: 1,
 		ApplicationID:   "test-app",
 		RequestID:       "test-request-id",
 		RequestType:     common.Process,
@@ -356,7 +356,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	req := &common.Request{
-		ProtocolVersion: "1.0",
+		ProtocolVersion: 1,
 		ApplicationID:   "test-app",
 		RequestID:       "test-request-id",
 		RequestType:     common.Process,

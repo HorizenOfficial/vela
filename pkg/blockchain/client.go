@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -172,7 +171,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 		//TODO check that all big.Int can fit in a Uint64. If not, the specific request should be marked as failed
 		requestId := hex.EncodeToString(request.RequestId[:])
 		req := &common.Request{
-			ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
+			ProtocolVersion: request.ProtocolVersion,
 			ApplicationID:   request.ApplicationId.String(),
 			RequestID:       requestId,
 			RequestType:     toRequestType(request.RequestType),
@@ -214,7 +213,7 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 	requestId := hex.EncodeToString(request.RequestId[:])
 	//TODO check that all big.Int can fit in a Uint64. If not, the specific request should be marked as failed
 	req := &common.Request{
-		ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
+		ProtocolVersion: request.ProtocolVersion,
 		ApplicationID:   request.ApplicationId.String(),
 		RequestID:       requestId,
 		RequestType:     toRequestType(request.RequestType),

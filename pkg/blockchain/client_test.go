@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -75,7 +74,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, 1, len(res), "There should be one pending request")
 
 	request := res[0]
-	require.Equal(t, strconv.Itoa(int(testHelper.ProtocolVersion)), request.ProtocolVersion, "Protocol version should match")
+	require.Equal(t, testHelper.ProtocolVersion, request.ProtocolVersion, "Protocol version should match")
 	require.Equal(t, applicationId.String(), request.ApplicationID, "Application ID should match")
 	require.Equal(t, common.Process, request.RequestType, "Request type should match")
 	require.Equal(t, payload, request.Payload, "Payload should match")
@@ -87,7 +86,7 @@ func TestGetPendingRequests(t *testing.T) {
 	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, request.RequestID, pendingRequest.RequestID, "RequestID should match")
-	require.Equal(t, strconv.Itoa(int(testHelper.ProtocolVersion)), pendingRequest.ProtocolVersion, "Protocol version should match")
+	require.Equal(t, testHelper.ProtocolVersion, pendingRequest.ProtocolVersion, "Protocol version should match")
 	require.Equal(t, applicationId.String(), pendingRequest.ApplicationID, "Application ID should match")
 	require.Equal(t, common.Process, pendingRequest.RequestType, "Request type should match")
 	require.Equal(t, payload, pendingRequest.Payload, "Payload should match")
@@ -441,18 +440,18 @@ func TestSubmitRequest(t *testing.T) {
 	// Check that the submitted request is present and matches
 	found := false
 	// Convert types for comparison
-	protocolVersionStr := strconv.FormatUint(uint64(protocolVersion), 10)
+	
 	applicationIdStr := applicationId.String()
 		
 	for _, r := range pending {
 		if r.RequestID == requestId {
 			found = true
 
-			if  r.ProtocolVersion != protocolVersionStr || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value.Cmp(value) != 0 {
+			if  r.ProtocolVersion != protocolVersion || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value.Cmp(value) != 0 {
 				t.Errorf(
 					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
 					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.Value,
-					protocolVersionStr, applicationIdStr, requestType, string(payload), value,
+					protocolVersion, applicationIdStr, requestType, string(payload), value,
 				)
 			}
 		}

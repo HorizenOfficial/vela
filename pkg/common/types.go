@@ -39,7 +39,7 @@ func (rt RequestType) ToUint8() (uint8, error) {
 // Request represents a request to the system
 type Request struct {
 	// ProtocolVersion is the version of the protocol being used
-	ProtocolVersion string `json:"protocolVersion"`
+	ProtocolVersion uint8 `json:"protocolVersion"`
 	// ApplicationID is the ID of the application (empty for Deploy)
 	ApplicationID string `json:"applicationId"`
 	// RequestID is a unique identifier for the request
