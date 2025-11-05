@@ -41,7 +41,7 @@ func TestApplicationStateStore(t *testing.T) {
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 
 		expectedState := common.ApplicationState{
-			ApplicationID:  "app-test-id-1",
+			ApplicationID:  1,
 			StateRoot:      sha256.Sum256([]byte("some-test-root-hash-1")),
 			EncryptedState: []byte{0x0A, 0x0B, 0x0C, 0x0D},
 		}
@@ -71,7 +71,7 @@ func TestApplicationStateStore(t *testing.T) {
 	t.Run("GetNonExistentApplicationState", func(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		_, err := store.GetApplicationState(ctx, "non-existent-app-id")
+		_, err := store.GetApplicationState(ctx, 45)
 		require.Error(t, err, "Expected an error when getting a non-existent state")
 		var notFoundErr *storageErrors.Error
 		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
@@ -82,7 +82,7 @@ func TestApplicationStateStore(t *testing.T) {
 	t.Run("GetNonExistentWASMBytecode", func(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		_, err := store.GetWASMBytecode(ctx, "non-existent-wasm-id")
+		_, err := store.GetWASMBytecode(ctx, 653)
 		require.Error(t, err, "Expected an error when getting non-existent WASM bytecode")
 		var notFoundErr *storageErrors.Error
 		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
@@ -94,7 +94,7 @@ func TestApplicationStateStore(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 		expectedReport := &common.DeanonymizationReport{
-			ApplicationID:   "deanon-1",
+			ApplicationID:   123,
 			ReportID:        "report-id-1",
 			EncryptedReport: []byte("some-test-root-hash-1"),
 		}
@@ -130,21 +130,22 @@ func TestApplicationStateStore(t *testing.T) {
 		require.NoError(t, store.Close(), "Closing the store should not return an error on first close")
 		err := store.Close()
 		assert.NoError(t, err, "Error is not expected when trying to close an already closed store")
+		any_id := uint64(999)
 
 		operations := map[string]func() error{
 			"GetApplicationState": func() error {
-				_, err := store.GetApplicationState(ctx, "any-id")
+				_, err := store.GetApplicationState(ctx, any_id)
 				return err
 			},
 			"Store": func() error {
 				return store.Store(ctx, []byte("version-1"), nil, nil)
 			},
 			"GetWASMBytecode": func() error {
-				_, err := store.GetWASMBytecode(ctx, "any-id")
+				_, err := store.GetWASMBytecode(ctx, any_id)
 				return err
 			},
 			"GetDeanonymizationReport": func() error {
-				_, err := store.GetDeanonymizationReport(ctx, "any-id")
+				_, err := store.GetDeanonymizationReport(ctx, "any_id")
 				return err
 			},
 			"StoreDeanonymizationReport": func() error {
@@ -176,7 +177,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := fmt.Sprintf("concurrent-app-%d", i)
+				appID := uint64(i)
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
@@ -192,7 +193,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := fmt.Sprintf("concurrent-app-%d", i)
+				appID := uint64(i)
 				state, err := store.GetApplicationState(ctx, appID)
 				assert.NoError(t, err)
 				assert.Equal(t, appID, state.ApplicationID)
@@ -209,12 +210,12 @@ func TestApplicationStateStore(t *testing.T) {
 		// 1. Define non-trivial arrays for states and WASM data
 		stateArray := []*common.ApplicationState{
 			{
-				ApplicationID:  "app1",
+				ApplicationID:  1,
 				StateRoot:      sha256.Sum256([]byte("root1")),
 				EncryptedState: []byte("state1"),
 			},
 			{
-				ApplicationID:  "app2",
+				ApplicationID:  2,
 				StateRoot:      sha256.Sum256([]byte("root2")),
 				EncryptedState: []byte("state2"),
 			},
@@ -222,11 +223,11 @@ func TestApplicationStateStore(t *testing.T) {
 
 		wasmArray := []*common.WASMData{
 			{
-				ApplicationID: "app1",
+				ApplicationID: 1,
 				Bytecode:      []byte("wasm1"),
 			},
 			{
-				ApplicationID: "app3", // Use a different app ID to test wasm-only storage
+				ApplicationID: 3, // Use a different app ID to test wasm-only storage
 				Bytecode:      []byte("wasm3"),
 			},
 		}
@@ -252,11 +253,11 @@ func TestApplicationStateStore(t *testing.T) {
 		}
 
 		// 5. Verify that an app with only WASM data has no state
-		_, err = dataLayer.GetApplicationState(ctx, "app3")
+		_, err = dataLayer.GetApplicationState(ctx, 3)
 		assert.Error(t, err, "GetApplicationState for app3 should return an error as it has no state")
 
 		// 6. Verify that an app with only state data has no WASM
-		_, err = dataLayer.GetWASMBytecode(ctx, "app2")
+		_, err = dataLayer.GetWASMBytecode(ctx, 2)
 		assert.Error(t, err, "GetWASMBytecode for app2 should return an error as it has no WASM")
 	})
 }

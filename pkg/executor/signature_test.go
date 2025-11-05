@@ -11,7 +11,7 @@ import (
 )
 
 func TestCheckSignature(t *testing.T) {
-	applicationId := "1"
+	applicationId := uint64(1)
 	execConfig := DefaultConfig()
 
 	builder, err :=  NewMsgToSignBuilder()

@@ -25,8 +25,8 @@ import (
 //go:generate solc --combined-json abi,bin ../../contracts/contracts/AuthorityRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/AuthorityRegistryAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/AuthorityRegistryAbi/combined.json --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
 
-var (
-	applicationId = big.NewInt(1)
+const (
+	applicationId = uint64(1)
 )
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
@@ -75,7 +75,7 @@ func TestGetPendingRequests(t *testing.T) {
 
 	request := res[0]
 	require.Equal(t, testHelper.ProtocolVersion, request.ProtocolVersion, "Protocol version should match")
-	require.Equal(t, applicationId.String(), request.ApplicationID, "Application ID should match")
+	require.Equal(t, applicationId, request.ApplicationID, "Application ID should match")
 	require.Equal(t, common.Process, request.RequestType, "Request type should match")
 	require.Equal(t, payload, request.Payload, "Payload should match")
 	require.Greater(t, request.Timestamp, int64(0), "Timestamp should match")
@@ -87,7 +87,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, request.RequestID, pendingRequest.RequestID, "RequestID should match")
 	require.Equal(t, testHelper.ProtocolVersion, pendingRequest.ProtocolVersion, "Protocol version should match")
-	require.Equal(t, applicationId.String(), pendingRequest.ApplicationID, "Application ID should match")
+	require.Equal(t, applicationId, pendingRequest.ApplicationID, "Application ID should match")
 	require.Equal(t, common.Process, pendingRequest.RequestType, "Request type should match")
 	require.Equal(t, payload, pendingRequest.Payload, "Payload should match")
 	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
@@ -213,7 +213,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 	// Test error - wrong application id
 
-	payload.ApplicationID = "9999"
+	payload.ApplicationID = 9999
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	_, isReorg = err.(ReorgError)
 	require.True(t, isReorg)
@@ -261,7 +261,7 @@ func TestGetUserEvents_StopAtFirst(t *testing.T) {
 	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message, teeKey, userPub);
 
 	//retrieve and decrypt user events
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true)
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, nil, true)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
 
@@ -292,7 +292,7 @@ func TestGetUserEvents_MultipleEvents(t *testing.T) {
 	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message3, teeKey, userPub);
 
 	//retrieve and decrypt user events
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, false)
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, nil, false)
 	require.NoError(t, err)
 	require.Equal(t, 3, len(userEvents), "There should be 3 user event")
 
@@ -330,7 +330,7 @@ func TestGetUserEvents_WithFilter(t *testing.T) {
 	}
 
 	//retrieve and decrypt user events
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, filter, false)
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, filter, false)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
 	require.Equal(t, []byte(messageTrue), userEvents[0], "Decrypted message should match the one that passes the filter")
@@ -365,13 +365,13 @@ func TestGetUserEvents_OtherUsersEvents(t *testing.T) {
 
 	//retrieve and decrypt user events
 	// for user
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true)
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, nil, true)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
 	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
 
 	// for other user
-	otherUserEvents, err := blockchainClient.GetUserEvents(context.Background(), *otherUserKey, *applicationId, 0, 0, nil, true)
+	otherUserEvents, err := blockchainClient.GetUserEvents(context.Background(), *otherUserKey, applicationId, 0, 0, nil, true)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(otherUserEvents), "There should be 1 user event (other)")
 	require.Equal(t, []byte(messageOther), otherUserEvents[0], "Decrypted message should match original (other)")
@@ -423,7 +423,7 @@ func TestSubmitRequest(t *testing.T) {
 
 	// Prepare a request
 	protocolVersion := uint8(0)
-	applicationId := big.NewInt(1)
+	applicationId := uint64(1)
 	requestType := common.Deploy
 	payload := []byte("test-payload")
 	value := big.NewInt(1)
@@ -441,17 +441,16 @@ func TestSubmitRequest(t *testing.T) {
 	found := false
 	// Convert types for comparison
 	
-	applicationIdStr := applicationId.String()
 		
 	for _, r := range pending {
 		if r.RequestID == requestId {
 			found = true
 
-			if  r.ProtocolVersion != protocolVersion || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value.Cmp(value) != 0 {
+			if  r.ProtocolVersion != protocolVersion || r.ApplicationID != applicationId || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value.Cmp(value) != 0 {
 				t.Errorf(
 					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
 					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.Value,
-					protocolVersion, applicationIdStr, requestType, string(payload), value,
+					protocolVersion, applicationId, requestType, string(payload), value,
 				)
 			}
 		}

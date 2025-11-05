@@ -17,7 +17,7 @@ type AccountState struct {
 
 // ApplicationInternalState represents the internal state of the application
 type ApplicationInternalState struct {
-	AppID    string                   `json:"appId"`
+	AppID    int64                   `json:"appId"`
 	Accounts map[string]*AccountState `json:"accounts"`
 }
 
@@ -52,7 +52,7 @@ type DeanonymizationReport struct {
 
 // --- High-Level Application Logic ---
 
-func LoadModule(appId string) []byte {
+func LoadModule(appId int64) []byte {
 	initialState := &ApplicationInternalState{
 		AppID:    appId,
 		Accounts: make(map[string]*AccountState),

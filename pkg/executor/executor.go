@@ -72,7 +72,7 @@ func (e *StatelessExecutor) Close() error {
 
 // HandleProcessRequest is the main workflow: decrypt state -> invoke WASM -> encrypt new state -> sign -> respond
 func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
-	log.Printf("Executor: Processing request %s for application %s", req.RequestID, req.ApplicationID)
+	log.Printf("Executor: Processing request %s for application %d", req.RequestID, req.ApplicationID)
 
 	// Decrypte and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
@@ -230,7 +230,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 	updatePayload.Signature = signature
 
-	log.Printf("Executor: Successfully deployed application %s", req.ApplicationID)
+	log.Printf("Executor: Successfully deployed application %d", req.ApplicationID)
 	return updatePayload, appState, nil
 }
 
@@ -330,7 +330,7 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 	return signature, nil
 }
 
-func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId string, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore appdata.KeyStore) ([]common.Event, error) {
+func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId uint64, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore appdata.KeyStore) ([]common.Event, error) {
 	if len(events) == 0 {
 		return nil, nil // No events to encrypt
 	}
@@ -339,6 +339,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	for i, event := range events {
 		// retrieve user Secp521r1_PubKey
 		userKey, exists := keyStore[ethCommon.HexToAddress(event.UserID)]
+		
 		if !exists {
 			return nil, fmt.Errorf("no Secp521r1_PubKey found for user %s", event.UserID)
 		}
@@ -360,7 +361,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	return encryptedEvents, nil
 }
 
-func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId, requestId string, key *cryptotypes.PrivateKeyP521, requester ethCommon.Address, reportData []byte, keyStore appdata.KeyStore) ([]byte, error) {
+func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId uint64, requestId string, key *cryptotypes.PrivateKeyP521, requester ethCommon.Address, reportData []byte, keyStore appdata.KeyStore) ([]byte, error) {
 	if len(reportData) == 0 {
 		return nil, fmt.Errorf("no report data found")
 	}

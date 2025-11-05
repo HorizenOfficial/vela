@@ -206,7 +206,7 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	return helper
 }
 
-func (s *SimTestHelper) SubmitRequestFromUser(applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
+func (s *SimTestHelper) SubmitRequestFromUser(applicationId uint64, requestType common.RequestType, payload []byte, value *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
 	if payload == nil {
 		payload = ethCommon.FromHex("0x00")
 	}
@@ -232,7 +232,7 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId *big.Int, requestTyp
 	return tx
 }
 
-func (s *SimTestHelper) SubmitRequest(applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) *ethTypes.Transaction {
+func (s *SimTestHelper) SubmitRequest(applicationId uint64, requestType common.RequestType, payload []byte, value *big.Int) *ethTypes.Transaction {
 	return s.SubmitRequestFromUser(applicationId, requestType, payload, value, s.Submitter)
 }
 
@@ -328,7 +328,7 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 	return signedTx
 }
 
-func (s *SimTestHelper) AddAuthority(applicationId *big.Int, newAuthority ethCommon.Address) *ethTypes.Transaction {
+func (s *SimTestHelper) AddAuthority(applicationId uint64, newAuthority ethCommon.Address) *ethTypes.Transaction {
 	authorityContract := authority.NewAuthorityRegistry()
 	authorityInstance := authorityContract.Instance(s.Client(), s.AuthorityAddress)
 

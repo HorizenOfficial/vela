@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +22,7 @@ import (
 
 // As of now we support only one app having this ID
 const (
-	admittedAppID = "1"
+	admittedAppID = uint64(1)
 )
 
 // SecureProcessorManager is an implementation of the Manager interface
@@ -246,7 +247,7 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 
 	// check admitted appID. TODO: This check will be removed in future
 	if req.ApplicationID != admittedAppID {
-		return fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+		return fmt.Errorf("application id %d is not admitted", req.ApplicationID)
 	}
 
 	switch req.RequestType {
@@ -278,7 +279,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 		return fmt.Errorf("failed to submit state update: %w", err)
 	}
 
-	log.Printf("Manager: Processed request %s for application %s", updatePayload.RequestID, updatePayload.ApplicationID)
+	log.Printf("Manager: Processed request %s for application %d", updatePayload.RequestID, updatePayload.ApplicationID)
 	return nil
 }
 
@@ -293,13 +294,13 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	// check if app was already deployed
 	_, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err == nil {
-		return fmt.Errorf("application %s was already deployed", req.ApplicationID)
+		return fmt.Errorf("application %d was already deployed", req.ApplicationID)
 	}
 
 	//if the payload is empty, try to retrieve the wasm locally
 	if len(req.Payload) == 0 {
 		log.Printf("Empty payload received - trying to retrieve wasm locally")
-		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID+".wasm")
+		wasmFilePath := filepath.Join(m.config.InputWasmPath, strconv.FormatUint(req.ApplicationID, 10) + ".wasm")
 		if !fileExists(wasmFilePath) {
 			return fmt.Errorf("failed to deploy application - wasm not found in both payload or local path: %v", wasmFilePath)
 		}
@@ -431,7 +432,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 				log.Printf("Failed to marshal deanonymization report to JSON: %v", err)
 			} else {
 				// The request ID is unique across applications, but for cleaner organization we use a folder name that includes both the app ID and the request ID
-				filePath := filepath.Join(m.config.DeanonymizationReportPath, req.ApplicationID+"_"+req.RequestID)
+				filePath := filepath.Join(m.config.DeanonymizationReportPath, strconv.FormatUint(req.ApplicationID, 10) + "_" + req.RequestID)
 				// Write the report to the file
 				if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
 					log.Printf("Failed to write deanonymization report to file: %v", err)
@@ -458,6 +459,6 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		return nil
 	}
 
-	log.Printf("Manager: Generated deanonymization report %s for application %s", report.ReportID, req.ApplicationID)
+	log.Printf("Manager: Generated deanonymization report %s for application %d", report.ReportID, req.ApplicationID)
 	return nil
 }

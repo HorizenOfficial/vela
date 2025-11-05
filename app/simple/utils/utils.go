@@ -58,9 +58,9 @@ func SerializeAndWriteResult(result any) *byte {
 	return StringToPtr(reportJSON)
 }
 
-// PtrToDepositValue converts a WASM pointer and length representing the value passed to a Deposit request to a Go big.Int pointer.
-// The value is expected to be non-negative
-func PtrToDepositValue(ptr *byte, length int32) *big.Int {
+// PtrToNonNegativeBigInt converts a WASM pointer and length representing the a big.Int value to a Go big.Int pointer.
+// The byte slice is obtained with the (big.Int).Bytes() method, i.e. it represents the absolute value in big-endian byte order, so the value is always non-negative.
+func PtrToNonNegativeBigInt(ptr *byte, length int32) *big.Int {
 	if ptr == nil || length == 0 {
 		return big.NewInt(0)
 	}

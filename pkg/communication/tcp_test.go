@@ -13,6 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const ( 
+	ApplicationId = 1
+)
+
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
 	ProcessRequestFunc                func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
@@ -105,7 +109,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	// Test HandleProcessRequest
 	req := &common.Request{
 		ProtocolVersion: 1,
-		ApplicationID:   "test-app",
+		ApplicationID:   ApplicationId,
 		RequestID:       "test-request-id",
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
@@ -114,7 +118,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
-		ApplicationID:  "test-app",
+		ApplicationID:  ApplicationId,
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
@@ -182,7 +186,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 		// Client-initiated request
 		req := &common.Request{
 			ProtocolVersion: 1,
-			ApplicationID:   "test-app",
+			ApplicationID:   ApplicationId,
 			RequestID:       "test-request-id",
 			RequestType:     common.Process,
 			Payload:         []byte("test-encrypted-action"),
@@ -191,7 +195,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			//Value:           0,
 		}
 		appState := &common.ApplicationState{
-			ApplicationID:  "test-app",
+			ApplicationID:  ApplicationId,
 			StateRoot:      sha256.Sum256([]byte("test-state-root")),
 			EncryptedState: []byte("test-encrypted-state"),
 		}
@@ -233,7 +237,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 		// Perform a simple request to verify connection works
 		req := &common.Request{
 			ProtocolVersion: 1,
-			ApplicationID:   "test-app",
+			ApplicationID:   ApplicationId,
 			RequestID:       "test-request-id",
 			RequestType:     common.Deploy,
 			Payload:         []byte("test-encrypted-action"),
@@ -292,7 +296,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	// Test client request error handling
 	req := &common.Request{
 		ProtocolVersion: 1,
-		ApplicationID:   "test-app",
+		ApplicationID:   ApplicationId,
 		RequestID:       "test-request-id",
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
@@ -301,7 +305,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
-		ApplicationID:  "test-app",
+		ApplicationID:  ApplicationId,
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
@@ -357,7 +361,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 
 	req := &common.Request{
 		ProtocolVersion: 1,
-		ApplicationID:   "test-app",
+		ApplicationID:   1,
 		RequestID:       "test-request-id",
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
@@ -365,7 +369,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		Sender:          "test-sender",
 	}
 	appState := &common.ApplicationState{
-		ApplicationID:  "test-app",
+		ApplicationID:  1,
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}

@@ -155,7 +155,7 @@ func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {
 	return s.blockchainClient.SendRequestToChain(s.ctx, req) //use test function in mock_client
 }
 
-func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duration) (*common.ApplicationState, error) {
+func (s *SystemTestSuite) WaitForAppStateInDB(appID uint64, timeout time.Duration) (*common.ApplicationState, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -172,7 +172,7 @@ func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duratio
 			// this will print every tick
 			//s.t.Log("err: ", err.Error())
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for app state %s", appID)
+			return nil, fmt.Errorf("timeout waiting for app state %d", appID)
 
 		}
 	}
@@ -183,7 +183,7 @@ func (s *SystemTestSuite) GetFailedRequest() []*common.Request {
 	return failedReq
 }
 
-func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time.Duration) (*common.ApplicationState, error) {
+func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID uint64, timeout time.Duration) (*common.ApplicationState, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -197,7 +197,7 @@ func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time
 				return state, nil
 			}
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for app state %s in blockchain", appID)
+			return nil, fmt.Errorf("timeout waiting for app state %d in blockchain", appID)
 
 		}
 	}
@@ -251,7 +251,7 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID string, timeout 
 }
 
 // WaitForWithdrawal waits for a withdrawal to be processed
-func (s *SystemTestSuite) WaitForWithdrawal(appID string, timeout time.Duration) (*common.Withdrawal, error) {
+func (s *SystemTestSuite) WaitForWithdrawal(appID uint64, timeout time.Duration) (*common.Withdrawal, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -266,7 +266,7 @@ func (s *SystemTestSuite) WaitForWithdrawal(appID string, timeout time.Duration)
 				return &(*withdrawals)[0], nil
 			}
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for withdrawal for app %s", appID)
+			return nil, fmt.Errorf("timeout waiting for withdrawal for app %d", appID)
 		}
 	}
 }
@@ -325,7 +325,7 @@ func (s *SystemTestSuite) Cleanup() error {
 }
 
 func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []byte) {
-	const appId = "1"
+	const appId = uint64(1)
 	timeout_value := 100 * time.Second
 
 	// we use an eth address as user and auditor IDs
@@ -483,7 +483,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	var report map[string]interface{}
 	err = json.Unmarshal(decryptedReport, &report)
 	require.NoError(t, err)
-	require.Equal(t, appId, report["applicationId"])
+	require.Equal(t, 1.0, report["applicationId"])
 	require.Equal(t, RequestID, report["requestId"])
 	t.Log("Deanonymization report:\n", PrettyPrintJSON(report))
 

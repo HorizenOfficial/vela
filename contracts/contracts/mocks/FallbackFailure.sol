@@ -16,7 +16,7 @@ contract FallbackFailure {
     function insertRequestOnProcessorEndpoint(
         ProcessorEndpoint processorEndpoint,
         uint8 protocolVersion, 
-        uint256 applicationId, 
+        uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
         uint256 value

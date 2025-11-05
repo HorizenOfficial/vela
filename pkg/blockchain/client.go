@@ -158,7 +158,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 		requestId := hex.EncodeToString(request.RequestId[:])
 		req := &common.Request{
 			ProtocolVersion: request.ProtocolVersion,
-			ApplicationID:   request.ApplicationId.String(),
+			ApplicationID:   request.ApplicationId,
 			RequestID:       requestId,
 			RequestType:     common.RequestType(request.RequestType),
 			Payload:         request.Payload,
@@ -200,9 +200,9 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 	//TODO check that all big.Int can fit in a Uint64. If not, the specific request should be marked as failed
 	req := &common.Request{
 		ProtocolVersion: request.ProtocolVersion,
-		ApplicationID:   request.ApplicationId.String(),
+		ApplicationID:   request.ApplicationId,
 		RequestID:       requestId,
-		RequestType:    common.RequestType(request.RequestType),
+		RequestType:     common.RequestType(request.RequestType),
 		Payload:         request.Payload,
 		Timestamp:       request.Timestamp.Int64(),
 		Sender:          request.Sender.String(),
@@ -267,7 +267,7 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
-func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId uint64, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -327,11 +327,6 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		return fmt.Errorf("invalid request ID %s: %w", update.RequestID, err)
 	}
 
-	appId, ok := common.StringToBigInt(update.ApplicationID)
-	if !ok {
-		return fmt.Errorf("invalid application ID: %s", update.ApplicationID)
-	}
-
 	events := make([][]byte, len(update.Events))
 	for i, event := range update.Events {
 		events[i] = event.EncryptedData
@@ -347,7 +342,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	}
 
 	params := c.processorEndpoint.PackStateUpdate(
-		appId,
+		update.ApplicationID,
 		update.PrevStateRoot,
 		update.NewStateRoot,
 		reqId,
@@ -381,7 +376,7 @@ func (c *BlockChainClient) Close() error {
 // toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
 // f: optional filter function for decrypted events
 // stopAtFirst: bool flag to stop at first found event
-func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId uint64, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -408,7 +403,7 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	//needed for event filter
 	userEventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointUserEventEventName)
 
-	appIdHash := ethCommon.BigToHash(&applicationId)
+	appIdHash := ethCommon.BytesToHash(new(big.Int).SetUint64(applicationId).Bytes())
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
 
 	var events [][]byte

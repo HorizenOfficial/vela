@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ func buildAndLoadWasmModule(t *testing.T) []byte {
 }
 
 // deploySimpleApp is a helper function to deploy the simple app wasm module.
-func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID, deployReqID, sender string, wasmBytecode []byte) {
+func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID uint64, deployReqID, sender string, wasmBytecode []byte) {
 	t.Helper()
 	timeout := 20 * time.Second
 
@@ -77,7 +78,7 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 }
 
 // depositToSimpleApp is a helper function to deposit funds into the simple app.
-func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID, reqID, user string, amount *big.Int) {
+func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID uint64, reqID, user string, amount *big.Int) {
 	t.Helper()
 	timeout := 100 * time.Second
 
@@ -131,7 +132,7 @@ func TestDeploySimpleApp(t *testing.T) {
 
 	// 3. Deploy the application
 	cryptoHelper := testutil.NewCryptoHelper()
-	deploySimpleApp(t, suite, cryptoHelper, "1", "1233", "test-user", wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, 1, "1233", "test-user", wasmBytecode)
 }
 
 // this will be modified when we support an app id other that "1"
@@ -149,7 +150,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	// 3. Try to deploy an application  with ID != 1
 	timeout := 10 * time.Second
 
-	appID := "33"
+	appID := uint64(33)
 	reqID := "22"
 
 	// Create and submit deploy request
@@ -175,11 +176,11 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	require.Equal(t, common.Deploy, failedRequests[0].RequestType, "Wrong Request Type")
 
 	// 4. Deploy the application with ID = 1
+	appID = uint64(1)
 	cryptoHelper := testutil.NewCryptoHelper()
-	deploySimpleApp(t, suite, cryptoHelper, "1", "1233", "test-user", wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, appID, "1233", "test-user", wasmBytecode)
 
 	// 5. Now try to redeploy the same app id
-	appID = "1"
 	reqID = "223"
 
 	// Create and submit deploy request
@@ -253,7 +254,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. Deploy the application
-	appID := "1"
+	appID := uint64(1)
 	RequestID := "11"
 	deploySimpleApp(t, suite, cryptoHelper, appID, RequestID, user1Address, wasmBytecode)
 
@@ -389,7 +390,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NotNil(t, deanonReport)
 
 	// 4. Read and decrypt the report
-	reportFilePath := filepath.Join(tempDir, appID+"_"+RequestID)
+	reportFilePath := filepath.Join(tempDir, strconv.FormatUint(appID, 10)+"_"+RequestID)
 	encryptedReportBytes, err := os.ReadFile(reportFilePath)
 	require.NoError(t, err, "The report file should be saved to the filesystem")
 
@@ -411,7 +412,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	var report map[string]interface{}
 	err = json.Unmarshal(decryptedReport, &report)
 	require.NoError(t, err)
-	require.Equal(t, appID, report["applicationId"])
+	require.Equal(t, 1.0, report["applicationId"])
 	require.Equal(t, RequestID, report["requestId"])
 
 	jsonStr, ok := report["reportDataBytes"].(string)
@@ -453,7 +454,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	userAddress := fmt.Sprintf("0xadd%037x", 1)
 
 	// 4. Deploy the application
-	appID := "1"
+	appID := uint64(1)
 	deploySimpleApp(t, suite, cryptoHelper, appID, "11", userAddress, wasmBytecode)
 
 	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)

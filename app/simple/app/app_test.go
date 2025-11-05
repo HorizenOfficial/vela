@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	testAppId    = "test_app"
+	testAppId    = int64(1)
 	user1Address = "0xadd0000000000000000000000000000000000001"
 	user2Address = "0xadd0000000000000000000000000000000000002"
 	user3Address = "0xadd0000000000000000000000000000000000003"

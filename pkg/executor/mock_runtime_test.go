@@ -15,7 +15,7 @@ type testAccountState struct {
 }
 
 type testApplicationInternalState struct {
-	AppID    string                       `json:"appId"`
+	AppID    uint64                       `json:"appId"`
 	Accounts map[string]*testAccountState `json:"accounts"`
 	Nonce    uint64                       `json:"nonce"`
 }
@@ -40,7 +40,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := uint64(1)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
@@ -60,7 +60,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 	}
 
 	if state.AppID != appId {
-		t.Errorf("Expected AppID %s, got %s", appId, state.AppID)
+		t.Errorf("Expected AppID %d, got %d", appId, state.AppID)
 	}
 
 	if len(state.Accounts) != 0 {
@@ -76,7 +76,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := uint64(123)
 	sender := "0x1234567890123456789012345678901234567890"
 	value := big.NewInt(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
@@ -127,7 +127,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := uint64(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -210,7 +210,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := uint64(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -297,7 +297,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := uint64(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module first
@@ -339,7 +339,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := uint64(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 	sender1 := "0x1234567890123456789012345678901234567890"
 	sender2 := "0x0987654321098765432109876543210987654321"

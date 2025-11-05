@@ -35,7 +35,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     }
 
     function checkSignature(
-        uint256 applicationId,
+        uint64 applicationId,
         bytes32 prevStateRoot,
         bytes32 newStateRoot,
         bytes32 processedRequestId,
@@ -48,7 +48,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         bytes32 eventsHash = keccak256(abi.encode(events));
         bytes32 withdrawalRequestsHash = keccak256(abi.encode(withdrawalRequests));
 
-        bytes32 messageHash = keccak256(abi.encodePacked(
+        bytes32 messageHash = keccak256(abi.encode(
             applicationId,
             prevStateRoot,
             newStateRoot,

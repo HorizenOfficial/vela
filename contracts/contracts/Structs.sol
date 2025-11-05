@@ -9,7 +9,7 @@ contract Structs {
     
     struct PendingRequest {
         uint8 protocolVersion;
-        uint256 applicationId;
+        uint64 applicationId;
         RequestType requestType;
         bytes32 requestId; //assigned automatically
         bytes payload;

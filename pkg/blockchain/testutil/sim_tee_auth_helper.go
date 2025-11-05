@@ -34,8 +34,6 @@ func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Addre
 
 func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload) bool {
 
-	appId, ok := common.StringToBigInt(payload.ApplicationID)
-	require.True(s.t, ok, "invalid application ID: %s", payload.ApplicationID)
 
 	events := make([][]byte, len(payload.Events))
 	for i, event := range payload.Events {
@@ -45,7 +43,6 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 	withdrawals := make([]tee.StructsWithdrawalRequest, len(payload.Withdrawals))
 	for i, withdrawal := range payload.Withdrawals {
 		amount := withdrawal.Amount
-		require.True(s.t, ok, "invalid amount: %s", withdrawal.Amount)
 
 		withdrawals[i] = tee.StructsWithdrawalRequest{
 			Receiver: ethCommon.HexToAddress(withdrawal.DestinationAddress),
@@ -57,7 +54,7 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 	require.NoError(s.t, err, "invalid request ID: %s", payload.RequestID)
 
 	params := s.teeContract.PackCheckSignature(
-		appId,
+		payload.ApplicationID,
 		payload.PrevStateRoot,
 		payload.NewStateRoot,
 		requestId,

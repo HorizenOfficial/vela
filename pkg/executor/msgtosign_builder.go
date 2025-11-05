@@ -39,16 +39,16 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	}
 	withdrawalsArgs := abi.Arguments{{Type: WithdrawalRequestArrayType}}
 
-	uint256Type, err := abi.NewType("uint256", "", nil)
+	uint64Type, err := abi.NewType("uint64", "", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failure creatinguint256 type: %w", err)
+		return nil, fmt.Errorf("failure creating uint64 type: %w", err)
 	}
 	bytes32Type, err := abi.NewType("bytes32", "", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failure creating bytes32 type: %w", err)
 	}
 	msgArgs := abi.Arguments{
-		{Type: uint256Type},
+		{Type: uint64Type},
 		{Type: bytes32Type},
 		{Type: bytes32Type},
 		{Type: bytes32Type},
@@ -62,10 +62,6 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 
 func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
 
-	appId, ok := common.StringToBigInt(updatePayload.ApplicationID)
-	if !ok {
-		return nil, fmt.Errorf("invalid application ID: %s", updatePayload.ApplicationID)
-	}
 
 	events := make([][]byte, len(updatePayload.Events))
 	for i, event := range updatePayload.Events {
@@ -102,7 +98,7 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	}
 
 	values := []interface{}{
-		appId,
+		updatePayload.ApplicationID,
 		updatePayload.PrevStateRoot,
 		updatePayload.NewStateRoot,
 		requestId,

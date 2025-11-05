@@ -142,7 +142,7 @@ func TestExtractResultBytes(t *testing.T) {
 func TestClose(t *testing.T) {
 	runtime := NewWasmtimeRuntime()
 	// Add a dummy module to ensure the map is cleared
-	runtime.modules["test-app"] = &ApplicationModule{}
+	runtime.modules[1] = &ApplicationModule{}
 
 	err := runtime.Close()
 	require.NoError(t, err)

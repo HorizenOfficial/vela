@@ -151,13 +151,13 @@ type Executor interface {
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
 	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
-	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error)
+	LoadModule(ctx context.Context, appId uint64, wasm []byte) ([]byte, error)
 	// Deposit processes a deposit
-	Deposit(ctx context.Context, appId string, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
+	Deposit(ctx context.Context, appId uint64, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
 	// ProcessRequest processes a request and returns the new state
-	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error)
+	ProcessRequest(ctx context.Context, appId uint64, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error)
+	GenerateDeanonymizationReport(ctx context.Context, appId uint64, payload []byte, state []byte, wasm []byte) ([]byte, error)
 	// Close closes the WASM runtime
 	Close() error
 }

@@ -43,7 +43,7 @@ type Request struct {
 	// ProtocolVersion is the version of the protocol being used
 	ProtocolVersion uint8 `json:"protocolVersion"`
 	// ApplicationID is the ID of the application (empty for Deploy)
-	ApplicationID string `json:"applicationId"`
+	ApplicationID uint64 `json:"applicationId"`
 	// RequestID is a unique identifier for the request
 	RequestID string `json:"requestId"`
 	// RequestType is the type of request
@@ -63,7 +63,7 @@ type Request struct {
 // Event represents an event to be emitted
 type Event struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID uint64 `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
 	//TODO: change the type to go-ethereum/common/Address
 	UserID string `json:"userId"`
@@ -82,7 +82,7 @@ type Withdrawal struct {
 // UpdatePayload represents an update to the state
 type UpdatePayload struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID uint64 `json:"applicationId"`
 	// RequestID is the ID of the request being processed
 	RequestID string `json:"requestId"`
 	// PrevStateRoot is the previous state root
@@ -100,7 +100,7 @@ type UpdatePayload struct {
 // ApplicationState represents the state of an application
 type ApplicationState struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID uint64 `json:"applicationId"`
 	// StateRoot is the root hash of the state
 	StateRoot [32]byte `json:"stateRoot"`
 	// EncryptedState is the encrypted state data
@@ -109,7 +109,7 @@ type ApplicationState struct {
 
 type WASMData struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID uint64 `json:"applicationId"`
 	// Bytecode is the wasm bytecode
 	Bytecode []byte `json:"bytecode"`
 }
@@ -117,7 +117,7 @@ type WASMData struct {
 // DeanonymizationReport represents a report for deanonymization
 type DeanonymizationReport struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID uint64 `json:"applicationId"`
 	// ReportID is a unique identifier for the report
 	ReportID string `json:"reportId"`
 	// EncryptedReport is the encrypted report data

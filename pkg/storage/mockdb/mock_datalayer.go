@@ -3,6 +3,7 @@ package mockdb
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/horizen-pes/pkg/common"
@@ -15,8 +16,8 @@ import (
 // It is safe for concurrent use.
 type MockDataLayer struct {
 	mutex     sync.RWMutex
-	states    map[string]*common.ApplicationState
-	bytecodes map[string][]byte
+	states    map[uint64]*common.ApplicationState
+	bytecodes map[uint64][]byte
 	reports   map[string]*common.DeanonymizationReport
 	keys      map[string][]byte
 	isClosed  bool
@@ -28,8 +29,8 @@ type MockDataLayer struct {
 func NewMockDataLayer() *MockDataLayer {
 
 	return &MockDataLayer{
-		states:    make(map[string]*common.ApplicationState),
-		bytecodes: make(map[string][]byte),
+		states:    make(map[uint64]*common.ApplicationState),
+		bytecodes: make(map[uint64][]byte),
 		reports:   make(map[string]*common.DeanonymizationReport),
 		keys:      make(map[string][]byte),
 		versions:  make([][]byte, 0),
@@ -82,12 +83,12 @@ func (d *MockDataLayer) Store(
 }
 
 // GetApplicationState retrieves the state of an application.
-func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error) {
+func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID uint64) (*common.ApplicationState, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
 	if f, ok:= d.GetMockedFunc("GetApplicationState"); ok {
-		return f.(func(context.Context, string) (*common.ApplicationState, error))(ctx, applicationID)
+		return f.(func(context.Context, uint64) (*common.ApplicationState, error))(ctx, applicationID)
 	}
 
 	if err := d.checkClosed(); err != nil {
@@ -95,25 +96,25 @@ func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID s
 	}
 	state, exists := d.states[applicationID]
 	if !exists {
-		return nil, storageErrors.ErrNotFound("application state not found: " + applicationID)
+		return nil, storageErrors.ErrNotFound("application state not found: " + strconv.FormatUint(applicationID, 10))
 	}
 	return state, nil
 }
 
 // GetWASMBytecode retrieves WASM bytecode for an application.
-func (d *MockDataLayer) GetWASMBytecode(ctx context.Context, applicationID string) ([]byte, error) {
+func (d *MockDataLayer) GetWASMBytecode(ctx context.Context, applicationID uint64) ([]byte, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
 	if f, ok:= d.GetMockedFunc("GetWASMBytecode"); ok {
-		return f.(func(context.Context, string) ([]byte, error))(ctx, applicationID)
+		return f.(func(context.Context, uint64) ([]byte, error))(ctx, applicationID)
 	}
 	if err := d.checkClosed(); err != nil {
 		return nil, err
 	}
 	bytecode, exists := d.bytecodes[applicationID]
 	if !exists {
-		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " + applicationID)
+		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " + strconv.FormatUint(applicationID, 10))
 	}
 	return bytecode, nil
 }
@@ -174,8 +175,8 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 	var initialState = [32]byte{}
 	if string(versionID) == string(initialState[:]) {
 		d.versions = make([][]byte, 0)
-		d.states =   make(map[string]*common.ApplicationState)
-		d.bytecodes = make(map[string][]byte)
+		d.states =   make(map[uint64]*common.ApplicationState)
+		d.bytecodes = make(map[uint64][]byte)
 		return nil
 	}
 
