@@ -8,16 +8,39 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
+// allocatedMemory holds references to memory allocated by the guest, preventing the Go garbage
+// collector from reclaiming it while it's in use by the host. The map key is the pointer address.
+var allocatedMemory = make(map[uintptr][]byte)
+
 // --- WASM Memory Management Functions ---
 
 //export allocate
 func allocate(size int32) int32 {
+	// Allocate a byte slice of the desired size.
 	data := make([]byte, size)
-	return int32(uintptr(unsafe.Pointer(&data[0])))
+
+	// Get a pointer to the slice's underlying data.
+	ptr := &data[0]
+
+	// Convert to uintptr (valid on wasm32, which has 4GB address space max).
+	uptr := uintptr(unsafe.Pointer(ptr))
+
+	// Store a reference to the slice in our global map to "pin" it and preventing GC from acting
+	allocatedMemory[uptr] = data
+
+	// Return the pointer address as an int32 to the host.
+	return int32(uptr)
 }
 
 //export deallocate
 func deallocate(ptr *byte, size int32) {
+
+	// Get the uintptr from the pointer.
+	uptr := uintptr(unsafe.Pointer(ptr))
+
+	// Delete the reference from the map. This unpins the memory, making it eligible for garbage collection.
+	// (Deleting a non-existent key is a no-op)
+	delete(allocatedMemory, uptr)
 }
 
 // --- Helper Functions for Data Translation ---

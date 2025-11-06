@@ -15,9 +15,10 @@ import (
 )
 
 type ApplicationModule struct {
-	module   *wasmtime.Module
-	instance *wasmtime.Instance
-	memory   *wasmtime.Memory
+	module     *wasmtime.Module
+	instance   *wasmtime.Instance
+	memory     *wasmtime.Memory
+	deallocate *wasmtime.Func
 }
 
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
@@ -117,13 +118,23 @@ func (r *WasmtimeRuntime) readFromMemory(module *ApplicationModule, ptr int32, l
 }
 
 func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, wasm []byte) (*ApplicationModule, error) {
-	// Check if the module is already loaded
+	r.moduleLock.RLock()
+	module, exists := r.modules[appId]
+	r.moduleLock.RUnlock()
+	if exists {
+		return module, nil
+	}
+
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	// Re-check if module was loaded by another goroutine while we were waiting for the lock
 	if module, exists := r.modules[appId]; exists {
 		return module, nil
 	}
 
 	// If not loaded, load the module
-	_, err := r.LoadModule(ctx, appId, wasm)
+	_, err := r.loadModuleUnlocked(ctx, appId, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load module: %w", err)
 	}
@@ -139,6 +150,12 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, was
 func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
+	return r.loadModuleUnlocked(ctx, appId, wasm)
+}
+
+// loadModuleUnlocked contains the core logic for loading a module, but without locking.
+// This method should only be called when a lock is already held.
+func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId string, wasm []byte) ([]byte, error) {
 	log.Printf("Wasmtime Runtime: Loading WASM module for application %s (wasm size: %d bytes)", appId, len(wasm))
 
 	// Compile the WASM module
@@ -181,10 +198,14 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 		return nil, fmt.Errorf("load_module function not found in WASM module")
 	}
 
+	// Get the deallocate function (optional, but recommended for memory management)
+	deallocateFunc := instance.GetFunc(r.store, "deallocate")
+
 	appModule := &ApplicationModule{
-		module:   module,
-		instance: instance,
-		memory:   memory,
+		module:     module,
+		instance:   instance,
+		memory:     memory,
+		deallocate: deallocateFunc,
 	}
 
 	// Write appId to memory
@@ -426,18 +447,40 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	dataLength := binary.LittleEndian.Uint32(lengthBytes)
 
 	if dataLength == 0 {
+		// Deallocate the 4 bytes used for the length prefix
+		if appModule.deallocate != nil {
+			if _, err := appModule.deallocate.Call(r.store, resultPtr, int32(4)); err != nil {
+				log.Printf("Wasmtime Runtime: failed to deallocate wasm memory for empty result: %v", err)
+			}
+		}
 		return nil, fmt.Errorf("empty result from wasm module")
 	}
 
 	// Validate that we can read the full data
-	if int(resultPtr+4+int32(dataLength)) > len(memData) {
+	if int(resultPtr+4+int(dataLength)) > len(memData) {
 		return nil, fmt.Errorf("invalid memory access for data payload")
 	}
 
 	// Read the actual data (skip the 4-byte length prefix)
 	resultBytes, err := r.readFromMemory(appModule, resultPtr+4, int32(dataLength))
 	if err != nil {
+		// Even if read fails, try to deallocate. The pointer and length are valid.
+		if appModule.deallocate != nil {
+			totalLength := 4 + dataLength
+			if _, deallocErr := appModule.deallocate.Call(r.store, resultPtr, int32(totalLength)); deallocErr != nil {
+				log.Printf("Wasmtime Runtime: failed to deallocate wasm memory after read error: %v", deallocErr)
+			}
+		}
 		return nil, fmt.Errorf("failed to read wasm module result from memory: %w", err)
+	}
+
+	// Deallocate memory in WASM now that we have copied the data
+	if appModule.deallocate != nil {
+		totalLength := 4 + dataLength
+		if _, err := appModule.deallocate.Call(r.store, resultPtr, int32(totalLength)); err != nil {
+			// Log the error but don't fail the operation since we have the data
+			log.Printf("Wasmtime Runtime: failed to deallocate wasm memory for result: %v", err)
+		}
 	}
 
 	// WasmSerializationError (`{}`) is returned by the wasm module if serialization fails
