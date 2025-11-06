@@ -37,8 +37,8 @@ type MockClient struct {
 	requests         *orderedmap.OrderedMap[string, *common.Request]
 	pendingRequests  *orderedmap.OrderedMap[string, *common.Request]
 	failedRequests   *orderedmap.OrderedMap[string, *common.Request]
-	states           map[uint64]*common.ApplicationState
-	withdrawals      map[uint64]*[]common.Withdrawal
+	states           map[common.ApplicationIdType]*common.ApplicationState
+	withdrawals      map[common.ApplicationIdType]*[]common.Withdrawal
 	reports          map[string]*common.DeanonymizationReport
 	updatePayloads   map[string]*common.UpdatePayload
 	eventSubscribers []chan<- interface{}
@@ -52,8 +52,8 @@ func NewMockClient() *MockClient {
 		requests:        orderedmap.NewOrderedMap[string, *common.Request](),
 		pendingRequests: orderedmap.NewOrderedMap[string, *common.Request](),
 		failedRequests:  orderedmap.NewOrderedMap[string, *common.Request](),
-		states:          make(map[uint64]*common.ApplicationState),
-		withdrawals:     make(map[uint64]*[]common.Withdrawal),
+		states:          make(map[common.ApplicationIdType]*common.ApplicationState),
+		withdrawals:     make(map[common.ApplicationIdType]*[]common.Withdrawal),
 		reports:         make(map[string]*common.DeanonymizationReport),
 		updatePayloads:  make(map[string]*common.UpdatePayload),
 		MockFunctions:   testutil.NewMockFunctions(),
@@ -87,7 +87,7 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 }
 
 // SubmitRequest submits a request to the blockchain according to the official interface
-func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId uint64, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
+func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -265,7 +265,7 @@ func (c *MockClient) GetRequestUpdatePayload(ctx context.Context, requestID stri
 }
 
 // GetApplicationState gets the state of an application
-func (c *MockClient) GetApplicationState(ctx context.Context, applicationID uint64) (*common.ApplicationState, error) {
+func (c *MockClient) GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -303,7 +303,7 @@ func (c *MockClient) SubscribeToEvents(ctx context.Context, eventCh chan<- inter
 }
 
 // GetWithdrawals gets withdrawal requests for an application
-func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID uint64) (*[]common.Withdrawal, error) {
+func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID common.ApplicationIdType) (*[]common.Withdrawal, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -348,7 +348,7 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID stri
 	return report, nil
 }
 
-func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId uint64, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	return [][]byte{}, nil
 }
 
@@ -392,8 +392,8 @@ func (c *MockClient) ClearAllData() {
 
 	c.requests = orderedmap.NewOrderedMap[string, *common.Request]()
 	c.pendingRequests = orderedmap.NewOrderedMap[string, *common.Request]()
-	c.states = make(map[uint64]*common.ApplicationState)
-	c.withdrawals = make(map[uint64]*[]common.Withdrawal)
+	c.states = make(map[common.ApplicationIdType]*common.ApplicationState)
+	c.withdrawals = make(map[common.ApplicationIdType]*[]common.Withdrawal)
 	c.reports = make(map[string]*common.DeanonymizationReport)
 	c.failedRequests = orderedmap.NewOrderedMap[string, *common.Request]()
 	c.updatePayloads = make(map[string]*common.UpdatePayload)

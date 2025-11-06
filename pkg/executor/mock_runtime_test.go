@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"math/big"
 	"testing"
+
+	"github.com/horizen-pes/pkg/common"
 )
 
 // Local mirror types used in tests to avoid importing wasm-go/app
@@ -15,7 +17,7 @@ type testAccountState struct {
 }
 
 type testApplicationInternalState struct {
-	AppID    uint64                       `json:"appId"`
+	AppID    common.ApplicationIdType     `json:"appId"`
 	Accounts map[string]*testAccountState `json:"accounts"`
 	Nonce    uint64                       `json:"nonce"`
 }
@@ -40,7 +42,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := uint64(1)
+	appId := common.NewApplicationId(1)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
@@ -76,7 +78,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := uint64(123)
+	appId := common.NewApplicationId(123)
 	sender := "0x1234567890123456789012345678901234567890"
 	value := big.NewInt(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
@@ -127,7 +129,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := uint64(123)
+	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -139,7 +141,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	sender := "0x1234567890123456789012345678901234567890"
 	recipient := "0x0987654321098765432109876543210987654321"
 	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
-	transferAmount := uint64(500000000000000000) // 0.5 ETH
+	transferAmount := uint64(500000000000000000)     // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -210,7 +212,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := uint64(123)
+	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -222,7 +224,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	sender := "0x1234567890123456789012345678901234567890"
 	withdrawTo := "0x0987654321098765432109876543210987654321"
 	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
-	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
+	withdrawAmount := uint64(500000000000000000)     // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -297,7 +299,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := uint64(123)
+	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module first
@@ -339,7 +341,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	runtime := NewMockRuntime()
 	defer runtime.Close()
 
-	appId := uint64(123)
+	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 	sender1 := "0x1234567890123456789012345678901234567890"
 	sender2 := "0x0987654321098765432109876543210987654321"

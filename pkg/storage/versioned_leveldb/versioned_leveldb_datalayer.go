@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"strconv"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/storage"
@@ -103,7 +102,7 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 			return fmt.Errorf("failed to marshal application state: %w", err)
 		}
 		
-		key := []byte(appStatePrefix + strconv.FormatUint(state.ApplicationID, 10))
+		key := []byte(appStatePrefix + state.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: value})
 	}
 
@@ -112,7 +111,7 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 			return fmt.Errorf("wasm entry is nil")
 		}
 
-		key := []byte(wasmPrefix + strconv.FormatUint(wasm.ApplicationID, 10))
+		key := []byte(wasmPrefix + wasm.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: wasm.Bytecode})
 	}
 
@@ -123,11 +122,11 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 	return nil
 }
 
-func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Context, applicationID uint64) (*common.ApplicationState, error) {
+func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error) {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
-	key := []byte(appStatePrefix + strconv.FormatUint(applicationID, 10))
+	key := []byte(appStatePrefix + applicationID.String())
 	value, err := vdl.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get application state from Versioned LevelDB: %w", err)
@@ -144,17 +143,17 @@ func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Contex
 	return state, nil
 }
 
-func (vdl *VersionedLevelDBAppStateStore) GetWASMBytecode(ctx context.Context, applicationID uint64) ([]byte, error) {
+func (vdl *VersionedLevelDBAppStateStore) GetWASMBytecode(ctx context.Context, applicationID common.ApplicationIdType) ([]byte, error) {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
-	key := []byte(wasmPrefix + strconv.FormatUint(applicationID, 10))
+	key := []byte(wasmPrefix + applicationID.String())
 	value, err := vdl.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get WASM bytecode from Versioned LevelDB: %w", err)
 	}
 	if value == nil {
-		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " + strconv.FormatUint(applicationID, 10))
+		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " + applicationID.String())
 	}
 	return value, nil
 }

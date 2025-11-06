@@ -25,7 +25,7 @@ type ApplicationModule struct {
 type WasmtimeRuntime struct {
 	engine     *wasmtime.Engine
 	store      *wasmtime.Store
-	modules    map[uint64]*ApplicationModule // Map of application ID to module
+	modules    map[common.ApplicationIdType]*ApplicationModule // Map of application ID to module
 	moduleLock sync.RWMutex                  // Lock for module access
 }
 
@@ -42,7 +42,7 @@ func NewWasmtimeRuntime() *WasmtimeRuntime {
 	return &WasmtimeRuntime{
 		engine:  engine,
 		store:   store,
-		modules: make(map[uint64]*ApplicationModule),
+		modules: make(map[common.ApplicationIdType]*ApplicationModule),
 	}
 }
 
@@ -117,7 +117,7 @@ func (r *WasmtimeRuntime) readFromMemory(module *ApplicationModule, ptr int32, l
 	return result, nil
 }
 
-func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId uint64, wasm []byte) (*ApplicationModule, error) {
+func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (*ApplicationModule, error) {
 	// Check if the module is already loaded
 	if module, exists := r.modules[appId]; exists {
 		return module, nil
@@ -137,14 +137,14 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId uint64, was
 }
 
 // LoadModule loads a WASM module and returns initial state and state root
-func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId uint64, wasm []byte) ([]byte, error) {
+func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, error) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 	log.Printf("Wasmtime Runtime: Loading WASM module for application %d (wasm size: %d bytes)", appId, len(wasm))
 
-	//This should never happes, but just in case
-	if appId > math.MaxInt64 {
-		return nil, fmt.Errorf("application ID too large: %d", appId)
+	wasmAppId, err := ToWasmType(appId)
+	if err != nil {
+		return nil, err
 	}
 
 	// Compile the WASM module
@@ -196,7 +196,7 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId uint64, wasm []b
 
 	// Call the load_module function
 	// Wasm supports only int64, so we cast appId to int64
-	result, err := loadModuleFunc.Call(r.store, int64(appId))
+	result, err := loadModuleFunc.Call(r.store, wasmAppId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call load_module: %w", err)
 	}
@@ -217,11 +217,12 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId uint64, wasm []b
 }
 
 // Deposit processes a deposit
-func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId uint64, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
+func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
 	log.Printf("Wasmtime Runtime: Processing deposit for application %d (value: %v wei for sender: %s)", appId, value, sender)
-	//This should never happes, but just in case
-	if appId > math.MaxInt64 {
-		return nil, nil, fmt.Errorf("application ID too large: %d", appId)
+
+	wasmAppId, err := ToWasmType(appId)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
@@ -264,7 +265,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId uint64, sender stri
 	// Call the deposit function
 
 	// Wasm supports only int64, so we cast appId to int64
-	result, err := depositFunc.Call(r.store, int64(appId), senderPtr, int32(len(senderBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
+	result, err := depositFunc.Call(r.store, wasmAppId, senderPtr, int32(len(senderBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to call deposit: %w", err)
 	}
@@ -292,12 +293,12 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId uint64, sender stri
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId uint64, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
+func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
 	log.Printf("Wasmtime Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
-		//This should never happes, but just in case
-	if appId > math.MaxInt64 {
-		return nil, nil, nil, fmt.Errorf("application ID too large: %d", appId)
+	wasmAppId, err := ToWasmType(appId)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	if len(payload) == 0 {
@@ -334,7 +335,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId uint64, send
 
 	// Call the process_request function
 	// Wasm supports only int64, so we cast appId to int64
-	result, err := processRequestFunc.Call(r.store, int64(appId), senderPtr, int32(len(senderBytes)), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
+	result, err := processRequestFunc.Call(r.store, wasmAppId, senderPtr, int32(len(senderBytes)), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to call process_request: %w", err)
 	}
@@ -360,7 +361,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId uint64, send
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId uint64, payload []byte, state []byte, wasm []byte) ([]byte, error) {
+func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, error) {
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get or load module: %w", err)
@@ -481,4 +482,16 @@ func (r *WasmtimeRuntime) Close() error {
 
 	log.Printf("Wasmtime Runtime: Wasmtime runtime closed successfully")
 	return nil
+}
+
+
+
+
+// This method converts the ApplicationIdType to the Wasm type (int64)
+func ToWasmType(aid common.ApplicationIdType) (int64, error) {
+	//This should never happens, but just in case
+	if aid > math.MaxInt64 {
+		return -1, fmt.Errorf("application ID too large: %d", aid)
+	}
+	return int64(aid), nil
 }

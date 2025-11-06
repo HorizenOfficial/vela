@@ -21,7 +21,7 @@ func NewMockRuntime() *MockRuntime {
 }
 
 // LoadModule loads a WASM module and returns initial state
-func (r *MockRuntime) LoadModule(ctx context.Context, appId uint64, wasm []byte) ([]byte, error) {
+func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, error) {
 	log.Printf("Mock Runtime: Loading mock runtime module for application %d (wasm size: %d bytes)", appId, len(wasm))
 
 	// Create initial application state (generic map-based representation)
@@ -40,7 +40,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId uint64, wasm []byte)
 	return stateBytes, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId uint64, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
+func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
 	log.Printf("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, value, sender)
 
 	var currentState map[string]interface{}
@@ -79,7 +79,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId uint64, sender string, 
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *MockRuntime) ProcessRequest(ctx context.Context, appId uint64, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
+func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
 	log.Printf("Mock Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
 	var currentState map[string]interface{}
@@ -185,7 +185,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId uint64, sender s
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId uint64, payload []byte, state []byte, wasm []byte) ([]byte, error) {
+func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, error) {
 	log.Printf("Mock Runtime: Generating deanonymization report for application %d", appId)
 
 	var currentState map[string]interface{}

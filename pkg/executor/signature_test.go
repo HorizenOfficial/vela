@@ -11,10 +11,10 @@ import (
 )
 
 func TestCheckSignature(t *testing.T) {
-	applicationId := uint64(1)
+	applicationId := common.NewApplicationId(1)
 	execConfig := DefaultConfig()
 
-	builder, err :=  NewMsgToSignBuilder()
+	builder, err := NewMsgToSignBuilder()
 	require.NoError(t, err)
 
 	executor := &StatelessExecutor{

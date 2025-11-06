@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
@@ -22,8 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	ApplicationId = uint64(1)
+var (
+	ApplicationId = common.NewApplicationId(1)
 )
 
 type MockExecutorClient struct {
@@ -92,7 +91,7 @@ const (
 	sender = "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199"
 )
 
-func createRequest(requestType common.RequestType, appID uint64) *common.Request {
+func createRequest(requestType common.RequestType, appID common.ApplicationIdType) *common.Request {
 	requestId, err := blockchain.GenerateRandomID()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to generate random ID: %v", err))
@@ -101,7 +100,7 @@ func createRequest(requestType common.RequestType, appID uint64) *common.Request
 	return request
 }
 
-func createRequestWithPayload(requestType common.RequestType, appID uint64, payload []byte) *common.Request {
+func createRequestWithPayload(requestType common.RequestType, appID common.ApplicationIdType, payload []byte) *common.Request {
 	requestId, err := blockchain.GenerateRandomID()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to generate random ID: %v", err))
@@ -611,7 +610,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	//Other failures in GetApplicationState, it may a temp error => the request shouldn't be marked as failed
 	request.ApplicationID = deployRequest.ApplicationID
 
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, uint64) (*common.ApplicationState, error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
 		return nil, fmt.Errorf("error")
 	})
 	err = manager.processProcessRequest(context.Background(), request)
@@ -623,7 +622,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
 	// Failure in GetWasmCode. In this case any error should be treated as temp error => the request shouldn't be marked as failed
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, uint64) ([]byte, error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, common.ApplicationIdType) ([]byte, error) {
 		return nil, fmt.Errorf("wasm bytecode not found for application")
 	})
 	err = manager.processProcessRequest(context.Background(), request)
@@ -729,7 +728,7 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 	//Other failures in GetApplicationState, it may a temp error => the request shouldn't be marked as failed
 	request.ApplicationID = deployRequest.ApplicationID
 
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, uint64) (*common.ApplicationState, error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
 		return nil, fmt.Errorf("error")
 	})
 	err = manager.processDeanonymization(context.Background(), request)
@@ -741,7 +740,7 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
 	// Failure in GetWasmCode. In this case any error should be treated as temp error => the request shouldn't be marked as failed
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, uint64) ([]byte, error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, common.ApplicationIdType) ([]byte, error) {
 		return nil, fmt.Errorf("wasm bytecode not found for application")
 	})
 	err = manager.processDeanonymization(context.Background(), request)
@@ -1056,7 +1055,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 	// Check that the report file does not exist
-	reportFilePath := filepath.Join(tempDir, strconv.FormatUint(request.ApplicationID, 10)+"_"+request.RequestID)
+	reportFilePath := filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID)
 	_, err = os.Stat(reportFilePath)
 	require.True(t, os.IsNotExist(err), "Report file should not exist when DeanonymizationReportPath is not set")
 	// check we have it in the data layer
@@ -1075,7 +1074,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 3, len(completedRequests), "expected 3 completed request")
 	// Check that the report file exists
-	reportFilePath = filepath.Join(tempDir, strconv.FormatUint(request.ApplicationID, 10)+"_"+request.RequestID)
+	reportFilePath = filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID)
 	_, err = os.Stat(reportFilePath)
 	require.NoError(t, err, "Report file should exist when DeanonymizationReportPath is set")
 	// Read the report from the filesystem and verify its contents

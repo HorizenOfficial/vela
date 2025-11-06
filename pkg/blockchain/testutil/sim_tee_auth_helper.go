@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,6 @@ func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Addre
 
 func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload) bool {
 
-
 	events := make([][]byte, len(payload.Events))
 	for i, event := range payload.Events {
 		events[i] = event.EncryptedData
@@ -54,7 +54,7 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 	require.NoError(s.t, err, "invalid request ID: %s", payload.RequestID)
 
 	params := s.teeContract.PackCheckSignature(
-		payload.ApplicationID,
+		processorendpoint.ApplicationIdToBindingType(payload.ApplicationID),
 		payload.PrevStateRoot,
 		payload.NewStateRoot,
 		requestId,

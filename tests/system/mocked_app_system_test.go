@@ -24,7 +24,7 @@ func TestDeployApp(t *testing.T) {
 	require.NoError(t, err)
 
 	RequestID := "2333"
-	ApplicationId := uint64(1)
+	ApplicationId := common.NewApplicationId(1)
 
 	// 4. Submit deploy request
 	deployReq := &common.Request{

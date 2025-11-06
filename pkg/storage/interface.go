@@ -32,9 +32,9 @@ type ApplicationStateStore interface {
 	ListVersions() ([][]byte, error)
 
 	// GetApplicationState retrieves the state of a specific application by its ID.
-	GetApplicationState(ctx context.Context, applicationID uint64) (*common.ApplicationState, error)
+	GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error)
 	// GetWASMBytecode retrieves the WASM bytecode for a specific application by its ID.
-	GetWASMBytecode(ctx context.Context, applicationID uint64) ([]byte, error)
+	GetWASMBytecode(ctx context.Context, applicationID common.ApplicationIdType) ([]byte, error)
 
 	// Close releases any resources held by the data store.
 	Close() error

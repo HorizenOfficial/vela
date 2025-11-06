@@ -18,12 +18,14 @@ import (
 var _ = []common.Withdrawal{}
 
 const (
-	wasmModulePath    = "build/simple_app.wasm"
-	appId             = uint64(1)
+	wasmModulePath = "build/simple_app.wasm"
+
 	user1Address      = "0xadd0000000000000000000000000000000000001"
 	user2Address      = "0xadd0000000000000000000000000000000000002"
 	recipient1Address = "0xadd0000000000000000000000000000000000003"
 )
+
+var appId = common.NewApplicationId(1)
 
 // buildAndLoadWasmModule runs `make build` to compile and load the wasm module.
 func buildAndLoadWasmModule(t *testing.T) []byte {
@@ -57,7 +59,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	var initialState app.ApplicationInternalState
 	err = json.Unmarshal(initialStateBytes, &initialState)
 	require.NoError(t, err)
-	require.Equal(t, appId, uint64(initialState.AppID))
+	require.Equal(t, appId, common.NewApplicationId(initialState.AppID))
 	require.Empty(t, initialState.Accounts)
 
 	// 2. User1 Deposits funds

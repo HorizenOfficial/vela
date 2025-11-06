@@ -41,7 +41,7 @@ func TestApplicationStateStore(t *testing.T) {
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 
 		expectedState := common.ApplicationState{
-			ApplicationID:  1,
+			ApplicationID:  common.NewApplicationId(1),
 			StateRoot:      sha256.Sum256([]byte("some-test-root-hash-1")),
 			EncryptedState: []byte{0x0A, 0x0B, 0x0C, 0x0D},
 		}
@@ -94,7 +94,7 @@ func TestApplicationStateStore(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 		expectedReport := &common.DeanonymizationReport{
-			ApplicationID:   123,
+			ApplicationID:   common.NewApplicationId(123),
 			ReportID:        "report-id-1",
 			EncryptedReport: []byte("some-test-root-hash-1"),
 		}
@@ -130,7 +130,7 @@ func TestApplicationStateStore(t *testing.T) {
 		require.NoError(t, store.Close(), "Closing the store should not return an error on first close")
 		err := store.Close()
 		assert.NoError(t, err, "Error is not expected when trying to close an already closed store")
-		any_id := uint64(999)
+		any_id := common.NewApplicationId(999)
 
 		operations := map[string]func() error{
 			"GetApplicationState": func() error {
@@ -177,7 +177,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := uint64(i)
+				appID := common.NewApplicationId(int64(i))
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
@@ -193,7 +193,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := uint64(i)
+				appID := common.NewApplicationId(int64(i))
 				state, err := store.GetApplicationState(ctx, appID)
 				assert.NoError(t, err)
 				assert.Equal(t, appID, state.ApplicationID)
@@ -210,12 +210,12 @@ func TestApplicationStateStore(t *testing.T) {
 		// 1. Define non-trivial arrays for states and WASM data
 		stateArray := []*common.ApplicationState{
 			{
-				ApplicationID:  1,
+				ApplicationID:  common.NewApplicationId(1),
 				StateRoot:      sha256.Sum256([]byte("root1")),
 				EncryptedState: []byte("state1"),
 			},
 			{
-				ApplicationID:  2,
+				ApplicationID:  common.NewApplicationId(2),
 				StateRoot:      sha256.Sum256([]byte("root2")),
 				EncryptedState: []byte("state2"),
 			},
@@ -223,11 +223,11 @@ func TestApplicationStateStore(t *testing.T) {
 
 		wasmArray := []*common.WASMData{
 			{
-				ApplicationID: 1,
+				ApplicationID: common.NewApplicationId(1),
 				Bytecode:      []byte("wasm1"),
 			},
 			{
-				ApplicationID: 3, // Use a different app ID to test wasm-only storage
+				ApplicationID: common.NewApplicationId(3), // Use a different app ID to test wasm-only storage
 				Bytecode:      []byte("wasm3"),
 			},
 		}

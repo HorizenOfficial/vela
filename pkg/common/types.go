@@ -5,7 +5,26 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
+
+type ApplicationIdType uint64
+
+func NewApplicationId(id int64) ApplicationIdType {
+	if id < 0 {
+		panic("ApplicationIdType cannot be negative")
+	}
+	return ApplicationIdType(id)
+}
+
+func (aid ApplicationIdType) String() string {
+	return fmt.Sprintf("%d", uint64(aid))
+}
+
+func (aid ApplicationIdType) ToHash() ethCommon.Hash {
+	return ethCommon.BytesToHash(new(big.Int).SetUint64(uint64(aid)).Bytes())
+}
 
 // RequestType represents the type of request being sent to the TEE
 type RequestType uint8
@@ -14,36 +33,34 @@ const (
 	// Deploy represents a request to deploy a new application
 	Deploy RequestType = iota
 	// Process is used for processing a batch of requests
-	Process  
+	Process
 	// Deanonymize is used for deanonymization requests
 	Deanonymize
 	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
-	AssociateKey 
+	AssociateKey
 )
 
 func (rt RequestType) String() string {
 	switch rt {
-		case Deploy:		
-			return "deploy"
-		case Process:
-			return "process"
-		case Deanonymize:		
-			return "deanonymize"
-		case AssociateKey:
-			return "associatekey"
-		default:
-			return "unknown"
+	case Deploy:
+		return "deploy"
+	case Process:
+		return "process"
+	case Deanonymize:
+		return "deanonymize"
+	case AssociateKey:
+		return "associatekey"
+	default:
+		return "unknown"
 	}
 }
-
-
 
 // Request represents a request to the system
 type Request struct {
 	// ProtocolVersion is the version of the protocol being used
 	ProtocolVersion uint8 `json:"protocolVersion"`
 	// ApplicationID is the ID of the application (empty for Deploy)
-	ApplicationID uint64 `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// RequestID is a unique identifier for the request
 	RequestID string `json:"requestId"`
 	// RequestType is the type of request
@@ -63,7 +80,7 @@ type Request struct {
 // Event represents an event to be emitted
 type Event struct {
 	// ApplicationID is the ID of the application
-	ApplicationID uint64 `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
 	//TODO: change the type to go-ethereum/common/Address
 	UserID string `json:"userId"`
@@ -82,7 +99,7 @@ type Withdrawal struct {
 // UpdatePayload represents an update to the state
 type UpdatePayload struct {
 	// ApplicationID is the ID of the application
-	ApplicationID uint64 `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// RequestID is the ID of the request being processed
 	RequestID string `json:"requestId"`
 	// PrevStateRoot is the previous state root
@@ -100,7 +117,7 @@ type UpdatePayload struct {
 // ApplicationState represents the state of an application
 type ApplicationState struct {
 	// ApplicationID is the ID of the application
-	ApplicationID uint64 `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// StateRoot is the root hash of the state
 	StateRoot [32]byte `json:"stateRoot"`
 	// EncryptedState is the encrypted state data
@@ -109,7 +126,7 @@ type ApplicationState struct {
 
 type WASMData struct {
 	// ApplicationID is the ID of the application
-	ApplicationID uint64 `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// Bytecode is the wasm bytecode
 	Bytecode []byte `json:"bytecode"`
 }
@@ -117,7 +134,7 @@ type WASMData struct {
 // DeanonymizationReport represents a report for deanonymization
 type DeanonymizationReport struct {
 	// ApplicationID is the ID of the application
-	ApplicationID uint64 `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// ReportID is a unique identifier for the report
 	ReportID string `json:"reportId"`
 	// EncryptedReport is the encrypted report data
@@ -137,19 +154,19 @@ type RequestResultStatus uint8
 
 const (
 	RequestResultOK RequestResultStatus = iota
-	RequestResultFailed 
+	RequestResultFailed
 	RequestResultFailedNotRefunded
 	RequestResultUnknown
 )
 
 // RequestResult represents the result on chain of a request (eg successful or failed with its error )
 type RequestResult struct {
-	Status RequestResultStatus
+	Status        RequestResultStatus
 	FailureReason string
 }
 
 func UInt8ToRequestResultStatus(i uint8) (RequestResultStatus, error) {
-switch i {
+	switch i {
 	case 0:
 		return RequestResultOK, nil
 	case 1:
@@ -170,7 +187,7 @@ func RequestIdStringTo32Byte(s string) ([32]byte, error) {
 	arr, err := hex.DecodeString(s)
 	if err != nil {
 		return [32]byte{}, fmt.Errorf("requestId string is not a valid hex string: %w", err)
-	}	
+	}
 	if len(arr) > 32 {
 		return [32]byte{}, fmt.Errorf("requestId string must not be more than 32 bytes long, got %d", len(arr))
 	}
