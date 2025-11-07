@@ -11,10 +11,14 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ethCommon "github.com/ethereum/go-ethereum/common"
+
 )
 
-const ( 
-	ApplicationId = 1
+var ( 
+	ApplicationId = common.NewApplicationId(1)
+	senderAddress = ethCommon.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	destinationAddress = ethCommon.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
 )
 
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
@@ -35,7 +39,7 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 			PrevStateRoot: appState.StateRoot,
 			NewStateRoot:  newStateRoot,
 			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: big.NewInt(100)}},
+			Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
 			Signature:     []byte("test-signature"),
 		},
 		&common.ApplicationState{
@@ -114,7 +118,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       time.Now().Unix(),
-		Sender:          "test-sender",
+		Sender:          senderAddress,
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
@@ -191,7 +195,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			RequestType:     common.Process,
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       time.Now().Unix(),
-			Sender:          "test-sender",
+			Sender:         senderAddress,
 			//Value:           0,
 		}
 		appState := &common.ApplicationState{
@@ -242,7 +246,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			RequestType:     common.Deploy,
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       time.Now().Unix(),
-			Sender:          "test-sender",
+			Sender:          senderAddress,
 			//Value:           0,
 		}
 
@@ -301,7 +305,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       time.Now().Unix(),
-		Sender:          "test-sender",
+		Sender:          senderAddress,
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
@@ -333,7 +337,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 				PrevStateRoot: appState.StateRoot,
 				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: big.NewInt(100)}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
 				Signature:     []byte("test-signature"),
 			}, appState, nil
 		},
@@ -366,7 +370,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       time.Now().Unix(),
-		Sender:          "test-sender",
+		Sender:          senderAddress,
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  1,

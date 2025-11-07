@@ -102,13 +102,12 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			return nil, nil, fmt.Errorf("failed to parse keyP521 in request payload: %w", err)
 		}
 
-		appData.AddKey(ethCommon.HexToAddress(req.Sender), *keyToAssociate)
+		appData.AddKey(req.Sender, *keyToAssociate)
 	} else {
 		//any other case: decrypt the payload and forward to the WASM to obtain the new state
 
 		// Decrypt the request payload
-		senderAddress := ethCommon.HexToAddress(req.Sender)
-		decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
+		decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decrypt request payload: %w", err)
 		}
@@ -245,8 +244,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	}
 
 	// Decrypt the request payload
-	senderAddress := ethCommon.HexToAddress(req.Sender)
-	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
+	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt Payload: %w", err)
 	}
@@ -262,7 +260,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		req.ApplicationID,
 		req.RequestID,
 		e.config.CommunicationKey,
-		senderAddress,
+		req.Sender,
 		reportData,
 		appData.GetKeyStore(),
 	)
@@ -338,7 +336,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 
 	for i, event := range events {
 		// retrieve user Secp521r1_PubKey
-		userKey, exists := keyStore[ethCommon.HexToAddress(event.UserID)]
+		userKey, exists := keyStore[event.UserID]
 		
 		if !exists {
 			return nil, fmt.Errorf("no Secp521r1_PubKey found for user %s", event.UserID)

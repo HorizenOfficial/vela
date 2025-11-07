@@ -22,6 +22,7 @@ import (
 	"github.com/horizen-pes/pkg/wasm"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 type SystemTestSuite struct {
@@ -208,7 +209,7 @@ func (s *SystemTestSuite) AssertRequestCompleted(requestID string, timeout time.
 }
 
 // WaitForEvent waits for a specific event to be published for a user
-func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*common.Event, error) {
+func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, timeout time.Duration) (*common.Event, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -329,8 +330,8 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	timeout_value := 100 * time.Second
 
 	// we use an eth address as user and auditor IDs
-	userAddress := fmt.Sprintf("0xadd%037x", 1)
-	auditorAddress := fmt.Sprintf("0xadd%037x", 2)
+	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
+	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 
 	cryptoHelper := NewCryptoHelper()
 
@@ -497,7 +498,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 4: Sending withdrawal request as user1")
 
-	recipientAddress := "0x1234567890123456789012345678901234567890"
+	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 
 	RequestID = "2137"
 	withdrawAmount := big.NewInt(500000000000000000) // 0.5 ETH

@@ -13,6 +13,7 @@ import (
 	"github.com/bytecodealliance/wasmtime-go"
 	"github.com/horizen-pes/pkg/common"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 type ApplicationModule struct {
@@ -217,8 +218,8 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.Applicati
 }
 
 // Deposit processes a deposit
-func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
-	log.Printf("Wasmtime Runtime: Processing deposit for application %d (value: %v wei for sender: %s)", appId, value, sender)
+func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
+	log.Printf("Wasmtime Runtime: Processing deposit for application %d (value: %v wei for sender: %v)", appId, value, sender)
 
 	wasmAppId, err := ToWasmType(appId)
 	if err != nil {
@@ -237,7 +238,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	}
 
 
-	senderBytes := []byte(sender)
+	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to write sender to memory: %w", err)
@@ -293,7 +294,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
+func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
 	log.Printf("Wasmtime Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
 	wasmAppId, err := ToWasmType(appId)
@@ -317,7 +318,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		return nil, nil, nil, fmt.Errorf("process_request function not found in WASM module")
 	}
 
-	senderBytes := []byte(sender)
+	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to write sender to memory: %w", err)

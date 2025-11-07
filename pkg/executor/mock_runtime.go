@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 )
 
@@ -40,7 +41,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationId
 	return stateBytes, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender string, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
+func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
 	log.Printf("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, value, sender)
 
 	var currentState map[string]interface{}
@@ -79,7 +80,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
+func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
 	log.Printf("Mock Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
 	var currentState map[string]interface{}
@@ -106,7 +107,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			if transfer == nil {
 				return nil, nil, nil, fmt.Errorf("transfer instruction is nil")
 			}
-			to := transfer["to"].(string)
+			to := ethCommon.HexToAddress(transfer["to"].(string))
 			amount := toUint64(transfer["amount"])
 
 			// Ensure sender exists and has balance
@@ -145,7 +146,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			if withdraw == nil {
 				return nil, nil, nil, fmt.Errorf("withdraw instruction is nil")
 			}
-			to := withdraw["to"].(string)
+			to := ethCommon.HexToAddress(withdraw["to"].(string))
 			amount := toUint64(withdraw["amount"])
 
 			senderAcct := accounts[sender]
@@ -216,23 +217,23 @@ func (r *MockRuntime) Close() error {
 
 // --- helpers ---
 
-func ensureAccounts(state map[string]interface{}) map[string]map[string]interface{} {
+func ensureAccounts(state map[string]interface{}) map[ethCommon.Address]map[string]interface{} {
 	accAny, ok := state["accounts"]
 	if !ok || accAny == nil {
-		m := map[string]map[string]interface{}{}
+		m := map[ethCommon.Address]map[string]interface{}{}
 		state["accounts"] = m
 		return m
 	}
 	// try typed map
-	if m, ok := accAny.(map[string]map[string]interface{}); ok {
+	if m, ok := accAny.(map[ethCommon.Address]map[string]interface{}); ok {
 		return m
 	}
 	// convert from generic map[string]interface{}
-	res := map[string]map[string]interface{}{}
+	res := map[ethCommon.Address]map[string]interface{}{}
 	if gm, ok := accAny.(map[string]interface{}); ok {
 		for k, v := range gm {
 			if sub, ok := v.(map[string]interface{}); ok {
-				res[k] = sub
+				res[ethCommon.HexToAddress(k)] = sub
 			}
 		}
 	}
@@ -240,7 +241,7 @@ func ensureAccounts(state map[string]interface{}) map[string]map[string]interfac
 	return res
 }
 
-func ensureAccount(accounts map[string]map[string]interface{}, addr string) map[string]interface{} {
+func ensureAccount(accounts map[ethCommon.Address]map[string]interface{}, addr ethCommon.Address) map[string]interface{} {
 	acct := accounts[addr]
 	if acct == nil {
 		acct = map[string]interface{}{"address": addr, "balance": uint64(0)}

@@ -9,6 +9,12 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	testutil "github.com/horizen-pes/pkg/testutil"
+	ethCommon "github.com/ethereum/go-ethereum/common"
+)
+
+
+var (
+	sender = ethCommon.HexToAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
 )
 
 func TestDeployApp(t *testing.T) {
@@ -32,7 +38,7 @@ func TestDeployApp(t *testing.T) {
 		ApplicationID: ApplicationId,
 		RequestID:     RequestID,
 		Payload:       []byte("deploy-payload"),
-		Sender:        "test-user",
+		Sender:        sender,
 		Timestamp:     time.Now().Unix(),
 	}
 	err = suite.SubmitRequest(deployReq)

@@ -162,7 +162,7 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			RequestType:     common.RequestType(request.RequestType),
 			Payload:         request.Payload,
 			Timestamp:       request.Timestamp.Int64(),
-			Sender:          request.Sender.String(),
+			Sender:          request.Sender,
 			Value:           request.Value,
 		}
 
@@ -204,7 +204,7 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		RequestType:     common.RequestType(request.RequestType),
 		Payload:         request.Payload,
 		Timestamp:       request.Timestamp.Int64(),
-		Sender:          request.Sender.String(),
+		Sender:          request.Sender,
 		Value:           request.Value,
 	}
 
@@ -335,7 +335,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	for i, withdrawal := range update.Withdrawals {
 		amount := withdrawal.Amount
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
-			Receiver: ethCommon.HexToAddress(withdrawal.DestinationAddress),
+			Receiver: withdrawal.DestinationAddress,
 			Amount:   amount,
 		}
 	}
@@ -472,7 +472,7 @@ func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock ui
 	return fromBlock, nil
 }
 
-// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
+// GetRequestCompletedEvent looks for the RequestCompleted event for the given request in the given block range and returns if the request was successful or failed
 // requestID: identifier of the request
 // fromBlock: block from which the function search events
 // toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)

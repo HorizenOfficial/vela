@@ -19,6 +19,7 @@ import (
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/require"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 var (
@@ -87,8 +88,8 @@ func (m *MockExecutorClient) generateRandomStateRoot() [32]byte {
 	return b
 }
 
-const (
-	sender = "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199"
+var (
+	sender = ethCommon.HexToAddress("0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199")
 )
 
 func createRequest(requestType common.RequestType, appID common.ApplicationIdType) *common.Request {

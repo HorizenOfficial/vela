@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	"github.com/horizen-pes/pkg/common"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // WasmSerializationError is a generic error for failed WASM serialization.
@@ -41,7 +42,7 @@ type DepositEvent struct {
 
 type SenderEvent struct {
 	Type    string `json:"type"`
-	To      string `json:"to"`
+	To      ethCommon.Address `json:"to"`
 	Amount  *big.Int `json:"amount"`
 	Balance *big.Int `json:"balance"`
 	Nonce   uint64 `json:"nonce"`
@@ -49,7 +50,7 @@ type SenderEvent struct {
 
 type RecipientEvent struct {
 	Type    string `json:"type"`
-	From    string `json:"from"`
+	From    ethCommon.Address `json:"from"`
 	Amount  *big.Int `json:"amount"`
 	Balance *big.Int `json:"balance"`
 	Nonce   uint64 `json:"nonce"`

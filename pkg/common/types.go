@@ -71,8 +71,7 @@ type Request struct {
 	// Timestamp is the time the request was submitted
 	Timestamp int64 `json:"timestamp"`
 	// Sender is the address of the sender
-	//TODO: change the type to go-ethereum/common/Address
-	Sender string `json:"sender"`
+	Sender ethCommon.Address `json:"sender"`
 	// Value is the optional deposit value in WEI
 	Value *big.Int `json:"value"`
 }
@@ -83,7 +82,7 @@ type Event struct {
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
 	//TODO: change the type to go-ethereum/common/Address
-	UserID string `json:"userId"`
+	UserID ethCommon.Address `json:"userId"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`
 }
@@ -91,7 +90,7 @@ type Event struct {
 // Withdrawal represents a withdrawal from the system
 type Withdrawal struct {
 	// DestinationAddress is the address to send the funds to
-	DestinationAddress string `json:"destinationAddress"`
+	DestinationAddress ethCommon.Address `json:"destinationAddress"`
 	// Amount is the amount to withdraw in WEI
 	Amount *big.Int `json:"amount"`
 }
@@ -143,8 +142,8 @@ type DeanonymizationReport struct {
 
 // PlainEvent represents an emitted event before encryption.
 type PlainEvent struct {
-	// UserID is the ID of the user associated with the event
-	UserID string `json:"userId"`
+	// UserID is the address of the user associated with the event
+	UserID ethCommon.Address `json:"userId"`
 	// Data is the encrypted event data
 	Data []byte `json:"data"`
 }

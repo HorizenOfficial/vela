@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
@@ -28,7 +29,7 @@ func TestCheckSignature(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: big.NewInt(1)},
+		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: big.NewInt(1)},
 	}
 
 	updatePayload := &common.UpdatePayload{

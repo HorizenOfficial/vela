@@ -18,7 +18,7 @@ func load_module(appId int64) *byte {
 //export deposit
 func deposit(appId int64, senderPtr *byte, senderLen int32, valuePtr *byte, valueLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = appId
-	sender := utils.PtrToString(senderPtr, senderLen)
+	sender := utils.PtrToAddress(senderPtr, senderLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
 	value := utils.PtrToNonNegativeBigInt(valuePtr, valueLen)
 	result := app.DepositFunds(sender, value, stateJSON)
@@ -28,7 +28,7 @@ func deposit(appId int64, senderPtr *byte, senderLen int32, valuePtr *byte, valu
 //export process_request
 func process_request(appId int64, senderPtr *byte, senderLen int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = appId
-	sender := utils.PtrToString(senderPtr, senderLen)
+	sender := utils.PtrToAddress(senderPtr, senderLen)
 	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
 	result := app.ProcessRequest(sender, payloadJSON, stateJSON)

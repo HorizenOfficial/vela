@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // --- WASM Memory Management Functions ---
@@ -66,4 +67,14 @@ func PtrToNonNegativeBigInt(ptr *byte, length int32) *big.Int {
 	}
 
 	return new(big.Int).SetBytes(unsafe.Slice(ptr, length))
+}
+
+
+// PtrToAddress converts a WASM pointer and length to a ethereum address.
+func PtrToAddress(ptr *byte, length int32) *ethCommon.Address {
+	if ptr == nil || length == 0 {
+		return nil
+	}
+	address := ethCommon.BytesToAddress(unsafe.Slice(ptr, length))
+	return &address
 }

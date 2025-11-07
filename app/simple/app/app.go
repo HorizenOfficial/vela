@@ -7,28 +7,29 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // AccountState represents the state of a user account
 type AccountState struct {
-	Address string `json:"address"`
+	Address ethCommon.Address `json:"address"`
 	Balance *big.Int `json:"balance"`
 }
 
 // ApplicationInternalState represents the internal state of the application
 type ApplicationInternalState struct {
 	AppID    int64                   `json:"appId"`
-	Accounts map[string]*AccountState `json:"accounts"`
+	Accounts map[ethCommon.Address]*AccountState `json:"accounts"`
 }
 
 // WithdrawInstruction represents instructions for withdrawing funds
 type WithdrawInstruction struct {
-	To     string `json:"to"`
+	To     ethCommon.Address `json:"to"`
 	Amount *big.Int `json:"amount"`
 }
 
 type CompareInstructions struct {
-	TargetAddress string `json:"targetAddress"`
+	TargetAddress ethCommon.Address `json:"targetAddress"`
 }
 
 // PayloadInstructions represents the deserialized payload instructions
@@ -47,7 +48,7 @@ type ReportPayloadInstructions struct {
 // DeanonymizationReport represents the structure of the deanonymization report.
 type DeanonymizationReport struct {
 	Tag      string                   `json:"tag,omitempty"`
-	Accounts map[string]*AccountState `json:"accounts"`
+	Accounts map[ethCommon.Address]*AccountState `json:"accounts"`
 }
 
 // --- High-Level Application Logic ---
@@ -55,7 +56,7 @@ type DeanonymizationReport struct {
 func LoadModule(appId int64) []byte {
 	initialState := &ApplicationInternalState{
 		AppID:    appId,
-		Accounts: make(map[string]*AccountState),
+		Accounts: make(map[ethCommon.Address]*AccountState),
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
@@ -64,22 +65,25 @@ func LoadModule(appId int64) []byte {
 	return stateJSON
 }
 
-func DepositFunds(sender string, value *big.Int, stateJSON string) wasmCommon.DepositResult {
+func DepositFunds(sender *ethCommon.Address, value *big.Int, stateJSON string) wasmCommon.DepositResult {
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return wasmCommon.DepositResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
 	}
 
+	if sender == nil {
+		return wasmCommon.DepositResult{Error: "Sender address is nil"}
+	}
 	// Ensure sender account exists
-	if currentState.Accounts[sender] == nil {
-		currentState.Accounts[sender] = &AccountState{
-			Address: sender,
+	if currentState.Accounts[*sender] == nil {
+		currentState.Accounts[*sender] = &AccountState{
+			Address: *sender,
 			Balance: big.NewInt(0),
 		}
 	}
 
 	// Add deposit to sender's balance
-	currentState.Accounts[sender].Balance.Add(currentState.Accounts[sender].Balance, value)
+	currentState.Accounts[*sender].Balance.Add(currentState.Accounts[*sender].Balance, value)
 
 	// Create deposit event
 	eventData := map[string]interface{}{
@@ -92,7 +96,7 @@ func DepositFunds(sender string, value *big.Int, stateJSON string) wasmCommon.De
 	}
 
 	events := []common.PlainEvent{{
-		UserID: sender,
+		UserID: *sender,
 		Data:   eventDataBytes,
 	}}
 
@@ -104,13 +108,16 @@ func DepositFunds(sender string, value *big.Int, stateJSON string) wasmCommon.De
 	return wasmCommon.DepositResult{State: newStateBytes, Events: events}
 }
 
-func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessResult {
+func ProcessRequest(sender *ethCommon.Address, payloadJSON, stateJSON string) wasmCommon.ProcessResult {
 	// Deserialize current state
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return wasmCommon.ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
 	}
 
+	if sender == nil {
+		return wasmCommon.ProcessResult{Error: "Sender address is nil"}
+	}
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
 
@@ -128,7 +135,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			targetAddress := instructions.CompareAccounts.TargetAddress
 
 			// Validate accounts to be compared
-			if currentState.Accounts[sender] == nil {
+			if currentState.Accounts[*sender] == nil {
 				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", sender)}
 			}
 			if currentState.Accounts[targetAddress] == nil {
@@ -136,7 +143,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 
 			targetBalance := currentState.Accounts[targetAddress].Balance
-			senderBalance := currentState.Accounts[sender].Balance
+			senderBalance := currentState.Accounts[*sender].Balance
 
 			var cmp = ""
 			switch targetBalance.Cmp(senderBalance) {
@@ -147,7 +154,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 
 
-			sentence := sender + " is " + cmp + " " + targetAddress
+			sentence := sender.Hex() + " is " + cmp + " " + targetAddress.Hex()
 
 			// Create action event
 			eventData := map[string]interface{}{
@@ -160,7 +167,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 
 			events = append(events, common.PlainEvent{
-				UserID: sender,
+				UserID: *sender,
 				Data:   eventDataBytes,
 			})
 
@@ -170,16 +177,16 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 
 			// Validate sender account exists and has sufficient balance
-			if currentState.Accounts[sender] == nil {
+			if currentState.Accounts[*sender] == nil {
 				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Account %s does not exist", sender)}
 			}
 
-			if currentState.Accounts[sender].Balance.Cmp(instructions.Withdraw.Amount) < 0 {
+			if currentState.Accounts[*sender].Balance.Cmp(instructions.Withdraw.Amount) < 0 {
 				return wasmCommon.ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", sender)}
 			}
 
 			// Execute withdrawal
-			currentState.Accounts[sender].Balance.Sub(currentState.Accounts[sender].Balance, instructions.Withdraw.Amount)
+			currentState.Accounts[*sender].Balance.Sub(currentState.Accounts[*sender].Balance, instructions.Withdraw.Amount)
 
 			// Create withdrawal
 			withdrawals = append(withdrawals, common.Withdrawal{
@@ -192,7 +199,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 				Type:    "withdrawal",
 				To:      instructions.Withdraw.To,
 				Amount:  instructions.Withdraw.Amount,
-				Balance: currentState.Accounts[sender].Balance,
+				Balance: currentState.Accounts[*sender].Balance,
 			}
 			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
 			if err != nil {
@@ -200,7 +207,7 @@ func ProcessRequest(sender, payloadJSON, stateJSON string) wasmCommon.ProcessRes
 			}
 
 			events = append(events, common.PlainEvent{
-				UserID: sender,
+				UserID: *sender,
 				Data:   withdrawEventDataBytes,
 			})
 

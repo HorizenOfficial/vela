@@ -6,29 +6,30 @@ import (
 	"math/big"
 	"testing"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 )
 
 // Local mirror types used in tests to avoid importing wasm-go/app
 
 type testAccountState struct {
-	Address string `json:"address"`
+	Address ethCommon.Address `json:"address"`
 	Balance uint64 `json:"balance"`
 }
 
 type testApplicationInternalState struct {
 	AppID    common.ApplicationIdType     `json:"appId"`
-	Accounts map[string]*testAccountState `json:"accounts"`
+	Accounts map[ethCommon.Address]*testAccountState `json:"accounts"`
 	Nonce    uint64                       `json:"nonce"`
 }
 
 type testTransferInstruction struct {
-	To     string `json:"to"`
+	To     ethCommon.Address `json:"to"`
 	Amount uint64 `json:"amount"`
 }
 
 type testWithdrawInstruction struct {
-	To     string `json:"to"`
+	To     ethCommon.Address `json:"to"`
 	Amount uint64 `json:"amount"`
 }
 
@@ -79,7 +80,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 	defer runtime.Close()
 
 	appId := common.NewApplicationId(123)
-	sender := "0x1234567890123456789012345678901234567890"
+	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	value := big.NewInt(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
@@ -138,8 +139,8 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 
-	sender := "0x1234567890123456789012345678901234567890"
-	recipient := "0x0987654321098765432109876543210987654321"
+	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
 	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
 	transferAmount := uint64(500000000000000000)     // 0.5 ETH
 
@@ -221,8 +222,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 
-	sender := "0x1234567890123456789012345678901234567890"
-	withdrawTo := "0x0987654321098765432109876543210987654321"
+	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	withdrawTo := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
 	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
 	withdrawAmount := uint64(500000000000000000)     // 0.5 ETH
 
@@ -308,8 +309,8 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 
-	sender := "0x1234567890123456789012345678901234567890"
-	recipient := "0x0987654321098765432109876543210987654321"
+	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
 	transferAmount := uint64(1000000000000000000) // 1 ETH
 
 	// Try to transfer without any balance
@@ -343,8 +344,8 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 
 	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
-	sender1 := "0x1234567890123456789012345678901234567890"
-	sender2 := "0x0987654321098765432109876543210987654321"
+	sender1 := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	sender2 := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
 	value := big.NewInt(1000000000000000000) // 1 ETH
 
 	// Load module first

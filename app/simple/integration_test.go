@@ -13,6 +13,7 @@ import (
 	"github.com/horizen-pes/pkg/testutil"
 	pes_wasm "github.com/horizen-pes/pkg/wasm"
 	"github.com/stretchr/testify/require"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 var _ = []common.Withdrawal{}
@@ -20,12 +21,16 @@ var _ = []common.Withdrawal{}
 const (
 	wasmModulePath = "build/simple_app.wasm"
 
-	user1Address      = "0xadd0000000000000000000000000000000000001"
-	user2Address      = "0xadd0000000000000000000000000000000000002"
-	recipient1Address = "0xadd0000000000000000000000000000000000003"
 )
 
-var appId = common.NewApplicationId(1)
+
+var (
+	appId = common.NewApplicationId(1)
+	user1Address      = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000001")
+	user2Address      = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000002")
+	recipient1Address = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000003")
+
+)
 
 // buildAndLoadWasmModule runs `make build` to compile and load the wasm module.
 func buildAndLoadWasmModule(t *testing.T) []byte {
@@ -218,7 +223,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {
 		// A user that never deposited tries to withdraw
-		nonExistentUser := "0xadd0000000000000000000000000000000000099"
+		nonExistentUser := ethCommon.HexToAddress("0xadd0000000000000000000000000000000000099")
 		payload := app.PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &app.WithdrawInstruction{
@@ -235,7 +240,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("compare from non-existent account", func(t *testing.T) {
-		nonExistentUser := "0xadd0000000000000000000000000000000000099"
+		nonExistentUser := ethCommon.HexToAddress("0xadd0000000000000000000000000000000000099")
 		payload := app.PayloadInstructions{
 			Type: "compare_addresses",
 			CompareAccounts: &app.CompareInstructions{
@@ -247,7 +252,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 		_, _, _, err = runtime.ProcessRequest(ctx, appId, nonExistentUser, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "Account 0xadd0000000000000000000000000000000000099 does not exist!")
+		require.Contains(t, err.Error(), "Account " + nonExistentUser.Hex() + " does not exist!")
 	})
 
 	t.Run("withdraw with missing instruction", func(t *testing.T) {
