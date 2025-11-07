@@ -7,7 +7,6 @@ import (
 
 type RequestErrorCode string
 //TODO add testing for these errors
-//TODO reorder stuff
 
 const (
 	// Internal errors with more details
@@ -63,21 +62,12 @@ const (
 var codeToCategory = map[RequestErrorCode]ErrorCategory{
 	CodeInternalFallback:       CategoryInternal,
 	CodeManagerNotRunning:      CategoryInternal,
-	CodeAppNotAdmitted:         CategoryAppNotAdmitted,
-	CodeApplicationAlreadyDeployed: CategoryApplicationAlreadyDeployed,
-	CodeWasmNotFound:			CategoryFailureWhenDeployingApplication,
-	CodeErrorReadingWasm:		CategoryFailureWhenDeployingApplication,
-	CodeFailureDeployingApp:	CategoryFailureWhenDeployingApplication,
 	CodeSubmittingStateUpdateFailed: CategoryInternal,
 	CodeAppStateNotFound:		CategoryInternal,
-	CodeDeanonymizationReportFailed: CategoryDeanonymizationReportFailed,
-	CodeRequestTypeNotPermitted: CategoryRequestTypeNotPermitted,
 	CodeEncryptedToAppDataFailure: CategoryInternal,
 	CodeJsonUnmarshalError: CategoryInternal,
 	CodeJsonMarshalError: CategoryInternal,
 	CodeNilInstruction: CategoryInternal,
-	CodeSenderAccountInexistent: CategorySenderAccountInexistent,
-	CodeInsufficientBalance: CategoryInsufficientBalance,
 	CodeUnknownInstructionType: CategoryInternal,
 	CodeParsingKeyError: CategoryInternal,
 	CodePayloadDecryptionFailure: CategoryInternal,
@@ -85,11 +75,20 @@ var codeToCategory = map[RequestErrorCode]ErrorCategory{
 	CodeAppDataEncryptionFailure: CategoryInternal,
 	CodeEventsEncryptionFailure: CategoryInternal,
 	CodePayloadUpdateSigningFailure: CategoryInternal,
-	CodeFunctionNotFound: CategoryFunctionNotFound,
 	CodeMemoryWriteError: CategoryInternal,
 	CodeFailedExtractingResultBytes: CategoryInternal,
-	CodeDepositFailed: CategoryDepositFailed,
 	CodeFailedLoadingOrGettingModule: CategoryInternal,
+	CodeWasmNotFound:			CategoryFailureWhenDeployingApplication,
+	CodeErrorReadingWasm:		CategoryFailureWhenDeployingApplication,
+	CodeFailureDeployingApp:	CategoryFailureWhenDeployingApplication,
+	CodeAppNotAdmitted:         CategoryAppNotAdmitted,
+	CodeApplicationAlreadyDeployed: CategoryApplicationAlreadyDeployed,
+	CodeDeanonymizationReportFailed: CategoryDeanonymizationReportFailed,
+	CodeRequestTypeNotPermitted: CategoryRequestTypeNotPermitted,
+	CodeSenderAccountInexistent: CategorySenderAccountInexistent,
+	CodeInsufficientBalance: CategoryInsufficientBalance,
+	CodeFunctionNotFound: CategoryFunctionNotFound,
+	CodeDepositFailed: CategoryDepositFailed,
 	CodeRequestFuncFailed: CategoryRequestFuncFailed,
 }
 
@@ -111,6 +110,27 @@ type RequestFailure struct {
 	Code            RequestErrorCode
 	Message         string
 	Err             error
+}
+
+// RemoteError captures error information transmitted over the wire.
+type RemoteError struct {
+	Type    string
+	Message string
+}
+
+func (e *RemoteError) Error() string {
+	if e.Type == "" {
+		return e.Message
+	}
+	return fmt.Sprintf("%s: %s", e.Type, e.Message)
+}
+
+func (e *RemoteError) Is(target error) bool {
+	other, ok := target.(*RemoteError)
+	if !ok {
+		return false
+	}
+	return e.Type == other.Type
 }
 
 // RequestFailureDTO is a JSON-serializable representation of RequestFailure.
@@ -156,10 +176,9 @@ func (dto *RequestFailureDTO) ToFailure() *RequestFailure {
 	}
 
 	if dto.ErrMessage != "" {
-		if dto.ErrType != "" {
-			failure.Err = fmt.Errorf("%s: %s", dto.ErrType, dto.ErrMessage)
-		} else {
-			failure.Err = errors.New(dto.ErrMessage)
+		failure.Err = &RemoteError{
+			Type:    dto.ErrType,
+			Message: dto.ErrMessage,
 		}
 	}
 
@@ -197,6 +216,7 @@ func FromError(err error) (*RequestFailure, bool) {
 	return nil, false
 }
 
+// IMPORTANT: these codes must match contracts/contracts/Structs.sol
 func ToSolidityEnum(cat ErrorCategory) uint8 {
 	switch cat {
 	case CategoryInternal:
