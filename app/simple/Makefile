@@ -15,6 +15,20 @@ all: build production_build
 clean:
 	rm -rf build production_build
 
+# Some useful options for tinygo
+#--------------------------------
+#
+#       -opt=0:  (not working with wasm target) - Disable as much optimizations as possible.
+#       -opt=1:  Enable only a few optimization passes.
+#       -opt=2:  A good optimization level for use cases not strongly limited by code size. It enables most optimizations and will likely result in the fastest code.
+#       -opt=s:  Like -opt=2, but while being more careful about code size. It provides a balance between performance and code size.
+#       -opt=z:  (default) Like -opt=s, but more aggressive about code size.
+#   
+#    -no-debug:  Disable outputting debug symbols. This can be useful for WebAssembly, as there is no debugger for .wasm files yet and .wasm files are generally served directly.
+#                Avoiding debug symbols can have a big impact on generated binary size, reducing them by more than half. 
+#
+# -gc <string>:  garbage collector to use - none (not working with wasm target), leaking, conservative, custom, precise (default), boehm
+
 $(OUT): $(SRC)
 	@mkdir -p $(@D)
 	@echo "Building development WASM module..."
@@ -23,4 +37,4 @@ $(OUT): $(SRC)
 $(PROD_OUT): $(SRC)
 	@mkdir -p $(@D)
 	@echo "Building production WASM module..."
-	tinygo build -o $@ -opt=2 -target=wasi .
+	tinygo build -o $@ -opt=s -no-debug -target=wasi .
