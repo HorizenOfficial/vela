@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
+	apperrors "github.com/horizen-pes/pkg/common/apperrors"
 )
 
 // Client is a unified client implementation of the ExecutorClient interface
@@ -117,7 +118,7 @@ func (c *Client) SetClientRequestHandler(handler ClientRequestHandler) {
 }
 
 // SendProcessRequest sends a process request and waits for response
-func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
 	msg := Message{
 		ID:   generateID(),
 		Type: ProcessRequestMessage,
@@ -130,21 +131,24 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to send process request", err)
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
-		return nil, nil, fmt.Errorf("server error: %s", errorData.Message)
+		errorDTO, err := extractData[apperrors.RequestFailureDTO](respMsg.Data)
+		if err != nil {
+			return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to decode error response", err)
+		}
+		return nil, nil, errorDTO.ToFailure()
 	}
 
 	if respMsg.Type != ProcessResponseMessage {
-		return nil, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("unexpected response type: %v", respMsg.Type), nil)
 	}
 
 	respData, err := extractData[ProcessResponseData](respMsg.Data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to extract response data: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to extract response data", err)
 	}
 
 	return respData.UpdatePayload, respData.UpdatedApplicationState, nil

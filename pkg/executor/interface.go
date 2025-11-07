@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
@@ -152,9 +153,9 @@ type Runtime interface {
 	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
 	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error)
 	// Deposit processes a deposit
-	Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
+	Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *apperrors.RequestFailure)
 	// ProcessRequest processes a request and returns the new state
-	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error)
+	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *apperrors.RequestFailure)
 	// GenerateDeanonymizationReport generates a deanonymization report
 	GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error)
 	// Close closes the WASM runtime

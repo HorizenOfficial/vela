@@ -221,13 +221,13 @@ describe('ProcessorEndpoint Test', function () {
 
 
         await expect(
-            processorEndpoint.markRequestFailed(requestQueue[1].requestId) //try to complete the second request
+            processorEndpoint.markRequestFailed(requestQueue[1].requestId, 1, "Test error message") //try to complete the second request
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
 
         //set as completed and check is not in the queue
         await expect(
             processorEndpoint.markRequestCompleted(currentPendingRequest.requestId)
-        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0);
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0, 0, ""); //0 means completed
 
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(1));
@@ -243,10 +243,10 @@ describe('ProcessorEndpoint Test', function () {
         //get balance prior to fail
         let balanceBefore = await ethers.provider.getBalance(await signers[0].getAddress());
         //set as failed and check is not in the queue
-        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
+        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId, 1, "Test error message");
         await expect(
            failedTx
-        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 1);
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 1, 1, "Test error message");
 
 
         length = await processorEndpoint.getPendingRequestsSize();
@@ -292,7 +292,7 @@ describe('ProcessorEndpoint Test', function () {
        await expect(processorEndpoint.connect(signers[1]).markRequestCompleted(currentPendingRequest.requestId)).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
            
        // set failed
-       await expect(processorEndpoint.connect(signers[1]).markRequestFailed(currentPendingRequest.requestId)).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
+       await expect(processorEndpoint.connect(signers[1]).markRequestFailed(currentPendingRequest.requestId, 1, "Test error message")).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
       
 
     });
@@ -324,12 +324,12 @@ describe('ProcessorEndpoint Test', function () {
         expect(success).eql(true)
 
         //set as failed
-        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
+        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId, 1, "Test error message");
         await failedTx.wait();
         
         //try again to set as failed
         await expect(
-            processorEndpoint.markRequestFailed(currentPendingRequest.requestId)
+            processorEndpoint.markRequestFailed(currentPendingRequest.requestId, 1, "Test error message")
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
@@ -348,10 +348,10 @@ describe('ProcessorEndpoint Test', function () {
         let [currentPendingRequest, _, success] = await processorEndpoint.getNextPendingRequest();
         expect(success).eql(true)
         //set as failed
-        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
+        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId, 1, "Test error message");
         await expect(
            failedTx
-        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 1); //1 means failed  refunded
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 1, 1, "Test error message"); //1 means failed refunded
 
         let balanceAfter = await ethers.provider.getBalance(processorEndpoint.getAddress());
  
@@ -367,10 +367,10 @@ describe('ProcessorEndpoint Test', function () {
         [currentPendingRequest, _, success] = await processorEndpoint.getNextPendingRequest();
         expect(success).eql(true)
         //set as failed
-        failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId);
+        failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId, 1, "Test error message");
         await expect(
            failedTx
-        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 2); //2 means failed not refunded
+        ).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 2, 1, "Test error message"); //2 means failed not refunded
 
         balanceAfter = await ethers.provider.getBalance(processorEndpoint.getAddress());
  
@@ -381,7 +381,7 @@ describe('ProcessorEndpoint Test', function () {
     it('should not mark invalid request', async function () {
         //no requests present
         //try to set as failed
-        await expect(processorEndpoint.markRequestFailed(BYTES32_ZERO)
+        await expect(processorEndpoint.markRequestFailed(BYTES32_ZERO, 1, "Test error message")
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
@@ -409,7 +409,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
         //check if completed
 
-        await expect(updateTx).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0); 
+        await expect(updateTx).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0, 0, "");
         await expect(updateTx).to.emit(processorEndpoint, "StateRootUpdate").withArgs(currentPendingRequest.applicationId,
                                                                                     currentPendingRequest.requestId,
                                                                                     initialStateRoot,
@@ -427,7 +427,7 @@ describe('ProcessorEndpoint Test', function () {
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
         //check if completed
-       await expect(updateTx).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0); 
+       await expect(updateTx).to.emit(processorEndpoint, "RequestCompleted").withArgs(currentPendingRequest.requestId, 0, 0, "");
        await expect(updateTx).to.emit(processorEndpoint, "StateRootUpdate").withArgs(currentPendingRequest.applicationId,
                                                                                     currentPendingRequest.requestId,
                                                                                     initialStateRoot,

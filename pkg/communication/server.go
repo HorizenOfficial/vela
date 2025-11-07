@@ -320,9 +320,16 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg *Messag
 		return
 	}
 
-	updatePayload, updatedState, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+	updatePayload, updatedState, failure := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
+	if failure != nil {
+		errorResponse := Message{
+			ID:   msg.ID,
+			Type: ErrorMessage,
+			Data: failure.ToDTO(),
+		}
+		if err := c.sendMessage(errorResponse); err != nil {
+			log.Printf("Server: Failed to send error response: %v", err)
+		}
 		return
 	}
 

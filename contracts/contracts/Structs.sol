@@ -6,6 +6,20 @@ contract Structs {
     //type definitions
     enum RequestType { DEPLOYAPP, PROCESS, DEANONYMIZATION, ASSOCIATEKEY }
     enum RequestResult { COMPLETED, FAILED_REFUNDED, FAILED_NOT_REFUNDED }
+    enum ErrorCode { 
+        NO_ERROR, 
+        INTERNAL,
+        APP_NOT_ADMITTED, 
+        APPLICATION_ALREADY_DEPLOYED, 
+        FAILURE_WHEN_DEPLOYING_APPLICATION, 
+        DEANONYMIZATION_REPORT_FAILED, 
+        REQUEST_TYPE_NOT_PERMITTED,
+        SENDER_ACCOUNT_INEXISTENT,
+        INSUFFICIENT_BALANCE,
+        FUNCTION_NOT_FOUND,
+        DEPOSIT_FAILED,
+        REQUEST_FUNC_FAILED
+    }
     
     struct PendingRequest {
         uint8 protocolVersion;

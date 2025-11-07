@@ -11,8 +11,9 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -153,7 +154,13 @@ func TestMarkRequestFailed(t *testing.T) {
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 
-	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID)
+	failure := apperrors.New(
+        apperrors.CodeSubmittingStateUpdateFailed,
+        "test failure",
+        nil,
+    )
+
+	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID, failure)
 	require.NoError(t, err)
 
 	res, err = blockchainClient.GetPendingRequests(context.Background())
@@ -539,7 +546,13 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 	res, err = blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 
-	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID)
+	failure := apperrors.New(
+		apperrors.CodeSubmittingStateUpdateFailed,
+		"test failure",
+		nil,
+	)
+
+	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID, failure)
 	require.NoError(t, err)
 
 	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, 0, requestBlock + 1)

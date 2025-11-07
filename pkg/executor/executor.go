@@ -10,6 +10,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/appdata"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
@@ -71,23 +72,25 @@ func (e *StatelessExecutor) Close() error {
 }
 
 // HandleProcessRequest is the main workflow: decrypt state -> invoke WASM -> encrypt new state -> sign -> respond
-func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
 	log.Printf("Executor: Processing request %s for application %s", req.RequestID, req.ApplicationID)
 
 	// Decrypte and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, apperrors.New(apperrors.CodeEncryptedToAppDataFailure, "failed to decrypt data", err)
 	}
 
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
 	if req.Value > 0 {
-		tempState, depositEvents, err = e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to process deposit in WASM runtime: %w", err)
+		newState, depEvents, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
+		if failure != nil {
+			return nil, nil, failure
 		}
+		tempState = newState
+		depositEvents = depEvents
 		log.Printf("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
 
@@ -99,7 +102,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse keyP521 in request payload: %w", err)
+			return nil, nil, apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload", err)
 		}
 
 		appData.AddKey(ethCommon.HexToAddress(req.Sender), *keyToAssociate)
@@ -110,14 +113,17 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		senderAddress := ethCommon.HexToAddress(req.Sender)
 		decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to decrypt request payload: %w", err)
+			return nil, nil, apperrors.New(apperrors.CodePayloadDecryptionFailure, "failed to decrypt request payload", err)
 		}
 
 		// Invoke WASM method to process the request
-		tempState, events, withdrawals, err = e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to process request in WASM runtime: %w", err)
+		newState, reqEvents, reqWithdrawals, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
+		if failure != nil {
+			return nil, nil, failure
 		}
+		tempState = newState
+		events = reqEvents
+		withdrawals = reqWithdrawals
 		log.Printf("Executor: Successfully processed request %s", req.RequestID)
 	}
 
@@ -130,19 +136,19 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	//serialize the new app data
 	newAppData, err := appData.Serialize()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to serialize new appData: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new appData", err)
 	}
 
 	// Encrypt the new app data and events
 	encryptedNewAppData, err := crypto.EncryptWithAES(e.config.StateKey, newAppData)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encrypt new appData: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeAppDataEncryptionFailure, "failed to encrypt new appData", err)
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
 	encryptedEvents, err := e.encryptEvents(ctx, events, req.ApplicationID, e.config.CommunicationKey, e.server, appData.GetKeyStore())
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encrypt events: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeEventsEncryptionFailure, "failed to encrypt events", err)
 	}
 	log.Printf("Executor: Successfully encrypted new application data")
 
@@ -162,7 +168,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// Sign the update payload (produce attestation)
 	signature, err := e.signUpdatePayload(updatePayload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to sign update payload: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodePayloadUpdateSigningFailure, "failed to sign update payload", err)
 	}
 	updatePayload.Signature = signature
 

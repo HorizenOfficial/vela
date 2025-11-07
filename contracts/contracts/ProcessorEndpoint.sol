@@ -27,7 +27,7 @@ contract ProcessorEndpoint is AccessControl {
     //events
     event Withdrawal(uint256 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
-    event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status);
+    event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
     event UserEvent(uint256 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
     event StateRootUpdate(uint256 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     //errors
@@ -123,10 +123,10 @@ contract ProcessorEndpoint is AccessControl {
 
        _removeRequest();
 
-        emit RequestCompleted(requestId, Structs.RequestResult.COMPLETED);
+        emit RequestCompleted(requestId, Structs.RequestResult.COMPLETED, Structs.ErrorCode.NO_ERROR, "");
     }
 
-    function markRequestFailed(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
+    function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         address sender = requestById[requestId].sender;
@@ -135,14 +135,14 @@ contract ProcessorEndpoint is AccessControl {
        _removeRequest();
 
         if (value == 0) {
-            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED); 
+            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
             return;
         }
         //refunds
         (bool refunded, ) = payable(sender).call{value: value}("");
 
-        if(refunded) emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED); 
-        else emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED); 
+        if(refunded) emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
+        else emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage); 
 
     }
 

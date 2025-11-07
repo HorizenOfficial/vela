@@ -88,9 +88,9 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 
 	// Make a deposit
 	ctx := context.Background()
-	newState, events, err := runtime.Deposit(ctx, appId, sender, value, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("ProcessRequest failed: %v", err)
+	newState, events, failure := runtime.Deposit(ctx, appId, sender, value, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("ProcessRequest failed: %v", failure)
 	}
 
 	// Verify events
@@ -142,9 +142,9 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	// make a deposit
 	ctx := context.Background()
-	serializedState, _, err = runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Deposit failed: %v", err)
+	serializedState, _, failure := runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Deposit failed: %v", failure)
 	}
 
 	// make a transfer
@@ -161,9 +161,9 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 		t.Fatalf("Failed to marshal transfer instructions: %v", err)
 	}
 
-	newState, events, withdrawals, err := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Transfer failed: %v", err)
+	newState, events, withdrawals, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Transfer failed: %v", failure)
 	}
 
 	// Verify events (should have 2: one for sender, one for recipient)
@@ -225,9 +225,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	// make a deposit
 	ctx := context.Background()
-	serializedState, _, err = runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Deposit failed: %v", err)
+	serializedState, _, failure := runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Deposit failed: %v", failure)
 	}
 
 	// make a withdrawal
@@ -244,9 +244,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Fatalf("Failed to marshal withdraw instructions: %v", err)
 	}
 
-	newState, events, withdrawals, err := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Withdrawal failed: %v", err)
+	newState, events, withdrawals, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Withdrawal failed: %v", failure)
 	}
 
 	// Verify events (should have 1 for sender)
@@ -324,13 +324,13 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, _, _, err = runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
-	if err == nil {
+	_, _, _, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	if failure == nil {
 		t.Error("Expected error for insufficient balance, got nil")
 	}
 
-	if err.Error() != "sender account 0x1234567890123456789012345678901234567890 does not exist" {
-		t.Errorf("Expected specific error message, got: %v", err)
+	if failure.Error() != "sender account 0x1234567890123456789012345678901234567890 does not exist" {
+		t.Errorf("Expected specific error message, got: %v", failure)
 	}
 }
 
@@ -352,15 +352,15 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 
 	// Deposit for sender1
 	ctx := context.Background()
-	serializedState, _, err = runtime.Deposit(ctx, appId, sender1, value, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("First deposit failed: %v", err)
+	serializedState, _, failure := runtime.Deposit(ctx, appId, sender1, value, serializedState, wasmBytes)
+	if failure != nil { 
+		t.Fatalf("First deposit failed: %v", failure)
 	}
 
 	// Deposit for sender2
-	serializedState, _, err = runtime.Deposit(ctx, appId, sender2, value, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Second deposit failed: %v", err)
+	serializedState, _, failure = runtime.Deposit(ctx, appId, sender2, value, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Second deposit failed: %v", failure)
 	}
 
 	// Generate deanonymization report
