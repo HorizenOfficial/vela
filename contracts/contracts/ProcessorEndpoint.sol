@@ -11,6 +11,7 @@ contract ProcessorEndpoint is AccessControl {
 
     //constants
     bytes32 public constant UPDATE_STATUS_ROLE = keccak256("UPDATE_STATUS_ROLE");
+    bytes32 public constant ADMIN = keccak256("ADMIN");
     uint8 public constant PROTOCOL_VERSION = 0;
     uint256 public constant APPLICATION_ID = 1;
     
@@ -21,6 +22,7 @@ contract ProcessorEndpoint is AccessControl {
     mapping(uint256 => bytes32) private _requestIdByOrder;
     uint256 private _head;
     uint256 private _tail;
+    uint256 public maxQueueSize = 10;
 
     ITeeAuthenticator public teeAuthenticator;
     AuthorityRegistry public authorityRegistry;
@@ -30,6 +32,8 @@ contract ProcessorEndpoint is AccessControl {
     event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
     event UserEvent(uint256 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
     event StateRootUpdate(uint256 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
+    event QueueThresholdUpdated(uint256 newThreshold);
+
     //errors
     error AddressCantBeZero();
     error InvalidValue();
@@ -41,6 +45,7 @@ contract ProcessorEndpoint is AccessControl {
     error InvalidPayload();
     error InsufficientBalance();
     error AuthorityNotAllowed();
+    error QueueThresholdExceeded();
 
 
     modifier validProtocolVersion(uint8 protocolVersion) {
@@ -54,16 +59,18 @@ contract ProcessorEndpoint is AccessControl {
     }
 
     //constructor
-    constructor(ITeeAuthenticator _teeAuthenticator, AuthorityRegistry _authorityRegistry, address updateStatusOperator) {
+    constructor(ITeeAuthenticator _teeAuthenticator, AuthorityRegistry _authorityRegistry, address updateStatusOperator, address admin) {
         if(
             _teeAuthenticator == ITeeAuthenticator(address(0)) || 
             _authorityRegistry == AuthorityRegistry(address(0)) ||
-            updateStatusOperator == address(0)
+            updateStatusOperator == address(0) ||
+            admin == address(0)
         ) revert AddressCantBeZero();
 
         teeAuthenticator = _teeAuthenticator;
         authorityRegistry = _authorityRegistry; 
         _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
+        _grantRole(ADMIN, admin);
     }
 
     //request management functions
@@ -76,6 +83,8 @@ contract ProcessorEndpoint is AccessControl {
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
         //check value
         if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
+        //check queue size
+        if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
         if (requestType == Structs.RequestType.ASSOCIATEKEY) {
             //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
@@ -221,6 +230,11 @@ contract ProcessorEndpoint is AccessControl {
         }
     }
 
+    function updateQueueThreshold(uint256 newThreshold) public onlyRole(ADMIN) {
+        if (newThreshold == 0) revert InvalidValue();
+        maxQueueSize = newThreshold;
+        emit QueueThresholdUpdated(newThreshold);
+    }
 
     function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {
         uint256 numOfRequests = getPendingRequestsSize();
