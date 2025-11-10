@@ -23,10 +23,6 @@ const (
 	CodeEncryptedToAppDataFailure RequestErrorCode = "ENCRYPTED_TO_APPDATA_FAILURE"
 	CodeJsonUnmarshalError RequestErrorCode = "JSON_UNMARSHAL_ERROR"
 	CodeJsonMarshalError RequestErrorCode = "JSON_MARSHAL_ERROR"
-	CodeNilInstruction RequestErrorCode = "NIL_INSTRUCTION"
-	CodeSenderAccountInexistent RequestErrorCode = "SENDER_ACCOUNT_INEXISTENT"
-	CodeInsufficientBalance RequestErrorCode = "INSUFFICIENT_BALANCE"
-	CodeUnknownInstructionType RequestErrorCode = "UNKNOWN_INSTRUCTION_TYPE"
 	CodeParsingKeyError RequestErrorCode = "PARSING_KEY_ERROR"
 	CodePayloadDecryptionFailure RequestErrorCode = "PAYLOAD_DECRYPTION_FAILURE"
 	CodeAppDataSerializationFailure RequestErrorCode = "APPDATA_SERIALIZATION_FAILURE"
@@ -53,8 +49,6 @@ const (
 	CategoryFailureWhenDeployingApplication
 	CategoryDeanonymizationReportFailed
 	CategoryRequestTypeNotPermitted
-	CategorySenderAccountInexistent
-	CategoryInsufficientBalance
 	CategoryFunctionNotFound
 	CategoryDepositFailed
 	CategoryRequestFuncFailed
@@ -68,8 +62,6 @@ var codeToCategory = map[RequestErrorCode]ErrorCategory{
 	CodeEncryptedToAppDataFailure: CategoryInternal,
 	CodeJsonUnmarshalError: CategoryInternal,
 	CodeJsonMarshalError: CategoryInternal,
-	CodeNilInstruction: CategoryInternal,
-	CodeUnknownInstructionType: CategoryInternal,
 	CodeParsingKeyError: CategoryInternal,
 	CodePayloadDecryptionFailure: CategoryInternal,
 	CodeAppDataSerializationFailure: CategoryInternal,
@@ -86,8 +78,6 @@ var codeToCategory = map[RequestErrorCode]ErrorCategory{
 	CodeApplicationAlreadyDeployed: CategoryApplicationAlreadyDeployed,
 	CodeDeanonymizationReportFailed: CategoryDeanonymizationReportFailed,
 	CodeRequestTypeNotPermitted: CategoryRequestTypeNotPermitted,
-	CodeSenderAccountInexistent: CategorySenderAccountInexistent,
-	CodeInsufficientBalance: CategoryInsufficientBalance,
 	CodeFunctionNotFound: CategoryFunctionNotFound,
 	CodeDepositFailed: CategoryDepositFailed,
 	CodeRequestFuncFailed: CategoryRequestFuncFailed,
@@ -102,8 +92,6 @@ var defaultMessages = map[ErrorCategory]string{
 	CategoryFailureWhenDeployingApplication: "failed to deploy application",
 	CategoryDeanonymizationReportFailed: "failed to generate deanonymization report",
 	CategoryRequestTypeNotPermitted: "request type is not permitted",
-	CategorySenderAccountInexistent: "sender account does not exist",
-	CategoryInsufficientBalance: "insufficient balance",
 	CategoryFunctionNotFound: "requested function not found",
 	CategoryDepositFailed: "deposit operation failed",
 	CategoryRequestFuncFailed: "request function execution failed",
@@ -208,7 +196,7 @@ func (e *RequestFailure) ExternalMessage() string {
 	if msg, ok := defaultMessages[e.Category()]; ok {
 		return msg
 	}
-	return defaultMessages[CategoryInternal]
+	return defaultMessages[CategoryUnknown]
 }
 
 func FromError(err error) (*RequestFailure, bool) {

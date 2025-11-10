@@ -313,6 +313,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Deploy the application
+	//TODO handle failure
 	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req)
 	if err != nil {
 		return apperrors.New(apperrors.CodeFailureDeployingApp, fmt.Sprintf("failed to deploy application: %v", err), err)
@@ -414,6 +415,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	}
 
 	// Generate the deanonymization report
+	//TODO failure handling
 	report, err := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
 	if err != nil {
 		return apperrors.New(apperrors.CodeDeanonymizationReportFailed, fmt.Sprintf("failed to generate deanonymization report: %v", err), err)

@@ -104,7 +104,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 		case "transfer":
 			transfer := instructions["transfer"].(map[string]interface{})
 			if transfer == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeNilInstruction, "transfer instruction is nil", nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "transfer instruction is nil", nil)
 			}
 			to := transfer["to"].(string)
 			amount := toUint64(transfer["amount"])
@@ -112,10 +112,10 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			// Ensure sender exists and has balance
 			senderAcct := accounts[sender]
 			if senderAcct == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeSenderAccountInexistent, fmt.Sprintf("sender account %s does not exist", sender), nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
 			if toUint64(senderAcct["balance"]) < amount {
-				return nil, nil, nil, apperrors.New(apperrors.CodeInsufficientBalance, "insufficient balance for transfer", nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s has insufficient balance", sender), nil)
 			}
 
 			// Ensure recipient account
@@ -143,17 +143,17 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 		case "withdraw":
 			withdraw := instructions["withdraw"].(map[string]interface{})
 			if withdraw == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeNilInstruction, "withdraw instruction is nil", nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "withdraw instruction is nil", nil)
 			}
 			to := withdraw["to"].(string)
 			amount := toUint64(withdraw["amount"])
 
 			senderAcct := accounts[sender]
 			if senderAcct == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeSenderAccountInexistent, fmt.Sprintf("sender account %s does not exist", sender), nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
 			if toUint64(senderAcct["balance"]) < amount {
-				return nil, nil, nil, apperrors.New(apperrors.CodeInsufficientBalance, "insufficient balance for withdrawal", nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "request function execution failed", nil)
 			}
 
 			// Execute withdrawal
@@ -171,7 +171,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			events = append(events, withdrawEvent)
 
 		default:
-			return nil, nil, nil, apperrors.New(apperrors.CodeUnknownInstructionType, fmt.Sprintf("unknown instruction type: %s", typ), nil)
+			return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("unknown instruction type: %s", typ), nil)
 		}
 	}
 
