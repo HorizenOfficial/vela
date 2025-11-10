@@ -136,7 +136,7 @@ func (e *RemoteError) Is(target error) bool {
 	return e.Type == other.Type
 }
 
-// RequestFailureDTO is a JSON-serializable representation of RequestFailure.
+// RequestFailureDTO is a JSON-serializable representation of RequestFailure. 
 type RequestFailureDTO struct {
 	Code       RequestErrorCode `json:"code"`
 	Message    string           `json:"message"`
