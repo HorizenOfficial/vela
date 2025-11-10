@@ -10,6 +10,9 @@ import (
 
 // allocatedMemory holds references to memory allocated by the guest, preventing the Go garbage
 // collector from reclaiming it while it's in use by the host. The map key is the pointer address.
+// Note: The TinyGo WASM module acts as a self-contained environment running on a single logical thread.
+// Even if more goroutines could be running in a module, only one can be executing its code at any given time
+// therefore no mutex is necessary to protect this map.
 var allocatedMemory = make(map[uintptr][]byte)
 
 // --- WASM Memory Management Functions ---

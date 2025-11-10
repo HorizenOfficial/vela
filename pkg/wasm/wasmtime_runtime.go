@@ -15,6 +15,8 @@ import (
 
 // ApplicationModule contains the compiled module, its instantiated instance,
 // the module-specific store, the exported memory, and convenience handles.
+// Note: a Store represents module execution state and is not safe sharing one store across modules
+// and concurrent requests because that can lead to races or panics.
 type ApplicationModule struct {
 	store      *wasmtime.Store
 	module     *wasmtime.Module
@@ -48,7 +50,8 @@ func NewWasmtimeRuntime() *WasmtimeRuntime {
 // -----------------------------
 
 // toInt32 safely converts wasmtime Func.Call() return interfaces to int32.
-// Handles int32, int64, uint32/uint64, int, and []interface{} containing a first element.
+// This is a defensive tecnique that can be useful for futures ABI evolution, for instance
+// if adding structured results in the future (e.g., returning both pointer and length)
 func toInt32(v interface{}) (int32, error) {
 	switch n := v.(type) {
 	case int32:
@@ -70,11 +73,6 @@ func toInt32(v interface{}) (int32, error) {
 		return int32(n), nil
 	case int:
 		return int32(n), nil
-	case []interface{}:
-		if len(n) == 0 {
-			return 0, fmt.Errorf("empty result slice from wasm call")
-		}
-		return toInt32(n[0])
 	case nil:
 		return 0, fmt.Errorf("wasm call returned nil")
 	default:
@@ -86,8 +84,8 @@ func toInt32(v interface{}) (int32, error) {
 // Memory helpers (host-side)
 // -----------------------------
 
-// Note: we are safe using int32 and uintptr for pointer arithmetic inside TinyGo WASM because it is
-// a 32-bit address space (tinygo does not support WASM64).
+// Note: we are safe using int and uintptr for pointer arithmetic inside TinyGo WASM because it is
+// a 32-bit address space (tinygo does not support WASM64) and int is defined to be at least int32 bits in size.
 
 // writeToMemory allocates space in the wasm guest via its allocate export,
 // writes the provided data into linear memory, and returns the offset (int32).
