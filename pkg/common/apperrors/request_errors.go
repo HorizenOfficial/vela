@@ -6,7 +6,6 @@ import (
 )
 
 type RequestErrorCode string
-//TODO add testing for these errors
 
 const (
 	// Internal errors with more details
