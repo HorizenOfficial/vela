@@ -281,8 +281,7 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
         requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
     }
 	
-	cat := requestFailure.Category()
-    solCode := apperrors.ToSolidityEnum(cat)
+	solCode := uint8(requestFailure.Category())
     msg := requestFailure.ExternalMessage()
 
 	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(reqId, solCode, msg))
@@ -503,7 +502,7 @@ func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock ui
 	return fromBlock, nil
 }
 
-// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
+// GetRequestCompletedEvent looks for the RequestCompleted event for the given request in the given block range and returns if the request was successful or failed
 // requestID: identifier of the request
 // fromBlock: block from which the function search events
 // toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
@@ -567,5 +566,9 @@ func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, request
 		return nil, fmt.Errorf("unknown status: %w", err)
 	}
 
-	return &common.RequestResult{Status: status}, nil
+	return &common.RequestResult{
+		Status:       status,
+		ErrorCode:    event.ErrorCode,
+		ErrorMessage: event.ErrorMessage,
+	}, nil
 }

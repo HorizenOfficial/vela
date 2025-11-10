@@ -7,7 +7,8 @@ contract Structs {
     enum RequestType { DEPLOYAPP, PROCESS, DEANONYMIZATION, ASSOCIATEKEY }
     enum RequestResult { COMPLETED, FAILED_REFUNDED, FAILED_NOT_REFUNDED }
     enum ErrorCode { 
-        NO_ERROR, 
+        NO_ERROR,
+        UNKNOWN_ERROR,
         INTERNAL,
         APP_NOT_ADMITTED, 
         APPLICATION_ALREADY_DEPLOYED, 

@@ -42,21 +42,23 @@ const (
 	CodeRequestFuncFailed RequestErrorCode = "REQUEST_FUNC_FAILED"
 )
 
-type ErrorCategory string
+type ErrorCategory uint8
 
 const (
 	// External error categories for users and blockchain
-	CategoryInternal   ErrorCategory = "INTERNAL"
-	CategoryAppNotAdmitted ErrorCategory = "APP_NOT_ADMITTED"
-	CategoryApplicationAlreadyDeployed ErrorCategory = "APPLICATION_ALREADY_DEPLOYED"
-	CategoryFailureWhenDeployingApplication ErrorCategory = "FAILURE_WHEN_DEPLOYING_APPLICATION"
-	CategoryDeanonymizationReportFailed ErrorCategory = "DEANONYMIZATION_REPORT_FAILED"
-	CategoryRequestTypeNotPermitted ErrorCategory = "REQUEST_TYPE_NOT_PERMITTED"
-	CategorySenderAccountInexistent ErrorCategory = "SENDER_ACCOUNT_INEXISTENT"
-	CategoryInsufficientBalance ErrorCategory = "INSUFFICIENT_BALANCE"
-	CategoryFunctionNotFound ErrorCategory = "FUNCTION_NOT_FOUND"
-	CategoryDepositFailed ErrorCategory = "DEPOSIT_FAILED"
-	CategoryRequestFuncFailed ErrorCategory = "REQUEST_FUNC_FAILED"
+	CategoryNoError ErrorCategory = iota
+	CategoryUnknown
+	CategoryInternal
+	CategoryAppNotAdmitted
+	CategoryApplicationAlreadyDeployed
+	CategoryFailureWhenDeployingApplication
+	CategoryDeanonymizationReportFailed
+	CategoryRequestTypeNotPermitted
+	CategorySenderAccountInexistent
+	CategoryInsufficientBalance
+	CategoryFunctionNotFound
+	CategoryDepositFailed
+	CategoryRequestFuncFailed
 )
 
 var codeToCategory = map[RequestErrorCode]ErrorCategory{
@@ -93,6 +95,8 @@ var codeToCategory = map[RequestErrorCode]ErrorCategory{
 }
 
 var defaultMessages = map[ErrorCategory]string{
+	CategoryNoError:  "no error",
+	CategoryUnknown: "unknown error",
 	CategoryInternal:   "internal error",
 	CategoryAppNotAdmitted: "application is not admitted",
 	CategoryApplicationAlreadyDeployed: "application is already deployed",
@@ -198,7 +202,7 @@ func (e *RequestFailure) Category() ErrorCategory {
 	if cat, ok := codeToCategory[e.Code]; ok {
 		return cat
 	}
-	return CategoryInternal
+	return CategoryUnknown
 }
 
 func (e *RequestFailure) ExternalMessage() string { 
@@ -214,34 +218,4 @@ func FromError(err error) (*RequestFailure, bool) {
 		return failure, true
 	}
 	return nil, false
-}
-
-// IMPORTANT: these codes must match contracts/contracts/Structs.sol
-func ToSolidityEnum(cat ErrorCategory) uint8 {
-	switch cat {
-	case CategoryInternal:
-		return 1
-	case CategoryAppNotAdmitted:
-		return 2
-	case CategoryApplicationAlreadyDeployed:
-		return 3
-	case CategoryFailureWhenDeployingApplication:
-		return 4
-	case CategoryDeanonymizationReportFailed:
-		return 5
-	case CategoryRequestTypeNotPermitted:
-		return 6
-	case CategorySenderAccountInexistent:
-		return 7	
-	case CategoryInsufficientBalance:
-		return 8
-	case CategoryFunctionNotFound:
-		return 9	
-	case CategoryDepositFailed:
-		return 10
-	case CategoryRequestFuncFailed:
-		return 11
-	default:
-		return 0
-	}
 }

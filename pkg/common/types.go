@@ -22,18 +22,18 @@ const (
 )
 
 func (rt RequestType) ToUint8() (uint8, error) {
-    switch rt {
-    case Deploy:
-        return 0, nil
-    case Process:
-        return 1, nil
-    case Deanonymize:
-        return 2, nil
-    case AssociateKey:
-        return 3, nil
-    default:
-        return 0, fmt.Errorf("unknown RequestType: %s", rt)
-    }
+	switch rt {
+	case Deploy:
+		return 0, nil
+	case Process:
+		return 1, nil
+	case Deanonymize:
+		return 2, nil
+	case AssociateKey:
+		return 3, nil
+	default:
+		return 0, fmt.Errorf("unknown RequestType: %s", rt)
+	}
 }
 
 // Request represents a request to the system
@@ -135,19 +135,20 @@ type RequestResultStatus uint8
 
 const (
 	RequestResultOK RequestResultStatus = iota
-	RequestResultFailed 
+	RequestResultFailed
 	RequestResultFailedNotRefunded
 	RequestResultUnknown
 )
 
-// RequestResult represents the result on chain of a request (eg successful or failed with its error )
+// RequestResult represents the result on chain of a request (eg successful or failed with its error)
 type RequestResult struct {
-	Status RequestResultStatus
-	FailureReason string
+	Status       RequestResultStatus
+	ErrorCode    uint8
+	ErrorMessage string
 }
 
 func UInt8ToRequestResultStatus(i uint8) (RequestResultStatus, error) {
-switch i {
+	switch i {
 	case 0:
 		return RequestResultOK, nil
 	case 1:
@@ -168,7 +169,7 @@ func RequestIdStringTo32Byte(s string) ([32]byte, error) {
 	arr, err := hex.DecodeString(s)
 	if err != nil {
 		return [32]byte{}, fmt.Errorf("requestId string is not a valid hex string: %w", err)
-	}	
+	}
 	if len(arr) > 32 {
 		return [32]byte{}, fmt.Errorf("requestId string must not be more than 32 bytes long, got %d", len(arr))
 	}
