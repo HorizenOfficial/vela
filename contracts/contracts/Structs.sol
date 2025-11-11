@@ -20,7 +20,9 @@ contract Structs {
         DEPOSIT_FAILED,
         REQUEST_FUNC_FAILED,
         APPLICATION_NOT_DEPLOYED,
-        WRONG_KEY_SENT
+        WRONG_KEY_SENT,
+        PUB_KEY_NOT_REGISTERED,
+        NO_REPORT_DATA_FOUND
     }
     
     struct PendingRequest {

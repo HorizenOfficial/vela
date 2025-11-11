@@ -22,6 +22,8 @@ const (
 	CategoryRequestFuncFailed
 	CategoryAppNotDeployed
 	CategoryWrongKeySent
+	CategoryPubKeyNotRegistered
+	CategoryNoReportDataFound
 )
 
 type ErrorCategory struct {
@@ -43,6 +45,8 @@ var (
 	CategoryRequestFuncFailedMeta               = ErrorCategory{Category: CategoryRequestFuncFailed, Message: "request function execution failed"}
 	CategoryAppNotDeployedMeta                  = ErrorCategory{Category: CategoryAppNotDeployed, Message: "application is not deployed"}
 	CategoryWrongKeySentMeta					= ErrorCategory{Category: CategoryWrongKeySent, Message: "wrong key sent"}
+	CategoryPubKeyNotRegisteredMeta				= ErrorCategory{Category: CategoryPubKeyNotRegistered, Message: "public key not registered"}
+	CategoryNoReportDataFoundMeta				= ErrorCategory{Category: CategoryNoReportDataFound, Message: "no report data found"}
 )
 
 type RequestError struct {
@@ -70,10 +74,8 @@ var (
 	CodeJsonUnmarshalError                     = RequestError{"JSON_UNMARSHAL_ERROR", CategoryInternalMeta}
 	CodeJsonMarshalError                       = RequestError{"JSON_MARSHAL_ERROR", CategoryInternalMeta}
 	CodeParsingKeyError                        = RequestError{"PARSING_KEY_ERROR", CategoryWrongKeySentMeta}
-	CodePayloadDecryptionFailure               = RequestError{"PAYLOAD_DECRYPTION_FAILURE", CategoryInternalMeta}
 	CodeAppDataSerializationFailure            = RequestError{"APPDATA_SERIALIZATION_FAILURE", CategoryInternalMeta}
 	CodeAppDataEncryptionFailure               = RequestError{"APPDATA_ENCRYPTION_FAILURE", CategoryInternalMeta}
-	CodeEventsEncryptionFailure                = RequestError{"EVENTS_ENCRYPTION_FAILURE", CategoryInternalMeta}
 	CodePayloadUpdateSigningFailure            = RequestError{"PAYLOAD_UPDATE_SIGNING_FAILURE", CategoryInternalMeta}
 	CodeFunctionNotFound                       = RequestError{"FUNCTION_NOT_FOUND", CategoryFunctionNotFoundMeta}
 	CodeMemoryWriteError                       = RequestError{"MEMORY_WRITE_ERROR", CategoryInternalMeta}
@@ -82,7 +84,9 @@ var (
 	CodeDepositFailed                          = RequestError{"DEPOSIT_FAILED", CategoryDepositFailedMeta}
 	CodeRequestFuncFailed                      = RequestError{"REQUEST_FUNC_FAILED", CategoryRequestFuncFailedMeta}
 	CodeFailedToGenerateReport                 = RequestError{"FAILED_TO_GENERATE_REPORT", CategoryDeanonymizationReportFailedMeta}
-	CodeDeanonymizationReportEncryptionFailure = RequestError{"DEANONYMIZATION_REPORT_ENCRYPTION_FAILURE", CategoryDeanonymizationReportFailedMeta}
+	CodePubKeyNotRegistered 				  = RequestError{"PUBKEY_NOT_REGISTERED", CategoryPubKeyNotRegisteredMeta}
+	CodeWrongKey 							  = RequestError{"WRONG_KEY", CategoryWrongKeySentMeta}
+	CodeNoReportDataFound					 = RequestError{"NO_REPORT_DATA_FOUND", CategoryNoReportDataFoundMeta}
 )
 
 type RequestFailure struct {

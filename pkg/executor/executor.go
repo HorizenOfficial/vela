@@ -111,9 +111,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		// Decrypt the request payload
 		senderAddress := ethCommon.HexToAddress(req.Sender)
-		decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
-		if err != nil {
-			return nil, nil, apperrors.New(apperrors.CodePayloadDecryptionFailure, "failed to decrypt request payload", err)
+		decryptedPayload, failure := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
+		if failure != nil {
+			return nil, nil, failure
 		}
 
 		// Invoke WASM method to process the request
@@ -146,9 +146,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
-	encryptedEvents, err := e.encryptEvents(ctx, events, req.ApplicationID, e.config.CommunicationKey, e.server, appData.GetKeyStore())
-	if err != nil {
-		return nil, nil, apperrors.New(apperrors.CodeEventsEncryptionFailure, "failed to encrypt events", err)
+	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, e.config.CommunicationKey, e.server, appData.GetKeyStore())
+	if failure != nil {
+		return nil, nil, failure
 	}
 	log.Printf("Executor: Successfully encrypted new application data")
 
@@ -252,9 +252,9 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 
 	// Decrypt the request payload
 	senderAddress := ethCommon.HexToAddress(req.Sender)
-	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
-	if err != nil {
-		return nil, apperrors.New(apperrors.CodePayloadDecryptionFailure, "failed to decrypt Payload", err)
+	decryptedPayload, failure := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
+	if failure != nil {
+		return nil, failure
 	}
 
 	// Generate the report using the runtime
@@ -264,7 +264,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	}
 
 	// Encrypt the report
-	encryptedReport, err := e.encryptDeanonymizationReport(
+	encryptedReport, failure := e.encryptDeanonymizationReport(
 		req.ApplicationID,
 		req.RequestID,
 		e.config.CommunicationKey,
@@ -272,8 +272,8 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		reportData,
 		appData.GetKeyStore(),
 	)
-	if err != nil {
-		return nil, apperrors.New(apperrors.CodeDeanonymizationReportEncryptionFailure, "failed to encrypt deanonymization report", err)
+	if failure != nil {
+		return nil, failure
 	}
 	log.Printf("Executor: Successfully encrypted deanonymization report")
 
@@ -336,7 +336,7 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 	return signature, nil
 }
 
-func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId string, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore appdata.KeyStore) ([]common.Event, error) {
+func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId string, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore appdata.KeyStore) ([]common.Event, *apperrors.RequestFailure) {
 	if len(events) == 0 {
 		return nil, nil // No events to encrypt
 	}
@@ -346,12 +346,12 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 		// retrieve user Secp521r1_PubKey
 		userKey, exists := keyStore[ethCommon.HexToAddress(event.UserID)]
 		if !exists {
-			return nil, fmt.Errorf("no Secp521r1_PubKey found for user %s", event.UserID)
+			return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, fmt.Sprintf("no Secp521r1_PubKey found for user %s", event.UserID), nil)
 		}
 		// Encrypt the event data
 		encryptedData, err := crypto.Encrypt(key, userKey, event.Data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to encrypt event data: %w", err)
+			return nil, apperrors.New(apperrors.CodeWrongKey, "failed to encrypt event data", err)
 		}
 
 		// Create the encrypted event
@@ -366,15 +366,15 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	return encryptedEvents, nil
 }
 
-func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId, requestId string, key *cryptotypes.PrivateKeyP521, requester ethCommon.Address, reportData []byte, keyStore appdata.KeyStore) ([]byte, error) {
+func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId, requestId string, key *cryptotypes.PrivateKeyP521, requester ethCommon.Address, reportData []byte, keyStore appdata.KeyStore) ([]byte, *apperrors.RequestFailure) {
 	if len(reportData) == 0 {
-		return nil, fmt.Errorf("no report data found")
+		return nil, apperrors.New(apperrors.CodeNoReportDataFound, "no report data found", nil)
 	}
 
 	// retrieve user Secp521r1_PubKey
 	requesterPublicKey, exists := keyStore[requester]
 	if !exists {
-		return nil, fmt.Errorf("no Secp521r1_PubKey found for user %s", requester)
+		return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, fmt.Sprintf("no Secp521r1_PubKey found for user %s", requester), nil)
 	}
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct of the reportData.
@@ -387,13 +387,13 @@ func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId, requestI
 	// Marshal the updated report data
 	updatedReportData, err := json.Marshal(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal updated deanonymization report: %w", err)
+		return nil, apperrors.New(apperrors.CodeJsonMarshalError, "failed to marshal updated deanonymization report", err)
 	}
 
 	// Encrypt the report data
 	encryptedReport, err := crypto.Encrypt(key, requesterPublicKey, updatedReportData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
+		return nil, apperrors.New(apperrors.CodeWrongKey, "failed to encrypt deanonymization report", err)
 	}
 
 	return encryptedReport, nil
@@ -413,7 +413,7 @@ func DecryptState(encryptedState []byte, decryptionKey cryptotypes.AES256Key) ([
 	return decryptedState, nil
 }
 
-func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKeyP521, payload []byte, sender ethCommon.Address, keyStore appdata.KeyStore) ([]byte, error) {
+func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKeyP521, payload []byte, sender ethCommon.Address, keyStore appdata.KeyStore) ([]byte, *apperrors.RequestFailure) {
 	if len(payload) == 0 {
 		return payload, nil // No payload to decrypt
 	}
@@ -421,12 +421,12 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	// retrieve sender Secp521r1_PubKey
 	userKey, exists := keyStore[sender]
 	if !exists {
-		return nil, fmt.Errorf("no Secp521r1_PubKey found for sender %s", sender)
+		return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, fmt.Sprintf("no Secp521r1_PubKey found for sender %s", sender), nil)
 	}
 
 	decryptedPayload, err := crypto.Decrypt(userKey, decryptionKey, payload)
 	if err != nil {
-		return nil, fmt.Errorf("payload decryption failed: %w", err)
+		return nil, apperrors.New(apperrors.CodeWrongKey, "payload decryption failed", err)
 	}
 
 	log.Printf("Executor: Successfully decrypted request payload")
