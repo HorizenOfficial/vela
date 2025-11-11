@@ -184,7 +184,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 }
 
 // HandleDeployApp implements the RequestHandler interface
-func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
 	log.Printf("Executor: Deploying application for request %s", req.RequestID)
 
 	// For deployment, we need to initialize the application with the WASM module
@@ -194,7 +194,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Load the module and get initial state
 	initialAppState, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load WASM module: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, "failed to load or get module", err)
 	}
 
 	initialAppData := appdata.NewAppData(initialAppState)
@@ -202,7 +202,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	//serialize the new app data
 	initialAppDataBytes, err := initialAppData.Serialize()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to serialize new app data: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new app data", err)
 	}
 	// Create app data root hash
 	initialAppDataRoot := sha256.Sum256(initialAppDataBytes)
@@ -210,7 +210,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Encrypt the initial state
 	encryptedState, err := crypto.EncryptWithAES(e.config.StateKey, initialAppDataBytes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encrypt initial app data: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeAppDataEncryptionFailure, "failed to encrypt initial app data", err)
 	}
 	log.Printf("Executor: Successfully encrypted initial app data")
 
@@ -232,7 +232,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Sign the update payload (produce attestation)
 	signature, err := e.signUpdatePayload(updatePayload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to sign update payload: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodePayloadUpdateSigningFailure, "failed to sign update payload", err)
 	}
 	updatePayload.Signature = signature
 
@@ -241,26 +241,26 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 }
 
 // HandleGenerateDeanonymizationReport implements the RequestHandler interface
-func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
+func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
 	log.Printf("Executor: Generating deanonymization report for request %s", req.RequestID)
 
 	// Decrypte and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.New(apperrors.CodeEncryptedToAppDataFailure, "failed to decrypt data", err)
 	}
 
 	// Decrypt the request payload
 	senderAddress := ethCommon.HexToAddress(req.Sender)
 	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt Payload: %w", err)
+		return nil, apperrors.New(apperrors.CodePayloadDecryptionFailure, "failed to decrypt Payload", err)
 	}
 
 	// Generate the report using the runtime
-	reportData, err := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, decryptedPayload, appData.GetAppState(), wasmModule)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate deanonymization report: %w", err)
+	reportData, failure := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, decryptedPayload, appData.GetAppState(), wasmModule)
+	if failure != nil {
+		return nil, failure
 	}
 
 	// Encrypt the report
@@ -273,7 +273,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		appData.GetKeyStore(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
+		return nil, apperrors.New(apperrors.CodeDeanonymizationReportEncryptionFailure, "failed to encrypt deanonymization report", err)
 	}
 	log.Printf("Executor: Successfully encrypted deanonymization report")
 

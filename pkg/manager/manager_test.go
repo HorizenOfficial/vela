@@ -44,17 +44,17 @@ func (m *MockExecutorClient) Close() error {
 	return nil
 }
 
-func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
 	if f, ok := m.GetMockedFunc("SendDeployApp"); ok {
-		return f.(func(context.Context, *common.Request) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req)
+		return f.(func(context.Context, *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure))(ctx, req)
 	}
 	stateRoot := m.generateRandomStateRoot()
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, NewStateRoot: stateRoot}, &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
 }
 
-func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
+func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
 	if f, ok := m.GetMockedFunc("SendGenerateDeanonymizationReport"); ok {
-		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
+		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure))(ctx, req, appState, wasmModule)
 	}
 	return &common.DeanonymizationReport{ApplicationID: req.ApplicationID, ReportID: req.RequestID}, nil
 }
@@ -292,8 +292,8 @@ func TestMarkRequestFailed(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
-		return nil, nil, fmt.Errorf("failed to deploy app")
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+		return nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "failed to deploy app", fmt.Errorf("failed to deploy app"))
 	})
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
@@ -510,8 +510,8 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	// Test executor failure
 	expectedError := "failed to deploy app"
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
-		return nil, nil, fmt.Errorf("%s", expectedError)
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+		return nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, expectedError, fmt.Errorf("%s", expectedError))
 	})
 
 	err = manager.processDeployApp(context.Background(), request)
@@ -752,8 +752,8 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 
 	// Test failure in executor
 	expectedError := "failed to execute app"
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendGenerateDeanonymizationReport", func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, error) {
-		return nil, fmt.Errorf("%s", expectedError)
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendGenerateDeanonymizationReport", func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
+		return nil, apperrors.New(apperrors.CodeRequestFuncFailed, expectedError, fmt.Errorf("%s", expectedError))
 	})
 
 	err = manager.processDeanonymization(context.Background(), request)

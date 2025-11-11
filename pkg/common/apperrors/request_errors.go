@@ -18,7 +18,6 @@ const (
 	CodeFailureDeployingApp	 RequestErrorCode = "FAILURE_WHEN_DEPLOYING_APPLICATION"
 	CodeSubmittingStateUpdateFailed RequestErrorCode = "SUBMITTING_STATE_UPDATE_FAILED"
 	CodeAppStateNotFound	 RequestErrorCode = "APPLICATION_STATE_NOT_FOUND"
-	CodeDeanonymizationReportFailed RequestErrorCode = "DEANONYMIZATION_REPORT_FAILED"
 	CodeRequestTypeNotPermitted RequestErrorCode = "REQUEST_TYPE_NOT_PERMITTED"
 	CodeEncryptedToAppDataFailure RequestErrorCode = "ENCRYPTED_TO_APPDATA_FAILURE"
 	CodeJsonUnmarshalError RequestErrorCode = "JSON_UNMARSHAL_ERROR"
@@ -35,6 +34,8 @@ const (
 	CodeDepositFailed RequestErrorCode = "DEPOSIT_FAILED"
 	CodeFailedLoadingOrGettingModule RequestErrorCode = "FAILED_LOADING_OR_GETTING_MODULE"
 	CodeRequestFuncFailed RequestErrorCode = "REQUEST_FUNC_FAILED"
+	CodeFailedToGenerateReport RequestErrorCode = "FAILED_TO_GENERATE_REPORT"
+	CodeDeanonymizationReportEncryptionFailure RequestErrorCode = "DEANONYMIZATION_REPORT_ENCRYPTION_FAILURE"
 )
 
 type ErrorCategory uint8
@@ -76,11 +77,12 @@ var codeToCategory = map[RequestErrorCode]ErrorCategory{
 	CodeFailureDeployingApp:	CategoryFailureWhenDeployingApplication,
 	CodeAppNotAdmitted:         CategoryAppNotAdmitted,
 	CodeApplicationAlreadyDeployed: CategoryApplicationAlreadyDeployed,
-	CodeDeanonymizationReportFailed: CategoryDeanonymizationReportFailed,
 	CodeRequestTypeNotPermitted: CategoryRequestTypeNotPermitted,
 	CodeFunctionNotFound: CategoryFunctionNotFound,
 	CodeDepositFailed: CategoryDepositFailed,
 	CodeRequestFuncFailed: CategoryRequestFuncFailed,
+	CodeFailedToGenerateReport: CategoryDeanonymizationReportFailed,
+	CodeDeanonymizationReportEncryptionFailure: CategoryDeanonymizationReportFailed,
 }
 
 var defaultMessages = map[ErrorCategory]string{

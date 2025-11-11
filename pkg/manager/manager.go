@@ -313,10 +313,9 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Deploy the application
-	//TODO handle failure
-	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req)
-	if err != nil {
-		return apperrors.New(apperrors.CodeFailureDeployingApp, fmt.Sprintf("failed to deploy application: %v", err), err)
+	updatePayload, appState, failure := m.executorClient.SendDeployApp(ctx, req)
+	if failure != nil {
+		return failure
 	}
 
 	// Store the application state and WASM bytecode
@@ -415,10 +414,9 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	}
 
 	// Generate the deanonymization report
-	//TODO failure handling
-	report, err := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
-	if err != nil {
-		return apperrors.New(apperrors.CodeDeanonymizationReportFailed, fmt.Sprintf("failed to generate deanonymization report: %v", err), err)
+	report, failure := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
+	if failure != nil {
+		return failure
 	}
 
 	// If a path is configured, save the deanonymization report to the filesystem

@@ -16,8 +16,8 @@ import (
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
 	ProcessRequestFunc                func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
-	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
-	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure)
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
@@ -42,7 +42,7 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 		nil
 }
 
-func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
 	if m.DeployAppFunc != nil {
 		return m.DeployAppFunc(ctx, req)
 	}
@@ -62,7 +62,7 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 		nil
 }
 
-func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
+func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
 	if m.GenerateDeanonymizationReportFunc != nil {
 		return m.GenerateDeanonymizationReportFunc(ctx, req, appState, wasmModule)
 	}
@@ -130,16 +130,16 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	assert.Equal(t, []byte("test-event"), updatePayload.Events[0].EncryptedData)
 
 	// Test HandleDeployApp
-	updatedState, appState2, err := client.SendDeployApp(ctx, req)
-	require.NoError(t, err)
+	updatedState, appState2, failure := client.SendDeployApp(ctx, req)
+	require.Nil(t, failure)
 	assert.Equal(t, req.ApplicationID, updatedState.ApplicationID)
 	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), updatedState.NewStateRoot)
 	assert.Equal(t, req.ApplicationID, appState2.ApplicationID)
 	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), appState2.StateRoot)
 
 	// Test HandleGenerateDeanonymizationReport
-	report, err := client.SendGenerateDeanonymizationReport(ctx, req, appState, wasmModule)
-	require.NoError(t, err)
+	report, failure := client.SendGenerateDeanonymizationReport(ctx, req, appState, wasmModule)
+	require.Nil(t, failure)
 	assert.Equal(t, req.ApplicationID, report.ApplicationID)
 	assert.Equal(t, "test-report-id", report.ReportID)
 	assert.Equal(t, []byte("test-encrypted-report"), report.EncryptedReport)
@@ -242,8 +242,8 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			//Value:           0,
 		}
 
-		_, appState, err := client.SendDeployApp(ctx, req)
-		require.NoError(t, err, "Deploy request %d should succeed", i)
+		_, appState, failure := client.SendDeployApp(ctx, req)
+		require.Nil(t, failure)
 		assert.Equal(t, []byte("test-encrypted-state"), appState.EncryptedState)
 
 		err = client.Close()
