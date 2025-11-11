@@ -383,7 +383,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	// Call the generate_deanonymization_report function
 	result, err := generateReportFunc.Call(r.store, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
-		return nil, apperrors.New(apperrors.CodeRequestFuncFailed, "failed to call generate_deanonymization_report", err)
+		return nil, apperrors.New(apperrors.CodeFailedToGenerateReport, "failed to call generate_deanonymization_report", err)
 	}
 
 	// Extract the result bytes
@@ -399,7 +399,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	}
 
 	if deanonymizationResult.Error != "" {
-		return nil, apperrors.New(apperrors.CodeRequestFuncFailed, "deanonymization report failed, wasm module error", errors.New(deanonymizationResult.Error))
+		return nil, apperrors.New(apperrors.CodeFailedToGenerateReport, "deanonymization report failed, wasm module error", errors.New(deanonymizationResult.Error))
 	}
 
 	log.Printf("Wasmtime Runtime: Successfully generated deanonymization report for application %s", appId)
