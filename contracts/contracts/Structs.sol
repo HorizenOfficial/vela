@@ -19,7 +19,8 @@ contract Structs {
         FUNCTION_NOT_FOUND,
         DEPOSIT_FAILED,
         REQUEST_FUNC_FAILED,
-        APPLICATION_NOT_DEPLOYED
+        APPLICATION_NOT_DEPLOYED,
+        WRONG_KEY_SENT
     }
     
     struct PendingRequest {

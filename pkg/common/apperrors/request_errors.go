@@ -21,6 +21,7 @@ const (
 	CategoryDepositFailed
 	CategoryRequestFuncFailed
 	CategoryAppNotDeployed
+	CategoryWrongKeySent
 )
 
 type ErrorCategory struct {
@@ -41,6 +42,7 @@ var (
 	CategoryDepositFailedMeta                   = ErrorCategory{Category: CategoryDepositFailed, Message: "deposit operation failed"}
 	CategoryRequestFuncFailedMeta               = ErrorCategory{Category: CategoryRequestFuncFailed, Message: "request function execution failed"}
 	CategoryAppNotDeployedMeta                  = ErrorCategory{Category: CategoryAppNotDeployed, Message: "application is not deployed"}
+	CategoryWrongKeySentMeta					= ErrorCategory{Category: CategoryWrongKeySent, Message: "wrong key sent"}
 )
 
 type RequestError struct {
@@ -67,7 +69,7 @@ var (
 	CodeEncryptedToAppDataFailure              = RequestError{"ENCRYPTED_TO_APPDATA_FAILURE", CategoryInternalMeta}
 	CodeJsonUnmarshalError                     = RequestError{"JSON_UNMARSHAL_ERROR", CategoryInternalMeta}
 	CodeJsonMarshalError                       = RequestError{"JSON_MARSHAL_ERROR", CategoryInternalMeta}
-	CodeParsingKeyError                        = RequestError{"PARSING_KEY_ERROR", CategoryInternalMeta}
+	CodeParsingKeyError                        = RequestError{"PARSING_KEY_ERROR", CategoryWrongKeySentMeta}
 	CodePayloadDecryptionFailure               = RequestError{"PAYLOAD_DECRYPTION_FAILURE", CategoryInternalMeta}
 	CodeAppDataSerializationFailure            = RequestError{"APPDATA_SERIALIZATION_FAILURE", CategoryInternalMeta}
 	CodeAppDataEncryptionFailure               = RequestError{"APPDATA_ENCRYPTION_FAILURE", CategoryInternalMeta}
