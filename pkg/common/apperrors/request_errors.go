@@ -20,6 +20,7 @@ const (
 	CategoryFunctionNotFound
 	CategoryDepositFailed
 	CategoryRequestFuncFailed
+	CategoryAppNotDeployed
 )
 
 type ErrorCategory struct {
@@ -39,6 +40,7 @@ var (
 	CategoryFunctionNotFoundMeta                = ErrorCategory{Category: CategoryFunctionNotFound, Message: "requested function not found"}
 	CategoryDepositFailedMeta                   = ErrorCategory{Category: CategoryDepositFailed, Message: "deposit operation failed"}
 	CategoryRequestFuncFailedMeta               = ErrorCategory{Category: CategoryRequestFuncFailed, Message: "request function execution failed"}
+	CategoryAppNotDeployedMeta                  = ErrorCategory{Category: CategoryAppNotDeployed, Message: "application is not deployed"}
 )
 
 type RequestError struct {
@@ -60,7 +62,7 @@ var (
 	CodeErrorReadingWasm                       = RequestError{"ERROR_READING_WASM", CategoryFailureWhenDeployingApplicationMeta}
 	CodeFailureDeployingApp                    = RequestError{"FAILURE_WHEN_DEPLOYING_APPLICATION", CategoryFailureWhenDeployingApplicationMeta}
 	CodeSubmittingStateUpdateFailed            = RequestError{"SUBMITTING_STATE_UPDATE_FAILED", CategoryInternalMeta}
-	CodeAppStateNotFound                       = RequestError{"APPLICATION_STATE_NOT_FOUND", CategoryInternalMeta}
+	CodeAppStateNotFound                       = RequestError{"APPLICATION_STATE_NOT_FOUND", CategoryAppNotDeployedMeta}
 	CodeRequestTypeNotPermitted                = RequestError{"REQUEST_TYPE_NOT_PERMITTED", CategoryRequestTypeNotPermittedMeta}
 	CodeEncryptedToAppDataFailure              = RequestError{"ENCRYPTED_TO_APPDATA_FAILURE", CategoryInternalMeta}
 	CodeJsonUnmarshalError                     = RequestError{"JSON_UNMARSHAL_ERROR", CategoryInternalMeta}
