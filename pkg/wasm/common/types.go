@@ -54,3 +54,9 @@ type RecipientEvent struct {
 }
 
 type WithdrawalEvent = SenderEvent
+
+// statistics for memory allocation in WASM modules
+type MemoryStats struct {
+	MapSize              int32 `json:"mapSize"`
+	CumulativeMemorySise int32 `json:"cumulativeMemorySize"`
+}

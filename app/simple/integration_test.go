@@ -147,6 +147,19 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 	t.Log("Event:\n", testutil.PrettyPrintJSON(eventData))
 
+	// check we have no memory leaks
+	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, mem_map_entries, int32(0))
+	require.Equal(t, total_allocated_bytes, int32(0))
+	t.Logf("stats - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
+
+	// use an alternative implementation of the function
+	mem_map_entries, total_allocated_bytes, err = runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, mem_map_entries, int32(0))
+	require.Equal(t, total_allocated_bytes, int32(0))
+	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 }
 
 func TestSimpleAppIntegration_NullPayload(t *testing.T) {
@@ -389,3 +402,30 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
 }
+
+/*
+TODO implement some monitoring func in the module memory to check memory usage
+func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
+	// Build and load the wasm module
+	wasmBytes := buildAndLoadWasmModule(t)
+
+	// Create a new wasmtime runtime with limited memory to make leaks surface faster.
+	runtime := pes_wasm.NewWasmtimeRuntime()
+	defer runtime.Close()
+
+	ctx := context.Background()
+
+	initialStateBytes, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	// Repeatedly  make calls and check mem is ok
+	stateBytes := initialStateBytes
+	for i := 0; i < 200; i++ {
+		depositAmount := uint64(1)
+		userAddress := fmt.Sprintf("0xadd%039d", i)
+		newStateBytes, _, err := runtime.Deposit(ctx, appId, userAddress, depositAmount, stateBytes, wasmBytes)
+		require.NoError(t, err, "deposit failed at iteration %d", i)
+		stateBytes = newStateBytes
+	}
+}
+*/

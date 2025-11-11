@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/horizen-pes/app/simple/utils"
 	"github.com/horizen-pes/pkg/common"
 	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
 )
@@ -248,4 +249,12 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) wasmCommon.Dea
 		return wasmCommon.DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %+v", report)}
 	}
 	return wasmCommon.DeanonymizationResult{Report: reportBytes}
+}
+
+func GetAllocatedMemoryStats() wasmCommon.MemoryStats {
+	map_size, total_bytes := utils.GetAllocatedMemoryStats()
+	return wasmCommon.MemoryStats{
+		MapSize:              map_size,
+		CumulativeMemorySise: total_bytes,
+	}
 }

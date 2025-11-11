@@ -174,6 +174,11 @@ func (r *WasmtimeRuntime) readFromMemory(module *ApplicationModule, ptr int32, l
 // Module loading / lifecycle
 // -----------------------------
 
+// TODO - this method most of times does not use the wasm bytes, because it will find the module already loaded, unless the executor has
+// undergo a restart, and the cache has to be populated again. This caching is also sub-optimal because every time the wasm bytes are passed along
+// without being used.
+// One approach could be that we use just the appId, and the executor asks to the manager for wasm bytes (that are stored in the dblayer) if it
+// does not find them in the cache.
 func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, wasm []byte) (*ApplicationModule, error) {
 	r.moduleLock.RLock()
 	module, exists := r.modules[appId]
@@ -241,7 +246,9 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId string, wa
 		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}
 
-	// Get the memory export
+	// Get the memory export.
+	// Note: the WASM module is responsible for defining and exporting its own memory, this is done by tinygo,
+	// check for instance WAT (WebAssembly text format) generated via wasm2wat tool
 	memoryExport := instance.GetExport(store, "memory")
 	if memoryExport == nil {
 		return nil, fmt.Errorf("memory export not found in WASM module")
@@ -614,4 +621,103 @@ func (r *WasmtimeRuntime) Close() error {
 	r.engine = nil
 	log.Printf("Wasmtime Runtime: Wasmtime runtime closed successfully")
 	return nil
+}
+
+// retrieves statistics from guest memory allocation. In this version we use the ABI C specification of tinygo, using directly
+// the values returned from the wasm guest, without using marshal/unmarshal into json structs.
+// This implementation is here mostly as a reference on how to handle a multireturn exported func
+func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId string, wasm []byte) (int32, int32, error) {
+	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
+	}
+
+	// Call the WASM function to generate the report
+	statsFunc := appModule.instance.GetFunc(appModule.store, "get_allocated_memory_stats")
+	if statsFunc == nil {
+		return 0, 0, fmt.Errorf("function get_allocated_memory_stats not found in wasm module")
+	}
+
+	allocateFunc := appModule.instance.GetFunc(appModule.store, "allocate")
+	if allocateFunc == nil {
+		return 0, 0, fmt.Errorf("allocate function not found in WASM module")
+	}
+
+	// we allocate a buffer wher the results will be stored
+	const resultSize = 2 * 4 // 2 int32 values, 4 bytes each
+	resultPtrValue, err := allocateFunc.Call(appModule.store, int32(resultSize))
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to allocate memory for results: %w", err)
+	}
+
+	// ensure we free the input buffer after lallocate returns
+	if appModule.deallocate != nil && resultPtrValue != 0 {
+		defer func() {
+			_, _ = appModule.deallocate.Call(appModule.store, resultPtrValue, resultSize)
+		}()
+	}
+
+	// according to ABI C interface, tinygo uses an inout ptr to store return values, even the signature is different
+	resultPtr := resultPtrValue.(int32) // Get the pointer/address
+	_, err = statsFunc.Call(appModule.store, resultPtr)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to call func: %w", err)
+	}
+
+	// Read the 2 int32 values sequentially from the WASM memory
+
+	// Get the raw byte view of the WASM memory
+	memoryData := appModule.memory.UnsafeData(appModule.store)
+
+	// Read the five int32 values using binary.LittleEndian
+	mem_size := int32(binary.LittleEndian.Uint32(memoryData[resultPtr : resultPtr+4]))
+	total_bytes := int32(binary.LittleEndian.Uint32(memoryData[resultPtr+4 : resultPtr+8]))
+	//log.Printf("Stats: %d, %d", mem_size, total_bytes)
+
+	// Now deduce the memory used here for reading the return values that will be released on exit by the defered dealloc call
+	mem_size -= 1
+	total_bytes -= resultSize
+
+	return mem_size, total_bytes, nil
+}
+
+// retrieves statistics from guest memory allocation (second version)
+func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId string, wasm []byte) (int32, int32, error) {
+	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
+	}
+
+	// Call the WASM function to generate the report
+	statsFunc := appModule.instance.GetFunc(appModule.store, "get_memory_stats")
+	if statsFunc == nil {
+		return 0, 0, fmt.Errorf("function get_memory_stats not found in wasm module")
+	}
+
+	result, err := statsFunc.Call(appModule.store)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to call func: %w", err)
+	}
+
+	// Extract the result bytes
+	resultBytes, err := r.extractResultBytes(result, appModule)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
+	}
+
+	// Deserialize the result
+	var stats appCommon.MemoryStats
+	if err := json.Unmarshal(resultBytes, &stats); err != nil {
+		return 0, 0, fmt.Errorf("failed to unmarshal stats result: %w", err)
+	}
+
+	mem_size := stats.MapSize
+	total_bytes := stats.CumulativeMemorySise
+
+	log.Printf("Stats: %d, %d", mem_size, total_bytes)
+
+	// the counters we got from WASM module do not take into account the memory used for passing them across guest/host ABI interface
+	// that is allocated in marshal/unmarshall process, but we can leave with that
+
+	return mem_size, total_bytes, nil
 }
