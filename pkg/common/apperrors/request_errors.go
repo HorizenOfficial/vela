@@ -5,53 +5,53 @@ import (
 	"fmt"
 )
 
-type Category uint8
+// NOTE: Keep category IDs in sync with ErrorCode enum in contracts/contracts/Structs.sol.
+type category uint8
 
 const (
-	// External error categories for users and blockchain
-	CategoryNoError Category = iota
-	CategoryUnknown
-	CategoryInternal
-	CategoryAppNotAdmitted
-	CategoryApplicationAlreadyDeployed
-	CategoryFailureWhenDeployingApplication
-	CategoryDeanonymizationReportFailed
-	CategoryRequestTypeNotPermitted
-	CategoryFunctionNotFound
-	CategoryDepositFailed
-	CategoryRequestFuncFailed
-	CategoryAppNotDeployed
-	CategoryWrongKeySent
-	CategoryPubKeyNotRegistered
-	CategoryNoReportDataFound
+	categoryNoError category = iota
+	categoryUnknown
+	categoryInternal
+	categoryAppNotAdmitted
+	categoryApplicationAlreadyDeployed
+	categoryFailureWhenDeployingApplication
+	categoryDeanonymizationReportFailed
+	categoryRequestTypeNotPermitted
+	categoryFunctionNotFound
+	categoryDepositFailed
+	categoryRequestFuncFailed
+	categoryAppNotDeployed
+	categoryWrongKeySent
+	categoryPubKeyNotRegistered
+	categoryNoReportDataFound
 )
 
-type ErrorCategory struct {
-	Category Category
-	Message  string
+type errorCategory struct {
+	Category      category
+	Message string
 }
 
 var (
-	CategoryNoErrorMeta                         = ErrorCategory{Category: CategoryNoError, Message: "no error"}
-	CategoryUnknownMeta                         = ErrorCategory{Category: CategoryUnknown, Message: "unknown error"}
-	CategoryInternalMeta                        = ErrorCategory{Category: CategoryInternal, Message: "internal error"}
-	CategoryAppNotAdmittedMeta                  = ErrorCategory{Category: CategoryAppNotAdmitted, Message: "application is not admitted"}
-	CategoryApplicationAlreadyDeployedMeta      = ErrorCategory{Category: CategoryApplicationAlreadyDeployed, Message: "application is already deployed"}
-	CategoryFailureWhenDeployingApplicationMeta = ErrorCategory{Category: CategoryFailureWhenDeployingApplication, Message: "failed to deploy application"}
-	CategoryDeanonymizationReportFailedMeta     = ErrorCategory{Category: CategoryDeanonymizationReportFailed, Message: "failed to generate deanonymization report"}
-	CategoryRequestTypeNotPermittedMeta         = ErrorCategory{Category: CategoryRequestTypeNotPermitted, Message: "request type is not permitted"}
-	CategoryFunctionNotFoundMeta                = ErrorCategory{Category: CategoryFunctionNotFound, Message: "requested function not found"}
-	CategoryDepositFailedMeta                   = ErrorCategory{Category: CategoryDepositFailed, Message: "deposit operation failed"}
-	CategoryRequestFuncFailedMeta               = ErrorCategory{Category: CategoryRequestFuncFailed, Message: "request function execution failed"}
-	CategoryAppNotDeployedMeta                  = ErrorCategory{Category: CategoryAppNotDeployed, Message: "application is not deployed"}
-	CategoryWrongKeySentMeta					= ErrorCategory{Category: CategoryWrongKeySent, Message: "wrong key sent"}
-	CategoryPubKeyNotRegisteredMeta				= ErrorCategory{Category: CategoryPubKeyNotRegistered, Message: "public key not registered"}
-	CategoryNoReportDataFoundMeta				= ErrorCategory{Category: CategoryNoReportDataFound, Message: "no report data found"}
+	categoryNoErrorMeta                         = errorCategory{Category: categoryNoError, Message: "no error"}
+	categoryUnknownMeta                         = errorCategory{Category: categoryUnknown, Message: "unknown error"}
+	categoryInternalMeta                        = errorCategory{Category: categoryInternal, Message: "internal error"}
+	categoryAppNotAdmittedMeta                  = errorCategory{Category: categoryAppNotAdmitted, Message: "application is not admitted"}
+	categoryApplicationAlreadyDeployedMeta      = errorCategory{Category: categoryApplicationAlreadyDeployed, Message: "application is already deployed"}
+	categoryFailureWhenDeployingApplicationMeta = errorCategory{Category: categoryFailureWhenDeployingApplication, Message: "failed to deploy application"}
+	categoryDeanonymizationReportFailedMeta     = errorCategory{Category: categoryDeanonymizationReportFailed, Message: "failed to generate deanonymization report"}
+	categoryRequestTypeNotPermittedMeta         = errorCategory{Category: categoryRequestTypeNotPermitted, Message: "request type is not permitted"}
+	categoryFunctionNotFoundMeta                = errorCategory{Category: categoryFunctionNotFound, Message: "requested function not found"}
+	categoryDepositFailedMeta                   = errorCategory{Category: categoryDepositFailed, Message: "deposit operation failed"}
+	categoryRequestFuncFailedMeta               = errorCategory{Category: categoryRequestFuncFailed, Message: "request function execution failed"}
+	categoryAppNotDeployedMeta                  = errorCategory{Category: categoryAppNotDeployed, Message: "application is not deployed"}
+	categoryWrongKeySentMeta                    = errorCategory{Category: categoryWrongKeySent, Message: "wrong key sent"}
+	categoryPubKeyNotRegisteredMeta             = errorCategory{Category: categoryPubKeyNotRegistered, Message: "public key not registered"}
+	categoryNoReportDataFoundMeta               = errorCategory{Category: categoryNoReportDataFound, Message: "no report data found"}
 )
 
 type ErrorCode struct {
 	Code     string
-	Category ErrorCategory
+	Category errorCategory
 }
 
 func (c ErrorCode) String() string {
@@ -60,37 +60,37 @@ func (c ErrorCode) String() string {
 
 var (
 	// Internal errors with more details
-	CodeInternalFallback                       = ErrorCode{"INTERNAL_FALLBACK", CategoryInternalMeta}
-	CodeManagerNotRunning                      = ErrorCode{"MANAGER_NOT_RUNNING", CategoryInternalMeta}
-	CodeAppNotAdmitted                         = ErrorCode{"APP_NOT_ADMITTED", CategoryAppNotAdmittedMeta}
-	CodeApplicationAlreadyDeployed             = ErrorCode{"APPLICATION_ALREADY_DEPLOYED", CategoryApplicationAlreadyDeployedMeta}
-	CodeWasmNotFound                           = ErrorCode{"WASM_NOT_FOUND", CategoryFailureWhenDeployingApplicationMeta}
-	CodeErrorReadingWasm                       = ErrorCode{"ERROR_READING_WASM", CategoryFailureWhenDeployingApplicationMeta}
-	CodeFailureDeployingApp                    = ErrorCode{"FAILURE_WHEN_DEPLOYING_APPLICATION", CategoryFailureWhenDeployingApplicationMeta}
-	CodeSubmittingStateUpdateFailed            = ErrorCode{"SUBMITTING_STATE_UPDATE_FAILED", CategoryInternalMeta}
-	CodeAppStateNotFound                       = ErrorCode{"APPLICATION_STATE_NOT_FOUND", CategoryAppNotDeployedMeta}
-	CodeRequestTypeNotPermitted                = ErrorCode{"REQUEST_TYPE_NOT_PERMITTED", CategoryRequestTypeNotPermittedMeta}
-	CodeEncryptedToAppDataFailure              = ErrorCode{"ENCRYPTED_TO_APPDATA_FAILURE", CategoryInternalMeta}
-	CodeJsonUnmarshalError                     = ErrorCode{"JSON_UNMARSHAL_ERROR", CategoryInternalMeta}
-	CodeJsonMarshalError                       = ErrorCode{"JSON_MARSHAL_ERROR", CategoryInternalMeta}
-	CodeParsingKeyError                        = ErrorCode{"PARSING_KEY_ERROR", CategoryWrongKeySentMeta}
-	CodeAppDataSerializationFailure            = ErrorCode{"APPDATA_SERIALIZATION_FAILURE", CategoryInternalMeta}
-	CodeAppDataEncryptionFailure               = ErrorCode{"APPDATA_ENCRYPTION_FAILURE", CategoryInternalMeta}
-	CodePayloadUpdateSigningFailure            = ErrorCode{"PAYLOAD_UPDATE_SIGNING_FAILURE", CategoryInternalMeta}
-	CodeFunctionNotFound                       = ErrorCode{"FUNCTION_NOT_FOUND", CategoryFunctionNotFoundMeta}
-	CodeMemoryWriteError                       = ErrorCode{"MEMORY_WRITE_ERROR", CategoryInternalMeta}
-	CodeFailedExtractingResultBytes            = ErrorCode{"FAILED_EXTRACTING_RESULT_BYTES", CategoryInternalMeta}
-	CodeFailedLoadingOrGettingModule           = ErrorCode{"FAILED_LOADING_OR_GETTING_MODULE", CategoryInternalMeta}
-	CodeDepositFailed                          = ErrorCode{"DEPOSIT_FAILED", CategoryDepositFailedMeta}
-	CodeRequestFuncFailed                      = ErrorCode{"REQUEST_FUNC_FAILED", CategoryRequestFuncFailedMeta}
-	CodeFailedToGenerateReport                 = ErrorCode{"FAILED_TO_GENERATE_REPORT", CategoryDeanonymizationReportFailedMeta}
-	CodePubKeyNotRegistered 				  = ErrorCode{"PUBKEY_NOT_REGISTERED", CategoryPubKeyNotRegisteredMeta}
-	CodeWrongKey 							  = ErrorCode{"WRONG_KEY", CategoryWrongKeySentMeta}
-	CodeNoReportDataFound					 = ErrorCode{"NO_REPORT_DATA_FOUND", CategoryNoReportDataFoundMeta}
+	CodeInternalFallback             = ErrorCode{"INTERNAL_FALLBACK", categoryInternalMeta}
+	CodeManagerNotRunning            = ErrorCode{"MANAGER_NOT_RUNNING", categoryInternalMeta}
+	CodeAppNotAdmitted               = ErrorCode{"APP_NOT_ADMITTED", categoryAppNotAdmittedMeta}
+	CodeApplicationAlreadyDeployed   = ErrorCode{"APPLICATION_ALREADY_DEPLOYED", categoryApplicationAlreadyDeployedMeta}
+	CodeWasmNotFound                 = ErrorCode{"WASM_NOT_FOUND", categoryFailureWhenDeployingApplicationMeta}
+	CodeErrorReadingWasm             = ErrorCode{"ERROR_READING_WASM", categoryFailureWhenDeployingApplicationMeta}
+	CodeFailureDeployingApp          = ErrorCode{"FAILURE_WHEN_DEPLOYING_APPLICATION", categoryFailureWhenDeployingApplicationMeta}
+	CodeSubmittingStateUpdateFailed  = ErrorCode{"SUBMITTING_STATE_UPDATE_FAILED", categoryInternalMeta}
+	CodeAppStateNotFound             = ErrorCode{"APPLICATION_STATE_NOT_FOUND", categoryAppNotDeployedMeta}
+	CodeRequestTypeNotPermitted      = ErrorCode{"REQUEST_TYPE_NOT_PERMITTED", categoryRequestTypeNotPermittedMeta}
+	CodeEncryptedToAppDataFailure    = ErrorCode{"ENCRYPTED_TO_APPDATA_FAILURE", categoryInternalMeta}
+	CodeJsonUnmarshalError           = ErrorCode{"JSON_UNMARSHAL_ERROR", categoryInternalMeta}
+	CodeJsonMarshalError             = ErrorCode{"JSON_MARSHAL_ERROR", categoryInternalMeta}
+	CodeParsingKeyError              = ErrorCode{"PARSING_KEY_ERROR", categoryWrongKeySentMeta}
+	CodeAppDataSerializationFailure  = ErrorCode{"APPDATA_SERIALIZATION_FAILURE", categoryInternalMeta}
+	CodeAppDataEncryptionFailure     = ErrorCode{"APPDATA_ENCRYPTION_FAILURE", categoryInternalMeta}
+	CodePayloadUpdateSigningFailure  = ErrorCode{"PAYLOAD_UPDATE_SIGNING_FAILURE", categoryInternalMeta}
+	CodeFunctionNotFound             = ErrorCode{"FUNCTION_NOT_FOUND", categoryFunctionNotFoundMeta}
+	CodeMemoryWriteError             = ErrorCode{"MEMORY_WRITE_ERROR", categoryInternalMeta}
+	CodeFailedExtractingResultBytes  = ErrorCode{"FAILED_EXTRACTING_RESULT_BYTES", categoryInternalMeta}
+	CodeFailedLoadingOrGettingModule = ErrorCode{"FAILED_LOADING_OR_GETTING_MODULE", categoryInternalMeta}
+	CodeDepositFailed                = ErrorCode{"DEPOSIT_FAILED", categoryDepositFailedMeta}
+	CodeRequestFuncFailed            = ErrorCode{"REQUEST_FUNC_FAILED", categoryRequestFuncFailedMeta}
+	CodeFailedToGenerateReport       = ErrorCode{"FAILED_TO_GENERATE_REPORT", categoryDeanonymizationReportFailedMeta}
+	CodePubKeyNotRegistered          = ErrorCode{"PUBKEY_NOT_REGISTERED", categoryPubKeyNotRegisteredMeta}
+	CodeWrongKey                     = ErrorCode{"WRONG_KEY", categoryWrongKeySentMeta}
+	CodeNoReportDataFound            = ErrorCode{"NO_REPORT_DATA_FOUND", categoryNoReportDataFoundMeta}
 )
 
 type RequestFailure struct {
-	RootErr    ErrorCode
+	RootErr ErrorCode
 	Message string
 	Err     error
 }
@@ -119,9 +119,9 @@ func (e *RemoteError) Is(target error) bool {
 // RequestFailureDTO is a JSON-serializable representation of RequestFailure.
 type RequestFailureDTO struct {
 	RequestError ErrorCode `json:"requestError"`
-	Message    string `json:"message"`
-	ErrMessage string `json:"errMessage,omitempty"`
-	ErrType    string `json:"errType,omitempty"`
+	Message      string    `json:"message"`
+	ErrMessage   string    `json:"errMessage,omitempty"`
+	ErrType      string    `json:"errType,omitempty"`
 }
 
 func New(code ErrorCode, msg string, cause error) *RequestFailure {
@@ -135,8 +135,8 @@ func (e *RequestFailure) ToDTO() *RequestFailureDTO {
 	}
 
 	dto := &RequestFailureDTO{
-		RequestError:    e.RootErr,
-		Message: e.Message,
+		RequestError: e.RootErr,
+		Message:      e.Message,
 	}
 
 	if e.Err != nil {
@@ -177,24 +177,24 @@ func (e *RequestFailure) Error() string {
 
 func (e *RequestFailure) Unwrap() error { return e.Err }
 
-func (e *RequestFailure) Category() Category {
-	return e.categoryMeta().Category
+func (e *RequestFailure) Category() uint8 {
+	return uint8(e.categoryMeta().Category)
 }
 
 func (e *RequestFailure) ExternalMessage() string {
 	return e.categoryMeta().Message
 }
 
-func (e *RequestFailure) categoryMeta() ErrorCategory {
+func (e *RequestFailure) categoryMeta() errorCategory {
 	if e == nil {
-		return CategoryUnknownMeta
+		return categoryUnknownMeta
 	}
 
 	meta := e.RootErr.Category
 	if meta.Message != "" || e.RootErr.Code == "" {
 		return meta
 	}
-	return CategoryUnknownMeta
+	return categoryUnknownMeta
 }
 
 func FromError(err error) (*RequestFailure, bool) {
