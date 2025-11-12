@@ -15,6 +15,16 @@ import (
 // therefore no mutex is necessary to protect this map.
 var allocatedMemory = make(map[uintptr][]byte)
 
+// TODO - When TinyGo compiles go into wasm, it configures the WebAssembly linear memory to an initial size
+// of 2 pages (128KB), and marks a position in that memory as the heap base. All memory beyond that is used for the
+// Go heap. Allocations within Go (compiled to %.wasm) are managed by calling memory.grow. The instruction is executed
+// within the Wasm instance, but the actual memory growth happens in Wasmtime’s engine, which allocates more memory pages.
+// A freeMap could be used to track memory blocks that have been freed and are available for reuse, avoiding the need
+// to always request new memory pages from the WASM runtime, this is good for performances.
+// The drawback is risk of mem fragmentation, and the fact that the application retains the maximum memory envelope
+// it has ever needed.
+// var freeList = make(map[int32][][]byte)
+
 // total memory (in bytes) currently allocated
 var cumulative_alloc_size int32
 
@@ -62,6 +72,7 @@ func deallocate(ptr *byte, size int32) {
 
 // Note: if we call directly this function from the host, the ABI C interface foresees that
 // for multiple return values, the values are stored into a pointer passed as the first parameter by the caller.
+//
 //export get_allocated_memory_stats
 func GetAllocatedMemoryStats() (map_size, total_bytes int32) {
 	map_size = int32(len(allocatedMemory))
