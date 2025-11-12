@@ -8,11 +8,13 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
+// Note: The TinyGo WASM module acts as a self-contained environment running on a single logical thread.
+// Concurrency for calls to the WASM module must be handled on the host side (e.g., using Go's sync.Mutex
+// in the calling Go code or better, using a single wasmtime.Instance for every call), as TinyGo's 'sync'
+// package is not fully supported within the WASM environment for inter-module synchronization.
+
 // allocatedMemory holds references to memory allocated by the guest, preventing the Go garbage
 // collector from reclaiming it while it's in use by the host. The map key is the pointer address.
-// Note: The TinyGo WASM module acts as a self-contained environment running on a single logical thread.
-// Even if more goroutines could be running in a module, only one can be executing its code at any given time
-// therefore no mutex is necessary to protect this map.
 var allocatedMemory = make(map[uintptr][]byte)
 
 // TODO - When TinyGo compiles go into wasm, it configures the WebAssembly linear memory to an initial size
@@ -65,8 +67,8 @@ func deallocate(ptr *byte, size int32) {
 	// (Deleting a non-existent key is a no-op)
 	delete(allocatedMemory, uptr)
 
-        // double deletion will decrease the counter, we choose to do it anyway for the time being, maybe we can
-        // add more counters and stats in future
+	// double deletion will decrease the counter, we choose to do it anyway for the time being, maybe we can
+	// add more counters and stats in future
 	cumulative_alloc_size -= int32(size)
 }
 

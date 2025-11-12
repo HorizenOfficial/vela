@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 
 	"github.com/horizen-pes/app/simple/app"
@@ -417,42 +418,73 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 	initialStateBytes, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
 
-	// Repeatedly  make calls and check mem is ok
-	stateBytes := initialStateBytes
-	for i := 0; i < 200; i++ {
-		depositAmount := uint64(1)
-		userAddress := fmt.Sprintf("0xadd%039d", i)
-		newStateBytes, _, err := runtime.Deposit(ctx, appId, userAddress, depositAmount, stateBytes, wasmBytes)
-		require.NoError(t, err, "deposit failed at iteration %d", i)
-		stateBytes = newStateBytes
+	// Mutex to protect access to the shared WASM runtime instance
+	var runtimeMutex sync.Mutex
 
-		// Process a withdraw request for the current user
-		withdrawAmount := uint64(1)
-		withdrawInstruction := app.WithdrawInstruction{
-			To:     recipient1Address,
-			Amount: withdrawAmount,
-		}
-		withdrawPayload := app.PayloadInstructions{
-			Type:     "withdraw",
-			Withdraw: &withdrawInstruction,
-		}
-		withdrawPayloadBytes, err := json.Marshal(withdrawPayload)
-		require.NoError(t, err, "failed to marshal withdraw payload at iteration %d", i)
+	// Repeatedly make calls and check mem is ok
+	const numGoroutines = 5
+	const iterationsPerGoroutine = 50
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
 
-		processStateBytes, _, _, err := runtime.ProcessRequest(ctx, appId, userAddress, withdrawPayloadBytes, stateBytes, wasmBytes)
-		require.NoError(t, err, "ProcessRequest failed at iteration %d", i)
-		stateBytes = processStateBytes
+	for i := 0; i < numGoroutines; i++ {
+		go func(goroutineIndex int) {
+			defer wg.Done()
+			stateBytes := initialStateBytes
+			for j := 0; j < iterationsPerGoroutine; j++ {
+				iterationIndex := goroutineIndex*iterationsPerGoroutine + j
+				depositAmount := uint64(1)
+				userAddress := fmt.Sprintf("0xadd%039d", iterationIndex)
 
-		// Generate deanonymization report
-		reportPayloadJSON := fmt.Sprintf(`{"tag":"memory_stress_report_%d"}`, i)
-		reportPayloadBytes := []byte(reportPayloadJSON)
-		_, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
-		require.NoError(t, err, "GenerateDeanonymizationReport failed at iteration %d", i)
+				runtimeMutex.Lock()
+				newStateBytes, _, err := runtime.Deposit(ctx, appId, userAddress, depositAmount, stateBytes, wasmBytes)
+				runtimeMutex.Unlock()
+				require.NoError(t, err, "deposit failed at iteration %d", iterationIndex)
+				stateBytes = newStateBytes
+
+				// Process a withdraw request for the current user
+				withdrawAmount := uint64(1)
+				withdrawInstruction := app.WithdrawInstruction{
+					To:     recipient1Address,
+					Amount: withdrawAmount,
+				}
+				withdrawPayload := app.PayloadInstructions{
+					Type:     "withdraw",
+					Withdraw: &withdrawInstruction,
+				}
+				withdrawPayloadBytes, err := json.Marshal(withdrawPayload)
+				require.NoError(t, err, "failed to marshal withdraw payload at iteration %d", iterationIndex)
+
+				runtimeMutex.Lock()
+				processStateBytes, _, _, err := runtime.ProcessRequest(ctx, appId, userAddress, withdrawPayloadBytes, stateBytes, wasmBytes)
+				runtimeMutex.Unlock()
+				require.NoError(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
+				stateBytes = processStateBytes
+
+				// Generate deanonymization report
+				reportPayloadJSON := fmt.Sprintf(`{"tag":"memory_stress_report_%d"}`, iterationIndex)
+				reportPayloadBytes := []byte(reportPayloadJSON)
+				runtimeMutex.Lock()
+				_, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
+				runtimeMutex.Unlock()
+				require.NoError(t, err, "GenerateDeanonymizationReport failed at iteration %d", iterationIndex)
+			}
+		}(i)
 	}
+
+	wg.Wait()
 
 	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
 	require.NoError(t, err)
-	require.Equal(t, mem_map_entries, int32(0))
-	require.Equal(t, total_allocated_bytes, int32(0))
+	require.Equal(t, int32(0), mem_map_entries)
+	require.Equal(t, int32(0), total_allocated_bytes)
 	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
+
+	// TODO -  The correct approach would be creating a new wasmtime.Instance for each concurrent operation.
+	// While the wasmtime.Store and compiled wasmtime.Module can be shared, the wasmtime.Instance must be unique per goroutine.
+	// We should:
+	// 1. Separate the compiled module from the instance. The ApplicationModule should only contain the compiled wasmtime.Module,
+	// not the wasmtime.Instance.
+	// 2. Instantiate on demand. The Deposit, ProcessRequest, and other execution functions should get the shared wasmtime.Module
+	// from the cache, and then create a brand new wasmtime.Instance for the duration of that specific function call
 }
