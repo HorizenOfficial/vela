@@ -3,6 +3,7 @@ package main_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"testing"
@@ -403,8 +404,6 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	})
 }
 
-/*
-TODO implement some monitoring func in the module memory to check memory usage
 func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 	// Build and load the wasm module
 	wasmBytes := buildAndLoadWasmModule(t)
@@ -426,6 +425,34 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 		newStateBytes, _, err := runtime.Deposit(ctx, appId, userAddress, depositAmount, stateBytes, wasmBytes)
 		require.NoError(t, err, "deposit failed at iteration %d", i)
 		stateBytes = newStateBytes
+
+		// Process a withdraw request for the current user
+		withdrawAmount := uint64(1)
+		withdrawInstruction := app.WithdrawInstruction{
+			To:     recipient1Address,
+			Amount: withdrawAmount,
+		}
+		withdrawPayload := app.PayloadInstructions{
+			Type:     "withdraw",
+			Withdraw: &withdrawInstruction,
+		}
+		withdrawPayloadBytes, err := json.Marshal(withdrawPayload)
+		require.NoError(t, err, "failed to marshal withdraw payload at iteration %d", i)
+
+		processStateBytes, _, _, err := runtime.ProcessRequest(ctx, appId, userAddress, withdrawPayloadBytes, stateBytes, wasmBytes)
+		require.NoError(t, err, "ProcessRequest failed at iteration %d", i)
+		stateBytes = processStateBytes
+
+		// Generate deanonymization report
+		reportPayloadJSON := fmt.Sprintf(`{"tag":"memory_stress_report_%d"}`, i)
+		reportPayloadBytes := []byte(reportPayloadJSON)
+		_, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
+		require.NoError(t, err, "GenerateDeanonymizationReport failed at iteration %d", i)
 	}
+
+	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, mem_map_entries, int32(0))
+	require.Equal(t, total_allocated_bytes, int32(0))
+	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 }
-*/
