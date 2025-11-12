@@ -373,10 +373,11 @@ func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId, requestI
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct of the reportData.
 	// therefore we decide to add the raw bytes into a separate field
-	data := make(map[string]interface{})
-	data["applicationId"] = applicationId
-	data["requestId"] = requestId
-	data["reportDataBytes"] = reportData
+	data := common.DecryptedReport {
+		ApplicationID: applicationId,
+		RequestID: requestId,
+		ReportDataBytes: reportData,
+	}
 
 	// Marshal the updated report data
 	updatedReportData, err := json.Marshal(data)
