@@ -148,6 +148,12 @@ type DeanonymizationReport struct {
 	EncryptedReport []byte `json:"encryptedReport"`
 }
 
+// DecryptedReport represents a decrypted deanonymization report
+type DecryptedReport struct {
+	ApplicationID   ApplicationIdType `json:"applicationId"`
+	RequestID       RequestIdType `json:"requestId"`
+	ReportDataBytes []byte `json:"reportDataBytes"`
+}
 
 // PlainEvent represents an emitted event before encryption.
 type PlainEvent struct {
