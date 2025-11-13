@@ -2,14 +2,13 @@ package manager
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"os"
 	"strconv"
 
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
+	"github.com/horizen-pes/pkg/logger"
 	"github.com/magiconair/properties"
 )
 
@@ -68,7 +67,7 @@ type Config struct {
 }
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
-func DefaultConfig() *Config {
+func DefaultConfig(log logger.Logger) *Config {
 	executorServerAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
 	if executorServerAddress == "" {
 		executorServerAddress = "localhost"
@@ -109,21 +108,21 @@ func DefaultConfig() *Config {
 	reorgTimeoutEnvVar := os.Getenv("REORG_TIMEOUT")
 	reorgTimeout, err := strconv.ParseInt(reorgTimeoutEnvVar, 10, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert REORG_TIMEOUT for error %v, using default value\n", err)
+		log.Warn("Failed to convert REORG_TIMEOUT for error %v, using default value", err)
 		reorgTimeout = 180
 	}
 
 	handshakeTimeoutEnvVar := os.Getenv("HANDSHAKE_TIMEOUT")
 	handshakeTimeout, err := strconv.ParseInt(handshakeTimeoutEnvVar, 10, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert HANDSHAKE_TIMEOUT for error %v, using default value\n", err)
+		log.Warn("Failed to convert HANDSHAKE_TIMEOUT for error %v, using default value", err)
 		handshakeTimeout = 5
 	}
 
 	blockchainPollingIntervalEnvVar := os.Getenv("BLOCKCHAIN_POLLING_INTERVAL")
 	blockchainPollingInterval, err := strconv.ParseInt(blockchainPollingIntervalEnvVar, 10, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert BLOCKCHAIN_POLLING_INTERVAL for error %v, using default value\n", err)
+		log.Warn("Failed to convert BLOCKCHAIN_POLLING_INTERVAL for error %v, using default value", err)
 		blockchainPollingInterval = 5
 	}
 
@@ -150,10 +149,10 @@ func DefaultConfig() *Config {
 	}
 }
 
-func ReadConfig() *Config {
+func ReadConfig(log logger.Logger) *Config {
 	if !fileExists(confFileName) {
-		log.Printf("File %s not found. Using default configuration for Manager.\n", confFileName)
-		return DefaultConfig()
+		log.Info("File %s not found. Using default configuration for Manager.", confFileName)
+		return DefaultConfig(log)
 	}
 	// Load properties from file
 	config, err := properties.LoadFile(confFileName, properties.UTF8)
@@ -162,7 +161,7 @@ func ReadConfig() *Config {
 	}
 	PrivateKey, err := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("PrivateKey"))
 	if err != nil {
-		log.Printf("Error loading PrivateKey from config file: %v.", err)
+		log.Error("Error loading PrivateKey from config file: %v.", err)
 		panic(err)
 	}
 	return &Config{

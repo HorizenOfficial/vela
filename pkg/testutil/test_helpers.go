@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
+	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/mockdb"
@@ -37,14 +37,15 @@ type SystemTestSuite struct {
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 	dbPath             string
 	reportsPath        string
+	log                logger.Logger
 }
 
-func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
-	mgrConfig := manager.ReadConfig()
+func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *SystemTestSuite {
+	mgrConfig := manager.ReadConfig(log)
 	execConfig := executor.ReadConfig()
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, log)
 }
 
 func NewSystemTestSuiteWithConfigs(
@@ -54,6 +55,7 @@ func NewSystemTestSuiteWithConfigs(
 	execConfig *executor.Config,
 	keySet *executor.EnclaveKeySet,
 	recoveryData *common.EnclaveKeySetRecovery,
+	log logger.Logger,
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -90,7 +92,7 @@ func NewSystemTestSuiteWithConfigs(
 		require.NoError(t, err)
 	}
 
-	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient)
+	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, log)
 
 	// Create executor
 	server := communication.NewServer(factory)
@@ -128,6 +130,7 @@ func NewSystemTestSuiteWithConfigs(
 		cancel:           cancel,
 		dbPath:           dbPath,
 		reportsPath:      reportsPath,
+		log:              log,
 	}
 
 	if keySet != nil {
@@ -150,7 +153,7 @@ func (s *SystemTestSuite) StartManager() error {
 
 	// Wait for a result from the goroutine
 	if err := <-errChan; err != nil {
-		log.Printf("Manager failed to start: %v", err)
+		s.log.Info("Manager failed to start: %v", err)
 		return err
 	}
 
@@ -244,10 +247,10 @@ func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*c
 		select {
 		case event := <-s.eventChannel:
 			if evt, ok := event.(common.Event); ok && evt.UserID == userID {
-				log.Printf("TESTING: Received event: %+v", event.(common.Event))
+				s.log.Info("TESTING: Received event: %+v", event.(common.Event))
 				return &evt, nil
 			} else {
-				log.Printf("TESTING: Received unexpected event: %+v", event)
+				s.log.Info("TESTING: Received unexpected event: %+v", event)
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for event for user %s", userID)

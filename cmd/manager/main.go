@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/mockdb"
@@ -66,12 +66,12 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 		return nil, fmt.Errorf("processor address is not a valid hex address")
 	}
 
-	if !ethCommon.IsHexAddress(config.TeeAuthAddress){
+	if !ethCommon.IsHexAddress(config.TeeAuthAddress) {
 		return nil, fmt.Errorf("teeauthenticator address is not a valid hex address")
 	}
 	bcClient := blockchain.NewBlockChainClient(
 		ethCommon.HexToAddress(config.ProcessorAddress),
-		ethCommon.HexToAddress(config.TeeAuthAddress), 
+		ethCommon.HexToAddress(config.TeeAuthAddress),
 		config.RpcURL,
 		&config.PrivateKey)
 
@@ -79,6 +79,13 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 }
 
 func main() {
+	log := logger.NewLogger("zerolog")
+
+	// TODO test, remove it
+	log.Info("Starting manager I...")
+	log.Warn("Starting manager W...")
+	log.Error("Starting manager E...")
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -87,7 +94,7 @@ func main() {
 	defer cancel()
 
 	// Create the manager configuration
-	config := manager.ReadConfig()
+	config := manager.ReadConfig(log)
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)
@@ -130,25 +137,24 @@ func main() {
 	}
 
 	// Create the manager
-	secureProcessorManager := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
-
+	secureProcessorManager := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient, log)
+	log.Info("Starting manager...")
 	// Start the manager
-	log.Println("Starting manager...")
 	if err := secureProcessorManager.Start(ctx); err != nil {
-		log.Fatalf("Failed to start manager: %v", err)
+		log.Error("Failed to start manager: %v", err)
 	}
-	log.Println("Manager started")
+	log.Info("Manager started")
 
 	// Wait for shutdown signal
 	<-sigChan
 	signal.Stop(sigChan)
 	// Handle shutdown signal (Ctrl+C or SIGTERM)
-	log.Println("Received shutdown signal. Shutting down gracefully...")
+	log.Info("Received shutdown signal. Shutting down gracefully...")
 
 	// Stop the manager
 	cancel()
 	if err := secureProcessorManager.Stop(); err != nil {
-		log.Fatalf("Failed to stop manager: %v", err)
+		log.Error("Failed to stop manager: %v", err)
 	}
-	log.Println("Manager stopped")
+	log.Info("Manager stopped")
 }
