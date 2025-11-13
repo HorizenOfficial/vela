@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/horizen-pes/pkg/common"
+	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/assert"
@@ -95,7 +96,7 @@ func TestApplicationStateStore(t *testing.T) {
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 		expectedReport := &common.DeanonymizationReport{
 			ApplicationID:   common.NewApplicationId(123),
-			ReportID:        "report-id-1",
+			ReportID:        commontestutil.GenerateRandomRequestID(),
 			EncryptedReport: []byte("some-test-root-hash-1"),
 		}
 		err := store.StoreDeanonymizationReport(ctx, expectedReport)
@@ -111,7 +112,7 @@ func TestApplicationStateStore(t *testing.T) {
 	t.Run("GetNonExistentDeanonymizationReport", func(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		_, err := store.GetDeanonymizationReport(ctx, "non-existent-report-id")
+		_, err := store.GetDeanonymizationReport(ctx, [32]byte{0xAA, 0xBB, 0xCC, 0xDD})
 		require.Error(t, err, "Expected an error when getting non-existent deanonymization report")
 		var notFoundErr *storageErrors.Error
 		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
@@ -145,11 +146,11 @@ func TestApplicationStateStore(t *testing.T) {
 				return err
 			},
 			"GetDeanonymizationReport": func() error {
-				_, err := store.GetDeanonymizationReport(ctx, "any_id")
+				_, err := store.GetDeanonymizationReport(ctx, commontestutil.GenerateRandomRequestID())
 				return err
 			},
 			"StoreDeanonymizationReport": func() error {
-				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
+				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: commontestutil.GenerateRandomRequestID()})
 			},
 		}
 

@@ -11,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
@@ -22,7 +24,6 @@ import (
 	"github.com/horizen-pes/pkg/wasm"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
-	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 type SystemTestSuite struct {
@@ -204,7 +205,7 @@ func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID common.ApplicationId
 	}
 }
 
-func (s *SystemTestSuite) AssertRequestCompleted(requestID string, timeout time.Duration) error {
+func (s *SystemTestSuite) AssertRequestCompleted(requestID common.RequestIdType, timeout time.Duration) error {
 	return s.blockchainClient.WaitForRequestCompletion(requestID, timeout)
 }
 
@@ -231,7 +232,7 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, timeout time.Du
 }
 
 // WaitForDeanonymizationReport waits for a deanonymization report to be generated
-func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID string, timeout time.Duration) (*common.DeanonymizationReport, error) {
+func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestIdType, timeout time.Duration) (*common.DeanonymizationReport, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -272,7 +273,7 @@ func (s *SystemTestSuite) WaitForWithdrawal(appID common.ApplicationIdType, time
 	}
 }
 
-func (s *SystemTestSuite) GetRequestUpdatePayload(reqId string) (*common.UpdatePayload, error) {
+func (s *SystemTestSuite) GetRequestUpdatePayload(reqId common.RequestIdType) (*common.UpdatePayload, error) {
 	// Get the update payload for the request
 	return s.blockchainClient.GetRequestUpdatePayload(s.ctx, reqId)
 }
@@ -352,7 +353,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	executorSigningKey, err := suite.GetExecutorSigningKey()
 	require.NoError(t, err)
 
-	RequestID := "2133"
+	RequestID := testutil.GenerateRandomRequestID()
 	// Submit deploy request
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
@@ -360,7 +361,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		RequestID:     RequestID,
 		Payload:       bytecode,
 		Sender:        userAddress,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)
@@ -392,7 +393,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	//register key 1
-	RequestID = "2130"
+	RequestID = testutil.GenerateRandomRequestID()
 	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, userAddress, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
@@ -401,7 +402,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	//register key 3
-	RequestID = "2132"
+	RequestID = testutil.GenerateRandomRequestID()
 	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, auditorAddress, auditorKey.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey2Req)
@@ -411,7 +412,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 2: Sending deposit request")
 
-	RequestID = "2134"
+	RequestID = testutil.GenerateRandomRequestID()
 	depositAmount := big.NewInt(2000000000000000000)
 	depositReq, err := cryptoHelper.CreateDepositRequest(
 		appId,
@@ -452,7 +453,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 3: Sending deanonymization request as auditor")
 
-	RequestID = "2136"
+	RequestID = testutil.GenerateRandomRequestID()
 
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
 		appId,
@@ -481,15 +482,21 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct for the report data, but we do assume that
 	// we have an appId, a reportId, and the raw data bytes in a separate field
-	var report map[string]interface{}
+	var report struct {
+		ApplicationId   common.ApplicationIdType `json:"applicationId"`
+		RequestId       common.RequestIdType     `json:"requestId"`
+		ReportDataBytes interface{}              `json:"reportDataBytes"`
+	}
+
 	err = json.Unmarshal(decryptedReport, &report)
 	require.NoError(t, err)
-	require.Equal(t, 1.0, report["applicationId"])
-	require.Equal(t, RequestID, report["requestId"])
+	require.Equal(t, appId, report.ApplicationId)
+
+	require.Equal(t, RequestID, report.RequestId)
 	t.Log("Deanonymization report:\n", PrettyPrintJSON(report))
 
 	// just check that we have a base64 string representing the raw report data
-	jsonStr, ok := report["reportDataBytes"].(string)
+	jsonStr, ok := report.ReportDataBytes.(string)
 	require.True(t, ok, "reportDataBytes is not a string")
 	_, err = base64.StdEncoding.DecodeString(jsonStr)
 	require.NoError(t, err, "bytes are not base64 encoded")
@@ -500,7 +507,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 
-	RequestID = "2137"
+	RequestID = testutil.GenerateRandomRequestID()
 	withdrawAmount := big.NewInt(500000000000000000) // 0.5 ETH
 	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(
 		appId,

@@ -40,6 +40,7 @@ const (
 	AssociateKey
 )
 
+
 func (rt RequestType) String() string {
 	switch rt {
 	case Deploy:
@@ -55,6 +56,14 @@ func (rt RequestType) String() string {
 	}
 }
 
+
+type RequestIdType [32]byte
+
+func (rt *RequestIdType) String() string {
+	return hex.EncodeToString(rt[:])
+}
+
+
 // Request represents a request to the system
 type Request struct {
 	// ProtocolVersion is the version of the protocol being used
@@ -62,14 +71,14 @@ type Request struct {
 	// ApplicationID is the ID of the application (empty for Deploy)
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// RequestID is a unique identifier for the request
-	RequestID string `json:"requestId"`
+	RequestID RequestIdType `json:"requestId"`
 	// RequestType is the type of request
 	RequestType RequestType `json:"requestType"`
 	// Payload is the payload for the request
 	// All payloads except the one for AssociateKey are encrypted
 	Payload []byte `json:"payload"`
 	// Timestamp is the time the request was submitted
-	Timestamp int64 `json:"timestamp"`
+	Timestamp *big.Int `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
 	// Value is the optional deposit value in WEI
@@ -81,7 +90,6 @@ type Event struct {
 	// ApplicationID is the ID of the application
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
-	//TODO: change the type to go-ethereum/common/Address
 	UserID ethCommon.Address `json:"userId"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`
@@ -100,7 +108,7 @@ type UpdatePayload struct {
 	// ApplicationID is the ID of the application
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// RequestID is the ID of the request being processed
-	RequestID string `json:"requestId"`
+	RequestID RequestIdType `json:"requestId"`
 	// PrevStateRoot is the previous state root
 	PrevStateRoot [32]byte `json:"prevStateRoot"`
 	// NewStateRoot is the new state root
@@ -135,10 +143,11 @@ type DeanonymizationReport struct {
 	// ApplicationID is the ID of the application
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// ReportID is a unique identifier for the report
-	ReportID string `json:"reportId"`
+	ReportID RequestIdType `json:"reportId"`
 	// EncryptedReport is the encrypted report data
 	EncryptedReport []byte `json:"encryptedReport"`
 }
+
 
 // PlainEvent represents an emitted event before encryption.
 type PlainEvent struct {
@@ -181,21 +190,3 @@ func StringToBigInt(s string) (*big.Int, bool) {
 	return new(big.Int).SetString(s, 10)
 }
 
-func RequestIdStringTo32Byte(s string) ([32]byte, error) {
-
-	arr, err := hex.DecodeString(s)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("requestId string is not a valid hex string: %w", err)
-	}
-	if len(arr) > 32 {
-		return [32]byte{}, fmt.Errorf("requestId string must not be more than 32 bytes long, got %d", len(arr))
-	}
-
-	var arr32 [32]byte
-	copy(arr32[:], arr)
-	return arr32, nil
-}
-
-func RequestId32ByteToString(b [32]byte) string {
-	return hex.EncodeToString(b[:])
-}

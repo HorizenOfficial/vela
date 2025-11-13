@@ -50,14 +50,11 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 		}
 	}
 
-	requestId, err := common.RequestIdStringTo32Byte(payload.RequestID)
-	require.NoError(s.t, err, "invalid request ID: %s", payload.RequestID)
-
 	params := s.teeContract.PackCheckSignature(
 		processorendpoint.ApplicationIdToBindingType(payload.ApplicationID),
 		payload.PrevStateRoot,
 		payload.NewStateRoot,
-		requestId,
+		payload.RequestID,
 		events,
 		withdrawals,
 		payload.Signature,

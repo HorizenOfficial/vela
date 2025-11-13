@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
@@ -19,7 +20,6 @@ import (
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/require"
-	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 var (
@@ -93,19 +93,15 @@ var (
 )
 
 func createRequest(requestType common.RequestType, appID common.ApplicationIdType) *common.Request {
-	requestId, err := blockchain.GenerateRandomID()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to generate random ID: %v", err))
-	}
+	requestId := testutil.GenerateRandomRequestID()
+
 	request := &common.Request{ProtocolVersion: 1, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender}
 	return request
 }
 
 func createRequestWithPayload(requestType common.RequestType, appID common.ApplicationIdType, payload []byte) *common.Request {
-	requestId, err := blockchain.GenerateRandomID()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to generate random ID: %v", err))
-	}
+	requestId := testutil.GenerateRandomRequestID()
+
 	request := &common.Request{ProtocolVersion: 1, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, Payload: payload}
 	return request
 }
@@ -405,7 +401,7 @@ func TestMarkRequestFailedWithError(t *testing.T) {
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	mockBCClient.AddMockedFunc("MarkRequestFailed", func(ctx context.Context, requestID string) error {
+	mockBCClient.AddMockedFunc("MarkRequestFailed", func(ctx context.Context, requestID common.RequestIdType) error {
 		return fmt.Errorf("failed to mark request as failed")
 	})
 
@@ -1056,7 +1052,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 	// Check that the report file does not exist
-	reportFilePath := filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID)
+	reportFilePath := filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID.String())
 	_, err = os.Stat(reportFilePath)
 	require.True(t, os.IsNotExist(err), "Report file should not exist when DeanonymizationReportPath is not set")
 	// check we have it in the data layer
@@ -1075,7 +1071,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 3, len(completedRequests), "expected 3 completed request")
 	// Check that the report file exists
-	reportFilePath = filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID)
+	reportFilePath = filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID.String())
 	_, err = os.Stat(reportFilePath)
 	require.NoError(t, err, "Report file should exist when DeanonymizationReportPath is set")
 	// Read the report from the filesystem and verify its contents

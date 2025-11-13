@@ -255,7 +255,7 @@ func (s *LevelDBReportStore) StoreDeanonymizationReport(ctx context.Context, rep
 	if err != nil {
 		return fmt.Errorf("failed to marshal deanonymization report: %w", err)
 	}
-	key := []byte(deanonymizationReportPrefix + report.ReportID)
+	key := []byte(deanonymizationReportPrefix + report.ReportID.String())
 	err = s.Adapter.Put(key, value)
 	if err != nil {
 		return fmt.Errorf("failed to store deanonymization report in LevelDB: %w", err)
@@ -263,17 +263,17 @@ func (s *LevelDBReportStore) StoreDeanonymizationReport(ctx context.Context, rep
 	return nil
 }
 
-func (s *LevelDBReportStore) GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error) {
+func (s *LevelDBReportStore) GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
 	if err := s.checkClosed("report store"); err != nil {
 		return nil, err
 	}
-	key := []byte(deanonymizationReportPrefix + reportID)
+	key := []byte(deanonymizationReportPrefix + reportID.String())
 	value, err := s.Adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get deanonymization report from LevelDB: %w", err)
 	}
 	if value == nil {
-		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID)
+		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID.String())
 	}
 	report := &common.DeanonymizationReport{}
 	err = json.Unmarshal(value, report)

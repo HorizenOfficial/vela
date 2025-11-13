@@ -252,12 +252,10 @@ func (s *SimTestHelper) GetStateRoot() [32]byte {
 	return oldStateRoot
 }
 
-func (s *SimTestHelper) GetRequest(requestID string) processorendpoint.RequestByIdOutput {
-	reqId, err := common.RequestIdStringTo32Byte(requestID)
-	require.NoError(s.t, err, "invalid request ID")
+func (s *SimTestHelper) GetRequest(requestID common.RequestIdType) processorendpoint.RequestByIdOutput {
 	request, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
-		s.processEndpointContract.PackRequestById(reqId),
+		s.processEndpointContract.PackRequestById(requestID),
 		s.processEndpointContract.UnpackRequestById)
 	require.NoError(s.t, err)
 	return request
@@ -324,11 +322,11 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 	return signedTx
 }
 
-func (s *SimTestHelper) AddAuthority(applicationId uint64, newAuthority ethCommon.Address) *ethTypes.Transaction {
+func (s *SimTestHelper) AddAuthority(applicationId common.ApplicationIdType, newAuthority ethCommon.Address) *ethTypes.Transaction {
 	authorityContract := authority.NewAuthorityRegistry()
 	authorityInstance := authorityContract.Instance(s.Client(), s.AuthorityAddress)
 
-	tx, err := bind.Transact(authorityInstance, s.Deployer, authorityContract.PackAddAllowedAuthority(applicationId, newAuthority))
+	tx, err := bind.Transact(authorityInstance, s.Deployer, authorityContract.PackAddAllowedAuthority(processorendpoint.ApplicationIdToBindingType(applicationId), newAuthority))
 	require.NoError(s.t, err, "failed to send transaction")
 
 	return tx

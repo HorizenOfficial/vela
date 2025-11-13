@@ -11,6 +11,7 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -78,7 +79,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, applicationId, request.ApplicationID, "Application ID should match")
 	require.Equal(t, common.Process, request.RequestType, "Request type should match")
 	require.Equal(t, payload, request.Payload, "Payload should match")
-	require.Greater(t, request.Timestamp, int64(0), "Timestamp should match")
+	require.Equal(t, 1, request.Timestamp.Sign(), "Timestamp should be set and positive")
 
 	require.Equal(t, testHelper.Submitter.From, request.Sender, "Sender should match")
 	require.Equal(t, transferValue, request.Value, "Value should match")
@@ -229,7 +230,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 	// Test error - wrong request id
 	payload.PrevStateRoot = payload.NewStateRoot
 	payload.NewStateRoot = [32]byte{0x07, 0x08, 0x09}
-	payload.RequestID = "9999999999999999999999999999999999999999999999999999999999999999"
+	payload.RequestID = commontestutil.GenerateRandomRequestID()
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	_, isReorg = err.(ReorgError)
 	require.True(t, isReorg)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
@@ -174,7 +176,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		expectedReport := &common.DeanonymizationReport{
 			ApplicationID:   common.NewApplicationId(23),
-			ReportID:        "versioned-leveldb-report-id-1",
+			ReportID:        testutil.GenerateRandomRequestID(),
 			EncryptedReport: []byte("some-test-root-hash-1"),
 		}
 		err = store.StoreDeanonymizationReport(ctx, expectedReport)
@@ -194,7 +196,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		_, err = store.GetDeanonymizationReport(ctx, "versioned-leveldb-non-existent-report-id")
+		_, err = store.GetDeanonymizationReport(ctx, [32]byte{0xAA, 0xBB, 0xCC, 0xDD})
 		require.Error(t, err, "Expected an error when getting non-existent deanonymization report")
 		var notFoundErr *storageErrors.Error
 		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
@@ -224,11 +226,11 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 				return err
 			},
 			"GetDeanonymizationReport": func() error {
-				_, err := store.GetDeanonymizationReport(ctx, "4230")
+				_, err := store.GetDeanonymizationReport(ctx, testutil.GenerateRandomRequestID())
 				return err
 			},
 			"StoreDeanonymizationReport": func() error {
-				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
+				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: testutil.GenerateRandomRequestID()})
 			},
 		}
 
@@ -610,10 +612,10 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		defer os.RemoveAll(tempDir)
 
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		reportID := "corrupted-report-id"
+		reportID := testutil.GenerateRandomRequestID()
 
 		// Manually insert corrupted data into the database.
-		key := []byte(versionedDb.TestDeanonymizationReportPrefix + reportID)
+		key := []byte(versionedDb.TestDeanonymizationReportPrefix + reportID.String())
 		value := []byte("corrupted-json")
 		err = store.LevelDBReportStore.Adapter.Put(key, value)
 		require.NoError(t, err, "Storing corrupted data should not fail")
@@ -658,6 +660,8 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 		sharedID := common.NewApplicationId(5477)
 		sharedIdStr := sharedID.String()
+		RequestId := common.RequestIdType{}
+		binary.LittleEndian.PutUint64(RequestId[:], uint64(sharedID))
 		expectedState := common.ApplicationState{
 			ApplicationID:  sharedID,
 			StateRoot:      sha256.Sum256([]byte("state-root")),
@@ -666,7 +670,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF}
 		expectedReport := common.DeanonymizationReport{
 			ApplicationID:   sharedID,
-			ReportID:        sharedIdStr, // use the same ID even for the report
+			ReportID:        RequestId, // use the same ID even for the report
 			EncryptedReport: []byte("encrypted-report"),
 		}
 
@@ -693,7 +697,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		assert.True(t, bytes.Equal(expectedBytecode, actualBytecode), "Retrieved WASM bytecode mismatch")
 
 		// Retrieve and verify DeanonymizationReport
-		actualReport, err := store.GetDeanonymizationReport(ctx, sharedIdStr)
+		actualReport, err := store.GetDeanonymizationReport(ctx, RequestId)
 		require.NoError(t, err, "GetDeanonymizationReport should not return an error")
 		if diff := cmp.Diff(&expectedReport, actualReport); diff != "" {
 			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)

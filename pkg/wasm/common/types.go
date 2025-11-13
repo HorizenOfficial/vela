@@ -10,7 +10,7 @@ import (
 // WasmSerializationError is a generic error for failed WASM serialization.
 const WasmSerializationError = "{}"
 
-// TODO add applicationId to the definitions where appropriate, in future we will have many differnt apps
+// TODO add applicationId to the definitions where appropriate, in future we will have many different apps
 
 // DepositResult represents the result of a deposit operation
 type DepositResult struct {

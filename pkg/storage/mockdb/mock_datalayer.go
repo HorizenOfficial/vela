@@ -17,7 +17,7 @@ type MockDataLayer struct {
 	mutex     sync.RWMutex
 	states    map[common.ApplicationIdType]*common.ApplicationState
 	bytecodes map[common.ApplicationIdType][]byte
-	reports   map[string]*common.DeanonymizationReport
+	reports   map[common.RequestIdType]*common.DeanonymizationReport
 	keys      map[string][]byte
 	isClosed  bool
 	versions [][]byte
@@ -30,7 +30,7 @@ func NewMockDataLayer() *MockDataLayer {
 	return &MockDataLayer{
 		states:    make(map[common.ApplicationIdType]*common.ApplicationState),
 		bytecodes: make(map[common.ApplicationIdType][]byte),
-		reports:   make(map[string]*common.DeanonymizationReport),
+		reports:   make(map[common.RequestIdType]*common.DeanonymizationReport),
 		keys:      make(map[string][]byte),
 		versions:  make([][]byte, 0),
 		MockFunctions: testutil.NewMockFunctions(),
@@ -135,7 +135,7 @@ func (d *MockDataLayer) StoreDeanonymizationReport(ctx context.Context, report *
 }
 
 // GetDeanonymizationReport retrieves a deanonymization report.
-func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error) {
+func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 	if err := d.checkClosed(); err != nil {
@@ -143,7 +143,7 @@ func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID s
 	}
 	report, exists := d.reports[reportID]
 	if !exists {
-		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID)
+		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID.String())
 	}
 	return report, nil
 }

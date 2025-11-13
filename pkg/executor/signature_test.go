@@ -8,6 +8,7 @@ import (
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
+	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,7 +35,7 @@ func TestCheckSignature(t *testing.T) {
 
 	updatePayload := &common.UpdatePayload{
 		ApplicationID: applicationId,
-		RequestID:     "7890",
+		RequestID:     commontestutil.GenerateRandomRequestID(),
 		PrevStateRoot: [32]byte{0x08, 0x05, 0x06},
 		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
 		Events:        events[:],

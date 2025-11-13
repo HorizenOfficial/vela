@@ -49,7 +49,7 @@ func (c *CryptoHelper) GetUserKey(userID ethCommon.Address) (*cryptotypes.Privat
 }
 
 // CreateAssociateKeyRequest creates an associate key request
-func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType, requestID string, sender ethCommon.Address, key *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, key *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	// For associate key, the payload is unencrypted and contains the key to associate
 	payload := key.Bytes()
 
@@ -59,13 +59,13 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 		RequestType:   common.AssociateKey,
 		Payload:       payload,
 		Sender:        sender,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
 	}, nil
 }
 
 // CreateDepositRequest creates an encrypted deposit request
-func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID string, sender ethCommon.Address, value *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, value *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -86,13 +86,13 @@ func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requ
 		RequestType:   common.Process,
 		Payload:       encryptedPayload,
 		Sender:        sender,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         value,
 	}, nil
 }
 
 // CreateTransferRequest creates an encrypted transfer request
-func (c *CryptoHelper) CreateTransferRequest(appID common.ApplicationIdType, requestID string, sender, recipient ethCommon.Address, amount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateTransferRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, recipient ethCommon.Address, amount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -124,13 +124,13 @@ func (c *CryptoHelper) CreateTransferRequest(appID common.ApplicationIdType, req
 		RequestType:   common.Process,
 		Payload:       encryptedPayload,
 		Sender:        sender,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0), // No deposit for transfer
 	}, nil
 }
 
 // CreateWithdrawalRequest creates an encrypted withdrawal request
-func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, requestID string, sender, destinationAddress ethCommon.Address, amount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, amount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -162,13 +162,13 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, r
 		RequestType:   common.Process,
 		Payload:       encryptedPayload,
 		Sender:        sender,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0), // No deposit for withdrawal
 	}, nil
 }
 
 // CreateDeanonymizationRequest creates an encrypted deanonymization request
-func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdType, requestID string, sender ethCommon.Address, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -187,7 +187,7 @@ func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdTy
 		RequestType:   common.Deanonymize,
 		Payload:       encryptedPayload,
 		Sender:        sender,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
 	}, nil
 }
@@ -223,7 +223,7 @@ func (c *CryptoHelper) DecryptDeanonymizationReport(userID ethCommon.Address, re
 }
 
 // CreateProcessRequest creates an encrypted process request with a raw payload
-func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requestID string, sender ethCommon.Address, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -241,7 +241,7 @@ func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requ
 		RequestType:   common.Process,
 		Payload:       encryptedPayload,
 		Sender:        sender,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
 	}, nil
 }

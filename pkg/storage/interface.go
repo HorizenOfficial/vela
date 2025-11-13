@@ -46,7 +46,7 @@ type ApplicationReportStore interface {
 	// StoreDeanonymizationReport saves a new deanonymization report.
 	StoreDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error
 	// GetDeanonymizationReport retrieves a deanonymization report by its ID.
-	GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error)
+	GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error)
 }
 
 // DataLayer is a composite interface that combines all the application's storage interfaces.

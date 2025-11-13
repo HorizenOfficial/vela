@@ -92,16 +92,13 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	}
 	withdrawalHash := ethCrypto.Keccak256(encodedWithdrawal)
 	var withdrawalArr [32]byte = [32]byte(withdrawalHash)
-	requestId, err := common.RequestIdStringTo32Byte(updatePayload.RequestID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid request ID: %s", updatePayload.RequestID)
-	}
+
 
 	values := []interface{}{
 		updatePayload.ApplicationID,
 		updatePayload.PrevStateRoot,
 		updatePayload.NewStateRoot,
-		requestId,
+		updatePayload.RequestID,
 		eventArr,
 		withdrawalArr,
 	}

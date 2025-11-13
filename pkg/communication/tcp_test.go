@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	ethCommon "github.com/ethereum/go-ethereum/common"
-
 )
 
-var ( 
-	ApplicationId = common.NewApplicationId(1)
-	senderAddress = ethCommon.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+var (
+	ApplicationId      = common.NewApplicationId(1)
+	senderAddress      = ethCommon.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
 	destinationAddress = ethCommon.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
 )
 
@@ -76,7 +76,7 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 	}
 	return &common.DeanonymizationReport{
 			ApplicationID:   req.ApplicationID,
-			ReportID:        "test-report-id",
+			ReportID:        req.RequestID,
 			EncryptedReport: []byte("test-encrypted-report"),
 		},
 		nil
@@ -114,10 +114,10 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	req := &common.Request{
 		ProtocolVersion: 1,
 		ApplicationID:   ApplicationId,
-		RequestID:       "test-request-id",
+		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       time.Now().Unix(),
+		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
 		//Value:           0,
 	}
@@ -149,7 +149,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	report, err := client.SendGenerateDeanonymizationReport(ctx, req, appState, wasmModule)
 	require.NoError(t, err)
 	assert.Equal(t, req.ApplicationID, report.ApplicationID)
-	assert.Equal(t, "test-report-id", report.ReportID)
+	assert.Equal(t, req.RequestID, report.ReportID)
 	assert.Equal(t, []byte("test-encrypted-report"), report.EncryptedReport)
 }
 
@@ -191,11 +191,11 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 		req := &common.Request{
 			ProtocolVersion: 1,
 			ApplicationID:   ApplicationId,
-			RequestID:       "test-request-id",
+			RequestID:       testutil.GenerateRandomRequestID(),
 			RequestType:     common.Process,
 			Payload:         []byte("test-encrypted-action"),
-			Timestamp:       time.Now().Unix(),
-			Sender:         senderAddress,
+			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+			Sender:          senderAddress,
 			//Value:           0,
 		}
 		appState := &common.ApplicationState{
@@ -242,10 +242,10 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 		req := &common.Request{
 			ProtocolVersion: 1,
 			ApplicationID:   ApplicationId,
-			RequestID:       "test-request-id",
+			RequestID:       testutil.GenerateRandomRequestID(),
 			RequestType:     common.Deploy,
 			Payload:         []byte("test-encrypted-action"),
-			Timestamp:       time.Now().Unix(),
+			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 			Sender:          senderAddress,
 			//Value:           0,
 		}
@@ -301,10 +301,10 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	req := &common.Request{
 		ProtocolVersion: 1,
 		ApplicationID:   ApplicationId,
-		RequestID:       "test-request-id",
+		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       time.Now().Unix(),
+		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
 		//Value:           0,
 	}
@@ -366,10 +366,10 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	req := &common.Request{
 		ProtocolVersion: 1,
 		ApplicationID:   1,
-		RequestID:       "test-request-id",
+		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       time.Now().Unix(),
+		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
 	}
 	appState := &common.ApplicationState{
