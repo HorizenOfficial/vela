@@ -358,48 +358,48 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
+func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, *apperrors.RequestFailure) {
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get or load module: %w", err)
+		return nil, apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, "failed to get or load module", err)
 	}
 
 	// Call the WASM function to generate the report
 	generateReportFunc := appModule.instance.GetFunc(r.store, "generate_deanonymization_report")
 	if generateReportFunc == nil {
-		return nil, fmt.Errorf("function generate_deanonymization_report not found in wasm module")
+		return nil, apperrors.New(apperrors.CodeFunctionNotFound, "function generate_deanonymization_report not found in wasm module", nil)
 	}
 
 	payloadPtr, err := r.writeToMemory(appModule, payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write payload to memory: %w", err)
+		return nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write payload to memory", err)
 	}
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write state to memory: %w", err)
+		return nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write state to memory", err)
 	}
 
 	// Call the generate_deanonymization_report function
 	result, err := generateReportFunc.Call(r.store, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
-		return nil, fmt.Errorf("failed to call generate_deanonymization_report: %w", err)
+		return nil, apperrors.New(apperrors.CodeFailedToGenerateReport, "failed to call generate_deanonymization_report", err)
 	}
 
 	// Extract the result bytes
 	reportBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
+		return nil, apperrors.New(apperrors.CodeFailedExtractingResultBytes, "failed to extract wasm module result bytes", err)
 	}
 
 	// Deserialize the result
 	var deanonymizationResult appCommon.DeanonymizationResult
 	if err := json.Unmarshal(reportBytes, &deanonymizationResult); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal deanonymization result: %w", err)
+		return nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal deanonymization result", err)
 	}
 
 	if deanonymizationResult.Error != "" {
-		return nil, fmt.Errorf("deanonymization report failed, wasm module error: %v", deanonymizationResult.Error)
+		return nil, apperrors.New(apperrors.CodeFailedToGenerateReport, "deanonymization report failed, wasm module error", errors.New(deanonymizationResult.Error))
 	}
 
 	log.Printf("Wasmtime Runtime: Successfully generated deanonymization report for application %s", appId)

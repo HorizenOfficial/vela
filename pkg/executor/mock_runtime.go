@@ -104,7 +104,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 		case "transfer":
 			transfer := instructions["transfer"].(map[string]interface{})
 			if transfer == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeNilInstruction, "transfer instruction is nil", nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "transfer instruction is nil", nil)
 			}
 			to := transfer["to"].(string)
 			amount := toUint64(transfer["amount"])
@@ -112,10 +112,10 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			// Ensure sender exists and has balance
 			senderAcct := accounts[sender]
 			if senderAcct == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeSenderAccountInexistent, fmt.Sprintf("sender account %s does not exist", sender), nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
 			if toUint64(senderAcct["balance"]) < amount {
-				return nil, nil, nil, apperrors.New(apperrors.CodeInsufficientBalance, "insufficient balance for transfer", nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s has insufficient balance", sender), nil)
 			}
 
 			// Ensure recipient account
@@ -143,17 +143,17 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 		case "withdraw":
 			withdraw := instructions["withdraw"].(map[string]interface{})
 			if withdraw == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeNilInstruction, "withdraw instruction is nil", nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "withdraw instruction is nil", nil)
 			}
 			to := withdraw["to"].(string)
 			amount := toUint64(withdraw["amount"])
 
 			senderAcct := accounts[sender]
 			if senderAcct == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeSenderAccountInexistent, fmt.Sprintf("sender account %s does not exist", sender), nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
 			if toUint64(senderAcct["balance"]) < amount {
-				return nil, nil, nil, apperrors.New(apperrors.CodeInsufficientBalance, "insufficient balance for withdrawal", nil)
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "request function execution failed", nil)
 			}
 
 			// Execute withdrawal
@@ -171,7 +171,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 			events = append(events, withdrawEvent)
 
 		default:
-			return nil, nil, nil, apperrors.New(apperrors.CodeUnknownInstructionType, fmt.Sprintf("unknown instruction type: %s", typ), nil)
+			return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("unknown instruction type: %s", typ), nil)
 		}
 	}
 
@@ -185,12 +185,12 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender s
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
+func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, *apperrors.RequestFailure) {
 	log.Printf("Mock Runtime: Generating deanonymization report for application %s", appId)
 
 	var currentState map[string]interface{}
 	if err := json.Unmarshal(state, &currentState); err != nil {
-		return nil, fmt.Errorf("failed to deserialize state for deanonymization: %w", err)
+		return nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state for deanonymization", err)
 	}
 
 	report := map[string]interface{}{
@@ -200,7 +200,7 @@ func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId s
 
 	reportBytes, err := json.Marshal(report)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal deanonymization report: %w", err)
+		return nil, apperrors.New(apperrors.CodeJsonMarshalError, "failed to marshal deanonymization report", err)
 	}
 
 	log.Printf("Mock Runtime: Successfully generated deanonymization report for application %s", appId)

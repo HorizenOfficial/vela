@@ -114,8 +114,8 @@ func TestSimpleAppIntegration(t *testing.T) {
 	// 4. Generate deanonymization report
 	payloadJSON := `{"tag":"my_custom_tag"}`
 	payloadBytes = []byte(payloadJSON)
-	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
-	require.NoError(t, err)
+	reportBytes, failure := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
+	require.Nil(t, failure)
 	require.NotNil(t, reportBytes)
 
 	var report map[string]interface{}

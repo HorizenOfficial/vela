@@ -364,9 +364,9 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	}
 
 	// Generate deanonymization report
-	reportBytes, err := runtime.GenerateDeanonymizationReport(context.Background(), appId, []byte(""), serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("GenerateDeanonymizationReport failed: %v", err)
+	reportBytes, failure := runtime.GenerateDeanonymizationReport(context.Background(), appId, []byte(""), serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("GenerateDeanonymizationReport failed: %v", failure)
 	}
 
 	// Parse the report
