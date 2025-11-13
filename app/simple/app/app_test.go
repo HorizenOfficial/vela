@@ -75,13 +75,15 @@ func TestDepositFunds(t *testing.T) {
 
 		event := result.Events[0]
 		require.Equal(t, user1Address, event.UserID)
-		var eventData map[string]interface{}
+		var eventData struct {
+			Type   string  `json:"type"`
+			Amount *big.Int `json:"amount"`
+		}
 		err = json.Unmarshal(event.Data, &eventData)
 		require.NoError(t, err)
-		require.Equal(t, "deposit", eventData["type"])
-		floatValue, _ := depositAmount.Float64()
+		require.Equal(t, "deposit", eventData.Type)
 		
-		require.Equal(t, floatValue, eventData["amount"])
+		require.Equal(t, depositAmount, eventData.Amount)
 	})
 
 	t.Run("deposit to existing account", func(t *testing.T) {
