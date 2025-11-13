@@ -59,7 +59,7 @@ func (rt RequestType) String() string {
 
 type RequestIdType [32]byte
 
-func (rt *RequestIdType) String() string {
+func (rt RequestIdType) String() string {
 	return hex.EncodeToString(rt[:])
 }
 

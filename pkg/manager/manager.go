@@ -199,16 +199,16 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		return nil
 	}
 
-	log.Printf("Manager: processing request %x", request.RequestID.String())
+	log.Printf("Manager: processing request %s", request.RequestID)
 
 	if err := m.processRequest(ctx, request); err != nil {
 		// Log the error and mark the request as failed
-		log.Printf("Manager: Failed to process request %s: %v", request.RequestID.String(), err)
+		log.Printf("Manager: Failed to process request %s: %v", request.RequestID, err)
 		if err = m.blockchainClient.MarkRequestFailed(ctx, request.RequestID); err != nil {
-			log.Printf("Manager: Failed to mark request %s as failed: %v", request.RequestID.String(), err)
+			log.Printf("Manager: Failed to mark request %s as failed: %v", request.RequestID, err)
 		}
 	} else {
-		log.Printf("Manager: Processed request %s", request.RequestID.String())
+		log.Printf("Manager: Processed request %s", request.RequestID)
 	}
 	return nil
 
@@ -278,13 +278,13 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 		return fmt.Errorf("failed to submit state update: %w", err)
 	}
 
-	log.Printf("Manager: Processed request %s for application %d", updatePayload.RequestID.String(), updatePayload.ApplicationID)
+	log.Printf("Manager: Processed request %s for application %d", updatePayload.RequestID, updatePayload.ApplicationID)
 	return nil
 }
 
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
-	log.Printf("Processing deploy app request: %s", req.RequestID.String())
+	log.Printf("Processing deploy app request: %s", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
@@ -337,7 +337,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 // processProcessRequest processes a process request
 func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
-	log.Printf("Processing Process app request: %s", req.RequestID.String())
+	log.Printf("Processing Process app request: %s", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
@@ -436,7 +436,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 				if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
 					log.Printf("Failed to write deanonymization report to file: %v", err)
 				} else {
-					log.Printf("Saved deanonymization report %s to %s", report.ReportID.String(), filePath)
+					log.Printf("Saved deanonymization report %s to %s", report.ReportID, filePath)
 				}
 			}
 		}
@@ -458,6 +458,6 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		return nil
 	}
 
-	log.Printf("Manager: Generated deanonymization report %s for application %d", report.ReportID.String(), req.ApplicationID)
+	log.Printf("Manager: Generated deanonymization report %s for application %d", report.ReportID, req.ApplicationID)
 	return nil
 }

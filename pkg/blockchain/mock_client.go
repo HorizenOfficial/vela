@@ -143,7 +143,7 @@ func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID common.Req
 	}
 
 	if !c.pendingRequests.Has(requestID) {
-		return fmt.Errorf("request not found: %s", requestID.String())
+		return fmt.Errorf("request not found: %s", requestID)
 	}
 
 	c.pendingRequests.Delete(requestID)
@@ -191,13 +191,13 @@ func (c *MockClient) WaitForRequestCompletion(requestID common.RequestIdType, ti
 			failed := c.failedRequests.Has(requestID)
 			c.mu.RUnlock()
 			if failed {
-				return fmt.Errorf("request %s has failed", requestID.String())
+				return fmt.Errorf("request %s has failed", requestID)
 			}
 			if !exists {
 				return nil // Request completed
 			}
 		case <-timeoutCh:
-			return fmt.Errorf("timeout waiting for request %s to complete", requestID.String())
+			return fmt.Errorf("timeout waiting for request %s to complete", requestID)
 		}
 	}
 }
@@ -212,7 +212,7 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 	}
 	// Complete the request if it exists
 	if !c.pendingRequests.Has(update.RequestID) {
-		return fmt.Errorf("request not found: %s", update.RequestID.String())
+		return fmt.Errorf("request not found: %s", update.RequestID)
 	}
 	c.pendingRequests.Delete(update.RequestID)
 
@@ -251,7 +251,7 @@ func (c *MockClient) GetRequestUpdatePayload(ctx context.Context, requestID comm
 
 	update, exists := c.updatePayloads[requestID]
 	if !exists {
-		return nil, fmt.Errorf("update payload not found for request: %s", requestID.String())
+		return nil, fmt.Errorf("update payload not found for request: %s", requestID)
 	}
 	return update, nil
 }
@@ -317,7 +317,7 @@ func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *co
 
 	// Complete the request if it exists
 	if !c.pendingRequests.Has(report.ReportID) {
-		return fmt.Errorf("request not found: %s", report.ReportID.String())
+		return fmt.Errorf("request not found: %s", report.ReportID)
 	}
 	c.pendingRequests.Delete(report.ReportID)
 
@@ -334,7 +334,7 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID comm
 
 	report, exists := c.reports[reportID]
 	if !exists {
-		return nil, fmt.Errorf("deanonymization report not found: %s", reportID.String())
+		return nil, fmt.Errorf("deanonymization report not found: %s", reportID)
 	}
 
 	return report, nil

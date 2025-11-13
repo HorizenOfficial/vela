@@ -72,7 +72,7 @@ func (e *StatelessExecutor) Close() error {
 
 // HandleProcessRequest is the main workflow: decrypt state -> invoke WASM -> encrypt new state -> sign -> respond
 func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
-	log.Printf("Executor: Processing request %s for application %d", req.RequestID.String(), req.ApplicationID)
+	log.Printf("Executor: Processing request %s for application %d", req.RequestID, req.ApplicationID)
 
 	// Decrypte and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
@@ -88,14 +88,14 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to process deposit in WASM runtime: %w", err)
 		}
-		log.Printf("Executor: Successfully processed deposit for request %s", req.RequestID.String())
+		log.Printf("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
 	if req.RequestType == common.AssociateKey {
 		//request  of type associate key: the payload is not encrypted and contains the new key
-		log.Printf("Associating new key - RequestID %s", req.RequestID.String())
+		log.Printf("Associating new key - RequestID %s", req.RequestID)
 
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload)
 		if err != nil {
@@ -117,7 +117,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to process request in WASM runtime: %w", err)
 		}
-		log.Printf("Executor: Successfully processed request %s", req.RequestID.String())
+		log.Printf("Executor: Successfully processed request %s", req.RequestID)
 	}
 
 	//set the updated state
@@ -172,13 +172,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		EncryptedState: encryptedNewAppData,
 	}
 
-	log.Printf("Executor: Successfully processed request %s", req.RequestID.String())
+	log.Printf("Executor: Successfully processed request %s", req.RequestID)
 	return updatePayload, newApplicationState, nil
 }
 
 // HandleDeployApp implements the RequestHandler interface
 func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
-	log.Printf("Executor: Deploying application for request %s", req.RequestID.String())
+	log.Printf("Executor: Deploying application for request %s", req.RequestID)
 
 	// For deployment, we need to initialize the application with the WASM module
 	// The payload should contain the WASM bytecode
@@ -235,7 +235,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 // HandleGenerateDeanonymizationReport implements the RequestHandler interface
 func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
-	log.Printf("Executor: Generating deanonymization report for request %s", req.RequestID.String())
+	log.Printf("Executor: Generating deanonymization report for request %s", req.RequestID)
 
 	// Decrypte and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
@@ -275,7 +275,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		EncryptedReport: encryptedReport,
 	}
 
-	log.Printf("Executor: Successfully generated deanonymization report %s", req.RequestID.String())
+	log.Printf("Executor: Successfully generated deanonymization report %s", req.RequestID)
 	return report, nil
 }
 

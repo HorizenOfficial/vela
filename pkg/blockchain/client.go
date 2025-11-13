@@ -501,7 +501,7 @@ func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, request
 	}
 
 	if len(valid_logs) > 1 {
-		return nil, fmt.Errorf("found more than 1 log for requestID: %s", requestID.String())
+		return nil, fmt.Errorf("found more than 1 log for requestID: %s", requestID)
 	}
 
 	event, err := c.processorEndpoint.UnpackRequestCompletedEvent(&valid_logs[0])
