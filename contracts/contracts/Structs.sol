@@ -8,7 +8,7 @@ contract Structs {
     enum RequestResult { COMPLETED, FAILED_REFUNDED, FAILED_NOT_REFUNDED }
     enum ErrorCode { 
         NO_ERROR,
-        UNKNOWN_ERROR,
+        UNKNOWN,
         INTERNAL,
         APP_NOT_ADMITTED, 
         APPLICATION_ALREADY_DEPLOYED, 
@@ -18,7 +18,7 @@ contract Structs {
         FUNCTION_NOT_FOUND,
         DEPOSIT_FAILED,
         REQUEST_FUNC_FAILED,
-        APPLICATION_NOT_DEPLOYED,
+        APP_NOT_DEPLOYED,
         WRONG_KEY_SENT,
         PUB_KEY_NOT_REGISTERED,
         NO_REPORT_DATA_FOUND
