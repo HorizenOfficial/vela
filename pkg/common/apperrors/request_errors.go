@@ -23,6 +23,7 @@ const (
 	categoryWrongKeySent
 	categoryPubKeyNotRegistered
 	categoryNoReportDataFound
+	categoryWasmInternal
 	// NOTE: Keep category IDs in sync with ErrorCode enum in contracts/contracts/Structs.sol.
 )
 
@@ -47,6 +48,7 @@ var (
 	CategoryWrongKeySentMeta                    = errorCategory{Category: categoryWrongKeySent, Message: "wrong key sent"}
 	CategoryPubKeyNotRegisteredMeta             = errorCategory{Category: categoryPubKeyNotRegistered, Message: "public key not registered"}
 	CategoryNoReportDataFoundMeta               = errorCategory{Category: categoryNoReportDataFound, Message: "no report data found"}
+	CategoryWasmInternalMeta					= errorCategory{Category: categoryWasmInternal, Message: "wasm internal error"}
 )
 
 type FailureCode struct {
@@ -78,9 +80,9 @@ var (
 	CodeAppDataEncryptionFailure     = FailureCode{"APPDATA_ENCRYPTION_FAILURE", CategoryInternalMeta}
 	CodePayloadUpdateSigningFailure  = FailureCode{"PAYLOAD_UPDATE_SIGNING_FAILURE", CategoryInternalMeta}
 	CodeFunctionNotFound             = FailureCode{"FUNCTION_NOT_FOUND", CategoryFunctionNotFoundMeta}
-	CodeMemoryWriteError             = FailureCode{"MEMORY_WRITE_ERROR", CategoryInternalMeta}
-	CodeFailedExtractingResultBytes  = FailureCode{"FAILED_EXTRACTING_RESULT_BYTES", CategoryInternalMeta}
-	CodeFailedLoadingOrGettingModule = FailureCode{"FAILED_LOADING_OR_GETTING_MODULE", CategoryInternalMeta}
+	CodeMemoryWriteError             = FailureCode{"MEMORY_WRITE_ERROR", CategoryWasmInternalMeta}
+	CodeFailedExtractingResultBytes  = FailureCode{"FAILED_EXTRACTING_RESULT_BYTES", CategoryWasmInternalMeta}
+	CodeFailedLoadingOrGettingModule = FailureCode{"FAILED_LOADING_OR_GETTING_MODULE", CategoryWasmInternalMeta}
 	CodeDepositFailed                = FailureCode{"DEPOSIT_FAILED", CategoryDepositFailedMeta}
 	CodeRequestFuncFailed            = FailureCode{"REQUEST_FUNC_FAILED", CategoryRequestFuncFailedMeta}
 	CodeFailedToGenerateReport       = FailureCode{"FAILED_TO_GENERATE_REPORT", CategoryDeanonymizationReportFailedMeta}

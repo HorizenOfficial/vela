@@ -21,7 +21,8 @@ contract Structs {
         APP_NOT_DEPLOYED,
         WRONG_KEY_SENT,
         PUB_KEY_NOT_REGISTERED,
-        NO_REPORT_DATA_FOUND
+        NO_REPORT_DATA_FOUND,
+        WASM_INTERNAL
     }
     
     struct PendingRequest {
