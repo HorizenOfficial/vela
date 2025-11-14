@@ -8,12 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
 	testutil "github.com/horizen-pes/pkg/testutil"
 )
 
 func TestDeployApp(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime", logger.NewLogger("zerolog"))
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", testLogger)
 	defer suite.Cleanup()
 
 	// 1. Start executor
@@ -59,7 +58,7 @@ func TestMockRuntimeAppFullSystemFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime", logger.NewLogger("zeroLog"))
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", testLogger)
 	defer suite.Cleanup()
 	// Load wasm bytecode for the wasm app
 	wasmBytecode := []byte("mock-runtime-app-bytecode")

@@ -22,6 +22,17 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
+var testLogger logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once
+	testLogger = logger.NewLogger("printf")
+
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
+
 // buildAndLoadWasmModule is a helper function to build the wasm module and read its bytecode.
 func buildAndLoadWasmModule(t *testing.T) []byte {
 	// Get the project root directory to construct absolute paths
@@ -120,11 +131,10 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 }
 
 func TestExecutorManagerStart(t *testing.T) {
-	log := logger.NewLogger("zerolog")
 
-	mgrConfig := manager.ReadConfig(log)
+	mgrConfig := manager.ReadConfig(testLogger)
 	execConfig := executor.ReadConfig()
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, log)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger)
 	defer suite.Cleanup()
 
 	// 2. Start services
@@ -135,7 +145,7 @@ func TestExecutorManagerStart(t *testing.T) {
 }
 
 func TestDeploySimpleApp(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logger.NewLogger("zerolog"))
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -152,7 +162,7 @@ func TestDeploySimpleApp(t *testing.T) {
 
 // this will be modified when we support an app id other that "1"
 func TestDeploySimpleAppNegativeCase(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logger.NewLogger("zerolog"))
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -227,7 +237,7 @@ func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logger.NewLogger("zerolog"))
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)
@@ -239,7 +249,6 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
-	log := logger.NewLogger("zerolog")
 	timeout_value := 10 * time.Second
 	// For debugging it can be useful to use huge timeout value
 	//timeout_value := 10 * time.Hour
@@ -247,7 +256,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user1Address := fmt.Sprintf("0xadd%037x", 1)
 	user2Address := fmt.Sprintf("0xadd%037x", 2)
 
-	mgrConfig := manager.ReadConfig(log)
+	mgrConfig := manager.ReadConfig(testLogger)
 	execConfig := executor.ReadConfig()
 	tempDir, err := os.MkdirTemp("", "reports_system_test")
 	require.NoError(t, err)
@@ -256,7 +265,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// we need to pass the keys for having them in the test suite
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, log)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, testLogger)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -458,7 +467,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	}
 	timeout_value := 10 * time.Second
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logger.NewLogger("zerolog"))
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode

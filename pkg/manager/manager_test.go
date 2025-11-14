@@ -22,6 +22,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var testLogger logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once
+	testLogger = logger.NewLogger("printf")
+
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
+
 type MockExecutorClient struct {
 	*testutil.MockFunctions
 }
@@ -112,13 +123,14 @@ func createRequestWithPayload(requestType common.RequestType, appID string, payl
 }
 
 func TestStart(t *testing.T) {
-	log := logger.NewLogger("zerolog")
 
-	mockDataLayer := mockdb.NewMockDataLayer()
-	bcClient := blockchain.NewMockClient()
-	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	manager := NewSecureProcessorManager(&Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient, log)
+	config := &Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}
+	stopChan := make(chan struct{})
+	executorHandShake := ExecutorHandShake{
+		isComplete: make(chan struct{}),
+	}
+	bcClient, manager := setupTestWithConfig(*config, false, &executorHandShake, stopChan)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
@@ -164,12 +176,13 @@ func TestStart(t *testing.T) {
 }
 
 func TestStop(t *testing.T) {
-	log := logger.NewLogger("zerolog")
-	mockDataLayer := mockdb.NewMockDataLayer()
-	bcClient := blockchain.NewMockClient()
-	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	manager := NewSecureProcessorManager(&Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient, log)
+	config := &Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}
+	stopChan := make(chan struct{})
+	executorHandShake := ExecutorHandShake{
+		isComplete: make(chan struct{}),
+	}
+	bcClient, manager := setupTestWithConfig(*config, false, &executorHandShake, stopChan)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Stop a manager that is not running
@@ -1031,18 +1044,29 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 }
 
 func setupTest() (*blockchain.MockClient, *SecureProcessorManager) {
-	log := logger.NewLogger("zerolog")
+	config := Config{ReorgTimeout: 60}
+	return setupTestWithConfig(config, true, &ExecutorHandShake{}, nil)
+}
+
+func setupTestWithConfig(
+	config Config,
+	managerIsRunning bool,
+	executorHandShake *ExecutorHandShake,
+	stopChan chan struct{},
+) (*blockchain.MockClient, *SecureProcessorManager) {
 	mockDataLayer := mockdb.NewMockDataLayer()
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
 
 	processor := &SecureProcessorManager{
-		config:           &Config{ReorgTimeout: 60},
-		executorClient:   execClient,
-		blockchainClient: bcClient,
-		dataLayer:        mockDataLayer,
-		isRunning:        true,
-		log:              log}
+		config:            &config,
+		executorClient:    execClient,
+		blockchainClient:  bcClient,
+		dataLayer:         mockDataLayer,
+		isRunning:         managerIsRunning,
+		executorHandShake: executorHandShake,
+		stopChan:          stopChan,
+		log:               testLogger}
 
 	return bcClient, processor
 }

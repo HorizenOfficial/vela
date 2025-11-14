@@ -38,7 +38,7 @@ type SecureProcessorManager struct {
 	dataLayer         storage.DataLayer
 	mu                sync.RWMutex
 	isRunning         bool
-	executorHandShake ExecutorHandShake
+	executorHandShake *ExecutorHandShake
 	stopChan          chan struct{}
 	wg                sync.WaitGroup
 	endReorgTime      time.Time
@@ -53,7 +53,7 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 		executorClient:   executorClient,
 		dataLayer:        dataLayer,
 		stopChan:         make(chan struct{}),
-		executorHandShake: ExecutorHandShake{
+		executorHandShake: &ExecutorHandShake{
 			isComplete: make(chan struct{}),
 		},
 		log: log,
@@ -250,7 +250,7 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 		case <-ticker.C:
 			err := m.processRequestFromChain(ctx)
 			if err != nil {
-				m.log.Fatalf("Manager: Error processing requests from chain: %v, exiting", err)
+				m.log.Fatal("Manager: Error processing requests from chain: %v, exiting", err)
 			}
 		}
 	}
@@ -392,7 +392,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 		m.log.Info("Rollback the application state to previous version")
 		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
 			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
-			m.log.Fatalf("Failed to rollback application state: %v", err)
+			m.log.Fatal("Failed to rollback application state: %v", err)
 		}
 
 		if _, ok := err.(blockchain.ReorgError); ok {

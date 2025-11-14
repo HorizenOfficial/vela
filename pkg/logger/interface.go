@@ -5,7 +5,7 @@ type Logger interface {
 	Info(msg string, args ...any)
 	Warn(msg string, args ...any)
 	Error(msg string, args ...any)
-	Fatalf(msg string, args ...any)
+	Fatal(msg string, args ...any)
 }
 
 // Factory function: creates a Logger based on config name.
@@ -14,6 +14,6 @@ func NewLogger(kind string) Logger {
 	case "zerolog":
 		return NewZeroLogger()
 	default:
-		return NewZeroLogger() // default fallback
+		return NewPrintfLogger() // default fallback
 	}
 }
