@@ -23,7 +23,7 @@ describe('ProcessorEndpoint Test', function () {
         let authorityRegistry = await AuthorityRegistry.deploy(signers[0]);
 
         let ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
-        processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, authorityRegistry, signers[0]);
+        processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, authorityRegistry, signers[0], signers[1]);
 
         protocolVersion = await processorEndpoint.PROTOCOL_VERSION();
         applicationId = await processorEndpoint.APPLICATION_ID();
@@ -146,6 +146,19 @@ describe('ProcessorEndpoint Test', function () {
         expect(isNextPending).eql(false);
 
     })
+
+    it('should not save more requests if queue threshold exceeded', async function () {
+        const length = await processorEndpoint.getPendingRequestsSize();
+        console.log("Initial queue length:", length.toString());
+        let updateTx = await processorEndpoint.connect(signers[1]).updateQueueThreshold(1);
+        await updateTx.wait();
+        let value = 100;
+        let tx = await processorEndpoint.submitRequest(protocolVersion, applicationId, 1, "0x01", value, {value: value})
+        await tx.wait();
+        await expect(
+            processorEndpoint.submitRequest(protocolVersion, applicationId, 2, "0x02", value, {value: value})
+        ).to.be.revertedWithCustomError(processorEndpoint, "QueueThresholdExceeded");
+    });
 
     it('should not save requests with wrong protocol version', async function () {
         let wrongProtocolVersion = 2;
@@ -542,6 +555,29 @@ describe('ProcessorEndpoint Test', function () {
         await expect(
             processorEndpoint.stateUpdate(applicationId, initialStateRoot, "0x1234000000000000000000000000000000000000000000000000000000000000", currentPendingRequest.requestId, [], [[addr1, 100], [addr2, 100]], signature) //sum of values is 200
         ).to.be.revertedWithCustomError(processorEndpoint, "InsufficientBalance");
+    });
+
+    it('should not update queue threshold if sender is not admin', async function () {
+        await expect(
+            processorEndpoint.connect(signers[0]).updateQueueThreshold(10)
+        ).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
+    });
+
+    it('should not update queue threshold to zero', async function () {
+        await expect(
+            processorEndpoint.connect(signers[1]).updateQueueThreshold(0)
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+    });
+
+    it('should update queue threshold if sender is admin', async function () {
+        let initialThreshold = await processorEndpoint.maxQueueSize();
+        expect(initialThreshold).eql(BigInt(10));
+
+        let updateTx = await processorEndpoint.connect(signers[1]).updateQueueThreshold(5);
+        await updateTx.wait();
+
+        let updatedThreshold = await processorEndpoint.maxQueueSize();
+        expect(updatedThreshold).eql(BigInt(5));
     });
 
 })
