@@ -14,9 +14,10 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/crypto"
-	"github.com/horizen-pes/pkg/common/testutil"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/common/testutil"
+	"github.com/horizen-pes/pkg/crypto"
 )
 
 func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, TeeSignerAddress ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
@@ -143,12 +144,12 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 
 
 // MarkRequestFailed marks a request as failed
-func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID string) error {
+func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID string, requestFailure *apperrors.RequestFailure) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if f, ok:= c.GetMockedFunc("MarkRequestFailed"); ok {
-		return f.(func(context.Context, string) (error))(ctx, requestID)
+		return f.(func(context.Context, string, *apperrors.RequestFailure) error)(ctx, requestID, requestFailure)
 	}
 
 	if !c.pendingRequests.Has(requestID) {

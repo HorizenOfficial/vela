@@ -17,6 +17,7 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
 )
@@ -263,7 +264,7 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 
 }
 
-func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID string) error {
+func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID string, requestFailure *apperrors.RequestFailure) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -276,9 +277,14 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 		return fmt.Errorf("invalid request ID %s: %w", requestID, err)
 	}
 
-	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(reqId))
+	if requestFailure == nil {
+        requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
+    }
+	
+	solCode := uint8(requestFailure.Category())
+    msg := requestFailure.ExternalMessage()
 
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(reqId, solCode, msg))
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
@@ -496,7 +502,7 @@ func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock ui
 	return fromBlock, nil
 }
 
-// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
+// GetRequestCompletedEvent looks for the RequestCompleted event for the given request in the given block range and returns if the request was successful or failed
 // requestID: identifier of the request
 // fromBlock: block from which the function search events
 // toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
@@ -560,5 +566,9 @@ func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, request
 		return nil, fmt.Errorf("unknown status: %w", err)
 	}
 
-	return &common.RequestResult{Status: status}, nil
+	return &common.RequestResult{
+		Status:       status,
+		ErrorCode:    event.ErrorCode,
+		ErrorMessage: event.ErrorMessage,
+	}, nil
 }
