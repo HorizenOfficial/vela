@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/crypto"
-	"github.com/horizen-pes/pkg/blockchain/testutil"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,31 +31,17 @@ var (
 )
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
-	blockchainClient := NewBlockChainClient(testHelper.ProcessorContractAddress, testHelper.KeyRegistryAddress, "", nil)
-	blockchainClient.client = testHelper.Client()
-
-	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, testHelper.ProcessorContractAddress)
-	blockchainClient.keyRegistryBoundContract = blockchainClient.keyRegistryEndpoint.Instance(blockchainClient.client, testHelper.KeyRegistryAddress)
-
-	blockchainClient.account = testHelper.ManagerAccount
-	blockchainClient.connected = true
-
-	return blockchainClient
+	return SetupNewBlockChainClientConnected(testHelper.Client(), testHelper.ProcessorContractAddress,  testHelper.TeeSignerAddress, testHelper.ManagerAccount)
 
 }
 
-func setupSimTestHelperManualMining(t *testing.T) *testutil.SimTestHelper {
-	return testutil.NewSimTestHelper(t, false, true, nil)
+func setupSimTestHelper(t *testing.T, autoMining bool, teePubSecp521r1 []byte) *testutil.SimTestHelper {
+	return testutil.NewSimTestHelper(t, autoMining, true, nil, teePubSecp521r1)
 }
-
-func setupSimTestHelperAutoMining(t *testing.T) *testutil.SimTestHelper {
-	return testutil.NewSimTestHelper(t, true, true, nil)
-}
-
 
 func TestGetPendingRequests(t *testing.T) {
 
-	testHelper := setupSimTestHelperManualMining(t)
+	testHelper := setupSimTestHelper(t, false, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -62,6 +50,12 @@ func TestGetPendingRequests(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 0, len(res), "There should be zero pending request")
+
+	currentStateRoot := testHelper.GetStateRoot()
+	pendingRequest, stateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, pendingRequest, "There should be no pending request")
+	require.Equal(t, currentStateRoot, stateRoot)
 
 	//*****************************************************
 	// submit request
@@ -90,11 +84,27 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, testHelper.Submitter.From.String(), request.Sender, "Sender should match")
 	require.Equal(t, transferValue.Uint64(), request.Value, "Value should match")
 
+	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, request.RequestID, pendingRequest.RequestID, "RequestID should match")
+	require.Equal(t, strconv.Itoa(int(testHelper.ProtocolVersion)), pendingRequest.ProtocolVersion, "Protocol version should match")
+	require.Equal(t, applicationId.String(), pendingRequest.ApplicationID, "Application ID should match")
+	require.Equal(t, common.Process, pendingRequest.RequestType, "Request type should match")
+	require.Equal(t, payload, pendingRequest.Payload, "Payload should match")
+	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
+
+	require.Equal(t, testHelper.Submitter.From.String(), pendingRequest.Sender, "Sender should match")
+	require.Equal(t, transferValue.Uint64(), pendingRequest.Value, "Value should match")
+
+
+	require.Equal(t, currentStateRoot, stateRoot)
+
+
 }
 
 func TestMarkRequestCompleted(t *testing.T) {
 
-	testHelper := setupSimTestHelperAutoMining(t)
+	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -109,19 +119,27 @@ func TestMarkRequestCompleted(t *testing.T) {
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
+	requestId := res[0].RequestID
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
 	require.NoError(t, err)
 
 	res, err = blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 
+	// Test that completing the same request results in ProcessorEndpointInvalidRequestId
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
+	_, isReorgErr := err.(ReorgError)
+	require.True(t, isReorgErr)
+
 }
 
 func TestMarkRequestFailed(t *testing.T) {
 
-	testHelper := setupSimTestHelperAutoMining(t)
+	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -145,7 +163,7 @@ func TestMarkRequestFailed(t *testing.T) {
 
 func TestSubmitStateUpdate(t *testing.T) {
 
-	testHelper := setupSimTestHelperAutoMining(t)
+	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
@@ -158,7 +176,388 @@ func TestSubmitStateUpdate(t *testing.T) {
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
 
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+
+	events := [1]common.Event{{ApplicationID: res.ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
+	withdrawals := []common.Withdrawal{
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 10},
+	}
+
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID: res.ApplicationID,
+		RequestID:     res.RequestID,
+		PrevStateRoot: oldStateRoot,
+		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
+		Events:        events[:],
+		Withdrawals:   withdrawals,
+		Signature:     signature[:],
+	}
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+
+	listOfRes, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 0, len(listOfRes), "There should be 0 pending request")
+
+	// Test error - NonceTooLow
+	blockchainClient.account.Nonce = big.NewInt(0)
+	blockchainClient.account.GasLimit = 100000 //more than enough to avoid out of gas error
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg := err.(ReorgError)
+	require.True(t, isReorg)
+
+	blockchainClient.account.Nonce = nil //reset nonce to let it be fetched from the network
+	blockchainClient.account.GasLimit = 0 //reset gas limit to let it be estimated
+
+	// Test error - wrong application id
+
+	payload.ApplicationID = "9999"
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidApplicationId")
+
+	// Test error - wrong prev state root
+	payload.ApplicationID = res.ApplicationID
+	payload.PrevStateRoot = [32]byte{0x07, 0x08, 0xaa, 0xbb, 0xee}
+	
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
+
+	// Test error - wrong request id
+	payload.PrevStateRoot = payload.NewStateRoot
+	payload.NewStateRoot = [32]byte{0x07, 0x08, 0x09}
+	payload.RequestID = "9999999999999999999999999999999999999999999999999999999999999999"
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
+
+}
+
+func TestGetUserEvents_StopAtFirst(t *testing.T) {
+	//generate secp521r1 pair for TEE and user
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate tee private key")
+	teePub := teeKey.PublicKey()
+
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate user private key")
+	userPub := userKey.PublicKey()
+	
+	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// submit request and state update with message event
+	messageSkipped := "test message skipped"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, messageSkipped, teeKey, userPub);
+	message := "test message"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message, teeKey, userPub);
+
+	//retrieve and decrypt user events
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
+
+	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
+}
+
+func TestGetUserEvents_MultipleEvents(t *testing.T) {
+	//generate secp521r1 pair for TEE and user
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate tee private key")
+	teePub := teeKey.PublicKey()
+
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate user private key")
+	userPub := userKey.PublicKey()
+	
+	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// submit request and state update with message event
+	message1 := "test message 1"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message1, teeKey, userPub);
+	message2 := "test message 2"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message2, teeKey, userPub);
+	message3 := "test message 3"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message3, teeKey, userPub);
+
+	//retrieve and decrypt user events
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, false)
+	require.NoError(t, err)
+	require.Equal(t, 3, len(userEvents), "There should be 3 user event")
+
+	// they are in reverse order
+	require.Equal(t, []byte(message1), userEvents[2], "Decrypted message should match original (1)")
+	require.Equal(t, []byte(message2), userEvents[1], "Decrypted message should match original (2)")
+	require.Equal(t, []byte(message3), userEvents[0], "Decrypted message should match original (2)")
+
+}
+
+func TestGetUserEvents_WithFilter(t *testing.T) {
+	//generate secp521r1 pair for TEE and user
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate tee private key")
+	teePub := teeKey.PublicKey()
+
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate user private key")
+	userPub := userKey.PublicKey()
+
+	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// submit request and state update with message event
+	messageTrue := "test message - true"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, messageTrue, teeKey, userPub);
+	messageFalse := "test message - false"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, messageFalse, teeKey, userPub);
+
+	//filter function
+	filter := func(data []byte) bool {
+    	return strings.Contains(string(data), "true")
+	}
+
+	//retrieve and decrypt user events
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, filter, false)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
+	require.Equal(t, []byte(messageTrue), userEvents[0], "Decrypted message should match the one that passes the filter")
+
+}
+
+func TestGetUserEvents_OtherUsersEvents(t *testing.T) {
+	//generate secp521r1 pair for TEE and user
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate tee private key")
+	teePub := teeKey.PublicKey()
+
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate user private key")
+	userPub := userKey.PublicKey()
+
+	//generate key for another user
+	otherUserKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err, "failed to generate other user private key")
+	otherUserPub := otherUserKey.PublicKey()
+	
+	testHelper := setupSimTestHelper(t, true, teePub.Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// submit request and state update with message event
+	message := "test message"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message, teeKey, userPub);
+	messageOther := "test message - for other user"
+	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, messageOther, teeKey, otherUserPub);
+
+	//retrieve and decrypt user events
+	// for user
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, *applicationId, 0, 0, nil, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
+	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
+
+	// for other user
+	otherUserEvents, err := blockchainClient.GetUserEvents(context.Background(), *otherUserKey, *applicationId, 0, 0, nil, true)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(otherUserEvents), "There should be 1 user event (other)")
+	require.Equal(t, []byte(messageOther), otherUserEvents[0], "Decrypted message should match original (other)")
+}
+
+func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockchainClient *BlockChainClient, testHelper *testutil.SimTestHelper, 
+	message string, senderPrivKey *cryptotypes.PrivateKeyP521, receiverPubKey *cryptotypes.PublicKeyP521,
+) {
+	// submit request and state update
+	transferValue := big.NewInt(1000000)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	testHelper.WaitMined(tx)
 	res, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	//encrypt event payload with TEE private key and user public key
+	encryptedMessage, err := crypto.Encrypt(senderPrivKey, receiverPubKey, []byte(message))
+	require.NoError(t, err)
+
+	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: encryptedMessage}}
+	withdrawals := []common.Withdrawal{
+		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 0},
+	}
+
+	oldStateRoot := testHelper.GetStateRoot()
+
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID: res[0].ApplicationID,
+		RequestID:     res[0].RequestID,
+		PrevStateRoot: oldStateRoot,
+		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
+		Events:        events[:],
+		Withdrawals:   withdrawals,
+		Signature:     signature[:],
+	}
+
+	//complete state update
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+}
+
+func TestSubmitRequest(t *testing.T) {
+	// mock private key for the client
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Prepare a request
+	protocolVersion := uint8(0)
+	applicationId := big.NewInt(1)
+	requestType := common.Deploy
+	payload := []byte("test-payload")
+	value := big.NewInt(1)
+
+	// Submit the request
+	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, value)
+	require.NoError(t, err)
+	// Get pending requests
+	pending, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	//check block number > 0
+	require.True(t, blockNumber > 0, "Returned block number shouldn't be 0")
+	// Check that the submitted request is present and matches
+	found := false
+	// Convert types for comparison
+	protocolVersionStr := strconv.FormatUint(uint64(protocolVersion), 10)
+	applicationIdStr := applicationId.String()
+	valueUint := value.Uint64()
+	
+	for _, r := range pending {
+		if r.RequestID == requestId {
+			found = true
+
+			if  r.ProtocolVersion != protocolVersionStr || r.ApplicationID != applicationIdStr || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value != valueUint {
+				t.Errorf(
+					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
+					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.Value,
+					protocolVersionStr, applicationIdStr, requestType, string(payload), valueUint,
+				)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("Submitted request not found in pending requests")
+	}
+
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	require.NoError(t, err)
+}
+
+func TestGetTeePublicKey(t *testing.T) {
+	//generate key
+	key, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+	// create test with the key
+	testHelper := setupSimTestHelper(t, true, key.PublicKey().Bytes())
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Get the Public Key
+	publicKey, err := blockchainClient.GetTeePublicKey(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, publicKey, "Public key should not be nil")
+	require.Equal(t, key.PublicKey().Bytes(), publicKey.Bytes(), "Public key not equal to the given one")
+}
+
+func TestGetRequestCompletedEvent(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	//*****************************************************
+	// submit request
+	transferValue := big.NewInt(0)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+
+	// wait for transaction inclusion
+	testHelper.WaitMined(tx)
+
+	receipt, err := testHelper.GetTxReceipt(tx)
+	require.NoError(t, err)
+	requestBlock := receipt.BlockNumber.Uint64()
+
+	res, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
+	require.NoError(t, err)
+
+	event, err := blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, requestBlock, requestBlock + 1)
+	require.Error(t, err)
+	require.Nil(t, event)
+
+
+	// First check where for sure there is not the event, ie in the block where the request was mined
+	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, requestBlock, 0)
+	require.NoError(t, err)
+	require.Nil(t, event, "RequestCompletedEvent shouldn't be found")
+
+	// Check now from the tip, it should be found because the MarkRequestCompleted was successful
+	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, 0, requestBlock + 1)
+	require.NoError(t, err)
+	require.NotNil(t, event, "RequestCompletedEvent should be found")
+
+	require.True(t, event.Status == common.RequestResultOK)
+
+
+	// Try with a failure
+	transferValue = big.NewInt(1000000)
+	tx = testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+
+	// wait for transaction inclusion
+	testHelper.WaitMined(tx)
+
+	receipt, err = testHelper.GetTxReceipt(tx)
+	require.NoError(t, err)
+	requestBlock = receipt.BlockNumber.Uint64()
+
+	res, err = blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+
+	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID)
+	require.NoError(t, err)
+
+	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, 0, requestBlock + 1)
+	require.NoError(t, err)
+	require.NotNil(t, event, "RequestCompletedEvent should be found")
+
+	require.True(t, event.Status == common.RequestResultFailed)
+
+	// Try with a state update
+	tx = testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	// wait for transaction inclusion
+	testHelper.WaitMined(tx)
+
+	receipt, err = testHelper.GetTxReceipt(tx)
+	require.NoError(t, err)
+	requestBlock = receipt.BlockNumber.Uint64()
+
+	res, err = blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
@@ -182,36 +581,10 @@ func TestSubmitStateUpdate(t *testing.T) {
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
-	res, err = blockchainClient.GetPendingRequests(context.Background())
+	event, err = blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, 0, requestBlock + 1)
 	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be 0 pending request")
-}
+	require.NotNil(t, event, "RequestCompletedEvent should be found")
 
-func TestGetPublicKey(t *testing.T) {
-
-	testHelper := setupSimTestHelperManualMining(t)
-	defer testHelper.Close()
-
-	blockchainClient := SetupNewBlockChainClient(testHelper)
-
-	res, err := blockchainClient.GetPublicKey(context.Background(), testHelper.Submitter.From.Hex())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be no key")
-
-	userEncryptKey, err := crypto.GeneratePrivateKeyP521()
-	require.NoError(t, err)
-	userEncryptPubKey := userEncryptKey.PublicKey().Bytes()
-
-	tx, err := testHelper.RegisterUserKey(testHelper.Submitter, userEncryptPubKey)
-	require.NoError(t, err)
-
-	testHelper.MineBlock()
-	// wait for transaction inclusion
-	testHelper.WaitMined(tx)
-
-	res, err = blockchainClient.GetPublicKey(context.Background(), testHelper.Submitter.From.Hex())
-
-	require.NoError(t, err)
-	require.Equal(t, userEncryptPubKey, res)
+	require.True(t, event.Status == common.RequestResultOK)
 
 }

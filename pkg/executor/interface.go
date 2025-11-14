@@ -35,12 +35,8 @@ type Config struct {
 	SignatureKey *cryptotypes.PrivateKeySecp256k1 // Key used for signing updatePayload
 }
 
-// DefaultConfig returns the default configuration
+// DefaultConfig returns the default configuration (possibly overridden by env variables)
 func DefaultConfig() *Config {
-	stateKey, _ := crypto.GenerateAESKey()
-	communicationKey, _ := crypto.GeneratePrivateKeyP521()
-	signatureKey, _ := crypto.GeneratePrivateKeySecp256k1()
-
 	serverAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
 	if serverAddress == "" {
 		serverAddress = "localhost"
@@ -48,6 +44,51 @@ func DefaultConfig() *Config {
 	serverPort := os.Getenv("EXECUTOR_IP_PORT")
 	if serverPort == "" {
 		serverPort = "8080"
+	}
+
+	var stateKey cryptotypes.AES256Key
+	stateKeyFromEnv := os.Getenv("EXECUTOR_KEY_AES")
+	if stateKeyFromEnv == "" {
+		stateKey, _ = crypto.GenerateAESKey()
+	} else {
+		stateKeyImported, err1 := crypto.ImportKeyAESFromHex(stateKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading AES key from hex string: %v\n", err1)
+			panic(err1)
+		}
+		stateKey = *stateKeyImported
+	}
+
+	var communicationKey *cryptotypes.PrivateKeyP521
+	communicationKeyFromEnv := os.Getenv("EXECUTOR_KEY_P521")
+	if communicationKeyFromEnv == "" {
+		log.Printf("EXECUTOR_KEY_P521 property not found. Generating a brand new key\n")
+		communicationKey, _ = crypto.GeneratePrivateKeyP521()
+	} else {
+		communicationKeyImported, err1 := crypto.ImportPrivateKeyP521FromHex(communicationKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading P521 key from hex string: %v\n", err1)
+			panic(err1)
+		}
+		log.Printf("P521 key loaded from hex string\n")
+		log.Printf("Public key is: %v\n", crypto.ExportPublicKeyP521ToHex(communicationKeyImported.PublicKey()))
+		communicationKey = communicationKeyImported
+	}
+
+	var signatureKey *cryptotypes.PrivateKeySecp256k1
+	signatureKeyFromEnv := os.Getenv("EXECUTOR_KEY_SECP256")
+	if signatureKeyFromEnv == "" {
+		log.Printf("EXECUTOR_KEY_SECP256 property not found. Generating a brand new key\n")
+		signatureKey, _ = crypto.GeneratePrivateKeySecp256k1()
+	} else {
+		signatureKeyImported, err1 := crypto.ImportPrivateKeySecp256k1FromHex(signatureKeyFromEnv)
+		if err1 != nil {
+			log.Printf("Error loading Secp256 key from hex string: %v\n", err1)
+			panic(err1)
+		}
+		log.Printf("Signature Secp256 key loaded from hex string\n")
+		log.Printf("Address is: %v\n", signatureKeyImported.PublicKey().Address())
+		signatureKey = signatureKeyImported
 	}
 
 	return &Config{
@@ -108,14 +149,14 @@ type Executor interface {
 
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
-	// LoadModule loads a module from bytecode
-	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, [32]byte, error)
+	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
+	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error)
 	// Deposit processes a deposit
 	Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
 	// ProcessRequest processes a request and returns the new state
 	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error)
 	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, appId string, requestId string, payload []byte, state []byte, wasm []byte) ([]byte, error)
+	GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error)
 	// Close closes the WASM runtime
 	Close() error
 }

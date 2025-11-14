@@ -1,18 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Arrays.sol";
 
 import "./interfaces/ITeeAuthenticator.sol";
 import "./AuthorityRegistry.sol";
 import "./Structs.sol";
 
-contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
-    using EnumerableSet for EnumerableSet.UintSet;
-    using Arrays for uint256[];
+contract ProcessorEndpoint is AccessControl {
 
     //constants
     bytes32 public constant UPDATE_STATUS_ROLE = keccak256("UPDATE_STATUS_ROLE");
@@ -22,39 +17,37 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
     //state variables
     bytes32 public stateRoot;
     
-    Structs.PendingRequest[] public requests;
-    EnumerableSet.UintSet private idsQueue;
+    mapping(bytes32 => Structs.PendingRequest) public requestById;
+    mapping(uint256 => bytes32) private _requestIdByOrder;
+    uint256 private _head;
+    uint256 private _tail;
 
     ITeeAuthenticator public teeAuthenticator;
     AuthorityRegistry public authorityRegistry;
     //events
-    event Withdrawal(uint256 indexed applicationId, uint256 indexed requestId, address to, uint256 amount);
-    event RequestSubmitted(uint256 indexed requestId, address sender);
-    event RequestCompleted(uint256 indexed requestId);
-    event RequestFailed(uint256 indexed requestId);
-    event UserEvent(uint256 indexed applicationId, uint256 indexed requestId, bytes encryptedData);
-    event StateRootUpdate(uint256 indexed applicationId, uint256 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
+    event Withdrawal(uint256 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
+    event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
+    event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status);
+    event UserEvent(uint256 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
+    event StateRootUpdate(uint256 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     //errors
     error AddressCantBeZero();
     error InvalidValue();
     error InvalidProtocolVersion();
     error InvalidApplicationId();
     error InvalidRequestId();
-    error RequestIsAlreadyCompletedOrFailed(Structs.RequestStatus currentStatus);
     error InvalidStateRoot();
     error InvalidSignature();
+    error InvalidPayload();
     error InsufficientBalance();
     error AuthorityNotAllowed();
 
-    modifier onlyPostedRequest(uint256 requestId) {
-        if(requestId >= requests.length) revert InvalidRequestId();
-        if(requests[requestId].status != Structs.RequestStatus.POSTED) revert RequestIsAlreadyCompletedOrFailed(requests[requestId].status);
-        _;
-    }
+
     modifier validProtocolVersion(uint8 protocolVersion) {
         if(protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
         _;
     }
+
     modifier validApplicationId(uint256 applicationId) {
         if(applicationId != APPLICATION_ID) revert InvalidApplicationId();
         _;
@@ -80,15 +73,18 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         Structs.RequestType requestType, 
         bytes calldata payload, 
         uint256 value
-    ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(uint256) {
+    ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
         //check value
         if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
-        //check authorization
-        if(requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
 
+        if (requestType == Structs.RequestType.ASSOCIATEKEY) {
+            //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
+            if (payload.length != 133) revert InvalidPayload();
+        }else if  (requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
+        
         //create request
-        uint256 requestId = requests.length;
-        requests.push(
+        bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, value, _tail);
+        requestById[requestId] = 
             Structs.PendingRequest(
                 protocolVersion,
                 applicationId,
@@ -97,13 +93,11 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
                 payload,
                 block.timestamp,
                 msg.sender,
-                Structs.RequestStatus.POSTED,
                 value
-            )
-        );
+            );
+        _requestIdByOrder[_tail] = requestId;
 
-        //add to queue
-        idsQueue.add(requestId);
+        _tail++;
 
         //emit event
         emit RequestSubmitted(requestId, msg.sender);
@@ -111,47 +105,66 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         return requestId;
     }
 
-    function markRequestCompleted(uint256 requestId) public onlyRole(UPDATE_STATUS_ROLE) onlyPostedRequest(requestId) {
-        requests[requestId].status = Structs.RequestStatus.COMPLETED;
-        //remove from queue
-        idsQueue.remove(requestId);
-        //emit event
-        emit RequestCompleted(requestId);
+    function _removeRequest() private {
+
+        delete requestById[_requestIdByOrder[_head]];
+        delete _requestIdByOrder[_head];
+        _head++;
+
     }
 
-    function markRequestFailed(uint256 requestId) public onlyRole(UPDATE_STATUS_ROLE) onlyPostedRequest(requestId) nonReentrant {
-        //remove from queue
-        idsQueue.remove(requestId);
-        //emit event
-        emit RequestFailed(requestId);
+    function markRequestCompleted(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
+        if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
+
+        _markRequestCompleted(requestId);
+    }
+
+    function _markRequestCompleted(bytes32 requestId) private {
+
+       _removeRequest();
+
+        emit RequestCompleted(requestId, Structs.RequestResult.COMPLETED);
+    }
+
+    function markRequestFailed(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
+        if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
+
+        address sender = requestById[requestId].sender;
+        uint256 value = requestById[requestId].value;
+
+       _removeRequest();
+
+        if (value == 0) {
+            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED); 
+            return;
+        }
         //refunds
-        (bool refunded, ) = payable(requests[requestId].sender).call{value: requests[requestId].value, gas: 2300}("");
-        if(refunded) requests[requestId].status = Structs.RequestStatus.FAILED_REFUNDED;
-        else requests[requestId].status = Structs.RequestStatus.FAILED_NOT_REFUNDED;
+        (bool refunded, ) = payable(sender).call{value: value}("");
+
+        if(refunded) emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED); 
+        else emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED); 
+
     }
 
     function getPendingRequestsSize() public view returns(uint256) {
-        return idsQueue.length();
+        if (_tail > _head) {
+            return (_tail - _head);
+        } else {
+            return 0;
+        }
+        
     }
 
     function getPendingRequests() public view returns(Structs.PendingRequest[] memory) {
-        uint256 setSize = idsQueue.length();
-        uint256[] memory ids = new uint256[](setSize);
+        uint256 numOfPendingRequests = getPendingRequestsSize();
 
-        uint256 i;
-        while(i < setSize) {
-            ids[i] = idsQueue.at(i);
-            unchecked { ++i;}
-        }
-
-        //set sorting is not guaranteed, so we use this to order the requestsId
-        ids = ids.sort();
-        //and then get the corresponding pending requests
-        Structs.PendingRequest[] memory res = new Structs.PendingRequest[](setSize);
-        i = 0;
-        while(i < setSize) {
-            res[i] = requests[ids[i]];
-            unchecked { ++i; }
+        Structs.PendingRequest[] memory res = new Structs.PendingRequest[](numOfPendingRequests);
+        uint256 i = _head;
+        uint256 j;
+        while(i < _tail) {
+            bytes32 requestId = _requestIdByOrder[i];
+            res[j] = requestById[requestId];
+            unchecked { ++i; ++j;}
         }
 
         return res;
@@ -162,14 +175,17 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         uint256 applicationId, 
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 
-        uint256 processedRequestId,
+        bytes32 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         bytes memory signature
-    ) public nonReentrant validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
+    ) public validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
 
         //check prev state root
         if(stateRoot != bytes32(0) && prevStateRoot != stateRoot) revert InvalidStateRoot();
+        //check valid request
+        if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
+
         //check signature
         if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature)) revert InvalidSignature();
 
@@ -183,7 +199,7 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
         if(sum > address(this).balance) revert InsufficientBalance();
 
         //set requests as completed
-        markRequestCompleted(processedRequestId);
+        _markRequestCompleted(processedRequestId);
 
         //emit encrypted event
         i = 0;
@@ -204,4 +220,43 @@ contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
             unchecked {++i;}
         }
     }
+
+
+    function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {
+        uint256 numOfRequests = getPendingRequestsSize();
+        if (numOfRequests > 0){
+            bytes32 requestId = _requestIdByOrder[_head];
+            return (requestById[requestId], stateRoot, true);
+        }
+
+        Structs.PendingRequest memory emptyReq;
+        return (emptyReq, stateRoot, false);
+ 
+    }
+
+    function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
+        return getPendingRequestsSize() > 0 && _requestIdByOrder[_head] == requestId;
+    }
+
+    function generateRequestId(
+        address sender,
+        uint256 applicationId, 
+        Structs.RequestType requestType, 
+        bytes calldata payload, 
+        uint256 value,
+        uint256 idx
+        ) public pure returns (bytes32) {
+        
+        bytes32 requestId = keccak256(abi.encodePacked(
+            sender,
+            applicationId,
+            requestType,
+            payload,
+            value,
+            idx
+       ));
+
+        return requestId;
+    }
+
 }

@@ -2,7 +2,6 @@ package wasm
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -14,8 +13,6 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
-
-const WasmSerializationError = "{}"
 
 type ApplicationModule struct {
 	module   *wasmtime.Module
@@ -50,8 +47,18 @@ func NewWasmtimeRuntime() *WasmtimeRuntime {
 
 // Helper function to write data to WASM memory and return pointer
 func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) (int32, error) {
+	if module == nil {
+		return 0, fmt.Errorf("module is nil")
+	}
 	if module.memory == nil {
 		return 0, fmt.Errorf("memory not initialized")
+	}
+
+	// If data is empty, we don't need to allocate memory.
+	// An empty payload might be a valid input for some operations, therefore
+	// we return a null pointer, and the guest will see a length of 0.
+	if len(data) == 0 {
+		return 0, nil
 	}
 
 	// Get the allocate function from WASM
@@ -92,6 +99,9 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 
 // Helper function to read data from WASM memory
 func (r *WasmtimeRuntime) readFromMemory(module *ApplicationModule, ptr int32, length int32) ([]byte, error) {
+	if module == nil {
+		return nil, fmt.Errorf("module is nil")
+	}
 	if module.memory == nil {
 		return nil, fmt.Errorf("memory not initialized")
 	}
@@ -113,7 +123,7 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, was
 	}
 
 	// If not loaded, load the module
-	_, _, err := r.LoadModule(ctx, appId, wasm)
+	_, err := r.LoadModule(ctx, appId, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load module: %w", err)
 	}
@@ -126,7 +136,7 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, was
 }
 
 // LoadModule loads a WASM module and returns initial state and state root
-func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, [32]byte, error) {
+func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 	log.Printf("Wasmtime Runtime: Loading WASM module for application %s (wasm size: %d bytes)", appId, len(wasm))
@@ -134,14 +144,14 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 	// Compile the WASM module
 	module, err := wasmtime.NewModule(r.engine, wasm)
 	if err != nil {
-		return nil, [32]byte{}, fmt.Errorf("failed to compile WASM module: %w", err)
+		return nil, fmt.Errorf("failed to compile WASM module: %w", err)
 	}
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
 	err = linker.DefineWasi()
 	if err != nil {
-		return nil, [32]byte{}, fmt.Errorf("failed to define WASI: %w", err)
+		return nil, fmt.Errorf("failed to define WASI: %w", err)
 	}
 
 	// Create WASI configuration
@@ -151,24 +161,24 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 	// Create an instance of the module with WASI imports
 	instance, err := linker.Instantiate(r.store, module)
 	if err != nil {
-		return nil, [32]byte{}, fmt.Errorf("failed to instantiate WASM module: %w", err)
+		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}
 
 	// Get the memory export
 	memoryExport := instance.GetExport(r.store, "memory")
 	if memoryExport == nil {
-		return nil, [32]byte{}, fmt.Errorf("memory export not found in WASM module")
+		return nil, fmt.Errorf("memory export not found in WASM module")
 	}
 
 	memory := memoryExport.Memory()
 	if memory == nil {
-		return nil, [32]byte{}, fmt.Errorf("memory export is not a memory")
+		return nil, fmt.Errorf("memory export is not a memory")
 	}
 
 	// Get the load_module function
 	loadModuleFunc := instance.GetFunc(r.store, "load_module")
 	if loadModuleFunc == nil {
-		return nil, [32]byte{}, fmt.Errorf("load_module function not found in WASM module")
+		return nil, fmt.Errorf("load_module function not found in WASM module")
 	}
 
 	appModule := &ApplicationModule{
@@ -181,31 +191,28 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 	appIdBytes := []byte(appId)
 	appIdPtr, err := r.writeToMemory(appModule, appIdBytes)
 	if err != nil {
-		return nil, [32]byte{}, fmt.Errorf("failed to write appId to memory: %w", err)
+		return nil, fmt.Errorf("failed to write appId to memory: %w", err)
 	}
 
 	// Call the load_module function
 	result, err := loadModuleFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)))
 	if err != nil {
-		return nil, [32]byte{}, fmt.Errorf("failed to call load_module: %w", err)
+		return nil, fmt.Errorf("failed to call load_module: %w", err)
 	}
 
 	// Extract the result bytes
 	stateBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
-		return nil, [32]byte{}, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
+		return nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
 
 	log.Printf("Wasmtime Runtime: Raw result from WASM: %s", string(stateBytes))
-
-	// Create state root hash
-	stateRoot := sha256.Sum256(stateBytes)
 
 	log.Printf("Wasmtime Runtime: Successfully loaded WASM module for application %s", appId)
 
 	// Store the module in the runtime
 	r.modules[appId] = appModule
-	return stateBytes, stateRoot, nil
+	return stateBytes, nil
 }
 
 // Deposit processes a deposit
@@ -349,31 +356,21 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, requestId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
-	log.Printf("Wasmtime Runtime: Generating deanonymization report, id: %s, for application %s", requestId, appId)
-
+func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get or load module: %w", err)
 	}
 
-	// Get the generate_deanonymization_report function
+	// Call the WASM function to generate the report
 	generateReportFunc := appModule.instance.GetFunc(r.store, "generate_deanonymization_report")
 	if generateReportFunc == nil {
-		return nil, fmt.Errorf("generate_deanonymization_report function not found in WASM module")
+		return nil, fmt.Errorf("function generate_deanonymization_report not found in wasm module")
 	}
 
-	// Write parameters to memory
-	appIdBytes := []byte(appId)
-	appIdPtr, err := r.writeToMemory(appModule, appIdBytes)
+	payloadPtr, err := r.writeToMemory(appModule, payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write appId to memory: %w", err)
-	}
-
-	requestIdBytes := []byte(requestId)
-	requestIdPtr, err := r.writeToMemory(appModule, requestIdBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write requestId to memory: %w", err)
+		return nil, fmt.Errorf("failed to write payload to memory: %w", err)
 	}
 
 	statePtr, err := r.writeToMemory(appModule, state)
@@ -382,7 +379,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	}
 
 	// Call the generate_deanonymization_report function
-	result, err := generateReportFunc.Call(r.store, appIdPtr, int32(len(appIdBytes)), requestIdPtr, int32(len(requestIdBytes)), statePtr, int32(len(state)))
+	result, err := generateReportFunc.Call(r.store, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call generate_deanonymization_report: %w", err)
 	}
@@ -414,6 +411,10 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 		return nil, fmt.Errorf("wasm module returned unexpected type")
 	}
 
+	if resultPtr == 0 {
+		return nil, fmt.Errorf("wasm module returned a null pointer, possibly due to an allocation failure or invalid input")
+	}
+
 	// Read the length prefix (first 4 bytes as uint32)
 	memData := appModule.memory.UnsafeData(r.store)
 	if resultPtr < 0 || int(resultPtr+4) > len(memData) {
@@ -440,7 +441,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	}
 
 	// WasmSerializationError (`{}`) is returned by the wasm module if serialization fails
-	if string(resultBytes) == WasmSerializationError {
+	if string(resultBytes) == appCommon.WasmSerializationError {
 		return nil, fmt.Errorf("wasm module failed to serialize response/error")
 	}
 

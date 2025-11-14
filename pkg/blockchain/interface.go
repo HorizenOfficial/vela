@@ -3,52 +3,36 @@ package blockchain
 
 import (
 	"context"
-	"time"
+	"math/big"
 
 	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
 // Client defines the interface for interacting with the blockchain
 type Client interface {
+	// SubmitRequest submits a request to the blockchain, returning submitted request id as a string and block number in which it is submitted
+	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error)
 	// GetPendingRequests gets pending requests from the blockchain
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
+	// GetNextPendingRequest gets next pending request and current state root from the blockchain
+	GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error)
 	// MarkRequestFailed marks a request as failed
 	MarkRequestFailed(ctx context.Context, requestID string) error
 	// SubmitStateUpdate submits a state update to the blockchain
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
 	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
 	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
-	// GetPublicKey gets the public key for an address
-	GetPublicKey(ctx context.Context, address string) ([]byte, error)
+	// GetUserEvents gets decryptable user events in the given block range
+	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
+	// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
+	GetRequestCompletedEvent(ctx context.Context, requestID string,  fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
+	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
+	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
+
 	// Close closes the blockchain client
 	Close() error
 	// Connect connects to the blockchain
 	Connect(ctx context.Context) error
 }
 
-// TestClient defines the interface for testing the blockchain client
-type TestClient interface {
-	Client
-	// SubmitRequest submits a request to the blockchain
-	SubmitRequest(ctx context.Context, req *common.Request) error
-	// RegisterPublicKey registers a public key for an address
-	RegisterPublicKey(ctx context.Context, address string, publicKey []byte) error
-	// SubscribeToEvents subscribes to events from the blockchain
-	SubscribeToEvents(ctx context.Context, eventCh chan<- interface{}) error
-	// GetApplicationState gets the state of an application
-	GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error)
-	// GetRequestUpdatePayload gets the signature for a request
-	GetRequestUpdatePayload(ctx context.Context, requestID string) ([]byte, error)
-	// GetDeanonymizationReport gets a deanonymization report
-	GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error)
-	// GetWithdrawals gets withdrawal requests
-	GetWithdrawals(ctx context.Context, applicationID string) (*[]common.Withdrawal, error)
-	// WaitForRequestCompletion waits for a specific request to complete within the given timeout.
-	WaitForRequestCompletion(requestID string, timeout time.Duration) error
-	// GetCompletedRequests retrieves all completed requests.
-	GetCompletedRequests() []*common.Request
-	// ClearAllData clears all data in the mock client
-	ClearAllData()
-	// GetFailedRequests retrieves all failed requests.
-	GetFailedRequests() []*common.Request
-}

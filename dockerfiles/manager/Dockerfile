@@ -34,7 +34,7 @@ RUN npm ci
 WORKDIR /app
 
 # Copy go.mod and go.sum to download Go dependencies
-COPY go.mod go.sum .
+COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy the rest of the source code
@@ -51,6 +51,10 @@ RUN apk add --no-cache su-exec
 
 #default location for data folder (can be overridden by docker compose or docker run)
 ENV MANAGER_DATA_FOLDER="/data"
+#default location for reports folder (can be overridden by docker compose or docker run)
+ENV MANAGER_REPORTS_FOLDER="/reports"
+#default location for input wasms folder (can be overridden by docker compose or docker run)
+ENV MANAGER_INPUT_WASMS="/input_wasms"
 
 # Create a non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -63,6 +67,7 @@ RUN chmod +x /entrypoint.sh
 COPY --from=builder /manager /manager
 
 VOLUME ${MANAGER_DATA_FOLDER}
+VOLUME ${MANAGER_REPORTS_FOLDER}
 
 # Set the entrypoint to our script.
 # The user is still root here, so the script can chown.

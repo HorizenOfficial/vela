@@ -1,10 +1,14 @@
 package manager
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +16,12 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/storage"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+)
+
+// As of now we support only one app having this ID
+const (
+	admittedAppID = "1"
 )
 
 // SecureProcessorManager is an implementation of the Manager interface
@@ -24,6 +34,7 @@ type SecureProcessorManager struct {
 	isRunning        bool
 	stopChan         chan struct{}
 	wg               sync.WaitGroup
+	endReorgTime     time.Time
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -63,6 +74,8 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	// Start the blockchain polling loop in a goroutine
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
+
+	log.Printf("Manager starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
 
 	m.isRunning = true
 	return nil
@@ -111,49 +124,118 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.processRequestsFromChain(ctx)
+			err := m.processRequestFromChain(ctx)
+			if err != nil {
+				log.Fatalf("Manager: Error processing requests from chain: %v, exiting", err)
+			}
 		}
 	}
 }
 
-
-// processRequestsFromChain retrieves pending requests from the blockchain and processes them
-func (m *SecureProcessorManager) processRequestsFromChain(ctx context.Context) {
+// processRequestFromChain retrieves the next pending request from the blockchain and processes it
+func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
-		return
+		return nil
 	}
 
-	// Get pending requests from the blockchain
-	requests, err := m.blockchainClient.GetPendingRequests(ctx)
+	// Get next pending request from the blockchain
+	request, stateRoot, err := m.blockchainClient.GetNextPendingRequest(ctx)
 	if err != nil {
-		log.Printf("Manager: Failed to get pending requests: %v", err)
-		return
+		log.Printf("Manager: Failed to get pending request: %v", err)
+		return nil
 	}
 
-	// Process each request
-	for _, req := range requests {
-		m.mu.RLock()
-		if !m.isRunning {
-			log.Printf("Manager has stopped, exiting request processing loop")
-			m.mu.RUnlock()
-			return
-		}
-		if err := m.processRequest(ctx, req); err != nil {
-			// Log the error and mark the request as failed
-			log.Printf("Manager: Failed to process request %s: %v", req.RequestID, err)
-			if err = m.blockchainClient.MarkRequestFailed(ctx, req.RequestID); err != nil {
-				log.Printf("Manager: Failed to mark request %s as failed: %v", req.RequestID, err)
-			}
+	localStateRoot, err := m.dataLayer.LastVersionID()
+	if err != nil {
+		if dbErr, ok := err.(*storageErrors.Error); ok && dbErr.Code == storageErrors.NoVersionInDb {
+			localStateRoot = make([]byte, 32) // Initialize to zero state root if no version exists
 		} else {
-			log.Printf("Manager: Processed and marked as completed request %s", req.RequestID)
+			log.Printf("Manager: Failed to get local state root: %v", err)
+			return nil
 		}
-		m.mu.RUnlock()
 	}
+
+	if !bytes.Equal(localStateRoot, stateRoot[:]) {
+		log.Printf("Manager: State root mismatch, expected %x, got %x. Checking if it is a REORG.", localStateRoot, stateRoot)
+
+		isReorg, err := m.checkIfReorg(stateRoot)
+		if err != nil {
+			log.Printf("Manager: Failed to check for reorg: %v", err)
+			return nil
+		}
+
+		if isReorg {
+			if m.endReorgTime.IsZero() {
+				log.Printf("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
+				m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
+				return nil
+			}
+			if time.Now().Before(m.endReorgTime) {
+				log.Printf("Manager: REORG timeout not expired yet. Keep waiting...")
+				return nil
+			}
+			log.Printf("Manager: REORG not solved within timeout => Rollback the DB")
+			if err := m.dataLayer.Rollback(stateRoot[:]); err != nil {
+				log.Printf("Manager: Error while rolling back the DB: %v. ", err)
+				return nil
+			}
+
+		} else {
+			return fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
+		}
+
+	}
+
+	if !m.endReorgTime.IsZero() {
+		log.Printf("Manager: State roots match, REORG resolved")
+		m.endReorgTime = time.Time{}
+	}
+
+	if request == nil {
+		return nil
+	}
+
+	log.Printf("Manager: processing request %x", request.RequestID)
+
+	if err := m.processRequest(ctx, request); err != nil {
+		// Log the error and mark the request as failed
+		log.Printf("Manager: Failed to process request %s: %v", request.RequestID, err)
+		if err = m.blockchainClient.MarkRequestFailed(ctx, request.RequestID); err != nil {
+			log.Printf("Manager: Failed to mark request %s as failed: %v", request.RequestID, err)
+		}
+	} else {
+		log.Printf("Manager: Processed request %s", request.RequestID)
+	}
+	return nil
 
 }
 
+func (m *SecureProcessorManager) checkIfReorg(stateRoot [32]byte) (bool, error) {
+	if stateRoot == [32]byte{} {
+		log.Printf("Manager: State root is zero, REORG")
+		// Don't look for older db versions, just mark as reorged and wait for next poll
+		return true, nil
+	}
+
+	oldVersions, err := m.dataLayer.ListVersions()
+	if err != nil {
+		log.Printf("Manager: Failed to get db old versions: %v", err)
+		return false, err
+	}
+
+	for _, oldVersion := range oldVersions[1:] {
+		if bytes.Equal(oldVersion, stateRoot[:]) {
+			log.Printf("Manager: Found matching state root %x in db, REORG. Checking if the timeout is expired", stateRoot)
+			return true, nil
+		}
+	}
+	return false, nil
+
+}
 
 // processRequest processes a request
 func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) error {
@@ -161,10 +243,16 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
+
+	// check admitted appID. TODO: This check will be removed in future
+	if req.ApplicationID != admittedAppID {
+		return fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	}
+
 	switch req.RequestType {
 	case common.Deploy:
 		return m.processDeployApp(ctx, req)
-	case common.Process:
+	case common.Process, common.AssociateKey:
 		return m.processProcessRequest(ctx, req)
 	case common.Deanonymize:
 		return m.processDeanonymization(ctx, req)
@@ -173,13 +261,56 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 	}
 }
 
+func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updatePayload *common.UpdatePayload) error {
+	// Submit the state update to the blockchain
+	if err := m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
+		log.Printf("Failed to submit state update for error: %v", err)
+		log.Printf("Rollback the application state to previous version")
+		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
+			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
+			log.Fatalf("Failed to rollback application state: %v", err)
+		}
+
+		if _, ok := err.(blockchain.ReorgError); ok {
+			log.Printf("REORG, do not call MarkFailed, wait for next poll")
+			return nil
+		}
+		return fmt.Errorf("failed to submit state update: %w", err)
+	}
+
+	log.Printf("Manager: Processed request %s for application %s", updatePayload.RequestID, updatePayload.ApplicationID)
+	return nil
+}
+
 // processDeployApp processes a deploy app request
 func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
-	fmt.Println("Processing deploy app request:", req.RequestID)
+	log.Printf("Processing deploy app request: %s", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
+
+	// check if app was already deployed
+	_, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
+	if err == nil {
+		return fmt.Errorf("application %s was already deployed", req.ApplicationID)
+	}
+
+	//if the payload is empty, try to retrieve the wasm locally
+	if len(req.Payload) == 0 {
+		log.Printf("Empty payload received - trying to retrieve wasm locally")
+		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID+".wasm")
+		if !fileExists(wasmFilePath) {
+			return fmt.Errorf("failed to deploy application - wasm not found in both payload or local path: %v", wasmFilePath)
+		}
+		wasmBytesFromFile, err := os.ReadFile(wasmFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to deploy application - Error reading wasm file: %v", err)
+
+		}
+		req.Payload = wasmBytesFromFile
+	}
+
 	// Deploy the application
 	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req)
 	if err != nil {
@@ -187,7 +318,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Store the application state and WASM bytecode
-	versionID := sha256.Sum256(append(appState.StateRoot[:], req.Payload...))
+	versionID := appState.StateRoot[:]
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
@@ -195,53 +326,52 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: req.Payload}},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to persist application data: %w", err)
+		log.Printf("failed to submit state update: %v", err)
+		return nil
 	}
 
-	fmt.Println("Deployed application, Submit the state update to the blockchain")
-	// Submit the state update to the blockchain
-	if err = m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
-		fmt.Println("failed to submit state update")
-		return fmt.Errorf("failed to submit state update: %w", err)
-	}
+	log.Printf("Deployed application, submit the state update to the blockchain")
+	return m.submitStateOnChain(ctx, updatePayload)
 
-	log.Printf("Manager: Deployed application %s", appState.ApplicationID)
-	return nil
 }
 
 // processProcessRequest processes a process request
 func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
+	log.Printf("Processing Process app request: %s", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
-	
+
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
-		return fmt.Errorf("failed to get application state: %w", err)
+		log.Printf("GetApplicationState returns an error: %v", err)
+		if strings.Contains(err.Error(), "application state not found") {
+			// This can happen if the deploy transaction was not mined yet, mark request as failed
+			return err
+		}
+		// Other errors are likely db errors, retry on next poll
+		return nil
 	}
 
 	// Get the WASM module for the application
 	wasmBytes, err := m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
 	if err != nil {
-		return fmt.Errorf("failed to get wasm bytes: %w", err)
-	}
-
-	// Get the user key for the request sender
-	senderKey, err := m.dataLayer.GetUserKey(ctx, req.Sender)
-	if err != nil {
-		return fmt.Errorf("failed to get user key for sender %s: %w", req.Sender, err)
+		log.Printf("GetWASMBytecode returns an error: %v", err)
+		return nil
 	}
 
 	// Process the request
-	updatePayload, updatedState, err := m.executorClient.SendProcessRequest(ctx, req, appState, senderKey, wasmBytes)
+	updatePayload, updatedState, err := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
 	if err != nil {
 		return fmt.Errorf("failed to process request: %w", err)
 	}
 
 	// Store the updated application state
-	versionID := sha256.Sum256(updatedState.StateRoot[:])
+	versionID := updatedState.StateRoot[:]
+	log.Printf("VersionID %x", versionID[:])
+
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
@@ -249,16 +379,11 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to persist application state: %w", err)
+		log.Printf("failed to submit state update: %v", err)
+		return nil
 	}
 
-	// Submit the state update to the blockchain
-	if err = m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
-		return fmt.Errorf("failed to submit state update: %w", err)
-	}
-
-	log.Printf("Manager: Processed request %s for application %s", req.RequestID, req.ApplicationID)
-	return nil
+	return m.submitStateOnChain(ctx, updatePayload)
 }
 
 // processDeanonymization processes a deanonymization request
@@ -267,65 +392,72 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		log.Printf("Manager is not started yet, skipping")
 		return fmt.Errorf("Manager is not started yet")
 	}
-	
+
 	// Get the application state
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
-		return fmt.Errorf("failed to get application state: %w", err)
+		log.Printf("GetApplicationState returns an error: %v", err)
+		if strings.Contains(err.Error(), "application state not found") {
+			// This can happen if the deploy transaction was not mined yet, mark request as failed
+			return err
+		}
+		// Other errors are likely db errors, retry on next poll
+		return nil
 	}
 
 	// Get the WASM module for the application
 	wasmBytes, err := m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
 	if err != nil {
-		return fmt.Errorf("failed to get wasm bytes: %w", err)
-	}
-
-	// Get the user key for the request sender
-	senderKey, err := m.dataLayer.GetUserKey(ctx, req.Sender)
-	if err != nil {
-		return fmt.Errorf("failed to get user key for sender %s: %w", req.Sender, err)
+		log.Printf("GetWASMBytecode returns an error: %v", err)
+		return nil
 	}
 
 	// Generate the deanonymization report
-	report, err := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, senderKey, wasmBytes)
+	report, err := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
 	if err != nil {
 		return fmt.Errorf("failed to generate deanonymization report: %w", err)
+	}
+
+	// If a path is configured, save the deanonymization report to the filesystem
+	// Do not bail out from the method even if an error occurs, we must continue saving the report in the data layer
+	if m.config.DeanonymizationReportPath != "" {
+		// Ensure the directory exists
+		if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
+			log.Printf("Failed to create directory for deanonymization reports: %v", err)
+		} else {
+			// Marshal the report to JSON
+			reportJSON, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				log.Printf("Failed to marshal deanonymization report to JSON: %v", err)
+			} else {
+				// The request ID is unique across applications, but for cleaner organization we use a folder name that includes both the app ID and the request ID
+				filePath := filepath.Join(m.config.DeanonymizationReportPath, req.ApplicationID+"_"+req.RequestID)
+				// Write the report to the file
+				if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
+					log.Printf("Failed to write deanonymization report to file: %v", err)
+				} else {
+					log.Printf("Saved deanonymization report %s to %s", report.ReportID, filePath)
+				}
+			}
+		}
 	}
 
 	// Store the deanonymization report
 	err = m.dataLayer.StoreDeanonymizationReport(ctx, report)
 	if err != nil {
-		return fmt.Errorf("failed to persist deanonymization report: %w", err)
+		// TODO must we return an error?
+		log.Printf("StoreDeanonymizationReport returns an error: %v", err)
+		return nil
 	}
 
 	// Submit the deanonymization report to the blockchain
 	err = m.blockchainClient.SubmitDeanonymizationReport(ctx, report)
 	if err != nil {
-		return fmt.Errorf("failed to submit deanonymization report: %w", err)
+		// TODO must we return an error?
+		log.Printf("SubmitDeanonymizationReport returns an error: %v", err)
+		return nil
 	}
 
 	log.Printf("Manager: Generated deanonymization report %s for application %s", report.ReportID, req.ApplicationID)
 	return nil
-}
-
-func (m *SecureProcessorManager) HandleGetUserKeys(ctx context.Context, users []string) (map[string][]byte, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if !m.isRunning {
-		log.Printf("Manager is not started yet, skipping")
-		return nil, fmt.Errorf("Manager is not started yet")
-	}
-
-	userKeys := make(map[string][]byte)
-	// Get user keys from the blockchain or data layer
-	for _, user := range users {
-		userKey, err := m.dataLayer.GetUserKey(ctx, user)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user {%s} key: %w", user, err)
-		}
-		userKeys[user] = userKey
-	}
-
-	return userKeys, nil
 }

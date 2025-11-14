@@ -5,7 +5,7 @@ export async function ethSignStateUpdate(
   applicationId: number | BigNumberish,
   prevStateRoot: string,
   newStateRoot: string,
-  processedRequestId: number,
+  processedRequestId: string,
   events: string[],
   withdrawalRequests: any[][]
 ): Promise<string> {

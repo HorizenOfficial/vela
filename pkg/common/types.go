@@ -2,6 +2,8 @@
 package common
 
 import (
+	"encoding/hex"
+	"fmt"
 	"math/big"
 )
 
@@ -9,6 +11,8 @@ import (
 type RequestType string
 
 const (
+	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
+	AssociateKey RequestType = "associatekey"
 	// Deploy represents a request to deploy a new application
 	Deploy RequestType = "deploy"
 	// Process is used for processing a batch of requests
@@ -16,6 +20,21 @@ const (
 	// Deanonymize is used for deanonymization requests
 	Deanonymize RequestType = "deanonymize"
 )
+
+func (rt RequestType) ToUint8() (uint8, error) {
+    switch rt {
+    case Deploy:
+        return 0, nil
+    case Process:
+        return 1, nil
+    case Deanonymize:
+        return 2, nil
+    case AssociateKey:
+        return 3, nil
+    default:
+        return 0, fmt.Errorf("unknown RequestType: %s", rt)
+    }
+}
 
 // Request represents a request to the system
 type Request struct {
@@ -27,11 +46,13 @@ type Request struct {
 	RequestID string `json:"requestId"`
 	// RequestType is the type of request
 	RequestType RequestType `json:"requestType"`
-	// Payload is the encrypted payload for the request
+	// Payload is the payload for the request
+	// All payloads except the one for AssociateKey are encrypted
 	Payload []byte `json:"payload"`
 	// Timestamp is the time the request was submitted
 	Timestamp int64 `json:"timestamp"`
 	// Sender is the address of the sender
+	//TODO: change the type to go-ethereum/common/Address
 	Sender string `json:"sender"`
 	// Value is the optional deposit value in WEI
 	Value uint64 `json:"value"`
@@ -42,6 +63,7 @@ type Event struct {
 	// ApplicationID is the ID of the application
 	ApplicationID string `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
+	//TODO: change the type to go-ethereum/common/Address
 	UserID string `json:"userId"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`
@@ -100,6 +122,13 @@ type DeanonymizationReport struct {
 	EncryptedReport []byte `json:"encryptedReport"`
 }
 
+// DecryptedReport represents a decrypted deanonymization report
+type DecryptedReport struct {
+	ApplicationID  string `json:"applicationId"`
+	RequestID       string `json:"requestId"`
+	ReportDataBytes []byte `json:"reportDataBytes"`
+}
+
 // PlainEvent represents an emitted event before encryption.
 type PlainEvent struct {
 	// UserID is the ID of the user associated with the event
@@ -108,8 +137,54 @@ type PlainEvent struct {
 	Data []byte `json:"data"`
 }
 
-func StringToBigInt(s string) (*big.Int, bool) {
-	i, ok := new(big.Int).SetString(s, 10)
-	return i, ok
+// RequestResultStatus represents the final status of a request after the execution
+type RequestResultStatus uint8
+
+const (
+	RequestResultOK RequestResultStatus = iota
+	RequestResultFailed 
+	RequestResultFailedNotRefunded
+	RequestResultUnknown
+)
+
+// RequestResult represents the result on chain of a request (eg successful or failed with its error )
+type RequestResult struct {
+	Status RequestResultStatus
+	FailureReason string
 }
 
+func UInt8ToRequestResultStatus(i uint8) (RequestResultStatus, error) {
+switch i {
+	case 0:
+		return RequestResultOK, nil
+	case 1:
+		return RequestResultFailed, nil
+	case 2:
+		return RequestResultFailedNotRefunded, nil
+	default:
+		return RequestResultUnknown, fmt.Errorf("unknown request status value %d", i)
+	}
+}
+
+func StringToBigInt(s string) (*big.Int, bool) {
+	return new(big.Int).SetString(s, 10)
+}
+
+func RequestIdStringTo32Byte(s string) ([32]byte, error) {
+
+	arr, err := hex.DecodeString(s)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("requestId string is not a valid hex string: %w", err)
+	}	
+	if len(arr) > 32 {
+		return [32]byte{}, fmt.Errorf("requestId string must not be more than 32 bytes long, got %d", len(arr))
+	}
+
+	var arr32 [32]byte
+	copy(arr32[:], arr)
+	return arr32, nil
+}
+
+func RequestId32ByteToString(b [32]byte) string {
+	return hex.EncodeToString(b[:])
+}

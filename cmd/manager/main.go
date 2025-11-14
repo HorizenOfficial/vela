@@ -11,13 +11,13 @@ import (
 	"os/signal"
 	"syscall"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
-	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
@@ -58,29 +58,25 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 	if strings.TrimSpace(config.ProcessorAddress) == "" {
 		return nil, fmt.Errorf("processor address is empty")
 	}
-	if strings.TrimSpace(config.KeyRegistryAddress) == "" {
-		return nil, fmt.Errorf("key registry address is empty")
-	}
 	if strings.TrimSpace(config.RpcURL) == "" {
 		return nil, fmt.Errorf("rpc url is empty")
 	}
 
-	if !ethCommon.IsHexAddress(config.ProcessorAddress){
+	if !ethCommon.IsHexAddress(config.ProcessorAddress) {
 		return nil, fmt.Errorf("processor address is not a valid hex address")
 	}
 
-	if !ethCommon.IsHexAddress(config.KeyRegistryAddress){
-		return nil, fmt.Errorf("keyregistry address is not a valid hex address")
+	if !ethCommon.IsHexAddress(config.TeeAuthAddress){
+		return nil, fmt.Errorf("teeauthenticator address is not a valid hex address")
 	}
-
 	bcClient := blockchain.NewBlockChainClient(
-		ethCommon.HexToAddress(config.ProcessorAddress), 
-		ethCommon.HexToAddress(config.KeyRegistryAddress), 
-		config.RpcURL, 
+		ethCommon.HexToAddress(config.ProcessorAddress),
+		ethCommon.HexToAddress(config.TeeAuthAddress), 
+		config.RpcURL,
 		&config.PrivateKey)
 
 	return bcClient, nil
-}	
+}
 
 func main() {
 	sigChan := make(chan os.Signal, 1)

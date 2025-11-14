@@ -7,9 +7,12 @@ interface ITeeAuthenticator {
         uint256 applicationId, 
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 
-        uint256 processedRequestId,
+        bytes32 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         bytes memory signature
     ) external view returns(bool);
+
+    function getTeeSigner() external view returns(address);
+    function getPubSecp521r1() external view returns(bytes memory);
 }

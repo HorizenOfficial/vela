@@ -4,6 +4,9 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
+// WasmSerializationError is a generic error for failed WASM serialization.
+const WasmSerializationError = "{}"
+
 // TODO add applicationId to the definitions where appropriate, in future we will have many differnt apps
 
 // DepositResult represents the result of a deposit operation
@@ -51,16 +54,3 @@ type RecipientEvent struct {
 }
 
 type WithdrawalEvent = SenderEvent
-
-type UnencryptedDeanonymizationReportData struct {
-	ApplicationID string                   `json:"applicationId"`
-	RequestID     string                   `json:"requestId"`
-	Accounts      map[string]*AccountState `json:"accounts"`
-	Nonce         uint64                   `json:"nonce"`
-}
-
-// AccountState mirrors the app-level state shape for serialization without introducing a reverse import.
-type AccountState struct {
-	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
-}
