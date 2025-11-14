@@ -297,7 +297,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		// Decrypt the request payload
 		senderAddress := ethCommon.HexToAddress(req.Sender)
-		decryptedPayload, failure := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
+		decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
 		if failure != nil {
 			return nil, nil, failure
 		}
@@ -332,7 +332,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
-	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, e.config.CommunicationKey, e.server, appData.GetKeyStore())
+	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore())
 	if failure != nil {
 		return nil, nil, failure
 	}
@@ -438,7 +438,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 
 	// Decrypt the request payload
 	senderAddress := ethCommon.HexToAddress(req.Sender)
-	decryptedPayload, failure := e.decryptPayload(e.config.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
+	decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, senderAddress, appData.GetKeyStore())
 	if failure != nil {
 		return nil, failure
 	}

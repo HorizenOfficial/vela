@@ -78,6 +78,7 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 
 // MockClientRequestHandler is a mock implementation for testing the new client
 type MockClientRequestHandler struct {
+	GetUserKeysFunc func(ctx context.Context, users []string) (map[string][]byte, *apperrors.RequestFailure)
 	SetKeysetRecoveryFunc func(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
 	GetKeysetRecoveryFunc func(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
 }

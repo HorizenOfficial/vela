@@ -10,7 +10,6 @@ import (
 	"strconv"
 
 	"github.com/horizen-pes/pkg/common/apperrors"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 
 	"github.com/horizen-pes/pkg/common"
