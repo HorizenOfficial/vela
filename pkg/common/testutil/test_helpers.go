@@ -11,12 +11,10 @@ type MockFunctions struct {
 }
 
 func (c *MockFunctions) AddMockedFunc(key string, mockedFunc interface{}) {
-
 	c.MockedFunctions[key] = mockedFunc
 }
 
 func (c *MockFunctions) RemoveMockedFunc(key string) {
-
 	delete(c.MockedFunctions, key)
 }
 

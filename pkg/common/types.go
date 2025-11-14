@@ -179,20 +179,12 @@ type RequestResult struct {
 	FailureReason string
 }
 
-func UInt8ToRequestResultStatus(i uint8) (RequestResultStatus, error) {
-	switch i {
-	case 0:
-		return RequestResultOK, nil
-	case 1:
-		return RequestResultFailed, nil
-	case 2:
-		return RequestResultFailedNotRefunded, nil
-	default:
-		return RequestResultUnknown, fmt.Errorf("unknown request status value %d", i)
-	}
+// EnclaveKeySetRecovery contains the data needed to recover the EnclaveKeySet.
+type EnclaveKeySetRecovery struct {
+	// RecoveryType is the type of recovery data.
+	RecoveryType int `json:"recoveryType"`
+	// KeySetCiphertext is the encrypted EnclaveKeySet.
+	KeySetCiphertext []byte `json:"keySetCiphertext"`
+	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.
+	RecoveryCiphertext []byte `json:"recoveryCiphertext"`
 }
-
-func StringToBigInt(s string) (*big.Int, bool) {
-	return new(big.Int).SetString(s, 10)
-}
-

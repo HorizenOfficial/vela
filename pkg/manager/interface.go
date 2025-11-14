@@ -29,6 +29,9 @@ type Config struct {
 	// ReorgTimeout is the max time interval for waiting for a reorg to be resolved (in seconds)
 	ReorgTimeout int64
 
+	// HandshakeTimeout is the max time interval for waiting for the executor handshake to be completed (in seconds)
+	HandshakeTimeout int64
+
 	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests
 	BlockchainPollingInterval int64
 	// ExecutorConnectionType is the type of connection to use for the executor
@@ -106,19 +109,27 @@ func DefaultConfig() *Config {
 	reorgTimeoutEnvVar := os.Getenv("REORG_TIMEOUT")
 	reorgTimeout, err := strconv.ParseInt(reorgTimeoutEnvVar, 10, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert REORG_TIMEOUT for error %v, using default value", err)
+		fmt.Printf("Failed to convert REORG_TIMEOUT for error %v, using default value\n", err)
 		reorgTimeout = 180
+	}
+
+	handshakeTimeoutEnvVar := os.Getenv("HANDSHAKE_TIMEOUT")
+	handshakeTimeout, err := strconv.ParseInt(handshakeTimeoutEnvVar, 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert HANDSHAKE_TIMEOUT for error %v, using default value\n", err)
+		handshakeTimeout = 5
 	}
 
 	blockchainPollingIntervalEnvVar := os.Getenv("BLOCKCHAIN_POLLING_INTERVAL")
 	blockchainPollingInterval, err := strconv.ParseInt(blockchainPollingIntervalEnvVar, 10, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert BLOCKCHAIN_POLLING_INTERVAL for error %v, using default value", err)
+		fmt.Printf("Failed to convert BLOCKCHAIN_POLLING_INTERVAL for error %v, using default value\n", err)
 		blockchainPollingInterval = 5
 	}
 
 	return &Config{
 		ReorgTimeout:              reorgTimeout,
+		HandshakeTimeout:          handshakeTimeout,
 		BlockchainPollingInterval: blockchainPollingInterval,
 		ExecutorConnectionType:    "tcp", // or "vsock"
 		ExecutorConnectionParams: map[string]string{
@@ -156,6 +167,7 @@ func ReadConfig() *Config {
 	}
 	return &Config{
 		ReorgTimeout:              config.GetInt64("ReorgTimeout", 180), // 3 minutes
+		HandshakeTimeout:          config.GetInt64("HandshakeTimeout", 5),
 		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
 		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{

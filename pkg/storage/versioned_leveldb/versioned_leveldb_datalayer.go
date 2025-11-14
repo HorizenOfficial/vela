@@ -22,7 +22,7 @@ const (
 	appStatePrefix              = "appstate_"
 	wasmPrefix                  = "wasm_"
 	deanonymizationReportPrefix = "deanon_"
-	userKeyPrefix               = "userkey_"
+	enclaveKeyRecoveryPrefix    = "enclavekeyrecovery_"
 )
 
 // just two attributes for the time being; should we need more customization we can add them here
@@ -289,10 +289,67 @@ func (s *LevelDBReportStore) Close() error {
 
 var _ storage.ApplicationReportStore = (*LevelDBReportStore)(nil)
 
+// LevelDBEnclaveKeyStore is a non-versioned store for enclave key recovery data.
+type LevelDBEnclaveKeyStore struct {
+	Adapter *LevelDbStorageAdapter
+	closableStore
+}
+
+func NewLevelDBEnclaveKeyStore(dbPath string) (*LevelDBEnclaveKeyStore, error) {
+	adapter, err := NewLevelDbStorageAdapter(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return &LevelDBEnclaveKeyStore{Adapter: adapter}, nil
+}
+
+func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *common.EnclaveKeySetRecovery) error {
+	if err := s.checkClosed("enclave key store"); err != nil {
+		return err
+	}
+	value, err := json.Marshal(recoveryData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal enclave key set recovery data: %w", err)
+	}
+	key := []byte(enclaveKeyRecoveryPrefix)
+	err = s.Adapter.Put(key, value)
+	if err != nil {
+		return fmt.Errorf("failed to store enclave key set recovery data in LevelDB: %w", err)
+	}
+	return nil
+}
+
+func (s *LevelDBEnclaveKeyStore) GetEnclaveKeySetRecovery(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
+	if err := s.checkClosed("enclave key store"); err != nil {
+		return nil, err
+	}
+	key := []byte(enclaveKeyRecoveryPrefix)
+	value, err := s.Adapter.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get enclave key set recovery data from LevelDB: %w", err)
+	}
+	if value == nil {
+		return nil, storageErrors.ErrNotFound("enclave key set recovery data not found")
+	}
+	recoveryData := &common.EnclaveKeySetRecovery{}
+	err = json.Unmarshal(value, recoveryData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal enclave key set recovery data: %w", err)
+	}
+	return recoveryData, nil
+}
+
+func (s *LevelDBEnclaveKeyStore) Close() error {
+	return s.close(s.Adapter.Close)
+}
+
+var _ storage.EnclaveKeyStore = (*LevelDBEnclaveKeyStore)(nil)
+
 // LevelDBDataLayer implements the DataLayer interface using LevelDB.
 type LevelDBDataLayer struct {
 	*VersionedLevelDBAppStateStore
 	*LevelDBReportStore
+	*LevelDBEnclaveKeyStore
 }
 
 func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*LevelDBDataLayer, error) {
@@ -312,9 +369,15 @@ func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*LevelDBDataLayer
 		return nil, err
 	}
 
+	enclaveKeyStore, err := NewLevelDBEnclaveKeyStore(filepath.Join(cfg.DBPath, "enclave_keys"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &LevelDBDataLayer{
 		VersionedLevelDBAppStateStore: appStateStore,
 		LevelDBReportStore:            reportStore,
+		LevelDBEnclaveKeyStore:        enclaveKeyStore,
 	}, nil
 }
 
@@ -323,6 +386,9 @@ func (d *LevelDBDataLayer) Close() error {
 		return err
 	}
 	if err := d.LevelDBReportStore.Close(); err != nil {
+		return err
+	}
+	if err := d.LevelDBEnclaveKeyStore.Close(); err != nil {
 		return err
 	}
 	return nil

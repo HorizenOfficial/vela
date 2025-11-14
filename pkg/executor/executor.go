@@ -15,12 +15,131 @@ import (
 	"github.com/horizen-pes/pkg/crypto"
 )
 
+func CreateNewKeySet() (*EnclaveKeySet, error) {
+	communicationKey, err := crypto.GeneratePrivateKeyP521()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate communication key: %w", err)
+	}
+	signingKey, err := crypto.GeneratePrivateKeySecp256k1()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate signing key: %w", err)
+	}
+	stateKey, err := crypto.GenerateAESKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate shared key: %w", err)
+	}
+	keySet := &EnclaveKeySet{
+		CommunicationKey: *communicationKey,
+		SigningKey:       *signingKey,
+		StateKey:         stateKey,
+	}
+
+	return keySet, nil
+}
+
+func (e *StatelessExecutor) DumpPublicKeys() {
+	if e.keySet == nil {
+		log.Printf("Executor: nothing to print, keyset is null")
+		return
+	}
+
+	keyP521StrPub := crypto.ExportPublicKeyP521ToHex(e.keySet.CommunicationKey.PublicKey())
+	keySecp256k1StrPub := crypto.ExportPublicKeySecp256k1ToHex(e.keySet.SigningKey.PublicKey())
+	keySecp256k1StrAddress := e.keySet.SigningKey.PublicKey().Address()
+	log.Println("###: Communication key P521 (public): 0x" + keyP521StrPub)
+	log.Println("###: Signing key Secp256k1 (public):  0x" + keySecp256k1StrPub)
+	log.Println("###:             Secp256k1 (address): 0x" + keySecp256k1StrAddress)
+}
+
+func (e *StatelessExecutor) DumpPrivateKeys() {
+	if e.keySet == nil {
+		log.Printf("Executor: nothing to print, keyset is null")
+		return
+	}
+
+	keyP521StrPriv := crypto.ExportPrivateKeyP521ToHex(&e.keySet.CommunicationKey)
+	keySecp256k1StrPriv := crypto.ExportPrivateKeySecp256k1ToHex(&e.keySet.SigningKey)
+	log.Println("###: Communication key P521 (private): 0x" + keyP521StrPriv)
+	log.Println("###: Signing key Secp256k1 (private):  0x" + keySecp256k1StrPriv)
+	log.Printf("###: State key AES256 (raw): %x", e.keySet.StateKey)
+}
+
+// GenerateEnclaveKeySet creates a new keyset from scratch.
+// It will be used at the first initialization.
+// It returns the new keyset and the recovery structure.
+func GenerateEnclaveKeySet(recoveryType int) (*EnclaveKeySet, *common.EnclaveKeySetRecovery, error) {
+	switch recoveryType {
+	case 0:
+		// 1. Create a new AES master key.
+		masterKey, err := crypto.GenerateAESKey()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate master key: %w", err)
+		}
+
+		// 2. Create a new EnclaveKeySet.
+		keySet, err := CreateNewKeySet()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create key set: %w", err)
+		}
+
+		// 3. Serialize the EnclaveKeySet.
+		serializedKeySet, err := keySet.Serialize()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// 4. Encrypt the serialized EnclaveKeySet with the master key.
+		encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to encrypt key set: %w", err)
+		}
+
+		// 5. Create the recovery structure.
+		recovery := &common.EnclaveKeySetRecovery{
+			RecoveryType:       0,
+			KeySetCiphertext:   encryptedKeySet,
+			RecoveryCiphertext: masterKey[:],
+		}
+
+		return keySet, recovery, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported recovery type: %d", recoveryType)
+	}
+}
+
+// RestoreEnclaveKeySet recovers a keyset from a recovery previously stored.
+// It will be used when starting the executors after the first init.
+func RestoreEnclaveKeySet(recovery *common.EnclaveKeySetRecovery) (*EnclaveKeySet, error) {
+	switch recovery.RecoveryType {
+	case 0:
+		// 1. Use the RecoveryCiphertext as the master key to decrypt the KeySetCiphertext.
+		var masterKey cryptotypes.AES256Key
+		copy(masterKey[:], recovery.RecoveryCiphertext)
+
+		decryptedKeySet, err := crypto.DecryptWithAES(masterKey, recovery.KeySetCiphertext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt key set: %w", err)
+		}
+
+		// 2. Deserialize the decrypted data into an EnclaveKeySet.
+		keySet, err := DeserializeEnclaveKeySet(decryptedKeySet)
+		if err != nil {
+			return nil, err
+		}
+
+		return keySet, nil
+	default:
+		return nil, fmt.Errorf("unsupported recovery type: %d", recovery.RecoveryType)
+	}
+}
+
 // StatelessExecutor implements the Executor interface
 type StatelessExecutor struct {
 	config  *Config
 	runtime Runtime
 	server  communication.ExecutorServer
 	*MsgToSignBuilder
+	keySet *EnclaveKeySet
 }
 
 // NewStatelessExecutor creates a new stateless executor
@@ -38,8 +157,75 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
+	// Set the connection handler to perform handshake
+	executor.server.SetConnectionHandler(executor.handleNewConnection)
 
 	return executor, nil
+}
+
+func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn communication.ServerConnection) {
+	log.Printf("Executor: New connection established, starting handshake")
+	keySet, err := e.performHandshake(ctx, conn)
+	if err != nil {
+		log.Printf("Executor: Handshake failed: %v", err)
+		conn.Close()
+		return
+	}
+	e.keySet = keySet
+	log.Printf("Executor: Handshake successful")
+}
+
+func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communication.ServerConnection) (*EnclaveKeySet, error) {
+	log.Printf("Executor: Performing key recovery handshake")
+
+	found, recoveryData, err := conn.GetKeysetRecovery(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get keyset recovery data: %w", err)
+	}
+
+	var keySet *EnclaveKeySet
+	if found {
+		log.Printf("Executor: Keyset recovery data found, restoring keyset...")
+		keySet, err = RestoreEnclaveKeySet(recoveryData)
+		if err != nil {
+			// Notify manager of failure
+			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
+				log.Printf("Executor: failed to send keyset recovery failure to manager: %v", notifyErr)
+			}
+			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
+		}
+
+		commPubKey := crypto.ExportPublicKeyP521ToHex(keySet.CommunicationKey.PublicKey())
+		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
+
+		log.Printf("Executor: Keyset restored successfully, confirming ")
+		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
+		}
+	} else {
+		log.Printf("Executor: Keyset recovery data not found, generating new keyset...")
+		var newRecoveryData *common.EnclaveKeySetRecovery
+		keySet, newRecoveryData, err = GenerateEnclaveKeySet(e.config.KeySetRecoveryType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate enclave keyset: %w", err)
+		}
+
+		commPubKey := crypto.ExportPublicKeyP521ToHex(keySet.CommunicationKey.PublicKey())
+		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
+
+		err = conn.SetKeysetRecovery(ctx, newRecoveryData, commPubKey, signingKeyAddr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set keyset recovery data: %w", err)
+		}
+		log.Printf("Executor: New keyset generated and sent to manager for storage")
+	}
+
+	e.keySet = keySet
+	// this recomputes the pub keys and address, but it is cheap anyway and one time only operation
+	e.DumpPublicKeys()
+
+	return keySet, nil
 }
 
 // Start starts the executor server
@@ -50,7 +236,7 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 	case "v-sock":
 		log.Printf("Executor: Starting v-socket executor server on CID %d, Port %d", e.config.ServerCid, e.config.ServerPort)
 	}
-	return e.server.Start(ctx)
+	return e.server.Start(ctx, "Executor")
 }
 
 // Stop stops the executor server
@@ -107,7 +293,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		//any other case: decrypt the payload and forward to the WASM to obtain the new state
 
 		// Decrypt the request payload
-		decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
+		decryptedPayload, err := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decrypt request payload: %w", err)
 		}
@@ -133,13 +319,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	// Encrypt the new app data and events
-	encryptedNewAppData, err := crypto.EncryptWithAES(e.config.StateKey, newAppData)
+	encryptedNewAppData, err := crypto.EncryptWithAES(e.keySet.StateKey, newAppData)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt new appData: %w", err)
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
-	encryptedEvents, err := e.encryptEvents(ctx, events, req.ApplicationID, e.config.CommunicationKey, e.server, appData.GetKeyStore())
+	encryptedEvents, err := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt events: %w", err)
 	}
@@ -201,7 +387,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	initialAppDataRoot := sha256.Sum256(initialAppDataBytes)
 
 	// Encrypt the initial state
-	encryptedState, err := crypto.EncryptWithAES(e.config.StateKey, initialAppDataBytes)
+	encryptedState, err := crypto.EncryptWithAES(e.keySet.StateKey, initialAppDataBytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt initial app data: %w", err)
 	}
@@ -244,7 +430,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	}
 
 	// Decrypt the request payload
-	decryptedPayload, err := e.decryptPayload(e.config.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
+	decryptedPayload, err := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt Payload: %w", err)
 	}
@@ -259,7 +445,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	encryptedReport, err := e.encryptDeanonymizationReport(
 		req.ApplicationID,
 		req.RequestID,
-		e.config.CommunicationKey,
+		&e.keySet.CommunicationKey,
 		req.Sender,
 		reportData,
 		appData.GetKeyStore(),
@@ -281,7 +467,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 
 func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.ApplicationState) (*appdata.AppData, error) {
 	// Decrypt the encrypted state
-	decryptedState, err := DecryptState(encState.EncryptedState, e.config.StateKey)
+	decryptedState, err := DecryptState(encState.EncryptedState, e.keySet.StateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt state: %w", err)
 	}
@@ -311,7 +497,7 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 	}
 
 	// Sign the hash
-	signature, err := e.config.SignatureKey.Sign(hash)
+	signature, err := e.keySet.SigningKey.Sign(hash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign update payload: %w", err)
 	}

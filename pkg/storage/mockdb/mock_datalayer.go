@@ -19,6 +19,7 @@ type MockDataLayer struct {
 	bytecodes map[common.ApplicationIdType][]byte
 	reports   map[common.RequestIdType]*common.DeanonymizationReport
 	keys      map[string][]byte
+	enclaveKeyRecovery *common.EnclaveKeySetRecovery
 	isClosed  bool
 	versions [][]byte
 	*testutil.MockFunctions
@@ -56,8 +57,8 @@ func (d *MockDataLayer) Store(
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	if f, ok:= d.GetMockedFunc("Store"); ok {
-		return f.(func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) (error))(ctx, versionID, stateArray, wasmArray)
+	if f, ok := d.GetMockedFunc("Store"); ok {
+		return f.(func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error)(ctx, versionID, stateArray, wasmArray)
 	}
 	if err := d.checkClosed(); err != nil {
 		return err
@@ -74,7 +75,6 @@ func (d *MockDataLayer) Store(
 			d.bytecodes[wasm.ApplicationID] = wasm.Bytecode
 		}
 	}
-
 
 	d.versions = append(d.versions, versionID)
 
@@ -123,8 +123,8 @@ func (d *MockDataLayer) StoreDeanonymizationReport(ctx context.Context, report *
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	if f, ok:= d.GetMockedFunc("StoreDeanonymizationReport"); ok {
-		return f.(func(context.Context, *common.DeanonymizationReport) (error))(ctx, report)
+	if f, ok := d.GetMockedFunc("StoreDeanonymizationReport"); ok {
+		return f.(func(context.Context, *common.DeanonymizationReport) error)(ctx, report)
 	}
 
 	if err := d.checkClosed(); err != nil {
@@ -148,13 +148,47 @@ func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID c
 	return report, nil
 }
 
+// StoreEnclaveKeySetRecovery stores the enclave key set recovery data.
+func (d *MockDataLayer) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *common.EnclaveKeySetRecovery) error {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	if f, ok := d.GetMockedFunc("StoreEnclaveKeySetRecovery"); ok {
+		return f.(func(context.Context, *common.EnclaveKeySetRecovery) error)(ctx, recoveryData)
+	}
+
+	if err := d.checkClosed(); err != nil {
+		return err
+	}
+	d.enclaveKeyRecovery = recoveryData
+	return nil
+}
+
+// GetEnclaveKeySetRecovery retrieves the enclave key set recovery data.
+func (d *MockDataLayer) GetEnclaveKeySetRecovery(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	if f, ok := d.GetMockedFunc("GetEnclaveKeySetRecovery"); ok {
+		return f.(func(context.Context) (*common.EnclaveKeySetRecovery, error))(ctx)
+	}
+
+	if err := d.checkClosed(); err != nil {
+		return nil, err
+	}
+	if d.enclaveKeyRecovery == nil {
+		return nil, storageErrors.ErrNotFound("enclave key set recovery data not found")
+	}
+	return d.enclaveKeyRecovery, nil
+}
+
 // Close marks the mock data layer as closed.
 func (d *MockDataLayer) Close() error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	if f, ok:= d.GetMockedFunc("Close"); ok {
-		return f.(func() ( error))()
+	if f, ok := d.GetMockedFunc("Close"); ok {
+		return f.(func() error)()
 	}
 
 	d.isClosed = true
@@ -167,8 +201,8 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok:= d.GetMockedFunc("Rollback"); ok {
-		return f.(func([]byte) (error))(versionID)
+	if f, ok := d.GetMockedFunc("Rollback"); ok {
+		return f.(func([]byte) error)(versionID)
 	}
 
 	var initialState = [32]byte{}
@@ -179,7 +213,6 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 		return nil
 	}
 
-
 	for i, v := range d.versions {
 		if string(v) == string(versionID) {
 			d.versions = d.versions[:i+1]
@@ -188,7 +221,7 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 			}
 
 			return nil
-		}		
+		}
 	}
 	return fmt.Errorf("versionID not found: %x", versionID)
 }
@@ -198,15 +231,15 @@ func (d *MockDataLayer) LastVersionID() ([]byte, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok:= d.GetMockedFunc("LastVersionID"); ok {
+	if f, ok := d.GetMockedFunc("LastVersionID"); ok {
 		return f.(func() ([]byte, error))()
 	}
 
 	if len(d.versions) == 0 {
 		return nil, storageErrors.ErrNoVersionInDb("No version in db")
 	}
-	
-	return d.versions[len(d.versions) - 1], nil
+
+	return d.versions[len(d.versions)-1], nil
 }
 
 // ListVersions is a mock implementation of the ListVersions method.
@@ -214,10 +247,10 @@ func (d *MockDataLayer) ListVersions() ([][]byte, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok:= d.GetMockedFunc("ListVersions"); ok {
+	if f, ok := d.GetMockedFunc("ListVersions"); ok {
 		return f.(func() ([][]byte, error))()
 	}
-	
+
 	lifoVersions := make([][]byte, len(d.versions))
 	for i, v := range d.versions {
 		lifoVersions[len(d.versions)-1-i] = v
