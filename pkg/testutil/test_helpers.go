@@ -17,6 +17,7 @@ import (
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
 	"github.com/horizen-pes/pkg/wasm"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
@@ -39,24 +40,33 @@ type SystemTestSuite struct {
 }
 
 func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
-	config := manager.ReadConfig()
-	return NewSystemTestSuiteWithMgrConfig(t, appType, config)
+	mgrConfig := manager.ReadConfig()
+	execConfig := executor.ReadConfig()
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
+	require.NoError(t, err)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData)
 }
 
-func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manager.Config) *SystemTestSuite {
+func NewSystemTestSuiteWithConfigs(
+	t *testing.T,
+	appType string,
+	mgrConfig *manager.Config,
+	execConfig *executor.Config,
+	keySet *executor.EnclaveKeySet,
+	recoveryData *common.EnclaveKeySetRecovery,
+) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	execConfig := executor.DefaultConfig()
 	factory := communication.NewTCPConnectionFactory(execConfig.ServerAddr)
 	executorClient := communication.NewClient(factory)
 
 	// Create manager
 	var err error
 	var reportsPath string = ""
-	if config.DeanonymizationReportPath != "" {
+	if mgrConfig.DeanonymizationReportPath != "" {
 		// Create a temporary directory for reports, we overwrite this optional setting
 		// because this is a test environment
 		reportsPath, err = os.MkdirTemp("", "test-reports")
@@ -69,14 +79,18 @@ func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manag
 
 	cfg := versioned_leveldb.VersionedLevelDBConfig{
 		DBPath:         dbPath,
-		VersionsToKeep: config.DataLayerNumOfVersions,
+		VersionsToKeep: mgrConfig.DataLayerNumOfVersions,
 	}
 
-	//dataLayer := mockdb.NewMockDataLayer()
-	dataLayer, err := versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
-	require.NoError(t, err)
+	var dataLayer storage.DataLayer = nil
+	if mgrConfig.DataLayerType == "mockdb" {
+		dataLayer = mockdb.NewMockDataLayer()
+	} else {
+		dataLayer, err = versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
+		require.NoError(t, err)
+	}
 
-	mgr := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
+	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient)
 
 	// Create executor
 	server := communication.NewServer(factory)
@@ -89,27 +103,39 @@ func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manag
 		t.Log("wasm app type: ", appType)
 		runtime = wasm.NewWasmtimeRuntime()
 	}
+
+	// Create the executor
 	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server)
 	require.NoError(t, err)
+
+	if keySet != nil && recoveryData != nil {
+		err := dataLayer.StoreEnclaveKeySetRecovery(ctx, recoveryData)
+		require.NoError(t, err)
+	}
 
 	// Create event channel
 	eventChannel := make(chan interface{}, 100)
 	blockchainClient.SubscribeToEvents(ctx, eventChannel)
 
-	return &SystemTestSuite{
-		t:                  t,
-		manager:            mgr,
-		executor:           exec,
-		blockchainClient:   blockchainClient,
-		dataLayer:          dataLayer,
-		eventChannel:       eventChannel,
-		ctx:                ctx,
-		cancel:             cancel,
-		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
-		executorSigningKey: execConfig.SignatureKey,     // Store the executor's signing key
-		dbPath:             dbPath,
-		reportsPath:        reportsPath,
+	suite := &SystemTestSuite{
+		t:                t,
+		manager:          mgr,
+		executor:         exec,
+		blockchainClient: blockchainClient,
+		dataLayer:        dataLayer,
+		eventChannel:     eventChannel,
+		ctx:              ctx,
+		cancel:           cancel,
+		dbPath:           dbPath,
+		reportsPath:      reportsPath,
 	}
+
+	if keySet != nil {
+		suite.executorCommKey = &keySet.CommunicationKey
+		suite.executorSigningKey = &keySet.SigningKey
+	}
+
+	return suite
 }
 
 func (s *SystemTestSuite) StartManager() error {
@@ -124,7 +150,8 @@ func (s *SystemTestSuite) StartManager() error {
 
 	// Wait for a result from the goroutine
 	if err := <-errChan; err != nil {
-		s.t.Fatalf("Manager failed to start: %v", err)
+		log.Printf("Manager failed to start: %v", err)
+		return err
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -283,12 +310,15 @@ func (s *SystemTestSuite) GetExecutorCommunicationKey() (*cryptotypes.PublicKeyP
 	return s.executorCommKey.PublicKey(), nil
 }
 
-// GetExecutorSigningKey returns the executor's signing public key for encryption
 func (s *SystemTestSuite) GetExecutorSigningKey() (*cryptotypes.PublicKeySecp256k1, error) {
 	if s.executorSigningKey == nil {
 		return nil, fmt.Errorf("executor signing key not initialized")
 	}
 	return s.executorSigningKey.PublicKey(), nil
+}
+
+func (s *SystemTestSuite) GetDataLayer() storage.DataLayer {
+	return s.dataLayer
 }
 
 func (s *SystemTestSuite) LoadWasmModule(t *testing.T, moduleFilename string) []byte {

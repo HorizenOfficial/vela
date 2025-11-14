@@ -38,6 +38,12 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
+// IsNotFound checks if an error is a NotFound error.
+func IsNotFound(err error) bool {
+	e, ok := err.(*Error)
+	return ok && e.Code == NotFound
+}
+
 // ErrNotFound creates a new Error instance with "not_found" code.
 func ErrNotFound(message string) *Error { return NewError(NotFound, message) }
 

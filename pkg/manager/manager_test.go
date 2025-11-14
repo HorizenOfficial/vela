@@ -25,13 +25,18 @@ type MockExecutorClient struct {
 	*testutil.MockFunctions
 }
 
+// HandShake implements communication.ExecutorClient.
+func (m *MockExecutorClient) HandShake(ctx context.Context, message string) (string, error) {
+	panic("unimplemented")
+}
+
 func NewMockExecutorClient() *MockExecutorClient {
 	return &MockExecutorClient{MockFunctions: testutil.NewMockFunctions()}
 }
 
-func (m *MockExecutorClient) Connect(ctx context.Context) error {
+func (m *MockExecutorClient) Connect(ctx context.Context, tag string) error {
 	if f, ok := m.GetMockedFunc("Connect"); ok {
-		return f.(func() error)()
+		return f.(func(context.Context, string) error)(ctx, tag)
 	}
 	return nil
 }
@@ -110,11 +115,11 @@ func TestStart(t *testing.T) {
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
+	manager := NewSecureProcessorManager(&Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func() error {
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
 		return fmt.Errorf("Connect failed")
 	})
 	err := manager.Start(context.Background())
@@ -124,7 +129,15 @@ func TestStart(t *testing.T) {
 	// Reset the executor client
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("Connect")
 	// Start the manager but blockchainClient fails to connect
-	bcClient.AddMockedFunc("Connect", func(context.Context) error { return fmt.Errorf("failed to connect blockchain client") })
+	bcClient.AddMockedFunc("Connect", func(context.Context) error {
+		return fmt.Errorf("failed to connect blockchain client")
+	})
+
+	// Mock successful executor client connection and handshake completion
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
+		go manager.completeExecutorHandshake(nil)
+		return nil
+	})
 
 	err = manager.Start(context.Background())
 	require.Error(t, err, "failed to connect to blockchain, should return error")
@@ -143,6 +156,7 @@ func TestStart(t *testing.T) {
 	// Stopping the polling goroutine
 	cancel()
 	manager.wg.Wait()
+	t.Log("TestStart completed")
 
 }
 
@@ -152,7 +166,7 @@ func TestStop(t *testing.T) {
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	manager := NewSecureProcessorManager(&Config{BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
+	manager := NewSecureProcessorManager(&Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Stop a manager that is not running
@@ -160,11 +174,16 @@ func TestStop(t *testing.T) {
 	require.NoError(t, err, "Stopping a non-running manager should not return error")
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Mock successful executor client connection and handshake completion
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
+		go manager.completeExecutorHandshake(nil)
+		return nil
+	})
 
 	err = manager.Start(ctx)
 	require.NoError(t, err, "Failed to start manager")
-	// Stopping the polling goroutine, otherwise Stop() will block forever
-	cancel()
 
 	// Stop the manager but execClient fails to stop
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Close", func() error {

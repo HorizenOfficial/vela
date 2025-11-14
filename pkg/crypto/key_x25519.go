@@ -21,7 +21,7 @@ func GeneratePrivateKey25519() (*cryptotypes.PrivateKey25519, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
-	return &cryptotypes.PrivateKey25519{newKey}, nil
+	return &cryptotypes.PrivateKey25519{PrivateKey: newKey}, nil
 }
 
 // SavePrivateKey25519ToFileDER saves a 25519 private key to a file in PKCS #8, ASN.1 DER format.
@@ -56,7 +56,7 @@ func LoadPrivateKey25519FromFileDER(filename string) (*cryptotypes.PrivateKey255
 		return nil, fmt.Errorf("key is not an ecdh.PrivateKey")
 	}
 
-	return &cryptotypes.PrivateKey25519{ecdhKey}, nil
+	return &cryptotypes.PrivateKey25519{PrivateKey: ecdhKey}, nil
 }
 
 // SavePrivateKey25519ToFilePEM saves a 25519 private key to a file in PEM format.
@@ -107,7 +107,7 @@ func LoadPrivateKey25519FromFilePEM(filename string) (*cryptotypes.PrivateKey255
 		return nil, fmt.Errorf("key is not an ecdh.PrivateKey")
 	}
 
-	return &cryptotypes.PrivateKey25519{ecdhKey}, nil
+	return &cryptotypes.PrivateKey25519{PrivateKey: ecdhKey}, nil
 }
 
 // ExportPrivateKey25519ToHex exports a 25519 private key to a hex string.
@@ -133,7 +133,7 @@ func ImportPrivateKey25519FromHex(hexKey string) (*cryptotypes.PrivateKey25519, 
 		return nil, fmt.Errorf("failed to create private key: %w", err)
 	}
 
-	return &cryptotypes.PrivateKey25519{key}, nil
+	return &cryptotypes.PrivateKey25519{PrivateKey: key}, nil
 }
 
 // ImportPublicKey25519FromHex imports a 25519 public key from a hex string.
@@ -149,5 +149,5 @@ func ImportPublicKey25519FromHex(hexKey string) (*cryptotypes.PublicKey25519, er
 		return nil, fmt.Errorf("failed to create public key: %w", err)
 	}
 
-	return &cryptotypes.PublicKey25519{key}, nil
+	return &cryptotypes.PublicKey25519{PublicKey: key}, nil
 }

@@ -21,10 +21,11 @@ func MessageReaderLoop(
 	conn net.Conn,
 	reader *bufio.Reader,
 	shutdownChan chan struct{},
-	routeMessage func(context.Context, *Message),
+	routeMessage func(context.Context, Message),
 	closeConnection func(),
 ) {
 	defer closeConnection()
+	log.Printf("%s: Entering message reader loop!", logPrefix)
 
 	// A constant for the read timeout, long enough to handle a brief pause in data flow
 	const readTimeout = 1 * time.Second
@@ -107,7 +108,10 @@ func MessageReaderLoop(
 		}
 
 		log.Printf("%s: Received message: ID=%s, Type=%v", logPrefix, msg.ID, msg.Type)
-		// Route message in a separate goroutine
-		go routeMessage(ctx, &msg)
+		// Route message in a separate goroutine, making a copy of the message to avoid capturing a loop variable.
+		// By creating this explicit copy, we ensure that each goroutine receives a pointer to its own message,
+		// that is local to this specific iteration of the loop
+		msgCopy := msg
+		go routeMessage(ctx, msgCopy)
 	}
 }
