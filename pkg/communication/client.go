@@ -12,6 +12,7 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	apperrors "github.com/horizen-pes/pkg/common/apperrors"
+	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
 
 // Client is a unified client implementation of the ExecutorClient interface
@@ -27,6 +28,7 @@ type Client struct {
 	reqTimeout      time.Duration
 	factory         ConnectionFactory
 	requestHandler  ClientRequestHandler
+	idLogTag        string
 }
 
 // NewClient creates a new client with the specified connection factory
@@ -42,7 +44,7 @@ func NewClient(factory ConnectionFactory) *Client {
 }
 
 // Connect establishes a connection using the connection factory
-func (c *Client) Connect(ctx context.Context) error {
+func (c *Client) Connect(ctx context.Context, idLogTag string) error {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
 
@@ -60,15 +62,16 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.reader = bufio.NewReader(conn)
 	c.writer = bufio.NewWriter(conn)
 	c.connected = true
+	c.idLogTag = idLogTag
 
 	// Start the message reader goroutine
 	go MessageReaderLoop(
 		ctx,
-		"Client",
+		idLogTag,
 		c.conn,
 		c.reader,
 		c.shutdown,
-		func(ctx context.Context, msg *Message) {
+		func(ctx context.Context, msg Message) {
 			c.routeIncomingMessage(ctx, msg)
 		},
 		func() {
@@ -230,9 +233,9 @@ func (c *Client) SendGenerateDeanonymizationReport(ctx context.Context, req *com
 }
 
 // sendRequestAndWaitForResponse sends a request and waits for the response
-func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message) (*Message, error) {
+func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message) (Message, error) {
 	// Create response channel
-	responseChan := make(chan *Message, 1)
+	responseChan := make(chan Message, 1)
 
 	// Store pending request
 	c.pendingMu.Lock()
@@ -251,20 +254,20 @@ func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message)
 
 	// Send message
 	if err := c.sendMessage(msg); err != nil {
-		return nil, fmt.Errorf("failed to send message: %w", err)
+		return Message{}, fmt.Errorf("%s: failed to send message: %w", c.idLogTag, err)
 	}
 
 	// Wait for response or timeout
 	select {
 	case response, ok := <-responseChan:
 		if !ok {
-			return nil, fmt.Errorf("request timeout or response channel closed")
+			return Message{}, fmt.Errorf("request timeout or response channel closed")
 		}
 		return response, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return Message{}, ctx.Err()
 	case <-c.shutdown:
-		return nil, fmt.Errorf("client is shutting down")
+		return Message{}, fmt.Errorf("client is shutting down")
 	}
 }
 
@@ -282,11 +285,11 @@ func (c *Client) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
-	log.Printf("MagBytes length before delimiter: %d", len(data))
+	log.Printf("%s: MagBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add delimiter
 	data = append(data, delimiter)
-	log.Printf("MagBytes length after delimiter: %d", len(data))
+	log.Printf("%s: MagBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write message with delimiter
 	if _, err := c.writer.Write(data); err != nil {
@@ -300,7 +303,7 @@ func (c *Client) sendMessage(msg Message) error {
 }
 
 // routeIncomingMessage routes incoming messages to appropriate handlers
-func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
+func (c *Client) routeIncomingMessage(ctx context.Context, msg Message) {
 	c.pendingMu.Lock()
 	pendingReq, exists := c.pendingRequests[msg.ID]
 	c.pendingMu.Unlock()
@@ -316,7 +319,7 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 			// Channel is open and has room, send the response
 		default:
 			// Channel is full or closed, ignore and log the issue
-			log.Printf("Client: Warning: response channel for request ID %s is full or closed, ignoring response\n", msg.ID)
+			log.Printf("%s: Warning: response channel for request ID %s is full or closed, ignoring response\n", c.idLogTag, msg.ID)
 		}
 		return
 	}
@@ -326,17 +329,125 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg *Message) {
 }
 
 // handleServerRequest handles requests initiated by the server
-// NOTE: for now no messages are supported on this direction, but the method is present for future use cases
-func (c *Client) handleServerRequest(ctx context.Context, msg *Message) {
+func (c *Client) handleServerRequest(ctx context.Context, msg Message) {
 	switch msg.Type {
+	case GetKeysetRecoveryRequestMessage:
+		log.Printf("%s: got message GetKeysetRecoveryRequestMessage type: %v\n", c.idLogTag, msg.Type)
+		c.handleGetKeysetRecoveryRequest(ctx, msg)
+	case SetKeysetRecoveryRequestMessage:
+		log.Printf("%s: got message SetKeysetRecoveryRequestMessage type: %v\n", c.idLogTag, msg.Type)
+		c.handleSetKeysetRecoveryRequest(ctx, msg)
+	case KeysetRecoveryResultMessage:
+		c.handleKeysetRecoveryResult(ctx, msg)
 	default:
-		log.Printf("Client: Warning: unknown message type: %v\n", msg.Type)
+		log.Printf("%s: Warning: unknown message type: %v\n", c.idLogTag, msg.Type)
 	}
+}
+
+// handleGetKeysetRecoveryRequest handles Executor messages from the server
+func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message) {
+	log.Printf("%s: entering %s", c.idLogTag, common.FnName())
+	if c.requestHandler == nil {
+		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
+		return
+	}
+
+	recv, err := c.requestHandler.HandleGetKeysetRecoveryRequest(ctx)
+
+	var dataFound bool
+	var respRecv *common.EnclaveKeySetRecovery
+
+	if err != nil {
+		if storageErrors.IsNotFound(err) {
+			log.Printf("%s: KeysetRecovery not found in data layer: %v", c.idLogTag, err)
+			dataFound = false
+			respRecv = nil
+		} else {
+			log.Printf("%s: Unexpected error from datalayer: %v", c.idLogTag, err)
+			c.sendErrorResponse(msg.ID, "Unexpected error from dataLayer ", err)
+			return
+		}
+	} else {
+		log.Printf("%s: KeysetRecovery found in data layer", c.idLogTag)
+		dataFound = true
+		respRecv = recv
+	}
+
+	response := Message{
+		ID:   msg.ID,
+		Type: GetKeysetRecoveryResponseMessage,
+		Data: GetKeysetRecoveryResponseData{
+			DataFound:      dataFound,
+			KeySetRecovery: respRecv,
+		},
+	}
+
+	log.Printf("%s: Sending GetKeysetRecoveryResponseMessage to executor", c.idLogTag)
+	err = c.sendMessage(response)
+	if err != nil {
+		log.Printf("%s: Failed to send GetKeysetRecoveryResponseMessage response: %v", c.idLogTag, err)
+	}
+}
+
+func (c *Client) handleKeysetRecoveryResult(ctx context.Context, msg Message) {
+	if c.requestHandler == nil {
+		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
+		return
+	}
+
+	reqData, err := extractData[KeysetRecoveryResultData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	var result error
+	if reqData.Error != "" {
+		result = fmt.Errorf(reqData.Error)
+	}
+
+	err = c.requestHandler.HandleKeysetRecoveryResult(ctx, result, reqData.CommPubKey, reqData.SigningKeyAddr)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+		return
+	}
+}
+
+// handleSetKeysetRecoveryRequest handles a request to set the keyset recovery data
+func (c *Client) handleSetKeysetRecoveryRequest(ctx context.Context, msg Message) {
+	if c.requestHandler == nil {
+		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
+		return
+	}
+
+	reqData, err := extractData[SetKeysetRecoveryRequestData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	err = c.requestHandler.HandleSetKeysetRecoveryRequest(ctx, reqData.KeySetRecovery, reqData.CommPubKey, reqData.SigningKeyAddr)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+		return
+	}
+
+	response := Message{
+		ID:   msg.ID,
+		Type: SetKeysetRecoveryResponseMessage,
+		Data: SetKeysetRecoveryResponseData{},
+	}
+
+	if err := c.sendMessage(response); err != nil {
+		log.Printf("%s: Failed to send HandleSetKeysetRecoveryRequest response: %v", c.idLogTag, err)
+		return
+	}
+	log.Printf("%s: SetKeysetRecoveryRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // sendErrorResponse sends an error response
 func (c *Client) sendErrorResponse(requestID string, code string, err error) {
-	log.Printf("Client: Sending error response: ID=%s, Code=%s, Message=%s", requestID, code, err.Error())
+	log.Printf("%s: Sending error response: ID=%s, Code=%s, Message=%s", c.idLogTag, requestID, code, err.Error())
 	response := Message{
 		ID:   requestID,
 		Type: ErrorMessage,
@@ -347,7 +458,7 @@ func (c *Client) sendErrorResponse(requestID string, code string, err error) {
 	}
 
 	if sendErr := c.sendMessage(response); sendErr != nil {
-		log.Printf("Client: Failed to send error response: %v", sendErr)
+		log.Printf("%s: Failed to send error response: %v", c.idLogTag, sendErr)
 	}
 }
 

@@ -4,13 +4,14 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/crypto"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/magiconair/properties"
@@ -28,12 +29,8 @@ type Config struct {
 	ServerCid uint32
 	// ServerPort is the port for the v-socket server
 	ServerPort uint32
-	// StateKey is the key to use for signing update payloads
-	StateKey cryptotypes.AES256Key
-	// CommunicationKey is the key to use for encrypting payloads
-	CommunicationKey *cryptotypes.PrivateKeyP521
-	// SignatureKey is used to sign UpdatePayloads and DeanonymizationReports
-	SignatureKey *cryptotypes.PrivateKeySecp256k1 // Key used for signing updatePayload
+	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
+	KeySetRecoveryType int
 }
 
 // DefaultConfig returns the default configuration (possibly overridden by env variables)
@@ -46,58 +43,17 @@ func DefaultConfig() *Config {
 	if serverPort == "" {
 		serverPort = "8080"
 	}
-
-	var stateKey cryptotypes.AES256Key
-	stateKeyFromEnv := os.Getenv("EXECUTOR_KEY_AES")
-	if stateKeyFromEnv == "" {
-		stateKey, _ = crypto.GenerateAESKey()
-	} else {
-		stateKeyImported, err1 := crypto.ImportKeyAESFromHex(stateKeyFromEnv)
-		if err1 != nil {
-			log.Printf("Error loading AES key from hex string: %v\n", err1)
-			panic(err1)
-		}
-		stateKey = *stateKeyImported
-	}
-
-	var communicationKey *cryptotypes.PrivateKeyP521
-	communicationKeyFromEnv := os.Getenv("EXECUTOR_KEY_P521")
-	if communicationKeyFromEnv == "" {
-		log.Printf("EXECUTOR_KEY_P521 property not found. Generating a brand new key\n")
-		communicationKey, _ = crypto.GeneratePrivateKeyP521()
-	} else {
-		communicationKeyImported, err1 := crypto.ImportPrivateKeyP521FromHex(communicationKeyFromEnv)
-		if err1 != nil {
-			log.Printf("Error loading P521 key from hex string: %v\n", err1)
-			panic(err1)
-		}
-		log.Printf("P521 key loaded from hex string\n")
-		log.Printf("Public key is: %v\n", crypto.ExportPublicKeyP521ToHex(communicationKeyImported.PublicKey()))
-		communicationKey = communicationKeyImported
-	}
-
-	var signatureKey *cryptotypes.PrivateKeySecp256k1
-	signatureKeyFromEnv := os.Getenv("EXECUTOR_KEY_SECP256")
-	if signatureKeyFromEnv == "" {
-		log.Printf("EXECUTOR_KEY_SECP256 property not found. Generating a brand new key\n")
-		signatureKey, _ = crypto.GeneratePrivateKeySecp256k1()
-	} else {
-		signatureKeyImported, err1 := crypto.ImportPrivateKeySecp256k1FromHex(signatureKeyFromEnv)
-		if err1 != nil {
-			log.Printf("Error loading Secp256 key from hex string: %v\n", err1)
-			panic(err1)
-		}
-		log.Printf("Signature Secp256 key loaded from hex string\n")
-		log.Printf("Address is: %v\n", signatureKeyImported.PublicKey().Address())
-		signatureKey = signatureKeyImported
+	recTypeVar := os.Getenv("EXECUTOR_KEYSET_RECOVERY_TYPE")
+	recType, err := strconv.Atoi(recTypeVar)
+	if err != nil {
+		fmt.Printf("Failed to convert EXECUTOR_KEYSET_RECOVERY_TYPE for error %v, using default value\n", err)
+		recType = 0
 	}
 
 	return &Config{
-		ServerType:       "tcp",
-		ServerAddr:       serverAddress + ":" + serverPort,
-		StateKey:         stateKey,
-		CommunicationKey: communicationKey,
-		SignatureKey:     signatureKey,
+		ServerType:         "tcp",
+		ServerAddr:         serverAddress + ":" + serverPort,
+		KeySetRecoveryType: recType,
 	}
 }
 
@@ -113,28 +69,10 @@ func ReadConfig() *Config {
 		panic(err)
 	}
 
-	stateKey, err1 := crypto.LoadAESKeyFromFilePEM(config.MustGetString("StateKeyPEMFile"))
-	if err1 != nil {
-		log.Printf("Error loading state key from PEM file: %v\n", err1)
-		panic(err1)
-	}
-	communicationKey, err2 := crypto.ImportPrivateKeyP521FromHex(config.MustGetString("CommunicationKeyHex"))
-	if err2 != nil {
-		log.Printf("Error loading communication key from hex: %v\n", err2)
-		panic(err2)
-	}
-	signatureKey, err3 := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("SignatureKeyHex"))
-	if err3 != nil {
-		log.Printf("Error loading signature key from hex: %v\n", err3)
-		panic(err3)
-	}
-
 	return &Config{
-		ServerType:       config.MustGetString("ServerType"),
-		ServerAddr:       config.MustGetString("ServerAddr"),
-		StateKey:         *stateKey,
-		CommunicationKey: communicationKey,
-		SignatureKey:     signatureKey,
+		ServerType:         config.MustGetString("ServerType"),
+		ServerAddr:         config.MustGetString("ServerAddr"),
+		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
 	}
 }
 

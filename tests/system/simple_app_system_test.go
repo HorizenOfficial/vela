@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/testutil"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
@@ -115,6 +116,20 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	require.NoError(t, err)
 	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
 	require.NoError(t, err)
+}
+
+func TestExecutorManagerStart(t *testing.T) {
+
+	mgrConfig := manager.ReadConfig()
+	execConfig := executor.ReadConfig()
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil)
+	defer suite.Cleanup()
+
+	// 2. Start services
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	time.Sleep(3 * time.Second)
 }
 
 func TestDeploySimpleApp(t *testing.T) {
@@ -230,11 +245,15 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user2Address := fmt.Sprintf("0xadd%037x", 2)
 
 	mgrConfig := manager.ReadConfig()
+	execConfig := executor.ReadConfig()
 	tempDir, err := os.MkdirTemp("", "reports_system_test")
 	require.NoError(t, err)
 	mgrConfig.DeanonymizationReportPath = tempDir
 
-	suite := testutil.NewSystemTestSuiteWithMgrConfig(t, "wasm-runtime", mgrConfig)
+	// we need to pass the keys for having them in the test suite
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
+	require.NoError(t, err)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode

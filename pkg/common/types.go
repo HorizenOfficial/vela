@@ -1,12 +1,6 @@
 // Package common provide the data structures used in the application.
 package common
 
-import (
-	"encoding/hex"
-	"fmt"
-	"math/big"
-)
-
 // RequestType represents the type of request being sent to the TEE
 type RequestType string
 
@@ -20,21 +14,6 @@ const (
 	// Deanonymize is used for deanonymization requests
 	Deanonymize RequestType = "deanonymize"
 )
-
-func (rt RequestType) ToUint8() (uint8, error) {
-	switch rt {
-	case Deploy:
-		return 0, nil
-	case Process:
-		return 1, nil
-	case Deanonymize:
-		return 2, nil
-	case AssociateKey:
-		return 3, nil
-	default:
-		return 0, fmt.Errorf("unknown RequestType: %s", rt)
-	}
-}
 
 // Request represents a request to the system
 type Request struct {
@@ -122,6 +101,13 @@ type DeanonymizationReport struct {
 	EncryptedReport []byte `json:"encryptedReport"`
 }
 
+// DecryptedReport represents a decrypted deanonymization report
+type DecryptedReport struct {
+	ApplicationID  string `json:"applicationId"`
+	RequestID       string `json:"requestId"`
+	ReportDataBytes []byte `json:"reportDataBytes"`
+}
+
 // PlainEvent represents an emitted event before encryption.
 type PlainEvent struct {
 	// UserID is the ID of the user associated with the event
@@ -147,38 +133,12 @@ type RequestResult struct {
 	ErrorMessage string
 }
 
-func UInt8ToRequestResultStatus(i uint8) (RequestResultStatus, error) {
-	switch i {
-	case 0:
-		return RequestResultOK, nil
-	case 1:
-		return RequestResultFailed, nil
-	case 2:
-		return RequestResultFailedNotRefunded, nil
-	default:
-		return RequestResultUnknown, fmt.Errorf("unknown request status value %d", i)
-	}
-}
-
-func StringToBigInt(s string) (*big.Int, bool) {
-	return new(big.Int).SetString(s, 10)
-}
-
-func RequestIdStringTo32Byte(s string) ([32]byte, error) {
-
-	arr, err := hex.DecodeString(s)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("requestId string is not a valid hex string: %w", err)
-	}
-	if len(arr) > 32 {
-		return [32]byte{}, fmt.Errorf("requestId string must not be more than 32 bytes long, got %d", len(arr))
-	}
-
-	var arr32 [32]byte
-	copy(arr32[:], arr)
-	return arr32, nil
-}
-
-func RequestId32ByteToString(b [32]byte) string {
-	return hex.EncodeToString(b[:])
+// EnclaveKeySetRecovery contains the data needed to recover the EnclaveKeySet.
+type EnclaveKeySetRecovery struct {
+	// RecoveryType is the type of recovery data.
+	RecoveryType int `json:"recoveryType"`
+	// KeySetCiphertext is the encrypted EnclaveKeySet.
+	KeySetCiphertext []byte `json:"keySetCiphertext"`
+	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.
+	RecoveryCiphertext []byte `json:"recoveryCiphertext"`
 }

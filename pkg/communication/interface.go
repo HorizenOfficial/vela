@@ -14,7 +14,7 @@ import (
 // and the server can send requests to the client.
 type ExecutorClient interface {
 	// Connect establishes a connection to the executor
-	Connect(ctx context.Context) error
+	Connect(ctx context.Context, identityLogTag string) error
 	// Close closes the connection to the executor
 	Close() error
 	// SendProcessRequest sends a request to the executor and returns the response
@@ -33,16 +33,32 @@ type ExecutorClient interface {
 // and the server can send requests to the client.
 type ExecutorServer interface {
 	// Start starts the server
-	Start(ctx context.Context) error
+	Start(ctx context.Context, identityLogTag string) error
 	// Stop stops the server
 	Stop() error
 	// SetRequestHandler sets the handler for incoming requests
 	SetRequestHandler(handler RequestHandler)
+	// SetConnectionHandler sets the handler for new client connections.
+	SetConnectionHandler(handler ConnectionHandler)
 }
+
+// ServerConnection defines the interface for a server-side client connection,
+// allowing the server to send requests to the client.
+type ServerConnection interface {
+	GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error)
+	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
+	KeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error
+	Close()
+}
+
+// ConnectionHandler is a function that handles a new client connection.
+type ConnectionHandler func(ctx context.Context, conn ServerConnection)
 
 // ClientRequestHandler defines the interface for handling requests from server (the executor) to client (the manager)
 type ClientRequestHandler interface {
-	//TBD: add here any request needed
+	HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
+	HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
+	HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor
