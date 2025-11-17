@@ -173,10 +173,11 @@ const (
 	RequestResultUnknown
 )
 
-// RequestResult represents the result on chain of a request (eg successful or failed with its error )
+// RequestResult represents the result on chain of a request (eg successful or failed with its error)
 type RequestResult struct {
-	Status        RequestResultStatus
-	FailureReason string
+	Status       RequestResultStatus
+	ErrorCode    uint8
+	ErrorMessage string
 }
 
 // EnclaveKeySetRecovery contains the data needed to recover the EnclaveKeySet.

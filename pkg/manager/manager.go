@@ -14,6 +14,7 @@ import (
 
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
@@ -39,7 +40,7 @@ type SecureProcessorManager struct {
 	mu                sync.RWMutex
 	isRunning         bool
 	executorHandShake ExecutorHandShake
-	stopChan          chan struct{}
+	stopChan          chan struct{}  // TODO unused
 	wg                sync.WaitGroup
 	endReorgTime      time.Time
 }
@@ -323,10 +324,10 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 	log.Printf("Manager: processing request %s", request.RequestID)
 
-	if err := m.processRequest(ctx, request); err != nil {
+	if rf := m.processRequest(ctx, request); rf != nil {
 		// Log the error and mark the request as failed
-		log.Printf("Manager: Failed to process request %s: %v", request.RequestID, err)
-		if err = m.blockchainClient.MarkRequestFailed(ctx, request.RequestID); err != nil {
+		log.Printf("Manager: Failed to process request %s: %v", request.RequestID, rf)
+		if err = m.blockchainClient.MarkRequestFailed(ctx, request.RequestID, rf); err != nil {
 			log.Printf("Manager: Failed to mark request %s as failed: %v", request.RequestID, err)
 		}
 	} else {
@@ -360,15 +361,15 @@ func (m *SecureProcessorManager) checkIfReorg(stateRoot [32]byte) (bool, error) 
 }
 
 // processRequest processes a request
-func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) error {
+func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
-		return fmt.Errorf("Manager is not started yet")
+		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not running", nil)
 	}
 
 	// check admitted appID. TODO: This check will be removed in future
 	if req.ApplicationID != admittedAppID {
-		return fmt.Errorf("application id %d is not admitted", req.ApplicationID)
+		return apperrors.New(apperrors.CodeAppNotAdmitted, fmt.Sprintf("application id %s is not admitted", req.ApplicationID), nil)
 	}
 
 	switch req.RequestType {
@@ -379,11 +380,11 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 	case common.Deanonymize:
 		return m.processDeanonymization(ctx, req)
 	default:
-		return fmt.Errorf("unsupported request type: %s", req.RequestType)
+		return apperrors.New(apperrors.CodeRequestTypeNotPermitted, fmt.Sprintf("unsupported request type: %s", req.RequestType), nil)
 	}
 }
 
-func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updatePayload *common.UpdatePayload) error {
+func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updatePayload *common.UpdatePayload) *apperrors.RequestFailure {
 	// Submit the state update to the blockchain
 	if err := m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
 		log.Printf("Failed to submit state update for error: %v", err)
@@ -397,7 +398,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 			log.Printf("REORG, do not call MarkFailed, wait for next poll")
 			return nil
 		}
-		return fmt.Errorf("failed to submit state update: %w", err)
+		return apperrors.New(apperrors.CodeSubmittingStateUpdateFailed, fmt.Sprintf("failed to submit state update: %v", err), err)
 	}
 
 	log.Printf("Manager: Processed request %s for application %d", updatePayload.RequestID, updatePayload.ApplicationID)
@@ -405,17 +406,17 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 }
 
 // processDeployApp processes a deploy app request
-func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
+func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
 	log.Printf("Processing deploy app request: %s", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
-		return fmt.Errorf("Manager is not started yet")
+		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
 	}
 
 	// check if app was already deployed
 	_, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err == nil {
-		return fmt.Errorf("application %d was already deployed", req.ApplicationID)
+		return apperrors.New(apperrors.CodeApplicationAlreadyDeployed, fmt.Sprintf("application %s was already deployed", req.ApplicationID), err)
 	}
 
 	//if the payload is empty, try to retrieve the wasm locally
@@ -423,20 +424,20 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		log.Printf("Empty payload received - trying to retrieve wasm locally")
 		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID.String()+".wasm")
 		if !fileExists(wasmFilePath) {
-			return fmt.Errorf("failed to deploy application - wasm not found in both payload or local path: %v", wasmFilePath)
+			return apperrors.New(apperrors.CodeWasmNotFound, fmt.Sprintf("failed to deploy application - wasm not found in both payload or local path: %v", wasmFilePath), err)
 		}
 		wasmBytesFromFile, err := os.ReadFile(wasmFilePath)
 		if err != nil {
-			return fmt.Errorf("failed to deploy application - Error reading wasm file: %v", err)
+			return apperrors.New(apperrors.CodeErrorReadingWasm, fmt.Sprintf("failed to deploy application - Error reading wasm file: %v", err), err)
 
 		}
 		req.Payload = wasmBytesFromFile
 	}
 
 	// Deploy the application
-	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to deploy application: %w", err)
+	updatePayload, appState, failure := m.executorClient.SendDeployApp(ctx, req)
+	if failure != nil {
+		return failure
 	}
 
 	// Store the application state and WASM bytecode
@@ -458,11 +459,11 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 }
 
 // processProcessRequest processes a process request
-func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
+func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
 	log.Printf("Processing Process app request: %s", req.RequestID)
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
-		return fmt.Errorf("Manager is not started yet")
+		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
 	}
 
 	// Get the application state
@@ -471,7 +472,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		log.Printf("GetApplicationState returns an error: %v", err)
 		if strings.Contains(err.Error(), "application state not found") {
 			// This can happen if the deploy transaction was not mined yet, mark request as failed
-			return err
+			return apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID), err)
 		}
 		// Other errors are likely db errors, retry on next poll
 		return nil
@@ -485,9 +486,9 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Process the request
-	updatePayload, updatedState, err := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
-	if err != nil {
-		return fmt.Errorf("failed to process request: %w", err)
+	updatePayload, updatedState, failure := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
+	if failure != nil {
+		return failure
 	}
 
 	// Store the updated application state
@@ -509,10 +510,10 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 }
 
 // processDeanonymization processes a deanonymization request
-func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req *common.Request) error {
+func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
 	if !m.isRunning {
 		log.Printf("Manager is not started yet, skipping")
-		return fmt.Errorf("Manager is not started yet")
+		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
 	}
 
 	// Get the application state
@@ -521,7 +522,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		log.Printf("GetApplicationState returns an error: %v", err)
 		if strings.Contains(err.Error(), "application state not found") {
 			// This can happen if the deploy transaction was not mined yet, mark request as failed
-			return err
+			return apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID), err)
 		}
 		// Other errors are likely db errors, retry on next poll
 		return nil
@@ -535,9 +536,9 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	}
 
 	// Generate the deanonymization report
-	report, err := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
-	if err != nil {
-		return fmt.Errorf("failed to generate deanonymization report: %w", err)
+	report, failure := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
+	if failure != nil {
+		return failure
 	}
 
 	// If a path is configured, save the deanonymization report to the filesystem

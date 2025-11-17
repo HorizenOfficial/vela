@@ -16,6 +16,7 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
 )
@@ -238,7 +239,7 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID c
 
 }
 
-func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType) error {
+func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -247,8 +248,15 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID comm
 	}
 
 	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(requestID))
 
+	if requestFailure == nil {
+        requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
+    }
+	
+	solCode := uint8(requestFailure.Category())
+    msg := requestFailure.ExternalMessage()
+
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(requestID, solCode, msg))
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
@@ -514,5 +522,9 @@ func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, request
 		return nil, fmt.Errorf("unknown status: %w", err)
 	}
 
-	return &common.RequestResult{Status: status}, nil
+	return &common.RequestResult{
+		Status:       status,
+		ErrorCode:    event.ErrorCode,
+		ErrorMessage: event.ErrorMessage,
+	}, nil
 }

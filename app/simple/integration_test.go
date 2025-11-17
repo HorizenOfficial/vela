@@ -69,8 +69,8 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User1 Deposits funds
 	deposit1Amount := big.NewInt(1000)
-	depositState1Bytes, depositEvents, err := runtime.Deposit(ctx, appId, user1Address, deposit1Amount, initialStateBytes, wasmBytes)
-	require.NoError(t, err)
+	depositState1Bytes, depositEvents, failure := runtime.Deposit(ctx, appId, user1Address, deposit1Amount, initialStateBytes, wasmBytes)
+	require.Nil(t, failure)
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
 
@@ -82,8 +82,8 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User2 Deposits funds (more than previous user)
 	deposit2Amount := big.NewInt(2000)
-	depositState2Bytes, depositEvents, err := runtime.Deposit(ctx, appId, user2Address, deposit2Amount, depositState1Bytes, wasmBytes)
-	require.NoError(t, err)
+	depositState2Bytes, depositEvents, failure := runtime.Deposit(ctx, appId, user2Address, deposit2Amount, depositState1Bytes, wasmBytes)
+	require.Nil(t, failure)
 	require.NotNil(t, depositState2Bytes)
 	require.Len(t, depositEvents, 1)
 
@@ -106,7 +106,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	withdrawStateBytes, withdrawEvents, withdrawals, err := runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, depositState2Bytes, wasmBytes)
-	require.NoError(t, err)
+	require.Nil(t, err)
 	require.NotNil(t, withdrawStateBytes)
 	require.Len(t, withdrawEvents, 1)
 	require.Len(t, withdrawals, 1)
@@ -124,8 +124,8 @@ func TestSimpleAppIntegration(t *testing.T) {
 	// 4. Generate deanonymization report
 	payloadJSON := `{"tag":"my_custom_tag"}`
 	payloadBytes = []byte(payloadJSON)
-	reportBytes, err := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
-	require.NoError(t, err)
+	reportBytes, failure := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
+	require.Nil(t, failure)
 	require.NotNil(t, reportBytes)
 
 	var report map[string]interface{}
@@ -147,7 +147,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	compareStateBytes, events, withdrawals, err := runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, withdrawStateBytes, wasmBytes)
-	require.NoError(t, err)
+	require.Nil(t, err)
 	require.NotNil(t, compareStateBytes)
 	require.Len(t, events, 1)
 	require.Len(t, withdrawals, 0)
@@ -176,7 +176,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 	t.Run("null payload json", func(t *testing.T) {
 		nullPayload := []byte{}
 		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, nullPayload, initialStateBytes, wasmBytes)
-		require.NoError(t, err)
+		require.Nil(t, err)
 	})
 }
 
@@ -197,10 +197,10 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 	// 2. Create a populated state for testing
 	// User1 deposits 1000
 	populatedStateBytes, _, err := runtime.Deposit(ctx, appId, user1Address, big.NewInt(1000), initialStateBytes, wasmBytes)
-	require.NoError(t, err)
+	require.Nil(t, err)
 	// User2 deposits 500
 	populatedStateBytes, _, err = runtime.Deposit(ctx, appId, user2Address, big.NewInt(500), populatedStateBytes, wasmBytes)
-	require.NoError(t, err)
+	require.Nil(t, err)
 
 	// --- Test Cases ---
 

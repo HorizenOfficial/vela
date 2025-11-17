@@ -438,9 +438,16 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		return
 	}
 
-	updatePayload, updatedState, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+	updatePayload, updatedState, failure := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
+	if failure != nil {
+		errorResponse := Message{
+			ID:   msg.ID,
+			Type: ErrorMessage,
+			Data: failure.ToDTO(),
+		}
+		if err := c.sendMessage(errorResponse); err != nil {
+			log.Printf("Server: Failed to send error response: %v", err)
+		}
 		return
 	}
 
@@ -467,9 +474,16 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		return
 	}
 
-	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+	updatePayload, appState, failure := handler.HandleDeployApp(ctx, reqData.Request)
+	if failure != nil {
+		errorResponse := Message{
+			ID:   msg.ID,
+			Type: ErrorMessage,
+			Data: failure.ToDTO(),
+		}
+		if err := c.sendMessage(errorResponse); err != nil {
+			log.Printf("Server: Failed to send error response: %v", err)
+		}
 		return
 	}
 
@@ -496,9 +510,16 @@ func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg
 		return
 	}
 
-	report, err := handler.HandleGenerateDeanonymizationReport(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+	report, failure := handler.HandleGenerateDeanonymizationReport(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
+	if failure != nil {
+		errorResponse := Message{
+			ID:   msg.ID,
+			Type: ErrorMessage,
+			Data: failure.ToDTO(),
+		}
+		if err := c.sendMessage(errorResponse); err != nil {
+			log.Printf("Server: Failed to send error response: %v", err)
+		}
 		return
 	}
 
