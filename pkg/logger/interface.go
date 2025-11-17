@@ -9,10 +9,10 @@ type Logger interface {
 }
 
 // Factory function: creates a Logger based on config name.
-func NewLogger(kind string) Logger {
+func NewLogger(kind, level, format string) Logger {
 	switch kind {
 	case "zerolog":
-		return NewZeroLogger()
+		return NewZeroLogger(level, format)
 	default:
 		return NewPrintfLogger() // default fallback
 	}

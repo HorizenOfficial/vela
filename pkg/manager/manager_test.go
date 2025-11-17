@@ -26,7 +26,7 @@ var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
 	// Initialize once
-	testLogger = logger.NewLogger("printf")
+	testLogger = logger.NewLogger("printf", "", "")
 
 	// Run tests
 	code := m.Run()

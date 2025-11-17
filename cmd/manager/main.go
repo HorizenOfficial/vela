@@ -79,7 +79,16 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 }
 
 func main() {
-	log := logger.NewLogger("zerolog")
+	// Load configuration
+	config, err := manager.LoadConfigFromFile()
+	if err != nil {
+		// Use a temporary logger for fatal error
+		log := logger.NewLogger("zerolog", "info", "console")
+		log.Fatal("Failed to load configuration: %v", err)
+	}
+
+	// Create a logger from config
+	log := logger.NewLogger("zerolog", config.LogLevel, config.LogFormat)
 
 	// TODO test, remove it
 	log.Info("Starting manager I...")
@@ -92,9 +101,6 @@ func main() {
 	// Create a context that is canceled on SIGINT or SIGTERM
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	// Create the manager configuration
-	config := manager.ReadConfig(log)
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)

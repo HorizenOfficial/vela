@@ -26,7 +26,7 @@ var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
 	// Initialize once
-	testLogger = logger.NewLogger("printf")
+	testLogger = logger.NewLogger("printf", "", "")
 
 	// Run tests
 	code := m.Run()
@@ -132,7 +132,8 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 
 func TestExecutorManagerStart(t *testing.T) {
 
-	mgrConfig := manager.ReadConfig(testLogger)
+	mgrConfig, err := manager.LoadConfigFromFile()
+	require.NoError(t, err)
 	execConfig := executor.ReadConfig()
 	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger)
 	defer suite.Cleanup()
@@ -256,7 +257,8 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user1Address := fmt.Sprintf("0xadd%037x", 1)
 	user2Address := fmt.Sprintf("0xadd%037x", 2)
 
-	mgrConfig := manager.ReadConfig(testLogger)
+	mgrConfig, err := manager.LoadConfigFromFile()
+	require.NoError(t, err)
 	execConfig := executor.ReadConfig()
 	tempDir, err := os.MkdirTemp("", "reports_system_test")
 	require.NoError(t, err)

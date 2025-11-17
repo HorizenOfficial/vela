@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"io"
 	"os"
 	"time"
 
@@ -11,17 +12,27 @@ type ZeroLogger struct {
 	logger zerolog.Logger
 }
 
-func NewZeroLogger() *ZeroLogger {
-	output := zerolog.ConsoleWriter{
-		Out:        os.Stderr,
-		TimeFormat: time.RFC3339,
+func NewZeroLogger(level, format string) *ZeroLogger {
+	var writer io.Writer
+	if format == "console" {
+		writer = zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: time.RFC3339,
+		}
+	} else {
+		writer = os.Stderr
 	}
 
-	logger := zerolog.New(output).
+	logLevel, err := zerolog.ParseLevel(level)
+	if err != nil {
+		logLevel = zerolog.InfoLevel
+	}
+
+	logger := zerolog.New(writer).
 		With().
 		Timestamp().
 		Logger().
-		Level(zerolog.GlobalLevel()) // <-- obey global level
+		Level(logLevel)
 
 	return &ZeroLogger{logger: logger}
 }

@@ -16,7 +16,8 @@ import (
 
 func TestHandshakeFailureSystem(t *testing.T) {
 	// 1. Create a manager config with a mock data layer
-	mgrConfig := manager.ReadConfig(testLogger)
+	mgrConfig, err := manager.LoadConfigFromFile()
+	require.NoError(t, err)
 	mgrConfig.DataLayerType = "mockdb"
 
 	// 2. Create a new system test suite without a keyset, it will try to get recovery data from datalayer, will not
@@ -36,7 +37,7 @@ func TestHandshakeFailureSystem(t *testing.T) {
 
 	// 4. Start executor and manager
 	// Executor should start fine
-	err := suite.StartExecutor()
+	err = suite.StartExecutor()
 	require.NoError(t, err)
 
 	// Manager will fail to start because the handshake with the executor will fail in the background.
