@@ -3,11 +3,13 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
+
+	"github.com/horizen-pes/pkg/logger"
 )
 
 // Local mirror types used in tests to avoid importing wasm-go/app
-
 type testAccountState struct {
 	Address string `json:"address"`
 	Balance uint64 `json:"balance"`
@@ -35,8 +37,18 @@ type testPayloadInstructions struct {
 	Withdraw *testWithdrawInstruction `json:"withdraw,omitempty"`
 }
 
+var testLogger logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once, by default it writes on stderr
+	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
+
 func TestMockRuntime_LoadModule(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := "test-app-123"
@@ -72,7 +84,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := "test-app-123"
@@ -123,7 +135,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := "test-app-123"
@@ -206,7 +218,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := "test-app-123"
@@ -293,7 +305,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := "test-app-123"
@@ -335,7 +347,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 }
 
 func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := "test-app-123"
@@ -388,7 +400,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 }
 
 func TestMockRuntime_Close(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 
 	err := runtime.Close()
 	if err != nil {

@@ -1,10 +1,10 @@
 package manager
 
 import (
-	"log"
 	"os"
 	"strconv"
 
+	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/magiconair/properties"
@@ -109,21 +109,18 @@ func DefaultConfig() *Config {
 	reorgTimeoutEnvVar := os.Getenv("REORG_TIMEOUT")
 	reorgTimeout, err := strconv.ParseInt(reorgTimeoutEnvVar, 10, 32)
 	if err != nil {
-		log.Printf("Failed to convert REORG_TIMEOUT for error %v, using default value", err)
 		reorgTimeout = 180
 	}
 
 	handshakeTimeoutEnvVar := os.Getenv("HANDSHAKE_TIMEOUT")
 	handshakeTimeout, err := strconv.ParseInt(handshakeTimeoutEnvVar, 10, 32)
 	if err != nil {
-		log.Printf("Failed to convert HANDSHAKE_TIMEOUT for error %v, using default value", err)
 		handshakeTimeout = 5
 	}
 
 	blockchainPollingIntervalEnvVar := os.Getenv("BLOCKCHAIN_POLLING_INTERVAL")
 	blockchainPollingInterval, err := strconv.ParseInt(blockchainPollingIntervalEnvVar, 10, 32)
 	if err != nil {
-		log.Printf("Failed to convert BLOCKCHAIN_POLLING_INTERVAL for error %v, using default value", err)
 		blockchainPollingInterval = 5
 	}
 
@@ -186,7 +183,7 @@ func DefaultConfig() *Config {
 
 // LoadConfigFromFile loads the configuration from the given file
 func LoadConfigFromFile() (*Config, error) {
-	if !fileExists(confFileName) {
+	if !common.FileExists(confFileName) {
 		return DefaultConfig(), nil
 	}
 	// Load properties from file
@@ -223,9 +220,4 @@ func LoadConfigFromFile() (*Config, error) {
 		LogFileName:               config.GetString("LogFileName", ""),
 		LogFileLevel:              config.GetString("LogFileLevel", "info"),
 	}, nil
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil || !os.IsNotExist(err)
 }

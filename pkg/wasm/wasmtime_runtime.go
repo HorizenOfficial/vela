@@ -5,12 +5,12 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"sync"
 
 	"github.com/bytecodealliance/wasmtime-go"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/logger"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
@@ -26,11 +26,12 @@ type WasmtimeRuntime struct {
 	store      *wasmtime.Store
 	modules    map[string]*ApplicationModule // Map of application ID to module
 	moduleLock sync.RWMutex                  // Lock for module access
+	log        logger.Logger
 }
 
 // NewWasmtimeRuntime creates a new wasmtime runtime instance
-func NewWasmtimeRuntime() *WasmtimeRuntime {
-	log.Println("Runtime: Initializing wasmtime runtime")
+func NewWasmtimeRuntime(log logger.Logger) *WasmtimeRuntime {
+	log.Info("Runtime: Initializing wasmtime runtime")
 
 	// Create a new engine with default configuration
 	engine := wasmtime.NewEngine()
@@ -42,6 +43,7 @@ func NewWasmtimeRuntime() *WasmtimeRuntime {
 		engine:  engine,
 		store:   store,
 		modules: make(map[string]*ApplicationModule),
+		log:     log,
 	}
 }
 
@@ -139,7 +141,7 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, was
 func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
-	log.Printf("Wasmtime Runtime: Loading WASM module for application %s (wasm size: %d bytes)", appId, len(wasm))
+	r.log.Info("Wasmtime Runtime: Loading WASM module for application %s (wasm size: %d bytes)", appId, len(wasm))
 
 	// Compile the WASM module
 	module, err := wasmtime.NewModule(r.engine, wasm)
@@ -206,9 +208,9 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 		return nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
 
-	log.Printf("Wasmtime Runtime: Raw result from WASM: %s", string(stateBytes))
+	r.log.Debug("Wasmtime Runtime: Raw result from WASM: %s", string(stateBytes))
 
-	log.Printf("Wasmtime Runtime: Successfully loaded WASM module for application %s", appId)
+	r.log.Info("Wasmtime Runtime: Successfully loaded WASM module for application %s", appId)
 
 	// Store the module in the runtime
 	r.modules[appId] = appModule
@@ -217,7 +219,7 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 
 // Deposit processes a deposit
 func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
-	log.Printf("Wasmtime Runtime: Processing deposit for application %s (value: %d wei for sender: %s)", appId, value, sender)
+	r.log.Info("Wasmtime Runtime: Processing deposit for application %s (value: %d wei for sender: %s)", appId, value, sender)
 
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
@@ -271,7 +273,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 		return nil, nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
 
-	log.Printf("Wasmtime Runtime: Raw deposit result from WASM: %s", string(resultBytes))
+	r.log.Info("Wasmtime Runtime: Raw deposit result from WASM: %s", string(resultBytes))
 
 	// Deserialize the result
 	var depositResult appCommon.DepositResult
@@ -283,15 +285,15 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 		return nil, nil, fmt.Errorf("deposit failed, wasm module error: %v", depositResult.Error)
 	}
 
-	log.Printf("Wasmtime Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(depositResult.Events))
+	r.log.Info("Wasmtime Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(depositResult.Events))
 	return depositResult.State, depositResult.Events, nil
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
 func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
-	log.Printf("Wasmtime Runtime: Processing request for application %s (payload size: %d, state size: %d)", appId, len(payload), len(state))
+	r.log.Info("Wasmtime Runtime: Processing request for application %s (payload size: %d, state size: %d)", appId, len(payload), len(state))
 	if len(payload) == 0 {
-		log.Printf("Wasmtime Runtime: Empty payload for application %s, returning current state", appId)
+		r.log.Warn("Wasmtime Runtime: Empty payload for application %s, returning current state", appId)
 		return state, nil, nil, nil
 	}
 
@@ -351,7 +353,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 		return nil, nil, nil, fmt.Errorf("process request failed, wasm module error: %v", processResult.Error)
 	}
 
-	log.Printf("Wasmtime Runtime: Successfully processed request for application %s, generated %d events and %d withdrawals", appId, len(processResult.Events), len(processResult.Withdrawals))
+	r.log.Info("Wasmtime Runtime: Successfully processed request for application %s, generated %d events and %d withdrawals", appId, len(processResult.Events), len(processResult.Withdrawals))
 	return processResult.State, processResult.Events, processResult.Withdrawals, nil
 }
 
@@ -400,7 +402,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 		return nil, fmt.Errorf("deanonymization report failed, wasm module error: %v", deanonymizationResult.Error)
 	}
 
-	log.Printf("Wasmtime Runtime: Successfully generated deanonymization report for application %s", appId)
+	r.log.Info("Wasmtime Runtime: Successfully generated deanonymization report for application %s", appId)
 	return deanonymizationResult.Report, nil
 }
 
@@ -450,7 +452,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 
 // Close closes the wasmtime runtime and cleans up resources
 func (r *WasmtimeRuntime) Close() error {
-	log.Printf("Wasmtime Runtime: Closing wasmtime runtime")
+	r.log.Info("Wasmtime Runtime: Closing wasmtime runtime")
 
 	// Cleanup resources
 	// Memory cleanup is handled by Go's garbage collector
@@ -475,6 +477,6 @@ func (r *WasmtimeRuntime) Close() error {
 		delete(r.modules, appId)
 	}
 
-	log.Printf("Wasmtime Runtime: Wasmtime runtime closed successfully")
+	r.log.Info("Wasmtime Runtime: Wasmtime runtime closed successfully")
 	return nil
 }

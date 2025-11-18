@@ -36,8 +36,10 @@ func NewPrintfLogger(cfg *Config) *PrintfLogger {
 	return &PrintfLogger{logger: log.New(writer, "", log.LstdFlags)}
 }
 
-func (p *PrintfLogger) Debug(msg string, args ...any) { p.logger.Printf("DEBUG: "+msg, args...) }
-func (p *PrintfLogger) Info(msg string, args ...any)  { p.logger.Printf("INFO: "+msg, args...) }
-func (p *PrintfLogger) Warn(msg string, args ...any)  { p.logger.Printf("WARN: "+msg, args...) }
-func (p *PrintfLogger) Error(msg string, args ...any) { p.logger.Printf("ERROR: "+msg, args...) }
-func (p *PrintfLogger) Fatal(msg string, args ...any) { p.logger.Fatalf("FATAL: "+msg, args...) }
+func (p *PrintfLogger) Trace(msg string, args ...any) { p.logger.Printf("TRC: "+msg, args...) }
+func (p *PrintfLogger) Debug(msg string, args ...any) { p.logger.Printf("DBG: "+msg, args...) }
+func (p *PrintfLogger) Info(msg string, args ...any)  { p.logger.Printf("INF: "+msg, args...) }
+func (p *PrintfLogger) Warn(msg string, args ...any)  { p.logger.Printf("WRN: "+msg, args...) }
+func (p *PrintfLogger) Error(msg string, args ...any) { p.logger.Printf("ERR: "+msg, args...) }
+func (p *PrintfLogger) Fatal(msg string, args ...any) { p.logger.Fatalf("FTL: "+msg, args...) }
+func (p *PrintfLogger) Panic(msg string, args ...any) { p.logger.Panicf("PNC: "+msg, args...) }

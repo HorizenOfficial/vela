@@ -9,10 +9,31 @@ import (
 
 	"github.com/horizen-pes/app/simple/app"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/testutil"
 	pes_wasm "github.com/horizen-pes/pkg/wasm"
 	"github.com/stretchr/testify/require"
 )
+
+var testLogger logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once
+	//	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			//FileName:     "qqq.log",
+			//FileLevel:    "Info",
+		},
+	)
+
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
 
 var _ = []common.Withdrawal{}
 
@@ -44,7 +65,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime()
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -154,7 +175,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime()
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -175,7 +196,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime()
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -285,7 +306,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime()
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -319,7 +340,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 }
 
 func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
-	runtime := pes_wasm.NewWasmtimeRuntime()
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -364,7 +385,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime()
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()

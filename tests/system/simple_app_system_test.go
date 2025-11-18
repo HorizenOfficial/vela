@@ -27,7 +27,16 @@ var testLogger logger.Logger
 func TestMain(m *testing.M) {
 	// Initialize once
 	//	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
-	testLogger = logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleColor: true, Console: true, FileName: "qqq.log", FileLevel: "Info"})
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleLevel: "Info",
+			ConsoleColor: true, // colors can print escape chars on tty
+			Console:      true,
+			//FileName:     "qqq.log", //no file here
+			//FileLevel:    "Info",
+		},
+	)
 
 	// Run tests
 	code := m.Run()
@@ -135,7 +144,8 @@ func TestExecutorManagerStart(t *testing.T) {
 
 	mgrConfig, err := manager.LoadConfigFromFile()
 	require.NoError(t, err)
-	execConfig := executor.ReadConfig()
+	execConfig, err := executor.LoadConfigFromFile()
+	require.NoError(t, err)
 	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger)
 	defer suite.Cleanup()
 
@@ -260,7 +270,8 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	mgrConfig, err := manager.LoadConfigFromFile()
 	require.NoError(t, err)
-	execConfig := executor.ReadConfig()
+	execConfig, err := executor.LoadConfigFromFile()
+	require.NoError(t, err)
 	tempDir, err := os.MkdirTemp("", "reports_system_test")
 	require.NoError(t, err)
 	mgrConfig.DeanonymizationReportPath = tempDir

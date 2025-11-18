@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -12,8 +12,29 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/logger"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
+
+var testLogger logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once
+	//	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			//FileName:     "qqq.log",
+			//FileLevel:    "Info",
+		},
+	)
+
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
 
 // mockExecutor is a mock implementation of the server-side (executor) handshake logic
 type mockExecutor struct {
@@ -35,7 +56,7 @@ func (m *mockExecutor) handleConnection(ctx context.Context, conn ServerConnecti
 }
 
 func (m *mockExecutor) performHandshake(ctx context.Context) error {
-	log.Printf("MockExecutor: entering %s", common.FnName())
+	testLogger.Info("MockExecutor: entering %s", common.FnName())
 	found, recoveryData, err := m.conn.GetKeysetRecovery(ctx)
 	if err != nil {
 		return err
@@ -49,7 +70,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 		if bytes.Equal(recoveryData.KeySetCiphertext, []byte("corrupted-keyset")) {
 			return fmt.Errorf("simulated restore error")
 		}
-		log.Printf("MockExecutor: simulating restoring keyset")
+		testLogger.Info("MockExecutor: simulating restoring keyset")
 		return m.conn.KeysetRecoveryResult(ctx, nil, "mock-comm-pub-key", "mock-signing-addr")
 	} else {
 		// Simulate generating new keyset
@@ -58,7 +79,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 			KeySetCiphertext:   []byte("new-keyset"),
 			RecoveryCiphertext: []byte("new-recovery"),
 		}
-		log.Printf("MockExecutor: simulating new keyset")
+		testLogger.Info("MockExecutor: simulating new keyset")
 		return m.conn.SetKeysetRecovery(ctx, newRecoveryData, "mock-comm-pub-key", "mock-signing-addr")
 	}
 }
@@ -74,7 +95,7 @@ type mockManager struct {
 }
 
 func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
-	log.Printf("MockExecutor: entering %s", common.FnName())
+	testLogger.Info("MockExecutor: entering %s", common.FnName())
 	if m.getRecoveryError != nil {
 		return nil, m.getRecoveryError
 	}
@@ -89,7 +110,7 @@ func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*comm
 }
 
 func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
-	log.Printf("MockExecutor: entering %s", common.FnName())
+	testLogger.Info("MockExecutor: entering %s", common.FnName())
 	if m.setRecoveryError != nil {
 		return m.setRecoveryError
 	}
@@ -98,7 +119,7 @@ func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *
 }
 
 func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
-	log.Printf("MockManager: entering %s", common.FnName())
+	testLogger.Info("MockManager: entering %s", common.FnName())
 	if result == nil {
 		m.handshakeSuccessMutex.Lock()
 		m.handshakeSuccess = true
@@ -108,20 +129,20 @@ func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result err
 }
 
 func (m *mockManager) wasHandshakeSuccessful() bool {
-	log.Printf("MockExecutor: entering %s", common.FnName())
+	testLogger.Info("MockExecutor: entering %s", common.FnName())
 	m.handshakeSuccessMutex.Lock()
 	defer m.handshakeSuccessMutex.Unlock()
 	return m.handshakeSuccess
 }
 
 func setupHandshakeTest(t *testing.T) (context.Context, *Client, *Server, *mockExecutor, *mockManager) {
-	log.Printf("MockExecutor: entering %s", common.FnName())
+	testLogger.Info("MockExecutor: entering %s", common.FnName())
 	ctx := context.Background()
 	//factory := NewTCPConnectionFactory(":0") // Use :0 for random port
 	factory := NewTCPConnectionFactory("localhost:1234") // Use :0 for random port
 
 	// Setup server (executor)
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	executor := &mockExecutor{t: t, handshakeDone: make(chan struct{})}
 	server.SetConnectionHandler(executor.handleConnection)
 	err := server.Start(ctx, "Executor")
@@ -132,7 +153,7 @@ func setupHandshakeTest(t *testing.T) (context.Context, *Client, *Server, *mockE
 	//addr := server.Addr().String()
 	//clientFactory := NewTCPConnectionFactory(addr)
 	clientFactory := NewTCPConnectionFactory("localhost:1234")
-	client := NewClient(clientFactory)
+	client := NewClient(clientFactory, testLogger)
 	manager := &mockManager{t: t}
 	client.SetClientRequestHandler(manager)
 

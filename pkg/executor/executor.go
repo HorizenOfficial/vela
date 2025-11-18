@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
@@ -13,6 +12,7 @@ import (
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
+	"github.com/horizen-pes/pkg/logger"
 )
 
 func CreateNewKeySet() (*EnclaveKeySet, error) {
@@ -39,29 +39,29 @@ func CreateNewKeySet() (*EnclaveKeySet, error) {
 
 func (e *StatelessExecutor) DumpPublicKeys() {
 	if e.keySet == nil {
-		log.Printf("Executor: nothing to print, keyset is null")
+		e.log.Info("Executor: nothing to print, keyset is null")
 		return
 	}
 
 	keyP521StrPub := crypto.ExportPublicKeyP521ToHex(e.keySet.CommunicationKey.PublicKey())
 	keySecp256k1StrPub := crypto.ExportPublicKeySecp256k1ToHex(e.keySet.SigningKey.PublicKey())
 	keySecp256k1StrAddress := e.keySet.SigningKey.PublicKey().Address()
-	log.Println("###: Communication key P521 (public): 0x" + keyP521StrPub)
-	log.Println("###: Signing key Secp256k1 (public):  0x" + keySecp256k1StrPub)
-	log.Println("###:             Secp256k1 (address): 0x" + keySecp256k1StrAddress)
+	e.log.Info("###: Communication key P521 (public): 0x" + keyP521StrPub)
+	e.log.Info("###: Signing key Secp256k1 (public):  0x" + keySecp256k1StrPub)
+	e.log.Info("###:             Secp256k1 (address): 0x" + keySecp256k1StrAddress)
 }
 
 func (e *StatelessExecutor) DumpPrivateKeys() {
 	if e.keySet == nil {
-		log.Printf("Executor: nothing to print, keyset is null")
+		e.log.Info("Executor: nothing to print, keyset is null")
 		return
 	}
 
 	keyP521StrPriv := crypto.ExportPrivateKeyP521ToHex(&e.keySet.CommunicationKey)
 	keySecp256k1StrPriv := crypto.ExportPrivateKeySecp256k1ToHex(&e.keySet.SigningKey)
-	log.Println("###: Communication key P521 (private): 0x" + keyP521StrPriv)
-	log.Println("###: Signing key Secp256k1 (private):  0x" + keySecp256k1StrPriv)
-	log.Printf("###: State key AES256 (raw): %x", e.keySet.StateKey)
+	e.log.Info("###: Communication key P521 (private): 0x" + keyP521StrPriv)
+	e.log.Info("###: Signing key Secp256k1 (private):  0x" + keySecp256k1StrPriv)
+	e.log.Info("###: State key AES256 (raw): %x", e.keySet.StateKey)
 }
 
 // GenerateEnclaveKeySet creates a new keyset from scratch.
@@ -140,10 +140,11 @@ type StatelessExecutor struct {
 	server  communication.ExecutorServer
 	*MsgToSignBuilder
 	keySet *EnclaveKeySet
+	log    logger.Logger
 }
 
 // NewStatelessExecutor creates a new stateless executor
-func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer) (*StatelessExecutor, error) {
+func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, log logger.Logger) (*StatelessExecutor, error) {
 	msgBuilder, err := NewMsgToSignBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup msg to sign builder: %w", err)
@@ -154,6 +155,7 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 		runtime:          runtime,
 		server:           server,
 		MsgToSignBuilder: msgBuilder,
+		log:              log,
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
@@ -164,19 +166,19 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 }
 
 func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn communication.ServerConnection) {
-	log.Printf("Executor: New connection established, starting handshake")
+	e.log.Info("Executor: New connection established, starting handshake")
 	keySet, err := e.performHandshake(ctx, conn)
 	if err != nil {
-		log.Printf("Executor: Handshake failed: %v", err)
+		e.log.Error("Executor: Handshake failed: %v", err)
 		conn.Close()
 		return
 	}
 	e.keySet = keySet
-	log.Printf("Executor: Handshake successful")
+	e.log.Info("Executor: Handshake successful")
 }
 
 func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communication.ServerConnection) (*EnclaveKeySet, error) {
-	log.Printf("Executor: Performing key recovery handshake")
+	e.log.Info("Executor: Performing key recovery handshake")
 
 	found, recoveryData, err := conn.GetKeysetRecovery(ctx)
 	if err != nil {
@@ -185,12 +187,12 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 
 	var keySet *EnclaveKeySet
 	if found {
-		log.Printf("Executor: Keyset recovery data found, restoring keyset...")
+		e.log.Info("Executor: Keyset recovery data found, restoring keyset...")
 		keySet, err = RestoreEnclaveKeySet(recoveryData)
 		if err != nil {
 			// Notify manager of failure
 			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
-				log.Printf("Executor: failed to send keyset recovery failure to manager: %v", notifyErr)
+				e.log.Error("Executor: failed to send keyset recovery failure to manager: %v", notifyErr)
 			}
 			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
 		}
@@ -198,13 +200,13 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		commPubKey := crypto.ExportPublicKeyP521ToHex(keySet.CommunicationKey.PublicKey())
 		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
-		log.Printf("Executor: Keyset restored successfully, confirming ")
+		e.log.Info("Executor: Keyset restored successfully, confirming ")
 		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
 		}
 	} else {
-		log.Printf("Executor: Keyset recovery data not found, generating new keyset...")
+		e.log.Info("Executor: Keyset recovery data not found, generating new keyset...")
 		var newRecoveryData *common.EnclaveKeySetRecovery
 		keySet, newRecoveryData, err = GenerateEnclaveKeySet(e.config.KeySetRecoveryType)
 		if err != nil {
@@ -218,7 +220,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		if err != nil {
 			return nil, fmt.Errorf("failed to set keyset recovery data: %w", err)
 		}
-		log.Printf("Executor: New keyset generated and sent to manager for storage")
+		e.log.Info("Executor: New keyset generated and sent to manager for storage")
 	}
 
 	e.keySet = keySet
@@ -232,23 +234,23 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 func (e *StatelessExecutor) Start(ctx context.Context) error {
 	switch e.config.ServerType {
 	case "tcp":
-		log.Printf("Executor: Starting TCP executor server on %s", e.config.ServerAddr)
+		e.log.Info("Executor: Starting TCP executor server on %s", e.config.ServerAddr)
 	case "v-sock":
-		log.Printf("Executor: Starting v-socket executor server on CID %d, Port %d", e.config.ServerCid, e.config.ServerPort)
+		e.log.Info("Executor: Starting v-socket executor server on CID %d, Port %d", e.config.ServerCid, e.config.ServerPort)
 	}
 	return e.server.Start(ctx, "Executor")
 }
 
 // Stop stops the executor server
 func (e *StatelessExecutor) Stop() error {
-	log.Printf("Executor: Stopping stateless executor")
+	e.log.Info("Executor: Stopping stateless executor")
 	return e.server.Stop()
 }
 
 // Close closes the executor and its runtime
 func (e *StatelessExecutor) Close() error {
 	if err := e.Stop(); err != nil {
-		log.Printf("Executor: Error stopping server: %v", err)
+		e.log.Error("Executor: Error stopping server: %v", err)
 	}
 	if e.runtime != nil {
 		return e.runtime.Close()
@@ -258,7 +260,7 @@ func (e *StatelessExecutor) Close() error {
 
 // HandleProcessRequest is the main workflow: decrypt state -> invoke WASM -> encrypt new state -> sign -> respond
 func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
-	log.Printf("Executor: Processing request %s for application %s", req.RequestID, req.ApplicationID)
+	e.log.Info("Executor: Processing request %s for application %s", req.RequestID, req.ApplicationID)
 
 	// Decrypte and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
@@ -274,14 +276,14 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to process deposit in WASM runtime: %w", err)
 		}
-		log.Printf("Executor: Successfully processed deposit for request %s", req.RequestID)
+		e.log.Info("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
 	if req.RequestType == common.AssociateKey {
 		//request  of type associate key: the payload is not encrypted and contains the new key
-		log.Printf("Associating new key - RequestID %s", req.RequestID)
+		e.log.Info("Associating new key - RequestID %s", req.RequestID)
 
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload)
 		if err != nil {
@@ -304,7 +306,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to process request in WASM runtime: %w", err)
 		}
-		log.Printf("Executor: Successfully processed request %s", req.RequestID)
+		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	}
 
 	//set the updated state
@@ -330,7 +332,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt events: %w", err)
 	}
-	log.Printf("Executor: Successfully encrypted new application data")
+	e.log.Info("Executor: Successfully encrypted new application data")
 
 	// Create appdata root hash
 	newStateRoot := sha256.Sum256(newAppData)
@@ -359,13 +361,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		EncryptedState: encryptedNewAppData,
 	}
 
-	log.Printf("Executor: Successfully processed request %s", req.RequestID)
+	e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	return updatePayload, newApplicationState, nil
 }
 
 // HandleDeployApp implements the RequestHandler interface
 func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
-	log.Printf("Executor: Deploying application for request %s", req.RequestID)
+	e.log.Info("Executor: Deploying application for request %s", req.RequestID)
 
 	// For deployment, we need to initialize the application with the WASM module
 	// The payload should contain the WASM bytecode
@@ -392,7 +394,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt initial app data: %w", err)
 	}
-	log.Printf("Executor: Successfully encrypted initial app data")
+	e.log.Info("Executor: Successfully encrypted initial app data")
 
 	// Create the application state
 	appState := &common.ApplicationState{
@@ -416,13 +418,13 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 	updatePayload.Signature = signature
 
-	log.Printf("Executor: Successfully deployed application %s", req.ApplicationID)
+	e.log.Info("Executor: Successfully deployed application %s", req.ApplicationID)
 	return updatePayload, appState, nil
 }
 
 // HandleGenerateDeanonymizationReport implements the RequestHandler interface
 func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error) {
-	log.Printf("Executor: Generating deanonymization report for request %s", req.RequestID)
+	e.log.Info("Executor: Generating deanonymization report for request %s", req.RequestID)
 
 	// Decrypte and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
@@ -455,7 +457,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
 	}
-	log.Printf("Executor: Successfully encrypted deanonymization report")
+	e.log.Info("Executor: Successfully encrypted deanonymization report")
 
 	report := &common.DeanonymizationReport{
 		ApplicationID:   req.ApplicationID,
@@ -463,13 +465,13 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		EncryptedReport: encryptedReport,
 	}
 
-	log.Printf("Executor: Successfully generated deanonymization report %s", req.RequestID)
+	e.log.Info("Executor: Successfully generated deanonymization report %s", req.RequestID)
 	return report, nil
 }
 
 func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.ApplicationState) (*appdata.AppData, error) {
 	// Decrypt the encrypted state
-	decryptedState, err := DecryptState(encState.EncryptedState, e.keySet.StateKey)
+	decryptedState, err := e.DecryptState(encState.EncryptedState, e.keySet.StateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt state: %w", err)
 	}
@@ -542,7 +544,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 		}
 	}
 
-	log.Printf("Executor: Successfully encrypted %d events", len(events))
+	e.log.Info("Executor: Successfully encrypted %d events", len(events))
 	return encryptedEvents, nil
 }
 
@@ -579,7 +581,7 @@ func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId, requestI
 	return encryptedReport, nil
 }
 
-func DecryptState(encryptedState []byte, decryptionKey cryptotypes.AES256Key) ([]byte, error) {
+func (e *StatelessExecutor) DecryptState(encryptedState []byte, decryptionKey cryptotypes.AES256Key) ([]byte, error) {
 	if len(encryptedState) == 0 {
 		return encryptedState, nil // nothing to decrypt
 	}
@@ -589,7 +591,7 @@ func DecryptState(encryptedState []byte, decryptionKey cryptotypes.AES256Key) ([
 		return nil, fmt.Errorf("state decryption failed: %w", err)
 	}
 
-	log.Printf("Executor: Successfully decrypted application state")
+	e.log.Info("Executor: Successfully decrypted application state")
 	return decryptedState, nil
 }
 
@@ -609,6 +611,6 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 		return nil, fmt.Errorf("payload decryption failed: %w", err)
 	}
 
-	log.Printf("Executor: Successfully decrypted request payload")
+	e.log.Info("Executor: Successfully decrypted request payload")
 	return decryptedPayload, nil
 }

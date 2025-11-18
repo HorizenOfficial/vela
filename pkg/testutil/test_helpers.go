@@ -44,7 +44,8 @@ func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *System
 	// log is passed from outside, the log settings in the manager configuration does not affect it.
 	mgrConfig, err := manager.LoadConfigFromFile()
 	require.NoError(t, err)
-	execConfig := executor.ReadConfig()
+	execConfig, err := executor.LoadConfigFromFile()
+	require.NoError(t, err)
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
 	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, log)
@@ -65,7 +66,7 @@ func NewSystemTestSuiteWithConfigs(
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory(execConfig.ServerAddr)
-	executorClient := communication.NewClient(factory)
+	executorClient := communication.NewClient(factory, log)
 
 	// Create manager
 	var err error
@@ -97,19 +98,19 @@ func NewSystemTestSuiteWithConfigs(
 	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, log)
 
 	// Create executor
-	server := communication.NewServer(factory)
+	server := communication.NewServer(factory, log)
 	var runtime executor.Runtime
 	switch appType {
 	case "mock-runtime":
 		t.Log("mock app type: ", appType)
-		runtime = executor.NewMockRuntime()
+		runtime = executor.NewMockRuntime(log)
 	default:
 		t.Log("wasm app type: ", appType)
-		runtime = wasm.NewWasmtimeRuntime()
+		runtime = wasm.NewWasmtimeRuntime(log)
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, log)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {

@@ -12,6 +12,12 @@ type ZeroLogger struct {
 	logger zerolog.Logger
 }
 
+func init() {
+	// Zerolog's default internal skip is usually 2.
+	// By setting it to 3, we are adding 1 extra skip for the wrapper function.
+	zerolog.CallerSkipFrameCount = 3
+}
+
 func NewZeroLogger(cfg *Config) *ZeroLogger {
 	writers := []io.Writer{}
 
@@ -47,15 +53,17 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 	logger := zerolog.New(writer).
 		With().
 		Timestamp().
-		Caller().
+		Caller(). // see init() func above
 		Logger().
 		Level(logLevel)
 
 	return &ZeroLogger{logger: logger}
 }
 
+func (z *ZeroLogger) Trace(msg string, args ...any) { z.logger.Trace().Msgf(msg, args...) }
 func (z *ZeroLogger) Debug(msg string, args ...any) { z.logger.Debug().Msgf(msg, args...) }
 func (z *ZeroLogger) Info(msg string, args ...any)  { z.logger.Info().Msgf(msg, args...) }
 func (z *ZeroLogger) Warn(msg string, args ...any)  { z.logger.Warn().Msgf(msg, args...) }
 func (z *ZeroLogger) Error(msg string, args ...any) { z.logger.Error().Msgf(msg, args...) }
 func (z *ZeroLogger) Fatal(msg string, args ...any) { z.logger.Fatal().Stack().Msgf(msg, args...) }
+func (z *ZeroLogger) Panic(msg string, args ...any) { z.logger.Panic().Stack().Msgf(msg, args...) }

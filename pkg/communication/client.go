@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/logger"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
 
@@ -28,10 +28,11 @@ type Client struct {
 	factory         ConnectionFactory
 	requestHandler  ClientRequestHandler
 	idLogTag        string
+	log             logger.Logger
 }
 
 // NewClient creates a new client with the specified connection factory
-func NewClient(factory ConnectionFactory) *Client {
+func NewClient(factory ConnectionFactory, log logger.Logger) *Client {
 	return &Client{
 		factory:         factory,
 		pendingRequests: make(map[string]*PendingRequest),
@@ -39,6 +40,7 @@ func NewClient(factory ConnectionFactory) *Client {
 		reqTimeout:      30 * time.Second,
 		// For debugging it can be useful to use huge timeout values
 		// reqTimeout: 30 * time.Hour,
+		log: log,
 	}
 }
 
@@ -76,6 +78,7 @@ func (c *Client) Connect(ctx context.Context, idLogTag string) error {
 		func() {
 			c.Close()
 		},
+		c.log,
 	)
 
 	// Start the cleanup goroutine for timed-out requests
@@ -108,7 +111,7 @@ func (c *Client) Close() error {
 		return c.conn.Close()
 	}
 
-	log.Println("Client connection closed")
+	c.log.Warn("Client connection closed")
 	return nil
 }
 
@@ -156,7 +159,7 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 // SendDeployApp sends a deploy app request and waits for response
 func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error) {
 	uid := generateID()
-	log.Printf("Generated UID: %s", uid)
+	c.log.Debug("Generated UID: %s", uid)
 
 	msg := Message{
 		ID:   uid,
@@ -275,11 +278,11 @@ func (c *Client) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
-	log.Printf("%s: MagBytes length before delimiter: %d", c.idLogTag, len(data))
+	c.log.Debug("%s: MagBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add delimiter
 	data = append(data, delimiter)
-	log.Printf("%s: MagBytes length after delimiter: %d", c.idLogTag, len(data))
+	c.log.Debug("%s: MagBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write message with delimiter
 	if _, err := c.writer.Write(data); err != nil {
@@ -309,7 +312,7 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg Message) {
 			// Channel is open and has room, send the response
 		default:
 			// Channel is full or closed, ignore and log the issue
-			log.Printf("%s: Warning: response channel for request ID %s is full or closed, ignoring response\n", c.idLogTag, msg.ID)
+			c.log.Warn("%s: Warning: response channel for request ID %s is full or closed, ignoring response\n", c.idLogTag, msg.ID)
 		}
 		return
 	}
@@ -322,21 +325,21 @@ func (c *Client) routeIncomingMessage(ctx context.Context, msg Message) {
 func (c *Client) handleServerRequest(ctx context.Context, msg Message) {
 	switch msg.Type {
 	case GetKeysetRecoveryRequestMessage:
-		log.Printf("%s: got message GetKeysetRecoveryRequestMessage type: %v\n", c.idLogTag, msg.Type)
+		c.log.Info("%s: got message GetKeysetRecoveryRequestMessage type: %v", c.idLogTag, msg.Type)
 		c.handleGetKeysetRecoveryRequest(ctx, msg)
 	case SetKeysetRecoveryRequestMessage:
-		log.Printf("%s: got message SetKeysetRecoveryRequestMessage type: %v\n", c.idLogTag, msg.Type)
+		c.log.Info("%s: got message SetKeysetRecoveryRequestMessage type: %v", c.idLogTag, msg.Type)
 		c.handleSetKeysetRecoveryRequest(ctx, msg)
 	case KeysetRecoveryResultMessage:
 		c.handleKeysetRecoveryResult(ctx, msg)
 	default:
-		log.Printf("%s: Warning: unknown message type: %v\n", c.idLogTag, msg.Type)
+		c.log.Warn("%s: Warning: unknown message type: %v", c.idLogTag, msg.Type)
 	}
 }
 
 // handleGetKeysetRecoveryRequest handles Executor messages from the server
 func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message) {
-	log.Printf("%s: entering %s", c.idLogTag, common.FnName())
+	c.log.Info("%s: entering %s", c.idLogTag, common.FnName())
 	if c.requestHandler == nil {
 		c.sendErrorResponse(msg.ID, "NO_HANDLER", fmt.Errorf("no request handler set"))
 		return
@@ -349,16 +352,16 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message
 
 	if err != nil {
 		if storageErrors.IsNotFound(err) {
-			log.Printf("%s: KeysetRecovery not found in data layer: %v", c.idLogTag, err)
+			c.log.Warn("%s: KeysetRecovery not found in data layer: %v", c.idLogTag, err)
 			dataFound = false
 			respRecv = nil
 		} else {
-			log.Printf("%s: Unexpected error from datalayer: %v", c.idLogTag, err)
+			c.log.Error("%s: Unexpected error from datalayer: %v", c.idLogTag, err)
 			c.sendErrorResponse(msg.ID, "Unexpected error from dataLayer ", err)
 			return
 		}
 	} else {
-		log.Printf("%s: KeysetRecovery found in data layer", c.idLogTag)
+		c.log.Warn("%s: KeysetRecovery found in data layer", c.idLogTag)
 		dataFound = true
 		respRecv = recv
 	}
@@ -372,10 +375,10 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message
 		},
 	}
 
-	log.Printf("%s: Sending GetKeysetRecoveryResponseMessage to executor", c.idLogTag)
+	c.log.Info("%s: Sending GetKeysetRecoveryResponseMessage to executor", c.idLogTag)
 	err = c.sendMessage(response)
 	if err != nil {
-		log.Printf("%s: Failed to send GetKeysetRecoveryResponseMessage response: %v", c.idLogTag, err)
+		c.log.Warn("%s: Failed to send GetKeysetRecoveryResponseMessage response: %v", c.idLogTag, err)
 	}
 }
 
@@ -429,15 +432,15 @@ func (c *Client) handleSetKeysetRecoveryRequest(ctx context.Context, msg Message
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		log.Printf("%s: Failed to send HandleSetKeysetRecoveryRequest response: %v", c.idLogTag, err)
+		c.log.Error("%s: Failed to send HandleSetKeysetRecoveryRequest response: %v", c.idLogTag, err)
 		return
 	}
-	log.Printf("%s: SetKeysetRecoveryRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
+	c.log.Info("%s: SetKeysetRecoveryRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // sendErrorResponse sends an error response
 func (c *Client) sendErrorResponse(requestID string, code string, err error) {
-	log.Printf("%s: Sending error response: ID=%s, Code=%s, Message=%s", c.idLogTag, requestID, code, err.Error())
+	c.log.Info("%s: Sending error response: ID=%s, Code=%s, Message=%s", c.idLogTag, requestID, code, err.Error())
 	response := Message{
 		ID:   requestID,
 		Type: ErrorMessage,
@@ -448,7 +451,7 @@ func (c *Client) sendErrorResponse(requestID string, code string, err error) {
 	}
 
 	if sendErr := c.sendMessage(response); sendErr != nil {
-		log.Printf("%s: Failed to send error response: %v", c.idLogTag, sendErr)
+		c.log.Error("%s: Failed to send error response: %v", c.idLogTag, sendErr)
 	}
 }
 

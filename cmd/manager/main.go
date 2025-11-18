@@ -129,7 +129,7 @@ func main() {
 			log.Fatal("Tcp url is empty")
 		}
 		factory := communication.NewTCPConnectionFactory(config.ExecutorConnectionParams["url"])
-		executorClient = communication.NewClient(factory)
+		executorClient = communication.NewClient(factory, log)
 	case "vsock":
 		cidStr, err := strconv.ParseUint(config.ExecutorConnectionParams["cid"], 10, 32)
 		if err != nil {
@@ -144,7 +144,7 @@ func main() {
 		port := uint32(portStr)
 
 		factory := communication.NewVSockConnectionFactory(cid, port)
-		executorClient = communication.NewClient(factory)
+		executorClient = communication.NewClient(factory, log)
 	default:
 		log.Fatal("Unsupported executor connection type: %s", config.ExecutorConnectionType)
 	}

@@ -192,7 +192,7 @@ func (m *SecureProcessorManager) HandleGetKeysetRecoveryRequest(ctx context.Cont
 
 	recv, err := m.dataLayer.GetEnclaveKeySetRecovery(ctx)
 	if err != nil {
-		m.log.Error("Manager: could not get keyset recovery data: %v", err)
+		m.log.Info("Manager: could not get keyset recovery data: %v", err)
 		return nil, err
 	}
 
@@ -424,7 +424,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	if len(req.Payload) == 0 {
 		m.log.Info("Empty payload received - trying to retrieve wasm locally")
 		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID+".wasm")
-		if !fileExists(wasmFilePath) {
+		if !common.FileExists(wasmFilePath) {
 			return fmt.Errorf("failed to deploy application - wasm not found in both payload or local path: %v", wasmFilePath)
 		}
 		wasmBytesFromFile, err := os.ReadFile(wasmFilePath)

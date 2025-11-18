@@ -67,6 +67,7 @@ func TestCheckSignature(t *testing.T) {
 		config:           execConfig,
 		MsgToSignBuilder: builder,
 		keySet:           qqq,
+		log:              testLogger,
 	}
 	executorAddress := ethCrypto.PubkeyToAddress(*executor.keySet.SigningKey.PublicKey().PublicKey)
 
@@ -112,6 +113,7 @@ func TestDumpKeys(t *testing.T) {
 		config:           execConfig,
 		MsgToSignBuilder: builder,
 		keySet:           ks,
+		log:              testLogger,
 	}
 
 	executor.DumpPublicKeys()
