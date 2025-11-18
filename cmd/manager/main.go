@@ -83,12 +83,19 @@ func main() {
 	config, err := manager.LoadConfigFromFile()
 	if err != nil {
 		// Use a temporary logger for fatal error
-		log := logger.NewLogger("zerolog", "info", "console")
+		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
 		log.Fatal("Failed to load configuration: %v", err)
 	}
 
 	// Create a logger from config
-	log := logger.NewLogger("zerolog", config.LogLevel, config.LogFormat)
+	log := logger.NewLogger(&logger.Config{
+		Kind:         "zerolog",
+		Console:      config.LogConsole,
+		ConsoleLevel: config.LogConsoleLevel,
+		ConsoleColor: config.LogConsoleColor,
+		FileName:     config.LogFileName,
+		FileLevel:    config.LogFileLevel,
+	})
 
 	// TODO test, remove it
 	log.Info("Starting manager I...")

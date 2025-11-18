@@ -12,18 +12,34 @@ type ZeroLogger struct {
 	logger zerolog.Logger
 }
 
-func NewZeroLogger(level, format string) *ZeroLogger {
-	var writer io.Writer
-	if format == "console" {
-		writer = zerolog.ConsoleWriter{
+func NewZeroLogger(cfg *Config) *ZeroLogger {
+	writers := []io.Writer{}
+
+	if cfg.FileName != "" {
+		logFile, err := os.OpenFile(cfg.FileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+		if err != nil {
+			panic(err)
+		}
+		writers = append(writers, logFile)
+	}
+
+	if cfg.Console {
+		writers = append(writers, zerolog.ConsoleWriter{
 			Out:        os.Stderr,
 			TimeFormat: time.RFC3339,
-		}
+			NoColor:    !cfg.ConsoleColor,
+		})
+	}
+
+	var writer io.Writer
+	if len(writers) > 0 {
+		writer = zerolog.MultiLevelWriter(writers...)
 	} else {
+		// default to stderr if no output is specified
 		writer = os.Stderr
 	}
 
-	logLevel, err := zerolog.ParseLevel(level)
+	logLevel, err := zerolog.ParseLevel(cfg.ConsoleLevel)
 	if err != nil {
 		logLevel = zerolog.InfoLevel
 	}
@@ -31,6 +47,7 @@ func NewZeroLogger(level, format string) *ZeroLogger {
 	logger := zerolog.New(writer).
 		With().
 		Timestamp().
+		Caller().
 		Logger().
 		Level(logLevel)
 

@@ -25,8 +25,10 @@ import (
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
-	// Initialize once
-	testLogger = logger.NewLogger("printf", "", "")
+	// Initialize once, by default it writes on stderr
+	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+	//cfg := logger.DefaultLogConfig("zerolog")
+	//testLogger = logger.NewLogger(&cfg)
 
 	// Run tests
 	code := m.Run()

@@ -54,10 +54,17 @@ type Config struct {
 	// (we may need to load it externally for GAS limitation)
 	InputWasmPath string
 
-	// LogLevel is the level of logging
-	LogLevel string
-	// LogFormat is the format of the log output
-	LogFormat string
+	// LogConsole is true if we want output on console
+	LogConsole bool
+	// LogConsoleLevel is the level of logging for the console
+	LogConsoleLevel string
+	// LogConsoleColor is true if the log output should be colored
+	LogConsoleColor bool
+
+	// LogFileName is the path to the log file. An empty string means no output on log file
+	LogFileName string
+	// LogFIleLevel is the level of logging for the console
+	LogFileLevel string
 }
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
@@ -120,6 +127,33 @@ func DefaultConfig() *Config {
 		blockchainPollingInterval = 5
 	}
 
+	logConsole, err := strconv.ParseBool(os.Getenv("MANAGER_LOG_CONSOLE"))
+	if err != nil {
+		logConsole = true
+	}
+
+	logConsoleLevel := os.Getenv("MANAGER_LOG_CONSOLE_LEVEL")
+	if logConsoleLevel == "" {
+		logConsoleLevel = "info"
+	}
+
+	logFileName := os.Getenv("MANAGER_LOG_FILE_NAME")
+	if logFileName == "" {
+		logFileName = ""
+	}
+
+	logFileLevel := os.Getenv("MANAGER_LOG_FILE_LEVEL")
+	if logFileLevel == "" {
+		if logFileName != "" {
+			logFileLevel = "info"
+		}
+	}
+
+	logConsoleColor, err := strconv.ParseBool(os.Getenv("MANAGER_LOG_CONSOLE_COLOR"))
+	if err != nil {
+		logConsoleColor = false
+	}
+
 	return &Config{
 		ReorgTimeout:              reorgTimeout,
 		HandshakeTimeout:          handshakeTimeout,
@@ -140,8 +174,13 @@ func DefaultConfig() *Config {
 		DataLayerNumOfVersions:    10,          // useful only for versioned leveldb
 		DeanonymizationReportPath: reportsPath, // optional, default to not-there semantic
 		InputWasmPath:             inputWasmPath,
-		LogLevel:                  "info",
-		LogFormat:                 "console",
+
+		LogConsole:      logConsole,
+		LogConsoleLevel: logConsoleLevel,
+		LogConsoleColor: logConsoleColor,
+
+		LogFileName:  logFileName,
+		LogFileLevel: logFileLevel,
 	}
 }
 
@@ -178,8 +217,11 @@ func LoadConfigFromFile() (*Config, error) {
 		DataLayerNumOfVersions:    config.MustGetInt("DataLayerNumOfVersions"),
 		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
 		InputWasmPath:             config.GetString("InputWasmPath", ""),
-		LogLevel:                  config.GetString("LogLevel", "info"),
-		LogFormat:                 config.GetString("LogFormat", "console"),
+		LogConsole:                config.GetBool("LogConsole", true),
+		LogConsoleLevel:           config.GetString("LogConsoleLevel", "info"),
+		LogConsoleColor:           config.GetBool("LogColor", true),
+		LogFileName:               config.GetString("LogFileName", ""),
+		LogFileLevel:              config.GetString("LogFileLevel", "info"),
 	}, nil
 }
 

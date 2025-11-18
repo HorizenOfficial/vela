@@ -1,15 +1,39 @@
 package logger
 
 import (
+	"io"
 	"log"
+	"os"
 )
 
 type PrintfLogger struct {
 	logger *log.Logger
 }
 
-func NewPrintfLogger() *PrintfLogger {
-	return &PrintfLogger{logger: log.Default()}
+func NewPrintfLogger(cfg *Config) *PrintfLogger {
+	writers := []io.Writer{}
+
+	if cfg.Console {
+		writers = append(writers, os.Stderr)
+	}
+
+	if cfg.FileName != "" {
+		logFile, err := os.OpenFile(cfg.FileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+		if err != nil {
+			panic(err)
+		}
+		writers = append(writers, logFile)
+	}
+
+	var writer io.Writer
+	if len(writers) > 0 {
+		writer = io.MultiWriter(writers...)
+	} else {
+		// default to stderr if no output is specified
+		writer = os.Stderr
+	}
+
+	return &PrintfLogger{logger: log.New(writer, "", log.LstdFlags)}
 }
 
 func (p *PrintfLogger) Debug(msg string, args ...any) { p.logger.Printf("DEBUG: "+msg, args...) }
