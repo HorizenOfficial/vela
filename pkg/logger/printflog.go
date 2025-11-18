@@ -7,7 +7,8 @@ import (
 )
 
 type PrintfLogger struct {
-	logger *log.Logger
+	logger  *log.Logger
+	logFile *os.File
 }
 
 func NewPrintfLogger(cfg *Config) *PrintfLogger {
@@ -17,8 +18,10 @@ func NewPrintfLogger(cfg *Config) *PrintfLogger {
 		writers = append(writers, os.Stderr)
 	}
 
+	var logFile *os.File
 	if cfg.FileName != "" {
-		logFile, err := os.OpenFile(cfg.FileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+		var err error
+		logFile, err = os.OpenFile(cfg.FileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
 		if err != nil {
 			panic(err)
 		}
@@ -33,7 +36,7 @@ func NewPrintfLogger(cfg *Config) *PrintfLogger {
 		writer = os.Stderr
 	}
 
-	return &PrintfLogger{logger: log.New(writer, "", log.LstdFlags)}
+	return &PrintfLogger{logger: log.New(writer, "", log.LstdFlags), logFile: logFile}
 }
 
 func (p *PrintfLogger) Trace(msg string, args ...any) { p.logger.Printf("TRC: "+msg, args...) }
@@ -43,3 +46,9 @@ func (p *PrintfLogger) Warn(msg string, args ...any)  { p.logger.Printf("WRN: "+
 func (p *PrintfLogger) Error(msg string, args ...any) { p.logger.Printf("ERR: "+msg, args...) }
 func (p *PrintfLogger) Fatal(msg string, args ...any) { p.logger.Fatalf("FTL: "+msg, args...) }
 func (p *PrintfLogger) Panic(msg string, args ...any) { p.logger.Panicf("PNC: "+msg, args...) }
+func (p *PrintfLogger) Close() error {
+	if p.logFile != nil {
+		return p.logFile.Close()
+	}
+	return nil
+}

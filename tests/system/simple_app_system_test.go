@@ -30,11 +30,11 @@ func TestMain(m *testing.M) {
 	testLogger = logger.NewLogger(
 		&logger.Config{
 			Kind:         "zerolog",
-			ConsoleLevel: "Info",
-			ConsoleColor: true, // colors can print escape chars on tty
+			ConsoleLevel: "info",
+			ConsoleColor: false, // colors can print escape chars on tty
 			Console:      true,
 			//FileName:     "qqq.log", //no file here
-			//FileLevel:    "Info",
+			//FileLevel:    "info",
 		},
 	)
 

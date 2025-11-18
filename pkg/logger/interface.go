@@ -8,6 +8,7 @@ type Logger interface {
 	Error(msg string, args ...any)
 	Fatal(msg string, args ...any)
 	Panic(msg string, args ...any)
+	Close() error
 }
 
 // Config holds the configuration for the logger.

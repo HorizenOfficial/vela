@@ -96,6 +96,11 @@ func main() {
 		FileName:     config.LogFileName,
 		FileLevel:    config.LogFileLevel,
 	})
+	defer func() {
+		if err := log.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error closing logger: %v\n", err)
+		}
+	}()
 
 	// TODO test, remove it
 	log.Info("Starting manager I...")
@@ -112,13 +117,15 @@ func main() {
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)
 	if err != nil {
-		log.Fatal("Failed to create blockchain client: %v", err)
+		log.Error("Failed to create blockchain client: %v", err)
+		return
 	}
 
 	// Create the data layer
 	dataLayer, err := createDataLayer(config)
 	if err != nil {
-		log.Fatal("Failed to create data layer: %v", err)
+		log.Error("Failed to create data layer: %v", err)
+		return
 	}
 
 	// Create the executor client
@@ -126,27 +133,31 @@ func main() {
 	switch config.ExecutorConnectionType {
 	case "tcp":
 		if strings.TrimSpace(config.ExecutorConnectionParams["url"]) == "" {
-			log.Fatal("Tcp url is empty")
+			log.Error("Tcp url is empty")
+			return
 		}
 		factory := communication.NewTCPConnectionFactory(config.ExecutorConnectionParams["url"])
 		executorClient = communication.NewClient(factory, log)
 	case "vsock":
 		cidStr, err := strconv.ParseUint(config.ExecutorConnectionParams["cid"], 10, 32)
 		if err != nil {
-			log.Fatal("Failed to parse port: %v", err)
+			log.Error("Failed to parse port: %v", err)
+			return
 		}
 		cid := uint32(cidStr)
 
 		portStr, err := strconv.ParseUint(config.ExecutorConnectionParams["port"], 10, 32)
 		if err != nil {
-			log.Fatal("Failed to parse executor connection parameters: %v", err)
+			log.Error("Failed to parse executor connection parameters: %v", err)
+			return
 		}
 		port := uint32(portStr)
 
 		factory := communication.NewVSockConnectionFactory(cid, port)
 		executorClient = communication.NewClient(factory, log)
 	default:
-		log.Fatal("Unsupported executor connection type: %s", config.ExecutorConnectionType)
+		log.Error("Unsupported executor connection type: %s", config.ExecutorConnectionType)
+		return
 	}
 
 	// Create the manager

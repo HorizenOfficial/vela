@@ -26,8 +26,9 @@ func TestMain(m *testing.M) {
 			Kind:         "zerolog",
 			ConsoleColor: false, // colors can print escape chars on tty
 			Console:      true,
+			ConsoleLevel: "trace",
 			//FileName:     "qqq.log",
-			//FileLevel:    "Info",
+			//FileLevel:    "info",
 		},
 	)
 

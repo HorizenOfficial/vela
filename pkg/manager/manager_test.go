@@ -26,9 +26,19 @@ var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
 	// Initialize once, by default it writes on stderr
-	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+	//testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
 	//cfg := logger.DefaultLogConfig("zerolog")
 	//testLogger = logger.NewLogger(&cfg)
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			ConsoleLevel: "trace",
+			//FileName:     "qqq.log",
+			//FileLevel:    "info",
+		},
+	)
 
 	// Run tests
 	code := m.Run()

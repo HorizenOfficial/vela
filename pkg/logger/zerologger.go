@@ -9,7 +9,8 @@ import (
 )
 
 type ZeroLogger struct {
-	logger zerolog.Logger
+	logger  zerolog.Logger
+	logFile *os.File
 }
 
 func init() {
@@ -21,8 +22,10 @@ func init() {
 func NewZeroLogger(cfg *Config) *ZeroLogger {
 	writers := []io.Writer{}
 
+	var logFile *os.File
 	if cfg.FileName != "" {
-		logFile, err := os.OpenFile(cfg.FileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+		var err error
+		logFile, err = os.OpenFile(cfg.FileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
 		if err != nil {
 			panic(err)
 		}
@@ -57,7 +60,7 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 		Logger().
 		Level(logLevel)
 
-	return &ZeroLogger{logger: logger}
+	return &ZeroLogger{logger: logger, logFile: logFile}
 }
 
 func (z *ZeroLogger) Trace(msg string, args ...any) { z.logger.Trace().Msgf(msg, args...) }
@@ -67,3 +70,9 @@ func (z *ZeroLogger) Warn(msg string, args ...any)  { z.logger.Warn().Msgf(msg, 
 func (z *ZeroLogger) Error(msg string, args ...any) { z.logger.Error().Msgf(msg, args...) }
 func (z *ZeroLogger) Fatal(msg string, args ...any) { z.logger.Fatal().Stack().Msgf(msg, args...) }
 func (z *ZeroLogger) Panic(msg string, args ...any) { z.logger.Panic().Stack().Msgf(msg, args...) }
+func (z *ZeroLogger) Close() error {
+	if z.logFile != nil {
+		return z.logFile.Close()
+	}
+	return nil
+}

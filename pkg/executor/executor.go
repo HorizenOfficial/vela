@@ -235,7 +235,7 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 	switch e.config.ServerType {
 	case "tcp":
 		e.log.Info("Executor: Starting TCP executor server on %s", e.config.ServerAddr)
-	case "v-sock":
+	case "vsock":
 		e.log.Info("Executor: Starting v-socket executor server on CID %d, Port %d", e.config.ServerCid, e.config.ServerPort)
 	}
 	return e.server.Start(ctx, "Executor")

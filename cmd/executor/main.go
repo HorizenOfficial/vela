@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/horizen-pes/pkg/communication"
 
@@ -32,6 +34,11 @@ func main() {
 		FileName:     config.LogFileName,
 		FileLevel:    config.LogFileLevel,
 	})
+	defer func() {
+		if err := log.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error closing logger: %v\n", err)
+		}
+	}()
 
 	// Create the WASM runtime
 	runtime := wasm.NewWasmtimeRuntime(log)
@@ -46,19 +53,22 @@ func main() {
 		factory := communication.NewVSockConnectionFactory(config.ServerCid, config.ServerPort)
 		server = communication.NewServer(factory, log)
 	default:
-		log.Fatal("Unsupported server type: %s", config.ServerType)
+		log.Error("Unsupported server type: %s", config.ServerType)
+		return
 	}
 
 	// Create the executor
 	exec, err := executor.NewStatelessExecutor(config, runtime, server, log)
 	if err != nil {
-		log.Fatal("Error creating executor: %v", err)
+		log.Error("Error creating executor: %v", err)
+		return
 	}
 
 	// Start the executor
 	log.Info("Starting executor service...")
 	if err := exec.Start(ctx); err != nil {
-		log.Fatal("Error starting executor: %v", err)
+		log.Error("Error starting executor: %v", err)
+		return
 	}
 	log.Info("Executor started")
 
