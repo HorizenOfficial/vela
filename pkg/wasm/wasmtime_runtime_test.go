@@ -82,26 +82,6 @@ func TestWriteToMemory_NilData(t *testing.T) {
 	require.Equal(t, int32(0), ptr)
 }
 
-func TestReadFromMemory_NilModule(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
-	defer runtime.Close()
-
-	_, err := runtime.readFromMemory(nil, 0, 0)
-	require.Error(t, err)
-	require.Equal(t, "module is nil", err.Error())
-}
-
-func TestReadFromMemory_NilMemory(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
-	defer runtime.Close()
-
-	module := &ApplicationModule{} // memory is nil by default
-
-	_, err := runtime.readFromMemory(module, 0, 0)
-	require.Error(t, err)
-	require.Equal(t, "memory not initialized", err.Error())
-}
-
 func TestExtractResultBytes(t *testing.T) {
 	runtime := NewWasmtimeRuntime()
 	defer runtime.Close()

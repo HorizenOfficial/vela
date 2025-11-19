@@ -28,7 +28,7 @@ var allocatedMemory = make(map[uintptr][]byte)
 // var freeList = make(map[int32][][]byte)
 
 // total memory (in bytes) currently allocated
-var cumulative_alloc_size int32
+var cumulative_alloc_size int64
 
 // --- WASM Memory Management Functions ---
 
@@ -51,9 +51,10 @@ func allocate(size int32) int32 {
 	// Store a reference to the slice in our global map to "pin" it and preventing GC from acting
 	allocatedMemory[uptr] = data
 
-	cumulative_alloc_size += int32(size)
+	cumulative_alloc_size += int64(size)
 
 	// Return the pointer address as an int32 to the host.
+	// Go Wasmtime runtime receives the signed int32 bit pattern and casts them to uintptr when accessing memory
 	return int32(uptr)
 }
 
@@ -63,21 +64,29 @@ func deallocate(ptr *byte, size int32) {
 	// Get the uintptr from the pointer.
 	uptr := uintptr(unsafe.Pointer(ptr))
 
+	b, ok := allocatedMemory[uptr]
+	if !ok {
+		// we exit even if delete on a map would be a no op, but we also do not decrement the counter
+		return
+	}
+
 	// Delete the reference from the map. This unpins the memory, making it eligible for garbage collection.
-	// (Deleting a non-existent key is a no-op)
 	delete(allocatedMemory, uptr)
 
-	// double deletion will decrease the counter, we choose to do it anyway for the time being, maybe we can
-	// add more counters and stats in future
-	cumulative_alloc_size -= int32(size)
+	if int32(len(b)) != size {
+		// do not update the counter, that would be incorrect anyway. We could add more counters for errors and stats in future
+		return
+	}
+
+	cumulative_alloc_size -= int64(size)
 }
 
 // Note: if we call directly this function from the host, the ABI C interface foresees that
 // for multiple return values, the values are stored into a pointer passed as the first parameter by the caller.
 //
 //export get_allocated_memory_stats
-func GetAllocatedMemoryStats() (map_size, total_bytes int32) {
-	map_size = int32(len(allocatedMemory))
+func GetAllocatedMemoryStats() (map_size, total_bytes int64) {
+	map_size = int64(len(allocatedMemory))
 	total_bytes = cumulative_alloc_size
 	return
 }

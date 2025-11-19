@@ -54,10 +54,6 @@ jobs:
           wget https://github.com/tinygo-org/tinygo/releases/download/v0.39.0/tinygo_0.39.0_amd64.deb
           sudo dpkg -i tinygo_0.39.0_amd64.deb
 
-      # Install WABT tools
-      - name: Install WABT
-        run: sudo apt-get install -y wabt
-
       # ✅ Verify generated files consistency
       - name: Verify generated files are up-to-date
         timeout-minutes: 5
@@ -142,10 +138,6 @@ jobs:
         run: |
           wget https://github.com/tinygo-org/tinygo/releases/download/v0.39.0/tinygo_0.39.0_amd64.deb
           sudo dpkg -i tinygo_0.39.0_amd64.deb
-
-      # Install WABT tools
-      - name: Install WABT
-        run: sudo apt-get install -y wabt
 
       # ✅ Verify generated files consistency
       - name: Verify generated files are up-to-date

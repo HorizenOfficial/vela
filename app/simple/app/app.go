@@ -255,6 +255,6 @@ func GetAllocatedMemoryStats() wasmCommon.MemoryStats {
 	map_size, total_bytes := utils.GetAllocatedMemoryStats()
 	return wasmCommon.MemoryStats{
 		MapSize:              map_size,
-		CumulativeMemorySise: total_bytes,
+		CumulativeMemorySize: total_bytes,
 	}
 }

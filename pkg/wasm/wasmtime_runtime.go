@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"sync"
 
 	"github.com/bytecodealliance/wasmtime-go"
@@ -129,45 +130,29 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 
 	// Safely get a snapshot of the memory data and perform bounds checks
 	memData := module.memory.UnsafeData(module.store)
-	start := int(ptr)
-	end := start + len(data)
-	if start < 0 || end < start || end > len(memData) {
-		return 0, fmt.Errorf("invalid memory allocation: ptr=%d len=%d memsize=%d", ptr, len(data), len(memData))
+	// note: the wasmtime uses a doubling of the store size when more memory is required and the UnsafeData() panics if we use a 4GB size.
+	// As a consequence we can not have more than 2GB of memory allocated.
+	// In other words: When the internal store grows from 2 GB -> 4 GB, UnsafeData call suddenly fails, but we are not actually running
+	// out of Wasm memory, we are hitting a Go-side API limitation caused by Wasmtime’s internal buffer resize.
+	// As a side effect we also could safely use an int32 ptr as the offset (avoid using uint32 cast)
+
+	// Convert the signed int32 pointer to its true unsigned 32-bit value (uint32)
+	// This correctly interprets the bits of an address as a large positive number.
+	// This cast would not actually be necessary, see above.
+	uPtr := uint32(ptr)
+
+	// We cast to uint64 for the calculation to prevent overflow,
+	// as len(memData) can be up to 4GB (or larger, depending on the host's slice).
+	memLen := uint64(len(memData))
+	allocEnd := uint64(uPtr) + uint64(len(data)) // The end address of the requested block
+
+	if uint64(uPtr) >= memLen || allocEnd > memLen {
+		return 0, fmt.Errorf("invalid memory allocation: requested block [%d - %d) exceeds memory size %d", uPtr, allocEnd, memLen)
 	}
 
-	copy(memData[start:end], data)
+	copy(memData[uPtr:uPtr+uint32(len(data))], data)
+
 	return ptr, nil
-}
-
-// readFromMemory copies `length` bytes from module memory at offset `ptr`.
-func (r *WasmtimeRuntime) readFromMemory(module *ApplicationModule, ptr int32, length int32) ([]byte, error) {
-	if module == nil {
-		return nil, fmt.Errorf("module is nil")
-	}
-	if module.memory == nil {
-		return nil, fmt.Errorf("memory not initialized")
-	}
-	if length == 0 {
-		return []byte{}, nil
-	}
-
-	if module.store == nil {
-		return nil, fmt.Errorf("wasm module has a nil store")
-	}
-
-	memData := module.memory.UnsafeData(module.store)
-	start := int(ptr)
-	if start < 0 {
-		return nil, fmt.Errorf("negative pointer")
-	}
-	end := start + int(length)
-	if end > len(memData) {
-		return nil, fmt.Errorf("invalid memory access: ptr=%d length=%d memsize=%d", ptr, length, len(memData))
-	}
-
-	out := make([]byte, length)
-	copy(out, memData[start:end])
-	return out, nil
 }
 
 // -----------------------------
@@ -568,6 +553,12 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 		return nil, fmt.Errorf("empty result from wasm module")
 	}
 
+	// to be on the safe side, check against overflow. Actually it is necessary for 32-bit platforms only
+	// because on 64-bit platforms 'int' is large enough.
+	if dataLen > uint32(math.MaxInt32-4) {
+		return nil, fmt.Errorf("result too large: length would overflow int")
+	}
+
 	// Validate full payload is readable
 	totalLen := int(dataLen) + 4
 	if start+totalLen > len(memData) {
@@ -626,7 +617,7 @@ func (r *WasmtimeRuntime) Close() error {
 // retrieves statistics from guest memory allocation. In this version we use the ABI C specification of tinygo, using directly
 // the values returned from the wasm guest, without using marshal/unmarshal into json structs.
 // This implementation is here mostly as a reference on how to handle a multireturn exported func
-func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId string, wasm []byte) (int32, int32, error) {
+func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId string, wasm []byte) (int64, int64, error) {
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
@@ -644,13 +635,13 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId str
 	}
 
 	// we allocate a buffer wher the results will be stored
-	const resultSize = 2 * 4 // 2 int32 values, 4 bytes each
+	const resultSize = 2 * 8 // 2 int64 values, 8 bytes each
 	resultPtrValue, err := allocateFunc.Call(appModule.store, int32(resultSize))
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to allocate memory for results: %w", err)
 	}
 
-	// ensure we free the input buffer after lallocate returns
+	// ensure we free the input buffer after allocate returns
 	if appModule.deallocate != nil && resultPtrValue != 0 {
 		defer func() {
 			_, _ = appModule.deallocate.Call(appModule.store, resultPtrValue, resultSize)
@@ -664,14 +655,14 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId str
 		return 0, 0, fmt.Errorf("failed to call func: %w", err)
 	}
 
-	// Read the 2 int32 values sequentially from the WASM memory
+	// Read the 2 int64 values sequentially from the WASM memory
 
 	// Get the raw byte view of the WASM memory
 	memoryData := appModule.memory.UnsafeData(appModule.store)
 
-	// Read the five int32 values using binary.LittleEndian
-	mem_size := int32(binary.LittleEndian.Uint32(memoryData[resultPtr : resultPtr+4]))
-	total_bytes := int32(binary.LittleEndian.Uint32(memoryData[resultPtr+4 : resultPtr+8]))
+	// Read the int64 values using binary.LittleEndian
+	mem_size := int64(binary.LittleEndian.Uint64(memoryData[resultPtr : resultPtr+8]))
+	total_bytes := int64(binary.LittleEndian.Uint64(memoryData[resultPtr+8 : resultPtr+16]))
 	//log.Printf("Stats: %d, %d", mem_size, total_bytes)
 
 	// Now deduce the memory used here for reading the return values that will be released on exit by the defered dealloc call
@@ -682,7 +673,7 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId str
 }
 
 // retrieves statistics from guest memory allocation (second version)
-func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId string, wasm []byte) (int32, int32, error) {
+func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId string, wasm []byte) (int64, int64, error) {
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
@@ -712,7 +703,7 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId st
 	}
 
 	mem_size := stats.MapSize
-	total_bytes := stats.CumulativeMemorySise
+	total_bytes := stats.CumulativeMemorySize
 
 	log.Printf("Stats: %d, %d", mem_size, total_bytes)
 

@@ -152,15 +152,15 @@ func TestSimpleAppIntegration(t *testing.T) {
 	// check we have no memory leaks
 	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats(ctx, appId, wasmBytes)
 	require.NoError(t, err)
-	require.Equal(t, mem_map_entries, int32(0))
-	require.Equal(t, total_allocated_bytes, int32(0))
+	require.Equal(t, int64(0), mem_map_entries)
+	require.Equal(t, int64(0), total_allocated_bytes)
 	t.Logf("stats - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 
 	// use an alternative implementation of the function
 	mem_map_entries, total_allocated_bytes, err = runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
 	require.NoError(t, err)
-	require.Equal(t, mem_map_entries, int32(0))
-	require.Equal(t, total_allocated_bytes, int32(0))
+	require.Equal(t, int64(0), mem_map_entries)
+	require.Equal(t, int64(0), total_allocated_bytes)
 	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 }
 
@@ -476,8 +476,8 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 
 	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
 	require.NoError(t, err)
-	require.Equal(t, int32(0), mem_map_entries)
-	require.Equal(t, int32(0), total_allocated_bytes)
+	require.Equal(t, int64(0), mem_map_entries)
+	require.Equal(t, int64(0), total_allocated_bytes)
 	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 
 	// TODO -  The correct approach would be creating a new wasmtime.Instance for each concurrent operation.
