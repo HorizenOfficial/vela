@@ -2,12 +2,12 @@ package testutil
 
 import (
 	"fmt"
-	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
@@ -35,9 +35,6 @@ func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Addre
 
 func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload) bool {
 
-	appId, ok := common.StringToBigInt(payload.ApplicationID)
-	require.True(s.t, ok, "invalid application ID: %s", payload.ApplicationID)
-
 	events := make([][]byte, len(payload.Events))
 	for i, event := range payload.Events {
 		events[i] = event.EncryptedData
@@ -45,23 +42,19 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 
 	withdrawals := make([]tee.StructsWithdrawalRequest, len(payload.Withdrawals))
 	for i, withdrawal := range payload.Withdrawals {
-		amount := new(big.Int).SetUint64(withdrawal.Amount)
-		require.True(s.t, ok, "invalid amount: %s", withdrawal.Amount)
+		amount := withdrawal.Amount
 
 		withdrawals[i] = tee.StructsWithdrawalRequest{
-			Receiver: ethCommon.HexToAddress(withdrawal.DestinationAddress),
+			Receiver: withdrawal.DestinationAddress,
 			Amount:   amount,
 		}
 	}
 
-	requestId, err := common.RequestIdStringTo32Byte(payload.RequestID)
-	require.NoError(s.t, err, "invalid request ID: %s", payload.RequestID)
-
 	params := s.teeContract.PackCheckSignature(
-		appId,
+		processorendpoint.ApplicationIdToBindingType(payload.ApplicationID),
 		payload.PrevStateRoot,
 		payload.NewStateRoot,
-		requestId,
+		payload.RequestID,
 		events,
 		withdrawals,
 		payload.Signature,

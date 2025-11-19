@@ -101,7 +101,8 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 		if err != nil {
 			return fmt.Errorf("failed to marshal application state: %w", err)
 		}
-		key := []byte(appStatePrefix + state.ApplicationID)
+		
+		key := []byte(appStatePrefix + state.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: value})
 	}
 
@@ -110,7 +111,7 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 			return fmt.Errorf("wasm entry is nil")
 		}
 
-		key := []byte(wasmPrefix + wasm.ApplicationID)
+		key := []byte(wasmPrefix + wasm.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: wasm.Bytecode})
 	}
 
@@ -121,17 +122,17 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 	return nil
 }
 
-func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error) {
+func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error) {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
-	key := []byte(appStatePrefix + applicationID)
+	key := []byte(appStatePrefix + applicationID.String())
 	value, err := vdl.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get application state from Versioned LevelDB: %w", err)
 	}
 	if value == nil {
-		return nil, storageErrors.ErrNotFound(fmt.Sprintf("application state not found: %s", applicationID))
+		return nil, storageErrors.ErrNotFound(fmt.Sprintf("application state not found: %d", applicationID))
 	}
 
 	state := &common.ApplicationState{}
@@ -142,17 +143,17 @@ func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Contex
 	return state, nil
 }
 
-func (vdl *VersionedLevelDBAppStateStore) GetWASMBytecode(ctx context.Context, applicationID string) ([]byte, error) {
+func (vdl *VersionedLevelDBAppStateStore) GetWASMBytecode(ctx context.Context, applicationID common.ApplicationIdType) ([]byte, error) {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
-	key := []byte(wasmPrefix + applicationID)
+	key := []byte(wasmPrefix + applicationID.String())
 	value, err := vdl.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get WASM bytecode from Versioned LevelDB: %w", err)
 	}
 	if value == nil {
-		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " + applicationID)
+		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " + applicationID.String())
 	}
 	return value, nil
 }
@@ -254,7 +255,7 @@ func (s *LevelDBReportStore) StoreDeanonymizationReport(ctx context.Context, rep
 	if err != nil {
 		return fmt.Errorf("failed to marshal deanonymization report: %w", err)
 	}
-	key := []byte(deanonymizationReportPrefix + report.ReportID)
+	key := []byte(deanonymizationReportPrefix + report.ReportID.String())
 	err = s.Adapter.Put(key, value)
 	if err != nil {
 		return fmt.Errorf("failed to store deanonymization report in LevelDB: %w", err)
@@ -262,17 +263,17 @@ func (s *LevelDBReportStore) StoreDeanonymizationReport(ctx context.Context, rep
 	return nil
 }
 
-func (s *LevelDBReportStore) GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error) {
+func (s *LevelDBReportStore) GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
 	if err := s.checkClosed("report store"); err != nil {
 		return nil, err
 	}
-	key := []byte(deanonymizationReportPrefix + reportID)
+	key := []byte(deanonymizationReportPrefix + reportID.String())
 	value, err := s.Adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get deanonymization report from LevelDB: %w", err)
 	}
 	if value == nil {
-		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID)
+		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID.String())
 	}
 	report := &common.DeanonymizationReport{}
 	err = json.Unmarshal(value, report)

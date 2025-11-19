@@ -32,9 +32,9 @@ type ApplicationStateStore interface {
 	ListVersions() ([][]byte, error)
 
 	// GetApplicationState retrieves the state of a specific application by its ID.
-	GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error)
+	GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error)
 	// GetWASMBytecode retrieves the WASM bytecode for a specific application by its ID.
-	GetWASMBytecode(ctx context.Context, applicationID string) ([]byte, error)
+	GetWASMBytecode(ctx context.Context, applicationID common.ApplicationIdType) ([]byte, error)
 
 	// Close releases any resources held by the data store.
 	Close() error
@@ -46,7 +46,7 @@ type ApplicationReportStore interface {
 	// StoreDeanonymizationReport saves a new deanonymization report.
 	StoreDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error
 	// GetDeanonymizationReport retrieves a deanonymization report by its ID.
-	GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error)
+	GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error)
 }
 
 // EnclaveKeyStore defines the interface for managing enclave keys.

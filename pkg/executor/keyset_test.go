@@ -1,11 +1,14 @@
 package executor
 
 import (
+	"math/big"
 	"testing"
 
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
+	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -55,18 +58,18 @@ func TestRestoreEnclaveKeySet_UnsupportedType(t *testing.T) {
 }
 
 func TestCheckSignature(t *testing.T) {
-	applicationId := "1"
+	applicationId := common.NewApplicationId(1)
 	execConfig := DefaultConfig()
 
 	builder, err := NewMsgToSignBuilder()
 	require.NoError(t, err)
 
-	qqq, _ := CreateNewKeySet()
+ 	ks, _ := CreateNewKeySet()
 
 	executor := &StatelessExecutor{
 		config:           execConfig,
 		MsgToSignBuilder: builder,
-		keySet:           qqq,
+		keySet:           ks,
 	}
 	executorAddress := ethCrypto.PubkeyToAddress(*executor.keySet.SigningKey.PublicKey().PublicKey)
 
@@ -75,12 +78,12 @@ func TestCheckSignature(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: "0x1234567890123456789012345678901234567890", Amount: 1},
+		{DestinationAddress: ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: big.NewInt(1)},
 	}
 
 	updatePayload := &common.UpdatePayload{
 		ApplicationID: applicationId,
-		RequestID:     "7890",
+		RequestID:     commontestutil.GenerateRandomRequestID(),
 		PrevStateRoot: [32]byte{0x08, 0x05, 0x06},
 		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
 		Events:        events[:],
@@ -97,6 +100,7 @@ func TestCheckSignature(t *testing.T) {
 	result := teeSignerContract.CheckSignature(updatePayload)
 	require.True(t, result, "Signature verification failed")
 }
+
 
 func TestDumpKeys(t *testing.T) {
 

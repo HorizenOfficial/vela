@@ -2,11 +2,8 @@ package blockchain
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"math/big"
-	"strconv"
 	"sync"
 	"time"
 
@@ -36,28 +33,28 @@ func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddr
 // MockClient is a mock implementation of the blockchain client for testing
 type MockClient struct {
 	mu               sync.RWMutex
-	requests         *orderedmap.OrderedMap[string, *common.Request]
-	pendingRequests  *orderedmap.OrderedMap[string, *common.Request]
-	failedRequests   *orderedmap.OrderedMap[string, *common.Request]
-	states           map[string]*common.ApplicationState
-	withdrawals      map[string]*[]common.Withdrawal
-	reports          map[string]*common.DeanonymizationReport
-	updatePayloads   map[string]*common.UpdatePayload
+	requests         *orderedmap.OrderedMap[common.RequestIdType, *common.Request]
+	pendingRequests  *orderedmap.OrderedMap[common.RequestIdType, *common.Request]
+	failedRequests   *orderedmap.OrderedMap[common.RequestIdType, *common.Request]
+	states           map[common.ApplicationIdType]*common.ApplicationState
+	withdrawals      map[common.ApplicationIdType]*[]common.Withdrawal
+	reports          map[common.RequestIdType]*common.DeanonymizationReport
+	updatePayloads   map[common.RequestIdType]*common.UpdatePayload
 	eventSubscribers []chan<- interface{}
-	stateRoot	     [32]byte
+	stateRoot        [32]byte
 	*testutil.MockFunctions
 }
 
 // NewMockClient creates a new mock blockchain client
 func NewMockClient() *MockClient {
 	return &MockClient{
-		requests:        orderedmap.NewOrderedMap[string, *common.Request](),
-		pendingRequests: orderedmap.NewOrderedMap[string, *common.Request](),
-		failedRequests:  orderedmap.NewOrderedMap[string, *common.Request](),
-		states:          make(map[string]*common.ApplicationState),
-		withdrawals:     make(map[string]*[]common.Withdrawal),
-		reports:         make(map[string]*common.DeanonymizationReport),
-		updatePayloads:  make(map[string]*common.UpdatePayload),
+		requests:        orderedmap.NewOrderedMap[common.RequestIdType, *common.Request](),
+		pendingRequests: orderedmap.NewOrderedMap[common.RequestIdType, *common.Request](),
+		failedRequests:  orderedmap.NewOrderedMap[common.RequestIdType, *common.Request](),
+		states:          make(map[common.ApplicationIdType]*common.ApplicationState),
+		withdrawals:     make(map[common.ApplicationIdType]*[]common.Withdrawal),
+		reports:         make(map[common.RequestIdType]*common.DeanonymizationReport),
+		updatePayloads:  make(map[common.RequestIdType]*common.UpdatePayload),
 		MockFunctions:   testutil.NewMockFunctions(),
 	}
 }
@@ -67,44 +64,41 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 	defer c.mu.Unlock()
 
 	// Generate a request ID if not provided
-	if req.RequestID == "" {
-		id, err := GenerateRandomID()
-		if err != nil {
-			return fmt.Errorf("failed to generate request ID: %w", err)
-		}
+	emptyRequestId := common.RequestIdType{}
+	if req.RequestID == emptyRequestId {
+		id := testutil.GenerateRandomRequestID()
 		req.RequestID = id
 	}
 
 	// Set timestamp if not provided
-	if req.Timestamp == 0 {
-		req.Timestamp = time.Now().Unix()
+	if req.Timestamp == nil {
+		req.Timestamp = new(big.Int).SetInt64(time.Now().Unix())
 	}
 
 	// Store the request
 	c.requests.Set(req.RequestID, req)
 	c.pendingRequests.Set(req.RequestID, req)
-	
 
 	return nil
 }
 
 // SubmitRequest submits a request to the blockchain according to the official interface
-func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
+func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	//prepare request
 	req := &common.Request{
-		ProtocolVersion: strconv.FormatUint(uint64(protocolVersion), 10),		
-		ApplicationID:   applicationId.String(),
+		ProtocolVersion: protocolVersion,
+		ApplicationID:   applicationId,
 		RequestType:     requestType,
 		Payload:         payload,
-		Value:           value.Uint64(),
+		Value:           value,
 	}
 
 	err := c.SendRequestToChain(ctx, req)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to send request: %w", err)
+		return common.RequestIdType{}, 0, fmt.Errorf("failed to send request: %w", err)
 	}
 
 	return req.RequestID, 0, nil
@@ -120,7 +114,6 @@ func (c *MockClient) GetPendingRequests(ctx context.Context) ([]*common.Request,
 		requests = append(requests, req)
 	}
 
-
 	return requests, nil
 }
 
@@ -129,7 +122,7 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if f, ok:= c.GetMockedFunc("GetNextPendingRequest"); ok {
+	if f, ok := c.GetMockedFunc("GetNextPendingRequest"); ok {
 		return f.(func(context.Context) (*common.Request, [32]byte, error))(ctx)
 	}
 	var req *common.Request
@@ -137,19 +130,17 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 		req = c.pendingRequests.Front().Value
 	}
 
-
 	return req, c.stateRoot, nil
 
 }
 
-
 // MarkRequestFailed marks a request as failed
-func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID string, requestFailure *apperrors.RequestFailure) error {
+func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if f, ok:= c.GetMockedFunc("MarkRequestFailed"); ok {
-		return f.(func(context.Context, string, *apperrors.RequestFailure) error)(ctx, requestID, requestFailure)
+		return f.(func(context.Context, common.RequestIdType, *apperrors.RequestFailure) error)(ctx, requestID, requestFailure)
 	}
 
 	if !c.pendingRequests.Has(requestID) {
@@ -187,7 +178,7 @@ func (c *MockClient) GetFailedRequests() []*common.Request {
 	return failed
 }
 
-func (c *MockClient) WaitForRequestCompletion(requestID string, timeout time.Duration) error {
+func (c *MockClient) WaitForRequestCompletion(requestID common.RequestIdType, timeout time.Duration) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -217,7 +208,7 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if f, ok:= c.GetMockedFunc("SubmitStateUpdate"); ok {
+	if f, ok := c.GetMockedFunc("SubmitStateUpdate"); ok {
 		return f.(func(context.Context, *common.UpdatePayload) error)(ctx, update)
 	}
 	// Complete the request if it exists
@@ -255,7 +246,7 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 }
 
 // GetRequestUpdatePayload gets the update payload for a request
-func (c *MockClient) GetRequestUpdatePayload(ctx context.Context, requestID string) (*common.UpdatePayload, error) {
+func (c *MockClient) GetRequestUpdatePayload(ctx context.Context, requestID common.RequestIdType) (*common.UpdatePayload, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -267,13 +258,13 @@ func (c *MockClient) GetRequestUpdatePayload(ctx context.Context, requestID stri
 }
 
 // GetApplicationState gets the state of an application
-func (c *MockClient) GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error) {
+func (c *MockClient) GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	state, exists := c.states[applicationID]
 	if !exists {
-		return nil, fmt.Errorf("application state not found: %s", applicationID)
+		return nil, fmt.Errorf("application state not found: %d", applicationID)
 	}
 
 	return state, nil
@@ -305,13 +296,13 @@ func (c *MockClient) SubscribeToEvents(ctx context.Context, eventCh chan<- inter
 }
 
 // GetWithdrawals gets withdrawal requests for an application
-func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID string) (*[]common.Withdrawal, error) {
+func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID common.ApplicationIdType) (*[]common.Withdrawal, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	withdrawals, exists := c.withdrawals[applicationID]
 	if !exists {
-		return nil, fmt.Errorf("withdrawals not found for application: %s", applicationID)
+		return nil, fmt.Errorf("withdrawals not found for application: %d", applicationID)
 	}
 
 	return withdrawals, nil
@@ -321,8 +312,8 @@ func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID string) (
 func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if f, ok:= c.GetMockedFunc("SubmitDeanonymizationReport"); ok {
-		return f.(func(context.Context, *common.DeanonymizationReport) (error))(ctx, report)
+	if f, ok := c.GetMockedFunc("SubmitDeanonymizationReport"); ok {
+		return f.(func(context.Context, *common.DeanonymizationReport) error)(ctx, report)
 	}
 
 	// Complete the request if it exists
@@ -338,7 +329,7 @@ func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *co
 }
 
 // GetDeanonymizationReport gets a deanonymization report
-func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error) {
+func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -350,11 +341,11 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID stri
 	return report, nil
 }
 
-func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	return [][]byte{}, nil
 }
 
-func (c *MockClient) GetRequestCompletedEvent(ctx context.Context, requestID string, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
+func (c *MockClient) GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
 	return nil, nil
 }
 
@@ -367,9 +358,9 @@ func (c *MockClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKe
 func (c *MockClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
-	if f, ok:= c.GetMockedFunc("Close"); ok {
-		return f.(func() (error))()
+
+	if f, ok := c.GetMockedFunc("Close"); ok {
+		return f.(func() error)()
 	}
 	// Close all event subscribers
 	c.eventSubscribers = nil
@@ -381,8 +372,8 @@ func (c *MockClient) Close() error {
 func (c *MockClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if f, ok:= c.GetMockedFunc("Connect"); ok {
-		return f.(func(context.Context) (error))(ctx)
+	if f, ok := c.GetMockedFunc("Connect"); ok {
+		return f.(func(context.Context) error)(ctx)
 	}
 
 	return nil
@@ -392,13 +383,13 @@ func (c *MockClient) ClearAllData() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.requests = orderedmap.NewOrderedMap[string, *common.Request]()
-	c.pendingRequests = orderedmap.NewOrderedMap[string, *common.Request]()
-	c.states = make(map[string]*common.ApplicationState)
-	c.withdrawals = make(map[string]*[]common.Withdrawal)
-	c.reports = make(map[string]*common.DeanonymizationReport)
-	c.failedRequests = orderedmap.NewOrderedMap[string, *common.Request]()
-	c.updatePayloads = make(map[string]*common.UpdatePayload)
+	c.requests = orderedmap.NewOrderedMap[common.RequestIdType, *common.Request]()
+	c.pendingRequests = orderedmap.NewOrderedMap[common.RequestIdType, *common.Request]()
+	c.states = make(map[common.ApplicationIdType]*common.ApplicationState)
+	c.withdrawals = make(map[common.ApplicationIdType]*[]common.Withdrawal)
+	c.reports = make(map[common.RequestIdType]*common.DeanonymizationReport)
+	c.failedRequests = orderedmap.NewOrderedMap[common.RequestIdType, *common.Request]()
+	c.updatePayloads = make(map[common.RequestIdType]*common.UpdatePayload)
 	c.stateRoot = [32]byte{}
 	c.MockedFunctions = make(map[string]interface{})
 }
@@ -414,15 +405,4 @@ func (c *MockClient) emitEvents(events []common.Event) {
 			}
 		}
 	}
-}
-
-// GenerateRandomID generates a random ID
-func GenerateRandomID() (string, error) {
-	b := make([]byte, 16)
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(b), nil
 }

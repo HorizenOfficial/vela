@@ -3,15 +3,24 @@ package communication
 import (
 	"context"
 	"crypto/sha256"
+	"math/big"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/testutil"
 	apperrors "github.com/horizen-pes/pkg/common/apperrors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	ApplicationId      = common.NewApplicationId(1)
+	senderAddress      = ethCommon.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	destinationAddress = ethCommon.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
 )
 
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
@@ -33,7 +42,7 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 			PrevStateRoot: appState.StateRoot,
 			NewStateRoot:  newStateRoot,
 			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-			Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
+			Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
 			Signature:     []byte("test-signature"),
 		},
 		&common.ApplicationState{
@@ -70,7 +79,7 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 	}
 	return &common.DeanonymizationReport{
 			ApplicationID:   req.ApplicationID,
-			ReportID:        "test-report-id",
+			ReportID:        req.RequestID,
 			EncryptedReport: []byte("test-encrypted-report"),
 		},
 		nil
@@ -134,17 +143,17 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 
 	// Test HandleProcessRequest
 	req := &common.Request{
-		ProtocolVersion: "1.0",
-		ApplicationID:   "test-app",
-		RequestID:       "test-request-id",
+		ProtocolVersion: 1,
+		ApplicationID:   ApplicationId,
+		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       time.Now().Unix(),
-		Sender:          "test-sender",
+		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+		Sender:          senderAddress,
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
-		ApplicationID:  "test-app",
+		ApplicationID:  ApplicationId,
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
@@ -171,7 +180,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	report, failure := client.SendGenerateDeanonymizationReport(ctx, req, appState, wasmModule)
 	require.Nil(t, failure)
 	assert.Equal(t, req.ApplicationID, report.ApplicationID)
-	assert.Equal(t, "test-report-id", report.ReportID)
+	assert.Equal(t, req.RequestID, report.ReportID)
 	assert.Equal(t, []byte("test-encrypted-report"), report.EncryptedReport)
 
 }
@@ -212,17 +221,17 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		// Client-initiated request
 		req := &common.Request{
-			ProtocolVersion: "1.0",
-			ApplicationID:   "test-app",
-			RequestID:       "test-request-id",
+			ProtocolVersion: 1,
+			ApplicationID:   ApplicationId,
+			RequestID:       testutil.GenerateRandomRequestID(),
 			RequestType:     common.Process,
 			Payload:         []byte("test-encrypted-action"),
-			Timestamp:       time.Now().Unix(),
-			Sender:          "test-sender",
+			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+			Sender:          senderAddress,
 			//Value:           0,
 		}
 		appState := &common.ApplicationState{
-			ApplicationID:  "test-app",
+			ApplicationID:  ApplicationId,
 			StateRoot:      sha256.Sum256([]byte("test-state-root")),
 			EncryptedState: []byte("test-encrypted-state"),
 		}
@@ -263,13 +272,13 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 
 		// Perform a simple request to verify connection works
 		req := &common.Request{
-			ProtocolVersion: "1.0",
-			ApplicationID:   "test-app",
-			RequestID:       "test-request-id",
+			ProtocolVersion: 1,
+			ApplicationID:   ApplicationId,
+			RequestID:       testutil.GenerateRandomRequestID(),
 			RequestType:     common.Deploy,
 			Payload:         []byte("test-encrypted-action"),
-			Timestamp:       time.Now().Unix(),
-			Sender:          "test-sender",
+			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+			Sender:          senderAddress,
 			//Value:           0,
 		}
 
@@ -322,17 +331,17 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 	// Test client request error handling
 	req := &common.Request{
-		ProtocolVersion: "1.0",
-		ApplicationID:   "test-app",
-		RequestID:       "test-request-id",
+		ProtocolVersion: 1,
+		ApplicationID:   ApplicationId,
+		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       time.Now().Unix(),
-		Sender:          "test-sender",
+		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+		Sender:          senderAddress,
 		//Value:           0,
 	}
 	appState := &common.ApplicationState{
-		ApplicationID:  "test-app",
+		ApplicationID:  ApplicationId,
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
@@ -427,7 +436,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 				PrevStateRoot: appState.StateRoot,
 				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: "test-address", Amount: 100}},
+				Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
 				Signature:     []byte("test-signature"),
 			}, appState, nil
 		},
@@ -454,16 +463,16 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	req := &common.Request{
-		ProtocolVersion: "1.0",
-		ApplicationID:   "test-app",
-		RequestID:       "test-request-id",
+		ProtocolVersion: 1,
+		ApplicationID:   1,
+		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       time.Now().Unix(),
-		Sender:          "test-sender",
+		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+		Sender:          senderAddress,
 	}
 	appState := &common.ApplicationState{
-		ApplicationID:  "test-app",
+		ApplicationID:  1,
 		StateRoot:      sha256.Sum256([]byte("test-state-root")),
 		EncryptedState: []byte("test-encrypted-state"),
 	}
