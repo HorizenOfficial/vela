@@ -83,6 +83,8 @@ type Request struct {
 	Sender ethCommon.Address `json:"sender"`
 	// Value is the optional deposit value in WEI
 	Value *big.Int `json:"value"`
+	// MaxFeeValue is the maximum fee value reserved for fee payment
+	MaxFeeValue *big.Int `json:"maxFeeValue"`
 }
 
 // Event represents an event to be emitted
@@ -119,6 +121,10 @@ type UpdatePayload struct {
 	Withdrawals []Withdrawal `json:"withdrawals"`
 	// Signature is the TEE signature
 	Signature []byte `json:"signature"`
+	// RefundAmount is the amount to refund in WEI
+	RefundAmount *big.Int `json:"refundAmount"`
+	// ApplicationFee is the fee charged for the application in WEI
+	ApplicationFee *big.Int `json:"applicationFee"`
 }
 
 // ApplicationState represents the state of an application

@@ -26,13 +26,19 @@ contract ProcessorEndpoint is AccessControl {
 
     ITeeAuthenticator public teeAuthenticator;
     AuthorityRegistry public authorityRegistry;
+
+    uint256 public minFeePerRequest = 5;
+    address payable public feeCollector = payable(0x574Cb6eD4De4167cb31C67ab9F97Ca8472a18973);
+
     //events
+    event Refund(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
-    event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
+    event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage, uint256 applicationFees);
     event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
     event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     event QueueThresholdUpdated(uint256 newThreshold);
+    event FeeCollectorUpdated(address newFeeCollector);
 
     //errors
     error AddressCantBeZero();
@@ -79,10 +85,13 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value
+        uint256 value, // part of the sent value forwarded to the application, for app logic
+        uint256 maxFeeValue // part ot the sent value reserved for fee payment
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
-        //check value
-        if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
+        //check values
+        if(msg.value != value + maxFeeValue) revert InvalidValue();
+        if(maxFeeValue < minFeePerRequest) revert InvalidValue();
+
         //check queue size
         if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
@@ -102,7 +111,8 @@ contract ProcessorEndpoint is AccessControl {
                 payload,
                 block.timestamp,
                 msg.sender,
-                value
+                value,
+                maxFeeValue
             );
         _requestIdByOrder[_tail] = requestId;
 
@@ -124,34 +134,34 @@ contract ProcessorEndpoint is AccessControl {
 
     function markRequestCompleted(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
-
-        _markRequestCompleted(requestId);
+        //TODO deanonymization calls this (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+        _markRequestCompleted(requestId, minFeePerRequest);
     }
 
-    function _markRequestCompleted(bytes32 requestId) private {
+    function _markRequestCompleted(bytes32 requestId, uint256 applicationFees) private {
 
        _removeRequest();
 
-        emit RequestCompleted(requestId, Structs.RequestResult.COMPLETED, Structs.ErrorCode.NO_ERROR, "");
+        emit RequestCompleted(requestId, Structs.RequestResult.COMPLETED, Structs.ErrorCode.NO_ERROR, "", applicationFees);
     }
 
+    // We return the maxValueFee - minFeePerRequest (to be changed in the future)
     function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         address sender = requestById[requestId].sender;
         uint256 value = requestById[requestId].value;
+        uint256 maxFeeValue = requestById[requestId].maxFeeValue;
 
-       _removeRequest();
-
-        if (value == 0) {
-            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
-            return;
-        }
+        _removeRequest();
         //refunds
-        (bool refunded, ) = payable(sender).call{value: value}("");
+        (bool refunded, ) = payable(sender).call{value: value + (maxFeeValue - minFeePerRequest)}(""); // TODO think about failing if transfer fails (everywhere)
 
-        if(refunded) emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
-        else emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage); 
+        //minimum fee is collected
+        (bool feeSent, ) = payable(feeCollector).call{value: minFeePerRequest}("");
+
+        if(refunded) emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
+        else emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
 
     }
 
@@ -187,28 +197,37 @@ contract ProcessorEndpoint is AccessControl {
         bytes32 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
-        bytes memory signature
+        bytes memory signature,
+        uint256 refund,
+        uint256 applicationFees
     ) public validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
-
         //check prev state root
         if(stateRoot != bytes32(0) && prevStateRoot != stateRoot) revert InvalidStateRoot();
         //check valid request
         if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
         //check signature
-        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature)) revert InvalidSignature();
+        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature, refund, applicationFees)) revert InvalidSignature();
+
+        //check values
+        Structs.PendingRequest memory requestInfo = requestById[processedRequestId];
+        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue();  //TODO better errors for the future
+        if(applicationFees < minFeePerRequest) {
+            revert InvalidValue();
+        }
 
         //check withdrawal sums 
         uint256 i;
         uint256 sum;
-        while(i < withdrawalRequests.length) {
+        while(i < withdrawalRequests.length) { // TODO optimize these loops and the contract overall
             sum += withdrawalRequests[i].amount;
             unchecked {++i;}
         }
+        sum += refund + applicationFees;
         if(sum > address(this).balance) revert InsufficientBalance();
 
         //set requests as completed
-        _markRequestCompleted(processedRequestId);
+        _markRequestCompleted(processedRequestId, applicationFees);
 
         //emit encrypted event
         i = 0;
@@ -221,19 +240,30 @@ contract ProcessorEndpoint is AccessControl {
         stateRoot = newStateRoot;
         emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
+        (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+        emit Refund(applicationId, processedRequestId, requestInfo.sender, refund);
+
+        (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+            
         //execute withdrawals (as last operation)
         i = 0;
         while(i < withdrawalRequests.length) {
-            withdrawalRequests[i].receiver.transfer(withdrawalRequests[i].amount);
+            (bool withdrawn, ) = payable(withdrawalRequests[i].receiver).call{value: withdrawalRequests[i].amount}("");
             emit Withdrawal(applicationId, processedRequestId, withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
             unchecked {++i;}
-        }
+        }  
     }
 
     function updateQueueThreshold(uint256 newThreshold) public onlyRole(ADMIN) {
         if (newThreshold == 0) revert InvalidValue();
         maxQueueSize = newThreshold;
         emit QueueThresholdUpdated(newThreshold);
+    }
+
+    function updateFeeCollector(address payable newFeeCollector) public onlyRole(ADMIN) {
+        if (newFeeCollector == address(0)) revert AddressCantBeZero();
+        feeCollector = newFeeCollector;
+        emit FeeCollectorUpdated(newFeeCollector);
     }
 
     function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {

@@ -10,7 +10,9 @@ interface ITeeAuthenticator {
         bytes32 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
-        bytes memory signature
+        bytes memory signature,
+        uint256 refundAmount, 
+        uint256 applicationFee
     ) external view returns(bool);
 
     function getTeeSigner() external view returns(address);

@@ -18,7 +18,9 @@ contract MockTeeAuthenticator is ITeeAuthenticator {
         bytes32 /*processedRequestId*/,
         bytes[] memory /*events*/,
         Structs.WithdrawalRequest[] memory /*withdrawalRequests*/,
-        bytes calldata /*signature*/
+        bytes calldata /*signature*/,
+        uint256 /*refundAmount*/,
+        uint256 /*applicationFees*/
     ) external pure override returns (bool) {
         return true; // Always return true for mock
     }

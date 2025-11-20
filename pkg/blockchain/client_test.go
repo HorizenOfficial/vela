@@ -61,8 +61,9 @@ func TestGetPendingRequests(t *testing.T) {
 	//*****************************************************
 	// submit request
 	transferValue := big.NewInt(1203055)
+	maxFeeValue := big.NewInt(100)
 	payload := ethCommon.FromHex("0x001234")
-	tx := testHelper.SubmitRequest(applicationId, common.Process, payload, transferValue)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, payload, transferValue, maxFeeValue)
 
 	testHelper.MineBlock()
 
@@ -111,7 +112,8 @@ func TestMarkRequestCompleted(t *testing.T) {
 	//*****************************************************
 	// submit request
 	transferValue := big.NewInt(0)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
 
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
@@ -144,7 +146,8 @@ func TestMarkRequestFailed(t *testing.T) {
 	blockchainClient := SetupNewBlockChainClient(testHelper)
 
 	transferValue := big.NewInt(1000000)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
 
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
@@ -176,7 +179,8 @@ func TestSubmitStateUpdate(t *testing.T) {
 	//*****************************************************
 	// submit request
 	transferValue := big.NewInt(1000000)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
 
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
@@ -198,6 +202,8 @@ func TestSubmitStateUpdate(t *testing.T) {
 		Events:        events[:],
 		Withdrawals:   withdrawals,
 		Signature:     signature[:],
+		RefundAmount: big.NewInt(90),
+		ApplicationFee: big.NewInt(10),
 	}
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
@@ -230,6 +236,8 @@ func TestSubmitStateUpdate(t *testing.T) {
 	payload.PrevStateRoot = [32]byte{0x07, 0x08, 0xaa, 0xbb, 0xee}
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	fmt.Printf("DEBUG update error: %v\n", err)
+
 	_, isReorg = err.(ReorgError)
 	require.True(t, isReorg)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
@@ -388,7 +396,8 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 ) {
 	// submit request and state update
 	transferValue := big.NewInt(1000000)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
 	testHelper.WaitMined(tx)
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
@@ -413,6 +422,8 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 		Events:        events[:],
 		Withdrawals:   withdrawals,
 		Signature:     signature[:],
+		RefundAmount: big.NewInt(90),
+		ApplicationFee: big.NewInt(10),
 	}
 
 	//complete state update
@@ -433,9 +444,10 @@ func TestSubmitRequest(t *testing.T) {
 	requestType := common.Deploy
 	payload := []byte("test-payload")
 	value := big.NewInt(1)
+	maxFeeValue := big.NewInt(100)
 
 	// Submit the request
-	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, value)
+	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, value, maxFeeValue)
 	require.NoError(t, err)
 	// Get pending requests
 	pending, err := blockchainClient.GetPendingRequests(context.Background())
@@ -494,7 +506,8 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 	//*****************************************************
 	// submit request
 	transferValue := big.NewInt(0)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
 
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
@@ -527,7 +540,7 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 
 	// Try with a failure
 	transferValue = big.NewInt(1000000)
-	tx = testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	tx = testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
 
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
@@ -555,7 +568,7 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 	require.True(t, event.Status == common.RequestResultFailed)
 
 	// Try with a state update
-	tx = testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue)
+	tx = testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
 
@@ -582,6 +595,8 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 		Events:        events[:],
 		Withdrawals:   withdrawals,
 		Signature:     signature[:],
+		RefundAmount: big.NewInt(90),
+		ApplicationFee: big.NewInt(10),
 	}
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
