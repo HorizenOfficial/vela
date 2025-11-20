@@ -1,14 +1,21 @@
 package system
 
 import (
+	"math/big"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
-	testutil "github.com/horizen-pes/pkg/testutil"
+	commontestutil "github.com/horizen-pes/pkg/common/testutil"
+	"github.com/horizen-pes/pkg/testutil"
+)
+
+var (
+	sender = ethCommon.HexToAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
 )
 
 func TestDeployApp(t *testing.T) {
@@ -23,8 +30,8 @@ func TestDeployApp(t *testing.T) {
 	err = suite.StartManager()
 	require.NoError(t, err)
 
-	RequestID := "2333"
-	ApplicationId := "1"
+	RequestID := commontestutil.GenerateRandomRequestID()
+	ApplicationId := common.NewApplicationId(1)
 
 	// 4. Submit deploy request
 	deployReq := &common.Request{
@@ -32,8 +39,8 @@ func TestDeployApp(t *testing.T) {
 		ApplicationID: ApplicationId,
 		RequestID:     RequestID,
 		Payload:       []byte("deploy-payload"),
-		Sender:        "test-user",
-		Timestamp:     time.Now().Unix(),
+		Sender:        sender,
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)

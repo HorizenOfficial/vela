@@ -5,13 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"testing"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
@@ -187,7 +190,7 @@ func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {
 	return s.blockchainClient.SendRequestToChain(s.ctx, req) //use test function in mock_client
 }
 
-func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duration) (*common.ApplicationState, error) {
+func (s *SystemTestSuite) WaitForAppStateInDB(appID common.ApplicationIdType, timeout time.Duration) (*common.ApplicationState, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -204,7 +207,7 @@ func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duratio
 			// this will print every tick
 			//s.t.Log("err: ", err.Error())
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for app state %s", appID)
+			return nil, fmt.Errorf("timeout waiting for app state %d", appID)
 
 		}
 	}
@@ -215,7 +218,7 @@ func (s *SystemTestSuite) GetFailedRequest() []*common.Request {
 	return failedReq
 }
 
-func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time.Duration) (*common.ApplicationState, error) {
+func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID common.ApplicationIdType, timeout time.Duration) (*common.ApplicationState, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -229,18 +232,18 @@ func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time
 				return state, nil
 			}
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for app state %s in blockchain", appID)
+			return nil, fmt.Errorf("timeout waiting for app state %d in blockchain", appID)
 
 		}
 	}
 }
 
-func (s *SystemTestSuite) AssertRequestCompleted(requestID string, timeout time.Duration) error {
+func (s *SystemTestSuite) AssertRequestCompleted(requestID common.RequestIdType, timeout time.Duration) error {
 	return s.blockchainClient.WaitForRequestCompletion(requestID, timeout)
 }
 
 // WaitForEvent waits for a specific event to be published for a user
-func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*common.Event, error) {
+func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, timeout time.Duration) (*common.Event, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -262,7 +265,7 @@ func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*c
 }
 
 // WaitForDeanonymizationReport waits for a deanonymization report to be generated
-func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID string, timeout time.Duration) (*common.DeanonymizationReport, error) {
+func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestIdType, timeout time.Duration) (*common.DeanonymizationReport, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -283,7 +286,7 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID string, timeout 
 }
 
 // WaitForWithdrawal waits for a withdrawal to be processed
-func (s *SystemTestSuite) WaitForWithdrawal(appID string, timeout time.Duration) (*common.Withdrawal, error) {
+func (s *SystemTestSuite) WaitForWithdrawal(appID common.ApplicationIdType, timeout time.Duration) (*common.Withdrawal, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -298,12 +301,12 @@ func (s *SystemTestSuite) WaitForWithdrawal(appID string, timeout time.Duration)
 				return &(*withdrawals)[0], nil
 			}
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for withdrawal for app %s", appID)
+			return nil, fmt.Errorf("timeout waiting for withdrawal for app %d", appID)
 		}
 	}
 }
 
-func (s *SystemTestSuite) GetRequestUpdatePayload(reqId string) (*common.UpdatePayload, error) {
+func (s *SystemTestSuite) GetRequestUpdatePayload(reqId common.RequestIdType) (*common.UpdatePayload, error) {
 	// Get the update payload for the request
 	return s.blockchainClient.GetRequestUpdatePayload(s.ctx, reqId)
 }
@@ -360,12 +363,12 @@ func (s *SystemTestSuite) Cleanup() error {
 }
 
 func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []byte) {
-	const appId = "1"
+	var appId = common.NewApplicationId(1)
 	timeout_value := 100 * time.Second
 
 	// we use an eth address as user and auditor IDs
-	userAddress := fmt.Sprintf("0xadd%037x", 1)
-	auditorAddress := fmt.Sprintf("0xadd%037x", 2)
+	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
+	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 
 	cryptoHelper := NewCryptoHelper()
 
@@ -386,7 +389,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	executorSigningKey, err := suite.GetExecutorSigningKey()
 	require.NoError(t, err)
 
-	RequestID := "2133"
+	RequestID := testutil.GenerateRandomRequestID()
 	// Submit deploy request
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
@@ -394,7 +397,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		RequestID:     RequestID,
 		Payload:       bytecode,
 		Sender:        userAddress,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)
@@ -426,7 +429,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	//register key 1
-	RequestID = "2130"
+	RequestID = testutil.GenerateRandomRequestID()
 	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, userAddress, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
@@ -435,7 +438,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	//register key 3
-	RequestID = "2132"
+	RequestID = testutil.GenerateRandomRequestID()
 	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, auditorAddress, auditorKey.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey2Req)
@@ -445,8 +448,8 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 2: Sending deposit request")
 
-	RequestID = "2134"
-	depositAmount := uint64(2000000000000000000)
+	RequestID = testutil.GenerateRandomRequestID()
+	depositAmount := big.NewInt(2000000000000000000)
 	depositReq, err := cryptoHelper.CreateDepositRequest(
 		appId,
 		RequestID,
@@ -486,7 +489,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 3: Sending deanonymization request as auditor")
 
-	RequestID = "2136"
+	RequestID = testutil.GenerateRandomRequestID()
 
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
 		appId,
@@ -515,15 +518,21 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct for the report data, but we do assume that
 	// we have an appId, a reportId, and the raw data bytes in a separate field
-	var report map[string]interface{}
+	var report struct {
+		ApplicationId   common.ApplicationIdType `json:"applicationId"`
+		RequestId       common.RequestIdType     `json:"requestId"`
+		ReportDataBytes interface{}              `json:"reportDataBytes"`
+	}
+
 	err = json.Unmarshal(decryptedReport, &report)
 	require.NoError(t, err)
-	require.Equal(t, appId, report["applicationId"])
-	require.Equal(t, RequestID, report["requestId"])
+	require.Equal(t, appId, report.ApplicationId)
+
+	require.Equal(t, RequestID, report.RequestId)
 	t.Log("Deanonymization report:\n", PrettyPrintJSON(report))
 
 	// just check that we have a base64 string representing the raw report data
-	jsonStr, ok := report["reportDataBytes"].(string)
+	jsonStr, ok := report.ReportDataBytes.(string)
 	require.True(t, ok, "reportDataBytes is not a string")
 	_, err = base64.StdEncoding.DecodeString(jsonStr)
 	require.NoError(t, err, "bytes are not base64 encoded")
@@ -532,10 +541,10 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 4: Sending withdrawal request as user1")
 
-	recipientAddress := "0x1234567890123456789012345678901234567890"
+	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 
-	RequestID = "2137"
-	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
+	RequestID = testutil.GenerateRandomRequestID()
+	withdrawAmount := big.NewInt(500000000000000000) // 0.5 ETH
 	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(
 		appId,
 		RequestID,

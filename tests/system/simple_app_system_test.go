@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
+	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/manager"
@@ -67,7 +70,7 @@ func buildAndLoadWasmModule(t *testing.T) []byte {
 }
 
 // deploySimpleApp is a helper function to deploy the simple app wasm module.
-func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID, deployReqID, sender string, wasmBytecode []byte) {
+func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, sender ethCommon.Address, wasmBytecode []byte) {
 	t.Helper()
 	timeout := 20 * time.Second
 
@@ -78,7 +81,7 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		RequestID:     deployReqID,
 		Payload:       wasmBytecode,
 		Sender:        sender,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -99,7 +102,7 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 }
 
 // depositToSimpleApp is a helper function to deposit funds into the simple app.
-func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID, reqID, user string, amount uint64) {
+func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, reqID common.RequestIdType, user ethCommon.Address, amount *big.Int) {
 	t.Helper()
 	timeout := 100 * time.Second
 
@@ -169,7 +172,7 @@ func TestDeploySimpleApp(t *testing.T) {
 
 	// 3. Deploy the application
 	cryptoHelper := testutil.NewCryptoHelper()
-	deploySimpleApp(t, suite, cryptoHelper, "1", "1233", "test-user", wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, 1, commontestutil.GenerateRandomRequestID(), sender, wasmBytecode)
 }
 
 // this will be modified when we support an app id other that "1"
@@ -187,8 +190,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	// 3. Try to deploy an application  with ID != 1
 	timeout := 10 * time.Second
 
-	appID := "33"
-	reqID := "22"
+	appID := common.NewApplicationId(33)
+	reqID := commontestutil.GenerateRandomRequestID()
 
 	// Create and submit deploy request
 	deployReq := &common.Request{
@@ -196,8 +199,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		ApplicationID: appID,
 		RequestID:     reqID,
 		Payload:       wasmBytecode,
-		Sender:        "test-user",
-		Timestamp:     time.Now().Unix(),
+		Sender:        sender,
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -213,12 +216,12 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	require.Equal(t, common.Deploy, failedRequests[0].RequestType, "Wrong Request Type")
 
 	// 4. Deploy the application with ID = 1
+	appID = common.NewApplicationId(1)
 	cryptoHelper := testutil.NewCryptoHelper()
-	deploySimpleApp(t, suite, cryptoHelper, "1", "1233", "test-user", wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), sender, wasmBytecode)
 
 	// 5. Now try to redeploy the same app id
-	appID = "1"
-	reqID = "223"
+	reqID = commontestutil.GenerateRandomRequestID()
 
 	// Create and submit deploy request
 	deployReq = &common.Request{
@@ -226,8 +229,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		ApplicationID: appID,
 		RequestID:     reqID,
 		Payload:       wasmBytecode,
-		Sender:        "test-user",
-		Timestamp:     time.Now().Unix(),
+		Sender:        sender,
+		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -265,8 +268,8 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// For debugging it can be useful to use huge timeout value
 	//timeout_value := 10 * time.Hour
 
-	user1Address := fmt.Sprintf("0xadd%037x", 1)
-	user2Address := fmt.Sprintf("0xadd%037x", 2)
+	user1Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
+	user2Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 
 	mgrConfig, err := manager.LoadConfigFromFile()
 	require.NoError(t, err)
@@ -297,12 +300,12 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. Deploy the application
-	appID := "1"
-	RequestID := "11"
+	appID := common.NewApplicationId(1)
+	RequestID := commontestutil.GenerateRandomRequestID()
 	deploySimpleApp(t, suite, cryptoHelper, appID, RequestID, user1Address, wasmBytecode)
 
 	//register key 1
-	RequestID = "22"
+	RequestID = commontestutil.GenerateRandomRequestID()
 	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user1Address, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
@@ -311,7 +314,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	//register key 3
-	RequestID = "33"
+	RequestID = commontestutil.GenerateRandomRequestID()
 	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user2Address, user2Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey2Req)
@@ -320,20 +323,20 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "44", user1Address, 2000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user1Address, big.NewInt(2000))
 
 	// 6. User2 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "55", user2Address, 1000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user2Address, big.NewInt(1000))
 
 	// Get executor's communication key for encryption, for now get from the test suite
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
 
 	// 7. User1 compares balances with User2
-	compareReqID := "66"
+	compareReqID := commontestutil.GenerateRandomRequestID()
 	payload := map[string]interface{}{
 		"type": "compare_addresses",
-		"compare": map[string]string{
+		"compare": map[string]ethCommon.Address{
 			"targetAddress": user2Address,
 		},
 	}
@@ -390,15 +393,15 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "compare_accounts", eventData["type"])
-	require.Contains(t, eventData["sentence"], user1Address+" is richer than "+user2Address)
+	require.Contains(t, eventData["sentence"], user1Address.Hex()+" is richer than "+user2Address.Hex())
 	t.Logf("Decrypted event sentence: %s", eventData["sentence"])
 
 	require.True(t, bytes.Equal(decryptedActionData, decryptedData))
 
 	// 9: Sending deanonymization request as auditor
 
-	RequestID = "07"
-	auditorAddress := fmt.Sprintf("0xadd%037x", 2)
+	RequestID = commontestutil.GenerateRandomRequestID()
+	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 	auditorPrivateKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
 	require.NoError(t, err)
 	associateKey1Req, err = cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, auditorAddress, auditorPrivateKey.PublicKey())
@@ -410,7 +413,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	deanonReqPayload := []byte(`{"type":"deanonymization","query":"full_report","tag":"SIMPLE_TAG"}`)
 
-	RequestID = "08"
+	RequestID = commontestutil.GenerateRandomRequestID()
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
 		appID,
 		RequestID,
@@ -433,7 +436,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NotNil(t, deanonReport)
 
 	// 4. Read and decrypt the report
-	reportFilePath := filepath.Join(tempDir, appID+"_"+RequestID)
+	reportFilePath := filepath.Join(tempDir, appID.String()+"_"+RequestID.String())
 	encryptedReportBytes, err := os.ReadFile(reportFilePath)
 	require.NoError(t, err, "The report file should be saved to the filesystem")
 
@@ -452,13 +455,17 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct for the report data, but we do assume that
 	// we have an appId, a reportId, and the data in separate fields
-	var report map[string]interface{}
+	var report struct {
+		ApplicationId   common.ApplicationIdType `json:"applicationId"`
+		RequestId       common.RequestIdType     `json:"requestId"`
+		ReportDataBytes interface{}              `json:"reportDataBytes"`
+	}
 	err = json.Unmarshal(decryptedReport, &report)
 	require.NoError(t, err)
-	require.Equal(t, appID, report["applicationId"])
-	require.Equal(t, RequestID, report["requestId"])
+	require.Equal(t, appID, report.ApplicationId)
+	require.Equal(t, RequestID, report.RequestId)
 
-	jsonStr, ok := report["reportDataBytes"].(string)
+	jsonStr, ok := report.ReportDataBytes.(string)
 	require.True(t, ok, "reportDataBytes is not a string")
 	jsonBytes, err := base64.StdEncoding.DecodeString(jsonStr)
 	require.NoError(t, err, "bytes are not base64 encoded")
@@ -494,23 +501,24 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	// 3. Create user and add their key to the registry
 	cryptoHelper := testutil.NewCryptoHelper()
 
-	userAddress := fmt.Sprintf("0xadd%037x", 1)
+	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
 
 	// 4. Deploy the application
-	appID := "1"
-	deploySimpleApp(t, suite, cryptoHelper, appID, "11", userAddress, wasmBytecode)
+	appID := common.NewApplicationId(1)
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, wasmBytecode)
 
 	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
-	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, "22", userAddress, user1Key.PublicKey())
+	requestId := commontestutil.GenerateRandomRequestID()
+	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, requestId, userAddress, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
 	require.NoError(t, err)
-	err = suite.AssertRequestCompleted("22", timeout_value)
+	err = suite.AssertRequestCompleted(requestId, timeout_value)
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, "33", userAddress, 1000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, big.NewInt(1000))
 
 	// Get executor's communication key for encryption
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
@@ -519,14 +527,23 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	// --- Negative Test Cases ---
 
 	t.Run("withdraw with insufficient balance", func(t *testing.T) {
-		reqID := "1011"
+		reqID := commontestutil.GenerateRandomRequestID()
 		// User1 has 1000, tries to withdraw 2000
-		payload := `{"type":"withdraw","withdraw":{"to":"0xadd0000000000000000000000000000000000003","amount":2000}}`
+		// payload := `{"type":"withdraw","withdraw":{"to":"0xadd0000000000000000000000000000000000003","amount":2000}}`
+		payload := map[string]interface{}{
+			"type": "withdraw",
+			"withdraw": map[string]interface{}{
+				"to":     "0xadd0000000000000000000000000000000000003",
+				"amount": 2000,
+			},
+		}
+		payloadBytes, err := json.Marshal(payload)
+		require.NoError(t, err)
 		processReq, err := cryptoHelper.CreateProcessRequest(
 			appID,
 			reqID,
 			userAddress,
-			[]byte(payload),
+			payloadBytes,
 			executorPubKey,
 		)
 		require.NoError(t, err)
@@ -544,7 +561,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("unsupported instruction type", func(t *testing.T) {
-		reqID := "1022"
+		reqID := commontestutil.GenerateRandomRequestID()
 		payload := `{"type":"invalid_action"}`
 		processReq, err := cryptoHelper.CreateProcessRequest(
 			appID,
@@ -568,7 +585,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("compare with non-existent target account", func(t *testing.T) {
-		reqID := "1033"
+		reqID := commontestutil.GenerateRandomRequestID()
 		nonExistentUser := "0xadd0000000000000000000000000000000000099"
 		payload := `{"type":"compare_addresses","compare":{"targetAddress":"` + nonExistentUser + `"}}`
 		processReq, err := cryptoHelper.CreateProcessRequest(
@@ -593,7 +610,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("withdraw with missing instruction", func(t *testing.T) {
-		reqID := "1044"
+		reqID := commontestutil.GenerateRandomRequestID()
 		payload := `{"type":"withdraw"}` // Missing withdraw payload
 		processReq, err := cryptoHelper.CreateProcessRequest(
 			appID,
@@ -612,7 +629,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("compare with missing instruction", func(t *testing.T) {
-		reqID := "1055"
+		reqID := commontestutil.GenerateRandomRequestID()
 		payload := `{"type":"compare_addresses"}` // Missing compare payload
 		processReq, err := cryptoHelper.CreateProcessRequest(
 			appID,
@@ -631,7 +648,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("invalid deanonimization payload", func(t *testing.T) {
-		reqID := "neg-6"
+		reqID := commontestutil.GenerateRandomRequestID()
 		payload := `{"type":"deanonymization","query":"full_report","tag":}`
 		processReq, err := cryptoHelper.CreateDeanonymizationRequest(
 			appID,

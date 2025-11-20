@@ -4,7 +4,7 @@ import "../Structs.sol";
 
 interface ITeeAuthenticator {
     function checkSignature(
-        uint256 applicationId, 
+        uint64 applicationId, 
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 
         bytes32 processedRequestId,
