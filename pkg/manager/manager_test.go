@@ -31,15 +31,23 @@ func TestMain(m *testing.M) {
 	//testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
 	//cfg := logger.DefaultLogConfig("zerolog")
 	//testLogger = logger.NewLogger(&cfg)
+	/*
+		testLogger = logger.NewLogger(
+			&logger.Config{
+				Kind:         "zerolog",
+				ConsoleColor: false, // colors can print escape chars on tty
+				Console:      true,
+				ConsoleLevel: "trace",
+				//FileName:     "qqq.log",
+				//FileLevel:    "info",
+			},
+		)
+	*/
 	testLogger = logger.NewLogger(
 		&logger.Config{
-			Kind:         "zerolog",
-			ConsoleColor: false, // colors can print escape chars on tty
-			Console:      true,
-			ConsoleLevel: "trace",
-			//FileName:     "qqq.log",
-			//FileLevel:    "info",
-		},
+			Kind:                "tcplog",
+			ConsoleLevel:        "trace",
+			RemoteLogTCPAddress: "127.0.0.1:2233"},
 	)
 
 	// Run tests

@@ -66,8 +66,14 @@ type Config struct {
 
 	// LogFileName is the path to the log file. An empty string means no output on log file
 	LogFileName string
-	// LogFIleLevel is the level of logging for the console
+	// LogFileLevel is the level of logging for the console
 	LogFileLevel string
+
+	// RemoteLogTCPAddress is the address for remote TCP logging (e.g., "127.0.0.1:12345"). An empty string means no remote TCP logging.
+	RemoteLogTCPAddress string
+
+	// LogServerTCPAddress is the address where the manager's log server will listen for incoming TCP log messages.
+	LogServerTCPAddress string
 }
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
@@ -92,6 +98,7 @@ func DefaultConfig() *Config {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
 	}
 	inputWasmPath := os.Getenv("MANAGER_INPUT_WASMS")
+
 	logKind := os.Getenv("MANAGER_LOG_KIND")
 	if logKind == "" {
 		logKind = "zerolog"
@@ -159,6 +166,10 @@ func DefaultConfig() *Config {
 		logConsoleColor = false
 	}
 
+	remoteLogTCPAddress := os.Getenv("MANAGER_LOG_REMOTE_TCP_ADDRESS")
+
+	logServerTCPAddress := os.Getenv("MANAGER_LOG_SERVER_TCP_ADDRESS")
+
 	return &Config{
 		ReorgTimeout:              reorgTimeout,
 		HandshakeTimeout:          handshakeTimeout,
@@ -185,8 +196,10 @@ func DefaultConfig() *Config {
 		LogConsoleLevel: logConsoleLevel,
 		LogConsoleColor: logConsoleColor,
 
-		LogFileName:  logFileName,
-		LogFileLevel: logFileLevel,
+		LogFileName:         logFileName,
+		LogFileLevel:        logFileLevel,
+		RemoteLogTCPAddress: remoteLogTCPAddress,
+		LogServerTCPAddress: logServerTCPAddress,
 	}
 }
 
@@ -229,5 +242,7 @@ func LoadConfigFromFile() (*Config, error) {
 		LogConsoleColor:           config.GetBool("LogColor", true),
 		LogFileName:               config.GetString("LogFileName", ""),
 		LogFileLevel:              config.GetString("LogFileLevel", "info"),
+		RemoteLogTCPAddress:       config.GetString("LogRemoteTCPAddress", ""),
+		LogServerTCPAddress:       config.GetString("LogServerTCPAddress", ""),
 	}, nil
 }

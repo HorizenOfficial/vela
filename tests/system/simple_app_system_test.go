@@ -26,6 +26,7 @@ import (
 )
 
 var testLogger logger.Logger
+var excLogger logger.Logger
 
 func TestMain(m *testing.M) {
 	// Initialize once
@@ -39,6 +40,13 @@ func TestMain(m *testing.M) {
 			//FileName:     "qqq.log", //no file here
 			//FileLevel:    "info",
 		},
+	)
+
+	excLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:                "tcplog",
+			ConsoleLevel:        "trace",
+			RemoteLogTCPAddress: "127.0.0.1:2233"},
 	)
 
 	// Run tests
@@ -149,7 +157,7 @@ func TestExecutorManagerStart(t *testing.T) {
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfigFromFile()
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger, excLogger)
 	defer suite.Cleanup()
 
 	// 2. Start services
@@ -160,7 +168,7 @@ func TestExecutorManagerStart(t *testing.T) {
 }
 
 func TestDeploySimpleApp(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger, excLogger)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -177,7 +185,7 @@ func TestDeploySimpleApp(t *testing.T) {
 
 // this will be modified when we support an app id other that "1"
 func TestDeploySimpleAppNegativeCase(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger, excLogger)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -252,7 +260,7 @@ func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger, excLogger)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)
@@ -282,7 +290,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// we need to pass the keys for having them in the test suite
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, testLogger)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, testLogger, excLogger)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -488,7 +496,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	}
 	timeout_value := 10 * time.Second
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger, excLogger)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode

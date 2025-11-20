@@ -13,12 +13,13 @@ type Logger interface {
 
 // Config holds the configuration for the logger.
 type Config struct {
-	Kind         string
-	Console      bool
-	ConsoleLevel string
-	ConsoleColor bool
-	FileName     string
-	FileLevel    string
+	Kind                string
+	Console             bool
+	ConsoleLevel        string
+	ConsoleColor        bool
+	FileName            string
+	FileLevel           string
+	RemoteLogTCPAddress string // Address for remote TCP logging (e.g., "127.0.0.1:12345")
 }
 
 // minimal cfg
@@ -35,6 +36,8 @@ func NewLogger(cfg *Config) Logger {
 	switch cfg.Kind {
 	case "zerolog":
 		return NewZeroLogger(cfg)
+	case "tcplog":
+		return NewTCPLogger(cfg)
 	default:
 		return NewPrintfLogger(cfg) // default fallback
 	}

@@ -24,7 +24,7 @@ func TestHandshakeFailureSystem(t *testing.T) {
 	// find anything stored there, will create a new keyset but it will fail storing it in datalayer
 	var keySet *executor.EnclaveKeySet = nil
 	var recoveryData *common.EnclaveKeySetRecovery = nil
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "mock-runtime", mgrConfig, executor.DefaultConfig(), keySet, recoveryData, testLogger)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "mock-runtime", mgrConfig, executor.DefaultConfig(), keySet, recoveryData, testLogger, excLogger)
 	defer suite.Cleanup()
 
 	// 3. Get the mock data layer and configure it to fail

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"strconv"
 	"strings"
 
@@ -78,6 +81,68 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 	return bcClient, nil
 }
 
+func startLogServer(ctx context.Context, listenAddr string, appLogger logger.Logger) {
+	if strings.TrimSpace(listenAddr) == "" {
+		appLogger.Info("Log server address is empty, not starting log server.")
+		return
+	}
+
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		appLogger.Error("Failed to start log server on %s: %v", listenAddr, err)
+		return
+	}
+	appLogger.Info("Log server listening on %s", listenAddr)
+
+	go func() {
+		<-ctx.Done() // Wait for context cancellation
+		appLogger.Info("Shutting down log server...")
+		if err := listener.Close(); err != nil {
+			appLogger.Error("Error closing log server listener: %v", err)
+		}
+	}()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					return // Context canceled, listener is likely closed
+				default:
+					appLogger.Error("Log server accept error: %v", err)
+				}
+				continue
+			}
+
+			go handleLogConnection(conn, appLogger)
+		}
+	}()
+}
+
+func handleLogConnection(conn net.Conn, appLogger logger.Logger) {
+	defer func() {
+		if err := conn.Close(); err != nil {
+			appLogger.Error("Error closing log connection: %v", err)
+		}
+	}()
+
+	appLogger.Info("New log connection from %s", conn.RemoteAddr())
+	reader := bufio.NewReader(conn)
+	for {
+		message, err := reader.ReadString('\n')
+		if err != nil {
+			if err != io.EOF {
+				appLogger.Error("Error reading from log connection %s: %v", conn.RemoteAddr(), err)
+			}
+			break
+		}
+		// Log the received message using the manager's logger
+		appLogger.Info("Remote Log: %s", strings.TrimSpace(message))
+	}
+	appLogger.Info("Log connection from %s closed", conn.RemoteAddr())
+}
+
 func main() {
 	// Load configuration
 	config, err := manager.LoadConfigFromFile()
@@ -90,11 +155,12 @@ func main() {
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
 		Kind:                config.LogKind,
-		Console:      config.LogConsole,
-		ConsoleLevel: config.LogConsoleLevel,
-		ConsoleColor: config.LogConsoleColor,
-		FileName:     config.LogFileName,
-		FileLevel:    config.LogFileLevel,
+		Console:             config.LogConsole,
+		ConsoleLevel:        config.LogConsoleLevel,
+		ConsoleColor:        config.LogConsoleColor,
+		FileName:            config.LogFileName,
+		FileLevel:           config.LogFileLevel,
+		RemoteLogTCPAddress: config.RemoteLogTCPAddress,
 	})
 	defer func() {
 		if err := log.Close(); err != nil {
@@ -110,6 +176,9 @@ func main() {
 	// Create a context that is canceled on SIGINT or SIGTERM
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start the log server if configured
+	startLogServer(ctx, config.LogServerTCPAddress, log)
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)
