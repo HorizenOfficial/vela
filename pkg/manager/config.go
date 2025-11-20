@@ -54,6 +54,9 @@ type Config struct {
 	// (we may need to load it externally for GAS limitation)
 	InputWasmPath string
 
+	// LogKind is the type of logger to use (e.g., "zerolog", "tcplog")
+	LogKind string
+
 	// LogConsole is true if we want output on console
 	LogConsole bool
 	// LogConsoleLevel is the level of logging for the console
@@ -89,6 +92,11 @@ func DefaultConfig() *Config {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
 	}
 	inputWasmPath := os.Getenv("MANAGER_INPUT_WASMS")
+	logKind := os.Getenv("MANAGER_LOG_KIND")
+	if logKind == "" {
+		logKind = "zerolog"
+	}
+
 	nodeProtocol := os.Getenv("CHAIN_RPC_PROTOCOL")
 	if nodeProtocol == "" {
 		nodeProtocol = "http"
@@ -172,6 +180,7 @@ func DefaultConfig() *Config {
 		DeanonymizationReportPath: reportsPath, // optional, default to not-there semantic
 		InputWasmPath:             inputWasmPath,
 
+		LogKind:         logKind,
 		LogConsole:      logConsole,
 		LogConsoleLevel: logConsoleLevel,
 		LogConsoleColor: logConsoleColor,
@@ -214,6 +223,7 @@ func LoadConfigFromFile() (*Config, error) {
 		DataLayerNumOfVersions:    config.MustGetInt("DataLayerNumOfVersions"),
 		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
 		InputWasmPath:             config.GetString("InputWasmPath", ""),
+		LogKind:                   config.GetString("LogKind", "zerolog"),
 		LogConsole:                config.GetBool("LogConsole", true),
 		LogConsoleLevel:           config.GetString("LogConsoleLevel", "info"),
 		LogConsoleColor:           config.GetBool("LogColor", true),

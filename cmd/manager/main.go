@@ -89,7 +89,7 @@ func main() {
 
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
-		Kind:         "zerolog",
+		Kind:                config.LogKind,
 		Console:      config.LogConsole,
 		ConsoleLevel: config.LogConsoleLevel,
 		ConsoleColor: config.LogConsoleColor,
@@ -102,10 +102,7 @@ func main() {
 		}
 	}()
 
-	// TODO test, remove it
-	log.Info("Starting manager I...")
-	log.Warn("Starting manager W...")
-	log.Error("Starting manager E...")
+	log.Info("Starting manager...")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
