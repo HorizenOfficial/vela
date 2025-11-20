@@ -45,9 +45,10 @@ func TestMain(m *testing.M) {
 	*/
 	testLogger = logger.NewLogger(
 		&logger.Config{
-			Kind:                "tcplog",
-			ConsoleLevel:        "trace",
-			RemoteLogTCPAddress: "127.0.0.1:2233"},
+			Kind:             "tcplog",
+			ConsoleLevel:     "trace",
+			RemoteLogAddress: "127.0.0.1:2233",
+			RemoteLogNetwork: "tcp"},
 	)
 
 	// Run tests

@@ -2,7 +2,6 @@ package logger
 
 import (
 	"io"
-	"net"
 	"os"
 	"time"
 
@@ -62,22 +61,6 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 		Level(logLevel)
 
 	return &ZeroLogger{logger: logger, logFile: logFile}
-}
-func initConnection() {
-	// Connect to the remote TCP logging server
-	conn, err := net.Dial("tcp", "localhost:9000")
-	if err != nil {
-		panic(err)
-	}
-	defer conn.Close()
-
-	// Create a Zerolog logger writing to the TCP connection
-	logger := zerolog.New(conn).With().Timestamp().Logger()
-
-	logger.Info().Msg("Hello from Zerolog over TCP!")
-	logger.Warn().Str("component", "auth").Msg("Something looks suspicious")
-	logger.Error().Err(err).Msg("Example error log")
-
 }
 
 func (z *ZeroLogger) Trace(msg string, args ...any) { z.logger.Trace().Msgf(msg, args...) }

@@ -69,8 +69,10 @@ type Config struct {
 	// LogFileLevel is the level of logging for the console
 	LogFileLevel string
 
-	// RemoteLogTCPAddress is the address for remote TCP logging (e.g., "127.0.0.1:12345"). An empty string means no remote TCP logging.
-	RemoteLogTCPAddress string
+	// RemoteLogAddress is the address for remote logging (e.g., "127.0.0.1:12345"). An empty string means no remote logging.
+	RemoteLogAddress string
+	// RemoteLogNetwork is the network for remote logging (e.g., "tcp", "vsock").
+	RemoteLogNetwork string
 
 	// LogServerTCPAddress is the address where the manager's log server will listen for incoming TCP log messages.
 	LogServerTCPAddress string
@@ -166,7 +168,8 @@ func DefaultConfig() *Config {
 		logConsoleColor = false
 	}
 
-	remoteLogTCPAddress := os.Getenv("MANAGER_LOG_REMOTE_TCP_ADDRESS")
+	remoteLogAddress := os.Getenv("MANAGER_LOG_REMOTE_ADDRESS")
+	remoteLogNetwork := os.Getenv("MANAGER_LOG_REMOTE_NETWORK")
 
 	logServerTCPAddress := os.Getenv("MANAGER_LOG_SERVER_TCP_ADDRESS")
 
@@ -198,7 +201,8 @@ func DefaultConfig() *Config {
 
 		LogFileName:         logFileName,
 		LogFileLevel:        logFileLevel,
-		RemoteLogTCPAddress: remoteLogTCPAddress,
+		RemoteLogAddress: remoteLogAddress,
+		RemoteLogNetwork: remoteLogNetwork,
 		LogServerTCPAddress: logServerTCPAddress,
 	}
 }
@@ -242,7 +246,8 @@ func LoadConfigFromFile() (*Config, error) {
 		LogConsoleColor:           config.GetBool("LogColor", true),
 		LogFileName:               config.GetString("LogFileName", ""),
 		LogFileLevel:              config.GetString("LogFileLevel", "info"),
-		RemoteLogTCPAddress:       config.GetString("LogRemoteTCPAddress", ""),
+		RemoteLogAddress:       config.GetString("LogRemoteAddress", ""),
+		RemoteLogNetwork:       config.GetString("LogRemoteNetwork", ""),
 		LogServerTCPAddress:       config.GetString("LogServerTCPAddress", ""),
 	}, nil
 }

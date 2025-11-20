@@ -160,7 +160,8 @@ func main() {
 		ConsoleColor:        config.LogConsoleColor,
 		FileName:            config.LogFileName,
 		FileLevel:           config.LogFileLevel,
-		RemoteLogTCPAddress: config.RemoteLogTCPAddress,
+		RemoteLogAddress: config.RemoteLogAddress,
+		RemoteLogNetwork: config.RemoteLogNetwork,
 	})
 	defer func() {
 		if err := log.Close(); err != nil {

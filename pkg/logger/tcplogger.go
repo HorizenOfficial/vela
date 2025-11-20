@@ -18,14 +18,14 @@ type TCPLogger struct {
 
 // NewTCPLogger creates a new TCPLogger instance.
 func NewTCPLogger(cfg *Config) *TCPLogger {
-	if cfg.RemoteLogTCPAddress == "" {
-		panic("RemoteLogTCPAddress cannot be empty for tcplog kind")
+	if cfg.RemoteLogAddress == "" {
+		panic("RemoteLogAddress cannot be empty for tcplog kind")
 	}
 
-	conn, err := net.Dial("tcp", cfg.RemoteLogTCPAddress)
+	conn, err := net.Dial("tcp", cfg.RemoteLogAddress)
 	if err != nil {
 		// If TCP connection fails, panic as it's a critical setup error for this logger type
-		panic(fmt.Sprintf("failed to connect to remote TCP logger at %s: %v", cfg.RemoteLogTCPAddress, err))
+		panic(fmt.Sprintf("failed to connect to remote TCP logger at %s: %v", cfg.RemoteLogAddress, err))
 	}
 
 	// Create a fallback logger for internal errors of the TCPLogger itself
