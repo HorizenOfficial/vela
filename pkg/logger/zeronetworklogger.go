@@ -14,98 +14,183 @@ import (
 // TODO
 // UDP/TCP split based on log severity
 // Support for vsock connection
-// Async write mode
-// - Push the log message into an in-memory queue (channel, ring buffer, etc.)
-// - Have a dedicated goroutine consume the queue and write to the network
-// Buffered memory queue on disconnection
 
-func init() {
-	// Zerolog's default internal skip is usually 2.
-	// By setting it to 3, we are adding 1 extra skip for the wrapper function.
-	zerolog.CallerSkipFrameCount = 3
-}
+const (
+	defaultBuffer      = 1000
+	defaultRetryDelay  = 2 * time.Second
+	defaultMaxWait     = 30 * time.Second
+	defaultDialTimeout = 5 * time.Second
+)
 
-// ReconnectingWriter is a resilient io.Writer that automatically reconnects.
-type ReconnectingWriter struct {
+// AsyncWriter is a resilient, non-blocking io.Writer.
+// It writes to a fallback writer immediately and buffers logs for an async worker.
+type AsyncWriter struct {
 	mu             sync.Mutex
 	conn           net.Conn
 	cfg            *Config
-	fallbackLogger Logger
-	retryDelay     time.Duration
-	maxWait        time.Duration
+	fallbackWriter io.Writer
+	logBuffer      chan []byte
+	stopChan       chan struct{}
+	wg             sync.WaitGroup
 }
 
-// NewReconnectingWriter creates a new writer instance
-func NewReconnectingWriter(cfg *Config, fallback Logger) *ReconnectingWriter {
-	return &ReconnectingWriter{
+// NewAsyncWriter creates a new writer that handles buffering and reconnecting.
+func NewAsyncWriter(cfg *Config, fallback io.Writer) *AsyncWriter {
+	writer := &AsyncWriter{
 		cfg:            cfg,
-		fallbackLogger: fallback,
-		retryDelay:     2 * time.Second,
-		maxWait:        30 * time.Second,
+		fallbackWriter: fallback,
+		logBuffer:      make(chan []byte, defaultBuffer),
+		stopChan:       make(chan struct{}),
 	}
+
+	writer.wg.Add(1)
+	go writer.run() // Start the async worker
+
+	return writer
 }
 
-// Write implements the io.Writer interface. It handles connection and writing.
-func (w *ReconnectingWriter) Write(p []byte) (n int, err error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	// If not connected, try to connect
+// Write implements the io.Writer interface. It is non-blocking.
+func (w *AsyncWriter) Write(p []byte) (n int, err error) {
+	// Immediately write to fallback for real-time local logging
 	if w.conn == nil {
-		if err := w.connectWithRetry(); err != nil {
-			// Connection failed, use fallback
-			w.fallbackLogger.Error("Failed to connect to remote log server, using fallback: %v", err)
-			return w.fallbackLogger.(io.Writer).Write(p)
+
+		if _, err := w.fallbackWriter.Write(p); err != nil {
+			fmt.Printf("Fallback logger failed: %v\n", err)
 		}
 	}
 
-	// Write to the connection
-	n, err = w.conn.Write(p)
-	if err != nil {
-		w.fallbackLogger.Error("Failed to write to remote log server: %v. Will attempt to reconnect on next log.", err)
-		// Mark as disconnected, so the next write triggers a reconnect
-		w.conn.Close()
-		w.conn = nil
+	// Create a copy, as the slice is reused by zerolog
+	buf := make([]byte, len(p))
+	copy(buf, p)
+
+	// Send to buffer without blocking
+	select {
+	case w.logBuffer <- buf:
+	default:
+		// Buffer is full, drop the message but log it to fallback
+		w.fallbackWriter.Write([]byte("Remote log buffer is full. Dropping message.\n"))
 	}
 
-	return n, err
+	return len(p), nil
 }
 
-// connectWithRetry tries to connect multiple times until maxWait
-func (w *ReconnectingWriter) connectWithRetry() error {
-	deadline := time.Now().Add(w.maxWait)
-
+// run is the background worker for connecting and sending logs.
+func (w *AsyncWriter) run() {
+	defer w.wg.Done()
 	for {
-		conn, err := net.Dial(w.cfg.RemoteLogNetwork, w.cfg.RemoteLogAddress)
+		select {
+		case <-w.stopChan:
+			return // Shutdown signal received
+		default:
+			// If not connected, block until we are.
+			if w.conn == nil {
+				if err := w.connectWithRetry(); err != nil {
+					// Sleep before retrying connection
+					time.Sleep(defaultRetryDelay)
+					continue
+				}
+			}
+
+			// Connection is live, start processing buffer.
+			if !w.processBuffer() {
+				// processBuffer returned false, meaning connection is dead.
+				// The loop will now attempt to reconnect.
+				continue
+			}
+		}
+	}
+}
+
+// processBuffer reads from the channel and writes to the network.
+// It returns `false` if the connection is broken.
+func (w *AsyncWriter) processBuffer() bool {
+	for {
+		select {
+		case msg := <-w.logBuffer:
+			if _, err := w.conn.Write(msg); err != nil {
+				fmt.Printf("[zeronetwork] write failed: %v. Reconnecting...\n", err)
+				w.closeConn()
+				// put the message back in the buffer, but non-blocking
+				// in case the buffer is full (should be rare)
+				select {
+				case w.logBuffer <- msg:
+				default:
+				}
+				return false // Signal connection is broken
+			}
+		case <-w.stopChan:
+			// Drain remaining buffer before shutting down
+			w.drainBuffer()
+			return true // Signal shutdown
+		}
+	}
+}
+
+// connectWithRetry tries to connect multiple times.
+func (w *AsyncWriter) connectWithRetry() error {
+	deadline := time.Now().Add(defaultMaxWait)
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		fmt.Println("[zeronetwork] attempting to connect...")
+		conn, err := net.DialTimeout(w.cfg.RemoteLogNetwork, w.cfg.RemoteLogAddress, defaultDialTimeout)
 		if err == nil {
+			w.mu.Lock()
 			w.conn = conn
+			w.mu.Unlock()
 			fmt.Printf("[zeronetwork] connected to %s\n", w.cfg.RemoteLogAddress)
 			return nil
 		}
+		lastErr = err
 
-		if time.Now().After(deadline) {
-			return errors.New("could not connect to remote logger in time")
+		select {
+		case <-w.stopChan:
+			return errors.New("shutdown requested")
+		case <-time.After(defaultRetryDelay):
+			// continue
 		}
+	}
+	fmt.Printf("[zeronetwork] could not connect in time: %v\n", lastErr)
+	return fmt.Errorf("could not connect to remote logger in time: %w", lastErr)
+}
 
-		fmt.Println("[zeronetwork] server not ready, retrying...")
-		time.Sleep(w.retryDelay)
+// drainBuffer writes any remaining logs in the queue before shutdown.
+func (w *AsyncWriter) drainBuffer() {
+	if w.conn == nil {
+		fmt.Println("[zeronetwork] cannot drain buffer, no connection.")
+		return
+	}
+	close(w.logBuffer) // Close channel to range over remaining items
+	fmt.Println("[zeronetwork] draining log buffer before shutdown...")
+	for msg := range w.logBuffer {
+		if _, err := w.conn.Write(msg); err != nil {
+			fmt.Printf("[zeronetwork] failed to write during drain: %v\n", err)
+		}
 	}
 }
 
-// Close closes the connection
-func (w *ReconnectingWriter) Close() error {
+// closeConn safely closes the current connection.
+func (w *AsyncWriter) closeConn() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.conn != nil {
-		return w.conn.Close()
+		w.conn.Close()
+		w.conn = nil
 	}
+}
+
+// Close gracefully shuts down the writer.
+func (w *AsyncWriter) Close() error {
+	close(w.stopChan) // Signal worker to stop
+	w.wg.Wait()       // Wait for worker to finish
+	w.closeConn()
 	return nil
 }
 
 // ZeroNetworkLogger implements the Logger interface.
 type ZeroNetworkLogger struct {
 	logger *zerolog.Logger
-	writer *ReconnectingWriter
+	writer *AsyncWriter
 }
 
 // NewZeroNetworkLogger creates a new logger instance
@@ -118,7 +203,7 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	}
 
 	fallback := NewPrintfLogger(&Config{Console: true, ConsoleLevel: "error"})
-	writer := NewReconnectingWriter(cfg, fallback)
+	writer := NewAsyncWriter(cfg, fallback)
 
 	logger := zerolog.New(writer).
 		With().

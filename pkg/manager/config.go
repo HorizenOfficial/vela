@@ -54,7 +54,7 @@ type Config struct {
 	// (we may need to load it externally for GAS limitation)
 	InputWasmPath string
 
-	// LogKind is the type of logger to use (e.g., "zerolog", "tcplog")
+	// LogKind is the type of logger to use (e.g., "zeronetwork", "tcplog")
 	LogKind string
 
 	// LogConsole is true if we want output on console
@@ -201,8 +201,8 @@ func DefaultConfig() *Config {
 
 		LogFileName:         logFileName,
 		LogFileLevel:        logFileLevel,
-		RemoteLogAddress: remoteLogAddress,
-		RemoteLogNetwork: remoteLogNetwork,
+		RemoteLogAddress:    remoteLogAddress,
+		RemoteLogNetwork:    remoteLogNetwork,
 		LogServerTCPAddress: logServerTCPAddress,
 	}
 }
@@ -246,8 +246,8 @@ func LoadConfigFromFile() (*Config, error) {
 		LogConsoleColor:           config.GetBool("LogColor", true),
 		LogFileName:               config.GetString("LogFileName", ""),
 		LogFileLevel:              config.GetString("LogFileLevel", "info"),
-		RemoteLogAddress:       config.GetString("LogRemoteAddress", ""),
-		RemoteLogNetwork:       config.GetString("LogRemoteNetwork", ""),
+		RemoteLogAddress:          config.GetString("LogRemoteAddress", ""),
+		RemoteLogNetwork:          config.GetString("LogRemoteNetwork", ""),
 		LogServerTCPAddress:       config.GetString("LogServerTCPAddress", ""),
 	}, nil
 }

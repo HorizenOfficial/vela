@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 	*/
 	testLogger = logger.NewLogger(
 		&logger.Config{
-			Kind:             "tcplog",
+			Kind:             "zeronetwork",
 			ConsoleLevel:     "trace",
 			RemoteLogAddress: "127.0.0.1:2233",
 			RemoteLogNetwork: "tcp"},
