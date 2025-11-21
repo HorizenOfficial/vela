@@ -200,7 +200,7 @@ contract ProcessorEndpoint is AccessControl {
     }
 
     //update status
-    function stateUpdate(
+    function stateUpdate( // TODO ML recheck everything about security
         uint64 applicationId, 
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 

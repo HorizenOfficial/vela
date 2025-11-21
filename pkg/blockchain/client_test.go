@@ -120,9 +120,42 @@ func TestMarkRequestCompleted(t *testing.T) {
 
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
+	require.Equal(t, 1, len(res), "There should be one pending request")
 	requestId := res[0].RequestID
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, big.NewInt(80), big.NewInt(20))
+	// =========================================================
+	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
+	// =========================================================
+	err = blockchainClient.MarkRequestCompleted(
+		context.Background(),
+		requestId,
+		big.NewInt(50), // refund
+		big.NewInt(20), // fees  => 50 + 20 = 70 != 100
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
+
+	// =========================================================
+	// Case 2: applicationFees < minFeePerRequest -> InvalidValue
+	// =========================================================
+	err = blockchainClient.MarkRequestCompleted(
+		context.Background(),
+		requestId,
+		big.NewInt(100), // refund
+		big.NewInt(0),   // fees => 100 + 0 = 100 == maxFeeValue, but fees < minFeePerRequest
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
+
+	// =========================================================
+	// Case OK: refund + fees = maxFeeValue, fees >= minFeePerRequest
+	// =========================================================
+	err = blockchainClient.MarkRequestCompleted(
+		context.Background(),
+		requestId,
+		big.NewInt(80),
+		big.NewInt(20),
+	)
 	require.NoError(t, err)
 
 	res, err = blockchainClient.GetPendingRequests(context.Background())
@@ -130,12 +163,16 @@ func TestMarkRequestCompleted(t *testing.T) {
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 
 	// Test that completing the same request results in ProcessorEndpointInvalidRequestId
-	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, big.NewInt(80), big.NewInt(20))
+	err = blockchainClient.MarkRequestCompleted(
+		context.Background(),
+		requestId,
+		big.NewInt(80),
+		big.NewInt(20),
+	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
 	_, isReorgErr := err.(ReorgError)
 	require.True(t, isReorgErr)
-
 }
 
 func TestMarkRequestFailed(t *testing.T) {
@@ -195,17 +232,42 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 	signature := [65]byte{}
 	payload := &common.UpdatePayload{
-		ApplicationID: res.ApplicationID,
-		RequestID:     res.RequestID,
-		PrevStateRoot: oldStateRoot,
-		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
-		Events:        events[:],
-		Withdrawals:   withdrawals,
-		Signature:     signature[:],
-		RefundAmount: big.NewInt(90),
-		ApplicationFee: big.NewInt(10),
+		ApplicationID:  res.ApplicationID,
+		RequestID:      res.RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   [32]byte{0x04, 0x05, 0x06},
+		Events:         events[:],
+		Withdrawals:    withdrawals,
+		Signature:      signature[:],
+		RefundAmount:   big.NewInt(90),
+		ApplicationFee: big.NewInt(10), // 90 + 10 = 100 == maxFeeValue
 	}
 
+	// =========================================================
+	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
+	// =========================================================
+	payloadWrongSum := *payload                          // copy value
+	payloadWrongSum.RefundAmount = big.NewInt(80)       
+	payloadWrongSum.ApplicationFee = big.NewInt(10)      
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), &payloadWrongSum)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
+
+	// =========================================================
+	// Case 2: applicationFees < minFeePerRequest but correct sum -> InvalidValue
+	// =========================================================
+	payloadWrongFee := *payload
+	payloadWrongFee.RefundAmount = big.NewInt(100)   
+	payloadWrongFee.ApplicationFee = big.NewInt(0)   
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), &payloadWrongFee)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
+
+	// =========================================================
+	// Case OK: refund=90, applicationFees=10 -> success
+	// =========================================================
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
@@ -224,7 +286,6 @@ func TestSubmitStateUpdate(t *testing.T) {
 	blockchainClient.account.GasLimit = 0 //reset gas limit to let it be estimated
 
 	// Test error - wrong application id
-
 	payload.ApplicationID = 9999
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	_, isReorg = err.(ReorgError)
@@ -250,7 +311,6 @@ func TestSubmitStateUpdate(t *testing.T) {
 	_, isReorg = err.(ReorgError)
 	require.True(t, isReorg)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
-
 }
 
 func TestGetUserEvents_StopAtFirst(t *testing.T) {

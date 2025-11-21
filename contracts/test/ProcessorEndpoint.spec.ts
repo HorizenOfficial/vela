@@ -256,6 +256,41 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue")
     })
 
+    it('should revert submitRequest if msg.value is not value + maxFeeValue', async function () {
+        const value = 100;
+        const maxFeeValue = MIN_FEE; // 5
+
+        await expect(
+            processorEndpoint.submitRequest(
+                protocolVersion,
+                applicationId,
+                1,
+                "0x01",
+                value,
+                maxFeeValue,
+                { value: BigInt(value) }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+    });
+
+    it('should revert submitRequest if maxFeeValue is below minFeePerRequest', async function () {
+        const value = 0;
+        const maxFeeValue = MIN_FEE - 1n; // 4 < 5
+
+        await expect(
+            processorEndpoint.submitRequest(
+                protocolVersion,
+                applicationId,
+                1,
+                "0x01",
+                value,
+                maxFeeValue,
+                { value: BigInt(value) + maxFeeValue }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+    });
+
+
     it('should not save denanonymization requests from unauthorized authority', async function () {
         await expect(
             processorEndpoint.connect(signers[1]).submitRequest(
@@ -454,6 +489,69 @@ describe('ProcessorEndpoint Test', function () {
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(1));
     });
+
+    it('should not mark request as completed if refund + applicationFees does not match maxFeeValue', async function () {
+        const value = 0;
+        const maxFeeValue = MIN_FEE;
+
+        const submitTx = await processorEndpoint.submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            "0x01",
+            value,
+            maxFeeValue,
+            { value: maxFeeValue }
+        );
+        await submitTx.wait();
+
+        const [currentPendingRequest, , success] =
+            await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
+
+        // refund + applicationFees = MIN_FEE + 1 != maxFeeValue
+        await expect(
+            processorEndpoint.markRequestCompleted(
+                currentPendingRequest.requestId,
+                0,
+                MIN_FEE + 1n
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+    });
+
+    it('should not mark request as completed if applicationFees is below minFeePerRequest', async function () {
+        const value = 0;
+        const maxFeeValue = MIN_FEE;
+
+        const submitTx = await processorEndpoint.submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            "0x01",
+            value,
+            maxFeeValue,
+            { value: maxFeeValue }
+        );
+        await submitTx.wait();
+
+        const [currentPendingRequest, , success] =
+            await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
+
+        // refund + applicationFees = maxFeeValue, pero applicationFees < minFeePerRequest
+        const refund = maxFeeValue;  // 5
+        const applicationFees = 0n;  // < MIN_FEE
+
+        await expect(
+            processorEndpoint.markRequestCompleted(
+                currentPendingRequest.requestId,
+                refund,
+                applicationFees
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+    });
+
+
 
     it('should not complete a request from wrong account', async function () {
         //insert requests
@@ -725,6 +823,111 @@ describe('ProcessorEndpoint Test', function () {
             newStateRoot
         );        
     });
+
+    it('should not update status if refund + applicationFees does not match maxFeeValue', async function () {
+        // Request sencilla con maxFeeValue = MIN_FEE
+        const submitTx = await processorEndpoint.submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            "0x01",
+            0,
+            MIN_FEE,
+            { value: MIN_FEE }
+        );
+        await submitTx.wait();
+
+        const initialStateRoot = await processorEndpoint.stateRoot();
+        const [currentPendingRequest, stateRoot, success] =
+            await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
+        expect(stateRoot).eql(initialStateRoot);
+
+        const newStateRoot =
+            "0x1234000000000000000000000000000000000000000000000000000000000000";
+
+        const refund = 0;
+        const applicationFees = MIN_FEE + 1n; // != maxFeeValue
+
+        const signature = await ethSignStateUpdate(
+            signers[0],
+            applicationId,
+            initialStateRoot,
+            newStateRoot,
+            currentPendingRequest.requestId,
+            [],
+            [],
+            refund,
+            applicationFees
+        );
+
+        await expect(
+            processorEndpoint.stateUpdate(
+                applicationId,
+                initialStateRoot,
+                newStateRoot,
+                currentPendingRequest.requestId,
+                [],
+                [],
+                signature,
+                refund,
+                applicationFees
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+    });
+
+    it('should not update status if applicationFees is below minFeePerRequest', async function () {
+        const submitTx = await processorEndpoint.submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            "0x01",
+            0,
+            MIN_FEE,
+            { value: MIN_FEE }
+        );
+        await submitTx.wait();
+
+        const initialStateRoot = await processorEndpoint.stateRoot();
+        const [currentPendingRequest, stateRoot, success] =
+            await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
+        expect(stateRoot).eql(initialStateRoot);
+
+        const newStateRoot =
+            "0x1234000000000000000000000000000000000000000000000000000000000000";
+
+        const refund = MIN_FEE;  // 5
+        const applicationFees = 0n; // < MIN_FEE, pero refund+fees = maxFeeValue
+
+        const signature = await ethSignStateUpdate(
+            signers[0],
+            applicationId,
+            initialStateRoot,
+            newStateRoot,
+            currentPendingRequest.requestId,
+            [],
+            [],
+            refund,
+            applicationFees
+        );
+
+        await expect(
+            processorEndpoint.stateUpdate(
+                applicationId,
+                initialStateRoot,
+                newStateRoot,
+                currentPendingRequest.requestId,
+                [],
+                [],
+                signature,
+                refund,
+                applicationFees
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+    });
+
+
 
     it('should not update status with wrong prev root', async function () {
         //insert requests
