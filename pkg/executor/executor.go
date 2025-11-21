@@ -271,7 +271,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
-	var fuel *big.Int = big.NewInt(0);
+	var totalFuel *big.Int = big.NewInt(0);
 	if req.Value.Sign() > 0 { // TODO these concatenated if statements feel wrong
 		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
 		if failure != nil {
@@ -279,7 +279,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 		tempState = newState
 		depositEvents = depEvents
-		fuel = reqFuel
+		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		log.Printf("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
 
@@ -294,6 +294,8 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		if err != nil {
 			return nil, nil, apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload", err)
 		}
+
+		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10)) // TODO ML this should be taken from somewhere, not hardcoded
 
 		appData.AddKey(req.Sender, *keyToAssociate)
 	} else {
@@ -313,12 +315,12 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		tempState = newState
 		events = reqEvents
 		withdrawals = reqWithdrawals
-		fuel = reqFuel
+		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		log.Printf("Executor: Successfully processed request %s", req.RequestID)
 	}
 
 	// Check if there is enough ETH to cover the fuel costs
-	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
+	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
 		return nil, nil, apperrors.New(apperrors.CodeInsufficientFuel, "insufficient fuel for request execution", nil)
 	}

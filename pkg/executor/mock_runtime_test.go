@@ -28,7 +28,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 	}
 	
 	if fuel.Cmp(big.NewInt(10)) != 0 {
-		t.Errorf("Expected 100 fuel, got %s", fuel.String())
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Verify we can deserialize the initial state
@@ -66,7 +66,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 	if fuel.Cmp(big.NewInt(10)) != 0 {
-		t.Errorf("Expected 100 fuel, got %s", fuel.String())
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Make a deposit
@@ -76,7 +76,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 		t.Fatalf("ProcessRequest failed: %v", failure)
 	}
 	if fuel.Cmp(big.NewInt(10)) != 0 {
-		t.Errorf("Expected 100 fuel, got %s", fuel.String())
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Verify events
@@ -163,7 +163,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	}
 
 	if fuel.Cmp(big.NewInt(10)) != 0 {
-		t.Errorf("Expected 100 fuel, got %s", fuel.String())
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Verify state update
@@ -249,7 +249,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	}
 
 	if fuel.Cmp(big.NewInt(10)) != 0 {
-		t.Errorf("Expected 100 fuel, got %s", fuel.String())
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Verify withdrawals
