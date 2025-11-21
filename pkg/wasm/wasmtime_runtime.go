@@ -30,7 +30,7 @@ type WasmtimeRuntime struct {
 	store      *wasmtime.Store
 	modules    map[common.ApplicationIdType]*ApplicationModule // Map of application ID to module
 	moduleLock sync.RWMutex                  // Lock for module access
-	fuel *big.Int
+	fuel *big.Int // TODO ML
 }
 
 // NewWasmtimeRuntime creates a new wasmtime runtime instance
@@ -47,7 +47,7 @@ func NewWasmtimeRuntime() *WasmtimeRuntime {
 		engine:  engine,
 		store:   store,
 		modules: make(map[common.ApplicationIdType]*ApplicationModule),
-		fuel: big.NewInt(10),
+		fuel: big.NewInt(5), // TODO ML allign this with the minFeePerRequest
 	}
 }
 
@@ -293,7 +293,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
     }
 
     log.Printf("Wasmtime Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(depositResult.Events))
-    return depositResult.State, depositResult.Events, r.fuel, nil
+    return depositResult.State, depositResult.Events, depositResult.Fuel, nil
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
@@ -351,7 +351,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
     }
 
     // Deserialize the result
-    var processResult appCommon.ProcessResult // TODO add real fuel?
+    var processResult appCommon.ProcessResult 
     if err := json.Unmarshal(resultBytes, &processResult); err != nil {
         return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal process result", err)
     }
@@ -361,7 +361,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
     }
 
 	log.Printf("Wasmtime Runtime: Successfully processed request for application %d, generated %d events and %d withdrawals", appId, len(processResult.Events), len(processResult.Withdrawals))
-	return processResult.State, processResult.Events, processResult.Withdrawals, r.fuel, nil
+	return processResult.State, processResult.Events, processResult.Withdrawals, processResult.Fuel, nil
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
@@ -411,7 +411,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	}
 
 	log.Printf("Wasmtime Runtime: Successfully generated deanonymization report for application %d", appId)
-	return deanonymizationResult.Report, r.fuel, nil
+	return deanonymizationResult.Report, deanonymizationResult.Fuel, nil
 }
 
 func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *ApplicationModule) ([]byte, error) {

@@ -16,6 +16,7 @@ const WasmSerializationError = "{}"
 type DepositResult struct {
 	State  []byte              `json:"state"`
 	Events []common.PlainEvent `json:"events"`
+	Fuel *big.Int `json:"fuel"`
 	Error  string              `json:"error,omitempty"`
 }
 
@@ -24,12 +25,14 @@ type ProcessResult struct {
 	State       []byte              `json:"state"`
 	Events      []common.PlainEvent `json:"events"`
 	Withdrawals []common.Withdrawal `json:"withdrawals"`
+	Fuel *big.Int `json:"fuel"`
 	Error       string              `json:"error,omitempty"`
 }
 
 // DeanonymizationResult represents the result of generating deanonymization report
 type DeanonymizationResult struct {
 	Report []byte `json:"report"`
+	Fuel *big.Int `json:"fuel"`
 	Error  string `json:"error,omitempty"`
 }
 

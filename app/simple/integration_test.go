@@ -60,7 +60,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	// 1. Load the module
 	initialStateBytes, fuel, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(10)))
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
 
 	var initialState app.ApplicationInternalState
 	err = json.Unmarshal(initialStateBytes, &initialState)
@@ -74,7 +74,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.Nil(t, failure)
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(10)))
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
 
 	var depositState app.ApplicationInternalState
 	err = json.Unmarshal(depositState1Bytes, &depositState)
@@ -88,7 +88,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.Nil(t, failure)
 	require.NotNil(t, depositState2Bytes)
 	require.Len(t, depositEvents, 1)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(10)))
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
 
 	err = json.Unmarshal(depositState2Bytes, &depositState)
 	require.NoError(t, err)
@@ -113,7 +113,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NotNil(t, withdrawStateBytes)
 	require.Len(t, withdrawEvents, 1)
 	require.Len(t, withdrawals, 1)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(10)))
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(50)))
 
 	var withdrawState app.ApplicationInternalState
 	err = json.Unmarshal(withdrawStateBytes, &withdrawState)
@@ -131,7 +131,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	reportBytes, fuel, failure := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, reportBytes)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(10)))
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(20)))
 
 	var report map[string]interface{}
 	err = json.Unmarshal(reportBytes, &report)
@@ -156,7 +156,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NotNil(t, compareStateBytes)
 	require.Len(t, events, 1)
 	require.Len(t, withdrawals, 0)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(10)))
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(50)))
 
 	var eventData map[string]interface{}
 	err = json.Unmarshal(events[0].Data, &eventData)
@@ -178,7 +178,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 	// 1. Load the module to get an initial state
 	initialStateBytes, fuel, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(10)))
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
 
 	t.Run("null payload json", func(t *testing.T) {
 		nullPayload := []byte{}

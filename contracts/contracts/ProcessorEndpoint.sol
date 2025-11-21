@@ -134,7 +134,7 @@ contract ProcessorEndpoint is AccessControl {
 
     function markRequestCompleted(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
-        //TODO deanonymization calls this (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+        //TODO ML deanonymization calls this (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
         _markRequestCompleted(requestId, minFeePerRequest);
     }
 
@@ -155,7 +155,7 @@ contract ProcessorEndpoint is AccessControl {
 
         _removeRequest();
         //refunds
-        (bool refunded, ) = payable(sender).call{value: value + (maxFeeValue - minFeePerRequest)}(""); // TODO think about failing if transfer fails (everywhere)
+        (bool refunded, ) = payable(sender).call{value: value + (maxFeeValue - minFeePerRequest)}(""); // TODO ML think about failing if transfer fails (everywhere)
 
         //minimum fee is collected
         (bool feeSent, ) = payable(feeCollector).call{value: minFeePerRequest}("");
@@ -211,7 +211,7 @@ contract ProcessorEndpoint is AccessControl {
 
         //check values
         Structs.PendingRequest memory requestInfo = requestById[processedRequestId];
-        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue();  //TODO better errors for the future
+        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue();  //TODO ML better errors for the future
         if(applicationFees < minFeePerRequest) {
             revert InvalidValue();
         }
@@ -219,7 +219,7 @@ contract ProcessorEndpoint is AccessControl {
         //check withdrawal sums 
         uint256 i;
         uint256 sum;
-        while(i < withdrawalRequests.length) { // TODO optimize these loops and the contract overall
+        while(i < withdrawalRequests.length) { // TODO ML optimize these loops and the contract overall
             sum += withdrawalRequests[i].amount;
             unchecked {++i;}
         }

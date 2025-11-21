@@ -112,7 +112,7 @@ func DepositFunds(senderPtr *ethCommon.Address, value *big.Int, stateJSON string
 	if err != nil {
 		return wasmCommon.DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %+v", &currentState)}
 	}
-	return wasmCommon.DepositResult{State: newStateBytes, Events: events}
+	return wasmCommon.DepositResult{State: newStateBytes, Events: events, Fuel: big.NewInt(35)}
 }
 
 func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string) wasmCommon.ProcessResult {
@@ -236,6 +236,7 @@ func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string)
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
+		Fuel: big.NewInt(50), // TODO MA
 	}
 }
 
@@ -267,5 +268,5 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) wasmCommon.Dea
 	if err != nil {
 		return wasmCommon.DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %+v", report)}
 	}
-	return wasmCommon.DeanonymizationResult{Report: reportBytes}
+	return wasmCommon.DeanonymizationResult{Report: reportBytes, Fuel: big.NewInt(20)}
 }
