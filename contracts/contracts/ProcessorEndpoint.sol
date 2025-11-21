@@ -132,10 +132,20 @@ contract ProcessorEndpoint is AccessControl {
 
     }
 
-    function markRequestCompleted(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
+    function markRequestCompleted(bytes32 requestId, uint256 refund, uint256 applicationFees) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
-        //TODO ML deanonymization calls this (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
-        _markRequestCompleted(requestId, minFeePerRequest);
+
+        //check values
+        Structs.PendingRequest memory requestInfo = requestById[requestId];
+        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue(); 
+        if(applicationFees < minFeePerRequest) {
+            revert InvalidValue();
+        }
+        (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+        emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
+
+        (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+        _markRequestCompleted(requestId, applicationFees);
     }
 
     function _markRequestCompleted(bytes32 requestId, uint256 applicationFees) private {
@@ -224,7 +234,7 @@ contract ProcessorEndpoint is AccessControl {
             unchecked {++i;}
         }
         sum += refund + applicationFees;
-        if(sum > address(this).balance) revert InsufficientBalance();
+        if(sum > address(this).balance) revert InsufficientBalance(); // TODO ML unnecessary check, the contract will fail either way
 
         //set requests as completed
         _markRequestCompleted(processedRequestId, applicationFees);

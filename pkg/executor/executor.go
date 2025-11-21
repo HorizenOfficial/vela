@@ -490,6 +490,14 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		return nil, apperrors.New(apperrors.CodeInsufficientFuel, "insufficient fuel for request execution", nil)
 	}
 
+	// Application fee must be minumum fee at least
+	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
+		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
+	}
+
+	// Compute refundAmount = req.MaxFeeValue - applicationFee
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
+
 	// Encrypt the report
 	encryptedReport, failure := e.encryptDeanonymizationReport(
 		req.ApplicationID,
@@ -508,6 +516,8 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		ApplicationID:   req.ApplicationID,
 		ReportID:        req.RequestID,
 		EncryptedReport: encryptedReport,
+		RefundAmount: refundAmount,
+		ApplicationFee: applicationFee,
 	}
 
 	log.Printf("Executor: Successfully generated deanonymization report %s", req.RequestID)

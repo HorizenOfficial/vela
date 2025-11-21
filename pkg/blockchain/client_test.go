@@ -122,7 +122,7 @@ func TestMarkRequestCompleted(t *testing.T) {
 	require.NoError(t, err)
 	requestId := res[0].RequestID
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, big.NewInt(80), big.NewInt(20))
 	require.NoError(t, err)
 
 	res, err = blockchainClient.GetPendingRequests(context.Background())
@@ -130,7 +130,7 @@ func TestMarkRequestCompleted(t *testing.T) {
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 
 	// Test that completing the same request results in ProcessorEndpointInvalidRequestId
-	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, big.NewInt(80), big.NewInt(20))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
 	_, isReorgErr := err.(ReorgError)
@@ -476,7 +476,7 @@ func TestSubmitRequest(t *testing.T) {
 		t.Errorf("Submitted request not found in pending requests")
 	}
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId)
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, big.NewInt(80), big.NewInt(20))
 	require.NoError(t, err)
 }
 
@@ -519,7 +519,7 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID)
+	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID, big.NewInt(80), big.NewInt(20))
 	require.NoError(t, err)
 
 	event, err := blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, requestBlock, requestBlock+1)

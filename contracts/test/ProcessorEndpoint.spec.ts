@@ -341,62 +341,95 @@ describe('ProcessorEndpoint Test', function () {
 
         let requestQueue = await processorEndpoint.getPendingRequests();
 
-        let [currentPendingRequest, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true)
-        expect(stateRoot).eql(initialStateRoot)
+        let [currentPendingRequest, stateRoot, success] =
+            await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
+        expect(stateRoot).eql(initialStateRoot);
         expect(currentPendingRequest.requestId).eql(requestQueue[0].requestId); //requestId
 
 
         // Check that only the current request can be marked as completed or failed
         await expect(
-            processorEndpoint.markRequestCompleted(requestQueue[1].requestId) //try to complete the second request
+            processorEndpoint.markRequestCompleted(
+                requestQueue[1].requestId,
+                0,
+                MIN_FEE
+            ) //try to complete the second request
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
 
-
         await expect(
-            processorEndpoint.markRequestFailed(requestQueue[1].requestId, 1, "Test error message") //try to complete the second request
+            processorEndpoint.markRequestFailed(
+                requestQueue[1].requestId,
+                1,
+                "Test error message"
+            ) //try to fail the second request
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
 
-        //set as completed and check is not in the queue
+        // set as completed and check it is removed from the queue
         await expect(
-            processorEndpoint.markRequestCompleted(currentPendingRequest.requestId)
-        ).to.emit(processorEndpoint, "RequestCompleted")
-         .withArgs(currentPendingRequest.requestId, 0, 0, "", BigInt(5)); // applicationFees = minFeePerRequest
+            processorEndpoint.markRequestCompleted(
+                currentPendingRequest.requestId,
+                0,
+                MIN_FEE
+            )
+        )
+            .to.emit(processorEndpoint, "RequestCompleted")
+            .withArgs(
+                currentPendingRequest.requestId,
+                0,
+                0,
+                "",
+                BigInt(5) // applicationFees = MIN_FEE
+            );
 
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(1));
 
-        [currentPendingRequest, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
+        [currentPendingRequest, stateRoot, success] =
+            await processorEndpoint.getNextPendingRequest();
         expect(success).eql(true);
-        expect(stateRoot).eql(initialStateRoot)
+        expect(stateRoot).eql(initialStateRoot);
         expect(currentPendingRequest.requestId).eql(requestQueue[1].requestId); //requestId
 
         requestQueue = await processorEndpoint.getPendingRequests();
-        expect(requestQueue.length).eql(1)
+        expect(requestQueue.length).eql(1);
 
         //get balance prior to fail
-        let balanceBefore = await ethers.provider.getBalance(await signers[0].getAddress());
+        let balanceBefore = await ethers.provider.getBalance(
+            await signers[0].getAddress()
+        );
         //set as failed and check is not in the queue
-        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId, 1, "Test error message");
-        await expect(
-           failedTx
-        ).to.emit(processorEndpoint, "RequestCompleted")
-         .withArgs(currentPendingRequest.requestId, 1, 1, "Test error message", BigInt(5));
-
+        let failedTx = await processorEndpoint.markRequestFailed(
+            currentPendingRequest.requestId,
+            1,
+            "Test error message"
+        );
+        await expect(failedTx)
+            .to.emit(processorEndpoint, "RequestCompleted")
+            .withArgs(
+                currentPendingRequest.requestId,
+                1,
+                1,
+                "Test error message",
+                BigInt(5)
+            );
 
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(0));
- 
-         //check refund
+
+        //check refund
         let receipt = await failedTx.wait();
         let gasUsed = receipt.gasUsed * receipt.gasPrice;
         let expectedBalanceAfter = balanceBefore - gasUsed + 100n;
-        let balanceAfter = await ethers.provider.getBalance(await signers[0].getAddress());
+        let balanceAfter = await ethers.provider.getBalance(
+            await signers[0].getAddress()
+        );
         expect(balanceAfter).eql(expectedBalanceAfter);
 
-        [currentPendingRequest, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
+        [currentPendingRequest, stateRoot, success] =
+            await processorEndpoint.getNextPendingRequest();
         expect(success).eql(false);
-        expect(stateRoot).eql(initialStateRoot)
+        expect(stateRoot).eql(initialStateRoot);
 
         // Insert another request to check that the queue works after all were set to complete/fail
         submitTx = await processorEndpoint.submitRequest(
@@ -410,17 +443,16 @@ describe('ProcessorEndpoint Test', function () {
         );
         receipt = await submitTx.wait();
         const parsedLog = processorEndpoint.interface.parseLog(receipt.logs[0]);
-        let eventRequestId = parsedLog.args.requestId;  
+        let eventRequestId = parsedLog.args.requestId;
 
-        [currentPendingRequest, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
+        [currentPendingRequest, stateRoot, success] =
+            await processorEndpoint.getNextPendingRequest();
         expect(success).eql(true);
-        expect(stateRoot).eql(initialStateRoot)
+        expect(stateRoot).eql(initialStateRoot);
         expect(currentPendingRequest.requestId).eql(eventRequestId); //requestId
-
 
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(1));
-
     });
 
     it('should not complete a request from wrong account', async function () {
@@ -436,18 +468,33 @@ describe('ProcessorEndpoint Test', function () {
         );
         await submitTx.wait();
 
-        let [currentPendingRequest, _, success] = await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true)
+        let [currentPendingRequest, _, success] =
+            await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
 
-        //set as completed
-       await expect(
-        processorEndpoint.connect(signers[1]).markRequestCompleted(currentPendingRequest.requestId)
-       ).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
-           
-       // set failed
-       await expect(
-        processorEndpoint.connect(signers[1]).markRequestFailed(currentPendingRequest.requestId, 1, "Test error message")
-       ).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
+        //set as completed (from non-UPDATE_STATUS_ROLE)
+        await expect(
+            processorEndpoint
+                .connect(signers[1])
+                .markRequestCompleted(currentPendingRequest.requestId, 0, MIN_FEE)
+        ).to.be.revertedWithCustomError(
+            processorEndpoint,
+            "AccessControlUnauthorizedAccount"
+        );
+
+        // set failed
+        await expect(
+            processorEndpoint
+                .connect(signers[1])
+                .markRequestFailed(
+                    currentPendingRequest.requestId,
+                    1,
+                    "Test error message"
+                )
+        ).to.be.revertedWithCustomError(
+            processorEndpoint,
+            "AccessControlUnauthorizedAccount"
+        );
     });
 
     it('should not re-mark as completed an already completed request', async function () {
@@ -463,16 +510,25 @@ describe('ProcessorEndpoint Test', function () {
         );
         await submitTx.wait();
 
-        let [currentPendingRequest, _, success] = await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true)
+        let [currentPendingRequest, _, success] =
+            await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
 
         //set as completed
-        let completeTx = await processorEndpoint.markRequestCompleted(currentPendingRequest.requestId);
+        let completeTx = await processorEndpoint.markRequestCompleted(
+            currentPendingRequest.requestId,
+            0,
+            MIN_FEE
+        );
         await completeTx.wait();
-        
+
         //try again to set as completed
         await expect(
-            processorEndpoint.markRequestCompleted(currentPendingRequest.requestId)
+            processorEndpoint.markRequestCompleted(
+                currentPendingRequest.requestId,
+                0,
+                MIN_FEE
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
