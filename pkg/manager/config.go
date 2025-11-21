@@ -73,6 +73,8 @@ type Config struct {
 	RemoteLogAddress string
 	// RemoteLogNetwork is the network for remote logging (e.g., "tcp", "vsock").
 	RemoteLogNetwork string
+	// NetworkLevel is the level of logging for the network
+	NetworkLevel string
 
 	// LogServerTCPAddress is the address where the manager's log server will listen for incoming TCP log messages.
 	LogServerTCPAddress string
@@ -170,6 +172,10 @@ func DefaultConfig() *Config {
 
 	remoteLogAddress := os.Getenv("MANAGER_LOG_REMOTE_ADDRESS")
 	remoteLogNetwork := os.Getenv("MANAGER_LOG_REMOTE_NETWORK")
+	networkLevel := os.Getenv("MANAGER_LOG_NETWORK_LEVEL")
+	if networkLevel == "" {
+		networkLevel = "info"
+	}
 
 	logServerTCPAddress := os.Getenv("MANAGER_LOG_SERVER_TCP_ADDRESS")
 
@@ -203,6 +209,7 @@ func DefaultConfig() *Config {
 		LogFileLevel:        logFileLevel,
 		RemoteLogAddress:    remoteLogAddress,
 		RemoteLogNetwork:    remoteLogNetwork,
+		NetworkLevel:        networkLevel,
 		LogServerTCPAddress: logServerTCPAddress,
 	}
 }
@@ -248,6 +255,7 @@ func LoadConfigFromFile() (*Config, error) {
 		LogFileLevel:              config.GetString("LogFileLevel", "info"),
 		RemoteLogAddress:          config.GetString("LogRemoteAddress", ""),
 		RemoteLogNetwork:          config.GetString("LogRemoteNetwork", ""),
+		NetworkLevel:              config.GetString("LogNetworkLevel", "info"),
 		LogServerTCPAddress:       config.GetString("LogServerTCPAddress", ""),
 	}, nil
 }

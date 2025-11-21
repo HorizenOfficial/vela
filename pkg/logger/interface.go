@@ -21,6 +21,7 @@ type Config struct {
 	FileLevel        string
 	RemoteLogAddress string // Address for remote logging (e.g., "127.0.0.1:12345")
 	RemoteLogNetwork string // Network for remote logging (e.g., "tcp", "vsock")
+	NetworkLevel     string // Level for remote logging
 }
 
 // minimal cfg

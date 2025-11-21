@@ -48,7 +48,8 @@ func TestMain(m *testing.M) {
 			Kind:             "zeronetwork",
 			ConsoleLevel:     "trace",
 			RemoteLogAddress: "127.0.0.1:2233",
-			RemoteLogNetwork: "tcp"},
+			RemoteLogNetwork: "tcp",
+			NetworkLevel:     "trace"},
 	)
 
 	// Run tests

@@ -162,6 +162,7 @@ func main() {
 		FileLevel:           config.LogFileLevel,
 		RemoteLogAddress: config.RemoteLogAddress,
 		RemoteLogNetwork: config.RemoteLogNetwork,
+		NetworkLevel:     config.NetworkLevel,
 	})
 	defer func() {
 		if err := log.Close(); err != nil {

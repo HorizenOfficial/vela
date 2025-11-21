@@ -211,6 +211,14 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 		Caller(). // see init() func above
 		Logger()
 
+	if cfg.NetworkLevel != "" {
+		logLevel, err := zerolog.ParseLevel(cfg.NetworkLevel)
+		if err != nil {
+			logLevel = zerolog.InfoLevel
+		}
+		logger = logger.Level(logLevel)
+	}
+
 	return &ZeroNetworkLogger{
 		logger: &logger,
 		writer: writer,
