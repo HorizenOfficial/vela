@@ -349,8 +349,8 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	if err != nil {
 		return nil, nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write value to memory", err)
 	}
-	if appModule.deallocate != nil && statePtr != 0 {
-		defer func() { _, _ = appModule.deallocate.Call(appModule.store, valuePtr, int32(len(state))) }()
+	if appModule.deallocate != nil && valuePtr != 0 {
+		defer func() { _, _ = appModule.deallocate.Call(appModule.store, valuePtr, int32(len(valueBytes))) }()
 	}
 
 	// Wasm supports only int64, so we cast appId to int64
