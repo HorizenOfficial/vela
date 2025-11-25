@@ -26,9 +26,9 @@ var (
 
 // AuthorityRegistryMetaData contains all meta data concerning the AuthorityRegistry contract.
 var AuthorityRegistryMetaData = bind.MetaData{
-	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"AuthorityAlreadyPresent\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"AuthorityNotPresent\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"}],\"name\":\"OwnableInvalidOwner\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"}],\"name\":\"OwnableUnauthorizedAccount\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"authority\",\"type\":\"address\"}],\"name\":\"AddedAuthority\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"authority\",\"type\":\"address\"}],\"name\":\"RemovedAuthority\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"internalType\":\"address\",\"name\":\"authority\",\"type\":\"address\"}],\"name\":\"addAllowedAuthority\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"internalType\":\"address\",\"name\":\"authority\",\"type\":\"address\"}],\"name\":\"checkAuthorityIsAllowed\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"internalType\":\"address\",\"name\":\"authority\",\"type\":\"address\"}],\"name\":\"removeAllowedAuthority\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"defaultAuthority\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"AddressCantBeZero\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"}],\"name\":\"OwnableInvalidOwner\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"}],\"name\":\"OwnableUnauthorizedAccount\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"applicationId\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"authorityContract\",\"type\":\"address\"}],\"name\":\"AppAuthorityContractSet\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"authorityContract\",\"type\":\"address\"}],\"name\":\"DefaultAuthorityContractSet\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"appAuthorityContracts\",\"outputs\":[{\"internalType\":\"contractIAuthorityChecker\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"applicationId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"authority\",\"type\":\"address\"}],\"name\":\"checkAuthorityIsAllowed\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"defaultAuthorityContract\",\"outputs\":[{\"internalType\":\"contractIAuthorityChecker\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"applicationId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"authorityContract\",\"type\":\"address\"}],\"name\":\"setAppAuthorityContract\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"authorityContract\",\"type\":\"address\"}],\"name\":\"setDefaultAuthorityContract\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
 	ID:  "38f83b752dabbc1250a3a7a867ed9a9f7b",
-	Bin: "0x608060405234801561000f575f5ffd5b50604051610a48380380610a48833981810160405281019061003191906101d7565b805f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16036100a2575f6040517f1e4fbdf70000000000000000000000000000000000000000000000000000000081526004016100999190610211565b60405180910390fd5b6100b1816100b860201b60201c565b505061022a565b5f5f5f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff169050815f5f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055508173ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff167f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e060405160405180910390a35050565b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6101a68261017d565b9050919050565b6101b68161019c565b81146101c0575f5ffd5b50565b5f815190506101d1816101ad565b92915050565b5f602082840312156101ec576101eb610179565b5b5f6101f9848285016101c3565b91505092915050565b61020b8161019c565b82525050565b5f6020820190506102245f830184610202565b92915050565b610811806102375f395ff3fe608060405234801561000f575f5ffd5b5060043610610060575f3560e01c806318e807fe1461006457806358ae367f14610080578063715018a6146100b05780638da5cb5b146100ba578063f2fde38b146100d8578063f3f00334146100f4575b5f5ffd5b61007e60048036038101906100799190610717565b610110565b005b61009a60048036038101906100959190610717565b610285565b6040516100a7919061076f565b60405180910390f35b6100b86102fb565b005b6100c261030e565b6040516100cf9190610797565b60405180910390f35b6100f260048036038101906100ed91906107b0565b610335565b005b61010e60048036038101906101099190610717565b6103b9565b005b61011861052d565b60015f8367ffffffffffffffff1667ffffffffffffffff1681526020019081526020015f205f8273ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f9054906101000a900460ff16156101bc576040517f978543a700000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b6001805f8467ffffffffffffffff1667ffffffffffffffff1681526020019081526020015f205f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f6101000a81548160ff0219169083151502179055508073ffffffffffffffffffffffffffffffffffffffff168267ffffffffffffffff167f3bff442391e2aff90b2d5810c9574fae9339f6133322e135e3b834d3190122c560405160405180910390a35050565b5f60015f8467ffffffffffffffff1667ffffffffffffffff1681526020019081526020015f205f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f9054906101000a900460ff16905092915050565b61030361052d565b61030c5f6105b4565b565b5f5f5f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff16905090565b61033d61052d565b5f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16036103ad575f6040517f1e4fbdf70000000000000000000000000000000000000000000000000000000081526004016103a49190610797565b60405180910390fd5b6103b6816105b4565b50565b6103c161052d565b60015f8367ffffffffffffffff1667ffffffffffffffff1681526020019081526020015f205f8273ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f9054906101000a900460ff16610464576040517ff64b6de400000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b5f60015f8467ffffffffffffffff1667ffffffffffffffff1681526020019081526020015f205f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f6101000a81548160ff0219169083151502179055508073ffffffffffffffffffffffffffffffffffffffff168267ffffffffffffffff167f62aaf109b50ea5e1c587178c1697a5cec868bb882c63a62388de7496e7615aa060405160405180910390a35050565b610535610675565b73ffffffffffffffffffffffffffffffffffffffff1661055361030e565b73ffffffffffffffffffffffffffffffffffffffff16146105b257610576610675565b6040517f118cdaa70000000000000000000000000000000000000000000000000000000081526004016105a99190610797565b60405180910390fd5b565b5f5f5f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff169050815f5f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055508173ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff167f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e060405160405180910390a35050565b5f33905090565b5f5ffd5b5f67ffffffffffffffff82169050919050565b61069c81610680565b81146106a6575f5ffd5b50565b5f813590506106b781610693565b92915050565b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6106e6826106bd565b9050919050565b6106f6816106dc565b8114610700575f5ffd5b50565b5f81359050610711816106ed565b92915050565b5f5f6040838503121561072d5761072c61067c565b5b5f61073a858286016106a9565b925050602061074b85828601610703565b9150509250929050565b5f8115159050919050565b61076981610755565b82525050565b5f6020820190506107825f830184610760565b92915050565b610791816106dc565b82525050565b5f6020820190506107aa5f830184610788565b92915050565b5f602082840312156107c5576107c461067c565b5b5f6107d284828501610703565b9150509291505056fea2646970667358221220fe9dbbd1dae9c1b0e29cb066687240b6660ee4369a84fd40b8b850db7346186d64736f6c634300081e0033",
+	Bin: "0x608060405234801561000f575f5ffd5b50604051610c70380380610c70833981810160405281019061003191906102c0565b815f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16036100a2575f6040517f1e4fbdf7000000000000000000000000000000000000000000000000000000008152600401610099919061030d565b60405180910390fd5b6100b1816101a160201b60201c565b505f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff1603610117576040517f4b054c8200000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b8060025f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055508073ffffffffffffffffffffffffffffffffffffffff167fd4047f78dd943d75dfa94ddb7e36315e62df8a01f00a3d0f512960bf93c1231860405160405180910390a25050610326565b5f5f5f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff169050815f5f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055508173ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff167f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e060405160405180910390a35050565b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f61028f82610266565b9050919050565b61029f81610285565b81146102a9575f5ffd5b50565b5f815190506102ba81610296565b92915050565b5f5f604083850312156102d6576102d5610262565b5b5f6102e3858286016102ac565b92505060206102f4858286016102ac565b9150509250929050565b61030781610285565b82525050565b5f6020820190506103205f8301846102fe565b92915050565b61093d806103335f395ff3fe608060405234801561000f575f5ffd5b5060043610610086575f3560e01c8063715018a611610059578063715018a6146101225780638da5cb5b1461012c578063cfa8904f1461014a578063f2fde38b1461016857610086565b8063116ad4a61461008a5780633aac66d1146100ba5780635d35bc14146100d65780636f5e32f2146100f2575b5f5ffd5b6100a4600480360381019061009f9190610719565b610184565b6040516100b19190610771565b60405180910390f35b6100d460048036038101906100cf9190610719565b610294565b005b6100f060048036038101906100eb919061078a565b610333565b005b61010c600480360381019061010791906107b5565b610426565b604051610119919061083b565b60405180910390f35b61012a610456565b005b610134610469565b6040516101419190610863565b60405180910390f35b610152610490565b60405161015f919061083b565b60405180910390f35b610182600480360381019061017d919061078a565b6104b5565b005b5f5f60015f8581526020019081526020015f205f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1690505f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16036102115760025f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1690505b8073ffffffffffffffffffffffffffffffffffffffff1663116ad4a685856040518363ffffffff1660e01b815260040161024c92919061088b565b602060405180830381865afa158015610267573d5f5f3e3d5ffd5b505050506040513d601f19601f8201168201806040525081019061028b91906108dc565b91505092915050565b61029c610539565b8060015f8481526020019081526020015f205f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055508073ffffffffffffffffffffffffffffffffffffffff16827f4f79164bfe5c672976dae578ab2d7b0c99754246947eb57d8fd2a5a078307c2260405160405180910390a35050565b61033b610539565b5f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16036103a0576040517f4b054c8200000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b8060025f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055508073ffffffffffffffffffffffffffffffffffffffff167fd4047f78dd943d75dfa94ddb7e36315e62df8a01f00a3d0f512960bf93c1231860405160405180910390a250565b6001602052805f5260405f205f915054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b61045e610539565b6104675f6105c0565b565b5f5f5f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff16905090565b60025f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b6104bd610539565b5f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff160361052d575f6040517f1e4fbdf70000000000000000000000000000000000000000000000000000000081526004016105249190610863565b60405180910390fd5b610536816105c0565b50565b610541610681565b73ffffffffffffffffffffffffffffffffffffffff1661055f610469565b73ffffffffffffffffffffffffffffffffffffffff16146105be57610582610681565b6040517f118cdaa70000000000000000000000000000000000000000000000000000000081526004016105b59190610863565b60405180910390fd5b565b5f5f5f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff169050815f5f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055508173ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff167f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e060405160405180910390a35050565b5f33905090565b5f5ffd5b5f819050919050565b61069e8161068c565b81146106a8575f5ffd5b50565b5f813590506106b981610695565b92915050565b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6106e8826106bf565b9050919050565b6106f8816106de565b8114610702575f5ffd5b50565b5f81359050610713816106ef565b92915050565b5f5f6040838503121561072f5761072e610688565b5b5f61073c858286016106ab565b925050602061074d85828601610705565b9150509250929050565b5f8115159050919050565b61076b81610757565b82525050565b5f6020820190506107845f830184610762565b92915050565b5f6020828403121561079f5761079e610688565b5b5f6107ac84828501610705565b91505092915050565b5f602082840312156107ca576107c9610688565b5b5f6107d7848285016106ab565b91505092915050565b5f819050919050565b5f6108036107fe6107f9846106bf565b6107e0565b6106bf565b9050919050565b5f610814826107e9565b9050919050565b5f6108258261080a565b9050919050565b6108358161081b565b82525050565b5f60208201905061084e5f83018461082c565b92915050565b61085d816106de565b82525050565b5f6020820190506108765f830184610854565b92915050565b6108858161068c565b82525050565b5f60408201905061089e5f83018561087c565b6108ab6020830184610854565b9392505050565b6108bb81610757565b81146108c5575f5ffd5b50565b5f815190506108d6816108b2565b92915050565b5f602082840312156108f1576108f0610688565b5b5f6108fe848285016108c8565b9150509291505056fea2646970667358221220c695f668a5a88d446a482707fdf8a967f295c9df1288543815ed6cc1366614ee64736f6c634300081e0033",
 }
 
 // AuthorityRegistry is an auto generated Go binding around an Ethereum contract.
@@ -54,43 +54,56 @@ func (c *AuthorityRegistry) Instance(backend bind.ContractBackend, addr common.A
 // PackConstructor is the Go binding used to pack the parameters required for
 // contract deployment.
 //
-// Solidity: constructor(address owner) returns()
-func (authorityRegistry *AuthorityRegistry) PackConstructor(owner common.Address) []byte {
-	enc, err := authorityRegistry.abi.Pack("", owner)
+// Solidity: constructor(address owner, address defaultAuthority) returns()
+func (authorityRegistry *AuthorityRegistry) PackConstructor(owner common.Address, defaultAuthority common.Address) []byte {
+	enc, err := authorityRegistry.abi.Pack("", owner, defaultAuthority)
 	if err != nil {
 		panic(err)
 	}
 	return enc
 }
 
-// PackAddAllowedAuthority is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0x18e807fe.  This method will panic if any
+// PackAppAuthorityContracts is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x6f5e32f2.  This method will panic if any
 // invalid/nil inputs are passed.
 //
-// Solidity: function addAllowedAuthority(uint64 applicationId, address authority) returns()
-func (authorityRegistry *AuthorityRegistry) PackAddAllowedAuthority(applicationId uint64, authority common.Address) []byte {
-	enc, err := authorityRegistry.abi.Pack("addAllowedAuthority", applicationId, authority)
+// Solidity: function appAuthorityContracts(uint256 ) view returns(address)
+func (authorityRegistry *AuthorityRegistry) PackAppAuthorityContracts(arg0 *big.Int) []byte {
+	enc, err := authorityRegistry.abi.Pack("appAuthorityContracts", arg0)
 	if err != nil {
 		panic(err)
 	}
 	return enc
 }
 
-// TryPackAddAllowedAuthority is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0x18e807fe.  This method will return an error
+// TryPackAppAuthorityContracts is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x6f5e32f2.  This method will return an error
 // if any inputs are invalid/nil.
 //
-// Solidity: function addAllowedAuthority(uint64 applicationId, address authority) returns()
-func (authorityRegistry *AuthorityRegistry) TryPackAddAllowedAuthority(applicationId uint64, authority common.Address) ([]byte, error) {
-	return authorityRegistry.abi.Pack("addAllowedAuthority", applicationId, authority)
+// Solidity: function appAuthorityContracts(uint256 ) view returns(address)
+func (authorityRegistry *AuthorityRegistry) TryPackAppAuthorityContracts(arg0 *big.Int) ([]byte, error) {
+	return authorityRegistry.abi.Pack("appAuthorityContracts", arg0)
+}
+
+// UnpackAppAuthorityContracts is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x6f5e32f2.
+//
+// Solidity: function appAuthorityContracts(uint256 ) view returns(address)
+func (authorityRegistry *AuthorityRegistry) UnpackAppAuthorityContracts(data []byte) (common.Address, error) {
+	out, err := authorityRegistry.abi.Unpack("appAuthorityContracts", data)
+	if err != nil {
+		return *new(common.Address), err
+	}
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+	return out0, nil
 }
 
 // PackCheckAuthorityIsAllowed is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0x58ae367f.  This method will panic if any
+// the contract method with ID 0x116ad4a6.  This method will panic if any
 // invalid/nil inputs are passed.
 //
-// Solidity: function checkAuthorityIsAllowed(uint64 applicationId, address authority) view returns(bool)
-func (authorityRegistry *AuthorityRegistry) PackCheckAuthorityIsAllowed(applicationId uint64, authority common.Address) []byte {
+// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
+func (authorityRegistry *AuthorityRegistry) PackCheckAuthorityIsAllowed(applicationId *big.Int, authority common.Address) []byte {
 	enc, err := authorityRegistry.abi.Pack("checkAuthorityIsAllowed", applicationId, authority)
 	if err != nil {
 		panic(err)
@@ -99,24 +112,59 @@ func (authorityRegistry *AuthorityRegistry) PackCheckAuthorityIsAllowed(applicat
 }
 
 // TryPackCheckAuthorityIsAllowed is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0x58ae367f.  This method will return an error
+// the contract method with ID 0x116ad4a6.  This method will return an error
 // if any inputs are invalid/nil.
 //
-// Solidity: function checkAuthorityIsAllowed(uint64 applicationId, address authority) view returns(bool)
-func (authorityRegistry *AuthorityRegistry) TryPackCheckAuthorityIsAllowed(applicationId uint64, authority common.Address) ([]byte, error) {
+// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
+func (authorityRegistry *AuthorityRegistry) TryPackCheckAuthorityIsAllowed(applicationId *big.Int, authority common.Address) ([]byte, error) {
 	return authorityRegistry.abi.Pack("checkAuthorityIsAllowed", applicationId, authority)
 }
 
 // UnpackCheckAuthorityIsAllowed is the Go binding that unpacks the parameters returned
-// from invoking the contract method with ID 0x58ae367f.
+// from invoking the contract method with ID 0x116ad4a6.
 //
-// Solidity: function checkAuthorityIsAllowed(uint64 applicationId, address authority) view returns(bool)
+// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
 func (authorityRegistry *AuthorityRegistry) UnpackCheckAuthorityIsAllowed(data []byte) (bool, error) {
 	out, err := authorityRegistry.abi.Unpack("checkAuthorityIsAllowed", data)
 	if err != nil {
 		return *new(bool), err
 	}
 	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
+	return out0, nil
+}
+
+// PackDefaultAuthorityContract is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xcfa8904f.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function defaultAuthorityContract() view returns(address)
+func (authorityRegistry *AuthorityRegistry) PackDefaultAuthorityContract() []byte {
+	enc, err := authorityRegistry.abi.Pack("defaultAuthorityContract")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackDefaultAuthorityContract is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xcfa8904f.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function defaultAuthorityContract() view returns(address)
+func (authorityRegistry *AuthorityRegistry) TryPackDefaultAuthorityContract() ([]byte, error) {
+	return authorityRegistry.abi.Pack("defaultAuthorityContract")
+}
+
+// UnpackDefaultAuthorityContract is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0xcfa8904f.
+//
+// Solidity: function defaultAuthorityContract() view returns(address)
+func (authorityRegistry *AuthorityRegistry) UnpackDefaultAuthorityContract(data []byte) (common.Address, error) {
+	out, err := authorityRegistry.abi.Unpack("defaultAuthorityContract", data)
+	if err != nil {
+		return *new(common.Address), err
+	}
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
 	return out0, nil
 }
 
@@ -155,28 +203,6 @@ func (authorityRegistry *AuthorityRegistry) UnpackOwner(data []byte) (common.Add
 	return out0, nil
 }
 
-// PackRemoveAllowedAuthority is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xf3f00334.  This method will panic if any
-// invalid/nil inputs are passed.
-//
-// Solidity: function removeAllowedAuthority(uint64 applicationId, address authority) returns()
-func (authorityRegistry *AuthorityRegistry) PackRemoveAllowedAuthority(applicationId uint64, authority common.Address) []byte {
-	enc, err := authorityRegistry.abi.Pack("removeAllowedAuthority", applicationId, authority)
-	if err != nil {
-		panic(err)
-	}
-	return enc
-}
-
-// TryPackRemoveAllowedAuthority is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xf3f00334.  This method will return an error
-// if any inputs are invalid/nil.
-//
-// Solidity: function removeAllowedAuthority(uint64 applicationId, address authority) returns()
-func (authorityRegistry *AuthorityRegistry) TryPackRemoveAllowedAuthority(applicationId uint64, authority common.Address) ([]byte, error) {
-	return authorityRegistry.abi.Pack("removeAllowedAuthority", applicationId, authority)
-}
-
 // PackRenounceOwnership is the Go binding used to pack the parameters required for calling
 // the contract method with ID 0x715018a6.  This method will panic if any
 // invalid/nil inputs are passed.
@@ -197,6 +223,50 @@ func (authorityRegistry *AuthorityRegistry) PackRenounceOwnership() []byte {
 // Solidity: function renounceOwnership() returns()
 func (authorityRegistry *AuthorityRegistry) TryPackRenounceOwnership() ([]byte, error) {
 	return authorityRegistry.abi.Pack("renounceOwnership")
+}
+
+// PackSetAppAuthorityContract is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x3aac66d1.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function setAppAuthorityContract(uint256 applicationId, address authorityContract) returns()
+func (authorityRegistry *AuthorityRegistry) PackSetAppAuthorityContract(applicationId *big.Int, authorityContract common.Address) []byte {
+	enc, err := authorityRegistry.abi.Pack("setAppAuthorityContract", applicationId, authorityContract)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackSetAppAuthorityContract is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x3aac66d1.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function setAppAuthorityContract(uint256 applicationId, address authorityContract) returns()
+func (authorityRegistry *AuthorityRegistry) TryPackSetAppAuthorityContract(applicationId *big.Int, authorityContract common.Address) ([]byte, error) {
+	return authorityRegistry.abi.Pack("setAppAuthorityContract", applicationId, authorityContract)
+}
+
+// PackSetDefaultAuthorityContract is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x5d35bc14.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function setDefaultAuthorityContract(address authorityContract) returns()
+func (authorityRegistry *AuthorityRegistry) PackSetDefaultAuthorityContract(authorityContract common.Address) []byte {
+	enc, err := authorityRegistry.abi.Pack("setDefaultAuthorityContract", authorityContract)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackSetDefaultAuthorityContract is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x5d35bc14.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function setDefaultAuthorityContract(address authorityContract) returns()
+func (authorityRegistry *AuthorityRegistry) TryPackSetDefaultAuthorityContract(authorityContract common.Address) ([]byte, error) {
+	return authorityRegistry.abi.Pack("setDefaultAuthorityContract", authorityContract)
 }
 
 // PackTransferOwnership is the Go binding used to pack the parameters required for calling
@@ -221,30 +291,71 @@ func (authorityRegistry *AuthorityRegistry) TryPackTransferOwnership(newOwner co
 	return authorityRegistry.abi.Pack("transferOwnership", newOwner)
 }
 
-// AuthorityRegistryAddedAuthority represents a AddedAuthority event raised by the AuthorityRegistry contract.
-type AuthorityRegistryAddedAuthority struct {
-	ApplicationId uint64
-	Authority     common.Address
-	Raw           *types.Log // Blockchain specific contextual infos
+// AuthorityRegistryAppAuthorityContractSet represents a AppAuthorityContractSet event raised by the AuthorityRegistry contract.
+type AuthorityRegistryAppAuthorityContractSet struct {
+	ApplicationId     *big.Int
+	AuthorityContract common.Address
+	Raw               *types.Log // Blockchain specific contextual infos
 }
 
-const AuthorityRegistryAddedAuthorityEventName = "AddedAuthority"
+const AuthorityRegistryAppAuthorityContractSetEventName = "AppAuthorityContractSet"
 
 // ContractEventName returns the user-defined event name.
-func (AuthorityRegistryAddedAuthority) ContractEventName() string {
-	return AuthorityRegistryAddedAuthorityEventName
+func (AuthorityRegistryAppAuthorityContractSet) ContractEventName() string {
+	return AuthorityRegistryAppAuthorityContractSetEventName
 }
 
-// UnpackAddedAuthorityEvent is the Go binding that unpacks the event data emitted
+// UnpackAppAuthorityContractSetEvent is the Go binding that unpacks the event data emitted
 // by contract.
 //
-// Solidity: event AddedAuthority(uint64 indexed applicationId, address indexed authority)
-func (authorityRegistry *AuthorityRegistry) UnpackAddedAuthorityEvent(log *types.Log) (*AuthorityRegistryAddedAuthority, error) {
-	event := "AddedAuthority"
+// Solidity: event AppAuthorityContractSet(uint256 indexed applicationId, address indexed authorityContract)
+func (authorityRegistry *AuthorityRegistry) UnpackAppAuthorityContractSetEvent(log *types.Log) (*AuthorityRegistryAppAuthorityContractSet, error) {
+	event := "AppAuthorityContractSet"
 	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
 		return nil, errors.New("event signature mismatch")
 	}
-	out := new(AuthorityRegistryAddedAuthority)
+	out := new(AuthorityRegistryAppAuthorityContractSet)
+	if len(log.Data) > 0 {
+		if err := authorityRegistry.abi.UnpackIntoInterface(out, event, log.Data); err != nil {
+			return nil, err
+		}
+	}
+	var indexed abi.Arguments
+	for _, arg := range authorityRegistry.abi.Events[event].Inputs {
+		if arg.Indexed {
+			indexed = append(indexed, arg)
+		}
+	}
+	if err := abi.ParseTopics(out, indexed, log.Topics[1:]); err != nil {
+		return nil, err
+	}
+	out.Raw = log
+	return out, nil
+}
+
+// AuthorityRegistryDefaultAuthorityContractSet represents a DefaultAuthorityContractSet event raised by the AuthorityRegistry contract.
+type AuthorityRegistryDefaultAuthorityContractSet struct {
+	AuthorityContract common.Address
+	Raw               *types.Log // Blockchain specific contextual infos
+}
+
+const AuthorityRegistryDefaultAuthorityContractSetEventName = "DefaultAuthorityContractSet"
+
+// ContractEventName returns the user-defined event name.
+func (AuthorityRegistryDefaultAuthorityContractSet) ContractEventName() string {
+	return AuthorityRegistryDefaultAuthorityContractSetEventName
+}
+
+// UnpackDefaultAuthorityContractSetEvent is the Go binding that unpacks the event data emitted
+// by contract.
+//
+// Solidity: event DefaultAuthorityContractSet(address indexed authorityContract)
+func (authorityRegistry *AuthorityRegistry) UnpackDefaultAuthorityContractSetEvent(log *types.Log) (*AuthorityRegistryDefaultAuthorityContractSet, error) {
+	event := "DefaultAuthorityContractSet"
+	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
+		return nil, errors.New("event signature mismatch")
+	}
+	out := new(AuthorityRegistryDefaultAuthorityContractSet)
 	if len(log.Data) > 0 {
 		if err := authorityRegistry.abi.UnpackIntoInterface(out, event, log.Data); err != nil {
 			return nil, err
@@ -305,56 +416,11 @@ func (authorityRegistry *AuthorityRegistry) UnpackOwnershipTransferredEvent(log 
 	return out, nil
 }
 
-// AuthorityRegistryRemovedAuthority represents a RemovedAuthority event raised by the AuthorityRegistry contract.
-type AuthorityRegistryRemovedAuthority struct {
-	ApplicationId uint64
-	Authority     common.Address
-	Raw           *types.Log // Blockchain specific contextual infos
-}
-
-const AuthorityRegistryRemovedAuthorityEventName = "RemovedAuthority"
-
-// ContractEventName returns the user-defined event name.
-func (AuthorityRegistryRemovedAuthority) ContractEventName() string {
-	return AuthorityRegistryRemovedAuthorityEventName
-}
-
-// UnpackRemovedAuthorityEvent is the Go binding that unpacks the event data emitted
-// by contract.
-//
-// Solidity: event RemovedAuthority(uint64 indexed applicationId, address indexed authority)
-func (authorityRegistry *AuthorityRegistry) UnpackRemovedAuthorityEvent(log *types.Log) (*AuthorityRegistryRemovedAuthority, error) {
-	event := "RemovedAuthority"
-	if log.Topics[0] != authorityRegistry.abi.Events[event].ID {
-		return nil, errors.New("event signature mismatch")
-	}
-	out := new(AuthorityRegistryRemovedAuthority)
-	if len(log.Data) > 0 {
-		if err := authorityRegistry.abi.UnpackIntoInterface(out, event, log.Data); err != nil {
-			return nil, err
-		}
-	}
-	var indexed abi.Arguments
-	for _, arg := range authorityRegistry.abi.Events[event].Inputs {
-		if arg.Indexed {
-			indexed = append(indexed, arg)
-		}
-	}
-	if err := abi.ParseTopics(out, indexed, log.Topics[1:]); err != nil {
-		return nil, err
-	}
-	out.Raw = log
-	return out, nil
-}
-
 // UnpackError attempts to decode the provided error data using user-defined
 // error definitions.
 func (authorityRegistry *AuthorityRegistry) UnpackError(raw []byte) (any, error) {
-	if bytes.Equal(raw[:4], authorityRegistry.abi.Errors["AuthorityAlreadyPresent"].ID.Bytes()[:4]) {
-		return authorityRegistry.UnpackAuthorityAlreadyPresentError(raw[4:])
-	}
-	if bytes.Equal(raw[:4], authorityRegistry.abi.Errors["AuthorityNotPresent"].ID.Bytes()[:4]) {
-		return authorityRegistry.UnpackAuthorityNotPresentError(raw[4:])
+	if bytes.Equal(raw[:4], authorityRegistry.abi.Errors["AddressCantBeZero"].ID.Bytes()[:4]) {
+		return authorityRegistry.UnpackAddressCantBeZeroError(raw[4:])
 	}
 	if bytes.Equal(raw[:4], authorityRegistry.abi.Errors["OwnableInvalidOwner"].ID.Bytes()[:4]) {
 		return authorityRegistry.UnpackOwnableInvalidOwnerError(raw[4:])
@@ -365,47 +431,24 @@ func (authorityRegistry *AuthorityRegistry) UnpackError(raw []byte) (any, error)
 	return nil, errors.New("Unknown error")
 }
 
-// AuthorityRegistryAuthorityAlreadyPresent represents a AuthorityAlreadyPresent error raised by the AuthorityRegistry contract.
-type AuthorityRegistryAuthorityAlreadyPresent struct {
+// AuthorityRegistryAddressCantBeZero represents a AddressCantBeZero error raised by the AuthorityRegistry contract.
+type AuthorityRegistryAddressCantBeZero struct {
 }
 
 // ErrorID returns the hash of canonical representation of the error's signature.
 //
-// Solidity: error AuthorityAlreadyPresent()
-func AuthorityRegistryAuthorityAlreadyPresentErrorID() common.Hash {
-	return common.HexToHash("0x978543a707da62351fc95ab225113459eaee941fa130cc4dd04a4ba858a07e78")
+// Solidity: error AddressCantBeZero()
+func AuthorityRegistryAddressCantBeZeroErrorID() common.Hash {
+	return common.HexToHash("0x4b054c82bb9e4ebe90744902747c4e86028dd2a122c63de8810d9a1c2e84617d")
 }
 
-// UnpackAuthorityAlreadyPresentError is the Go binding used to decode the provided
+// UnpackAddressCantBeZeroError is the Go binding used to decode the provided
 // error data into the corresponding Go error struct.
 //
-// Solidity: error AuthorityAlreadyPresent()
-func (authorityRegistry *AuthorityRegistry) UnpackAuthorityAlreadyPresentError(raw []byte) (*AuthorityRegistryAuthorityAlreadyPresent, error) {
-	out := new(AuthorityRegistryAuthorityAlreadyPresent)
-	if err := authorityRegistry.abi.UnpackIntoInterface(out, "AuthorityAlreadyPresent", raw); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// AuthorityRegistryAuthorityNotPresent represents a AuthorityNotPresent error raised by the AuthorityRegistry contract.
-type AuthorityRegistryAuthorityNotPresent struct {
-}
-
-// ErrorID returns the hash of canonical representation of the error's signature.
-//
-// Solidity: error AuthorityNotPresent()
-func AuthorityRegistryAuthorityNotPresentErrorID() common.Hash {
-	return common.HexToHash("0xf64b6de40fd585218ac2167c37e917bb8f7071e4834b8936ea87c85018b24c35")
-}
-
-// UnpackAuthorityNotPresentError is the Go binding used to decode the provided
-// error data into the corresponding Go error struct.
-//
-// Solidity: error AuthorityNotPresent()
-func (authorityRegistry *AuthorityRegistry) UnpackAuthorityNotPresentError(raw []byte) (*AuthorityRegistryAuthorityNotPresent, error) {
-	out := new(AuthorityRegistryAuthorityNotPresent)
-	if err := authorityRegistry.abi.UnpackIntoInterface(out, "AuthorityNotPresent", raw); err != nil {
+// Solidity: error AddressCantBeZero()
+func (authorityRegistry *AuthorityRegistry) UnpackAddressCantBeZeroError(raw []byte) (*AuthorityRegistryAddressCantBeZero, error) {
+	out := new(AuthorityRegistryAddressCantBeZero)
+	if err := authorityRegistry.abi.UnpackIntoInterface(out, "AddressCantBeZero", raw); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -483,6 +526,67 @@ func NewContext() *Context {
 // Use this to create the instance object passed to abigen v2 library functions Call, Transact, etc.
 func (c *Context) Instance(backend bind.ContractBackend, addr common.Address) *bind.BoundContract {
 	return bind.NewBoundContract(addr, c.abi, backend, backend, backend)
+}
+
+// IAuthorityCheckerMetaData contains all meta data concerning the IAuthorityChecker contract.
+var IAuthorityCheckerMetaData = bind.MetaData{
+	ABI: "[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"applicationId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"authority\",\"type\":\"address\"}],\"name\":\"checkAuthorityIsAllowed\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
+	ID:  "40bb6b80f72bccedfb46120296ba91f2f6",
+}
+
+// IAuthorityChecker is an auto generated Go binding around an Ethereum contract.
+type IAuthorityChecker struct {
+	abi abi.ABI
+}
+
+// NewIAuthorityChecker creates a new instance of IAuthorityChecker.
+func NewIAuthorityChecker() *IAuthorityChecker {
+	parsed, err := IAuthorityCheckerMetaData.ParseABI()
+	if err != nil {
+		panic(errors.New("invalid ABI: " + err.Error()))
+	}
+	return &IAuthorityChecker{abi: *parsed}
+}
+
+// Instance creates a wrapper for a deployed contract instance at the given address.
+// Use this to create the instance object passed to abigen v2 library functions Call, Transact, etc.
+func (c *IAuthorityChecker) Instance(backend bind.ContractBackend, addr common.Address) *bind.BoundContract {
+	return bind.NewBoundContract(addr, c.abi, backend, backend, backend)
+}
+
+// PackCheckAuthorityIsAllowed is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x116ad4a6.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
+func (iAuthorityChecker *IAuthorityChecker) PackCheckAuthorityIsAllowed(applicationId *big.Int, authority common.Address) []byte {
+	enc, err := iAuthorityChecker.abi.Pack("checkAuthorityIsAllowed", applicationId, authority)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackCheckAuthorityIsAllowed is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x116ad4a6.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
+func (iAuthorityChecker *IAuthorityChecker) TryPackCheckAuthorityIsAllowed(applicationId *big.Int, authority common.Address) ([]byte, error) {
+	return iAuthorityChecker.abi.Pack("checkAuthorityIsAllowed", applicationId, authority)
+}
+
+// UnpackCheckAuthorityIsAllowed is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x116ad4a6.
+//
+// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
+func (iAuthorityChecker *IAuthorityChecker) UnpackCheckAuthorityIsAllowed(data []byte) (bool, error) {
+	out, err := iAuthorityChecker.abi.Unpack("checkAuthorityIsAllowed", data)
+	if err != nil {
+		return *new(bool), err
+	}
+	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
+	return out0, nil
 }
 
 // OwnableMetaData contains all meta data concerning the Ownable contract.
