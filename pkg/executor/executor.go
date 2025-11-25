@@ -283,6 +283,11 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		log.Printf("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
 
+	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
+	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+		return nil, nil, apperrors.New(apperrors.CodeInsufficientFuel, "insufficient fuel for request execution", nil)
+	}
+
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
 	
@@ -320,7 +325,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	// Check if there is enough ETH to cover the fuel costs
-	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
+	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
 		return nil, nil, apperrors.New(apperrors.CodeInsufficientFuel, "insufficient fuel for request execution", nil)
 	}

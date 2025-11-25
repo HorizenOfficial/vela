@@ -88,7 +88,7 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value, // part of the sent value forwarded to the application, for app logic
+        uint256 value, // part of the sent value forwarded to the application, for app logic // TODO ML rename this to depositValue or depositAmount 
         uint256 maxFeeValue // part ot the sent value reserved for fee payment
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
         //check values
