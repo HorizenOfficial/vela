@@ -14,14 +14,14 @@ import (
 // MockDataLayer is a mock implementation of the data layer for testing.
 // It is safe for concurrent use.
 type MockDataLayer struct {
-	mutex              sync.RWMutex
-	states             map[string]*common.ApplicationState
-	bytecodes          map[string][]byte
-	reports            map[string]*common.DeanonymizationReport
-	keys               map[string][]byte
+	mutex     sync.RWMutex
+	states    map[common.ApplicationIdType]*common.ApplicationState
+	bytecodes map[common.ApplicationIdType][]byte
+	reports   map[common.RequestIdType]*common.DeanonymizationReport
+	keys      map[string][]byte
 	enclaveKeyRecovery *common.EnclaveKeySetRecovery
-	isClosed           bool
-	versions           [][]byte
+	isClosed  bool
+	versions [][]byte
 	*testutil.MockFunctions
 }
 
@@ -29,9 +29,9 @@ type MockDataLayer struct {
 func NewMockDataLayer() *MockDataLayer {
 
 	return &MockDataLayer{
-		states:    make(map[string]*common.ApplicationState),
-		bytecodes: make(map[string][]byte),
-		reports:   make(map[string]*common.DeanonymizationReport),
+		states:    make(map[common.ApplicationIdType]*common.ApplicationState),
+		bytecodes: make(map[common.ApplicationIdType][]byte),
+		reports:   make(map[common.RequestIdType]*common.DeanonymizationReport),
 		keys:      make(map[string][]byte),
 		versions:  make([][]byte, 0),
 		MockFunctions: testutil.NewMockFunctions(),
@@ -82,12 +82,12 @@ func (d *MockDataLayer) Store(
 }
 
 // GetApplicationState retrieves the state of an application.
-func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID string) (*common.ApplicationState, error) {
+func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok := d.GetMockedFunc("GetApplicationState"); ok {
-		return f.(func(context.Context, string) (*common.ApplicationState, error))(ctx, applicationID)
+	if f, ok:= d.GetMockedFunc("GetApplicationState"); ok {
+		return f.(func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error))(ctx, applicationID)
 	}
 
 	if err := d.checkClosed(); err != nil {
@@ -95,25 +95,25 @@ func (d *MockDataLayer) GetApplicationState(ctx context.Context, applicationID s
 	}
 	state, exists := d.states[applicationID]
 	if !exists {
-		return nil, storageErrors.ErrNotFound("application state not found: " + applicationID)
+		return nil, storageErrors.ErrNotFound("application state not found: " + applicationID.String())
 	}
 	return state, nil
 }
 
 // GetWASMBytecode retrieves WASM bytecode for an application.
-func (d *MockDataLayer) GetWASMBytecode(ctx context.Context, applicationID string) ([]byte, error) {
+func (d *MockDataLayer) GetWASMBytecode(ctx context.Context, applicationID common.ApplicationIdType) ([]byte, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	if f, ok := d.GetMockedFunc("GetWASMBytecode"); ok {
-		return f.(func(context.Context, string) ([]byte, error))(ctx, applicationID)
+	if f, ok:= d.GetMockedFunc("GetWASMBytecode"); ok {
+		return f.(func(context.Context, common.ApplicationIdType) ([]byte, error))(ctx, applicationID)
 	}
 	if err := d.checkClosed(); err != nil {
 		return nil, err
 	}
 	bytecode, exists := d.bytecodes[applicationID]
 	if !exists {
-		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " + applicationID)
+		return nil, storageErrors.ErrNotFound("wasm bytecode not found for application: " +  applicationID.String())
 	}
 	return bytecode, nil
 }
@@ -135,7 +135,7 @@ func (d *MockDataLayer) StoreDeanonymizationReport(ctx context.Context, report *
 }
 
 // GetDeanonymizationReport retrieves a deanonymization report.
-func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID string) (*common.DeanonymizationReport, error) {
+func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 	if err := d.checkClosed(); err != nil {
@@ -143,7 +143,7 @@ func (d *MockDataLayer) GetDeanonymizationReport(ctx context.Context, reportID s
 	}
 	report, exists := d.reports[reportID]
 	if !exists {
-		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID)
+		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID.String())
 	}
 	return report, nil
 }
@@ -208,8 +208,8 @@ func (d *MockDataLayer) Rollback(versionID []byte) error {
 	var initialState = [32]byte{}
 	if string(versionID) == string(initialState[:]) {
 		d.versions = make([][]byte, 0)
-		d.states = make(map[string]*common.ApplicationState)
-		d.bytecodes = make(map[string][]byte)
+		d.states =   make(map[common.ApplicationIdType]*common.ApplicationState)
+		d.bytecodes = make(map[common.ApplicationIdType][]byte)
 		return nil
 	}
 

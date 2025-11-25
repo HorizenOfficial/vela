@@ -4,11 +4,11 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract AuthorityRegistry is Ownable {
 
-    mapping(uint256 => mapping(address => bool)) allowedAuthorities;
+    mapping(uint64 => mapping(address => bool)) allowedAuthorities;
 
     //events
-    event AddedAuthority(uint256 indexed applicationId, address indexed authority);
-    event RemovedAuthority(uint256 indexed applicationId, address indexed authority);
+    event AddedAuthority(uint64 indexed applicationId, address indexed authority);
+    event RemovedAuthority(uint64 indexed applicationId, address indexed authority);
 
     //error
     error AuthorityNotPresent();
@@ -16,19 +16,19 @@ contract AuthorityRegistry is Ownable {
 
     constructor(address owner) Ownable(owner) {}
 
-    function addAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
+    function addAllowedAuthority(uint64 applicationId, address authority) public onlyOwner {
         if(allowedAuthorities[applicationId][authority]) revert AuthorityAlreadyPresent();
         allowedAuthorities[applicationId][authority] = true;
         emit AddedAuthority(applicationId, authority);
     }
 
-    function removeAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
+    function removeAllowedAuthority(uint64 applicationId, address authority) public onlyOwner {
         if(!allowedAuthorities[applicationId][authority]) revert AuthorityNotPresent();
         allowedAuthorities[applicationId][authority] = false;
         emit RemovedAuthority(applicationId, authority);
     }
 
-    function checkAuthorityIsAllowed(uint256 applicationId, address authority) public view returns(bool) {
+    function checkAuthorityIsAllowed(uint64 applicationId, address authority) public view returns(bool) {
         return allowedAuthorities[applicationId][authority];
     }
 }

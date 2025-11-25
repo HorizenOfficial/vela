@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
+	"math/big"
 	"sync"
 
 	"github.com/bytecodealliance/wasmtime-go"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
@@ -29,8 +33,8 @@ type ApplicationModule struct {
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
 type WasmtimeRuntime struct {
 	engine     *wasmtime.Engine
-	modules    map[string]*ApplicationModule // Map of application ID to module
-	moduleLock sync.RWMutex                  // Lock for module access
+	modules    map[common.ApplicationIdType]*ApplicationModule // Map of application ID to module
+	moduleLock sync.RWMutex                                    // Lock for module access
 }
 
 // NewWasmtimeRuntime creates a new wasmtime runtime instance
@@ -42,7 +46,7 @@ func NewWasmtimeRuntime() *WasmtimeRuntime {
 
 	return &WasmtimeRuntime{
 		engine:  engine,
-		modules: make(map[string]*ApplicationModule),
+		modules: make(map[common.ApplicationIdType]*ApplicationModule),
 	}
 }
 
@@ -164,7 +168,7 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 // without being used.
 // One approach could be that we use just the appId, and the executor asks to the manager for wasm bytes (that are stored in the dblayer) if it
 // does not find them in the cache.
-func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, wasm []byte) (*ApplicationModule, error) {
+func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (*ApplicationModule, error) {
 	r.moduleLock.RLock()
 	module, exists := r.modules[appId]
 	r.moduleLock.RUnlock()
@@ -191,11 +195,11 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId string, was
 	if module, exists := r.modules[appId]; exists {
 		return module, nil
 	}
-	return nil, fmt.Errorf("module not found after loading: %s", appId)
+	return nil, fmt.Errorf("module not found after loading: %d", appId)
 }
 
 // LoadModule loads a WASM module and returns initial state and state root
-func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error) {
+func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, error) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 	return r.loadModuleUnlocked(ctx, appId, wasm)
@@ -203,8 +207,13 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId string, wasm []b
 
 // loadModuleUnlocked contains the core logic for loading a module, but without locking.
 // This method should only be called when a lock is already held.
-func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId string, wasm []byte) ([]byte, error) {
-	log.Printf("Wasmtime Runtime: Loading WASM module for application %s (wasm size: %d bytes)", appId, len(wasm))
+func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, error) {
+	log.Printf("Wasmtime Runtime: Loading WASM module for application %d (wasm size: %d bytes)", appId, len(wasm))
+
+	wasmAppId, err := ToWasmType(appId)
+	if err != nil {
+		return nil, err
+	}
 
 	// Compile the WASM module
 	module, err := wasmtime.NewModule(r.engine, wasm)
@@ -261,21 +270,9 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId string, wa
 		deallocate: deallocateFunc,
 	}
 
-	// Write appId to memory
-	appIdBytes := []byte(appId)
-	appIdPtr, err := r.writeToMemory(appModule, appIdBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write appId to memory: %w", err)
-	}
-	// ensure we free the input buffer after load_module returns
-	if appModule.deallocate != nil && appIdPtr != 0 {
-		defer func() {
-			_, _ = appModule.deallocate.Call(appModule.store, appIdPtr, int32(len(appIdBytes)))
-		}()
-	}
-
-	// Call the load_module function (use store of this module)
-	result, err := loadModuleFunc.Call(store, appIdPtr, int32(len(appIdBytes)))
+	// Call the load_module function
+	// Wasm supports only int64, so we cast appId to int64
+	result, err := loadModuleFunc.Call(store, wasmAppId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call load_module: %w", err)
 	}
@@ -303,34 +300,37 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId string, wa
 // -----------------------------
 
 // Deposit processes a deposit
-func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
-	log.Printf("Wasmtime Runtime: Processing deposit for application %s (value: %d wei for sender: %s)", appId, value, sender)
+func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *apperrors.RequestFailure) {
+	log.Printf("Wasmtime Runtime: Processing deposit for application %d (value: %v wei for sender: %v)", appId, value, sender)
+
+	if value == nil {
+		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "value cannot be nil", nil)
+	}
+
+	if value.Sign() < 0 {
+		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "value cannot be negative", nil)
+	}
+
+	wasmAppId, err := ToWasmType(appId)
+	if err != nil {
+		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "invalid application id", err)
+	}
 
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get or load module: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to get or load module", err)
 	}
 
 	// Get the deposit function
 	depositFunc := appModule.instance.GetFunc(appModule.store, "deposit")
 	if depositFunc == nil {
-		return nil, nil, fmt.Errorf("deposit function not found in WASM module")
+		return nil, nil, apperrors.New(apperrors.CodeFunctionNotFound, "deposit function not found in WASM module", nil)
 	}
 
-	// Write parameters to memory (and schedule deallocation)
-	appIdBytes := []byte(appId)
-	appIdPtr, err := r.writeToMemory(appModule, appIdBytes)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to write appId to memory: %w", err)
-	}
-	if appModule.deallocate != nil && appIdPtr != 0 {
-		defer func() { _, _ = appModule.deallocate.Call(appModule.store, appIdPtr, int32(len(appIdBytes))) }()
-	}
-
-	senderBytes := []byte(sender)
+	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to write sender to memory: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write sender to memory", err)
 	}
 	if appModule.deallocate != nil && senderPtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, senderPtr, int32(len(senderBytes))) }()
@@ -338,33 +338,31 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to write state to memory: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write state to memory", err)
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, statePtr, int32(len(state))) }()
 	}
 
-	// Call the deposit function
-	//
-	// Note: wasmtime-go’s Call() API only accepts int64 for i64 parameters.
-	// Therefore, we must cast 'value' (uint64) to int64 to satisfy the API.
-	//
-	// The 64-bit pattern is passed unchanged into the WASM call. On the guest side,
-	// since the function signature expects a uint64, Go will interpret the bits
-	// correctly as an unsigned value.
-	//
-	// TODO: in the future we should replace uint64 with *big.Int for amounts,
-	// since values may exceed 64 bits. This will require redesigning
-	// the guest/host ABI to pass large integers (e.g., via memory + length).
-	result, err := depositFunc.Call(appModule.store, appIdPtr, int32(len(appIdBytes)), senderPtr, int32(len(senderBytes)), int64(value), statePtr, int32(len(state)))
+	valueBytes := value.Bytes()
+	valuePtr, err := r.writeToMemory(appModule, valueBytes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to call deposit: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write value to memory", err)
+	}
+	if appModule.deallocate != nil && statePtr != 0 {
+		defer func() { _, _ = appModule.deallocate.Call(appModule.store, valuePtr, int32(len(state))) }()
+	}
+
+	// Wasm supports only int64, so we cast appId to int64
+	result, err := depositFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
+	if err != nil {
+		return nil, nil, apperrors.New(apperrors.CodeDepositFailed, "failed to call deposit", err) // TODO some standard way of getting errors here?
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeFailedExtractingResultBytes, "failed to extract wasm module result bytes", err)
 	}
 
 	log.Printf("Wasmtime Runtime: Raw deposit result from WASM: %s", string(resultBytes))
@@ -372,11 +370,11 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 	// Deserialize the result
 	var depositResult appCommon.DepositResult
 	if err := json.Unmarshal(resultBytes, &depositResult); err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal deposit result: %w", err)
+		return nil, nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal deposit result", err)
 	}
 
 	if depositResult.Error != "" {
-		return nil, nil, fmt.Errorf("deposit failed, wasm module error: %v", depositResult.Error)
+		return nil, nil, apperrors.New(apperrors.CodeDepositFailed, "failed to process deposit", errors.New(depositResult.Error))
 	}
 
 	log.Printf("Wasmtime Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(depositResult.Events))
@@ -384,38 +382,34 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId string, sender stri
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
-	log.Printf("Wasmtime Runtime: Processing request for application %s (payload size: %d, state size: %d)", appId, len(payload), len(state))
+func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *apperrors.RequestFailure) {
+	log.Printf("Wasmtime Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
+
+	wasmAppId, err := ToWasmType(appId)
+	if err != nil {
+		return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "invalid application id", err)
+	}
+
 	if len(payload) == 0 {
-		log.Printf("Wasmtime Runtime: Empty payload for application %s, returning current state", appId)
+		log.Printf("Wasmtime Runtime: Empty payload for application %d, returning current state", appId)
 		return state, nil, nil, nil
 	}
 
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to get or load module: %w", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, "failed to get or load module", err)
 	}
 
 	// Get the process_request function
 	processRequestFunc := appModule.instance.GetFunc(appModule.store, "process_request")
 	if processRequestFunc == nil {
-		return nil, nil, nil, fmt.Errorf("process_request function not found in WASM module")
+		return nil, nil, nil, apperrors.New(apperrors.CodeFunctionNotFound, "process_request function not found in WASM module", nil)
 	}
 
-	// Write parameters to memory (and schedule deallocation)
-	appIdBytes := []byte(appId)
-	appIdPtr, err := r.writeToMemory(appModule, appIdBytes)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to write appId to memory: %w", err)
-	}
-	if appModule.deallocate != nil && appIdPtr != 0 {
-		defer func() { _, _ = appModule.deallocate.Call(appModule.store, appIdPtr, int32(len(appIdBytes))) }()
-	}
-
-	senderBytes := []byte(sender)
+	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to write sender to memory: %w", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write sender to memory", err)
 	}
 	if appModule.deallocate != nil && senderPtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, senderPtr, int32(len(senderBytes))) }()
@@ -423,7 +417,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 
 	payloadPtr, err := r.writeToMemory(appModule, payload)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to write payload to memory: %w", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write payload to memory", err)
 	}
 	if appModule.deallocate != nil && payloadPtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, payloadPtr, int32(len(payload))) }()
@@ -431,54 +425,56 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId string, send
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to write state to memory: %w", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write state to memory", err)
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, statePtr, int32(len(state))) }()
 	}
 
 	// Call the process_request function
-	result, err := processRequestFunc.Call(appModule.store, appIdPtr, int32(len(appIdBytes)), senderPtr, int32(len(senderBytes)), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
+	// Wasm supports only int64, so we cast appId to int64
+	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to call process_request: %w", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "failed to call process_request", err)
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeFailedExtractingResultBytes, "failed to extract wasm module result bytes", err)
 	}
 
 	// Deserialize the result
 	var processResult appCommon.ProcessResult
 	if err := json.Unmarshal(resultBytes, &processResult); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to unmarshal process result: %w", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal process result", err)
 	}
 
 	if processResult.Error != "" {
-		return nil, nil, nil, fmt.Errorf("process request failed, wasm module error: %v", processResult.Error)
+		return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "failed to process request", errors.New(processResult.Error))
 	}
 
-	log.Printf("Wasmtime Runtime: Successfully processed request for application %s, generated %d events and %d withdrawals", appId, len(processResult.Events), len(processResult.Withdrawals))
+	log.Printf("Wasmtime Runtime: Successfully processed request for application %d, generated %d events and %d withdrawals", appId, len(processResult.Events), len(processResult.Withdrawals))
 	return processResult.State, processResult.Events, processResult.Withdrawals, nil
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
+func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *apperrors.RequestFailure) {
+
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get or load module: %w", err)
+		return nil, apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, "failed to get or load module", err)
 	}
 
 	// Call the WASM function to generate the report
 	generateReportFunc := appModule.instance.GetFunc(appModule.store, "generate_deanonymization_report")
 	if generateReportFunc == nil {
-		return nil, fmt.Errorf("function generate_deanonymization_report not found in wasm module")
+		return nil, apperrors.New(apperrors.CodeFunctionNotFound, "function generate_deanonymization_report not found in wasm module", nil)
 	}
 
 	payloadPtr, err := r.writeToMemory(appModule, payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write payload to memory: %w", err)
+		return nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write payload to memory", err)
 	}
 	if appModule.deallocate != nil && payloadPtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, payloadPtr, int32(len(payload))) }()
@@ -486,7 +482,7 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write state to memory: %w", err)
+		return nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write state to memory", err)
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, statePtr, int32(len(state))) }()
@@ -495,26 +491,26 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	// Call the generate_deanonymization_report function
 	result, err := generateReportFunc.Call(appModule.store, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
-		return nil, fmt.Errorf("failed to call generate_deanonymization_report: %w", err)
+		return nil, apperrors.New(apperrors.CodeFailedToGenerateReport, "failed to call generate_deanonymization_report", err)
 	}
 
 	// Extract the result bytes
 	reportBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
+		return nil, apperrors.New(apperrors.CodeFailedExtractingResultBytes, "failed to extract wasm module result bytes", err)
 	}
 
 	// Deserialize the result
 	var deanonymizationResult appCommon.DeanonymizationResult
 	if err := json.Unmarshal(reportBytes, &deanonymizationResult); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal deanonymization result: %w", err)
+		return nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal deanonymization result", err)
 	}
 
 	if deanonymizationResult.Error != "" {
-		return nil, fmt.Errorf("deanonymization report failed, wasm module error: %v", deanonymizationResult.Error)
+		return nil, apperrors.New(apperrors.CodeFailedToGenerateReport, "deanonymization report failed, wasm module error", errors.New(deanonymizationResult.Error))
 	}
 
-	log.Printf("Wasmtime Runtime: Successfully generated deanonymization report for application %s", appId)
+	log.Printf("Wasmtime Runtime: Successfully generated deanonymization report for application %d", appId)
 	return deanonymizationResult.Report, nil
 }
 
@@ -614,101 +610,11 @@ func (r *WasmtimeRuntime) Close() error {
 	return nil
 }
 
-// retrieves statistics from guest memory allocation. In this version we use the ABI C specification of tinygo, using directly
-// the values returned from the wasm guest, without using marshal/unmarshal into json structs.
-// This implementation is here mostly as a reference on how to handle a multireturn exported func
-func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId string, wasm []byte) (int64, int64, error) {
-	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
+// This method converts the ApplicationIdType to the Wasm type (int64)
+func ToWasmType(aid common.ApplicationIdType) (int64, error) {
+	//This should never happens, but just in case
+	if aid > math.MaxInt64 {
+		return -1, fmt.Errorf("application ID too large: %d", aid)
 	}
-
-	// Call the WASM function to generate the report
-	statsFunc := appModule.instance.GetFunc(appModule.store, "get_allocated_memory_stats")
-	if statsFunc == nil {
-		return 0, 0, fmt.Errorf("function get_allocated_memory_stats not found in wasm module")
-	}
-
-	allocateFunc := appModule.instance.GetFunc(appModule.store, "allocate")
-	if allocateFunc == nil {
-		return 0, 0, fmt.Errorf("allocate function not found in WASM module")
-	}
-
-	// we allocate a buffer wher the results will be stored
-	const resultSize = 2 * 8 // 2 int64 values, 8 bytes each
-	resultPtrValue, err := allocateFunc.Call(appModule.store, int32(resultSize))
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to allocate memory for results: %w", err)
-	}
-
-	// ensure we free the input buffer after allocate returns
-	if appModule.deallocate != nil && resultPtrValue != 0 {
-		defer func() {
-			_, _ = appModule.deallocate.Call(appModule.store, resultPtrValue, resultSize)
-		}()
-	}
-
-	// according to ABI C interface, tinygo uses an inout ptr to store return values, even the signature is different
-	resultPtr := resultPtrValue.(int32) // Get the pointer/address
-	_, err = statsFunc.Call(appModule.store, resultPtr)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to call func: %w", err)
-	}
-
-	// Read the 2 int64 values sequentially from the WASM memory
-
-	// Get the raw byte view of the WASM memory
-	memoryData := appModule.memory.UnsafeData(appModule.store)
-
-	// Read the int64 values using binary.LittleEndian
-	mem_size := int64(binary.LittleEndian.Uint64(memoryData[resultPtr : resultPtr+8]))
-	total_bytes := int64(binary.LittleEndian.Uint64(memoryData[resultPtr+8 : resultPtr+16]))
-	//log.Printf("Stats: %d, %d", mem_size, total_bytes)
-
-	// Now deduce the memory used here for reading the return values that will be released on exit by the defered dealloc call
-	mem_size -= 1
-	total_bytes -= resultSize
-
-	return mem_size, total_bytes, nil
-}
-
-// retrieves statistics from guest memory allocation (second version)
-func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId string, wasm []byte) (int64, int64, error) {
-	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
-	}
-
-	// Call the WASM function to generate the report
-	statsFunc := appModule.instance.GetFunc(appModule.store, "get_memory_stats")
-	if statsFunc == nil {
-		return 0, 0, fmt.Errorf("function get_memory_stats not found in wasm module")
-	}
-
-	result, err := statsFunc.Call(appModule.store)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to call func: %w", err)
-	}
-
-	// Extract the result bytes
-	resultBytes, err := r.extractResultBytes(result, appModule)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
-	}
-
-	// Deserialize the result
-	var stats appCommon.MemoryStats
-	if err := json.Unmarshal(resultBytes, &stats); err != nil {
-		return 0, 0, fmt.Errorf("failed to unmarshal stats result: %w", err)
-	}
-
-	mem_size := stats.MapSize
-	total_bytes := stats.CumulativeMemorySize
-
-	log.Printf("Stats: %d, %d", mem_size, total_bytes)
-
-	// the counters we got from WASM module do not take into account the memory used for passing them across guest/host ABI interface
-	// that is allocated in marshal/unmarshall process, but we can leave with that
-
-	return mem_size, total_bytes, nil
+	return int64(aid), nil
 }

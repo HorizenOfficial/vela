@@ -6,9 +6,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"strconv"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	"github.com/horizen-pes/pkg/communication"
 
 	"github.com/horizen-pes/pkg/common"
@@ -87,13 +90,13 @@ type Executor interface {
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
 	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
-	LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error)
+	LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, error)
 	// Deposit processes a deposit
-	Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error)
+	Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *apperrors.RequestFailure)
 	// ProcessRequest processes a request and returns the new state
-	ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error)
+	ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *apperrors.RequestFailure)
 	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error)
+	GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *apperrors.RequestFailure)
 	// Close closes the WASM runtime
 	Close() error
 }

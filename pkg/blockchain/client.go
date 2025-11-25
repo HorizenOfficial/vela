@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
 )
@@ -56,21 +56,6 @@ type BlockChainClient struct {
 	client                 ChainClient
 	privKey                *cryptotypes.PrivateKeySecp256k1
 	account                *bind.TransactOpts
-}
-
-func toRequestType(i uint8) common.RequestType {
-	switch i {
-	case 0:
-		return common.Deploy
-	case 1:
-		return common.Process
-	case 2:
-		return common.Deanonymize
-	case 3:
-		return common.AssociateKey
-	default:
-		return ""
-	}
 }
 
 func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
@@ -169,17 +154,15 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 
 	output := make([]*common.Request, 0, len(listOfRequests))
 	for _, request := range listOfRequests {
-		//TODO check that all big.Int can fit in a Uint64. If not, the specific request should be marked as failed
-		requestId := hex.EncodeToString(request.RequestId[:])
 		req := &common.Request{
-			ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
-			ApplicationID:   request.ApplicationId.String(),
-			RequestID:       requestId,
-			RequestType:     toRequestType(request.RequestType),
+			ProtocolVersion: request.ProtocolVersion,
+			ApplicationID:   processorendpoint.ApplicationIdFromBindingType(request.ApplicationId),
+			RequestID:       request.RequestId,
+			RequestType:     common.RequestType(request.RequestType),
 			Payload:         request.Payload,
-			Timestamp:       request.Timestamp.Int64(),
-			Sender:          request.Sender.String(),
-			Value:           request.Value.Uint64(),
+			Timestamp:       request.Timestamp,
+			Sender:          request.Sender,
+			Value:           request.Value,
 		}
 
 		output = append(output, req)
@@ -211,17 +194,15 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 
 	request := output.Arg0
 
-	requestId := hex.EncodeToString(request.RequestId[:])
-	//TODO check that all big.Int can fit in a Uint64. If not, the specific request should be marked as failed
 	req := &common.Request{
-		ProtocolVersion: strconv.FormatUint(uint64(request.ProtocolVersion), 10),
-		ApplicationID:   request.ApplicationId.String(),
-		RequestID:       requestId,
-		RequestType:     toRequestType(request.RequestType),
+		ProtocolVersion: request.ProtocolVersion,
+		ApplicationID:   processorendpoint.ApplicationIdFromBindingType(request.ApplicationId),
+		RequestID:       common.RequestIdType(request.RequestId),
+		RequestType:     common.RequestType(request.RequestType),
 		Payload:         request.Payload,
-		Timestamp:       request.Timestamp.Int64(),
-		Sender:          request.Sender.String(),
-		Value:           request.Value.Uint64(),
+		Timestamp:       request.Timestamp,
+		Sender:          request.Sender,
+		Value:           request.Value,
 	}
 
 	return req, stateRoot, nil
@@ -245,7 +226,7 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 	return nil
 }
 
-func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID string) error {
+func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID common.RequestIdType) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -253,17 +234,12 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID s
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, err := common.RequestIdStringTo32Byte(requestID)
-	if err != nil {
-		return fmt.Errorf("invalid request ID %s: %w", requestID, err)
-	}
-
 	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(reqId))
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(requestID))
 
 }
 
-func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID string) error {
+func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -271,32 +247,31 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID stri
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, err := common.RequestIdStringTo32Byte(requestID)
-	if err != nil {
-		return fmt.Errorf("invalid request ID %s: %w", requestID, err)
-	}
-
 	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(reqId))
 
+	if requestFailure == nil {
+        requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
+    }
+	
+	solCode := uint8(requestFailure.Category())
+    msg := requestFailure.ExternalMessage()
+
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(requestID, solCode, msg))
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
-func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) (string, uint64, error) {
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	if !c.connected {
-		return "", 0, fmt.Errorf("client not connected, call Connect first")
+		return common.RequestIdType{}, 0, fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqType, err := requestType.ToUint8()
-	if err != nil {
-		return "", 0, fmt.Errorf("invalid request type: %w", err)
-	}
+	reqType := uint8(requestType)
 
 	// Pack the transaction data using the generated binding
-	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, applicationId, reqType, payload, value)
+	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, value)
 	// Set the value for the transaction (msg.value)
 	c.account.Value = value
 
@@ -304,27 +279,27 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
 	c.account.Value = nil
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
+		return common.RequestIdType{}, 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
 	}
 
 	// Wait for transaction to be mined
 	receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
 	if err != nil {
-		return "", 0, fmt.Errorf("error waiting for tx inclusion: %w", err)
+		return common.RequestIdType{}, 0, fmt.Errorf("error waiting for tx inclusion: %w", err)
 	}
 	if receipt.Status != 1 {
-		return "", 0, fmt.Errorf("transaction failed")
+		return common.RequestIdType{}, 0, fmt.Errorf("transaction failed")
 	}
 
 	// Parse the returned requestId from the transaction receipt logs
 	for _, vLog := range receipt.Logs {
 		event, err := c.processorEndpoint.UnpackRequestSubmittedEvent(vLog)
 		if err == nil {
-			return common.RequestId32ByteToString(event.RequestId), receipt.BlockNumber.Uint64(), nil
+			return event.RequestId, receipt.BlockNumber.Uint64(), nil
 		}
 	}
 
-	return "", 0, fmt.Errorf("requestId not found in logs")
+	return common.RequestIdType{}, 0, fmt.Errorf("requestId not found in logs")
 }
 
 func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
@@ -340,16 +315,6 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		return fmt.Errorf("client not connected, call Connect first")
 	}
 
-	reqId, err := common.RequestIdStringTo32Byte(update.RequestID)
-	if err != nil {
-		return fmt.Errorf("invalid request ID %s: %w", update.RequestID, err)
-	}
-
-	appId, ok := common.StringToBigInt(update.ApplicationID)
-	if !ok {
-		return fmt.Errorf("invalid application ID: %s", update.ApplicationID)
-	}
-
 	events := make([][]byte, len(update.Events))
 	for i, event := range update.Events {
 		events[i] = event.EncryptedData
@@ -357,18 +322,19 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
 	for i, withdrawal := range update.Withdrawals {
-		amount := new(big.Int).SetUint64(withdrawal.Amount)
+		amount := withdrawal.Amount
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
-			Receiver: ethCommon.HexToAddress(withdrawal.DestinationAddress),
+			Receiver: withdrawal.DestinationAddress,
 			Amount:   amount,
 		}
 	}
 
+
 	params := c.processorEndpoint.PackStateUpdate(
-		appId,
+		processorendpoint.ApplicationIdToBindingType(update.ApplicationID),
 		update.PrevStateRoot,
 		update.NewStateRoot,
-		reqId,
+		update.RequestID,
 		events,
 		withdrawals,
 		update.Signature,
@@ -399,7 +365,7 @@ func (c *BlockChainClient) Close() error {
 // toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
 // f: optional filter function for decrypted events
 // stopAtFirst: bool flag to stop at first found event
-func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId big.Int, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -426,7 +392,7 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 	//needed for event filter
 	userEventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointUserEventEventName)
 
-	appIdHash := ethCommon.BigToHash(&applicationId)
+	appIdHash := applicationId.ToHash()
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
 
 	var events [][]byte
@@ -496,11 +462,11 @@ func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock ui
 	return fromBlock, nil
 }
 
-// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
+// GetRequestCompletedEvent looks for the RequestCompleted event for the given request in the given block range and returns if the request was successful or failed
 // requestID: identifier of the request
 // fromBlock: block from which the function search events
 // toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
-func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, requestID string, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
+func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -513,11 +479,7 @@ func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, request
 		return nil, err
 	}
 
-	reqId, err := common.RequestIdStringTo32Byte(requestID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid request ID %s: %w", requestID, err)
-	}
-	reqIdHash := ethCommon.BytesToHash(reqId[:])
+	reqIdHash := ethCommon.BytesToHash(requestID[:])
 
 	eventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointRequestCompletedEventName)
 	topicsHash := [][]ethCommon.Hash{{eventSig}, {reqIdHash}}
@@ -560,5 +522,9 @@ func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, request
 		return nil, fmt.Errorf("unknown status: %w", err)
 	}
 
-	return &common.RequestResult{Status: status}, nil
+	return &common.RequestResult{
+		Status:       status,
+		ErrorCode:    event.ErrorCode,
+		ErrorMessage: event.ErrorMessage,
+	}, nil
 }

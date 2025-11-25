@@ -12,7 +12,7 @@ async function deploy()  {
   `)
   //deploy 
   const ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
-  const processorEndpoint = await ProcessorEndpoint.deploy(process.env.TEE_AUTHENTICATOR!, process.env.AUTHORITY_REGISTRY!, process.env.UPDATE_STATUS_OPERATOR!);
+  const processorEndpoint = await ProcessorEndpoint.deploy(process.env.TEE_AUTHENTICATOR!, process.env.AUTHORITY_REGISTRY!, process.env.UPDATE_STATUS_OPERATOR!, process.env.ADMIN!);
   await processorEndpoint.deploymentTransaction()!.wait();
 
   console.log(`contract deployed at ${await processorEndpoint.getAddress()}`);
