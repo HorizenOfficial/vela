@@ -2,23 +2,27 @@ package app
 
 import (
 	"encoding/json"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 const (
-	testAppId    = "test_app"
-	user1Address = "0xadd0000000000000000000000000000000000001"
-	user2Address = "0xadd0000000000000000000000000000000000002"
-	user3Address = "0xadd0000000000000000000000000000000000003"
+	testAppId    = int64(1)
+)
+var (
+	user1Address = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000001")
+	user2Address = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000002")
+	user3Address = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000003")
 )
 
 func getInitialState(t *testing.T) (string, ApplicationInternalState) {
 	t.Helper()
 	initialState := ApplicationInternalState{
 		AppID:    testAppId,
-		Accounts: make(map[string]*AccountState),
+		Accounts: make(map[ethCommon.Address]*AccountState),
 	}
 	stateBytes, err := json.Marshal(initialState)
 	require.NoError(t, err)
@@ -29,9 +33,9 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 	t.Helper()
 	state := ApplicationInternalState{
 		AppID: testAppId,
-		Accounts: map[string]*AccountState{
-			user1Address: {Address: user1Address, Balance: 1000},
-			user2Address: {Address: user2Address, Balance: 500},
+		Accounts: map[ethCommon.Address]*AccountState{
+			user1Address: {Address: user1Address, Balance: big.NewInt(1000)},
+			user2Address: {Address: user2Address, Balance: big.NewInt(500)},
 		},
 	}
 	stateBytes, err := json.Marshal(state)
@@ -54,9 +58,9 @@ func TestLoadModule(t *testing.T) {
 func TestDepositFunds(t *testing.T) {
 	t.Run("deposit to new account", func(t *testing.T) {
 		stateJSON, _ := getInitialState(t)
-		depositAmount := uint64(100)
+		depositAmount := big.NewInt(100)
 
-		result := DepositFunds(user1Address, depositAmount, stateJSON)
+		result := DepositFunds(&user1Address, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
 		require.NotNil(t, result.State)
 		require.Len(t, result.Events, 1)
@@ -71,34 +75,39 @@ func TestDepositFunds(t *testing.T) {
 
 		event := result.Events[0]
 		require.Equal(t, user1Address, event.UserID)
-		var eventData map[string]interface{}
+		var eventData struct {
+			Type   string  `json:"type"`
+			Amount *big.Int `json:"amount"`
+		}
 		err = json.Unmarshal(event.Data, &eventData)
 		require.NoError(t, err)
-		require.Equal(t, "deposit", eventData["type"])
-		require.Equal(t, float64(depositAmount), eventData["amount"])
+		require.Equal(t, "deposit", eventData.Type)
+		
+		require.Equal(t, depositAmount, eventData.Amount)
 	})
 
 	t.Run("deposit to existing account", func(t *testing.T) {
 		_, state := getInitialState(t)
-		initialBalance := uint64(50)
+		initialBalance := big.NewInt(50)
 		state.Accounts[user1Address] = &AccountState{Address: user1Address, Balance: initialBalance}
 		stateBytes, err := json.Marshal(state)
 		require.NoError(t, err)
 		stateJSON := string(stateBytes)
 
-		depositAmount := uint64(100)
-		result := DepositFunds(user1Address, depositAmount, stateJSON)
+		depositAmount := big.NewInt(100)
+		result := DepositFunds(&user1Address, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
 
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
 
-		require.Equal(t, initialBalance+depositAmount, newState.Accounts[user1Address].Balance)
+		sum := big.NewInt(0).Add(initialBalance, depositAmount)
+		require.Equal(t, sum, newState.Accounts[user1Address].Balance)
 	})
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		result := DepositFunds(user1Address, 100, "{invalid json}")
+		result := DepositFunds(&user1Address, big.NewInt(100), "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
@@ -108,7 +117,7 @@ func TestProcessRequest(t *testing.T) {
 	stateJSON, _ := getPopulatedState(t)
 
 	t.Run("withdraw success", func(t *testing.T) {
-		withdrawAmount := uint64(200)
+		withdrawAmount := big.NewInt(200)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -119,7 +128,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -127,7 +136,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, uint64(800), newState.Accounts[user1Address].Balance)
+		require.Equal(t, big.NewInt(800), newState.Accounts[user1Address].Balance)
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -139,13 +148,13 @@ func TestProcessRequest(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
 				To:     user3Address,
-				Amount: 2000,
+				Amount: big.NewInt(2000),
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Insufficient balance for withdrawal")
 	})
@@ -155,13 +164,14 @@ func TestProcessRequest(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
 				To:     user1Address,
-				Amount: 100,
+				Amount: big.NewInt(100),
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest("nonexistent", string(payloadBytes), stateJSON)
+		nonexistent := ethCommon.HexToAddress("0xadd0000000000000000000000000000000009999")
+		result := ProcessRequest(&nonexistent, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "does not exist")
 	})
@@ -171,13 +181,13 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Withdraw instruction is missing")
 	})
 
 	t.Run("withdraw zero amount", func(t *testing.T) {
-		withdrawAmount := uint64(0)
+		withdrawAmount := big.NewInt(0)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -188,7 +198,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -196,7 +206,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, uint64(1000), newState.Accounts[user1Address].Balance) // balance should not change
+		require.Equal(t, big.NewInt(1000), newState.Accounts[user1Address].Balance) // balance should not change
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -204,7 +214,7 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("withdraw exact balance", func(t *testing.T) {
-		withdrawAmount := uint64(500)
+		withdrawAmount := big.NewInt(500)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -215,7 +225,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user2Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user2Address, string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -223,7 +233,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, uint64(0), newState.Accounts[user2Address].Balance)
+		require.Equal(t, big.NewInt(0), newState.Accounts[user2Address].Balance)
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -240,7 +250,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Empty(t, result.Withdrawals)
@@ -261,7 +271,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user2Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user2Address, string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 
@@ -275,9 +285,9 @@ func TestProcessRequest(t *testing.T) {
 		// Create a new state for this test
 		state := ApplicationInternalState{
 			AppID: testAppId,
-			Accounts: map[string]*AccountState{
-				user1Address: {Address: user1Address, Balance: 1000},
-				user2Address: {Address: user2Address, Balance: 1000},
+			Accounts: map[ethCommon.Address]*AccountState{
+				user1Address: {Address: user1Address, Balance: big.NewInt(1000)},
+				user2Address: {Address: user2Address, Balance: big.NewInt(1000)},
 			},
 		}
 		stateBytes, err := json.Marshal(state)
@@ -293,7 +303,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), localStateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), localStateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 
@@ -304,18 +314,19 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("compare with non-existent account", func(t *testing.T) {
+		nonexistent := ethCommon.HexToAddress("0xadd0000000000000000000000000000000009999")
 		instruction := PayloadInstructions{
 			Type: "compare_addresses",
 			CompareAccounts: &CompareInstructions{
-				TargetAddress: "nonexistent",
+				TargetAddress: nonexistent,
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Equal(t, "Account nonexistent does not exist!", result.Error)
+		require.Equal(t, "Account " + nonexistent.Hex() + " does not exist!", result.Error)
 	})
 
 	t.Run("compare with missing instruction", func(t *testing.T) {
@@ -323,7 +334,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Compare instruction is missing")
 	})
@@ -333,25 +344,25 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Equal(t, "Unsupported instruction type: [invalid_type]", result.Error)
 	})
 
 	t.Run("invalid payload json", func(t *testing.T) {
-		result := ProcessRequest(user1Address, "{invalid json}", stateJSON)
+		result := ProcessRequest(&user1Address, "{invalid json}", stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse payload instructions")
 	})
 
 	t.Run("invalid state json", func(t *testing.T) {
-		result := ProcessRequest(user1Address, "{}", "{invalid json}")
+		result := ProcessRequest(&user1Address, "{}", "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
 
 	t.Run("empty payload", func(t *testing.T) {
-		result := ProcessRequest(user1Address, "", stateJSON)
+		result := ProcessRequest(&user1Address, "", stateJSON)
 		require.Empty(t, result.Error)
 		require.Empty(t, result.Events)
 		require.Empty(t, result.Withdrawals)

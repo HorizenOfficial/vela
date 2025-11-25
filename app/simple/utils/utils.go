@@ -3,9 +3,11 @@ package utils
 import (
 	"encoding/binary"
 	"encoding/json"
+	"math/big"
 	"unsafe"
 
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // --- WASM Memory Management Functions ---
@@ -55,4 +57,24 @@ func SerializeAndWriteResult(result any) *byte {
 		return StringToPtr([]byte(appCommon.WasmSerializationError))
 	}
 	return StringToPtr(reportJSON)
+}
+
+// PtrToNonNegativeBigInt converts a WASM pointer and length representing the a big.Int value to a Go big.Int pointer.
+// The byte slice is obtained with the (big.Int).Bytes() method, i.e. it represents the absolute value in big-endian byte order, so the value is always non-negative.
+func PtrToNonNegativeBigInt(ptr *byte, length int32) *big.Int {
+	if ptr == nil || length == 0 {
+		return big.NewInt(0)
+	}
+
+	return new(big.Int).SetBytes(unsafe.Slice(ptr, length))
+}
+
+
+// PtrToAddress converts a WASM pointer and length to a ethereum address.
+func PtrToAddress(ptr *byte, length int32) *ethCommon.Address {
+	if ptr == nil || length == 0 {
+		return nil
+	}
+	address := ethCommon.BytesToAddress(unsafe.Slice(ptr, length))
+	return &address
 }

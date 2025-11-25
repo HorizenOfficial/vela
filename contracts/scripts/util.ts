@@ -14,10 +14,10 @@ export async function ethSignStateUpdate(
 
   const encoded = AbiCoder.defaultAbiCoder().encode(
     [
-      "uint256",
+      "uint64",
       "bytes32",
       "bytes32",
-      "uint256",
+      "bytes32",
       "bytes32",
       "bytes32"
     ],

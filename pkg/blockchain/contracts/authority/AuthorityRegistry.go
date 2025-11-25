@@ -99,11 +99,11 @@ func (authorityRegistry *AuthorityRegistry) UnpackAppAuthorityContracts(data []b
 }
 
 // PackCheckAuthorityIsAllowed is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0x116ad4a6.  This method will panic if any
+// the contract method with ID 0x58ae367f.  This method will panic if any
 // invalid/nil inputs are passed.
 //
-// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
-func (authorityRegistry *AuthorityRegistry) PackCheckAuthorityIsAllowed(applicationId *big.Int, authority common.Address) []byte {
+// Solidity: function checkAuthorityIsAllowed(uint64 applicationId, address authority) view returns(bool)
+func (authorityRegistry *AuthorityRegistry) PackCheckAuthorityIsAllowed(applicationId uint64, authority common.Address) []byte {
 	enc, err := authorityRegistry.abi.Pack("checkAuthorityIsAllowed", applicationId, authority)
 	if err != nil {
 		panic(err)
@@ -112,18 +112,18 @@ func (authorityRegistry *AuthorityRegistry) PackCheckAuthorityIsAllowed(applicat
 }
 
 // TryPackCheckAuthorityIsAllowed is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0x116ad4a6.  This method will return an error
+// the contract method with ID 0x58ae367f.  This method will return an error
 // if any inputs are invalid/nil.
 //
-// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
-func (authorityRegistry *AuthorityRegistry) TryPackCheckAuthorityIsAllowed(applicationId *big.Int, authority common.Address) ([]byte, error) {
+// Solidity: function checkAuthorityIsAllowed(uint64 applicationId, address authority) view returns(bool)
+func (authorityRegistry *AuthorityRegistry) TryPackCheckAuthorityIsAllowed(applicationId uint64, authority common.Address) ([]byte, error) {
 	return authorityRegistry.abi.Pack("checkAuthorityIsAllowed", applicationId, authority)
 }
 
 // UnpackCheckAuthorityIsAllowed is the Go binding that unpacks the parameters returned
-// from invoking the contract method with ID 0x116ad4a6.
+// from invoking the contract method with ID 0x58ae367f.
 //
-// Solidity: function checkAuthorityIsAllowed(uint256 applicationId, address authority) view returns(bool)
+// Solidity: function checkAuthorityIsAllowed(uint64 applicationId, address authority) view returns(bool)
 func (authorityRegistry *AuthorityRegistry) UnpackCheckAuthorityIsAllowed(data []byte) (bool, error) {
 	out, err := authorityRegistry.abi.Unpack("checkAuthorityIsAllowed", data)
 	if err != nil {

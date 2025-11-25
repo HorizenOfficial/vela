@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 type SimTestHelper struct {
 	t *testing.T
 
@@ -40,12 +39,10 @@ type SimTestHelper struct {
 	Deployer                 *bind.TransactOpts
 	Submitter                *bind.TransactOpts
 	ManagerAccount           *bind.TransactOpts
-	ManagerPrivKey			 *ecdsa.PrivateKey
+	ManagerPrivKey           *ecdsa.PrivateKey
 	autoMining               bool
 	cancel                   context.CancelFunc
 }
-
-
 
 func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
 	// Since we are using a simulated backend, we will get the chain ID
@@ -227,7 +224,7 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	return helper
 }
 
-func (s *SimTestHelper) SubmitRequestFromUser(applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
+func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
 	if payload == nil {
 		payload = ethCommon.FromHex("0x00")
 	}
@@ -247,13 +244,13 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId *big.Int, requestTyp
 	}
 
 	sender.Value = value
-	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, applicationId, reqType, payload, value))
+	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, value))
 	require.NoError(s.t, err, "failed to submit transaction")
 	sender.Value = big.NewInt(0)
 	return tx
 }
 
-func (s *SimTestHelper) SubmitRequest(applicationId *big.Int, requestType common.RequestType, payload []byte, value *big.Int) *ethTypes.Transaction {
+func (s *SimTestHelper) SubmitRequest(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int) *ethTypes.Transaction {
 	return s.SubmitRequestFromUser(applicationId, requestType, payload, value, s.Submitter)
 }
 
@@ -276,12 +273,10 @@ func (s *SimTestHelper) GetStateRoot() [32]byte {
 	return oldStateRoot
 }
 
-func (s *SimTestHelper) GetRequest(requestID string) processorendpoint.RequestByIdOutput {
-	reqId, err := common.RequestIdStringTo32Byte(requestID)
-	require.NoError(s.t, err, "invalid request ID")
+func (s *SimTestHelper) GetRequest(requestID common.RequestIdType) processorendpoint.RequestByIdOutput {
 	request, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
-		s.processEndpointContract.PackRequestById(reqId),
+		s.processEndpointContract.PackRequestById(requestID),
 		s.processEndpointContract.UnpackRequestById)
 	require.NoError(s.t, err)
 	return request
@@ -316,7 +311,6 @@ func (s *SimTestHelper) Close() {
 		s.cancel()
 	}
 }
-
 
 func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCommon.Address, value *big.Int) *ethTypes.Transaction {
 
@@ -366,4 +360,3 @@ func (s *SimTestHelper) AddAuthority(applicationId *big.Int, newAuthority ethCom
 func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelper {
 	return NewSimTeeAuthenticatorHelper(s.t, s.TeeSignerAddress, s.sim.Client())
 }
-

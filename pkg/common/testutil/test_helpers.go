@@ -1,5 +1,11 @@
 package testutil
 
+import (
+	"crypto/rand"
+
+	"github.com/horizen-pes/pkg/common"
+)
+
 type MockFunctions struct {
 	MockedFunctions map[string]interface{}
 }
@@ -21,4 +27,12 @@ func NewMockFunctions() *MockFunctions {
 	return &MockFunctions{
 		MockedFunctions: make(map[string]interface{}),
 	}
+}
+
+// GenerateRandomRequestID generates a random ID
+func GenerateRandomRequestID() common.RequestIdType {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+
+	return common.RequestIdType(b)
 }

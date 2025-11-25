@@ -13,7 +13,7 @@ contract ProcessorEndpoint is AccessControl {
     bytes32 public constant UPDATE_STATUS_ROLE = keccak256("UPDATE_STATUS_ROLE");
     bytes32 public constant ADMIN = keccak256("ADMIN");
     uint8 public constant PROTOCOL_VERSION = 0;
-    uint256 public constant APPLICATION_ID = 1;
+    uint64 public constant APPLICATION_ID = 1;
     
     //state variables
     bytes32 public stateRoot;
@@ -27,11 +27,11 @@ contract ProcessorEndpoint is AccessControl {
     ITeeAuthenticator public teeAuthenticator;
     AuthorityRegistry public authorityRegistry;
     //events
-    event Withdrawal(uint256 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
+    event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
     event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
-    event UserEvent(uint256 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
-    event StateRootUpdate(uint256 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
+    event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
+    event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     event QueueThresholdUpdated(uint256 newThreshold);
 
     //errors
@@ -53,7 +53,7 @@ contract ProcessorEndpoint is AccessControl {
         _;
     }
 
-    modifier validApplicationId(uint256 applicationId) {
+    modifier validApplicationId(uint64 applicationId) {
         if(applicationId != APPLICATION_ID) revert InvalidApplicationId();
         _;
     }
@@ -76,7 +76,7 @@ contract ProcessorEndpoint is AccessControl {
     //request management functions
     function submitRequest(
         uint8 protocolVersion, 
-        uint256 applicationId, 
+        uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
         uint256 value
@@ -181,7 +181,7 @@ contract ProcessorEndpoint is AccessControl {
 
     //update status
     function stateUpdate(
-        uint256 applicationId, 
+        uint64 applicationId, 
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 
         bytes32 processedRequestId,
@@ -254,7 +254,7 @@ contract ProcessorEndpoint is AccessControl {
 
     function generateRequestId(
         address sender,
-        uint256 applicationId, 
+        uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
         uint256 value,
