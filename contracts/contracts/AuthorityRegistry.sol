@@ -16,7 +16,11 @@ contract AuthorityRegistry is Ownable {
     event AppAuthorityContractSet(uint256 indexed applicationId, address indexed authorityContract);
     event DefaultAuthorityContractSet(address indexed authorityContract);
 
+    //errors
+    error AddressCantBeZero();
+
     constructor(address owner, address defaultAuthority) Ownable(owner) {
+        if(defaultAuthority == address(0)) revert AddressCantBeZero();
         defaultAuthorityContract = IAuthorityChecker(defaultAuthority);
         emit DefaultAuthorityContractSet(defaultAuthority);
     }
@@ -30,6 +34,7 @@ contract AuthorityRegistry is Ownable {
     }
 
     function setDefaultAuthorityContract(address authorityContract) external onlyOwner {
+        if(authorityContract == address(0)) revert AddressCantBeZero();
         defaultAuthorityContract = IAuthorityChecker(authorityContract);
         emit DefaultAuthorityContractSet(authorityContract);
     }
