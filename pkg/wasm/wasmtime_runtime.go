@@ -199,7 +199,7 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.Applicati
 	}
 
 
-	// Call the load_module function
+	// Call the load_module function // TODO ML create a task for this to return gas and to be more alligned with the approach of the other functions
 	// Wasm supports only int64, so we cast appId to int64
 	result, err := loadModuleFunc.Call(r.store, wasmAppId)
 	if err != nil {
