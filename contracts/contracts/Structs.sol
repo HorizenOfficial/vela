@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
 contract Structs {
     //type definitions
     enum RequestType { DEPLOYAPP, PROCESS, DEANONYMIZATION, ASSOCIATEKEY }
-    enum RequestResult { COMPLETED, FAILED_REFUNDED, FAILED_NOT_REFUNDED }
+    enum RequestResult { COMPLETED, FAILED_REFUNDED, FAILED_NOT_REFUNDED } // TODO ML I don't think this is necessary with the new fee system
     enum ErrorCode { 
         NO_ERROR,
         UNKNOWN,

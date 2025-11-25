@@ -253,7 +253,7 @@ describe('ProcessorEndpoint Test', function () {
                 0,
                 { value: 0 }
             )
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue")
+        ).to.be.revertedWithCustomError(processorEndpoint, "FeeValueBelowMinimum")
     })
 
     it('should revert submitRequest if msg.value is not value + maxFeeValue', async function () {
@@ -273,6 +273,24 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
     });
 
+    it('should revert submitRequest if msg.value is greater than value + maxFeeValue', async function () {
+        const value = 100;
+        const maxFeeValue = MIN_FEE; // 5
+
+        await expect(
+            processorEndpoint.submitRequest(
+                protocolVersion,
+                applicationId,
+                1,
+                "0x01",
+                value,
+                maxFeeValue,
+                { value: BigInt(value) + maxFeeValue + 1n }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+    });
+
+
     it('should revert submitRequest if maxFeeValue is below minFeePerRequest', async function () {
         const value = 0;
         const maxFeeValue = MIN_FEE - 1n; // 4 < 5
@@ -287,7 +305,7 @@ describe('ProcessorEndpoint Test', function () {
                 maxFeeValue,
                 { value: BigInt(value) + maxFeeValue }
             )
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
+        ).to.be.revertedWithCustomError(processorEndpoint, "FeeValueBelowMinimum");
     });
 
 
@@ -455,7 +473,7 @@ describe('ProcessorEndpoint Test', function () {
         //check refund
         let receipt = await failedTx.wait();
         let gasUsed = receipt.gasUsed * receipt.gasPrice;
-        let expectedBalanceAfter = balanceBefore - gasUsed + 100n;
+        let expectedBalanceAfter = balanceBefore - gasUsed + 100n + MIN_FEE;
         let balanceAfter = await ethers.provider.getBalance(
             await signers[0].getAddress()
         );
@@ -656,14 +674,14 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
-    it('should mark as failed not refunded if smart contract refuses refund', async function () {
-        //insert request from smart contract
-        let FallbackFailure = await ethers.getContractFactory("FallbackFailure");
-        let fallbackFailure = await FallbackFailure.deploy();
+    it('should revert if refund transfer fails', async function () {
+        // insert request from smart contract
+        const FallbackFailure = await ethers.getContractFactory("FallbackFailure");
+        const fallbackFailure = await FallbackFailure.deploy();
 
-        // Check that if value > 0, it tries to refund but fails and marks as failed not refunded
-        let value = 100
-        let submitTx = await fallbackFailure.insertRequestOnProcessorEndpoint(
+        const value = 100n;
+
+        const submitTx = await fallbackFailure.insertRequestOnProcessorEndpoint(
             processorEndpoint,
             protocolVersion,
             applicationId,
@@ -671,24 +689,34 @@ describe('ProcessorEndpoint Test', function () {
             "0x02",
             value,
             MIN_FEE,
-            { value: BigInt(value) + MIN_FEE }
+            { value: value + MIN_FEE }
         );
         await submitTx.wait();
 
-        let balanceBefore = await ethers.provider.getBalance(processorEndpoint.getAddress());
+        const balanceBefore = await ethers.provider.getBalance(
+            processorEndpoint.getAddress()
+        );
 
-        let  [currentPendingRequest, _, success] = await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true)
-        //set as failed
-        let failedTx = await processorEndpoint.markRequestFailed(currentPendingRequest.requestId, 1, "Test error message");
+        const [currentPendingRequest, , success] =
+            await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true);
+
         await expect(
-           failedTx
-        ).to.emit(processorEndpoint, "RequestCompleted")
-         .withArgs(currentPendingRequest.requestId, 2, 1, "Test error message", BigInt(5)); //2 means failed not refunded
+            processorEndpoint.markRequestFailed(
+                currentPendingRequest.requestId,
+                1,
+                "Test error message"
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "TransferFailed");
 
-        let balanceAfter = await ethers.provider.getBalance(processorEndpoint.getAddress());
- 
-        expect(balanceAfter).eql(balanceBefore - MIN_FEE); //failed not refunded
+        const balanceAfter = await ethers.provider.getBalance(
+            processorEndpoint.getAddress()
+        );
+
+        expect(balanceAfter).eql(balanceBefore);
+
+        const length = await processorEndpoint.getPendingRequestsSize();
+        expect(length).eql(BigInt(1));
     });
 
 

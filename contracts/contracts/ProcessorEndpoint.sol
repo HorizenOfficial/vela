@@ -28,7 +28,7 @@ contract ProcessorEndpoint is AccessControl {
     AuthorityRegistry public authorityRegistry;
 
     uint256 public minFeePerRequest = 5;
-    address payable public feeCollector = payable(0x574Cb6eD4De4167cb31C67ab9F97Ca8472a18973);
+    address payable public feeCollector;
 
     //events
     event Refund(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
@@ -41,7 +41,8 @@ contract ProcessorEndpoint is AccessControl {
     event FeeCollectorUpdated(address newFeeCollector);
 
     //errors
-    error AddressCantBeZero();
+    error AddressCantBeZero(); // TODO ML probably separet all errors, events, and comments to an interface and inherit it
+    error FeeValueBelowMinimum();
     error InvalidValue();
     error InvalidProtocolVersion();
     error InvalidApplicationId();
@@ -52,6 +53,7 @@ contract ProcessorEndpoint is AccessControl {
     error InsufficientBalance();
     error AuthorityNotAllowed();
     error QueueThresholdExceeded();
+    error TransferFailed();
 
 
     modifier validProtocolVersion(uint8 protocolVersion) {
@@ -75,6 +77,7 @@ contract ProcessorEndpoint is AccessControl {
 
         teeAuthenticator = _teeAuthenticator;
         authorityRegistry = _authorityRegistry; 
+        feeCollector = payable(updateStatusOperator);
         _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
         _grantRole(ADMIN, admin);
     }
@@ -90,7 +93,7 @@ contract ProcessorEndpoint is AccessControl {
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
         //check values
         if(msg.value != value + maxFeeValue) revert InvalidValue();
-        if(maxFeeValue < minFeePerRequest) revert InvalidValue();
+        if(maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
 
         //check queue size
         if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
@@ -141,10 +144,19 @@ contract ProcessorEndpoint is AccessControl {
         if(applicationFees < minFeePerRequest) {
             revert InvalidValue();
         }
-        (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+        if(refund > 0) {
+            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+            if (!refundSent) {
+                revert TransferFailed();
+            }
+        }
+        
         emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
 
         (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+        if (!feeSent) {
+            revert TransferFailed();
+        }
         _markRequestCompleted(requestId, applicationFees);
     }
 
@@ -165,14 +177,23 @@ contract ProcessorEndpoint is AccessControl {
 
         _removeRequest();
         //refunds
-        (bool refunded, ) = payable(sender).call{value: value + (maxFeeValue - minFeePerRequest)}(""); // TODO ML think about failing if transfer fails (everywhere)
+        // TODO ML think about failing if transfer fails (everywhere)
+        uint256 refund = value + (maxFeeValue - minFeePerRequest);
+        if(refund > 0) {
+            (bool refundSent, ) = payable(sender).call{value: refund}("");
+            if (!refundSent) {
+                revert TransferFailed();
+            }
+        }
+        emit Refund(requestById[requestId].applicationId, requestId, sender, refund);
 
         //minimum fee is collected
         (bool feeSent, ) = payable(feeCollector).call{value: minFeePerRequest}("");
+        if (!feeSent) {
+            revert TransferFailed();
+        }
 
-        if(refunded) emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
-        else emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
-
+        emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
     }
 
     function getPendingRequestsSize() public view returns(uint256) {
@@ -250,10 +271,18 @@ contract ProcessorEndpoint is AccessControl {
         stateRoot = newStateRoot;
         emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
-        (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+        if(refund > 0) {
+            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+            if (!refundSent) {
+                revert TransferFailed();
+            }
+        }
         emit Refund(applicationId, processedRequestId, requestInfo.sender, refund);
 
         (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+        if (!feeSent) {
+            revert TransferFailed();
+        }
             
         //execute withdrawals (as last operation)
         i = 0;
