@@ -113,7 +113,7 @@ describe('ProcessorEndpoint Test', function () {
         tx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
-            2,
+            1,
             "0x02",
             value,
             maxFeeValue2,
@@ -151,7 +151,7 @@ describe('ProcessorEndpoint Test', function () {
 
         expect(queue[1][0]).eql(protocolVersion); //protocolVersion
         expect(queue[1][1]).eql(applicationId); //applicationId
-        expect(queue[1][2]).eql(BigInt(2)); //requestType
+        expect(queue[1][2]).eql(BigInt(1)); //requestType
         expect(queue[1][4]).eql("0x02"); //payload
         expect(queue[1][6]).eql(await signers[0].getAddress()); //sender
         expect(queue[1][7]).eql(BigInt(100)); //value
@@ -316,13 +316,27 @@ describe('ProcessorEndpoint Test', function () {
                 applicationId,
                 2,
                 "0x01",
+                0,
+                MIN_FEE,
+                { value: MIN_FEE }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "AuthorityNotAllowed")
+    })
+
+    it('should revert denanonymization request if value is not zero', async function () {
+        await expect(
+            processorEndpoint.submitRequest(
+                protocolVersion,
+                applicationId,
+                2,          // DEANONYMIZATION
+                "0x01",
                 100,
                 MIN_FEE,
                 { value: 100n + MIN_FEE }
             )
-        ).to.be.revertedWithCustomError(processorEndpoint, "AuthorityNotAllowed")
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
     })
-    
+
     it('should save request that is not deanonymization from unauthorized authority', async function () {
         let submitTx = await processorEndpoint.connect(signers[1]).submitRequest(
             protocolVersion,
@@ -381,7 +395,7 @@ describe('ProcessorEndpoint Test', function () {
         submitTx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
-            2,
+            1,
             "0x02",
             100,
             MIN_FEE,
@@ -697,7 +711,7 @@ describe('ProcessorEndpoint Test', function () {
         submitTx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
-            2,
+            1,
             "0x02",
             100,
             MIN_FEE,
@@ -1046,7 +1060,7 @@ describe('ProcessorEndpoint Test', function () {
         let submitTx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
-            2,
+            1,
             "0x02",
             100,
             MIN_FEE,
@@ -1164,7 +1178,7 @@ describe('ProcessorEndpoint Test', function () {
         let submitTx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
-            2,
+            1,
             "0x02",
             100,
             MIN_FEE,

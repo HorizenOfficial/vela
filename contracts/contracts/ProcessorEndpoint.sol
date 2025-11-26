@@ -102,7 +102,17 @@ contract ProcessorEndpoint is AccessControl {
         if (requestType == Structs.RequestType.ASSOCIATEKEY) {
             //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
             if (payload.length != 133) revert InvalidPayload();
-        }else if  (requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
+        } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
+
+            // deanonymization requests MUST have value = 0
+            if (value != 0) revert InvalidValue();
+
+            // only allowed authorities can request deanonymization
+            if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
+                revert AuthorityNotAllowed();
+            }
+        }
+
         
         //create request
         bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, value, _tail);
