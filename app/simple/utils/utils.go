@@ -6,8 +6,8 @@ import (
 	"math/big"
 	"unsafe"
 
-	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
 // --- WASM Memory Management Functions ---
@@ -26,6 +26,7 @@ func allocate(size int32) int32 {
 
 //export deallocate
 func deallocate(ptr *byte, size int32) {
+	// Let GC take care of memory deallocation
 }
 
 // --- Helper Functions for Data Translation ---
@@ -74,7 +75,6 @@ func PtrToNonNegativeBigInt(ptr *byte, length int32) *big.Int {
 
 	return new(big.Int).SetBytes(unsafe.Slice(ptr, length))
 }
-
 
 // PtrToAddress converts a WASM pointer and length to a ethereum address.
 func PtrToAddress(ptr *byte, length int32) *ethCommon.Address {
