@@ -5,27 +5,27 @@ import (
 	"fmt"
 	"math/big"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
-	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // AccountState represents the state of a user account
 type AccountState struct {
 	Address ethCommon.Address `json:"address"`
-	Balance *big.Int `json:"balance"`
+	Balance *big.Int          `json:"balance"`
 }
 
 // ApplicationInternalState represents the internal state of the application
 type ApplicationInternalState struct {
-	AppID    int64                   `json:"appId"`
+	AppID    int64                               `json:"appId"`
 	Accounts map[ethCommon.Address]*AccountState `json:"accounts"`
 }
 
 // WithdrawInstruction represents instructions for withdrawing funds
 type WithdrawInstruction struct {
 	To     ethCommon.Address `json:"to"`
-	Amount *big.Int `json:"amount"`
+	Amount *big.Int          `json:"amount"`
 }
 
 type CompareInstructions struct {
@@ -47,7 +47,7 @@ type ReportPayloadInstructions struct {
 
 // DeanonymizationReport represents the structure of the deanonymization report.
 type DeanonymizationReport struct {
-	Tag      string                   `json:"tag,omitempty"`
+	Tag      string                              `json:"tag,omitempty"`
 	Accounts map[ethCommon.Address]*AccountState `json:"accounts"`
 }
 
@@ -120,14 +120,13 @@ func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string)
 	if senderPtr == nil {
 		return wasmCommon.ProcessResult{Error: "Sender address is nil"}
 	}
-	
+
 	sender := *senderPtr
-	
+
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return wasmCommon.ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
 	}
-
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
@@ -158,12 +157,14 @@ func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string)
 
 			var cmp = ""
 			switch targetBalance.Cmp(senderBalance) {
-				case -1: cmp = "richer than"
-				case 1: cmp = "poorer than"
-				case 0: cmp = "as wealthy as"
-			
-			}
+			case -1:
+				cmp = "richer than"
+			case 1:
+				cmp = "poorer than"
+			case 0:
+				cmp = "as wealthy as"
 
+			}
 
 			sentence := sender.Hex() + " is " + cmp + " " + targetAddress.Hex()
 

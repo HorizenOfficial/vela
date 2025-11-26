@@ -3,8 +3,8 @@ package common
 import (
 	"math/big"
 
-	"github.com/horizen-pes/pkg/common"
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/common"
 )
 
 // WasmSerializationError is a generic error for failed WASM serialization.
@@ -34,27 +34,26 @@ type DeanonymizationResult struct {
 }
 
 type DepositEvent struct {
-	Type    string `json:"type"`
+	Type    string   `json:"type"`
 	Amount  *big.Int `json:"amount"`
 	Balance *big.Int `json:"balance"`
-	Nonce   uint64 `json:"nonce"`
+	Nonce   uint64   `json:"nonce"`
 }
 
 type SenderEvent struct {
-	Type    string `json:"type"`
+	Type    string            `json:"type"`
 	To      ethCommon.Address `json:"to"`
-	Amount  *big.Int `json:"amount"`
-	Balance *big.Int `json:"balance"`
-	Nonce   uint64 `json:"nonce"`
+	Amount  *big.Int          `json:"amount"`
+	Balance *big.Int          `json:"balance"`
+	Nonce   uint64            `json:"nonce"`
 }
 
 type RecipientEvent struct {
-	Type    string `json:"type"`
+	Type    string            `json:"type"`
 	From    ethCommon.Address `json:"from"`
-	Amount  *big.Int `json:"amount"`
-	Balance *big.Int `json:"balance"`
-	Nonce   uint64 `json:"nonce"`
+	Amount  *big.Int          `json:"amount"`
+	Balance *big.Int          `json:"balance"`
+	Nonce   uint64            `json:"nonce"`
 }
 
 type WithdrawalEvent = SenderEvent
-
