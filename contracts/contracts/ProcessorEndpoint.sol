@@ -146,17 +146,12 @@ contract ProcessorEndpoint is AccessControl {
         }
         if(refund > 0) {
             (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
-            if (!refundSent) {
-                revert TransferFailed();
+            if (refundSent) {
+                emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
             }
         }
-        
-        emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
 
         (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
-        if (!feeSent) {
-            revert TransferFailed();
-        }
         _markRequestCompleted(requestId, applicationFees);
     }
 
@@ -177,23 +172,21 @@ contract ProcessorEndpoint is AccessControl {
 
         _removeRequest();
         //refunds
-        // TODO ML think about failing if transfer fails (everywhere)
         uint256 refund = value + (maxFeeValue - minFeePerRequest);
         if(refund > 0) {
             (bool refundSent, ) = payable(sender).call{value: refund}("");
-            if (!refundSent) {
-                revert TransferFailed();
+            if (refundSent) {
+                emit Refund(requestById[requestId].applicationId, requestId, sender, refund);
             }
         }
-        emit Refund(requestById[requestId].applicationId, requestId, sender, refund);
 
         //minimum fee is collected
         (bool feeSent, ) = payable(feeCollector).call{value: minFeePerRequest}("");
-        if (!feeSent) {
-            revert TransferFailed();
+        if (feeSent) {
+            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
+        } else {
+            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
         }
-
-        emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
     }
 
     function getPendingRequestsSize() public view returns(uint256) {
@@ -288,6 +281,9 @@ contract ProcessorEndpoint is AccessControl {
         i = 0;
         while(i < withdrawalRequests.length) {
             (bool withdrawn, ) = payable(withdrawalRequests[i].receiver).call{value: withdrawalRequests[i].amount}("");
+            if (!withdrawn) {
+                revert TransferFailed();
+            }
             emit Withdrawal(applicationId, processedRequestId, withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
             unchecked {++i;}
         }  

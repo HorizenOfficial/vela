@@ -674,51 +674,6 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
-    it('should revert if refund transfer fails', async function () {
-        // insert request from smart contract
-        const FallbackFailure = await ethers.getContractFactory("FallbackFailure");
-        const fallbackFailure = await FallbackFailure.deploy();
-
-        const value = 100n;
-
-        const submitTx = await fallbackFailure.insertRequestOnProcessorEndpoint(
-            processorEndpoint,
-            protocolVersion,
-            applicationId,
-            1,
-            "0x02",
-            value,
-            MIN_FEE,
-            { value: value + MIN_FEE }
-        );
-        await submitTx.wait();
-
-        const balanceBefore = await ethers.provider.getBalance(
-            processorEndpoint.getAddress()
-        );
-
-        const [currentPendingRequest, , success] =
-            await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true);
-
-        await expect(
-            processorEndpoint.markRequestFailed(
-                currentPendingRequest.requestId,
-                1,
-                "Test error message"
-            )
-        ).to.be.revertedWithCustomError(processorEndpoint, "TransferFailed");
-
-        const balanceAfter = await ethers.provider.getBalance(
-            processorEndpoint.getAddress()
-        );
-
-        expect(balanceAfter).eql(balanceBefore);
-
-        const length = await processorEndpoint.getPendingRequestsSize();
-        expect(length).eql(BigInt(1));
-    });
-
 
     it('should not mark invalid request', async function () {
         //no requests present
