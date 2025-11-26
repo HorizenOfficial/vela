@@ -24,7 +24,7 @@ describe('ProcessorEndpoint Test', function () {
         let authorityRegistry = await AuthorityRegistry.deploy(signers[0]);
 
         let ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
-        processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, authorityRegistry, signers[0], signers[1]);
+        processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, authorityRegistry, signers[0], signers[1], MIN_FEE);
 
         protocolVersion = await processorEndpoint.PROTOCOL_VERSION();
         applicationId = await processorEndpoint.APPLICATION_ID();
@@ -429,10 +429,10 @@ describe('ProcessorEndpoint Test', function () {
             .to.emit(processorEndpoint, "RequestCompleted")
             .withArgs(
                 currentPendingRequest.requestId,
+                BigInt(5), // applicationFees = MIN_FEE
                 0,
                 0,
-                "",
-                BigInt(5) // applicationFees = MIN_FEE
+                ""
             );
 
         length = await processorEndpoint.getPendingRequestsSize();
@@ -461,10 +461,10 @@ describe('ProcessorEndpoint Test', function () {
             .to.emit(processorEndpoint, "RequestCompleted")
             .withArgs(
                 currentPendingRequest.requestId,
+                BigInt(5),
                 1,
                 1,
-                "Test error message",
-                BigInt(5)
+                "Test error message"
             );
 
         length = await processorEndpoint.getPendingRequestsSize();
@@ -734,9 +734,9 @@ describe('ProcessorEndpoint Test', function () {
                 currentPendingRequest.requestId,
                 [],
                 [],
-                signature,
                 0,
-                MIN_FEE
+                MIN_FEE,
+                signature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
 
@@ -748,16 +748,16 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
-            signature,
             0,
-            MIN_FEE
+            MIN_FEE,
+            signature,
         );
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
         //check if completed
 
         await expect(updateTx).to.emit(processorEndpoint, "RequestCompleted")
-            .withArgs(currentPendingRequest.requestId, 0, 0, "", BigInt(5));
+            .withArgs(currentPendingRequest.requestId, BigInt(5), 0, 0, "");
         await expect(updateTx).to.emit(processorEndpoint, "StateRootUpdate").withArgs(
             currentPendingRequest.applicationId,
             currentPendingRequest.requestId,
@@ -790,15 +790,15 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
-            signature,
             0,
-            MIN_FEE
+            MIN_FEE,
+            signature,
         ); 
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
         //check if completed
        await expect(updateTx).to.emit(processorEndpoint, "RequestCompleted")
-            .withArgs(currentPendingRequest.requestId, 0, 0, "", BigInt(5));
+            .withArgs(currentPendingRequest.requestId, BigInt(5), 0, 0, "");
        await expect(updateTx).to.emit(processorEndpoint, "StateRootUpdate").withArgs(
             currentPendingRequest.applicationId,
             currentPendingRequest.requestId,
@@ -852,9 +852,9 @@ describe('ProcessorEndpoint Test', function () {
                 currentPendingRequest.requestId,
                 [],
                 [],
-                signature,
                 refund,
-                applicationFees
+                applicationFees,
+                signature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
     });
@@ -903,9 +903,9 @@ describe('ProcessorEndpoint Test', function () {
                 currentPendingRequest.requestId,
                 [],
                 [],
-                signature,
                 refund,
-                applicationFees
+                applicationFees,
+                signature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
     });
@@ -959,9 +959,9 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
-            signature,
             0,
-            MIN_FEE
+            MIN_FEE,
+            signature,
         ); 
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
@@ -991,9 +991,9 @@ describe('ProcessorEndpoint Test', function () {
                 currentPendingRequest.requestId,
                 [],
                 [],
-                signature,
                 0,
-                MIN_FEE
+                MIN_FEE,
+                signature,
             ) //wrong prev value
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidStateRoot");
     });
@@ -1035,9 +1035,9 @@ describe('ProcessorEndpoint Test', function () {
                 currentPendingRequest.requestId,
                 [],
                 [],
-                invalidSignature,
                 0,
-                MIN_FEE
+                MIN_FEE,
+                invalidSignature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidSignature");
     });
@@ -1085,9 +1085,9 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [[addr1, 49], [addr2, 51]],
-            signature,
             0,
-            MIN_FEE
+            MIN_FEE,
+            signature,
         );
         await expect(updateTx).to.emit(processorEndpoint, "Withdrawal").withArgs(
             currentPendingRequest.applicationId,
@@ -1149,9 +1149,9 @@ describe('ProcessorEndpoint Test', function () {
                 currentPendingRequest.requestId,
                 ["0x1234"],
                 [],
-                signature,
                 0,
-                MIN_FEE
+                MIN_FEE,
+                signature,
             )
         ).to.emit(processorEndpoint, "UserEvent").withArgs(
             applicationId,
@@ -1199,9 +1199,9 @@ describe('ProcessorEndpoint Test', function () {
                 currentPendingRequest.requestId,
                 [],
                 [[addr1, 100], [addr2, 100]],
-                signature,
                 0,
-                MIN_FEE
+                MIN_FEE,
+                signature,
             ) //sum of values is 200
         ).to.be.revertedWithCustomError(processorEndpoint, "InsufficientBalance");
     });

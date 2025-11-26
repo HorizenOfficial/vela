@@ -55,12 +55,31 @@ func DefaultConfig() *Config {
 		recType = 0
 	}
 
+	fuelPrice := big.NewInt(1)
+	minFeePerRequest := big.NewInt(5)
+
+	if fuelStr := os.Getenv("EXECUTOR_FUEL_PRICE_PER_UNIT"); fuelStr != "" {
+		if v, ok := new(big.Int).SetString(fuelStr, 10); ok && v.Sign() >= 0 {
+			fuelPrice = v
+		} else {
+			fmt.Printf("Failed to parse EXECUTOR_FUEL_PRICE_PER_UNIT=%q, using default %s\n", fuelStr, fuelPrice.String())
+		}
+	}
+
+	if minFeeStr := os.Getenv("EXECUTOR_MIN_FEE_PER_REQUEST"); minFeeStr != "" {
+		if v, ok := new(big.Int).SetString(minFeeStr, 10); ok && v.Sign() >= 0 {
+			minFeePerRequest = v
+		} else {
+			fmt.Printf("Failed to parse EXECUTOR_MIN_FEE_PER_REQUEST=%q, using default %s\n", minFeeStr, minFeePerRequest.String())
+		}
+	}
+
 	return &Config{
 		ServerType:         "tcp",
 		ServerAddr:         serverAddress + ":" + serverPort,
 		KeySetRecoveryType: recType,
-		FuelPricePerUnit:   big.NewInt(1),
-		MinFeePerRequest:   big.NewInt(10),
+		FuelPricePerUnit:   fuelPrice,
+		MinFeePerRequest:   minFeePerRequest,
 	}
 }
 
@@ -81,7 +100,7 @@ func ReadConfig() *Config {
 		ServerAddr:         config.MustGetString("ServerAddr"),
 		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
 		FuelPricePerUnit:  big.NewInt(int64(config.GetInt("FuelPricePerUnit", 1))),
-		MinFeePerRequest:  big.NewInt(int64(config.GetInt("MinFeePerRequest", 10))),
+		MinFeePerRequest:  big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),
 	}
 }
 

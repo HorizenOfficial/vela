@@ -41,9 +41,9 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         bytes32 processedRequestId,
         bytes[] memory events,
         Structs.WithdrawalRequest[] memory withdrawalRequests,
-        bytes calldata signature,
         uint256 refundAmount, 
-        uint256 applicationFee
+        uint256 applicationFee,
+        bytes calldata signature
     ) external view override returns (bool) {
         if(teeSigner == address(0) || pubSecp521r1.length != PK_LENGTH) revert TeeIsNotSet();
 

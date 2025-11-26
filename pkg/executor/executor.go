@@ -272,7 +272,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
 	var totalFuel *big.Int = big.NewInt(0);
-	if req.Value.Sign() > 0 { // TODO these concatenated if statements feel wrong
+	if req.Value.Sign() > 0 {
 		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, failure
@@ -285,7 +285,15 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
-		return nil, nil, apperrors.New(apperrors.CodeInsufficientFuel, "insufficient fuel for request execution", nil)
+		return nil, nil, apperrors.New(
+			apperrors.CodeInsufficientFuel,
+			fmt.Sprintf(
+				"insufficient fuel: required %s wei, provided %s wei",
+				applicationFee.String(),
+				req.MaxFeeValue.String(),
+			),
+			nil,
+		)
 	}
 
 	var events []common.PlainEvent
@@ -327,7 +335,15 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// Check if there is enough ETH to cover the fuel costs
 	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
-		return nil, nil, apperrors.New(apperrors.CodeInsufficientFuel, "insufficient fuel for request execution", nil)
+		return nil, nil, apperrors.New(
+			apperrors.CodeInsufficientFuel,
+			fmt.Sprintf(
+				"insufficient fuel: required %s wei, provided %s wei",
+				applicationFee.String(),
+				req.MaxFeeValue.String(),
+			),
+			nil,
+		)
 	}
 
 	// Application fee must be minumum fee at least
@@ -413,7 +429,15 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Check if there is enough ETH to cover the fuel costs // TODO make a helper function?
 	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
 	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
-		return nil, nil, apperrors.New(apperrors.CodeInsufficientFuel, "insufficient fuel for request execution", nil)
+		return nil, nil, apperrors.New(
+			apperrors.CodeInsufficientFuel,
+			fmt.Sprintf(
+				"insufficient fuel: required %s wei, provided %s wei",
+				applicationFee.String(),
+				req.MaxFeeValue.String(),
+			),
+			nil,
+		)
 	}
 
 	// Application fee must be minumum fee at least
@@ -494,7 +518,15 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	// Check if there is enough ETH to cover the fuel costs
 	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
 	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
-		return nil, apperrors.New(apperrors.CodeInsufficientFuel, "insufficient fuel for request execution", nil)
+		return nil, apperrors.New(
+			apperrors.CodeInsufficientFuel,
+			fmt.Sprintf(
+				"insufficient fuel: required %s wei, provided %s wei",
+				applicationFee.String(),
+				req.MaxFeeValue.String(),
+			),
+			nil,
+		)
 	}
 
 	// Application fee must be minumum fee at least

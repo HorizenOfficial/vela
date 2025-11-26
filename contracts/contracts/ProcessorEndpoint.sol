@@ -27,14 +27,14 @@ contract ProcessorEndpoint is AccessControl {
     ITeeAuthenticator public teeAuthenticator;
     AuthorityRegistry public authorityRegistry;
 
-    uint256 public minFeePerRequest = 5;
+    uint256 public minFeePerRequest;
     address payable public feeCollector;
 
     //events
     event Refund(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
-    event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage, uint256 applicationFees);
+    event RequestCompleted(bytes32 indexed requestId, uint256 applicationFees, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
     event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
     event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     event QueueThresholdUpdated(uint256 newThreshold);
@@ -67,7 +67,7 @@ contract ProcessorEndpoint is AccessControl {
     }
 
     //constructor
-    constructor(ITeeAuthenticator _teeAuthenticator, AuthorityRegistry _authorityRegistry, address updateStatusOperator, address admin) {
+    constructor(ITeeAuthenticator _teeAuthenticator, AuthorityRegistry _authorityRegistry, address updateStatusOperator, address admin, uint256 _minFeePerRequest) {
         if(
             _teeAuthenticator == ITeeAuthenticator(address(0)) || 
             _authorityRegistry == AuthorityRegistry(address(0)) ||
@@ -80,6 +80,7 @@ contract ProcessorEndpoint is AccessControl {
         feeCollector = payable(updateStatusOperator);
         _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
         _grantRole(ADMIN, admin);
+        minFeePerRequest = _minFeePerRequest;
     }
 
     //request management functions
@@ -159,7 +160,7 @@ contract ProcessorEndpoint is AccessControl {
 
        _removeRequest();
 
-        emit RequestCompleted(requestId, Structs.RequestResult.COMPLETED, Structs.ErrorCode.NO_ERROR, "", applicationFees);
+        emit RequestCompleted(requestId, applicationFees, Structs.RequestResult.COMPLETED, Structs.ErrorCode.NO_ERROR, "");
     }
 
     // We return the maxValueFee - minFeePerRequest (to be changed in the future)
@@ -183,9 +184,9 @@ contract ProcessorEndpoint is AccessControl {
         //minimum fee is collected
         (bool feeSent, ) = payable(feeCollector).call{value: minFeePerRequest}("");
         if (feeSent) {
-            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
+            emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
         } else {
-            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage, minFeePerRequest); 
+            emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage); 
         }
     }
 
@@ -221,9 +222,9 @@ contract ProcessorEndpoint is AccessControl {
         bytes32 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
-        bytes memory signature,
         uint256 refund,
-        uint256 applicationFees
+        uint256 applicationFees,
+        bytes memory signature
     ) public validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
         //check prev state root
         if(stateRoot != bytes32(0) && prevStateRoot != stateRoot) revert InvalidStateRoot();
@@ -231,7 +232,7 @@ contract ProcessorEndpoint is AccessControl {
         if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
         //check signature
-        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature, refund, applicationFees)) revert InvalidSignature();
+        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, refund, applicationFees, signature)) revert InvalidSignature();
 
         //check values
         Structs.PendingRequest memory requestInfo = requestById[processedRequestId];

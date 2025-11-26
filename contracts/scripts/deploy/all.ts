@@ -35,7 +35,7 @@ async function deploy()  {
 
   //deploy 
   const ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
-  const processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticatorAddr, authorityRegistryAddr, process.env.UPDATE_STATUS_OPERATOR!, process.env.ADMIN!);
+  const processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticatorAddr, authorityRegistryAddr, process.env.UPDATE_STATUS_OPERATOR!, process.env.ADMIN!, process.env.MIN_FEE_PER_REQUEST!);
   await processorEndpoint.deploymentTransaction()!.wait();
   var processorEndpointAddr =  await processorEndpoint.getAddress();
   console.log(`ProcessorEndpoint`)

@@ -57,9 +57,9 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 		payload.RequestID,
 		events,
 		withdrawals,
-		payload.Signature,
 		payload.RefundAmount,
 		payload.ApplicationFee,
+		payload.Signature,
 	)
 
 	result, err := bind.Call(s.teeContractInstance,

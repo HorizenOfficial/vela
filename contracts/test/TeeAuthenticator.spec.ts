@@ -96,9 +96,9 @@ describe('TeeAuthenticator Test', function () {
             requestId,
             ["0x"],
             [[addr1, 50], [addr2, 50]],
-            signature,
             refund,
-            applicationFees
+            applicationFees,
+            signature,
         );
         expect(res).eql(true);
     })
@@ -138,9 +138,9 @@ describe('TeeAuthenticator Test', function () {
             requestId,
             ["0x"],
             [[addr1, 50], [addr2, 50]],
-            signature,
             refund,
-            applicationFees
+            applicationFees,
+            signature,
         );
         expect(res).eql(false);
     })
@@ -175,9 +175,9 @@ describe('TeeAuthenticator Test', function () {
                 requestId,
                 ["0x"],
                 [[addr1, 50], [addr2, 50]],
-                signature,
                 refund,
-                applicationFees
+                applicationFees,
+                signature,
             )
         ).to.be.revertedWithCustomError(teeAuthenticator, "TeeIsNotSet");
     })

@@ -341,9 +341,9 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		update.RequestID,
 		events,
 		withdrawals,
-		update.Signature,
 		update.RefundAmount,
 		update.ApplicationFee,
+		update.Signature,
 	)
 
 	c.account.Value = nil
