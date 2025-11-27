@@ -1,5 +1,4 @@
-name: CI with Duplicated Jobs
-
+name: Horizen CCE CI
 on:
   push:
     branches: [ main, dev, pc/dockerpub ]
@@ -7,11 +6,12 @@ on:
       - 'v*'       # triggers job on any tag starting with 'v'
   pull_request:
     branches: [ main, dev ]
-  env:
-    DOCKER_HUB_ORG: ${{ vars.DOCKER_HUB_ORG }}
-    DOCKER_HUB_USERNAME: ${{ vars.DOCKER_HUB_USERNAME }}
-    DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
-    GITHUB_TAG: ${{ github.ref_name }}
+
+env:
+  DOCKER_HUB_ORG: ${{ vars.DOCKER_HUB_ORG }}
+  DOCKER_HUB_USERNAME: ${{ vars.DOCKER_HUB_USERNAME }}
+  DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+  GITHUB_TAG: ${{ github.ref_name }}
 
 jobs:
   quick-test:
