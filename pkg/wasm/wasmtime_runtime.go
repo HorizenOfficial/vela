@@ -232,6 +232,13 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 
 	// Attach WASI config to the store
 	wasiConfig := wasmtime.NewWasiConfig()
+
+	// Make the WASI instance inherit the host stdout/stderr (so println()/fmt.Print from the guest appear here)
+	wasiConfig.InheritStdout()
+	wasiConfig.InheritStderr()
+	// optionally:
+	// wasiConfig.InheritStdin()
+
 	store.SetWasi(wasiConfig)
 
 	// Instantiate the module using the module-specific store
