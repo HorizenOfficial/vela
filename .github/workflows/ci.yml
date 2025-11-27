@@ -12,7 +12,7 @@ env:
   DOCKER_HUB_USERNAME: ${{ vars.DOCKER_HUB_USERNAME }}
   DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
   GITHUB_TAG: v0.0.1
-  
+
 jobs:
   build-and-push-docker-images:
     name: Build and Push Docker Images
@@ -36,3 +36,14 @@ jobs:
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-executor:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-executor:latest
+
+      - name: Build and push manager image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/manager/Dockerfile
+          push: false
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-manager:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-manager:latest
+
