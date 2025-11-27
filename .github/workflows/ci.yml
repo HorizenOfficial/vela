@@ -11,8 +11,8 @@ env:
   DOCKER_HUB_ORG: ${{ vars.DOCKER_HUB_ORG }}
   DOCKER_HUB_USERNAME: ${{ vars.DOCKER_HUB_USERNAME }}
   DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
-  GITHUB_TAG: ${{ github.ref_name }}
-
+  GITHUB_TAG: v0.0.1
+  
 jobs:
   build-and-push-docker-images:
     name: Build and Push Docker Images
