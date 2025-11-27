@@ -1,0 +1,177 @@
+package app
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"math/big"
+	"strings"
+)
+
+const AddressLength = 20
+
+type Address [AddressLength]byte
+
+func HexToAddress(s string) Address {
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		s = s[2:]
+	}
+	if len(s)%2 != 0 {
+		s = "0" + s
+	}
+	data, err := hex.DecodeString(s)
+	if err != nil {
+		// Instead of panicking, return an empty address and let callers handle it.
+		return Address{}
+	}
+	var address Address
+	if len(data) > AddressLength {
+		data = data[len(data)-AddressLength:]
+	}
+	copy(address[AddressLength-len(data):], data)
+	return address
+}
+
+func BytesToAddress(b []byte) Address {
+	var a Address
+	a.SetBytes(b)
+	return a
+}
+
+func (a *Address) SetBytes(b []byte) {
+	if len(b) > len(a) {
+		b = b[len(b)-AddressLength:]
+	}
+	copy(a[AddressLength-len(b):], b)
+}
+
+func (a Address) Bytes() []byte {
+	return a[:]
+}
+
+func (a Address) Hex() string {
+	return "0x" + hex.EncodeToString(a[:])
+}
+
+func (a *Address) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if s == "" {
+		return fmt.Errorf("empty address string")
+	}
+	*a = HexToAddress(s)
+	return nil
+}
+
+func (a Address) MarshalJSON() ([]byte, error) {
+	return json.Marshal(a.Hex())
+}
+
+func (a Address) String() string {
+	return a.Hex()
+}
+
+// ----- module internal types
+
+// AccountState represents the state of a user account
+type AccountState struct {
+	Address Address  `json:"address"`
+	Balance *big.Int `json:"balance"`
+}
+
+// ApplicationInternalState represents the internal state of the application
+type ApplicationInternalState struct {
+	AppID    int64                    `json:"appId"`
+	Accounts map[string]*AccountState `json:"accounts"`
+}
+
+// WithdrawInstruction represents instructions for withdrawing funds
+type WithdrawInstruction struct {
+	To     Address  `json:"to"`
+	Amount *big.Int `json:"amount"`
+}
+
+type CompareInstructions struct {
+	TargetAddress Address `json:"targetAddress"`
+}
+
+// PayloadInstructions represents the deserialized payload instructions
+type PayloadInstructions struct {
+	Type            string               `json:"type"`
+	CompareAccounts *CompareInstructions `json:"compare,omitempty"`
+	Withdraw        *WithdrawInstruction `json:"withdraw,omitempty"`
+}
+
+// ReportPayloadInstructions represent a specific information on how to generate a report
+// In this simple app its a custom tag to add to the report
+type ReportPayloadInstructions struct {
+	IncludeTag string `json:"tag,omitempty"`
+}
+
+// DeanonymizationReport represents the structure of the deanonymization report.
+type DeanonymizationReport struct {
+	Tag      string                   `json:"tag,omitempty"`
+	Accounts map[string]*AccountState `json:"accounts"`
+}
+
+// --- Local replacements for Host types ---
+// This is a deliberate design choice required by the WebAssembly architecture.
+// The application communicates by serializing the host-side struct to JSON, passing it to the
+// Wasm module, which then deserializes it into its own identical local struct.
+// This maintains a clean separation between the two environments.
+// The Wasm module is a separate, sandboxed program and should not import types directly from
+// the host application's packages, even if they are defined exacltly the same way.
+// Moreovre we do use analogous but different types. for instance ethereum addresses in the Host
+// and [20]byte array type in the guest (this is because tinygo does not support the full standard
+// go runtime needed by go-ethereum).
+// ---
+// TODO: bigInt (math/big pkg) as of now is not fully supported by tinygo, so far we did not experience
+// errors, but to be on the safe side we should consider using a different type in the Guest application,
+// for instance 8xuint32 or 4xuint64 structs representing uint256 values
+
+// DepositResult is a local replacement for wasmCommon.DepositResult
+type DepositResult struct {
+	State  []byte       `json:"state"`
+	Events []PlainEvent `json:"events"`
+	Error  string       `json:"error,omitempty"`
+}
+
+// ProcessResult is a local replacement for wasmCommon.ProcessResult
+type ProcessResult struct {
+	State       []byte       `json:"state"`
+	Events      []PlainEvent `json:"events"`
+	Withdrawals []Withdrawal `json:"withdrawals"`
+	Error       string       `json:"error,omitempty"`
+}
+
+// DeanonymizationResult is a local replacement for wasmCommon.DeanonymizationResult
+type DeanonymizationResult struct {
+	Report []byte `json:"report"`
+	Error  string `json:"error,omitempty"`
+}
+
+// PlainEvent is a local replacement for common.PlainEvent
+type PlainEvent struct {
+	UserID Address `json:"userID"`
+	Data   []byte  `json:"data"`
+}
+
+// Withdrawal is a local replacement for common.Withdrawal
+type Withdrawal struct {
+	DestinationAddress Address  `json:"destinationAddress"`
+	Amount             *big.Int `json:"amount"`
+}
+
+// WithdrawalEvent is a local replacement for wasmCommon.WithdrawalEvent
+type WithdrawalEvent struct {
+	Type    string   `json:"type"`
+	To      Address  `json:"to"`
+	Amount  *big.Int `json:"amount"`
+	Balance *big.Int `json:"balance"`
+}
+
+const (
+	WasmSerializationError = `{"error":"wasm serialization error"}`
+)

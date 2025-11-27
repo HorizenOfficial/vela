@@ -26,9 +26,9 @@ const (
 
 var (
 	appId             = common.NewApplicationId(1)
-	user1Address      = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000001")
-	user2Address      = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000002")
-	recipient1Address = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000003")
+	user1Address      = app.HexToAddress("0xadd0000000000000000000000000000000000001")
+	user2Address      = app.HexToAddress("0xadd0000000000000000000000000000000000002")
+	recipient1Address = app.HexToAddress("0xadd0000000000000000000000000000000000003")
 )
 
 // buildAndLoadWasmModule runs `make build` to compile and load the wasm module.
@@ -68,7 +68,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User1 Deposits funds
 	deposit1Amount := big.NewInt(1000)
-	depositState1Bytes, depositEvents, failure := runtime.Deposit(ctx, appId, user1Address, deposit1Amount, initialStateBytes, wasmBytes)
+	depositState1Bytes, depositEvents, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), deposit1Amount, initialStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
@@ -77,11 +77,11 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(depositState1Bytes, &depositState)
 	require.NoError(t, err)
 	require.Len(t, depositState.Accounts, 1)
-	require.Equal(t, deposit1Amount, depositState.Accounts[user1Address].Balance)
+	require.Equal(t, deposit1Amount, depositState.Accounts[user1Address.Hex()].Balance)
 
 	// 2. User2 Deposits funds (more than previous user)
 	deposit2Amount := big.NewInt(2000)
-	depositState2Bytes, depositEvents, failure := runtime.Deposit(ctx, appId, user2Address, deposit2Amount, depositState1Bytes, wasmBytes)
+	depositState2Bytes, depositEvents, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), deposit2Amount, depositState1Bytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState2Bytes)
 	require.Len(t, depositEvents, 1)
@@ -89,7 +89,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(depositState2Bytes, &depositState)
 	require.NoError(t, err)
 	require.Len(t, depositState.Accounts, 2)
-	require.Equal(t, deposit2Amount, depositState.Accounts[user2Address].Balance)
+	require.Equal(t, deposit2Amount, depositState.Accounts[user2Address.Hex()].Balance)
 
 	// 3. Process a withdraw request for user1
 	withdrawAmount := big.NewInt(200)
@@ -104,7 +104,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	payloadBytes, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	withdrawStateBytes, withdrawEvents, withdrawals, err := runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, depositState2Bytes, wasmBytes)
+	withdrawStateBytes, withdrawEvents, withdrawals, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, depositState2Bytes, wasmBytes)
 	require.Nil(t, err)
 	require.NotNil(t, withdrawStateBytes)
 	require.Len(t, withdrawEvents, 1)
@@ -115,9 +115,9 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	diffBalance := new(big.Int).Sub(deposit1Amount, withdrawAmount)
-	require.Equal(t, diffBalance, withdrawState.Accounts[user1Address].Balance)
+	require.Equal(t, diffBalance, withdrawState.Accounts[user1Address.Hex()].Balance)
 
-	require.Equal(t, recipient1Address, withdrawals[0].DestinationAddress)
+	require.Equal(t, ethCommon.Address(recipient1Address), withdrawals[0].DestinationAddress)
 	require.Equal(t, withdrawAmount, withdrawals[0].Amount)
 
 	// 4. Generate deanonymization report
@@ -145,7 +145,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	payloadBytes, err = json.Marshal(payload)
 	require.NoError(t, err)
 
-	compareStateBytes, events, withdrawals, err := runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, withdrawStateBytes, wasmBytes)
+	compareStateBytes, events, withdrawals, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, withdrawStateBytes, wasmBytes)
 	require.Nil(t, err)
 	require.NotNil(t, compareStateBytes)
 	require.Len(t, events, 1)
@@ -173,7 +173,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 
 	t.Run("null payload json", func(t *testing.T) {
 		nullPayload := []byte{}
-		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, nullPayload, initialStateBytes, wasmBytes)
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), nullPayload, initialStateBytes, wasmBytes)
 		require.Nil(t, err)
 	})
 }
@@ -194,10 +194,10 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 	// 2. Create a populated state for testing
 	// User1 deposits 1000
-	populatedStateBytes, _, err := runtime.Deposit(ctx, appId, user1Address, big.NewInt(1000), initialStateBytes, wasmBytes)
+	populatedStateBytes, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), initialStateBytes, wasmBytes)
 	require.Nil(t, err)
 	// User2 deposits 500
-	populatedStateBytes, _, err = runtime.Deposit(ctx, appId, user2Address, big.NewInt(500), populatedStateBytes, wasmBytes)
+	populatedStateBytes, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), big.NewInt(500), populatedStateBytes, wasmBytes)
 	require.Nil(t, err)
 
 	// --- Test Cases ---
@@ -214,14 +214,14 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, err = runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Insufficient balance for withdrawal")
 	})
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {
 		// A user that never deposited tries to withdraw
-		nonExistentUser := ethCommon.HexToAddress("0xadd0000000000000000000000000000000000099")
+		nonExistentUser := app.HexToAddress("0xadd0000000000000000000000000000000000099")
 		payload := app.PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &app.WithdrawInstruction{
@@ -232,13 +232,13 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, err = runtime.ProcessRequest(ctx, appId, nonExistentUser, payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not exist")
 	})
 
 	t.Run("compare from non-existent account", func(t *testing.T) {
-		nonExistentUser := ethCommon.HexToAddress("0xadd0000000000000000000000000000000000099")
+		nonExistentUser := app.HexToAddress("0xadd0000000000000000000000000000000000099")
 		payload := app.PayloadInstructions{
 			Type: "compare_addresses",
 			CompareAccounts: &app.CompareInstructions{
@@ -248,7 +248,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, err = runtime.ProcessRequest(ctx, appId, nonExistentUser, payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Account "+nonExistentUser.Hex()+" does not exist!")
 	})
@@ -258,7 +258,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, err = runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Withdraw instruction is missing")
 	})
@@ -268,21 +268,21 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, err = runtime.ProcessRequest(ctx, appId, user1Address, payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Compare instruction is missing")
 	})
 
 	t.Run("unsupported instruction type", func(t *testing.T) {
 		payload := `{"type":"invalid_instruction"}`
-		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, []byte(payload), populatedStateBytes, wasmBytes)
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), []byte(payload), populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Unsupported instruction type")
 	})
 
 	t.Run("invalid payload json", func(t *testing.T) {
 		payload := `{"type":"withdraw","withdraw":{"to":`
-		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, []byte(payload), populatedStateBytes, wasmBytes)
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), []byte(payload), populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse payload instructions")
 	})
@@ -305,7 +305,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	t.Run("deposit with nil state", func(t *testing.T) {
 		// This should fail inside the wasm module because a nil state is not valid JSON.
 		// This test verifies that the runtime correctly handles passing a nil slice to wasm.
-		_, _, err := runtime.Deposit(ctx, appId, user1Address, big.NewInt(1000), nil, wasmBytes)
+		_, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), nil, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -348,14 +348,14 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 
 	// For other functions, the error will come from getOrLoadModule -> LoadModule
 	t.Run("deposit with nil wasm", func(t *testing.T) {
-		_, _, err := runtime.Deposit(ctx, appId, user1Address, big.NewInt(1000), initialStateBytes, nil)
+		_, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
 
 	t.Run("process request with nil wasm", func(t *testing.T) {
 		payload := []byte(`{"type":"withdraw","withdraw":{"to":"some_address","amount":100}}`)
-		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, payload, initialStateBytes, nil)
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payload, initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
@@ -379,14 +379,14 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	invalidState := []byte("{invalid-state}")
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		_, _, err := runtime.Deposit(ctx, appId, user1Address, big.NewInt(1000), invalidState, wasmBytes)
+		_, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
 
 	t.Run("process request with invalid state", func(t *testing.T) {
 		payload := []byte(`{"type":"withdraw","withdraw":{"to":"some_address","amount":100}}`)
-		_, _, _, err := runtime.ProcessRequest(ctx, appId, user1Address, payload, invalidState, wasmBytes)
+		_, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payload, invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -427,10 +427,10 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 			for j := 0; j < iterationsPerGoroutine; j++ {
 				iterationIndex := goroutineIndex*iterationsPerGoroutine + j
 				depositAmount := big.NewInt(1)
-				userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%039d", iterationIndex))
+				userAddress := app.HexToAddress(fmt.Sprintf("0xadd%039d", iterationIndex))
 
 				runtimeMutex.Lock()
-				newStateBytes, _, err := runtime.Deposit(ctx, appId, userAddress, depositAmount, stateBytes, wasmBytes)
+				newStateBytes, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), depositAmount, stateBytes, wasmBytes)
 				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
 				stateBytes = newStateBytes
 				runtimeMutex.Unlock()
@@ -449,7 +449,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
 
 				runtimeMutex.Lock()
-				processStateBytes, _, _, err := runtime.ProcessRequest(ctx, appId, userAddress, withdrawPayloadBytes, stateBytes, wasmBytes)
+				processStateBytes, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), withdrawPayloadBytes, stateBytes, wasmBytes)
 				require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
 				stateBytes = processStateBytes
 				runtimeMutex.Unlock()

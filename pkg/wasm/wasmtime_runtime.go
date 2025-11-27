@@ -18,6 +18,9 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
+// Address is a local definition of a 20-byte address.
+type Address [20]byte
+
 // ApplicationModule contains the compiled module, its instantiated instance,
 // the module-specific store, the exported memory, and convenience handles.
 // Note: a Store represents module execution state and is not safe sharing one store across modules
