@@ -186,7 +186,7 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.Appl
 	}
 
 	// If not loaded, load the module
-	_, err := r.loadModuleUnlocked(ctx, appId, wasm)
+	_, _, err := r.loadModuleUnlocked(ctx, appId, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load module: %w", err)
 	}
@@ -410,7 +410,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	}
 
 	// Get the process_request function
-	processRequestFunc := appModule.instance.GetFunc(r.store, "process_request")
+	processRequestFunc := appModule.instance.GetFunc(appModule.store, "process_request")
 	if processRequestFunc == nil {
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFunctionNotFound, "process_request function not found in WASM module", nil)
 	}
@@ -426,7 +426,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	payloadPtr, err := r.writeToMemory(appModule, payload)
 	if err != nil {
-		return nil, nil, nil, apperrors.New(apperrors.CodeMemoryWriteError, "failed to write payload to memory", err)
+		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, "failed to write payload to memory", err)
 	}
 	if appModule.deallocate != nil && payloadPtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, payloadPtr, int32(len(payload))) }()

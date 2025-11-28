@@ -415,7 +415,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 
 	ctx := context.Background()
 
-	initialStateBytes, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
 
 	// Mutex to protect access to the shared WASM runtime instance
@@ -437,7 +437,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%039d", iterationIndex))
 
 				runtimeMutex.Lock()
-				newStateBytes, _, err := runtime.Deposit(ctx, appId, userAddress, depositAmount, stateBytes, wasmBytes)
+				newStateBytes, _,  _, err := runtime.Deposit(ctx, appId, userAddress, depositAmount, stateBytes, wasmBytes)
 				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
 				stateBytes = newStateBytes
 				runtimeMutex.Unlock()
@@ -456,7 +456,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
 
 				runtimeMutex.Lock()
-				processStateBytes, _, _, err := runtime.ProcessRequest(ctx, appId, userAddress, withdrawPayloadBytes, stateBytes, wasmBytes)
+				processStateBytes, _, _, _, err := runtime.ProcessRequest(ctx, appId, userAddress, withdrawPayloadBytes, stateBytes, wasmBytes)
 				require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
 				stateBytes = processStateBytes
 				runtimeMutex.Unlock()
@@ -465,7 +465,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				reportPayloadJSON := fmt.Sprintf(`{"tag":"memory_stress_report_%d"}`, iterationIndex)
 				reportPayloadBytes := []byte(reportPayloadJSON)
 				runtimeMutex.Lock()
-				_, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
+				_, _, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
 				require.Nil(t, err, "GenerateDeanonymizationReport failed at iteration %d", iterationIndex)
 				runtimeMutex.Unlock()
 			}
