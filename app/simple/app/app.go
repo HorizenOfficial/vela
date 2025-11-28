@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+
+	"github.com/horizen-pes/app/simple/utils"
 )
 
 // --- High-Level Application Logic ---
@@ -227,4 +229,12 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) Deanonymizatio
 		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %+v", report)}
 	}
 	return DeanonymizationResult{Report: reportBytes}
+}
+
+func GetAllocatedMemoryStats() MemoryStats {
+	map_size, total_bytes := utils.GetAllocatedMemoryStats()
+	return MemoryStats{
+		MapSize:              map_size,
+		CumulativeMemorySize: total_bytes,
+	}
 }

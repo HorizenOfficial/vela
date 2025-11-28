@@ -155,6 +155,20 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(events[0].Data, &eventData)
 	require.NoError(t, err)
 	t.Log("Event:\n", testutil.PrettyPrintJSON(eventData))
+
+	// check we have no memory leaks
+	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), mem_map_entries)
+	require.Equal(t, int64(0), total_allocated_bytes)
+	t.Logf("stats - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
+
+	// use an alternative implementation of the function
+	mem_map_entries, total_allocated_bytes, err = runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), mem_map_entries)
+	require.Equal(t, int64(0), total_allocated_bytes)
+	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 }
 
 func TestSimpleAppIntegration_NullPayload(t *testing.T) {
@@ -466,6 +480,12 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 	}
 
 	wg.Wait()
+
+	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), mem_map_entries)
+	require.Equal(t, int64(0), total_allocated_bytes)
+	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 
 	// TODO -  The correct approach would be creating a new wasmtime.Instance for each concurrent operation.
 	// While the wasmtime.Store and compiled wasmtime.Module can be shared, the wasmtime.Instance must be unique per goroutine.

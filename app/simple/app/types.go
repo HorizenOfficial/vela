@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"unsafe"
+
+	"github.com/horizen-pes/app/simple/utils"
 )
 
 const AddressLength = 20
@@ -71,6 +74,35 @@ func (a Address) MarshalJSON() ([]byte, error) {
 
 func (a Address) String() string {
 	return a.Hex()
+}
+
+// SerializeAndWriteResult handles common serialization and returns a WASM pointer.
+func SerializeAndWriteResult(result any) *byte {
+	reportJSON, err := json.Marshal(result)
+	if err != nil {
+		return utils.StringToPtr([]byte(WasmSerializationError))
+	}
+	return utils.StringToPtr(reportJSON)
+}
+
+// PtrToNonNegativeBigInt converts a WASM pointer and length representing the a big.Int value to a Go big.Int pointer.
+// The byte slice is obtained with the (big.Int).Bytes() method, i.e. it represents the absolute value in big-endian byte order, so the value is always non-negative.
+func PtrToNonNegativeBigInt(ptr *byte, length int32) *big.Int {
+	if ptr == nil || length == 0 {
+		return big.NewInt(0)
+	}
+
+	return new(big.Int).SetBytes(unsafe.Slice(ptr, length))
+}
+
+// PtrToAddress converts a WASM pointer and length to a ethereum address.
+func PtrToAddress(ptr *byte, length int32) *Address {
+	if ptr == nil || length == 0 {
+		return nil
+	}
+	var address Address
+	address.SetBytes(unsafe.Slice(ptr, length))
+	return &address
 }
 
 // ----- module internal types
@@ -175,3 +207,8 @@ type WithdrawalEvent struct {
 const (
 	WasmSerializationError = `{"error":"wasm serialization error"}`
 )
+
+type MemoryStats struct {
+	MapSize              int64 `json:"mapSize"`
+	CumulativeMemorySize int64 `json:"cumulativeMemorySize"`
+}

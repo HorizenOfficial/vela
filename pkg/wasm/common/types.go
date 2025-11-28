@@ -8,7 +8,7 @@ import (
 )
 
 // WasmSerializationError is a generic error for failed WASM serialization.
-const WasmSerializationError = "{}"
+const WasmSerializationError = `{"error":"wasm serialization error"}`
 
 // TODO add applicationId to the definitions where appropriate, in future we will have many different apps
 
@@ -57,3 +57,9 @@ type RecipientEvent struct {
 }
 
 type WithdrawalEvent = SenderEvent
+
+// optional mem statistics
+type MemoryStats struct {
+	MapSize              int64 `json:"mapSize"`
+	CumulativeMemorySize int64 `json:"cumulativeMemorySize"`
+}
