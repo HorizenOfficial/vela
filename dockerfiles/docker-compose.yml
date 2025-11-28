@@ -7,14 +7,14 @@ networks:
   inet:     
 
 volumes:
-  horizen-pes-manager-data:  
-  horizen-pes-manager-reports:
-  horizen-pes-chain-data:
+  horizen-cce-manager-data:  
+  horizen-cce-manager-reports:
+  horizen-cce-chain-data:
 
 services:
   executor:
-    image: horizen-pes-executor
-    container_name: horizen-pes-executor
+    image: horizen/cce-executor
+    container_name: horizen-cce-executor
     restart: always
     networks:
       pes_network:
@@ -26,8 +26,8 @@ services:
     depends_on:
       - chain
   manager:
-    image: horizen-pes-manager
-    container_name: horizen-pes-manager
+    image: horizen/cce-manager
+    container_name: horizen-cce-manager
     restart: always 
     environment:
       - EXECUTOR_IP_ADDRESS
@@ -48,18 +48,18 @@ services:
         ipv4_address: ${MANAGER_IP_ADDRESS}
       inet:    
     volumes:
-      - horizen-pes-manager-data:${MANAGER_DATA_FOLDER:-/data}
+      - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
       # We must set a default path if .env does not set it, otherwise compose will throw an error
       # If the optional feature is not enabled, we will simply have an empty volume
-      - horizen-pes-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
+      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
       # WASM input folder
       - ./wasms:${MANAGER_INPUT_WASMS:-/input_wasms}
     depends_on:
       - executor 
       - chain
   chain:
-    image: horizen-pes-chain
-    container_name: horizen-pes-chain
+    image: horizen/cce-chain
+    container_name: horizen-cce-chain
     restart: always 
     environment:
       - DATA_FOLDER=${CHAIN_DATA_FOLDER:-/data}
@@ -71,5 +71,5 @@ services:
         ipv4_address: ${CHAIN_RPC_ADDRESS}
       inet:    
     volumes:
-      - horizen-pes-chain-data:${CHAIN_DATA_FOLDER:-/data} 
+      - horizen-cce-chain-data:${CHAIN_DATA_FOLDER:-/data} 
 

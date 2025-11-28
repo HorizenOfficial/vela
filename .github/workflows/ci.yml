@@ -1,7 +1,7 @@
 name: Horizen CCE CI
 on:
   push:
-    branches: [ main, dev, pc/dockerpub ]
+    branches: [ main, dev]
     tags:
       - 'v*'       # triggers workflow on any tag starting with 'v'
   pull_request:
