@@ -41,7 +41,7 @@ contract ProcessorEndpoint is AccessControl {
     event FeeCollectorUpdated(address newFeeCollector);
 
     //errors
-    error AddressCantBeZero(); // TODO ML probably separet all errors, events, and comments to an interface and inherit it
+    error AddressCantBeZero();
     error FeeValueBelowMinimum();
     error InvalidValue();
     error InvalidProtocolVersion();
@@ -89,7 +89,7 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value, // part of the sent value forwarded to the application, for app logic // TODO ML rename this to depositValue or depositAmount 
+        uint256 value, // part of the sent value forwarded to the application, for app logic
         uint256 maxFeeValue // part ot the sent value reserved for fee payment
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
         //check values
@@ -225,7 +225,7 @@ contract ProcessorEndpoint is AccessControl {
     }
 
     //update status
-    function stateUpdate( // TODO ML recheck everything about security
+    function stateUpdate(
         uint64 applicationId, 
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 
@@ -246,7 +246,7 @@ contract ProcessorEndpoint is AccessControl {
 
         //check values
         Structs.PendingRequest memory requestInfo = requestById[processedRequestId];
-        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue();  //TODO ML better errors for the future
+        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue();
         if(applicationFees < minFeePerRequest) {
             revert InvalidValue();
         }
@@ -254,12 +254,12 @@ contract ProcessorEndpoint is AccessControl {
         //check withdrawal sums 
         uint256 i;
         uint256 sum;
-        while(i < withdrawalRequests.length) { // TODO ML optimize these loops and the contract overall
+        while(i < withdrawalRequests.length) {
             sum += withdrawalRequests[i].amount;
             unchecked {++i;}
         }
         sum += refund + applicationFees;
-        if(sum > address(this).balance) revert InsufficientBalance(); // TODO ML unnecessary check, the contract will fail either way
+        if(sum > address(this).balance) revert InsufficientBalance();
 
         //set requests as completed
         _markRequestCompleted(processedRequestId, applicationFees);

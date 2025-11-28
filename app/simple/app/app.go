@@ -242,7 +242,7 @@ func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string)
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
-		Fuel:        big.NewInt(50), // TODO MA
+		Fuel:        big.NewInt(50),
 	}
 }
 

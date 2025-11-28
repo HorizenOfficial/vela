@@ -308,7 +308,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			return nil, nil, apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload", err)
 		}
 
-		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10)) // TODO ML this should be taken from somewhere, not hardcoded
+		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
 
 		appData.AddKey(req.Sender, *keyToAssociate)
 	} else {
@@ -494,7 +494,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 }
 
 // HandleGenerateDeanonymizationReport implements the RequestHandler interface
-func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) { // TODO this doesn't call stateUpdate, how do we refunds gas?
+func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
 	log.Printf("Executor: Generating deanonymization report for request %s", req.RequestID)
 
 	// Decrypte and parse the app data
