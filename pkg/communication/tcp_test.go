@@ -44,6 +44,8 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
 			Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
 			Signature:     []byte("test-signature"),
+			RefundAmount: req.MaxFeeValue,
+			ApplicationFee: big.NewInt(100),
 		},
 		&common.ApplicationState{
 			ApplicationID:  req.ApplicationID,
@@ -64,6 +66,8 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 			PrevStateRoot: [32]byte{},
 			NewStateRoot:  newStateRoot,
 			Signature:     []byte("test-signature"),
+			RefundAmount: req.MaxFeeValue,
+			ApplicationFee: big.NewInt(100),
 		},
 		&common.ApplicationState{
 			ApplicationID:  req.ApplicationID,
@@ -150,7 +154,8 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
-		//Value:           0,
+		Value:           big.NewInt(0),
+		MaxFeeValue: big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  ApplicationId,
@@ -228,7 +233,8 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 			Sender:          senderAddress,
-			//Value:           0,
+			Value:           big.NewInt(0),
+			MaxFeeValue: big.NewInt(100),
 		}
 		appState := &common.ApplicationState{
 			ApplicationID:  ApplicationId,
@@ -279,7 +285,8 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 			Sender:          senderAddress,
-			//Value:           0,
+			Value:           big.NewInt(0),
+			MaxFeeValue: big.NewInt(100),
 		}
 
 		_, appState, failure := client.SendDeployApp(ctx, req)
@@ -338,7 +345,8 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
-		//Value:           0,
+		Value:           big.NewInt(0),
+		MaxFeeValue: big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  ApplicationId,
@@ -438,6 +446,8 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
 				Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
 				Signature:     []byte("test-signature"),
+				RefundAmount: req.MaxFeeValue,
+				ApplicationFee: big.NewInt(100),
 			}, appState, nil
 		},
 	}
@@ -470,6 +480,8 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
+		Value:           big.NewInt(0),
+		MaxFeeValue: big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  1,

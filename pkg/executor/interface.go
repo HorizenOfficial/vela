@@ -32,6 +32,10 @@ type Config struct {
 	ServerPort uint32
 	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
 	KeySetRecoveryType int
+	// FuelPricePerUnit is the price of fuel per unit
+	FuelPricePerUnit *big.Int
+	// MinFeePerRquest is the minimum fee to be paid for each request
+	MinFeePerRequest *big.Int
 }
 
 // DefaultConfig returns the default configuration (possibly overridden by env variables)
@@ -51,10 +55,31 @@ func DefaultConfig() *Config {
 		recType = 0
 	}
 
+	fuelPrice := big.NewInt(1)
+	minFeePerRequest := big.NewInt(5)
+
+	if fuelStr := os.Getenv("EXECUTOR_FUEL_PRICE_PER_UNIT"); fuelStr != "" {
+		if v, ok := new(big.Int).SetString(fuelStr, 10); ok && v.Sign() >= 0 {
+			fuelPrice = v
+		} else {
+			fmt.Printf("Failed to parse EXECUTOR_FUEL_PRICE_PER_UNIT=%q, using default %s\n", fuelStr, fuelPrice.String())
+		}
+	}
+
+	if minFeeStr := os.Getenv("EXECUTOR_MIN_FEE_PER_REQUEST"); minFeeStr != "" {
+		if v, ok := new(big.Int).SetString(minFeeStr, 10); ok && v.Sign() >= 0 {
+			minFeePerRequest = v
+		} else {
+			fmt.Printf("Failed to parse EXECUTOR_MIN_FEE_PER_REQUEST=%q, using default %s\n", minFeeStr, minFeePerRequest.String())
+		}
+	}
+
 	return &Config{
 		ServerType:         "tcp",
 		ServerAddr:         serverAddress + ":" + serverPort,
 		KeySetRecoveryType: recType,
+		FuelPricePerUnit:   fuelPrice,
+		MinFeePerRequest:   minFeePerRequest,
 	}
 }
 
@@ -74,6 +99,8 @@ func ReadConfig() *Config {
 		ServerType:         config.MustGetString("ServerType"),
 		ServerAddr:         config.MustGetString("ServerAddr"),
 		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
+		FuelPricePerUnit:  big.NewInt(int64(config.GetInt("FuelPricePerUnit", 1))),
+		MinFeePerRequest:  big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),
 	}
 }
 
@@ -90,13 +117,13 @@ type Executor interface {
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
 	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
-	LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, error)
+	LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error)
 	// Deposit processes a deposit
-	Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *apperrors.RequestFailure)
+	Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure)
 	// ProcessRequest processes a request and returns the new state
-	ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *apperrors.RequestFailure)
+	ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *big.Int, *apperrors.RequestFailure)
 	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *apperrors.RequestFailure)
+	GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *big.Int, *apperrors.RequestFailure)
 	// Close closes the WASM runtime
 	Close() error
 }

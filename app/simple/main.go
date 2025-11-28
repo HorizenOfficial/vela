@@ -11,8 +11,8 @@ import (
 
 //export load_module
 func load_module(appId int64) *byte {
-	stateBytes := app.LoadModule(appId)
-	return utils.StringToPtr(stateBytes)
+	result := app.LoadModule(appId)
+	return utils.SerializeAndWriteResult(result)
 }
 
 //export deposit
