@@ -3,33 +3,32 @@ package main_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/app/simple/app"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/testutil"
 	pes_wasm "github.com/horizen-pes/pkg/wasm"
 	"github.com/stretchr/testify/require"
-	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 var _ = []common.Withdrawal{}
 
 const (
 	wasmModulePath = "build/simple_app.wasm"
-
 )
 
-
 var (
-	appId = common.NewApplicationId(1)
+	appId             = common.NewApplicationId(1)
 	user1Address      = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000001")
 	user2Address      = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000002")
 	recipient1Address = ethCommon.HexToAddress("0xadd0000000000000000000000000000000000003")
-
 )
 
 // buildAndLoadWasmModule runs `make build` to compile and load the wasm module.
@@ -162,7 +161,6 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(events[0].Data, &eventData)
 	require.NoError(t, err)
 	t.Log("Event:\n", testutil.PrettyPrintJSON(eventData))
-
 }
 
 func TestSimpleAppIntegration_NullPayload(t *testing.T) {
@@ -259,7 +257,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, nonExistentUser, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "Account " + nonExistentUser.Hex() + " does not exist!")
+		require.Contains(t, err.Error(), "Account "+nonExistentUser.Hex()+" does not exist!")
 	})
 
 	t.Run("withdraw with missing instruction", func(t *testing.T) {
@@ -405,4 +403,82 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
+}
+
+func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
+	// Build and load the wasm module
+	wasmBytes := buildAndLoadWasmModule(t)
+
+	// Create a new wasmtime runtime with limited memory to make leaks surface faster.
+	runtime := pes_wasm.NewWasmtimeRuntime()
+	defer runtime.Close()
+
+	ctx := context.Background()
+
+	initialStateBytes, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	// Mutex to protect access to the shared WASM runtime instance
+	var runtimeMutex sync.Mutex
+
+	// Repeatedly make calls and check mem is ok
+	const numGoroutines = 5
+	const iterationsPerGoroutine = 40
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(goroutineIndex int) {
+			defer wg.Done()
+			stateBytes := initialStateBytes
+			for j := 0; j < iterationsPerGoroutine; j++ {
+				iterationIndex := goroutineIndex*iterationsPerGoroutine + j
+				depositAmount := big.NewInt(1)
+				userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%039d", iterationIndex))
+
+				runtimeMutex.Lock()
+				newStateBytes, _, err := runtime.Deposit(ctx, appId, userAddress, depositAmount, stateBytes, wasmBytes)
+				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
+				stateBytes = newStateBytes
+				runtimeMutex.Unlock()
+
+				// Process a withdraw request for the current user
+				withdrawAmount := big.NewInt(1)
+				withdrawInstruction := app.WithdrawInstruction{
+					To:     recipient1Address,
+					Amount: withdrawAmount,
+				}
+				withdrawPayload := app.PayloadInstructions{
+					Type:     "withdraw",
+					Withdraw: &withdrawInstruction,
+				}
+				withdrawPayloadBytes, ret := json.Marshal(withdrawPayload)
+				require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
+
+				runtimeMutex.Lock()
+				processStateBytes, _, _, err := runtime.ProcessRequest(ctx, appId, userAddress, withdrawPayloadBytes, stateBytes, wasmBytes)
+				require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
+				stateBytes = processStateBytes
+				runtimeMutex.Unlock()
+
+				// Generate deanonymization report
+				reportPayloadJSON := fmt.Sprintf(`{"tag":"memory_stress_report_%d"}`, iterationIndex)
+				reportPayloadBytes := []byte(reportPayloadJSON)
+				runtimeMutex.Lock()
+				_, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
+				require.Nil(t, err, "GenerateDeanonymizationReport failed at iteration %d", iterationIndex)
+				runtimeMutex.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// TODO -  The correct approach would be creating a new wasmtime.Instance for each concurrent operation.
+	// While the wasmtime.Store and compiled wasmtime.Module can be shared, the wasmtime.Instance must be unique per goroutine.
+	// We should:
+	// 1. Separate the compiled module from the instance. The ApplicationModule should only contain the compiled wasmtime.Module,
+	// not the wasmtime.Instance.
+	// 2. Instantiate on demand. The Deposit, ProcessRequest, and other execution functions should get the shared wasmtime.Module
+	// from the cache, and then create a brand new wasmtime.Instance for the duration of that specific function call
 }

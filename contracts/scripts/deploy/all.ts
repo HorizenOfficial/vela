@@ -17,13 +17,24 @@ async function deploy()  {
   console.log(`deploying all  contracts from ${deployerAddress}`)
   console.log(`(this address will be also the owner of the contracts)`)
 
-  const AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
-  const authorityRegistry = await AuthorityRegistry.deploy(deployerAddress);
-  await authorityRegistry.deploymentTransaction()!.wait();
-  var authorityRegistryAddr = await authorityRegistry.getAddress();
-  console.log(`AuthorityRegistry`)
-  console.log(`  contract address: ${authorityRegistryAddr}`);
+  // 1) DefaultAuthority
+  const DefaultAuthority = await ethers.getContractFactory("DefaultAuthority");
+  const defaultAuthority = await DefaultAuthority.deploy(deployerAddress);
+  await defaultAuthority.deploymentTransaction()!.wait();
+  const defaultAuthorityAddr = await defaultAuthority.getAddress();
+  console.log(`DefaultAuthority`);
+  console.log(`  contract address: ${defaultAuthorityAddr}`);
 
+  // 2) AuthorityRegistry (proxy) usando el default
+  const AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
+  const authorityRegistry = await AuthorityRegistry.deploy(deployerAddress, defaultAuthorityAddr);
+  await authorityRegistry.deploymentTransaction()!.wait();
+  const authorityRegistryAddr = await authorityRegistry.getAddress();
+  console.log(`AuthorityRegistry`);
+  console.log(`  contract address: ${authorityRegistryAddr}`);
+  console.log(`  default authority contract: ${defaultAuthorityAddr}`);
+
+  // 3) TeeAuthenticator
   const TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
   const teeAuthenticator = await TeeAuthenticator.deploy(deployerAddress, process.env.TEE_SIGNER!, process.env.TEE_PUB_SECP521R1!);
   await teeAuthenticator.deploymentTransaction()!.wait();
@@ -33,7 +44,7 @@ async function deploy()  {
   console.log(`  Tee signer address (executor address): ${process.env.TEE_SIGNER!}`);
   console.log(`  Tee PUB_SECP521R1 (executor P521 pub key): ${process.env.TEE_PUB_SECP521R1!}`);
 
-  //deploy 
+  // 4) ProcessorEndpoint
   const ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
   const processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticatorAddr, authorityRegistryAddr, process.env.UPDATE_STATUS_OPERATOR!, process.env.ADMIN!, process.env.MIN_FEE_PER_REQUEST!);
   await processorEndpoint.deploymentTransaction()!.wait();

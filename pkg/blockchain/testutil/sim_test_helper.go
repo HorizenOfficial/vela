@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/horizen-pes/pkg/blockchain/contracts/authority"
+	defaultauthority "github.com/horizen-pes/pkg/blockchain/contracts/defaultauthoritychecker"
 	"github.com/horizen-pes/pkg/blockchain/contracts/mocktee"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
@@ -34,6 +35,7 @@ type SimTestHelper struct {
 	ProcessorContractAddress ethCommon.Address
 	TeeSignerAddress         ethCommon.Address
 	AuthorityAddress         ethCommon.Address
+	DefaultAuthorityAddress  ethCommon.Address
 	Deployer                 *bind.TransactOpts
 	Submitter                *bind.TransactOpts
 	ManagerAccount           *bind.TransactOpts
@@ -100,9 +102,28 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	require.NoError(s.t, err)
 	fmt.Printf("Tee authenticator contract deployed at address 0x%x\n", s.TeeSignerAddress)
 
+	// 1) Deploy DefaultAuthority first
+	defaultAuthContract := *defaultauthority.NewDefaultAuthority()
+	defaultAuthInput := defaultAuthContract.PackConstructor(s.Deployer.From)
+
+	defaultDeployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&defaultauthority.DefaultAuthorityMetaData},
+		Inputs:    map[string][]byte{defaultauthority.DefaultAuthorityMetaData.ID: defaultAuthInput},
+	}
+
+	defaultDeployRes, err := bind.LinkAndDeploy(&defaultDeployParams, deployer)
+	require.NoError(s.t, err)
+
+	s.DefaultAuthorityAddress = defaultDeployRes.Addresses[defaultauthority.DefaultAuthorityMetaData.ID]
+	s.sim.Commit()
+
+	// 2) Deploy AuthorityRegistry with (owner, defaultAuthority)
 	authorityContract := *authority.NewAuthorityRegistry()
 
-	constructorInput := authorityContract.PackConstructor(s.Deployer.From)
+	constructorInput := authorityContract.PackConstructor(
+		s.Deployer.From,  // owner
+		s.DefaultAuthorityAddress,  // default authority contract
+	)
 
 	deployParams := bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&authority.AuthorityRegistryMetaData},
@@ -113,8 +134,8 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	require.NoError(s.t, err)
 
 	s.AuthorityAddress, tx = deployRes.Addresses[authority.AuthorityRegistryMetaData.ID], deployRes.Txs[authority.AuthorityRegistryMetaData.ID]
-
 	s.sim.Commit()
+
 
 	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
 	require.NoError(s.t, err)
@@ -322,14 +343,18 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 	return signedTx
 }
 
-func (s *SimTestHelper) AddAuthority(applicationId common.ApplicationIdType, newAuthority ethCommon.Address) *ethTypes.Transaction {
-	authorityContract := authority.NewAuthorityRegistry()
-	authorityInstance := authorityContract.Instance(s.Client(), s.AuthorityAddress)
+func (s *SimTestHelper) AddAuthority(applicationId *big.Int, newAuthority ethCommon.Address) *ethTypes.Transaction {
+    defaultAuthContract := defaultauthority.NewDefaultAuthority()
+    defaultAuthInstance := defaultAuthContract.Instance(s.Client(), s.DefaultAuthorityAddress)
 
-	tx, err := bind.Transact(authorityInstance, s.Deployer, authorityContract.PackAddAllowedAuthority(processorendpoint.ApplicationIdToBindingType(applicationId), newAuthority))
-	require.NoError(s.t, err, "failed to send transaction")
+    tx, err := bind.Transact(
+        defaultAuthInstance,
+        s.Deployer,
+        defaultAuthContract.PackAddAllowedAuthority(applicationId, newAuthority),
+    )
+    require.NoError(s.t, err, "failed to send transaction")
 
-	return tx
+    return tx
 }
 
 func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelper {

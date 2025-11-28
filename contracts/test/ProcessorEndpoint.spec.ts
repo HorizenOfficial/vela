@@ -20,15 +20,23 @@ describe('ProcessorEndpoint Test', function () {
         let pkLength = Number(await teeAuthenticator.PK_LENGTH());
         await teeAuthenticator.updateTee(signers[0], getRandomHexString(pkLength));
 
-        let AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
-        let authorityRegistry = await AuthorityRegistry.deploy(signers[0]);
+        const DefaultAuthority = await ethers.getContractFactory("DefaultAuthority");
+        const defaultAuthority = await DefaultAuthority.deploy(
+            await signers[0].getAddress()
+        );
+
+        const AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
+        const authorityRegistry = await AuthorityRegistry.deploy(
+            await signers[0].getAddress(),        // owner
+            await defaultAuthority.getAddress()   // defaultAuthorityContract
+        );
 
         let ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
         processorEndpoint = await ProcessorEndpoint.deploy(teeAuthenticator, authorityRegistry, signers[0], signers[1], MIN_FEE);
 
         protocolVersion = await processorEndpoint.PROTOCOL_VERSION();
         applicationId = await processorEndpoint.APPLICATION_ID();
-        await authorityRegistry.addAllowedAuthority(applicationId, signers[0]);
+        await defaultAuthority.addAllowedAuthority(applicationId, signers[0]);
 
     })
 
