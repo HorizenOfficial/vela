@@ -5,6 +5,7 @@ package executor
 import (
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"strconv"
 
@@ -24,6 +25,10 @@ type Config struct {
 	ServerPort uint32
 	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
 	KeySetRecoveryType int
+	// FuelPricePerUnit is the price of fuel per unit
+	FuelPricePerUnit *big.Int
+	// MinFeePerRquest is the minimum fee to be paid for each request
+	MinFeePerRequest *big.Int
 
 	// LogConsole is true if we want output on console
 	LogConsole bool
@@ -57,6 +62,25 @@ func DefaultConfig() *Config {
 		recType = 0
 	}
 
+	fuelPrice := big.NewInt(1)
+	minFeePerRequest := big.NewInt(5)
+
+	if fuelStr := os.Getenv("EXECUTOR_FUEL_PRICE_PER_UNIT"); fuelStr != "" {
+		if v, ok := new(big.Int).SetString(fuelStr, 10); ok && v.Sign() >= 0 {
+			fuelPrice = v
+		} else {
+			fmt.Printf("Failed to parse EXECUTOR_FUEL_PRICE_PER_UNIT=%q, using default %s\n", fuelStr, fuelPrice.String())
+		}
+	}
+
+	if minFeeStr := os.Getenv("EXECUTOR_MIN_FEE_PER_REQUEST"); minFeeStr != "" {
+		if v, ok := new(big.Int).SetString(minFeeStr, 10); ok && v.Sign() >= 0 {
+			minFeePerRequest = v
+		} else {
+			fmt.Printf("Failed to parse EXECUTOR_MIN_FEE_PER_REQUEST=%q, using default %s\n", minFeeStr, minFeePerRequest.String())
+		}
+	}
+
 	logConsole, err := strconv.ParseBool(os.Getenv("EXECUTOR_LOG_CONSOLE"))
 	if err != nil {
 		logConsole = true
@@ -66,7 +90,7 @@ func DefaultConfig() *Config {
 	if logConsoleLevel == "" {
 		logConsoleLevel = "info"
 	}
-
+	
 	logFileName := os.Getenv("EXECUTOR_LOG_FILE_NAME")
 	if logFileName == "" {
 		logFileName = ""
@@ -88,6 +112,8 @@ func DefaultConfig() *Config {
 		ServerType:         "tcp",
 		ServerAddr:         serverAddress + ":" + serverPort,
 		KeySetRecoveryType: recType,
+		FuelPricePerUnit:   fuelPrice,
+		MinFeePerRequest:   minFeePerRequest,
 		LogConsole:         logConsole,
 		LogConsoleLevel:    logConsoleLevel,
 		LogConsoleColor:    logConsoleColor,
@@ -114,6 +140,8 @@ func LoadConfigFromFile() (*Config, error) {
 		ServerCid:          config.GetUint32("ServerCid", 2),
 		ServerPort:         config.GetUint32("ServerPort", 54321),
 		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
+		FuelPricePerUnit:   big.NewInt(int64(config.GetInt("FuelPricePerUnit", 1))),
+		MinFeePerRequest:   big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),
 		LogConsole:         config.GetBool("LogConsole", true),
 		LogConsoleLevel:    config.GetString("LogConsoleLevel", "info"),
 		LogConsoleColor:    config.GetBool("LogColor", true),

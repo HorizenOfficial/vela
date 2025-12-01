@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
@@ -272,18 +273,34 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
+	var totalFuel *big.Int = big.NewInt(0)
 	if req.Value.Sign() > 0 {
-		newState, depEvents, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
+		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, failure
 		}
 		tempState = newState
 		depositEvents = depEvents
+		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		e.log.Info("Executor: Successfully processed deposit for request %s", req.RequestID)
+	}
+
+	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
+	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+		return nil, nil, apperrors.New(
+			apperrors.CodeInsufficientFuel,
+			fmt.Sprintf(
+				"insufficient fuel: required %s wei, provided %s wei",
+				applicationFee.String(),
+				req.MaxFeeValue.String(),
+			),
+			nil,
+		)
 	}
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
+
 	if req.RequestType == common.AssociateKey {
 		//request  of type associate key: the payload is not encrypted and contains the new key
 		e.log.Info("Associating new key - RequestID %s", req.RequestID)
@@ -292,6 +309,8 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		if err != nil {
 			return nil, nil, apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload", err)
 		}
+
+		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
 
 		appData.AddKey(req.Sender, *keyToAssociate)
 	} else {
@@ -304,15 +323,38 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqWithdrawals, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
+		newState, reqEvents, reqWithdrawals, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, failure
 		}
 		tempState = newState
 		events = reqEvents
 		withdrawals = reqWithdrawals
+		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	}
+
+	// Check if there is enough ETH to cover the fuel costs
+	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
+	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+		return nil, nil, apperrors.New(
+			apperrors.CodeInsufficientFuel,
+			fmt.Sprintf(
+				"insufficient fuel: required %s wei, provided %s wei",
+				applicationFee.String(),
+				req.MaxFeeValue.String(),
+			),
+			nil,
+		)
+	}
+
+	// Application fee must be minumum fee at least
+	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
+		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
+	}
+
+	// Compute refundAmount = req.MaxFeeValue - applicationFee
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
 
 	//set the updated state
 	appData.SetAppState(tempState)
@@ -344,12 +386,14 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
-		ApplicationID: req.ApplicationID,
-		RequestID:     req.RequestID,
-		PrevStateRoot: appState.StateRoot,
-		NewStateRoot:  newStateRoot,
-		Events:        encryptedEvents,
-		Withdrawals:   withdrawals,
+		ApplicationID:  req.ApplicationID,
+		RequestID:      req.RequestID,
+		PrevStateRoot:  appState.StateRoot,
+		NewStateRoot:   newStateRoot,
+		Events:         encryptedEvents,
+		Withdrawals:    withdrawals,
+		RefundAmount:   refundAmount,
+		ApplicationFee: applicationFee,
 	}
 
 	// Sign the update payload (produce attestation)
@@ -379,10 +423,32 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	wasmModule := req.Payload
 
 	// Load the module and get initial state
-	initialAppState, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
+	initialAppState, fuel, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
 	if err != nil {
 		return nil, nil, apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, "failed to load or get module", err)
 	}
+
+	// Check if there is enough ETH to cover the fuel costs // TODO make a helper function?
+	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
+	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+		return nil, nil, apperrors.New(
+			apperrors.CodeInsufficientFuel,
+			fmt.Sprintf(
+				"insufficient fuel: required %s wei, provided %s wei",
+				applicationFee.String(),
+				req.MaxFeeValue.String(),
+			),
+			nil,
+		)
+	}
+
+	// Application fee must be minumum fee at least
+	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
+		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
+	}
+
+	// Compute refundAmount = req.MaxFeeValue - applicationFee
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
 
 	initialAppData := appdata.NewAppData(initialAppState)
 
@@ -410,10 +476,12 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
-		ApplicationID: req.ApplicationID,
-		RequestID:     req.RequestID,
-		PrevStateRoot: [32]byte{}, // No previous state root for new applications
-		NewStateRoot:  initialAppDataRoot,
+		ApplicationID:  req.ApplicationID,
+		RequestID:      req.RequestID,
+		PrevStateRoot:  [32]byte{}, // No previous state root for new applications
+		NewStateRoot:   initialAppDataRoot,
+		RefundAmount:   refundAmount,
+		ApplicationFee: applicationFee,
 	}
 
 	// Sign the update payload (produce attestation)
@@ -444,10 +512,32 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	}
 
 	// Generate the report using the runtime
-	reportData, failure := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, decryptedPayload, appData.GetAppState(), wasmModule)
+	reportData, fuel, failure := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, decryptedPayload, appData.GetAppState(), wasmModule)
 	if failure != nil {
 		return nil, failure
 	}
+
+	// Check if there is enough ETH to cover the fuel costs
+	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
+	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+		return nil, apperrors.New(
+			apperrors.CodeInsufficientFuel,
+			fmt.Sprintf(
+				"insufficient fuel: required %s wei, provided %s wei",
+				applicationFee.String(),
+				req.MaxFeeValue.String(),
+			),
+			nil,
+		)
+	}
+
+	// Application fee must be minumum fee at least
+	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
+		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
+	}
+
+	// Compute refundAmount = req.MaxFeeValue - applicationFee
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
 
 	// Encrypt the report
 	encryptedReport, failure := e.encryptDeanonymizationReport(
@@ -467,6 +557,8 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		ApplicationID:   req.ApplicationID,
 		ReportID:        req.RequestID,
 		EncryptedReport: encryptedReport,
+		RefundAmount:    refundAmount,
+		ApplicationFee:  applicationFee,
 	}
 
 	e.log.Info("Executor: Successfully generated deanonymization report %s", req.RequestID)

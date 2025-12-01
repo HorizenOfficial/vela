@@ -5,27 +5,27 @@ import (
 	"fmt"
 	"math/big"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
-	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // AccountState represents the state of a user account
 type AccountState struct {
 	Address ethCommon.Address `json:"address"`
-	Balance *big.Int `json:"balance"`
+	Balance *big.Int          `json:"balance"`
 }
 
 // ApplicationInternalState represents the internal state of the application
 type ApplicationInternalState struct {
-	AppID    int64                   `json:"appId"`
+	AppID    int64                               `json:"appId"`
 	Accounts map[ethCommon.Address]*AccountState `json:"accounts"`
 }
 
 // WithdrawInstruction represents instructions for withdrawing funds
 type WithdrawInstruction struct {
 	To     ethCommon.Address `json:"to"`
-	Amount *big.Int `json:"amount"`
+	Amount *big.Int          `json:"amount"`
 }
 
 type CompareInstructions struct {
@@ -47,22 +47,27 @@ type ReportPayloadInstructions struct {
 
 // DeanonymizationReport represents the structure of the deanonymization report.
 type DeanonymizationReport struct {
-	Tag      string                   `json:"tag,omitempty"`
+	Tag      string                              `json:"tag,omitempty"`
 	Accounts map[ethCommon.Address]*AccountState `json:"accounts"`
 }
 
 // --- High-Level Application Logic ---
 
-func LoadModule(appId int64) []byte {
+func LoadModule(appId int64) wasmCommon.LoadModuleResult {
 	initialState := &ApplicationInternalState{
 		AppID:    appId,
 		Accounts: make(map[ethCommon.Address]*AccountState),
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
-		return []byte(wasmCommon.WasmSerializationError)
+		return wasmCommon.LoadModuleResult{
+			Error: fmt.Sprintf("failed to marshal initial state: %v", err),
+		}
 	}
-	return stateJSON
+	return wasmCommon.LoadModuleResult{
+		State: stateJSON,
+		Fuel:  big.NewInt(5),
+	}
 }
 
 func DepositFunds(senderPtr *ethCommon.Address, value *big.Int, stateJSON string) wasmCommon.DepositResult {
@@ -112,7 +117,7 @@ func DepositFunds(senderPtr *ethCommon.Address, value *big.Int, stateJSON string
 	if err != nil {
 		return wasmCommon.DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %+v", &currentState)}
 	}
-	return wasmCommon.DepositResult{State: newStateBytes, Events: events}
+	return wasmCommon.DepositResult{State: newStateBytes, Events: events, Fuel: big.NewInt(35)}
 }
 
 func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string) wasmCommon.ProcessResult {
@@ -120,14 +125,13 @@ func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string)
 	if senderPtr == nil {
 		return wasmCommon.ProcessResult{Error: "Sender address is nil"}
 	}
-	
+
 	sender := *senderPtr
-	
+
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return wasmCommon.ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
 	}
-
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
@@ -158,12 +162,14 @@ func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string)
 
 			var cmp = ""
 			switch targetBalance.Cmp(senderBalance) {
-				case -1: cmp = "richer than"
-				case 1: cmp = "poorer than"
-				case 0: cmp = "as wealthy as"
-			
-			}
+			case -1:
+				cmp = "richer than"
+			case 1:
+				cmp = "poorer than"
+			case 0:
+				cmp = "as wealthy as"
 
+			}
 
 			sentence := sender.Hex() + " is " + cmp + " " + targetAddress.Hex()
 
@@ -236,6 +242,7 @@ func ProcessRequest(senderPtr *ethCommon.Address, payloadJSON, stateJSON string)
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
+		Fuel:        big.NewInt(50),
 	}
 }
 
@@ -267,5 +274,5 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) wasmCommon.Dea
 	if err != nil {
 		return wasmCommon.DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %+v", report)}
 	}
-	return wasmCommon.DeanonymizationResult{Report: reportBytes}
+	return wasmCommon.DeanonymizationResult{Report: reportBytes, Fuel: big.NewInt(20)}
 }

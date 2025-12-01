@@ -19,8 +19,9 @@ contract FallbackFailure {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value
+        uint256 value,
+        uint256 maxFeeValue
     ) payable public {
-        processorEndpoint.submitRequest{value:value}(protocolVersion, applicationId, requestType, payload, value);
+        processorEndpoint.submitRequest{value:value + maxFeeValue}(protocolVersion, applicationId, requestType, payload, value, maxFeeValue);
     }
 }

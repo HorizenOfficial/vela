@@ -23,6 +23,8 @@ services:
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT
       - EXECUTOR_KEYSET_RECOVERY_TYPE
+      - EXECUTOR_FUEL_PRICE_PER_UNIT
+      - EXECUTOR_MIN_FEE_PER_REQUEST
     depends_on:
       - chain
   manager:
