@@ -26,13 +26,13 @@ type Executor interface {
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
 	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
-	LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, error)
+	LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error)
 	// Deposit processes a deposit
-	Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *apperrors.RequestFailure)
+	Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure)
 	// ProcessRequest processes a request and returns the new state
-	ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *apperrors.RequestFailure)
+	ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *big.Int, *apperrors.RequestFailure)
 	// GenerateDeanonymizationReport generates a deanonymization report
-	GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *apperrors.RequestFailure)
+	GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *big.Int, *apperrors.RequestFailure)
 	// Close closes the WASM runtime
 	Close() error
 }

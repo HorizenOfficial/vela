@@ -61,6 +61,7 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
+		MaxFeeValue:         big.NewInt(100),
 	}, nil
 }
 
@@ -88,6 +89,7 @@ func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requ
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         value,
+		MaxFeeValue:         big.NewInt(100),
 	}, nil
 }
 
@@ -126,6 +128,7 @@ func (c *CryptoHelper) CreateTransferRequest(appID common.ApplicationIdType, req
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0), // No deposit for transfer
+		MaxFeeValue:         big.NewInt(100),
 	}, nil
 }
 
@@ -164,6 +167,7 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, r
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0), // No deposit for withdrawal
+		MaxFeeValue:         big.NewInt(100),
 	}, nil
 }
 
@@ -189,6 +193,7 @@ func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdTy
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
+		MaxFeeValue:         big.NewInt(100),
 	}, nil
 }
 
@@ -243,6 +248,7 @@ func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requ
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
+		MaxFeeValue:         big.NewInt(100),
 	}, nil
 }
 
@@ -255,6 +261,8 @@ func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayl
 		NewStateRoot:  payload.NewStateRoot,
 		Events:        payload.Events,
 		Withdrawals:   payload.Withdrawals,
+		RefundAmount: payload.RefundAmount,
+		ApplicationFee: payload.ApplicationFee,
 	}
 
 	msgBuilder, err := executor.NewMsgToSignBuilder()

@@ -89,6 +89,8 @@ func TestCheckSignature(t *testing.T) {
 		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
 		Events:        events[:],
 		Withdrawals:   withdrawals,
+		RefundAmount: big.NewInt(100),
+		ApplicationFee: big.NewInt(100),
 	}
 
 	signature, err := executor.signUpdatePayload(updatePayload)

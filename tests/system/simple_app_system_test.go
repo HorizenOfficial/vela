@@ -82,6 +82,8 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		Payload:       wasmBytecode,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
+		Value:         big.NewInt(0),
+		MaxFeeValue:         big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -201,6 +203,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Payload:       wasmBytecode,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
+		Value:         big.NewInt(0),
+		MaxFeeValue:         big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -231,6 +235,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Payload:       wasmBytecode,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
+		Value:         big.NewInt(0),
+		MaxFeeValue:         big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 

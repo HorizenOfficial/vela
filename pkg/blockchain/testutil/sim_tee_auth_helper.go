@@ -57,6 +57,8 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 		payload.RequestID,
 		events,
 		withdrawals,
+		payload.RefundAmount,
+		payload.ApplicationFee,
 		payload.Signature,
 	)
 
