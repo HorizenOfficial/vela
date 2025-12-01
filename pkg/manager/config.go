@@ -54,27 +54,25 @@ type Config struct {
 	// (we may need to load it externally for GAS limitation)
 	InputWasmPath string
 
-	// LogKind is the type of logger to use (e.g., "zeronetwork", "tcplog")
+	// LogKind is the type of logger to use (e.g., "zeronetwork", "tcplog", "zerolog")
 	LogKind string
-
 	// LogConsole is true if we want output on console
 	LogConsole bool
 	// LogConsoleLevel is the level of logging for the console
 	LogConsoleLevel string
 	// LogConsoleColor is true if the log output should be colored
 	LogConsoleColor bool
-
 	// LogFileName is the path to the log file. An empty string means no output on log file
 	LogFileName string
 	// LogFileLevel is the level of logging for the console
 	LogFileLevel string
 
-	// RemoteLogAddress is the address for remote logging (e.g., "127.0.0.1:12345"). An empty string means no remote logging.
+	// RemoteLogAddress is the address for sending remote logging (e.g., "127.0.0.1:12345"). An empty string means no remote logging.
 	RemoteLogAddress string
 	// RemoteLogNetwork is the network for remote logging (e.g., "tcp", "vsock").
 	RemoteLogNetwork string
-	// NetworkLevel is the level of logging for the network
-	NetworkLevel string
+	// LogNetworkLevel is the level of logging for the network
+	LogNetworkLevel string
 
 	// LogServerTCPAddress is the address where the manager's log server will listen for incoming TCP log messages.
 	LogServerTCPAddress string
@@ -102,11 +100,6 @@ func DefaultConfig() *Config {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
 	}
 	inputWasmPath := os.Getenv("MANAGER_INPUT_WASMS")
-
-	logKind := os.Getenv("MANAGER_LOG_KIND")
-	if logKind == "" {
-		logKind = "zerolog"
-	}
 
 	nodeProtocol := os.Getenv("CHAIN_RPC_PROTOCOL")
 	if nodeProtocol == "" {
@@ -141,6 +134,11 @@ func DefaultConfig() *Config {
 	blockchainPollingInterval, err := strconv.ParseInt(blockchainPollingIntervalEnvVar, 10, 32)
 	if err != nil {
 		blockchainPollingInterval = 5
+	}
+
+	logKind := os.Getenv("MANAGER_LOG_KIND")
+	if logKind == "" {
+		logKind = "zerolog"
 	}
 
 	logConsole, err := strconv.ParseBool(os.Getenv("MANAGER_LOG_CONSOLE"))
@@ -209,7 +207,7 @@ func DefaultConfig() *Config {
 		LogFileLevel:        logFileLevel,
 		RemoteLogAddress:    remoteLogAddress,
 		RemoteLogNetwork:    remoteLogNetwork,
-		NetworkLevel:        networkLevel,
+		LogNetworkLevel:     networkLevel,
 		LogServerTCPAddress: logServerTCPAddress,
 	}
 }
@@ -255,7 +253,7 @@ func LoadConfigFromFile() (*Config, error) {
 		LogFileLevel:              config.GetString("LogFileLevel", "info"),
 		RemoteLogAddress:          config.GetString("LogRemoteAddress", ""),
 		RemoteLogNetwork:          config.GetString("LogRemoteNetwork", ""),
-		NetworkLevel:              config.GetString("LogNetworkLevel", "info"),
+		LogNetworkLevel:           config.GetString("LogNetworkLevel", "info"),
 		LogServerTCPAddress:       config.GetString("LogServerTCPAddress", ""),
 	}, nil
 }

@@ -30,17 +30,25 @@ type Config struct {
 	// MinFeePerRquest is the minimum fee to be paid for each request
 	MinFeePerRequest *big.Int
 
+	// LogKind is the type of logger to use (e.g., "zeronetwork", "tcplog", "zerolog")
+	LogKind string
 	// LogConsole is true if we want output on console
 	LogConsole bool
 	// LogConsoleLevel is the level of logging for the console
 	LogConsoleLevel string
 	// LogConsoleColor is true if the log output should be colored
 	LogConsoleColor bool
-
 	// LogFileName is the path to the log file. An empty string means no output on log file
 	LogFileName string
 	// LogFIleLevel is the level of logging for the console
 	LogFileLevel string
+
+	// RemoteLogAddress is the address for sending remote logging (e.g., "127.0.0.1:12345"). An empty string means no remote logging.
+	RemoteLogAddress string
+	// RemoteLogNetwork is the network for remote logging (e.g., "tcp", "vsock").
+	RemoteLogNetwork string
+	// LogNetworkLevel is the level of logging for the network
+	LogNetworkLevel string
 }
 
 const confFileName = "executor.conf"
@@ -81,6 +89,11 @@ func DefaultConfig() *Config {
 		}
 	}
 
+	logKind := os.Getenv("EXECUTOR_LOG_KIND")
+	if logKind == "" {
+		logKind = "zeronetwork"
+	}
+
 	logConsole, err := strconv.ParseBool(os.Getenv("EXECUTOR_LOG_CONSOLE"))
 	if err != nil {
 		logConsole = true
@@ -90,7 +103,7 @@ func DefaultConfig() *Config {
 	if logConsoleLevel == "" {
 		logConsoleLevel = "info"
 	}
-	
+
 	logFileName := os.Getenv("EXECUTOR_LOG_FILE_NAME")
 	if logFileName == "" {
 		logFileName = ""
@@ -108,17 +121,27 @@ func DefaultConfig() *Config {
 		logConsoleColor = false
 	}
 
+	remoteLogAddress := os.Getenv("EXECUTOR_LOG_REMOTE_ADDRESS")
+	remoteLogNetwork := os.Getenv("EXECUTOR_LOG_REMOTE_NETWORK")
+	networkLevel := os.Getenv("EXECUTOR_LOG_NETWORK_LEVEL")
+	if networkLevel == "" {
+		networkLevel = "info"
+	}
 	return &Config{
 		ServerType:         "tcp",
 		ServerAddr:         serverAddress + ":" + serverPort,
 		KeySetRecoveryType: recType,
 		FuelPricePerUnit:   fuelPrice,
 		MinFeePerRequest:   minFeePerRequest,
+		LogKind:            logKind,
 		LogConsole:         logConsole,
 		LogConsoleLevel:    logConsoleLevel,
 		LogConsoleColor:    logConsoleColor,
 		LogFileName:        logFileName,
 		LogFileLevel:       logFileLevel,
+		RemoteLogAddress:   remoteLogAddress,
+		RemoteLogNetwork:   remoteLogNetwork,
+		LogNetworkLevel:    networkLevel,
 	}
 }
 
@@ -142,10 +165,14 @@ func LoadConfigFromFile() (*Config, error) {
 		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
 		FuelPricePerUnit:   big.NewInt(int64(config.GetInt("FuelPricePerUnit", 1))),
 		MinFeePerRequest:   big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),
+		LogKind:            config.GetString("LogKind", "zeronetwork"),
 		LogConsole:         config.GetBool("LogConsole", true),
 		LogConsoleLevel:    config.GetString("LogConsoleLevel", "info"),
 		LogConsoleColor:    config.GetBool("LogColor", true),
 		LogFileName:        config.GetString("LogFileName", ""),
 		LogFileLevel:       config.GetString("LogFileLevel", "info"),
+		RemoteLogAddress:   config.GetString("RemoteLogAddress", ""),
+		RemoteLogNetwork:   config.GetString("LogRemoteNetwork", ""),
+		LogNetworkLevel:    config.GetString("LogNetworkLevel", "info"),
 	}, nil
 }
