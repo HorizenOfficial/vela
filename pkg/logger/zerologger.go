@@ -3,12 +3,14 @@ package logger
 import (
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 )
 
 type ZeroLogger struct {
+	mu      sync.RWMutex
 	logger  zerolog.Logger
 	logFile *os.File
 }
@@ -63,13 +65,52 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 	return &ZeroLogger{logger: logger, logFile: logFile}
 }
 
-func (z *ZeroLogger) Trace(msg string, args ...any) { z.logger.Trace().Msgf(msg, args...) }
-func (z *ZeroLogger) Debug(msg string, args ...any) { z.logger.Debug().Msgf(msg, args...) }
-func (z *ZeroLogger) Info(msg string, args ...any)  { z.logger.Info().Msgf(msg, args...) }
-func (z *ZeroLogger) Warn(msg string, args ...any)  { z.logger.Warn().Msgf(msg, args...) }
-func (z *ZeroLogger) Error(msg string, args ...any) { z.logger.Error().Msgf(msg, args...) }
-func (z *ZeroLogger) Fatal(msg string, args ...any) { z.logger.Fatal().Stack().Msgf(msg, args...) }
-func (z *ZeroLogger) Panic(msg string, args ...any) { z.logger.Panic().Stack().Msgf(msg, args...) }
+func (z *ZeroLogger) SetLevel(level string) error {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+	lvl, err := zerolog.ParseLevel(level)
+	if err != nil {
+		return err
+	}
+	z.logger = z.logger.Level(lvl)
+	return nil
+}
+
+func (z *ZeroLogger) Trace(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Trace().Msgf(msg, args...)
+}
+func (z *ZeroLogger) Debug(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Debug().Msgf(msg, args...)
+}
+func (z *ZeroLogger) Info(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Info().Msgf(msg, args...)
+}
+func (z *ZeroLogger) Warn(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Warn().Msgf(msg, args...)
+}
+func (z *ZeroLogger) Error(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Error().Msgf(msg, args...)
+}
+func (z *ZeroLogger) Fatal(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Fatal().Stack().Msgf(msg, args...)
+}
+func (z *ZeroLogger) Panic(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Panic().Stack().Msgf(msg, args...)
+}
 func (z *ZeroLogger) Close() error {
 	if z.logFile != nil {
 		return z.logFile.Close()

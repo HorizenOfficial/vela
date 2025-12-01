@@ -5,11 +5,13 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
 // TCPLogger implements the Logger interface for sending logs over TCP.
 type TCPLogger struct {
+	mu             sync.RWMutex
 	conn           net.Conn
 	fallbackLogger Logger // Used for internal errors of the TCPLogger
 	logLevel       map[string]int
@@ -54,8 +56,22 @@ func NewTCPLogger(cfg *Config) *TCPLogger {
 	}
 }
 
+func (t *TCPLogger) SetLevel(level string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if l, ok := t.logLevel[level]; ok {
+		t.minLevel = l
+		return nil
+	}
+	return fmt.Errorf("invalid log level: %s", level)
+}
+
 func (t *TCPLogger) sendLog(level string, msg string, args ...any) {
-	if t.logLevel[level] < t.minLevel {
+	t.mu.RLock()
+	minLevel := t.minLevel
+	t.mu.RUnlock()
+
+	if t.logLevel[level] < minLevel {
 		return
 	}
 

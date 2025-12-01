@@ -189,6 +189,7 @@ func (w *AsyncWriter) Close() error {
 
 // ZeroNetworkLogger implements the Logger interface.
 type ZeroNetworkLogger struct {
+	mu     sync.RWMutex
 	logger *zerolog.Logger
 	writer *AsyncWriter
 }
@@ -225,14 +226,53 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	}
 }
 
+func (z *ZeroNetworkLogger) SetLevel(level string) error {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+	lvl, err := zerolog.ParseLevel(level)
+	if err != nil {
+		return err
+	}
+	*z.logger = z.logger.Level(lvl)
+	return nil
+}
+
 // Logging methods just pass through to the underlying zerolog instance
-func (z *ZeroNetworkLogger) Trace(msg string, args ...any) { z.logger.Trace().Msgf(msg, args...) }
-func (z *ZeroNetworkLogger) Debug(msg string, args ...any) { z.logger.Debug().Msgf(msg, args...) }
-func (z *ZeroNetworkLogger) Info(msg string, args ...any)  { z.logger.Info().Msgf(msg, args...) }
-func (z *ZeroNetworkLogger) Warn(msg string, args ...any)  { z.logger.Warn().Msgf(msg, args...) }
-func (z *ZeroNetworkLogger) Error(msg string, args ...any) { z.logger.Error().Msgf(msg, args...) }
-func (z *ZeroNetworkLogger) Fatal(msg string, args ...any) { z.logger.Fatal().Msgf(msg, args...) }
-func (z *ZeroNetworkLogger) Panic(msg string, args ...any) { z.logger.Panic().Msgf(msg, args...) }
+func (z *ZeroNetworkLogger) Trace(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Trace().Msgf(msg, args...)
+}
+func (z *ZeroNetworkLogger) Debug(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Debug().Msgf(msg, args...)
+}
+func (z *ZeroNetworkLogger) Info(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Info().Msgf(msg, args...)
+}
+func (z *ZeroNetworkLogger) Warn(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Warn().Msgf(msg, args...)
+}
+func (z *ZeroNetworkLogger) Error(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Error().Msgf(msg, args...)
+}
+func (z *ZeroNetworkLogger) Fatal(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Fatal().Msgf(msg, args...)
+}
+func (z *ZeroNetworkLogger) Panic(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	z.logger.Panic().Msgf(msg, args...)
+}
 
 // Close safely closes the network connection
 func (z *ZeroNetworkLogger) Close() error {
