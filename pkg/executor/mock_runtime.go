@@ -44,16 +44,18 @@ type testPayloadInstructions struct {
 
 // MockRuntime implements a simple mock runtime that mimics a wasm application
 // It supports deposits, fund transfers, withdrawals, and events with serialized state persistence
-type MockRuntime struct{}
+type MockRuntime struct{
+	fuel *big.Int
+}
 
 // NewMockRuntime creates a new mock runtime instance
 func NewMockRuntime() *MockRuntime {
 	log.Println("Initializing mock runtime")
-	return &MockRuntime{}
+	return &MockRuntime{fuel: big.NewInt(10)}
 }
 
 // LoadModule loads a WASM module and returns initial state
-func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, error) {
+func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
 	log.Printf("Mock Runtime: Loading mock runtime module for application %d (wasm size: %d bytes)", appId, len(wasm))
 
 
@@ -64,19 +66,19 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationId
 	}
 	stateBytes, err := json.Marshal(initialState)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal initial state: %w", err)
+		return nil, r.fuel, fmt.Errorf("failed to marshal initial state: %w", err)
 	}
 
 	log.Printf("Mock Runtime: Successfully loaded mock runtime module for application %d", appId)
-	return stateBytes, nil
+	return stateBytes, r.fuel, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *apperrors.RequestFailure) {
+func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
 	log.Printf("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, value, sender)
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
-		return nil, nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state", err)
+		return nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state", err)
 	}
 
 	accounts := currentState.Accounts
@@ -102,21 +104,21 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 
 	newSerializedState, err := json.Marshal(currentState)
 	if err != nil {
-		return nil, nil, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state", err)
+		return nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state", err)
 	}
 
 	log.Printf("Mock Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(events))
-	return newSerializedState, events, nil
+	return newSerializedState, events, r.fuel, nil
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *apperrors.RequestFailure) {
+func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *big.Int, *apperrors.RequestFailure) {
 	log.Printf("Mock Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
-		return nil, nil, nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state", err)
+		return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state", err)
 	}
 
 	accounts := currentState.Accounts
@@ -128,7 +130,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 	if len(payload) > 0 {
 		var instructions testPayloadInstructions
 		if err := json.Unmarshal(payload, &instructions); err != nil {
-			return nil, nil, nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal payload instructions", err)
+			return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal payload instructions", err)
 		}
 
 		typ := instructions.Type
@@ -136,7 +138,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 		case "transfer":
 			transfer := instructions.Transfer
 			if transfer == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "transfer instruction is nil", nil)
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, "transfer instruction is nil", nil)
 			}
 			to := transfer.To
 			amount := transfer.Amount
@@ -144,10 +146,10 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			// Ensure sender exists and has balance
 			senderAcct := accounts[sender]
 			if senderAcct == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
 			if senderAcct.Balance.Cmp(amount) < 0 {
-				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s has insufficient balance", sender), nil)
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s has insufficient balance", sender), nil)
 			}
 
 			// Ensure recipient account
@@ -175,17 +177,17 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 		case "withdraw":
 			withdraw := instructions.Withdraw
 			if withdraw == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "withdraw instruction is nil", nil)
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, "withdraw instruction is nil", nil)
 			}
 			to := withdraw.To
 			amount := withdraw.Amount
 
 			senderAcct := accounts[sender]
 			if senderAcct == nil {
-				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
 			if senderAcct.Balance.Cmp(amount) < 0 {
-				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "request function execution failed", nil)
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, "request function execution failed", nil)
 			}
 
 			// Execute withdrawal
@@ -203,26 +205,26 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			events = append(events, withdrawEvent)
 
 		default:
-			return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("unknown instruction type: %s", typ), nil)
+			return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("unknown instruction type: %s", typ), nil)
 		}
 	}
 
 	newStateBytes, err := json.Marshal(currentState)
 	if err != nil {
-		return nil, nil, nil, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state", err)
+		return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state", err)
 	}
 
 	log.Printf("Mock Runtime: Successfully processed request for application %d, generated %d events and %d withdrawals", appId, len(events), len(withdrawals))
-	return newStateBytes, events, withdrawals, nil
+	return newStateBytes, events, withdrawals, r.fuel, nil
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *apperrors.RequestFailure) {
+func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *big.Int, *apperrors.RequestFailure) {
 	log.Printf("Mock Runtime: Generating deanonymization report for application %d", appId)
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
-		return nil, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state for deanonymization", err)
+		return nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state for deanonymization", err)
 	}
 
 	report := map[string]interface{}{
@@ -232,11 +234,11 @@ func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId c
 
 	reportBytes, err := json.Marshal(report)
 	if err != nil {
-		return nil, apperrors.New(apperrors.CodeJsonMarshalError, "failed to marshal deanonymization report", err)
+		return nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to marshal deanonymization report", err)
 	}
 
 	log.Printf("Mock Runtime: Successfully generated deanonymization report for application %d", appId)
-	return reportBytes, nil
+	return reportBytes, r.fuel, nil
 }
 
 // Close closes the mock runtime and cleans up resources

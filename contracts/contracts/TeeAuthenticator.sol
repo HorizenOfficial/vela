@@ -41,6 +41,8 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         bytes32 processedRequestId,
         bytes[] memory events,
         Structs.WithdrawalRequest[] memory withdrawalRequests,
+        uint256 refundAmount, 
+        uint256 applicationFee,
         bytes calldata signature
     ) external view override returns (bool) {
         if(teeSigner == address(0) || pubSecp521r1.length != PK_LENGTH) revert TeeIsNotSet();
@@ -54,7 +56,9 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
             newStateRoot,
             processedRequestId,
             eventsHash,
-            withdrawalRequestsHash
+            withdrawalRequestsHash,
+            refundAmount,
+            applicationFee
         ));
 
         address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);
