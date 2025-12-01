@@ -57,7 +57,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 
 	appId := common.NewApplicationId(123)
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
-	value := big.NewInt(1000000000000000000)
+	depositAmount := big.NewInt(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -71,7 +71,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 
 	// Make a deposit
 	ctx := context.Background()
-	newState, events, fuel, failure := runtime.Deposit(ctx, appId, sender, value, serializedState, wasmBytes)
+	newState, events, fuel, failure := runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("ProcessRequest failed: %v", failure)
 	}
@@ -99,8 +99,8 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 		t.Fatal("Expected sender account to exist")
 	}
 
-	if state.Accounts[sender].Balance.Cmp(value) != 0 {
-		t.Errorf("Expected balance %d, got %d", value, state.Accounts[sender].Balance)
+	if state.Accounts[sender].Balance.Cmp(depositAmount) != 0 {
+		t.Errorf("Expected balance %d, got %d", depositAmount, state.Accounts[sender].Balance)
 	}
 
 	if state.Nonce != 1 {
@@ -336,7 +336,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 	sender1 := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	sender2 := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	value := big.NewInt(1000000000000000000) // 1 ETH
+	depositAmount := big.NewInt(1000000000000000000) // 1 ETH
 
 	// Load module first
 	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
@@ -346,13 +346,13 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 
 	// Deposit for sender1
 	ctx := context.Background()
-	serializedState, _, _, failure := runtime.Deposit(ctx, appId, sender1, value, serializedState, wasmBytes)
+	serializedState, _, _, failure := runtime.Deposit(ctx, appId, sender1, depositAmount, serializedState, wasmBytes)
 	if failure != nil { 
 		t.Fatalf("First deposit failed: %v", failure)
 	}
 
 	// Deposit for sender2
-	serializedState, _, _, failure = runtime.Deposit(ctx, appId, sender2, value, serializedState, wasmBytes)
+	serializedState, _, _, failure = runtime.Deposit(ctx, appId, sender2, depositAmount, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Second deposit failed: %v", failure)
 	}

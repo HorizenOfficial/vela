@@ -40,7 +40,6 @@ const (
 	AssociateKey
 )
 
-
 func (rt RequestType) String() string {
 	switch rt {
 	case Deploy:
@@ -56,13 +55,11 @@ func (rt RequestType) String() string {
 	}
 }
 
-
 type RequestIdType [32]byte
 
 func (rt RequestIdType) String() string {
 	return hex.EncodeToString(rt[:])
 }
-
 
 // Request represents a request to the system
 type Request struct {
@@ -81,8 +78,8 @@ type Request struct {
 	Timestamp *big.Int `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
-	// Value is the optional deposit value in WEI
-	Value *big.Int `json:"value"`
+	// DepositAmount is the optional deposit value in WEI
+	DepositAmount *big.Int `json:"depositAmount"`
 	// MaxFeeValue is the maximum fee value reserved for fee payment
 	MaxFeeValue *big.Int `json:"maxFeeValue"`
 }
@@ -161,8 +158,8 @@ type DeanonymizationReport struct {
 // DecryptedReport represents a decrypted deanonymization report
 type DecryptedReport struct {
 	ApplicationID   ApplicationIdType `json:"applicationId"`
-	RequestID       RequestIdType `json:"requestId"`
-	ReportDataBytes []byte `json:"reportDataBytes"`
+	RequestID       RequestIdType     `json:"requestId"`
+	ReportDataBytes []byte            `json:"reportDataBytes"`
 }
 
 // PlainEvent represents an emitted event before encryption.

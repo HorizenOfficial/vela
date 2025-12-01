@@ -392,8 +392,8 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		Payload:       bytecode,
 		Sender:        userAddress,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		DepositAmount: big.NewInt(0),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)

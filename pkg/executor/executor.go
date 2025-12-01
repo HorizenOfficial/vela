@@ -271,9 +271,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
-	var totalFuel *big.Int = big.NewInt(0);
-	if req.Value.Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
+	var totalFuel *big.Int = big.NewInt(0)
+	if req.DepositAmount.Sign() > 0 {
+		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount, tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, failure
 		}
@@ -298,7 +298,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
-	
+
 	if req.RequestType == common.AssociateKey {
 		//request  of type associate key: the payload is not encrypted and contains the new key
 		log.Printf("Associating new key - RequestID %s", req.RequestID)
@@ -384,13 +384,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
-		ApplicationID: req.ApplicationID,
-		RequestID:     req.RequestID,
-		PrevStateRoot: appState.StateRoot,
-		NewStateRoot:  newStateRoot,
-		Events:        encryptedEvents,
-		Withdrawals:   withdrawals,
-		RefundAmount: refundAmount,
+		ApplicationID:  req.ApplicationID,
+		RequestID:      req.RequestID,
+		PrevStateRoot:  appState.StateRoot,
+		NewStateRoot:   newStateRoot,
+		Events:         encryptedEvents,
+		Withdrawals:    withdrawals,
+		RefundAmount:   refundAmount,
 		ApplicationFee: applicationFee,
 	}
 
@@ -474,11 +474,11 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
-		ApplicationID: req.ApplicationID,
-		RequestID:     req.RequestID,
-		PrevStateRoot: [32]byte{}, // No previous state root for new applications
-		NewStateRoot:  initialAppDataRoot,
-		RefundAmount: refundAmount,
+		ApplicationID:  req.ApplicationID,
+		RequestID:      req.RequestID,
+		PrevStateRoot:  [32]byte{}, // No previous state root for new applications
+		NewStateRoot:   initialAppDataRoot,
+		RefundAmount:   refundAmount,
 		ApplicationFee: applicationFee,
 	}
 
@@ -555,8 +555,8 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		ApplicationID:   req.ApplicationID,
 		ReportID:        req.RequestID,
 		EncryptedReport: encryptedReport,
-		RefundAmount: refundAmount,
-		ApplicationFee: applicationFee,
+		RefundAmount:    refundAmount,
+		ApplicationFee:  applicationFee,
 	}
 
 	log.Printf("Executor: Successfully generated deanonymization report %s", req.RequestID)
@@ -621,7 +621,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	for i, event := range events {
 		// retrieve user Secp521r1_PubKey
 		userKey, exists := keyStore[event.UserID]
-		
+
 		if !exists {
 			return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, fmt.Sprintf("no Secp521r1_PubKey found for user %s", event.UserID), nil)
 		}
@@ -656,9 +656,9 @@ func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId common.Ap
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct of the reportData.
 	// therefore we decide to add the raw bytes into a separate field
-	data := common.DecryptedReport {
-		ApplicationID: applicationId,
-		RequestID: requestId,
+	data := common.DecryptedReport{
+		ApplicationID:   applicationId,
+		RequestID:       requestId,
 		ReportDataBytes: reportData,
 	}
 

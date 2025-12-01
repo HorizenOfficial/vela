@@ -73,8 +73,8 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationId
 	return stateBytes, r.fuel, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	log.Printf("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, value, sender)
+func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+	log.Printf("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, depositAmount, sender)
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
@@ -85,11 +85,11 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 	nonce := currentState.Nonce
 
 	var events []common.PlainEvent
-	if value.Sign() == 1 {
+	if depositAmount.Sign() == 1 {
 		// Ensure sender account exists
 		acct := ensureAccount(accounts, sender)
 		// Update balance
-		balance := new(big.Int).Add(acct.Balance, value)
+		balance := new(big.Int).Add(acct.Balance, depositAmount)
 		acct.Balance = balance
 		// Increment nonce
 		nonce++
@@ -97,7 +97,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 
 		depositEvent := common.PlainEvent{
 			UserID: sender,
-			Data:   []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, value, balance, nonce)),
+			Data:   []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, depositAmount, balance, nonce)),
 		}
 		events = append(events, depositEvent)
 	}

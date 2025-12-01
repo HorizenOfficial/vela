@@ -309,14 +309,14 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 // -----------------------------
 
 // Deposit processes a deposit
-func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	log.Printf("Wasmtime Runtime: Processing deposit for application %d (value: %v wei for sender: %v)", appId, value, sender)
+func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+	log.Printf("Wasmtime Runtime: Processing deposit for application %d (value: %v wei for sender: %v)", appId, depositAmount, sender)
 
-	if value == nil {
+	if depositAmount == nil {
 		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be nil", nil)
 	}
 
-	if value.Sign() < 0 {
+	if depositAmount.Sign() < 0 {
 		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be negative", nil)
 	}
 
@@ -353,7 +353,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, statePtr, int32(len(state))) }()
 	}
 
-	valueBytes := value.Bytes()
+	valueBytes := depositAmount.Bytes()
 	valuePtr, err := r.writeToMemory(appModule, valueBytes)
 	if err != nil {
 		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, "failed to write value to memory", err)
