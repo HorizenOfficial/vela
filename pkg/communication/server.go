@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -452,7 +451,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 			Data: failure.ToDTO(),
 		}
 		if err := c.sendMessage(errorResponse); err != nil {
-			log.Printf("Server: Failed to send error response: %v", err)
+			c.log.Error("Server: Failed to send error response: %v", err)
 		}
 		return
 	}

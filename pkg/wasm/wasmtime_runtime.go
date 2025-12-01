@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"math/big"
 	"sync"
@@ -555,7 +554,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 		if appModule.deallocate != nil {
 			if _, err := appModule.deallocate.Call(appModule.store, ptr, int32(4)); err != nil {
 				// Log the error but don't fail the operation since we have the data
-				log.Printf("Wasmtime Runtime: failed to deallocate wasm memory for empty result: %v", err)
+				r.log.Warn("Wasmtime Runtime: failed to deallocate wasm memory for empty result: %v", err)
 			}
 		}
 		return nil, fmt.Errorf("empty result from wasm module")
@@ -581,7 +580,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	if appModule.deallocate != nil {
 		if _, err := appModule.deallocate.Call(appModule.store, ptr, int32(totalLen)); err != nil {
 			// Log the error but don't fail the operation since we have the data
-			log.Printf("Wasmtime Runtime: failed to deallocate wasm memory for result: %v", err)
+			r.log.Warn("Wasmtime Runtime: failed to deallocate wasm memory for result: %v", err)
 		}
 	}
 
