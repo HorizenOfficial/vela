@@ -3,12 +3,13 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
 
 ## Instructions:
 
-1)  To build locally the docker images needed by the docker compose run *from the project root folder* the following commands:
+1)  (Skip this step if you want to use the Docker hub official images)
+    To build locally the docker images needed by the docker compose run *from the project root folder* the following commands:
 
     ```
-    docker build -t horizen-pes-executor -f dockerfiles/executor/Dockerfile . 
-    docker build -t horizen-pes-manager -f dockerfiles/manager/Dockerfile . 
-    docker build -t horizen-pes-chain -f dockerfiles/chain/Dockerfile . 
+    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile . 
+    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile . 
+    docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile . 
     ```
 
 2) Switch to "dockerfiles" folder
@@ -28,7 +29,7 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
 
 ## Additional info:
 
-- the manager database and the chain data is persisted in two docker volumes (horizen-pes-manager-data and horizen-pes-chain-data).<br>
+- the manager database and the chain data is persisted in two docker volumes (horizen-cce-manager-data and horizen-cce-chain-data).<br>
   To start from scratch, delete the volumes.
 - to connect to the chain from Metamask, use the following parameters:
    - rpc url: http://localhost:8545
