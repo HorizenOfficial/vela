@@ -16,6 +16,7 @@ services:
     image: horizen/cce-executor
     container_name: horizen-cce-executor
     restart: always
+    privileged: true
     devices:
       - /dev/vsock:/dev/vsock
     networks:
