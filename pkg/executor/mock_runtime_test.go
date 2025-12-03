@@ -14,36 +14,6 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
-/*
-// Local mirror types used in tests to avoid importing wasm-go/app
-type testAccountState struct {
-	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
-}
-
-type testApplicationInternalState struct {
-	AppID    string                       `json:"appId"`
-	Accounts map[string]*testAccountState `json:"accounts"`
-	Nonce    uint64                       `json:"nonce"`
-}
-
-type testTransferInstruction struct {
-	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
-}
-
-type testWithdrawInstruction struct {
-	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
-}
-
-type testPayloadInstructions struct {
-	Type     string                   `json:"type"`
-	Transfer *testTransferInstruction `json:"transfer,omitempty"`
-	Withdraw *testWithdrawInstruction `json:"withdraw,omitempty"`
-}
-*/
-
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {

@@ -90,7 +90,7 @@ func DefaultConfig() *Config {
 	if logConsoleLevel == "" {
 		logConsoleLevel = "info"
 	}
-	
+
 	logFileName := os.Getenv("EXECUTOR_LOG_FILE_NAME")
 	if logFileName == "" {
 		logFileName = ""
@@ -144,7 +144,7 @@ func LoadConfigFromFile() (*Config, error) {
 		MinFeePerRequest:   big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),
 		LogConsole:         config.GetBool("LogConsole", true),
 		LogConsoleLevel:    config.GetString("LogConsoleLevel", "info"),
-		LogConsoleColor:    config.GetBool("LogColor", true),
+		LogConsoleColor:    config.GetBool("LogConsoleColor", true),
 		LogFileName:        config.GetString("LogFileName", ""),
 		LogFileLevel:       config.GetString("LogFileLevel", "info"),
 	}, nil

@@ -24,20 +24,32 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 
 	var logFile *os.File
 	if cfg.FileName != "" {
-		var err error
+		fileLevel, err := zerolog.ParseLevel(cfg.FileLevel)
+		if err != nil {
+			fileLevel = zerolog.InfoLevel
+		}
+
 		logFile, err = os.OpenFile(cfg.FileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
 		if err != nil {
 			panic(err)
 		}
-		writers = append(writers, logFile)
+
+		fileLogger := zerolog.New(logFile).With().Logger().Level(fileLevel)
+		writers = append(writers, fileLogger)
 	}
 
 	if cfg.Console {
-		writers = append(writers, zerolog.ConsoleWriter{
+		consoleLevel, err := zerolog.ParseLevel(cfg.ConsoleLevel)
+		if err != nil {
+			consoleLevel = zerolog.InfoLevel
+		}
+		consoleWriter := zerolog.ConsoleWriter{
 			Out:        os.Stderr,
 			TimeFormat: time.RFC3339,
 			NoColor:    !cfg.ConsoleColor,
-		})
+		}
+		consoleLogger := zerolog.New(consoleWriter).With().Logger().Level(consoleLevel)
+		writers = append(writers, consoleLogger)
 	}
 
 	var writer io.Writer
@@ -48,17 +60,12 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 		writer = os.Stderr
 	}
 
-	logLevel, err := zerolog.ParseLevel(cfg.ConsoleLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
-	}
-
 	logger := zerolog.New(writer).
 		With().
 		Timestamp().
 		Caller(). // see init() func above
 		Logger().
-		Level(logLevel)
+		Level(zerolog.TraceLevel) // Set global level to trace, filtering is done by individual writers
 
 	return &ZeroLogger{logger: logger, logFile: logFile}
 }

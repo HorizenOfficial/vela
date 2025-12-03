@@ -89,7 +89,7 @@ func main() {
 
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
-		Kind:                config.LogKind,
+		Kind:         config.LogKind,
 		Console:      config.LogConsole,
 		ConsoleLevel: config.LogConsoleLevel,
 		ConsoleColor: config.LogConsoleColor,
@@ -163,6 +163,7 @@ func main() {
 	// Start the manager
 	if err := secureProcessorManager.Start(ctx); err != nil {
 		log.Error("Failed to start manager: %v", err)
+		return
 	}
 	log.Info("Manager started")
 
