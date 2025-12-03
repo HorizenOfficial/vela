@@ -59,6 +59,24 @@ services:
     depends_on:
       - executor 
       - chain
+  authorityservice:
+    image: horizen/cce-authorityservice
+    container_name: horizen-cce-authorityservice
+    restart: always
+    environment:
+      - AUTHORITY_SERVICE_LISTEN_ADDRESS
+      - AUTHORITY_SERVICE_CHAIN_ID
+      - AUTHORITY_SERVICE_NONCE_TTL
+      - AUTHORITY_SERVICE_DATA_PATH=${MANAGER_DATA_FOLDER:-/data}
+    networks:
+      pes_network:
+        ipv4_address: ${AUTHORITY_SERVICE_IP_ADDRESS}
+      inet:
+    volumes:
+      - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
+    depends_on:
+      - chain
+      - manager
   chain:
     image: horizen/cce-chain
     container_name: horizen-cce-chain
@@ -74,4 +92,3 @@ services:
       inet:    
     volumes:
       - horizen-cce-chain-data:${CHAIN_DATA_FOLDER:-/data} 
-
