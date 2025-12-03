@@ -27,7 +27,7 @@ services:
       - EXECUTOR_IP_PORT
       - EXECUTOR_KEYSET_RECOVERY_TYPE
       - EXECUTOR_SERVER_TYPE
-      - EXECUTOR_SERVER_CID
+      - EXECUTOR_VSOCK_CID
       - EXECUTOR_FUEL_PRICE_PER_UNIT
       - EXECUTOR_MIN_FEE_PER_REQUEST
     depends_on:
@@ -43,7 +43,7 @@ services:
       - EXECUTOR_SERVER_TYPE
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT  
-      - MANAGER_EXECUTOR_VSOCK_CID
+      - MANAGER_VSOCK_CID
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature

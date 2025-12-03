@@ -49,10 +49,10 @@ func DefaultConfig() *Config {
 	if serverAddress == "" {
 		serverAddress = "localhost"
 	}
-	
-	serverCid, err := strconv.ParseUint(os.Getenv("EXECUTOR_SERVER_CID"), 10, 32)	
+
+	serverCid, err := strconv.ParseUint(os.Getenv("EXECUTOR_VSOCK_CID"), 10, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert EXECUTOR_SERVER_CID for error %v, using default value\n", err)
+		fmt.Printf("Failed to convert EXECUTOR_VSOCK_CID for error %v, using default value\n", err)
 		serverCid = 0
 	}
 
@@ -114,8 +114,8 @@ func ReadConfig() *Config {
 		ServerType:         config.MustGetString("ServerType"),
 		ServerAddr:         config.MustGetString("ServerAddr"),
 		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
-		FuelPricePerUnit:  big.NewInt(int64(config.GetInt("FuelPricePerUnit", 1))),
-		MinFeePerRequest:  big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),
+		FuelPricePerUnit:   big.NewInt(int64(config.GetInt("FuelPricePerUnit", 1))),
+		MinFeePerRequest:   big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),
 	}
 }
 
