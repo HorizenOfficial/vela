@@ -67,7 +67,11 @@ func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Conte
 	if f, ok := m.GetMockedFunc("SendGenerateDeanonymizationReport"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure))(ctx, req, appState, wasmModule)
 	}
-	return &common.DeanonymizationReport{ApplicationID: req.ApplicationID, ReportID: req.RequestID}, nil
+	return &common.DeanonymizationReport{
+		ApplicationID: req.ApplicationID,
+		ReportID:      req.RequestID,
+		Authority:     req.Sender,
+	}, nil
 }
 
 func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
@@ -1082,6 +1086,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	storedReport, err := manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
 	require.NoError(t, err)
 	require.Equal(t, storedReport.ReportID, request.RequestID)
+	require.Equal(t, sender, storedReport.Authority)
 
 	// Case 2: DeanonymizationReportPath is set, so the report should be saved to the filesystem
 	// Create a deanonymization request
@@ -1105,10 +1110,12 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, request.RequestID, report.ReportID, "Report ID should match the request ID")
 	require.Equal(t, request.ApplicationID, report.ApplicationID, "Report App ID should match the request App ID")
+	require.Equal(t, sender, report.Authority, "Report authority should match the request sender")
 	// check we have it also in the data layer
 	storedReport, err = manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
 	require.NoError(t, err)
 	require.Equal(t, storedReport.ReportID, request.RequestID)
+	require.Equal(t, sender, storedReport.Authority)
 
 	// Case 3: Error creating the directory
 	// Create a deanonymization request
@@ -1128,4 +1135,5 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	storedReport, err = manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
 	require.NoError(t, err)
 	require.Equal(t, storedReport.ReportID, request.RequestID)
+	require.Equal(t, sender, storedReport.Authority)
 }

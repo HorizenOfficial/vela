@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -178,6 +179,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			ApplicationID:   common.NewApplicationId(23),
 			ReportID:        testutil.GenerateRandomRequestID(),
 			EncryptedReport: []byte("some-test-root-hash-1"),
+			Authority:       ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"),
 		}
 		err = store.StoreDeanonymizationReport(ctx, expectedReport)
 		require.NoError(t, err, "StoreDeanonymizationReport should not return an error")
@@ -672,6 +674,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			ApplicationID:   sharedID,
 			ReportID:        RequestId, // use the same ID even for the report
 			EncryptedReport: []byte("encrypted-report"),
+			Authority:       ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"),
 		}
 
 		// Store all three data type

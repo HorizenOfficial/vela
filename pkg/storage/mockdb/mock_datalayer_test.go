@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/google/go-cmp/cmp"
 	"github.com/horizen-pes/pkg/common"
 	commontestutil "github.com/horizen-pes/pkg/common/testutil"
@@ -98,6 +99,7 @@ func TestApplicationStateStore(t *testing.T) {
 			ApplicationID:   common.NewApplicationId(123),
 			ReportID:        commontestutil.GenerateRandomRequestID(),
 			EncryptedReport: []byte("some-test-root-hash-1"),
+			Authority:       ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"),
 		}
 		err := store.StoreDeanonymizationReport(ctx, expectedReport)
 		require.NoError(t, err, "StoreDeanonymizationReport should not error")

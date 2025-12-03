@@ -1,7 +1,6 @@
 package authorityservice
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"

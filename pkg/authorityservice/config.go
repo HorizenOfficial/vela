@@ -1,7 +1,6 @@
 package authorityservice
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"strconv"
