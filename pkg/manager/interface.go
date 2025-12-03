@@ -73,7 +73,7 @@ func DefaultConfig() *Config {
 	if executorServerType == "" {
 		executorServerType = "tcp"
 	}
-	executorServerCid := os.Getenv("EXECUTOR_SERVER_CID")
+	executorServerCid := os.Getenv("MANAGER_EXECUTOR_VSOCK_CID")
 	if executorServerCid == "" {
 		executorServerCid = "2"
 	}

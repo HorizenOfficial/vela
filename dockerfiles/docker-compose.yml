@@ -38,9 +38,9 @@ services:
     restart: always 
     environment:
       - EXECUTOR_SERVER_TYPE
-      - EXECUTOR_SERVER_CID
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT  
+      - MANAGER_EXECUTOR_VSOCK_CID
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
