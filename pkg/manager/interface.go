@@ -181,9 +181,9 @@ func ReadConfig() *Config {
 		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
 		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{
-			"url": config.MustGetString("ExecutorConnectionUrl"),
-			"cid": config.MustGetString("ExecutorConnectionCid"),
-			"port": config.MustGetString("ExecutorConnectionPort"),
+			"url": config.GetString("ExecutorConnectionUrl", "localhost:8080"),
+			"cid": config.GetString("ExecutorConnectionCid", "2"),
+			"port": config.GetString("ExecutorConnectionPort", "8080"),
 		},
 		RpcURL:               config.MustGetString("RpcUrl"),
 		PrivateKey:           *PrivateKey,
