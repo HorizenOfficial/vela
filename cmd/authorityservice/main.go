@@ -2,40 +2,23 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/horizen-pes/pkg/authorityservice"
 	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/mockdb"
-	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/horizen-pes/pkg/storage/factory"
 )
 
 func createDataLayer(config *authorityservice.Config) (storage.DataLayer, error) {
-	// Mock data layer is used only for tests; for production we read real data.
-	if config.DataLayerType == "mockdb" {
-		return mockdb.NewMockDataLayer(), nil
-	}
-
-	if strings.TrimSpace(config.DataLayerDBPath) == "" {
-		return nil, fmt.Errorf("data layer path is empty")
-	}
-
-	switch config.DataLayerType {
-	case "versioned_leveldb":
-		cfg := versionedDb.VersionedLevelDBConfig{
-			DBPath:         config.DataLayerDBPath,
-			VersionsToKeep: config.DataLayerNumOfVersions,
-		}
-		return versionedDb.NewVersionedLevelDBDataLayer(cfg)
-	default:
-		return nil, fmt.Errorf("unknown data layer type: %s", config.DataLayerType)
-	}
+	return factory.NewDataLayer(factory.DataLayerConfig{
+		Type:        config.DataLayerType,
+		DBPath:      config.DataLayerDBPath,
+		NumVersions: config.DataLayerNumOfVersions,
+	})
 }
 
 func main() {
