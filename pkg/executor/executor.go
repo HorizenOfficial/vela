@@ -555,6 +555,7 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		ApplicationID:   req.ApplicationID,
 		ReportID:        req.RequestID,
 		EncryptedReport: encryptedReport,
+		Authority:       req.Sender,
 		RefundAmount: refundAmount,
 		ApplicationFee: applicationFee,
 	}
