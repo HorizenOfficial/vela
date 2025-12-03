@@ -73,7 +73,7 @@ func DefaultConfig() *Config {
 	if executorServerType == "" {
 		executorServerType = "tcp"
 	}
-	executorServerCid := os.Getenv("MANAGER_EXECUTOR_VSOCK_CID")
+	executorServerCid := os.Getenv("MANAGER_VSOCK_CID")
 	if executorServerCid == "" {
 		executorServerCid = "2"
 	}
@@ -141,8 +141,8 @@ func DefaultConfig() *Config {
 		BlockchainPollingInterval: blockchainPollingInterval,
 		ExecutorConnectionType:    executorServerType,
 		ExecutorConnectionParams: map[string]string{
-			"url": executorServerAddress + ":" + executorServerPort,
-			"cid": executorServerCid,
+			"url":  executorServerAddress + ":" + executorServerPort,
+			"cid":  executorServerCid,
 			"port": executorServerPort,
 		},
 		RpcURL:           nodeProtocol + "://" + nodeUrl + ":" + nodePort,
@@ -181,8 +181,8 @@ func ReadConfig() *Config {
 		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
 		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{
-			"url": config.GetString("ExecutorConnectionUrl", "localhost:8080"),
-			"cid": config.GetString("ExecutorConnectionCid", "2"),
+			"url":  config.GetString("ExecutorConnectionUrl", "localhost:8080"),
+			"cid":  config.GetString("ExecutorConnectionCid", "2"),
 			"port": config.GetString("ExecutorConnectionPort", "8080"),
 		},
 		RpcURL:               config.MustGetString("RpcUrl"),
