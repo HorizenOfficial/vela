@@ -127,7 +127,7 @@ func TestHandleGetReportUnexpectedChainID(t *testing.T) {
 	svc.handleGetReport(rr, req)
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
-	require.Contains(t, rr.Body.String(), "unexpected chain_id")
+	require.Contains(t, rr.Body.String(), "bad request")
 }
 
 func TestHandleGetReportReportNotFound(t *testing.T) {
@@ -161,7 +161,7 @@ func TestHandleGetReportReportNotFound(t *testing.T) {
 	svc.handleGetReport(rr, req)
 
 	require.Equal(t, http.StatusNotFound, rr.Code)
-	require.Contains(t, rr.Body.String(), "report not found")
+	require.Contains(t, rr.Body.String(), "not found")
 }
 
 func TestHandleGetReportFutureNonce(t *testing.T) {
@@ -204,7 +204,7 @@ func TestHandleGetReportFutureNonce(t *testing.T) {
 	svc.handleGetReport(rr, req)
 
 	require.Equal(t, http.StatusUnauthorized, rr.Code)
-	require.Contains(t, rr.Body.String(), "nonce timestamp in the future")
+	require.Contains(t, rr.Body.String(), "unauthorized")
 }
 
 func TestHandleGetReportBadMethod(t *testing.T) {
@@ -271,7 +271,7 @@ func TestHandleGetReportExpiredNonce(t *testing.T) {
 	svc.handleGetReport(rr, req)
 
 	require.Equal(t, http.StatusUnauthorized, rr.Code)
-	require.Contains(t, rr.Body.String(), "nonce expired")
+	require.Contains(t, rr.Body.String(), "unauthorized")
 }
 
 func TestHandleGetReportSignatureMismatch(t *testing.T) {
@@ -317,7 +317,7 @@ func TestHandleGetReportSignatureMismatch(t *testing.T) {
 	svc.handleGetReport(rr, req)
 
 	require.Equal(t, http.StatusUnauthorized, rr.Code)
-	require.Contains(t, rr.Body.String(), "failed to recover signer")
+	require.Contains(t, rr.Body.String(), "unauthorized")
 }
 
 func TestHandleGetReportAuthorityMismatch(t *testing.T) {
@@ -360,7 +360,7 @@ func TestHandleGetReportAuthorityMismatch(t *testing.T) {
 	svc.handleGetReport(rr, req)
 
 	require.Equal(t, http.StatusForbidden, rr.Code)
-	require.Contains(t, rr.Body.String(), "authority mismatch")
+	require.Contains(t, rr.Body.String(), "forbidden")
 }
 
 func TestHandleGetReportAppMismatch(t *testing.T) {
@@ -403,5 +403,5 @@ func TestHandleGetReportAppMismatch(t *testing.T) {
 	svc.handleGetReport(rr, req)
 
 	require.Equal(t, http.StatusForbidden, rr.Code)
-	require.Contains(t, rr.Body.String(), "applicationId mismatch")
+	require.Contains(t, rr.Body.String(), "forbidden")
 }

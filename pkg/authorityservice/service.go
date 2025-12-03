@@ -112,7 +112,8 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 
 	var req getReportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json body", http.StatusBadRequest)
+		log.Printf("getreport: invalid json body: %v", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
@@ -120,42 +121,49 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 
 	if s.chainID != 0 && req.ChainID != s.chainID {
-		http.Error(w, "unexpected chain_id", http.StatusBadRequest)
+		log.Printf("getreport: unexpected chain_id: got %d expected %d", req.ChainID, s.chainID)
+		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
 	reportID, err := parseRequestID(req.ReportID)
 	if err != nil {
-		http.Error(w, "invalid report_id", http.StatusBadRequest)
+		log.Printf("getreport: invalid report_id %q: %v", req.ReportID, err)
+		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
 	appID := common.ApplicationIdType(req.AppID)
 
 	if err := s.validateNonce(req.Salt, req.Nonce, req.Timestamp); err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		log.Printf("getreport: nonce validation failed for report %s app %d: %v", reportID.String(), appID, err)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	signerAddr, err := s.recoverSigner(req, reportID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		log.Printf("getreport: failed to recover signer for report %s app %d: %v", reportID.String(), appID, err)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	report, err := s.dataLayer.GetDeanonymizationReport(ctx, reportID)
 	if err != nil {
-		http.Error(w, "report not found", http.StatusNotFound)
+		log.Printf("getreport: report %s not found: %v", reportID.String(), err)
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
 	if report.ApplicationID != appID {
-		http.Error(w, "applicationId mismatch", http.StatusForbidden)
+		log.Printf("getreport: applicationId mismatch for report %s: expected %s got %s", reportID.String(), report.ApplicationID.String(), appID.String())
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
 	if report.Authority != signerAddr {
-		http.Error(w, "authority mismatch", http.StatusForbidden)
+		log.Printf("getreport: authority mismatch for report %s: expected %s got %s", reportID.String(), report.Authority.Hex(), signerAddr.Hex())
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
