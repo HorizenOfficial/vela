@@ -35,7 +35,10 @@ services:
   manager:
     image: horizen/cce-manager
     container_name: horizen-cce-manager
-    restart: always 
+    restart: always
+    privileged: true
+    devices:
+      - /dev/vsock:/dev/vsock 
     environment:
       - EXECUTOR_SERVER_TYPE
       - EXECUTOR_IP_ADDRESS
