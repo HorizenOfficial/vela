@@ -69,6 +69,14 @@ type Config struct {
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
 func DefaultConfig() *Config {
+	executorServerType := os.Getenv("EXECUTOR_SERVER_TYPE")
+	if executorServerType == "" {
+		executorServerType = "tcp"
+	}
+	executorServerCid := os.Getenv("EXECUTOR_SERVER_CID")
+	if executorServerCid == "" {
+		executorServerCid = "2"
+	}
 	executorServerAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
 	if executorServerAddress == "" {
 		executorServerAddress = "localhost"
@@ -131,9 +139,11 @@ func DefaultConfig() *Config {
 		ReorgTimeout:              reorgTimeout,
 		HandshakeTimeout:          handshakeTimeout,
 		BlockchainPollingInterval: blockchainPollingInterval,
-		ExecutorConnectionType:    "tcp", // or "vsock"
+		ExecutorConnectionType:    executorServerType,
 		ExecutorConnectionParams: map[string]string{
 			"url": executorServerAddress + ":" + executorServerPort,
+			"cid": executorServerCid,
+			"port": executorServerPort,
 		},
 		RpcURL:           nodeProtocol + "://" + nodeUrl + ":" + nodePort,
 		PrivateKey:       *privateKey,
@@ -172,6 +182,8 @@ func ReadConfig() *Config {
 		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{
 			"url": config.MustGetString("ExecutorConnectionUrl"),
+			"cid": config.MustGetString("ExecutorConnectionCid"),
+			"port": config.MustGetString("ExecutorConnectionPort"),
 		},
 		RpcURL:               config.MustGetString("RpcUrl"),
 		PrivateKey:           *PrivateKey,

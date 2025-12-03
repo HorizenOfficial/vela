@@ -37,6 +37,8 @@ services:
     container_name: horizen-cce-manager
     restart: always 
     environment:
+      - EXECUTOR_SERVER_TYPE
+      - EXECUTOR_SERVER_CID
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT  
       - MANAGER_KEY_SECP256
