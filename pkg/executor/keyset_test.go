@@ -64,12 +64,13 @@ func TestCheckSignature(t *testing.T) {
 	builder, err := NewMsgToSignBuilder()
 	require.NoError(t, err)
 
- 	ks, _ := CreateNewKeySet()
+	ks, _ := CreateNewKeySet()
 
 	executor := &StatelessExecutor{
 		config:           execConfig,
 		MsgToSignBuilder: builder,
 		keySet:           ks,
+		log:              testLogger,
 	}
 	executorAddress := ethCrypto.PubkeyToAddress(*executor.keySet.SigningKey.PublicKey().PublicKey)
 
@@ -103,7 +104,6 @@ func TestCheckSignature(t *testing.T) {
 	require.True(t, result, "Signature verification failed")
 }
 
-
 func TestDumpKeys(t *testing.T) {
 
 	execConfig := DefaultConfig()
@@ -118,6 +118,7 @@ func TestDumpKeys(t *testing.T) {
 		config:           execConfig,
 		MsgToSignBuilder: builder,
 		keySet:           ks,
+		log:              testLogger,
 	}
 
 	executor.DumpPublicKeys()

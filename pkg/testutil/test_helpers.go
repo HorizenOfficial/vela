@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/big"
 	"os"
 	"testing"
@@ -18,6 +17,7 @@ import (
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
+	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/mockdb"
@@ -40,14 +40,18 @@ type SystemTestSuite struct {
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 	dbPath             string
 	reportsPath        string
+	log                logger.Logger
 }
 
-func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
-	mgrConfig := manager.ReadConfig()
-	execConfig := executor.ReadConfig()
+func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *SystemTestSuite {
+	// log is passed from outside, the log settings in the manager configuration does not affect it.
+	mgrConfig, err := manager.LoadConfigFromFile()
+	require.NoError(t, err)
+	execConfig, err := executor.LoadConfigFromFile()
+	require.NoError(t, err)
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, log)
 }
 
 func NewSystemTestSuiteWithConfigs(
@@ -57,6 +61,7 @@ func NewSystemTestSuiteWithConfigs(
 	execConfig *executor.Config,
 	keySet *executor.EnclaveKeySet,
 	recoveryData *common.EnclaveKeySetRecovery,
+	log logger.Logger,
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -64,7 +69,7 @@ func NewSystemTestSuiteWithConfigs(
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory(execConfig.ServerAddr)
-	executorClient := communication.NewClient(factory)
+	executorClient := communication.NewClient(factory, log)
 
 	// Create manager
 	var err error
@@ -93,22 +98,22 @@ func NewSystemTestSuiteWithConfigs(
 		require.NoError(t, err)
 	}
 
-	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient)
+	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, log)
 
 	// Create executor
-	server := communication.NewServer(factory)
+	server := communication.NewServer(factory, log)
 	var runtime executor.Runtime
 	switch appType {
 	case "mock-runtime":
 		t.Log("mock app type: ", appType)
-		runtime = executor.NewMockRuntime()
+		runtime = executor.NewMockRuntime(log)
 	default:
 		t.Log("wasm app type: ", appType)
-		runtime = wasm.NewWasmtimeRuntime()
+		runtime = wasm.NewWasmtimeRuntime(log)
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, log)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {
@@ -131,6 +136,7 @@ func NewSystemTestSuiteWithConfigs(
 		cancel:           cancel,
 		dbPath:           dbPath,
 		reportsPath:      reportsPath,
+		log:              log,
 	}
 
 	if keySet != nil {
@@ -153,7 +159,7 @@ func (s *SystemTestSuite) StartManager() error {
 
 	// Wait for a result from the goroutine
 	if err := <-errChan; err != nil {
-		log.Printf("Manager failed to start: %v", err)
+		s.log.Info("Manager failed to start: %v", err)
 		return err
 	}
 
@@ -247,10 +253,10 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, timeout time.Du
 		select {
 		case event := <-s.eventChannel:
 			if evt, ok := event.(common.Event); ok && evt.UserID == userID {
-				log.Printf("TESTING: Received event: %+v", event.(common.Event))
+				s.log.Info("TESTING: Received event: %+v", event.(common.Event))
 				return &evt, nil
 			} else {
-				log.Printf("TESTING: Received unexpected event: %+v", event)
+				s.log.Info("TESTING: Received unexpected event: %+v", event)
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for event for user %s", userID)

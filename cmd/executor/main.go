@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"os"
 
 	"github.com/horizen-pes/pkg/communication"
 
 	"github.com/horizen-pes/pkg/executor"
+	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/wasm"
 )
 
@@ -16,44 +18,67 @@ func main() {
 	defer cancel()
 
 	// Create the executor configuration
-	config := executor.ReadConfig()
+	config, err := executor.LoadConfigFromFile()
+	if err != nil {
+		// Use a temporary logger for fatal error
+		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
+		log.Fatal("Failed to load configuration: %v", err)
+	}
+
+	// Create a logger from config
+	log := logger.NewLogger(&logger.Config{
+		Kind:         "zerolog",
+		Console:      config.LogConsole,
+		ConsoleLevel: config.LogConsoleLevel,
+		ConsoleColor: config.LogConsoleColor,
+		FileName:     config.LogFileName,
+		FileLevel:    config.LogFileLevel,
+	})
+	defer func() {
+		if err := log.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error closing logger: %v\n", err)
+		}
+	}()
 
 	// Create the WASM runtime
-	runtime := wasm.NewWasmtimeRuntime()
+	runtime := wasm.NewWasmtimeRuntime(log)
 
 	// Create the appropriate server based on configuration
 	var server communication.ExecutorServer
 	switch config.ServerType {
 	case "tcp":
 		factory := communication.NewTCPConnectionFactory(config.ServerAddr)
-		server = communication.NewServer(factory)
+		server = communication.NewServer(factory, log)
 	case "vsock":
 		factory := communication.NewVSockConnectionFactory(config.ServerCid, config.ServerPort)
-		server = communication.NewServer(factory)
+		server = communication.NewServer(factory, log)
 	default:
-		log.Fatalf("Unsupported server type: %s", config.ServerType)
+		log.Error("Unsupported server type: %s", config.ServerType)
+		return
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(config, runtime, server)
+	exec, err := executor.NewStatelessExecutor(config, runtime, server, log)
 	if err != nil {
-		log.Fatalf("Error creating executor: %v", err)
+		log.Error("Error creating executor: %v", err)
+		return
 	}
 
 	// Start the executor
-	log.Printf("Starting executor service...")
+	log.Info("Starting executor service...")
 	if err := exec.Start(ctx); err != nil {
-		log.Fatalf("Error starting executor: %v", err)
+		log.Error("Error starting executor: %v", err)
+		return
 	}
-	log.Println("Executor started")
+	log.Info("Executor started")
 
 	// Wait for the context to be canceled
 	<-ctx.Done()
 
 	// Stop the executor
-	log.Printf("Stopping executor service...")
+	log.Info("Stopping executor service...")
 	if err := exec.Close(); err != nil {
-		log.Printf("Error stopping executor: %v", err)
+		log.Error("Error stopping executor: %v", err)
 	}
-	log.Printf("Executor service stopped")
+	log.Info("Executor service stopped")
 }
