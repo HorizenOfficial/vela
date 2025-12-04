@@ -16,6 +16,9 @@ services:
     image: horizen/cce-executor
     container_name: horizen-cce-executor
     restart: always
+    privileged: true
+    devices:
+      - /dev/vsock:/dev/vsock
     networks:
       pes_network:
         ipv4_address: ${EXECUTOR_IP_ADDRESS}
@@ -23,6 +26,8 @@ services:
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT
       - EXECUTOR_KEYSET_RECOVERY_TYPE
+      - EXECUTOR_SERVER_TYPE
+      - EXECUTOR_VSOCK_CID
       - EXECUTOR_FUEL_PRICE_PER_UNIT
       - EXECUTOR_MIN_FEE_PER_REQUEST
     depends_on:
@@ -30,10 +35,15 @@ services:
   manager:
     image: horizen/cce-manager
     container_name: horizen-cce-manager
-    restart: always 
+    restart: always
+    privileged: true
+    devices:
+      - /dev/vsock:/dev/vsock 
     environment:
+      - EXECUTOR_SERVER_TYPE
       - EXECUTOR_IP_ADDRESS
       - EXECUTOR_IP_PORT  
+      - MANAGER_VSOCK_CID
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature

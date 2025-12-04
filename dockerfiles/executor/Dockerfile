@@ -1,40 +1,32 @@
 # --- Build Stage ---
-FROM debian:bullseye-slim AS builder
+FROM amazonlinux:2 AS builder
 
-# Install base dependencies
-RUN apt-get update && apt-get install -y wget gcc
+RUN yum install -y gcc tar gzip wget
 
-# Manually install a specific version of Go
+# Install Go
 ENV GO_VERSION=1.24.0
 RUN wget https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz -O /tmp/go.tar.gz && \
     tar -C /usr/local -xzf /tmp/go.tar.gz && \
     rm /tmp/go.tar.gz
-ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
+ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Verify Go installation
-RUN go version
+WORKDIR /build
 
-# Set the working directory inside the container
-WORKDIR /app
-
-# Copy go.mod and go.sum to download Go dependencies
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the source code
 COPY . .
 
-# Build the manager binary
 RUN CGO_ENABLED=1 GOOS=linux go build -o /executor ./cmd/executor
 
-# Create a non-root user
-RUN addgroup appgroup && adduser appuser && adduser appuser appgroup
+# --- Runtime Stage ---
+FROM amazonlinux:2
 
-# Set the user
+RUN yum install -y aws-nitro-enclaves-nsm ca-certificates shadow-utils  && yum clean all
+
+RUN useradd -m appuser
 USER appuser
 
-# Copy the built binary from the builder stage
-#COPY --from=builder /executor /executor
+COPY --from=builder /executor /executor
 
-# Set the entrypoint
 ENTRYPOINT ["/executor"]
