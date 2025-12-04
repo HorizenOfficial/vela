@@ -12,6 +12,7 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/storage/mockdb"
@@ -32,7 +33,7 @@ func signRequest(t *testing.T, chainID uint64, appID common.ApplicationIdType, r
 	t.Helper()
 	key, err := ethCrypto.GenerateKey()
 	require.NoError(t, err)
-	hash := ethCrypto.Keccak256Hash(buildMessage(chainID, appID, reportID, nonce))
+	hash := ethCrypto.Keccak256Hash(api.BuildMessage(chainID, appID, reportID, nonce))
 	sig, err := ethCrypto.Sign(hash.Bytes(), key)
 	require.NoError(t, err)
 	return hex.EncodeToString(sig), ethCrypto.PubkeyToAddress(key.PublicKey)
@@ -61,7 +62,7 @@ func TestHandleGetReportSuccess(t *testing.T) {
 	}
 	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
 
-	body := getReportRequest{
+	body := api.GetReportRequest{
 		ChainID:   chainID,
 		AppID:     uint64(appID),
 		ReportID:  reportID.String(),
@@ -79,7 +80,7 @@ func TestHandleGetReportSuccess(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	var resp getReportResponse
+	var resp api.GetReportResponse
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
 	require.Equal(t, authority.Hex(), resp.Authority)
 	require.Equal(t, reportID.String(), resp.ReportID)
@@ -144,7 +145,7 @@ func TestHandleGetReportReportNotFound(t *testing.T) {
 	appID := common.NewApplicationId(1)
 	signatureHex, _ := signRequest(t, chainID, appID, reportID, nonceBytes)
 
-	body := getReportRequest{
+	body := api.GetReportRequest{
 		ChainID:   chainID,
 		AppID:     uint64(appID),
 		ReportID:  reportID.String(),
@@ -187,7 +188,7 @@ func TestHandleGetReportFutureNonce(t *testing.T) {
 	}
 	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
 
-	body := getReportRequest{
+	body := api.GetReportRequest{
 		ChainID:   chainID,
 		AppID:     uint64(appID),
 		ReportID:  reportID.String(),
@@ -254,7 +255,7 @@ func TestHandleGetReportExpiredNonce(t *testing.T) {
 	}
 	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
 
-	body := getReportRequest{
+	body := api.GetReportRequest{
 		ChainID:   chainID,
 		AppID:     uint64(appID),
 		ReportID:  reportID.String(),
@@ -300,7 +301,7 @@ func TestHandleGetReportSignatureMismatch(t *testing.T) {
 	}
 	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
 
-	body := getReportRequest{
+	body := api.GetReportRequest{
 		ChainID:   chainID,
 		AppID:     uint64(appID),
 		ReportID:  reportID.String(),
@@ -343,7 +344,7 @@ func TestHandleGetReportAuthorityMismatch(t *testing.T) {
 	}
 	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
 
-	body := getReportRequest{
+	body := api.GetReportRequest{
 		ChainID:   chainID,
 		AppID:     uint64(appID),
 		ReportID:  reportID.String(),

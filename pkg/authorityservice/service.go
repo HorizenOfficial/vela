@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,6 +14,7 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/storage"
 )
@@ -52,12 +52,6 @@ func (s *AuthorityService) Handler() http.Handler {
 	return mux
 }
 
-type nonceResponse struct {
-	Salt      string `json:"salt"`
-	Nonce     string `json:"nonce"`
-	Timestamp int64  `json:"timestamp"`
-}
-
 func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -73,7 +67,7 @@ func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
 	ts := s.clock().Unix()
 	nonceBytes := s.computeNonce(salt, ts)
 
-	resp := nonceResponse{
+	resp := api.NonceResponse{
 		Salt:      hex.EncodeToString(salt),
 		Nonce:     hex.EncodeToString(nonceBytes),
 		Timestamp: ts,
@@ -85,32 +79,13 @@ func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type getReportRequest struct {
-	ChainID   uint64 `json:"chain_id"`
-	AppID     uint64 `json:"app_id"`
-	ReportID  string `json:"report_id"`
-	Salt      string `json:"salt"`
-	Nonce     string `json:"nonce"`
-	Timestamp int64  `json:"timestamp"`
-	Signature string `json:"signature"`
-}
-
-type getReportResponse struct {
-	ApplicationID   string `json:"applicationId"`
-	ReportID        string `json:"reportId"`
-	Authority       string `json:"authority"`
-	EncryptedReport string `json:"encryptedReport"`
-	RefundAmount    string `json:"refundAmount,omitempty"`
-	ApplicationFee  string `json:"applicationFee,omitempty"`
-}
-
 func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req getReportRequest
+	var req api.GetReportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Printf("getreport: invalid json body: %v", err)
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -126,7 +101,7 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	reportID, err := parseRequestID(req.ReportID)
+	reportID, err := api.ParseRequestID(req.ReportID)
 	if err != nil {
 		log.Printf("getreport: invalid report_id %q: %v", req.ReportID, err)
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -167,7 +142,7 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	resp := getReportResponse{
+	resp := api.GetReportResponse{
 		ApplicationID:   report.ApplicationID.String(),
 		ReportID:        report.ReportID.String(),
 		Authority:       report.Authority.Hex(),
@@ -227,13 +202,13 @@ func (s *AuthorityService) computeNonce(salt []byte, ts int64) []byte {
 	return mac.Sum(nil)
 }
 
-func (s *AuthorityService) recoverSigner(req getReportRequest, reportID common.RequestIdType) (ethCommon.Address, error) {
+func (s *AuthorityService) recoverSigner(req api.GetReportRequest, reportID common.RequestIdType) (ethCommon.Address, error) {
 	nonceBytes, err := hex.DecodeString(req.Nonce)
 	if err != nil {
 		return ethCommon.Address{}, fmt.Errorf("invalid nonce")
 	}
 
-	msg := buildMessage(req.ChainID, common.ApplicationIdType(req.AppID), reportID, nonceBytes)
+	msg := api.BuildMessage(req.ChainID, common.ApplicationIdType(req.AppID), reportID, nonceBytes)
 	hash := ethCrypto.Keccak256Hash(msg)
 
 	sigBytes, err := hex.DecodeString(req.Signature)
@@ -256,33 +231,4 @@ func (s *AuthorityService) recoverSigner(req getReportRequest, reportID common.R
 	}
 
 	return ethCrypto.PubkeyToAddress(*pubKey), nil
-}
-
-func buildMessage(chainID uint64, appID common.ApplicationIdType, reportID common.RequestIdType, nonce []byte) []byte {
-	buf := make([]byte, 0, 8+8+len(reportID)+len(nonce))
-
-	var tmp [8]byte
-	binary.BigEndian.PutUint64(tmp[:], chainID)
-	buf = append(buf, tmp[:]...)
-
-	binary.BigEndian.PutUint64(tmp[:], uint64(appID))
-	buf = append(buf, tmp[:]...)
-
-	buf = append(buf, reportID[:]...)
-	buf = append(buf, nonce...)
-
-	return buf
-}
-
-func parseRequestID(id string) (common.RequestIdType, error) {
-	var reportID common.RequestIdType
-	bytes, err := hex.DecodeString(id)
-	if err != nil {
-		return reportID, err
-	}
-	if len(bytes) != len(reportID) {
-		return reportID, errors.New("invalid length for report_id")
-	}
-	copy(reportID[:], bytes)
-	return reportID, nil
 }
