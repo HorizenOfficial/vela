@@ -72,6 +72,14 @@ type Config struct {
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
 func DefaultConfig() *Config {
+	executorServerType := os.Getenv("EXECUTOR_SERVER_TYPE")
+	if executorServerType == "" {
+		executorServerType = "tcp"
+	}
+	executorServerCid := os.Getenv("MANAGER_VSOCK_CID")
+	if executorServerCid == "" {
+		executorServerCid = "2"
+	}
 	executorServerAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
 	if executorServerAddress == "" {
 		executorServerAddress = "localhost"
@@ -163,9 +171,11 @@ func DefaultConfig() *Config {
 		ReorgTimeout:              reorgTimeout,
 		HandshakeTimeout:          handshakeTimeout,
 		BlockchainPollingInterval: blockchainPollingInterval,
-		ExecutorConnectionType:    "tcp", // or "vsock"
+		ExecutorConnectionType:    executorServerType,
 		ExecutorConnectionParams: map[string]string{
 			"url": executorServerAddress + ":" + executorServerPort,
+			"cid":  executorServerCid,
+			"port": executorServerPort,
 		},
 		RpcURL:           nodeProtocol + "://" + nodeUrl + ":" + nodePort,
 		PrivateKey:       *privateKey,
@@ -210,7 +220,9 @@ func LoadConfigFromFile() (*Config, error) {
 		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
 		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
 		ExecutorConnectionParams: map[string]string{
-			"url": config.MustGetString("ExecutorConnectionUrl"),
+			"url":  config.GetString("ExecutorConnectionUrl", "localhost:8080"),
+			"cid":  config.GetString("ExecutorConnectionCid", "2"),
+			"port": config.GetString("ExecutorConnectionPort", "8080"),
 		},
 		RpcURL:               config.MustGetString("RpcUrl"),
 		PrivateKey:           *PrivateKey,

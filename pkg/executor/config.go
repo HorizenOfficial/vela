@@ -47,16 +47,29 @@ const confFileName = "executor.conf"
 
 // DefaultConfig returns the default configuration (possibly overridden by env variables)
 func DefaultConfig() *Config {
+	serverType := os.Getenv("EXECUTOR_SERVER_TYPE")
+	if serverType == "" {
+		serverType = "tcp"
+	}
+
 	serverAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
 	if serverAddress == "" {
 		serverAddress = "localhost"
 	}
-	serverPort := os.Getenv("EXECUTOR_IP_PORT")
-	if serverPort == "" {
-		serverPort = "8080"
+
+	serverCid, err := strconv.ParseUint(os.Getenv("EXECUTOR_VSOCK_CID"), 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert EXECUTOR_VSOCK_CID for error %v, using default value\n", err)
+		serverCid = 0
 	}
-	recTypeVar := os.Getenv("EXECUTOR_KEYSET_RECOVERY_TYPE")
-	recType, err := strconv.Atoi(recTypeVar)
+
+	serverPort, err := strconv.ParseUint(os.Getenv("EXECUTOR_IP_PORT"), 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert EXECUTOR_IP_PORT for error %v, using default value\n", err)
+		serverPort = 8080
+	}
+
+	recType, err := strconv.Atoi(os.Getenv("EXECUTOR_KEYSET_RECOVERY_TYPE"))
 	if err != nil {
 		fmt.Printf("Failed to convert EXECUTOR_KEYSET_RECOVERY_TYPE for error %v, using default value\n", err)
 		recType = 0
@@ -109,8 +122,10 @@ func DefaultConfig() *Config {
 	}
 
 	return &Config{
-		ServerType:         "tcp",
-		ServerAddr:         serverAddress + ":" + serverPort,
+		ServerType:         serverType,
+		ServerAddr:         serverAddress + ":" + strconv.FormatUint(uint64(serverPort), 10),
+		ServerCid:          uint32(serverCid),
+		ServerPort:         uint32(serverPort),
 		KeySetRecoveryType: recType,
 		FuelPricePerUnit:   fuelPrice,
 		MinFeePerRequest:   minFeePerRequest,
