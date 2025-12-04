@@ -111,7 +111,7 @@ func TestHandleGetReportUnexpectedChainID(t *testing.T) {
 	}
 	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
 
-	body := getReportRequest{
+	body := api.GetReportRequest{
 		ChainID:   chainID + 1, // wrong chain
 		AppID:     uint64(appID),
 		ReportID:  reportID.String(),
@@ -387,7 +387,7 @@ func TestHandleGetReportAppMismatch(t *testing.T) {
 	}
 	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
 
-	body := getReportRequest{
+	body := api.GetReportRequest{
 		ChainID:   chainID,
 		AppID:     uint64(appID),
 		ReportID:  reportID.String(),
