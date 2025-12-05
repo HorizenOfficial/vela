@@ -47,7 +47,7 @@ func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *System
 	// log is passed from outside, the log settings in the manager configuration does not affect it.
 	mgrConfig, err := manager.LoadConfigFromFile()
 	require.NoError(t, err)
-	execConfig, err := executor.LoadConfigFromFile()
+	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)

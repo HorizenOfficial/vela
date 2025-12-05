@@ -59,8 +59,8 @@ func TestRestoreEnclaveKeySet_UnsupportedType(t *testing.T) {
 
 func TestCheckSignature(t *testing.T) {
 	applicationId := common.NewApplicationId(1)
-	execConfig := DefaultConfig()
-
+	execConfig, err := LoadConfig()
+	require.NoError(t, err)
 	builder, err := NewMsgToSignBuilder()
 	require.NoError(t, err)
 
@@ -83,13 +83,13 @@ func TestCheckSignature(t *testing.T) {
 	}
 
 	updatePayload := &common.UpdatePayload{
-		ApplicationID: applicationId,
-		RequestID:     commontestutil.GenerateRandomRequestID(),
-		PrevStateRoot: [32]byte{0x08, 0x05, 0x06},
-		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
-		Events:        events[:],
-		Withdrawals:   withdrawals,
-		RefundAmount: big.NewInt(100),
+		ApplicationID:  applicationId,
+		RequestID:      commontestutil.GenerateRandomRequestID(),
+		PrevStateRoot:  [32]byte{0x08, 0x05, 0x06},
+		NewStateRoot:   [32]byte{0x04, 0x05, 0x06},
+		Events:         events[:],
+		Withdrawals:    withdrawals,
+		RefundAmount:   big.NewInt(100),
 		ApplicationFee: big.NewInt(100),
 	}
 
@@ -106,7 +106,8 @@ func TestCheckSignature(t *testing.T) {
 
 func TestDumpKeys(t *testing.T) {
 
-	execConfig := DefaultConfig()
+	execConfig, err := LoadConfig()
+	require.NoError(t, err)
 
 	builder, err := NewMsgToSignBuilder()
 	require.NoError(t, err)

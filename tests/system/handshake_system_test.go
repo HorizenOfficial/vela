@@ -19,7 +19,7 @@ func TestHandshakeFailureSystem(t *testing.T) {
 	mgrConfig, err := manager.LoadConfigFromFile()
 	require.NoError(t, err)
 	mgrConfig.DataLayerType = "mockdb"
-	executorConfig, err := executor.LoadConfigFromFile()
+	executorConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
 
 	// 2. Create a new system test suite without a keyset, it will try to get recovery data from datalayer, will not

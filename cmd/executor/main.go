@@ -19,7 +19,7 @@ func main() {
 	defer cancel()
 
 	// Create the executor configuration
-	config, err := executor.LoadConfigFromFile()
+	config, err := executor.LoadConfig()
 	if err != nil {
 		// Use a temporary logger for fatal error
 		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
