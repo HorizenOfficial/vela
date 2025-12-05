@@ -225,23 +225,20 @@ func LoadConfigFromFile() (*Config, error) {
 
 	var channelType = config.MustGetString("ChannelType")
 	var channelConnectionParams common.ChannelConnectionParams
-	executorServerPort, err := strconv.ParseUint(config.MustGetString("ExecutorPort"), 10, 32)
+	executorServerPort, err := strconv.ParseUint(config.GetString("ExecutorPort", "4000"), 10, 32)
 	if err != nil {
 		fmt.Printf("Failed to convert ExecutorPort for error %v, using default value\n", err)
 		executorServerPort = 4000
 	}
 	if channelType == "vsock" {
-		executorCid, err := strconv.ParseUint(config.MustGetString("ChannelVsockCid"), 10, 32)
+		executorCid, err := strconv.ParseUint(config.GetString("ChannelVsockCid", "20"), 10, 32)
 		if err != nil {
 			fmt.Printf("Failed to convert ChannelVsockCid for error %v, using default value\n", err)
 			executorCid = 20
 		}
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorCid), Port: uint32(executorServerPort)}
 	} else {
-		executorIpAddress := config.MustGetString("ExecutorIpAddress")
-		if executorIpAddress == "" {
-			executorIpAddress = "localhost"
-		}
+		executorIpAddress := config.GetString("ExecutorIpAddress", "localhost")
 		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
 	}
 
