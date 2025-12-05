@@ -15,14 +15,11 @@ import (
 
 // Config defines the configuration for the executor application
 type Config struct {
-	// ServerType is the type of server to use (tcp / vsock)
-	ServerType string
-	// ServerAddr is the address for the TCP server
-	ServerAddr string
-	// ServerCid is the cid for the v-socket server
-	ServerCid uint32
-	// ServerPort is the port for the v-socket server
-	ServerPort uint32
+	// ChannelType is the type of communication channel to use between manager and executor (tcp / vsock)
+	ChannelType string
+	// ChannelParams are the parameters for the connection server
+	ChannelParams common.ChannelConnectionParams
+
 	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
 	KeySetRecoveryType int
 	// FuelPricePerUnit is the price of fuel per unit
@@ -47,26 +44,26 @@ const confFileName = "executor.conf"
 
 // DefaultConfig returns the default configuration (possibly overridden by env variables)
 func DefaultConfig() *Config {
-	serverType := os.Getenv("EXECUTOR_SERVER_TYPE")
-	if serverType == "" {
-		serverType = "tcp"
+	channelType := os.Getenv("CHANNEL_TYPE")
+	if channelType == "" {
+		channelType = "vsock"
 	}
-
-	serverAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
-	if serverAddress == "" {
-		serverAddress = "localhost"
-	}
-
-	serverCid, err := strconv.ParseUint(os.Getenv("EXECUTOR_VSOCK_CID"), 10, 32)
+	executorServerPort, err := strconv.ParseUint(os.Getenv("EXECUTOR_PORT"), 10, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert EXECUTOR_VSOCK_CID for error %v, using default value\n", err)
-		serverCid = 0
+		fmt.Printf("Failed to convert EXECUTOR_PORT for error %v, using default value\n", err)
+		executorServerPort = 4000
 	}
 
-	serverPort, err := strconv.ParseUint(os.Getenv("EXECUTOR_IP_PORT"), 10, 32)
-	if err != nil {
-		fmt.Printf("Failed to convert EXECUTOR_IP_PORT for error %v, using default value\n", err)
-		serverPort = 8080
+	var channelConnectionParams common.ChannelConnectionParams
+	if channelType == "vsock" {
+		//note: CID is always 3 inside AWS-Nitro, and since we are not planning to use other TEE it is hard-coded
+		channelConnectionParams = common.VSockChannelConnectionParams{CID: 3, Port: uint32(executorServerPort)}
+	} else {
+		executorIpAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
+		if executorIpAddress == "" {
+			executorIpAddress = "localhost"
+		}
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
 	}
 
 	recType, err := strconv.Atoi(os.Getenv("EXECUTOR_KEYSET_RECOVERY_TYPE"))
@@ -122,10 +119,8 @@ func DefaultConfig() *Config {
 	}
 
 	return &Config{
-		ServerType:         serverType,
-		ServerAddr:         serverAddress + ":" + strconv.FormatUint(uint64(serverPort), 10),
-		ServerCid:          uint32(serverCid),
-		ServerPort:         uint32(serverPort),
+		ChannelType:        channelType,
+		ChannelParams:      channelConnectionParams,
 		KeySetRecoveryType: recType,
 		FuelPricePerUnit:   fuelPrice,
 		MinFeePerRequest:   minFeePerRequest,
@@ -149,11 +144,26 @@ func LoadConfigFromFile() (*Config, error) {
 		return nil, err
 	}
 
+	var channelType = config.MustGetString("ChannelType")
+	var channelConnectionParams common.ChannelConnectionParams
+	executorServerPort, err := strconv.ParseUint(config.MustGetString("ExecutorPort"), 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert ExecutorPort for error %v, using default value\n", err)
+		executorServerPort = 4000
+	}
+	if channelType == "vsock" {
+		channelConnectionParams = common.VSockChannelConnectionParams{CID: 3, Port: uint32(executorServerPort)}
+	} else {
+		executorIpAddress := config.MustGetString("ExecutorIpAddress")
+		if executorIpAddress == "" {
+			executorIpAddress = "localhost"
+		}
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
+	}
+
 	return &Config{
-		ServerType:         config.MustGetString("ServerType"),
-		ServerAddr:         config.MustGetString("ServerAddr"),
-		ServerCid:          config.GetUint32("ServerCid", 2),
-		ServerPort:         config.GetUint32("ServerPort", 54321),
+		ChannelType:        config.MustGetString("ChannelType"),
+		ChannelParams:      channelConnectionParams,
 		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
 		FuelPricePerUnit:   big.NewInt(int64(config.GetInt("FuelPricePerUnit", 1))),
 		MinFeePerRequest:   big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),

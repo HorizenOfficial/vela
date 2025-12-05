@@ -24,10 +24,9 @@ services:
         ipv4_address: ${EXECUTOR_IP_ADDRESS}
     environment:
       - EXECUTOR_IP_ADDRESS
-      - EXECUTOR_IP_PORT
+      - EXECUTOR_PORT
       - EXECUTOR_KEYSET_RECOVERY_TYPE
-      - EXECUTOR_SERVER_TYPE
-      - EXECUTOR_VSOCK_CID
+      - CHANNEL_TYPE
       - EXECUTOR_FUEL_PRICE_PER_UNIT
       - EXECUTOR_MIN_FEE_PER_REQUEST
       - EXECUTOR_LOG_CONSOLE
@@ -45,10 +44,10 @@ services:
     devices:
       - /dev/vsock:/dev/vsock 
     environment:
-      - EXECUTOR_SERVER_TYPE
+      - CHANNEL_TYPE
       - EXECUTOR_IP_ADDRESS
-      - EXECUTOR_IP_PORT  
-      - MANAGER_VSOCK_CID
+      - EXECUTOR_PORT  
+      - CHANNEL_VSOCK_CID
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       - MANAGER_INPUT_WASMS

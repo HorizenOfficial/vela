@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 
 	"github.com/horizen-pes/pkg/executor"
@@ -45,15 +46,18 @@ func main() {
 
 	// Create the appropriate server based on configuration
 	var server communication.ExecutorServer
-	switch config.ServerType {
+	switch config.ChannelType {
 	case "tcp":
-		factory := communication.NewTCPConnectionFactory(config.ServerAddr)
+		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
 		server = communication.NewServer(factory, log)
 	case "vsock":
-		factory := communication.NewVSockConnectionFactory(config.ServerCid, config.ServerPort)
+		factory := communication.NewVSockConnectionFactory(
+			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
+			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
+		)
 		server = communication.NewServer(factory, log)
 	default:
-		log.Error("Unsupported server type: %s", config.ServerType)
+		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return
 	}
 

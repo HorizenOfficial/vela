@@ -19,12 +19,14 @@ func TestHandshakeFailureSystem(t *testing.T) {
 	mgrConfig, err := manager.LoadConfigFromFile()
 	require.NoError(t, err)
 	mgrConfig.DataLayerType = "mockdb"
+	executorConfig, err := executor.LoadConfigFromFile()
+	require.NoError(t, err)
 
 	// 2. Create a new system test suite without a keyset, it will try to get recovery data from datalayer, will not
 	// find anything stored there, will create a new keyset but it will fail storing it in datalayer
 	var keySet *executor.EnclaveKeySet = nil
 	var recoveryData *common.EnclaveKeySetRecovery = nil
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "mock-runtime", mgrConfig, executor.DefaultConfig(), keySet, recoveryData, testLogger)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "mock-runtime", mgrConfig, executorConfig, keySet, recoveryData, testLogger)
 	defer suite.Cleanup()
 
 	// 3. Get the mock data layer and configure it to fail

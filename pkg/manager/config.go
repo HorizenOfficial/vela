@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
@@ -22,10 +23,10 @@ type Config struct {
 
 	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests
 	BlockchainPollingInterval int64
-	// ExecutorConnectionType is the type of connection to use for the executor
-	ExecutorConnectionType string
-	// ExecutorConnectionParams are the parameters for the executor connection
-	ExecutorConnectionParams map[string]string
+	// ChannelType is the type of communication channel between manager and executor
+	ChannelType string
+	// ChannelParams are the parameters for the connection with the executor
+	ChannelParams common.ChannelConnectionParams
 
 	// Blockchain client parameters
 	// MockBlockChainClient specifies if the mock BlockChainClient should be used. Only for testing and development.
@@ -72,22 +73,33 @@ type Config struct {
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
 func DefaultConfig() *Config {
-	executorServerType := os.Getenv("EXECUTOR_SERVER_TYPE")
-	if executorServerType == "" {
-		executorServerType = "tcp"
+	channelType := os.Getenv("CHANNEL_TYPE")
+	if channelType == "" {
+		channelType = "vsock"
 	}
-	executorServerCid := os.Getenv("MANAGER_VSOCK_CID")
-	if executorServerCid == "" {
-		executorServerCid = "2"
+
+	executorServerPort, err := strconv.ParseUint(os.Getenv("EXECUTOR_PORT"), 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert EXECUTOR_PORT for error %v, using default value\n", err)
+		executorServerPort = 4000
 	}
-	executorServerAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
-	if executorServerAddress == "" {
-		executorServerAddress = "localhost"
+
+	var channelConnectionParams common.ChannelConnectionParams
+	if channelType == "vsock" {
+		executorServerCid, err := strconv.ParseUint(os.Getenv("CHANNEL_VSOCK_CID"), 10, 32)
+		if err != nil {
+			fmt.Printf("Failed to convert CHANNEL_VSOCK_CID for error %v, using default value\n", err)
+			executorServerCid = 20
+		}
+		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
+	} else {
+		executorIpAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
+		if executorIpAddress == "" {
+			executorIpAddress = "localhost"
+		}
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
 	}
-	executorServerPort := os.Getenv("EXECUTOR_IP_PORT")
-	if executorServerPort == "" {
-		executorServerPort = "8080"
-	}
+
 	var privateKey *cryptotypes.PrivateKeySecp256k1
 	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")
 	if privateKeyFromEnv == "" {
@@ -171,16 +183,12 @@ func DefaultConfig() *Config {
 		ReorgTimeout:              reorgTimeout,
 		HandshakeTimeout:          handshakeTimeout,
 		BlockchainPollingInterval: blockchainPollingInterval,
-		ExecutorConnectionType:    executorServerType,
-		ExecutorConnectionParams: map[string]string{
-			"url": executorServerAddress + ":" + executorServerPort,
-			"cid":  executorServerCid,
-			"port": executorServerPort,
-		},
-		RpcURL:           nodeProtocol + "://" + nodeUrl + ":" + nodePort,
-		PrivateKey:       *privateKey,
-		ProcessorAddress: processorAddress,
-		TeeAuthAddress:   teeAuthAddress,
+		ChannelType:               channelType,
+		ChannelParams:             channelConnectionParams,
+		RpcURL:                    nodeProtocol + "://" + nodeUrl + ":" + nodePort,
+		PrivateKey:                *privateKey,
+		ProcessorAddress:          processorAddress,
+		TeeAuthAddress:            teeAuthAddress,
 
 		MockBlockChainClient: false,
 		// Data layer configuration
@@ -214,21 +222,40 @@ func LoadConfigFromFile() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	var channelType = config.MustGetString("ChannelType")
+	var channelConnectionParams common.ChannelConnectionParams
+	executorServerPort, err := strconv.ParseUint(config.MustGetString("ExecutorPort"), 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert ExecutorPort for error %v, using default value\n", err)
+		executorServerPort = 4000
+	}
+	if channelType == "vsock" {
+		executorCid, err := strconv.ParseUint(config.MustGetString("ChannelVsockCid"), 10, 32)
+		if err != nil {
+			fmt.Printf("Failed to convert ChannelVsockCid for error %v, using default value\n", err)
+			executorCid = 20
+		}
+		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorCid), Port: uint32(executorServerPort)}
+	} else {
+		executorIpAddress := config.MustGetString("ExecutorIpAddress")
+		if executorIpAddress == "" {
+			executorIpAddress = "localhost"
+		}
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
+	}
+
 	return &Config{
 		ReorgTimeout:              config.GetInt64("ReorgTimeout", 180), // 3 minutes
 		HandshakeTimeout:          config.GetInt64("HandshakeTimeout", 5),
 		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
-		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
-		ExecutorConnectionParams: map[string]string{
-			"url":  config.GetString("ExecutorConnectionUrl", "localhost:8080"),
-			"cid":  config.GetString("ExecutorConnectionCid", "2"),
-			"port": config.GetString("ExecutorConnectionPort", "8080"),
-		},
-		RpcURL:               config.MustGetString("RpcUrl"),
-		PrivateKey:           *PrivateKey,
-		ProcessorAddress:     config.MustGetString("ProcessorAddress"),
-		TeeAuthAddress:       config.MustGetString("TeeAuthenticatorAddress"),
-		MockBlockChainClient: config.MustGetBool("MockBlockChainClient"),
+		ChannelType:               config.MustGetString("ChannelType"),
+		ChannelParams:             channelConnectionParams,
+		RpcURL:                    config.MustGetString("RpcUrl"),
+		PrivateKey:                *PrivateKey,
+		ProcessorAddress:          config.MustGetString("ProcessorAddress"),
+		TeeAuthAddress:            config.MustGetString("TeeAuthenticatorAddress"),
+		MockBlockChainClient:      config.MustGetBool("MockBlockChainClient"),
 		// Data layer configuration
 		DataLayerType:             config.MustGetString("DataLayerType"),
 		DataLayerDBPath:           config.MustGetString("DataLayerDBPath"),
