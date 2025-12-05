@@ -45,7 +45,7 @@ type SystemTestSuite struct {
 
 func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *SystemTestSuite {
 	// log is passed from outside, the log settings in the manager configuration does not affect it.
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)

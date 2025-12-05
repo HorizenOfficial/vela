@@ -1,9 +1,7 @@
 package manager
 
 import (
-	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -71,32 +69,24 @@ type Config struct {
 	LogFileLevel string
 }
 
-// DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
-func DefaultConfig() *Config {
-	channelType := os.Getenv("CHANNEL_TYPE")
-	if channelType == "" {
-		channelType = "vsock"
-	}
-
-	executorServerPort, err := strconv.ParseUint(os.Getenv("EXECUTOR_PORT"), 10, 32)
-	if err != nil {
-		fmt.Printf("Failed to convert EXECUTOR_PORT for error %v, using default value\n", err)
-		executorServerPort = 4000
-	}
-
-	var channelConnectionParams common.ChannelConnectionParams
-	if channelType == "vsock" {
-		executorServerCid, err := strconv.ParseUint(os.Getenv("CHANNEL_VSOCK_CID"), 10, 32)
+func LoadConfig() (*Config, error) {
+	fileProperties := properties.NewProperties()
+	if common.FileExists(confFileName) {
+		filePropertiesFromFile, err := properties.LoadFile(confFileName, properties.UTF8)
 		if err != nil {
-			fmt.Printf("Failed to convert CHANNEL_VSOCK_CID for error %v, using default value\n", err)
-			executorServerCid = 20
+			return nil, err
 		}
+		fileProperties = filePropertiesFromFile
+	}
+
+	var channelType = common.GetConfigVar("CHANNEL_TYPE", "vsock", fileProperties)
+	var channelConnectionParams common.ChannelConnectionParams
+	executorServerPort := common.GetConfigVarInt64("EXECUTOR_PORT", 4000, fileProperties)
+	if channelType == "vsock" {
+		executorServerCid := common.GetConfigVarInt64("CHANNEL_VSOCK_CID", 20, fileProperties)
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
 	} else {
-		executorIpAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
-		if executorIpAddress == "" {
-			executorIpAddress = "localhost"
-		}
+		executorIpAddress := common.GetConfigVar("EXECUTOR_IP_ADDRESS", "localhost", fileProperties)
 		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
 	}
 
@@ -107,163 +97,34 @@ func DefaultConfig() *Config {
 	} else {
 		privateKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
 	}
-	dataPath := os.Getenv("MANAGER_DATA_FOLDER")
-	if dataPath == "" {
-		dataPath = "/tmp/horizen-pes-data/manager_db"
-	}
-	inputWasmPath := os.Getenv("MANAGER_INPUT_WASMS")
-	logKind := os.Getenv("MANAGER_LOG_KIND")
-	if logKind == "" {
-		logKind = "zerolog"
-	}
-
-	nodeProtocol := os.Getenv("CHAIN_RPC_PROTOCOL")
-	if nodeProtocol == "" {
-		nodeProtocol = "http"
-	}
-	nodeUrl := os.Getenv("CHAIN_RPC_ADDRESS")
-	if nodeUrl == "" {
-		nodeUrl = "127.0.0.1"
-	}
-	nodePort := os.Getenv("CHAIN_RPC_PORT")
-	if nodePort == "" {
-		nodePort = "8545"
-	}
-	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
-	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
-
-	reportsPath := os.Getenv("MANAGER_REPORTS_FOLDER")
-
-	reorgTimeoutEnvVar := os.Getenv("REORG_TIMEOUT")
-	reorgTimeout, err := strconv.ParseInt(reorgTimeoutEnvVar, 10, 32)
-	if err != nil {
-		reorgTimeout = 180
-	}
-
-	handshakeTimeoutEnvVar := os.Getenv("HANDSHAKE_TIMEOUT")
-	handshakeTimeout, err := strconv.ParseInt(handshakeTimeoutEnvVar, 10, 32)
-	if err != nil {
-		handshakeTimeout = 5
-	}
-
-	blockchainPollingIntervalEnvVar := os.Getenv("BLOCKCHAIN_POLLING_INTERVAL")
-	blockchainPollingInterval, err := strconv.ParseInt(blockchainPollingIntervalEnvVar, 10, 32)
-	if err != nil {
-		blockchainPollingInterval = 5
-	}
-
-	logConsole, err := strconv.ParseBool(os.Getenv("MANAGER_LOG_CONSOLE"))
-	if err != nil {
-		logConsole = true
-	}
-
-	logConsoleLevel := os.Getenv("MANAGER_LOG_CONSOLE_LEVEL")
-	if logConsoleLevel == "" {
-		logConsoleLevel = "info"
-	}
-
-	logFileName := os.Getenv("MANAGER_LOG_FILE_NAME")
-	if logFileName == "" {
-		logFileName = ""
-	}
-
-	logFileLevel := os.Getenv("MANAGER_LOG_FILE_LEVEL")
-	if logFileLevel == "" {
-		if logFileName != "" {
-			logFileLevel = "info"
-		}
-	}
-
-	logConsoleColor, err := strconv.ParseBool(os.Getenv("MANAGER_LOG_CONSOLE_COLOR"))
-	if err != nil {
-		logConsoleColor = false
-	}
 
 	return &Config{
-		ReorgTimeout:              reorgTimeout,
-		HandshakeTimeout:          handshakeTimeout,
-		BlockchainPollingInterval: blockchainPollingInterval,
-		ChannelType:               channelType,
-		ChannelParams:             channelConnectionParams,
-		RpcURL:                    nodeProtocol + "://" + nodeUrl + ":" + nodePort,
-		PrivateKey:                *privateKey,
-		ProcessorAddress:          processorAddress,
-		TeeAuthAddress:            teeAuthAddress,
+		ChannelType:   channelType,
+		ChannelParams: channelConnectionParams,
 
+		ReorgTimeout:              common.GetConfigVarInt64("REORG_TIMEOUT", 180, fileProperties), // 3 minutes
+		HandshakeTimeout:          common.GetConfigVarInt64("HANDSHAKE_TIMEOUT", 5, fileProperties),
+		BlockchainPollingInterval: common.GetConfigVarInt64("BLOCKCHAIN_POLLING_INTERVAL", 5, fileProperties),
+
+		RpcURL: common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProperties) + "://" +
+			common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProperties) + ":" +
+			common.GetConfigVar("CHAIN_RPC_PORT", "8545", fileProperties),
+
+		PrivateKey:           *privateKey,
+		ProcessorAddress:     common.GetConfigVar("CHAIN_PROCESSOR_ADDRESS", "", fileProperties),
+		TeeAuthAddress:       common.GetConfigVar("CHAIN_TEEAUTHENTICATOR_ADDRESS", "", fileProperties),
 		MockBlockChainClient: false,
 		// Data layer configuration
 		DataLayerType:             "versioned_leveldb",
-		DataLayerDBPath:           dataPath,
-		DataLayerNumOfVersions:    10,          // useful only for versioned leveldb
-		DeanonymizationReportPath: reportsPath, // optional, default to not-there semantic
-		InputWasmPath:             inputWasmPath,
-
-		LogKind:         logKind,
-		LogConsole:      logConsole,
-		LogConsoleLevel: logConsoleLevel,
-		LogConsoleColor: logConsoleColor,
-
-		LogFileName:  logFileName,
-		LogFileLevel: logFileLevel,
-	}
-}
-
-// LoadConfigFromFile loads the configuration from the given file
-func LoadConfigFromFile() (*Config, error) {
-	if !common.FileExists(confFileName) {
-		return DefaultConfig(), nil
-	}
-	// Load properties from file
-	config, err := properties.LoadFile(confFileName, properties.UTF8)
-	if err != nil {
-		return nil, err
-	}
-	PrivateKey, err := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("PrivateKey"))
-	if err != nil {
-		return nil, err
-	}
-
-	var channelType = config.MustGetString("ChannelType")
-	var channelConnectionParams common.ChannelConnectionParams
-	executorServerPort, err := strconv.ParseUint(config.GetString("ExecutorPort", "4000"), 10, 32)
-	if err != nil {
-		fmt.Printf("Failed to convert ExecutorPort for error %v, using default value\n", err)
-		executorServerPort = 4000
-	}
-	if channelType == "vsock" {
-		executorCid, err := strconv.ParseUint(config.GetString("ChannelVsockCid", "20"), 10, 32)
-		if err != nil {
-			fmt.Printf("Failed to convert ChannelVsockCid for error %v, using default value\n", err)
-			executorCid = 20
-		}
-		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorCid), Port: uint32(executorServerPort)}
-	} else {
-		executorIpAddress := config.GetString("ExecutorIpAddress", "localhost")
-		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
-	}
-
-	return &Config{
-		ReorgTimeout:              config.GetInt64("ReorgTimeout", 180), // 3 minutes
-		HandshakeTimeout:          config.GetInt64("HandshakeTimeout", 5),
-		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
-		ChannelType:               config.MustGetString("ChannelType"),
-		ChannelParams:             channelConnectionParams,
-		RpcURL:                    config.MustGetString("RpcUrl"),
-		PrivateKey:                *PrivateKey,
-		ProcessorAddress:          config.MustGetString("ProcessorAddress"),
-		TeeAuthAddress:            config.MustGetString("TeeAuthenticatorAddress"),
-		MockBlockChainClient:      config.MustGetBool("MockBlockChainClient"),
-		// Data layer configuration
-		DataLayerType:             config.MustGetString("DataLayerType"),
-		DataLayerDBPath:           config.MustGetString("DataLayerDBPath"),
-		DataLayerNumOfVersions:    config.MustGetInt("DataLayerNumOfVersions"),
-		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
-		InputWasmPath:             config.GetString("InputWasmPath", ""),
-		LogKind:                   config.GetString("LogKind", "zerolog"),
-		LogConsole:                config.GetBool("LogConsole", true),
-		LogConsoleLevel:           config.GetString("LogConsoleLevel", "info"),
-		LogConsoleColor:           config.GetBool("LogColor", true),
-		LogFileName:               config.GetString("LogFileName", ""),
-		LogFileLevel:              config.GetString("LogFileLevel", "info"),
+		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
+		DataLayerNumOfVersions:    10,
+		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "", fileProperties),
+		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
+		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zerolog", fileProperties),
+		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
+		LogConsoleLevel:           common.GetConfigVar("MANAGER_LOG_CONSOLE_LEVEL", "info", fileProperties),
+		LogConsoleColor:           common.GetConfigVarBool("MANAGER_LOG_CONSOLE_COLOR", false, fileProperties),
+		LogFileName:               common.GetConfigVar("MANAGER_LOG_FILE_NAME", "", fileProperties),
+		LogFileLevel:              common.GetConfigVar("MANAGER_LOG_FILE_LEVEL", "info", fileProperties),
 	}, nil
 }

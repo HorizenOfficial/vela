@@ -16,7 +16,7 @@ import (
 
 func TestHandshakeFailureSystem(t *testing.T) {
 	// 1. Create a manager config with a mock data layer
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	mgrConfig.DataLayerType = "mockdb"
 	executorConfig, err := executor.LoadConfig()

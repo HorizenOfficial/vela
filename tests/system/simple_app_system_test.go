@@ -147,7 +147,7 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 
 func TestExecutorManagerStart(t *testing.T) {
 
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
@@ -277,7 +277,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user1Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
 	user2Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)

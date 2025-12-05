@@ -80,7 +80,7 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 
 func main() {
 	// Load configuration
-	config, err := manager.LoadConfigFromFile()
+	config, err := manager.LoadConfig()
 	if err != nil {
 		// Use a temporary logger for fatal error
 		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
