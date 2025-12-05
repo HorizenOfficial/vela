@@ -78,8 +78,6 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 	return bcClient, nil
 }
 
-
-
 func main() {
 	// Load configuration
 	config, err := manager.LoadConfigFromFile()
@@ -171,6 +169,7 @@ func main() {
 	// Start the manager
 	if err := secureProcessorManager.Start(ctx); err != nil {
 		log.Error("Failed to start manager: %v", err)
+		return
 	}
 	log.Info("Manager started")
 
