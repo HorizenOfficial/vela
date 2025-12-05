@@ -36,7 +36,7 @@ func NewPrintfLogger(cfg *Config) *PrintfLogger {
 		writer = os.Stderr
 	}
 
-	return &PrintfLogger{logger: log.New(writer, "", log.LstdFlags), logFile: logFile}
+	return &PrintfLogger{logger: log.New(writer, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile), logFile: logFile}
 }
 
 func (p *PrintfLogger) Trace(msg string, args ...any) { p.logger.Printf("TRC: "+msg, args...) }

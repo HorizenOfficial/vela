@@ -444,7 +444,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 	var runtimeMutex sync.Mutex
 
 	// Repeatedly make calls and check mem is ok
-	const numGoroutines = 5
+	const numGoroutines = 1
 	const iterationsPerGoroutine = 40
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)

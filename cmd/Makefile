@@ -1,45 +1,85 @@
 BIN_DIR := ../bin
+FLAG_FILE := $(BIN_DIR)/.built
+
+# Configuration files
 MANAGER_CONF_SRC := ../pkg/manager/manager.conf
 MANAGER_CONF_DEST := $(BIN_DIR)/manager.conf
 EXECUTOR_CONF_SRC := ../pkg/executor/executor.conf
 EXECUTOR_CONF_DEST := $(BIN_DIR)/executor.conf
 
-.PHONY: all manager executor clean check-conf
+# Automatically discover all Go source files for proper dependency tracking
+MANAGER_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./manager)
+EXECUTOR_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./executor)
 
-all: manager executor check-conf
+.PHONY: all manager executor check-conf clean list-deps clean-flag print-nothing
 
+all: clean-flag manager executor check-conf print-nothing
+
+# Ensure binary directory exists
+$(BIN_DIR):
+	mkdir -p $(BIN_DIR)
+
+# ----------------------
+# Manager
+# ----------------------
 manager: $(BIN_DIR)/manager
-	@echo "Manager binary built"
 
-$(BIN_DIR)/manager: ./manager/main.go
+$(BIN_DIR)/manager: $(BIN_DIR) ../go.mod ../go.sum $(MANAGER_SRC_FILES)
 	@echo "Building manager..."
 	@go build -o $(BIN_DIR)/manager ./manager
+	@echo "Manager binary built"
+	@touch $(FLAG_FILE)
 
+# ----------------------
+# Executor
+# ----------------------
 executor: $(BIN_DIR)/executor
-	@echo "Executor binary built"
 
-$(BIN_DIR)/executor: ./executor/main.go
+$(BIN_DIR)/executor: $(BIN_DIR) ../go.mod ../go.sum $(EXECUTOR_SRC_FILES)
 	@echo "Building executor..."
 	@go build -o $(BIN_DIR)/executor ./executor
+	@echo "Executor binary built"
+	@touch $(FLAG_FILE)
 
-check-conf:
-	@echo "Checking configuration file symlinks..."
-	@mkdir -p $(BIN_DIR)
-	@if [ ! -L $(MANAGER_CONF_DEST) ] || [ "$(realpath $(MANAGER_CONF_DEST))" != "$(realpath $(MANAGER_CONF_SRC))" ]; then \
-		echo "Creating symlink for manager.conf"; \
-		rm -f $(MANAGER_CONF_DEST); \
+# ----------------------
+# Config symlinks
+# ----------------------
+check-conf: $(BIN_DIR)
+	@if [ ! -e $(MANAGER_CONF_DEST) ]; then \
+		echo "Creating symlink: $(MANAGER_CONF_DEST) -> $(MANAGER_CONF_SRC)"; \
 		ln -s $(MANAGER_CONF_SRC) $(MANAGER_CONF_DEST); \
-	else \
-		echo "manager.conf symlink is correct."; \
+		touch $(FLAG_FILE); \
 	fi
-	@if [ ! -L $(EXECUTOR_CONF_DEST) ] || [ "$(realpath $(EXECUTOR_CONF_DEST))" != "$(realpath $(EXECUTOR_CONF_SRC))" ]; then \
-		echo "Creating symlink for executor.conf"; \
-		rm -f $(EXECUTOR_CONF_DEST); \
+	@if [ ! -e $(EXECUTOR_CONF_DEST) ]; then \
+		echo "Creating symlink: $(EXECUTOR_CONF_DEST) -> $(EXECUTOR_CONF_SRC)"; \
 		ln -s $(EXECUTOR_CONF_SRC) $(EXECUTOR_CONF_DEST); \
-	else \
-		echo "executor.conf symlink is correct."; \
+		touch $(FLAG_FILE); \
 	fi
 
+# ----------------------
+# Nothing to do message
+# ----------------------
+clean-flag:
+	@rm -f $(FLAG_FILE)
+
+print-nothing:
+	@if [ ! -f $(FLAG_FILE) ]; then \
+		echo "Nothing to do"; \
+	fi
+	@rm -f $(FLAG_FILE)
+
+# ----------------------
+# Dependencies
+# ----------------------
+list-deps:
+	@echo "Manager Source Dependencies:"
+	@echo $(MANAGER_SRC_FILES) | tr ' ' '\n'
+	@echo "\nExecutor Source Dependencies:"
+	@echo $(EXECUTOR_SRC_FILES) | tr ' ' '\n'
+
+# ----------------------
+# Clean
+# ----------------------
 clean:
 	@echo "Cleaning up..."
 	@rm -f $(BIN_DIR)/manager $(BIN_DIR)/executor

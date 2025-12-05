@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -13,12 +12,6 @@ type ZeroLogger struct {
 	mu      sync.RWMutex
 	logger  zerolog.Logger
 	logFile *os.File
-}
-
-func init() {
-	// Zerolog's default internal skip is usually 2.
-	// By setting it to 3, we are adding 1 extra skip for the wrapper function.
-	zerolog.CallerSkipFrameCount = 3
 }
 
 func NewZeroLogger(cfg *Config) *ZeroLogger {
@@ -31,14 +24,17 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 		if err != nil {
 			panic(err)
 		}
-		writers = append(writers, logFile)
+		writers = append(writers, zerolog.ConsoleWriter{
+			Out:     logFile,
+			NoColor: true,
+		})
 	}
 
 	if cfg.Console {
 		writers = append(writers, zerolog.ConsoleWriter{
 			Out:        os.Stderr,
-			TimeFormat: time.RFC3339,
 			NoColor:    !cfg.ConsoleColor,
+			TimeFormat: "2006-Dec-02 15:04:05.000",
 		})
 	}
 

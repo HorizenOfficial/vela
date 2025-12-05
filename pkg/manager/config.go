@@ -76,6 +76,10 @@ type Config struct {
 
 	// LogServerTCPAddress is the address where the manager's log server will listen for incoming TCP log messages.
 	LogServerTCPAddress string
+	// LogServerVSockAddress is the address where the manager's log server will listen for incoming VSOCK log messages.
+	LogServerVSockAddress string
+	// LogServerLogFile is the file path where the manager's log server will write incoming log messages.
+	LogServerLogFile string
 }
 
 // DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
@@ -176,6 +180,8 @@ func DefaultConfig() *Config {
 	}
 
 	logServerTCPAddress := os.Getenv("MANAGER_LOG_SERVER_TCP_ADDRESS")
+	logServerVSockAddress := os.Getenv("MANAGER_LOG_SERVER_VSOCK_ADDRESS")
+	logServerLogFile := os.Getenv("MANAGER_LOG_SERVER_LOG_FILE")
 
 	return &Config{
 		ReorgTimeout:              reorgTimeout,
@@ -203,12 +209,14 @@ func DefaultConfig() *Config {
 		LogConsoleLevel: logConsoleLevel,
 		LogConsoleColor: logConsoleColor,
 
-		LogFileName:         logFileName,
-		LogFileLevel:        logFileLevel,
-		RemoteLogAddress:    remoteLogAddress,
-		RemoteLogNetwork:    remoteLogNetwork,
-		LogNetworkLevel:     networkLevel,
-		LogServerTCPAddress: logServerTCPAddress,
+		LogFileName:           logFileName,
+		LogFileLevel:          logFileLevel,
+		RemoteLogAddress:      remoteLogAddress,
+		RemoteLogNetwork:      remoteLogNetwork,
+		LogNetworkLevel:       networkLevel,
+		LogServerTCPAddress:   logServerTCPAddress,
+		LogServerVSockAddress: logServerVSockAddress,
+		LogServerLogFile:      logServerLogFile,
 	}
 }
 
@@ -251,9 +259,11 @@ func LoadConfigFromFile() (*Config, error) {
 		LogConsoleColor:           config.GetBool("LogColor", true),
 		LogFileName:               config.GetString("LogFileName", ""),
 		LogFileLevel:              config.GetString("LogFileLevel", "info"),
-		RemoteLogAddress:          config.GetString("LogRemoteAddress", ""),
-		RemoteLogNetwork:          config.GetString("LogRemoteNetwork", ""),
+		RemoteLogAddress:          config.GetString("RemoteLogAddress", ""),
+		RemoteLogNetwork:          config.GetString("RemoteLogNetwork", ""),
 		LogNetworkLevel:           config.GetString("LogNetworkLevel", "info"),
 		LogServerTCPAddress:       config.GetString("LogServerTCPAddress", ""),
+		LogServerVSockAddress:     config.GetString("LogServerVSockAddress", ""),
+		LogServerLogFile:          config.GetString("LogServerLogFile", "log_server.log"),
 	}, nil
 }

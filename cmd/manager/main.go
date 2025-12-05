@@ -117,7 +117,7 @@ func main() {
 	defer cancel()
 
 	// Start the log server if configured
-	manager.StartLogServer(ctx, config.LogServerTCPAddress, log)
+	manager.StartLogServer(ctx, config.LogServerTCPAddress, config.LogServerVSockAddress, config.LogServerLogFile)
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)

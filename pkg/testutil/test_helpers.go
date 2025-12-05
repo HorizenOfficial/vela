@@ -101,20 +101,22 @@ func NewSystemTestSuiteWithConfigs(
 
 	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, mgrLog)
 
+	manager.StartLogServer(ctx, mgrConfig.LogServerTCPAddress, mgrConfig.LogServerVSockAddress, mgrConfig.LogServerLogFile)
+
 	// Create executor
-	server := communication.NewServer(factory, mgrLog)
+	server := communication.NewServer(factory, excLog)
 	var runtime executor.Runtime
 	switch appType {
 	case "mock-runtime":
 		t.Log("mock app type: ", appType)
-		runtime = executor.NewMockRuntime(mgrLog)
+		runtime = executor.NewMockRuntime(excLog)
 	default:
 		t.Log("wasm app type: ", appType)
-		runtime = wasm.NewWasmtimeRuntime(mgrLog)
+		runtime = wasm.NewWasmtimeRuntime(excLog)
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, mgrLog)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, excLog)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {
@@ -400,7 +402,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		Sender:        userAddress,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)

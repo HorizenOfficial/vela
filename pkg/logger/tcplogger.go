@@ -75,7 +75,7 @@ func (t *TCPLogger) sendLog(level string, msg string, args ...any) {
 		return
 	}
 
-	formattedMsg := fmt.Sprintf("[%s] %s: %s\n", time.Now().Format(time.RFC3339), level, fmt.Sprintf(msg, args...))
+	formattedMsg := fmt.Sprintf("[%s] %s: %s\n", time.Now().Format("2006-01-02 15:04:05.000"), level, fmt.Sprintf(msg, args...))
 	_, err := io.WriteString(t.conn, formattedMsg)
 	if err != nil {
 		t.fallbackLogger.Error("failed to send remote log via TCP: %v", err)

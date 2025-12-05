@@ -25,13 +25,13 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
-var testLogger logger.Logger
-var excLogger logger.Logger
+var testLogger1 logger.Logger
+var testLogger2 logger.Logger
 
 func TestMain(m *testing.M) {
 	// Initialize once
 	//	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
-	testLogger = logger.NewLogger(
+	testLogger1 = logger.NewLogger(
 		&logger.Config{
 			Kind:         "zerolog",
 			ConsoleLevel: "info",
@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 		},
 	)
 
-	excLogger = logger.NewLogger(
+	testLogger2 = logger.NewLogger(
 		&logger.Config{
 			Kind:             "zeronetwork",
 			ConsoleLevel:     "trace",
@@ -93,7 +93,7 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -161,7 +161,7 @@ func TestExecutorManagerStart(t *testing.T) {
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfigFromFile()
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger, excLogger)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	// 2. Start services
@@ -172,7 +172,8 @@ func TestExecutorManagerStart(t *testing.T) {
 }
 
 func TestDeploySimpleApp(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger, excLogger)
+	// we use for both mgr and executor the remote network logger
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger2, testLogger2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -189,7 +190,7 @@ func TestDeploySimpleApp(t *testing.T) {
 
 // this will be modified when we support an app id other that "1"
 func TestDeploySimpleAppNegativeCase(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger, excLogger)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -214,7 +215,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -246,7 +247,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -268,7 +269,7 @@ func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger, excLogger)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)
@@ -298,7 +299,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// we need to pass the keys for having them in the test suite
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, testLogger, excLogger)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -504,7 +505,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	}
 	timeout_value := 10 * time.Second
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger, excLogger)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
