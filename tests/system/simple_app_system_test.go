@@ -83,7 +83,7 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -147,9 +147,9 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 
 func TestExecutorManagerStart(t *testing.T) {
 
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
-	execConfig, err := executor.LoadConfigFromFile()
+	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
 	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger)
 	defer suite.Cleanup()
@@ -204,7 +204,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -236,7 +236,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -277,9 +277,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user1Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
 	user2Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
-	execConfig, err := executor.LoadConfigFromFile()
+	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
 	tempDir, err := os.MkdirTemp("", "reports_system_test")
 	require.NoError(t, err)

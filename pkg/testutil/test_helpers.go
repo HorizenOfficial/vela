@@ -45,9 +45,9 @@ type SystemTestSuite struct {
 
 func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *SystemTestSuite {
 	// log is passed from outside, the log settings in the manager configuration does not affect it.
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
-	execConfig, err := executor.LoadConfigFromFile()
+	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
@@ -68,7 +68,7 @@ func NewSystemTestSuiteWithConfigs(
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	factory := communication.NewTCPConnectionFactory(execConfig.ServerAddr)
+	factory := communication.NewTCPConnectionFactory(execConfig.ChannelParams.(common.TcpChannelConnectionParams).Url())
 	executorClient := communication.NewClient(factory, log)
 
 	// Create manager
@@ -399,7 +399,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		Sender:        userAddress,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
 		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)

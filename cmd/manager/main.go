@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"os"
@@ -12,6 +11,7 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain"
+	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/manager"
@@ -80,7 +80,7 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 
 func main() {
 	// Load configuration
-	config, err := manager.LoadConfigFromFile()
+	config, err := manager.LoadConfig()
 	if err != nil {
 		// Use a temporary logger for fatal error
 		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
@@ -127,33 +127,18 @@ func main() {
 
 	// Create the executor client
 	var executorClient communication.ExecutorClient
-	switch config.ExecutorConnectionType {
+	switch config.ChannelType {
 	case "tcp":
-		if strings.TrimSpace(config.ExecutorConnectionParams["url"]) == "" {
-			log.Error("Tcp url is empty")
-			return
-		}
-		factory := communication.NewTCPConnectionFactory(config.ExecutorConnectionParams["url"])
+		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
 		executorClient = communication.NewClient(factory, log)
 	case "vsock":
-		cidStr, err := strconv.ParseUint(config.ExecutorConnectionParams["cid"], 10, 32)
-		if err != nil {
-			log.Error("Failed to parse port: %v", err)
-			return
-		}
-		cid := uint32(cidStr)
-
-		portStr, err := strconv.ParseUint(config.ExecutorConnectionParams["port"], 10, 32)
-		if err != nil {
-			log.Error("Failed to parse executor connection parameters: %v", err)
-			return
-		}
-		port := uint32(portStr)
-
-		factory := communication.NewVSockConnectionFactory(cid, port)
+		factory := communication.NewVSockConnectionFactory(
+			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
+			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
+		)
 		executorClient = communication.NewClient(factory, log)
 	default:
-		log.Error("Unsupported executor connection type: %s", config.ExecutorConnectionType)
+		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return
 	}
 
