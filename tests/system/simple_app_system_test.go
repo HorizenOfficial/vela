@@ -46,9 +46,11 @@ func TestMain(m *testing.M) {
 		&logger.Config{
 			Kind:             "zeronetwork",
 			ConsoleLevel:     "trace",
-			RemoteLogAddress: "127.0.0.1:2233",
 			RemoteLogNetwork: "tcp",
-			NetworkLevel:     "trace"},
+			RemoteLogAddress: "127.0.0.1:2233",
+			//RemoteLogNetwork: "vsock",
+			//RemoteLogAddress: "5:2233",
+			NetworkLevel: "trace"},
 	)
 
 	// Run tests

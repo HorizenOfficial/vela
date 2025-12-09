@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/mdlayher/vsock"
 	"github.com/rs/zerolog"
 )
 
 // TODO
 // UDP/TCP split based on log severity
-// Support for vsock connection
+// We would have to implement application-level UDP-like protocol over VSOCK, since VSOCK is stream-oriented and does not support UDP natively.
 
 const (
 	defaultBuffer      = 1000
@@ -21,6 +24,48 @@ const (
 	defaultMaxWait     = 30 * time.Second
 	defaultDialTimeout = 5 * time.Second
 )
+
+// LogConnectionFactory abstracts the network dialling logic for different protocols.
+type LogConnectionFactory interface {
+	Dial(timeout time.Duration) (net.Conn, error)
+}
+
+// tcpLogConnectionFactory implements LogConnectionFactory for TCP connections.
+type tcpLogConnectionFactory struct {
+	network string
+	address string
+}
+
+// NewTCPLogConnectionFactory creates a new TCP log connection factory.
+func NewTCPLogConnectionFactory(network, address string) *tcpLogConnectionFactory {
+	return &tcpLogConnectionFactory{network: network, address: address}
+}
+
+// Dial creates a TCP client connection with a timeout.
+func (f *tcpLogConnectionFactory) Dial(timeout time.Duration) (net.Conn, error) {
+	return net.DialTimeout(f.network, f.address, timeout)
+}
+
+// vsockLogConnectionFactory implements LogConnectionFactory for v-sock connections.
+type vsockLogConnectionFactory struct {
+	cid  uint32
+	port uint32
+}
+
+// NewVSockLogConnectionFactory creates a new v-sock log connection factory.
+func NewVSockLogConnectionFactory(cid, port uint32) *vsockLogConnectionFactory {
+	return &vsockLogConnectionFactory{cid: cid, port: port}
+}
+
+// Dial establishes a VSOCK connection.
+// NOTE: VSOCK has no built-in connect timeout; this call will block until a peer is available.
+func (f *vsockLogConnectionFactory) Dial(_ time.Duration) (net.Conn, error) {
+	conn, err := vsock.Dial(f.cid, f.port, nil)
+	if err != nil {
+		fmt.Printf("[zeronetwork] VSOCK connection failed: %v\n", err)
+	}
+	return conn, err
+}
 
 // AsyncWriter is a resilient, non-blocking io.Writer.
 // It writes to a fallback writer immediately and buffers logs for an async worker.
@@ -32,15 +77,17 @@ type AsyncWriter struct {
 	logBuffer      chan []byte
 	stopChan       chan struct{}
 	wg             sync.WaitGroup
+	logFactory     LogConnectionFactory
 }
 
 // NewAsyncWriter creates a new writer that handles buffering and reconnecting.
-func NewAsyncWriter(cfg *Config, fallback io.Writer) *AsyncWriter {
+func NewAsyncWriter(cfg *Config, fallback io.Writer, factory LogConnectionFactory) *AsyncWriter {
 	writer := &AsyncWriter{
 		cfg:            cfg,
 		fallbackWriter: fallback,
 		logBuffer:      make(chan []byte, defaultBuffer),
 		stopChan:       make(chan struct{}),
+		logFactory:     factory,
 	}
 
 	writer.wg.Add(1)
@@ -51,11 +98,18 @@ func NewAsyncWriter(cfg *Config, fallback io.Writer) *AsyncWriter {
 
 // Write implements the io.Writer interface. It is non-blocking.
 func (w *AsyncWriter) Write(p []byte) (n int, err error) {
+	select {
+	case <-w.stopChan:
+		// writer is closing, drop message safely
+		return len(p), nil
+	default:
+	}
+
 	// Immediately write to fallback for real-time local logging
 	if w.conn == nil {
 
 		if _, err := w.fallbackWriter.Write(p); err != nil {
-			fmt.Printf("Fallback logger failed: %v\n", err)
+			fmt.Printf("[zeronetwork] Fallback logger failed: %v\n", err)
 		}
 	}
 
@@ -80,7 +134,8 @@ func (w *AsyncWriter) run() {
 	for {
 		select {
 		case <-w.stopChan:
-			return // Shutdown signal received
+			// Shutdown signal received, buffer will be drained in Close()
+			return
 		default:
 			// If not connected, block until we are.
 			if w.conn == nil {
@@ -101,12 +156,15 @@ func (w *AsyncWriter) run() {
 	}
 }
 
-// processBuffer reads from the channel and writes to the network.
-// It returns `false` if the connection is broken.
+// processBuffer reads from the buffer and writes to the network.
+// Returns false if connection is broken.
 func (w *AsyncWriter) processBuffer() bool {
 	for {
 		select {
 		case msg := <-w.logBuffer:
+			if msg == nil {
+				return true // Channel closed
+			}
 			if _, err := w.conn.Write(msg); err != nil {
 				fmt.Printf("[zeronetwork] write failed: %v. Reconnecting...\n", err)
 				w.closeConn()
@@ -119,21 +177,21 @@ func (w *AsyncWriter) processBuffer() bool {
 				return false // Signal connection is broken
 			}
 		case <-w.stopChan:
-			// Drain remaining buffer before shutting down
-			w.drainBuffer()
-			return true // Signal shutdown
+			return true // Shutdown
+		default:
+			return true // No more messages
 		}
 	}
 }
 
-// connectWithRetry tries to connect multiple times.
+// connectWithRetry attempts to establish a connection repeatedly until success or max wait time.
 func (w *AsyncWriter) connectWithRetry() error {
 	deadline := time.Now().Add(defaultMaxWait)
 	var lastErr error
 
 	for time.Now().Before(deadline) {
 		fmt.Println("[zeronetwork] attempting to connect...")
-		conn, err := net.DialTimeout(w.cfg.RemoteLogNetwork, w.cfg.RemoteLogAddress, defaultDialTimeout)
+		conn, err := w.logFactory.Dial(defaultDialTimeout)
 		if err == nil {
 			w.mu.Lock()
 			w.conn = conn
@@ -156,15 +214,26 @@ func (w *AsyncWriter) connectWithRetry() error {
 
 // drainBuffer writes any remaining logs in the queue before shutdown.
 func (w *AsyncWriter) drainBuffer() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.conn == nil {
 		fmt.Println("[zeronetwork] cannot drain buffer, no connection.")
 		return
 	}
 	close(w.logBuffer) // Close channel to range over remaining items
 	fmt.Println("[zeronetwork] draining log buffer before shutdown...")
-	for msg := range w.logBuffer {
+	for {
+		select {
+		case msg := <-w.logBuffer:
+			if msg == nil {
+				return
+			}
 		if _, err := w.conn.Write(msg); err != nil {
 			fmt.Printf("[zeronetwork] failed to write during drain: %v\n", err)
+			}
+		default:
+			return // buffer empty
 		}
 	}
 }
@@ -183,11 +252,12 @@ func (w *AsyncWriter) closeConn() {
 func (w *AsyncWriter) Close() error {
 	close(w.stopChan) // Signal worker to stop
 	w.wg.Wait()       // Wait for worker to finish
-	w.closeConn()
+	w.closeConn()     // Close active network connection
+	w.drainBuffer()   // Drain remaining logs safely
 	return nil
 }
 
-// ZeroNetworkLogger implements the Logger interface.
+// ZeroNetworkLogger wraps zerolog with an AsyncWriter.
 type ZeroNetworkLogger struct {
 	mu     sync.RWMutex
 	logger *zerolog.Logger
@@ -204,7 +274,31 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	}
 
 	fallback := NewPrintfLogger(&Config{Console: true, ConsoleLevel: "error"})
-	writer := NewAsyncWriter(cfg, fallback)
+
+	var factory LogConnectionFactory
+	switch cfg.RemoteLogNetwork {
+	case "tcp":
+		factory = NewTCPLogConnectionFactory("tcp", cfg.RemoteLogAddress)
+	case "vsock":
+		// RemoteLogAddress for vsock should be in "cid:port" format
+		parts := splitVsockAddr(cfg.RemoteLogAddress)
+		if len(parts) != 2 {
+			panic(fmt.Sprintf("Invalid VSock RemoteLogAddress format: %s. Expected 'cid:port'", cfg.RemoteLogAddress))
+		}
+		cid, err := strconv.ParseUint(parts[0], 10, 32)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid VSock CID in RemoteLogAddress: %s", parts[0]))
+		}
+		port, err := strconv.ParseUint(parts[1], 10, 32)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid VSock port in RemoteLogAddress: %s", parts[1]))
+		}
+		factory = NewVSockLogConnectionFactory(uint32(cid), uint32(port))
+	default:
+		panic(fmt.Sprintf("Unsupported RemoteLogNetwork: %s", cfg.RemoteLogNetwork))
+	}
+
+	writer := NewAsyncWriter(cfg, fallback, factory)
 
 	logger := zerolog.New(writer).
 		With().
@@ -226,6 +320,12 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	}
 }
 
+// splitVsockAddr splits a "cid:port" string.
+func splitVsockAddr(addr string) []string {
+	return strings.Split(strings.TrimSpace(addr), ":")
+}
+
+// SetLevel updates the logging level.
 func (z *ZeroNetworkLogger) SetLevel(level string) error {
 	z.mu.Lock()
 	defer z.mu.Unlock()
