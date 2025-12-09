@@ -8,6 +8,12 @@ import (
 	"github.com/magiconair/properties"
 )
 
+/*
+* Get the string vale of a configuration variable, by using the following order (the first value found is returned):
+* - ENV variables
+* - properties passed in the fileProperties arguments (usually loaded via config file)
+* - defualtValue passed
+ */
 func GetConfigVar(name string, defaultValue string, fileProperties *properties.Properties) string {
 	valFromEnv := os.Getenv(name)
 	if valFromEnv != "" {
@@ -17,6 +23,10 @@ func GetConfigVar(name string, defaultValue string, fileProperties *properties.P
 	}
 }
 
+/*
+* Same as GetConfigVar method, but the value is converted in int64.
+* In case of conversion errors, the default value is returned.
+ */
 func GetConfigVarInt64(name string, defaultValue int64, fileProperties *properties.Properties) int64 {
 	var confVar = GetConfigVar(name, "", fileProperties)
 	if confVar == "" {
@@ -31,6 +41,10 @@ func GetConfigVarInt64(name string, defaultValue int64, fileProperties *properti
 	}
 }
 
+/*
+* Same as GetConfigVar method, but the value is converted in boolean.
+* In case of conversion errors, the default value is returned.
+ */
 func GetConfigVarBool(name string, defaultValue bool, fileProperties *properties.Properties) bool {
 	var confVar = GetConfigVar(name, "", fileProperties)
 	if confVar == "" {
