@@ -116,13 +116,6 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	signerAddr, err := s.recoverSigner(req, reportID)
-	if err != nil {
-		log.Printf("getreport: failed to recover signer for report %s app %d: %v", reportID.String(), appID, err)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	report, err := s.dataLayer.GetDeanonymizationReport(ctx, reportID)
 	if err != nil {
 		log.Printf("getreport: report %s not found: %v", reportID.String(), err)
@@ -133,6 +126,13 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	if report.ApplicationID != appID {
 		log.Printf("getreport: applicationId mismatch for report %s: expected %s got %s", reportID.String(), report.ApplicationID.String(), appID.String())
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	signerAddr, err := s.recoverSigner(req, reportID)
+	if err != nil {
+		log.Printf("getreport: failed to recover signer for report %s app %d: %v", reportID.String(), appID, err)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 

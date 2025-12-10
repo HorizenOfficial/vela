@@ -208,6 +208,51 @@ func TestHandleGetReportFutureNonce(t *testing.T) {
 	require.Contains(t, rr.Body.String(), "unauthorized")
 }
 
+func TestHandleGetReportInvalidNonceContent(t *testing.T) {
+	chainID := uint64(42)
+	now := time.Unix(1_700_000_000, 0)
+	svc := newTestService(t, chainID, time.Minute, now)
+	dl := svc.dataLayer.(*mockdb.MockDataLayer)
+
+	saltHex := "00112233445566778899aabbccddeeff"
+	saltBytes, _ := hex.DecodeString(saltHex)
+	ts := now.Unix()
+	wrongTime := time.Unix(1_760_000_000, 0).Unix()
+	// compute a valid nonce then tamper it
+	badNonce := svc.computeNonce(saltBytes, wrongTime)
+
+	reportID := testutil.GenerateRandomRequestID()
+	appID := common.NewApplicationId(1)
+	signatureHex, authority := signRequest(t, chainID, appID, reportID, badNonce)
+
+	report := &common.DeanonymizationReport{
+		ApplicationID:   appID,
+		ReportID:        reportID,
+		Authority:       authority,
+		EncryptedReport: []byte("encrypted-report"),
+	}
+	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+
+	body := api.GetReportRequest{
+		ChainID:   chainID,
+		AppID:     uint64(appID),
+		ReportID:  reportID.String(),
+		Salt:      saltHex,
+		Nonce:     hex.EncodeToString(badNonce),
+		Timestamp: ts,
+		Signature: signatureHex,
+	}
+	payload, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/getreport", bytes.NewReader(payload))
+	rr := httptest.NewRecorder()
+
+	svc.handleGetReport(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	require.Contains(t, rr.Body.String(), "unauthorized")
+}
+
 func TestHandleGetReportBadMethod(t *testing.T) {
 	svc := newTestService(t, 0, time.Minute, time.Unix(1_700_000_000, 0))
 
