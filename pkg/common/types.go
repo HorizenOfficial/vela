@@ -40,7 +40,6 @@ const (
 	AssociateKey
 )
 
-
 func (rt RequestType) String() string {
 	switch rt {
 	case Deploy:
@@ -56,13 +55,11 @@ func (rt RequestType) String() string {
 	}
 }
 
-
 type RequestIdType [32]byte
 
 func (rt RequestIdType) String() string {
 	return hex.EncodeToString(rt[:])
 }
-
 
 // Request represents a request to the system
 type Request struct {
@@ -163,8 +160,8 @@ type DeanonymizationReport struct {
 // DecryptedReport represents a decrypted deanonymization report
 type DecryptedReport struct {
 	ApplicationID   ApplicationIdType `json:"applicationId"`
-	RequestID       RequestIdType `json:"requestId"`
-	ReportDataBytes []byte `json:"reportDataBytes"`
+	RequestID       RequestIdType     `json:"requestId"`
+	ReportDataBytes []byte            `json:"reportDataBytes"`
 }
 
 // PlainEvent represents an emitted event before encryption.
@@ -200,4 +197,26 @@ type EnclaveKeySetRecovery struct {
 	KeySetCiphertext []byte `json:"keySetCiphertext"`
 	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.
 	RecoveryCiphertext []byte `json:"recoveryCiphertext"`
+}
+
+type ChannelConnectionParams interface {
+	IsChannelConnectionParams()
+}
+
+type VSockChannelConnectionParams struct {
+	CID  uint32
+	Port uint32
+}
+
+func (VSockChannelConnectionParams) IsChannelConnectionParams() {}
+
+type TcpChannelConnectionParams struct {
+	Ip   string
+	Port uint32
+}
+
+func (TcpChannelConnectionParams) IsChannelConnectionParams() {}
+
+func (f TcpChannelConnectionParams) Url() string {
+	return fmt.Sprintf("%s:%d", f.Ip, f.Port)
 }

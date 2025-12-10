@@ -19,7 +19,7 @@ var (
 )
 
 func TestDeployApp(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime")
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", testLogger)
 	defer suite.Cleanup()
 
 	// 1. Start executor
@@ -67,7 +67,7 @@ func TestMockRuntimeAppFullSystemFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime")
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", testLogger)
 	defer suite.Cleanup()
 	// Load wasm bytecode for the wasm app
 	wasmBytecode := []byte("mock-runtime-app-bytecode")
