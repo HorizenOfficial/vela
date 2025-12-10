@@ -4,7 +4,8 @@ import { Signer } from 'ethers';
 import { ethSignStateUpdate } from '../scripts/util';
 import { ADDRESS_ZERO, BYTES_ZERO, getRandomHexString } from './util';
 
-describe('TeeAuthenticator Test', function () {
+
+describe('NoAttestationTeeAuthenticator Test', function () {
     let signers: Signer[];
     let teeAuthenticator: any;
     let pkLength: number;
@@ -12,7 +13,7 @@ describe('TeeAuthenticator Test', function () {
     beforeEach(async function () {
         signers = await ethers.getSigners();
 
-        const TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
+        const TeeAuthenticator = await ethers.getContractFactory("NoAttestationTeeAuthenticator");
         teeAuthenticator = await TeeAuthenticator.deploy(signers[0], ADDRESS_ZERO, BYTES_ZERO);
         
         pkLength = Number(await teeAuthenticator.PK_LENGTH());
