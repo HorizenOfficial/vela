@@ -10,37 +10,38 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/storage"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.
 type AuthorityService struct {
-	dataLayer storage.DataLayer
-	secret    []byte
-	nonceTTL  time.Duration
-	chainID   uint64
-	clock     func() time.Time
+	secret     []byte
+	nonceTTL   time.Duration
+	chainID    uint64
+	reportPath string
+	clock      func() time.Time
 }
 
 // NewAuthorityService builds a new service instance.
-func NewAuthorityService(dl storage.DataLayer, chainID uint64, nonceTTL time.Duration) (*AuthorityService, error) {
+func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string) (*AuthorityService, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC secret: %w", err)
 	}
 
 	return &AuthorityService{
-		dataLayer: dl,
-		secret:    secret,
-		nonceTTL:  nonceTTL,
-		chainID:   chainID,
-		clock:     time.Now,
+		secret:     secret,
+		nonceTTL:   nonceTTL,
+		chainID:    chainID,
+		reportPath: reportPath,
+		clock:      time.Now,
 	}, nil
 }
 
@@ -93,8 +94,6 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	}
 	defer r.Body.Close()
 
-	ctx := r.Context()
-
 	if s.chainID != 0 && req.ChainID != s.chainID {
 		log.Printf("getreport: unexpected chain_id: got %d expected %d", req.ChainID, s.chainID)
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -116,7 +115,7 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	report, err := s.dataLayer.GetDeanonymizationReport(ctx, reportID)
+	report, err := s.loadReport(appID, reportID)
 	if err != nil {
 		log.Printf("getreport: report %s not found: %v", reportID.String(), err)
 		http.Error(w, "not found", http.StatusNotFound)
@@ -231,4 +230,31 @@ func (s *AuthorityService) recoverSigner(req api.GetReportRequest, reportID comm
 	}
 
 	return ethCrypto.PubkeyToAddress(*pubKey), nil
+}
+
+func (s *AuthorityService) loadReport(appID common.ApplicationIdType, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
+	// Try with the provided appID first
+	paths := []string{filepath.Join(s.reportPath, appID.String()+"_"+reportID.String())}
+	// Fallback: find by reportID regardless of appID to detect mismatches
+	glob, _ := filepath.Glob(filepath.Join(s.reportPath, "*_"+reportID.String()))
+	paths = append(paths, glob...)
+
+	var lastErr error
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var report common.DeanonymizationReport
+		if err := json.Unmarshal(data, &report); err != nil {
+			lastErr = err
+			continue
+		}
+		return &report, nil
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("report not found")
 }

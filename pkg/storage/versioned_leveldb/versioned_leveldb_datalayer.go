@@ -19,10 +19,9 @@ import (
 
 // prefixes, useful for avoiding collisions when using the same key
 const (
-	appStatePrefix              = "appstate_"
-	wasmPrefix                  = "wasm_"
-	deanonymizationReportPrefix = "deanon_"
-	enclaveKeyRecoveryPrefix    = "enclavekeyrecovery_"
+	appStatePrefix           = "appstate_"
+	wasmPrefix               = "wasm_"
+	enclaveKeyRecoveryPrefix = "enclavekeyrecovery_"
 )
 
 // just two attributes for the time being; should we need more customization we can add them here
@@ -101,7 +100,7 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 		if err != nil {
 			return fmt.Errorf("failed to marshal application state: %w", err)
 		}
-		
+
 		key := []byte(appStatePrefix + state.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: value})
 	}
@@ -233,62 +232,6 @@ func (s *LevelDbStorageAdapter) Close() error {
 	return s.db.Close()
 }
 
-// LevelDBReportStore is a non-versioned store for reports.
-type LevelDBReportStore struct {
-	Adapter *LevelDbStorageAdapter
-	closableStore
-}
-
-func NewLevelDBReportStore(dbPath string) (*LevelDBReportStore, error) {
-	adapter, err := NewLevelDbStorageAdapter(dbPath)
-	if err != nil {
-		return nil, err
-	}
-	return &LevelDBReportStore{Adapter: adapter}, nil
-}
-
-func (s *LevelDBReportStore) StoreDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
-	if err := s.checkClosed("report store"); err != nil {
-		return err
-	}
-	value, err := json.Marshal(report)
-	if err != nil {
-		return fmt.Errorf("failed to marshal deanonymization report: %w", err)
-	}
-	key := []byte(deanonymizationReportPrefix + report.ReportID.String())
-	err = s.Adapter.Put(key, value)
-	if err != nil {
-		return fmt.Errorf("failed to store deanonymization report in LevelDB: %w", err)
-	}
-	return nil
-}
-
-func (s *LevelDBReportStore) GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
-	if err := s.checkClosed("report store"); err != nil {
-		return nil, err
-	}
-	key := []byte(deanonymizationReportPrefix + reportID.String())
-	value, err := s.Adapter.Get(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get deanonymization report from LevelDB: %w", err)
-	}
-	if value == nil {
-		return nil, storageErrors.ErrNotFound("deanonymization report not found: " + reportID.String())
-	}
-	report := &common.DeanonymizationReport{}
-	err = json.Unmarshal(value, report)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal deanonymization report: %w", err)
-	}
-	return report, nil
-}
-
-func (s *LevelDBReportStore) Close() error {
-	return s.close(s.Adapter.Close)
-}
-
-var _ storage.ApplicationReportStore = (*LevelDBReportStore)(nil)
-
 // LevelDBEnclaveKeyStore is a non-versioned store for enclave key recovery data.
 type LevelDBEnclaveKeyStore struct {
 	Adapter *LevelDbStorageAdapter
@@ -348,7 +291,6 @@ var _ storage.EnclaveKeyStore = (*LevelDBEnclaveKeyStore)(nil)
 // LevelDBDataLayer implements the DataLayer interface using LevelDB.
 type LevelDBDataLayer struct {
 	*VersionedLevelDBAppStateStore
-	*LevelDBReportStore
 	*LevelDBEnclaveKeyStore
 }
 
@@ -364,11 +306,6 @@ func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*LevelDBDataLayer
 		return nil, err
 	}
 
-	reportStore, err := NewLevelDBReportStore(filepath.Join(cfg.DBPath, "reports"))
-	if err != nil {
-		return nil, err
-	}
-
 	enclaveKeyStore, err := NewLevelDBEnclaveKeyStore(filepath.Join(cfg.DBPath, "enclave_keys"))
 	if err != nil {
 		return nil, err
@@ -376,16 +313,12 @@ func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*LevelDBDataLayer
 
 	return &LevelDBDataLayer{
 		VersionedLevelDBAppStateStore: appStateStore,
-		LevelDBReportStore:            reportStore,
 		LevelDBEnclaveKeyStore:        enclaveKeyStore,
 	}, nil
 }
 
 func (d *LevelDBDataLayer) Close() error {
 	if err := d.VersionedLevelDBAppStateStore.Close(); err != nil {
-		return err
-	}
-	if err := d.LevelDBReportStore.Close(); err != nil {
 		return err
 	}
 	if err := d.LevelDBEnclaveKeyStore.Close(); err != nil {

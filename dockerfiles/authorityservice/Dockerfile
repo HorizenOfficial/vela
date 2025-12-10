@@ -33,7 +33,7 @@ FROM alpine:latest
 # Install su-exec for user switching
 RUN apk add --no-cache su-exec
 
-# Default location for data folder (can be overridden by docker compose or docker run)
+# Default location for reports folder (can be overridden by docker compose or docker run)
 ENV MANAGER_REPORTS_FOLDER="/data"
 
 # Create a non-root user

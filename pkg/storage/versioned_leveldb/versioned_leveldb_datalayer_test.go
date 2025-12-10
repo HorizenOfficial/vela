@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -13,13 +12,11 @@ import (
 	"sync"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
@@ -168,44 +165,6 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 	})
 
-	t.Run("StoreAndGetDeanonymizationReport", func(t *testing.T) {
-		// Tests the fundamental store and get operations for a DeanonymizationReport,
-		// ensuring data is retrieved correctly and without errors.
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		expectedReport := &common.DeanonymizationReport{
-			ApplicationID:   common.NewApplicationId(23),
-			ReportID:        testutil.GenerateRandomRequestID(),
-			EncryptedReport: []byte("some-test-root-hash-1"),
-			Authority:       ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"),
-		}
-		err = store.StoreDeanonymizationReport(ctx, expectedReport)
-		require.NoError(t, err, "StoreDeanonymizationReport should not return an error")
-		actualReport, err := store.GetDeanonymizationReport(ctx, expectedReport.ReportID)
-		require.NoError(t, err, "GetDeanonymizationReport for existing ID should not return an error")
-		require.NotNil(t, actualReport, "GetDeanonymizationReport should return a non-nil report")
-		if diff := cmp.Diff(expectedReport, actualReport); diff != "" {
-			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("GetNonExistentDeanonymizationReport", func(t *testing.T) {
-		// Ensures that trying to get a deanonymization report with an ID that
-		// does not exist returns a 'NotFound' error.
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		_, err = store.GetDeanonymizationReport(ctx, [32]byte{0xAA, 0xBB, 0xCC, 0xDD})
-		require.Error(t, err, "Expected an error when getting non-existent deanonymization report")
-		var notFoundErr *storageErrors.Error
-		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
-			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
-		}
-	})
-
 	t.Run("OperationsAfterClose", func(t *testing.T) {
 		// Verifies that all data manipulation and retrieval operations return a
 		// 'StorageIsClosed' error after the database instance has been closed.
@@ -226,13 +185,6 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			"GetWASMBytecode": func() error {
 				_, err := store.GetWASMBytecode(ctx, 40)
 				return err
-			},
-			"GetDeanonymizationReport": func() error {
-				_, err := store.GetDeanonymizationReport(ctx, testutil.GenerateRandomRequestID())
-				return err
-			},
-			"StoreDeanonymizationReport": func() error {
-				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: testutil.GenerateRandomRequestID()})
 			},
 		}
 
@@ -606,27 +558,6 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		assert.Equal(t, storageErrors.VersionAlreadyExists, storageErr.Code)
 	})
 
-	t.Run("GetDeanonymizationReportWithCorruptedData", func(t *testing.T) {
-		// Verifies that attempting to retrieve a report that has been
-		// manually corrupted (e.g., invalid JSON) results in an error.
-		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "corrupted-data-test-")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
-
-		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
-		reportID := testutil.GenerateRandomRequestID()
-
-		// Manually insert corrupted data into the database.
-		key := []byte(versionedDb.TestDeanonymizationReportPrefix + reportID.String())
-		value := []byte("corrupted-json")
-		err = store.LevelDBReportStore.Adapter.Put(key, value)
-		require.NoError(t, err, "Storing corrupted data should not fail")
-
-		// Now, attempt to read the data as a DeanonymizationReport.
-		_, err = store.GetDeanonymizationReport(ctx, reportID)
-		require.Error(t, err, "Expected an error when getting corrupted report")
-	})
-
 	t.Run("GetApplicationStateWithCorruptedData", func(t *testing.T) {
 		// Verifies that attempting to retrieve an application state that has been
 		// manually corrupted (e.g., invalid JSON) results in an error.
@@ -652,9 +583,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 	})
 
 	t.Run("NoKeyCollisionWithSameID", func(t *testing.T) {
-		// Verifies that storing an ApplicationState, WASM bytecode, and a
-		// DeanonymizationReport with the same ID does not result in a key
-		// collision
+		// Verifies that storing an ApplicationState and WASM bytecode with the same ID does not result in a key collision
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "collision-test-")
 		require.NoError(t, err)
 		defer os.RemoveAll(tempDir)
@@ -662,49 +591,29 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 		sharedID := common.NewApplicationId(5477)
 		sharedIdStr := sharedID.String()
-		RequestId := common.RequestIdType{}
-		binary.LittleEndian.PutUint64(RequestId[:], uint64(sharedID))
 		expectedState := common.ApplicationState{
 			ApplicationID:  sharedID,
 			StateRoot:      sha256.Sum256([]byte("state-root")),
 			EncryptedState: []byte{0x01, 0x02, 0x03},
 		}
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF}
-		expectedReport := common.DeanonymizationReport{
-			ApplicationID:   sharedID,
-			ReportID:        RequestId, // use the same ID even for the report
-			EncryptedReport: []byte("encrypted-report"),
-			Authority:       ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"),
-		}
 
-		// Store all three data type
 		versionID1 := versionedDb.GenerateVersionID_ForTest([]byte(sharedIdStr), expectedState.StateRoot[:])
 		err = store.Store(ctx, versionID1, []*common.ApplicationState{&expectedState}, nil)
 		require.NoError(t, err, "Store should not return an error")
 		versionID2 := versionedDb.GenerateVersionID_ForTest([]byte(sharedIdStr), expectedBytecode)
 		err = store.Store(ctx, versionID2, nil, []*common.WASMData{{ApplicationID: sharedID, Bytecode: expectedBytecode}})
 		require.NoError(t, err, "Store should not return an error")
-		err = store.StoreDeanonymizationReport(ctx, &expectedReport)
-		require.NoError(t, err, "StoreDeanonymizationReport should not return an error")
 
-		// Retrieve and verify ApplicationState
 		actualState, err := store.GetApplicationState(ctx, sharedID)
 		require.NoError(t, err, "GetApplicationState should not return an error")
 		if diff := cmp.Diff(&expectedState, actualState); diff != "" {
 			t.Errorf("Retrieved ApplicationState mismatch (-want +got):\n%s", diff)
 		}
 
-		// Retrieve and verify WASMBytecode
 		actualBytecode, err := store.GetWASMBytecode(ctx, sharedID)
 		require.NoError(t, err, "GetWASMBytecode should not return an error")
 		assert.True(t, bytes.Equal(expectedBytecode, actualBytecode), "Retrieved WASM bytecode mismatch")
-
-		// Retrieve and verify DeanonymizationReport
-		actualReport, err := store.GetDeanonymizationReport(ctx, RequestId)
-		require.NoError(t, err, "GetDeanonymizationReport should not return an error")
-		if diff := cmp.Diff(&expectedReport, actualReport); diff != "" {
-			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)
-		}
 	})
 
 	t.Run("StoreNilEntryShouldFail", func(t *testing.T) {

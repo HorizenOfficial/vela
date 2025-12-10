@@ -2,11 +2,12 @@ package authorityservice
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,14 +16,13 @@ import (
 	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestService(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time) *AuthorityService {
 	t.Helper()
-	dl := mockdb.NewMockDataLayer()
-	svc, err := NewAuthorityService(dl, chainID, ttl)
+	dir := t.TempDir()
+	svc, err := NewAuthorityService(chainID, ttl, dir)
 	require.NoError(t, err)
 	svc.secret = bytes.Repeat([]byte{0x01}, 32)
 	svc.clock = func() time.Time { return fixedTime }
@@ -39,11 +39,21 @@ func signRequest(t *testing.T, chainID uint64, appID common.ApplicationIdType, r
 	return hex.EncodeToString(sig), ethCrypto.PubkeyToAddress(key.PublicKey)
 }
 
+func writeReport(t *testing.T, svc *AuthorityService, report *common.DeanonymizationReport) {
+	t.Helper()
+	if err := os.MkdirAll(svc.reportPath, 0755); err != nil {
+		t.Fatalf("failed to create report dir: %v", err)
+	}
+	filePath := filepath.Join(svc.reportPath, report.ApplicationID.String()+"_"+report.ReportID.String())
+	data, err := json.Marshal(report)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filePath, data, 0644))
+}
+
 func TestHandleGetReportSuccess(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
 	svc := newTestService(t, chainID, time.Minute, now)
-	dl := svc.dataLayer.(*mockdb.MockDataLayer)
 
 	saltHex := "00112233445566778899aabbccddeeff"
 	saltBytes, _ := hex.DecodeString(saltHex)
@@ -60,7 +70,7 @@ func TestHandleGetReportSuccess(t *testing.T) {
 		Authority:       authority,
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+	writeReport(t, svc, report)
 
 	body := api.GetReportRequest{
 		ChainID:   chainID,
@@ -92,7 +102,6 @@ func TestHandleGetReportUnexpectedChainID(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
 	svc := newTestService(t, chainID, time.Minute, now)
-	dl := svc.dataLayer.(*mockdb.MockDataLayer)
 
 	saltHex := "00112233445566778899aabbccddeeff"
 	saltBytes, _ := hex.DecodeString(saltHex)
@@ -109,7 +118,7 @@ func TestHandleGetReportUnexpectedChainID(t *testing.T) {
 		Authority:       authority,
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+	writeReport(t, svc, report)
 
 	body := api.GetReportRequest{
 		ChainID:   chainID + 1, // wrong chain
@@ -169,7 +178,6 @@ func TestHandleGetReportFutureNonce(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
 	svc := newTestService(t, chainID, time.Minute, now)
-	dl := svc.dataLayer.(*mockdb.MockDataLayer)
 
 	saltHex := "00112233445566778899aabbccddeeff"
 	saltBytes, _ := hex.DecodeString(saltHex)
@@ -186,7 +194,7 @@ func TestHandleGetReportFutureNonce(t *testing.T) {
 		Authority:       authority,
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+	writeReport(t, svc, report)
 
 	body := api.GetReportRequest{
 		ChainID:   chainID,
@@ -212,7 +220,6 @@ func TestHandleGetReportInvalidNonceContent(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
 	svc := newTestService(t, chainID, time.Minute, now)
-	dl := svc.dataLayer.(*mockdb.MockDataLayer)
 
 	saltHex := "00112233445566778899aabbccddeeff"
 	saltBytes, _ := hex.DecodeString(saltHex)
@@ -231,7 +238,7 @@ func TestHandleGetReportInvalidNonceContent(t *testing.T) {
 		Authority:       authority,
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+	writeReport(t, svc, report)
 
 	body := api.GetReportRequest{
 		ChainID:   chainID,
@@ -281,7 +288,6 @@ func TestHandleGetReportExpiredNonce(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
 	svc := newTestService(t, chainID, time.Minute, now)
-	dl := svc.dataLayer.(*mockdb.MockDataLayer)
 
 	saltHex := "00112233445566778899aabbccddeeff"
 	saltBytes, _ := hex.DecodeString(saltHex)
@@ -298,7 +304,7 @@ func TestHandleGetReportExpiredNonce(t *testing.T) {
 		Authority:       authority,
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+	writeReport(t, svc, report)
 
 	body := api.GetReportRequest{
 		ChainID:   chainID,
@@ -324,7 +330,6 @@ func TestHandleGetReportSignatureMismatch(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
 	svc := newTestService(t, chainID, time.Minute, now)
-	dl := svc.dataLayer.(*mockdb.MockDataLayer)
 
 	saltHex := "00112233445566778899aabbccddeeff"
 	saltBytes, _ := hex.DecodeString(saltHex)
@@ -344,7 +349,7 @@ func TestHandleGetReportSignatureMismatch(t *testing.T) {
 		Authority:       authority,
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+	writeReport(t, svc, report)
 
 	body := api.GetReportRequest{
 		ChainID:   chainID,
@@ -370,7 +375,6 @@ func TestHandleGetReportAuthorityMismatch(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
 	svc := newTestService(t, chainID, time.Minute, now)
-	dl := svc.dataLayer.(*mockdb.MockDataLayer)
 
 	saltHex := "00112233445566778899aabbccddeeff"
 	saltBytes, _ := hex.DecodeString(saltHex)
@@ -387,7 +391,7 @@ func TestHandleGetReportAuthorityMismatch(t *testing.T) {
 		Authority:       ethCommon.HexToAddress("0x0000000000000000000000000000000000000001"),
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+	writeReport(t, svc, report)
 
 	body := api.GetReportRequest{
 		ChainID:   chainID,
@@ -413,7 +417,6 @@ func TestHandleGetReportAppMismatch(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
 	svc := newTestService(t, chainID, time.Minute, now)
-	dl := svc.dataLayer.(*mockdb.MockDataLayer)
 
 	saltHex := "00112233445566778899aabbccddeeff"
 	saltBytes, _ := hex.DecodeString(saltHex)
@@ -430,7 +433,7 @@ func TestHandleGetReportAppMismatch(t *testing.T) {
 		Authority:       authority,
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	require.NoError(t, dl.StoreDeanonymizationReport(context.Background(), report))
+	writeReport(t, svc, report)
 
 	body := api.GetReportRequest{
 		ChainID:   chainID,

@@ -9,10 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/google/go-cmp/cmp"
 	"github.com/horizen-pes/pkg/common"
-	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/assert"
@@ -92,36 +90,6 @@ func TestApplicationStateStore(t *testing.T) {
 		}
 	})
 
-	t.Run("StoreAndGetDeanonymizationReport", func(t *testing.T) {
-		store := createStore()
-		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		expectedReport := &common.DeanonymizationReport{
-			ApplicationID:   common.NewApplicationId(123),
-			ReportID:        commontestutil.GenerateRandomRequestID(),
-			EncryptedReport: []byte("some-test-root-hash-1"),
-			Authority:       ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"),
-		}
-		err := store.StoreDeanonymizationReport(ctx, expectedReport)
-		require.NoError(t, err, "StoreDeanonymizationReport should not error")
-		actualReport, err := store.GetDeanonymizationReport(ctx, expectedReport.ReportID)
-		require.NoError(t, err, "GetDeanonymizationReport for existing ID should not error")
-		require.NotNil(t, actualReport, "GetDeanonymizationReport should return a non-nil report")
-		if diff := cmp.Diff(expectedReport, actualReport); diff != "" {
-			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("GetNonExistentDeanonymizationReport", func(t *testing.T) {
-		store := createStore()
-		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		_, err := store.GetDeanonymizationReport(ctx, [32]byte{0xAA, 0xBB, 0xCC, 0xDD})
-		require.Error(t, err, "Expected an error when getting non-existent deanonymization report")
-		var notFoundErr *storageErrors.Error
-		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
-			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
-		}
-	})
-
 	t.Run("CloseStore", func(t *testing.T) {
 		store := createStore()
 		err := store.Close()
@@ -146,13 +114,6 @@ func TestApplicationStateStore(t *testing.T) {
 			"GetWASMBytecode": func() error {
 				_, err := store.GetWASMBytecode(ctx, any_id)
 				return err
-			},
-			"GetDeanonymizationReport": func() error {
-				_, err := store.GetDeanonymizationReport(ctx, commontestutil.GenerateRandomRequestID())
-				return err
-			},
-			"StoreDeanonymizationReport": func() error {
-				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: commontestutil.GenerateRandomRequestID()})
 			},
 			"StoreEnclaveKeySetRecovery": func() error {
 				return store.StoreEnclaveKeySetRecovery(ctx, &common.EnclaveKeySetRecovery{})

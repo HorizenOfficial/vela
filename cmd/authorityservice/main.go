@@ -5,21 +5,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/horizen-pes/pkg/authorityservice"
-	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/factory"
 )
-
-func createDataLayer(config *authorityservice.Config) (storage.DataLayer, error) {
-	return factory.NewDataLayer(factory.DataLayerConfig{
-		Type:        config.DataLayerType,
-		DBPath:      config.DataLayerDBPath,
-		NumVersions: config.DataLayerNumOfVersions,
-	})
-}
 
 func main() {
 	sigChan := make(chan os.Signal, 1)
@@ -29,13 +20,11 @@ func main() {
 
 	cfg := authorityservice.ReadConfig()
 
-	dl, err := createDataLayer(cfg)
-	if err != nil {
-		log.Fatalf("Failed to create data layer: %v", err)
+	if strings.TrimSpace(cfg.ReportsPath) == "" {
+		log.Fatalf("Reports path is not configured")
 	}
-	defer dl.Close()
 
-	svc, err := authorityservice.NewAuthorityService(dl, cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second)
+	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath)
 	if err != nil {
 		log.Fatalf("Failed to create authority service: %v", err)
 	}

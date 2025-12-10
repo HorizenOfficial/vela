@@ -36,8 +36,7 @@ services:
       - EXECUTOR_IP_PORT  
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
-      # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
-      - MANAGER_REPORTS_FOLDER
+      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
       - CHAIN_RPC_PROTOCOL
       - CHAIN_RPC_ADDRESS
       - CHAIN_RPC_PORT
@@ -50,9 +49,7 @@ services:
         ipv4_address: ${MANAGER_IP_ADDRESS}
       inet:    
     volumes:
-      - horizen-cce-manager-reports:${MANAGER_DATA_FOLDER:-/data}
-      # We must set a default path if .env does not set it, otherwise compose will throw an error
-      # If the optional feature is not enabled, we will simply have an empty volume
+      - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
       - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
       # WASM input folder
       - ./wasms:${MANAGER_INPUT_WASMS:-/input_wasms}
@@ -67,13 +64,13 @@ services:
       - AUTHORITY_SERVICE_LISTEN_ADDRESS
       - AUTHORITY_SERVICE_CHAIN_ID
       - AUTHORITY_SERVICE_NONCE_TTL
-      - MANAGER_REPORTS_FOLDER=${MANAGER_DATA_FOLDER:-/data}
+      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
     networks:
       pes_network:
         ipv4_address: ${AUTHORITY_SERVICE_IP_ADDRESS}
       inet:
     volumes:
-      - horizen-cce-manager-reports:${MANAGER_DATA_FOLDER:-/data}
+      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
     depends_on:
       - chain
       - manager

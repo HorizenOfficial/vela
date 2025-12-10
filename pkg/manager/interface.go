@@ -59,7 +59,7 @@ type Config struct {
 	// DataLayerNumOfVersions specifies how many historical versions to keep. Only used by "versioned_leveldb".
 	DataLayerNumOfVersions int
 
-	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
+	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports (mandatory).
 	DeanonymizationReportPath string
 
 	// InputWasmPath is the path where the wasm bytecode to be deployed is retrieved if not found in the payload
@@ -105,6 +105,9 @@ func DefaultConfig() *Config {
 	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
 
 	reportsPath := os.Getenv("MANAGER_REPORTS_FOLDER")
+	if reportsPath == "" {
+		reportsPath = "/tmp/horizen-pes-data/manager_reports"
+	}
 
 	reorgTimeoutEnvVar := os.Getenv("REORG_TIMEOUT")
 	reorgTimeout, err := strconv.ParseInt(reorgTimeoutEnvVar, 10, 32)
@@ -144,8 +147,8 @@ func DefaultConfig() *Config {
 		// Data layer configuration
 		DataLayerType:             "versioned_leveldb",
 		DataLayerDBPath:           dataPath,
-		DataLayerNumOfVersions:    10,          // useful only for versioned leveldb
-		DeanonymizationReportPath: reportsPath, // optional, default to not-there semantic
+		DataLayerNumOfVersions:    10, // useful only for versioned leveldb
+		DeanonymizationReportPath: reportsPath,
 		InputWasmPath:             inputWasmPath,
 	}
 }
@@ -182,7 +185,7 @@ func ReadConfig() *Config {
 		DataLayerType:             config.MustGetString("DataLayerType"),
 		DataLayerDBPath:           config.MustGetString("DataLayerDBPath"),
 		DataLayerNumOfVersions:    config.MustGetInt("DataLayerNumOfVersions"),
-		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
+		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", "/tmp/horizen-pes-data/manager_reports"),
 		InputWasmPath:             config.GetString("InputWasmPath", ""),
 	}
 }

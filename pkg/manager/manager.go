@@ -40,7 +40,7 @@ type SecureProcessorManager struct {
 	mu                sync.RWMutex
 	isRunning         bool
 	executorHandShake ExecutorHandShake
-	stopChan          chan struct{}  // TODO unused
+	stopChan          chan struct{} // TODO unused
 	wg                sync.WaitGroup
 	endReorgTime      time.Time
 }
@@ -541,36 +541,23 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		return failure
 	}
 
-	// If a path is configured, save the deanonymization report to the filesystem
-	// Do not bail out from the method even if an error occurs, we must continue saving the report in the data layer
-	if m.config.DeanonymizationReportPath != "" {
-		// Ensure the directory exists
-		if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
-			log.Printf("Failed to create directory for deanonymization reports: %v", err)
-		} else {
-			// Marshal the report to JSON
-			reportJSON, err := json.MarshalIndent(report, "", "  ")
-			if err != nil {
-				log.Printf("Failed to marshal deanonymization report to JSON: %v", err)
-			} else {
-				// The request ID is unique across applications, but for cleaner organization we use a folder name that includes both the app ID and the request ID
-				filePath := filepath.Join(m.config.DeanonymizationReportPath, req.ApplicationID.String()+"_"+req.RequestID.String())
-				// Write the report to the file
-				if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
-					log.Printf("Failed to write deanonymization report to file: %v", err)
-				} else {
-					log.Printf("Saved deanonymization report %s to %s", report.ReportID, filePath)
-				}
-			}
-		}
+	// Save the deanonymization report to the filesystem (mandatory)
+	if strings.TrimSpace(m.config.DeanonymizationReportPath) == "" {
+		return apperrors.New(apperrors.CodeInternalFallback, "DeanonymizationReportPath not configured", nil)
 	}
-
-	// Store the deanonymization report
-	err = m.dataLayer.StoreDeanonymizationReport(ctx, report)
+	if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
+		log.Printf("Failed to create directory for deanonymization reports: %v", err)
+		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
+	}
+	reportJSON, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		// TODO must we return an error?
-		log.Printf("StoreDeanonymizationReport returns an error: %v", err)
-		return nil
+		log.Printf("Failed to marshal deanonymization report to JSON: %v", err)
+		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
+	}
+	filePath := filepath.Join(m.config.DeanonymizationReportPath, req.ApplicationID.String()+"_"+req.RequestID.String())
+	if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
+		log.Printf("Failed to write deanonymization report to file: %v", err)
+		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
 	}
 
 	// Submit the deanonymization report to the blockchain

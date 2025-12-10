@@ -24,10 +24,8 @@ type Config struct {
 	// NonceTTLSeconds controls how long a generated nonce is considered valid.
 	NonceTTLSeconds int64
 
-	// Data layer configuration
-	DataLayerType          string
-	DataLayerDBPath        string
-	DataLayerNumOfVersions int
+	// ReportsPath is the filesystem path where deanonymization reports are stored.
+	ReportsPath string
 }
 
 // DefaultConfig builds a config using environment variables as overrides.
@@ -58,34 +56,18 @@ func DefaultConfig() *Config {
 		}
 	}
 
-	dataPath := os.Getenv("MANAGER_REPORTS_FOLDER")
-	if dataPath == "" {
-		dataPath = "/tmp/horizen-pes-data/manager_db"
-	}
-
-	dataLayerType := os.Getenv("AUTHORITY_SERVICE_DATA_LAYER_TYPE")
-	if dataLayerType == "" {
-		dataLayerType = "versioned_leveldb"
-	}
-
-	numVersions := 10
-	if vStr := os.Getenv("AUTHORITY_SERVICE_DATA_LAYER_VERSIONS"); vStr != "" {
-		if val, err := strconv.Atoi(vStr); err == nil {
-			numVersions = val
-		} else {
-			log.Printf("Failed to parse AUTHORITY_SERVICE_DATA_LAYER_VERSIONS: %v", err)
-		}
+	reportsPath := os.Getenv("MANAGER_REPORTS_FOLDER")
+	if reportsPath == "" {
+		reportsPath = "/tmp/horizen-pes-data/manager_reports"
 	}
 
 	return &Config{
-		ListenAddress:          listenAddr,
-		TLSCertFile:            tlsCert,
-		TLSKeyFile:             tlsKey,
-		ChainID:                chainID,
-		NonceTTLSeconds:        nonceTTL,
-		DataLayerType:          dataLayerType,
-		DataLayerDBPath:        dataPath,
-		DataLayerNumOfVersions: numVersions,
+		ListenAddress:   listenAddr,
+		TLSCertFile:     tlsCert,
+		TLSKeyFile:      tlsKey,
+		ChainID:         chainID,
+		NonceTTLSeconds: nonceTTL,
+		ReportsPath:     reportsPath,
 	}
 }
 
@@ -104,14 +86,12 @@ func ReadConfig() *Config {
 	chainID := config.GetUint64("ChainID", 0)
 
 	return &Config{
-		ListenAddress:          config.GetString("ListenAddress", ":8081"),
-		TLSCertFile:            config.GetString("TLSCertFile", ""),
-		TLSKeyFile:             config.GetString("TLSKeyFile", ""),
-		ChainID:                chainID,
-		NonceTTLSeconds:        config.GetInt64("NonceTTLSeconds", 300),
-		DataLayerType:          config.GetString("DataLayerType", "versioned_leveldb"),
-		DataLayerDBPath:        config.GetString("DataLayerDBPath", "/tmp/horizen-pes-data/manager_db"),
-		DataLayerNumOfVersions: config.GetInt("DataLayerNumOfVersions", 10),
+		ListenAddress:   config.GetString("ListenAddress", ":8081"),
+		TLSCertFile:     config.GetString("TLSCertFile", ""),
+		TLSKeyFile:      config.GetString("TLSKeyFile", ""),
+		ChainID:         chainID,
+		NonceTTLSeconds: config.GetInt64("NonceTTLSeconds", 300),
+		ReportsPath:     config.GetString("ReportsPath", "/tmp/horizen-pes-data/manager_reports"),
 	}
 }
 
