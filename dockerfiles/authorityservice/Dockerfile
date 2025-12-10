@@ -34,7 +34,7 @@ FROM alpine:latest
 RUN apk add --no-cache su-exec
 
 # Default location for data folder (can be overridden by docker compose or docker run)
-ENV AUTHORITY_SERVICE_DATA_PATH="/data"
+ENV MANAGER_REPORTS_FOLDER="/data"
 
 # Create a non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -46,7 +46,7 @@ RUN chmod +x /entrypoint.sh
 # Copy the built binary from the builder stage
 COPY --from=builder /authorityservice /authorityservice
 
-VOLUME ${AUTHORITY_SERVICE_DATA_PATH}
+VOLUME ${MANAGER_REPORTS_FOLDER}
 
 # Set the entrypoint to our script.
 # The user is still root here, so the script can chown.

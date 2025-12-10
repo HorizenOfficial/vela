@@ -58,7 +58,7 @@ func DefaultConfig() *Config {
 		}
 	}
 
-	dataPath := os.Getenv("AUTHORITY_SERVICE_DATA_PATH")
+	dataPath := os.Getenv("MANAGER_REPORTS_FOLDER")
 	if dataPath == "" {
 		dataPath = "/tmp/horizen-pes-data/manager_db"
 	}
