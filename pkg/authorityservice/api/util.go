@@ -10,7 +10,8 @@ import (
 
 // BuildMessage builds the raw message to be signed for /getreport.
 func BuildMessage(chainID uint64, appID common.ApplicationIdType, reportID common.RequestIdType, nonce []byte) []byte {
-	buf := make([]byte, 0, 8+8+len(reportID)+len(nonce))
+	// Nonce is a SHA-256 output (32 bytes), pre-size the buffer accordingly.
+	buf := make([]byte, 0, 8+8+len(reportID)+32)
 
 	var tmp [8]byte
 	binary.BigEndian.PutUint64(tmp[:], chainID)

@@ -7,7 +7,7 @@ networks:
   inet:     
 
 volumes:
-  horizen-cce-manager-data:  
+  horizen-cce-manager-reports:  
   horizen-cce-manager-reports:
   horizen-cce-chain-data:
 
@@ -50,7 +50,7 @@ services:
         ipv4_address: ${MANAGER_IP_ADDRESS}
       inet:    
     volumes:
-      - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
+      - horizen-cce-manager-reports:${MANAGER_DATA_FOLDER:-/data}
       # We must set a default path if .env does not set it, otherwise compose will throw an error
       # If the optional feature is not enabled, we will simply have an empty volume
       - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
@@ -73,7 +73,7 @@ services:
         ipv4_address: ${AUTHORITY_SERVICE_IP_ADDRESS}
       inet:
     volumes:
-      - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
+      - horizen-cce-manager-reports:${MANAGER_DATA_FOLDER:-/data}
     depends_on:
       - chain
       - manager

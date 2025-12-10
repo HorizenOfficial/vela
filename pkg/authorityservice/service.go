@@ -60,7 +60,7 @@ func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
 
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
-		http.Error(w, "failed to generate nonce", http.StatusInternalServerError)
+		http.Error(w, "failed to generate salt", http.StatusInternalServerError)
 		return
 	}
 
