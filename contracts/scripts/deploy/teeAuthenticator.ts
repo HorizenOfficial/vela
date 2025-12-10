@@ -1,6 +1,6 @@
 import { ethers } from 'hardhat';
-import CertManagerArtifact from '../../NitroProver/CertManager.sol/CertManager.json';
-import NitroProverArtifact from '../../NitroProver/NitroProver.sol/NitroProver.json';
+import CertManagerArtifact from '../../nitro-validator/CertManager.json';
+import NitroValidatorArtifact from '../../nitro-validator/Validator.json';
 
 async function deploy()  {
 
@@ -14,22 +14,21 @@ async function deploy()  {
   const certManagerAddress = await certManager.getAddress();
   console.log(`CertManager deployed at ${certManagerAddress}`);
 
-  //deploy nitro prover
-  const NitroProverFactory = new ethers.ContractFactory(NitroProverArtifact.abi, NitroProverArtifact.bytecode, deployer);
-  const nitroProver = await NitroProverFactory.deploy(certManagerAddress);
-  await nitroProver.deploymentTransaction()!.wait();
-  const nitroProverAddress = await nitroProver.getAddress();
-  console.log(`NitroProver deployed at ${nitroProverAddress}`);
-
+  //deploy nitro validator
+  const NitroValidatorFactory = new ethers.ContractFactory(NitroValidatorArtifact.abi, NitroValidatorArtifact.bytecode, deployer);
+  const nitroValidator = await NitroValidatorFactory.deploy(certManagerAddress);
+  await nitroValidator.deploymentTransaction()!.wait();
+  const nitroValidatorAddress = await nitroValidator.getAddress();
+  console.log(`NitroValidator deployed at ${nitroValidatorAddress}`);
   console.log(`TeeAuthenticator parameters:
     owner: ${process.env.TEE_OWNER},
-    _nitroProver: ${nitroProverAddress},
+    _nitroValidator: ${nitroValidatorAddress},
     _pcr0: ${process.env.TEE_PCR0},
     _maxVerificationAge: ${process.env.TEE_MAX_VERIFICATION_AGE}
   `)
   //deploy TeeAuthenticator
   const TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-  const teeAuthenticator = await TeeAuthenticator.deploy(process.env.TEE_OWNER!, nitroProverAddress, process.env.TEE_PCR0!, process.env.TEE_MAX_VERIFICATION_AGE!);
+  const teeAuthenticator = await TeeAuthenticator.deploy(process.env.TEE_OWNER!, nitroValidatorAddress, process.env.TEE_PCR0!, process.env.TEE_MAX_VERIFICATION_AGE!);
   await teeAuthenticator.deploymentTransaction()!.wait();
 
   console.log(`TeeAuthenticator deployed at ${await teeAuthenticator.getAddress()}`);
