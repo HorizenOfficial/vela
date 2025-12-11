@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
@@ -40,7 +42,6 @@ const (
 	AssociateKey
 )
 
-
 func (rt RequestType) String() string {
 	switch rt {
 	case Deploy:
@@ -56,13 +57,11 @@ func (rt RequestType) String() string {
 	}
 }
 
-
 type RequestIdType [32]byte
 
 func (rt RequestIdType) String() string {
 	return hex.EncodeToString(rt[:])
 }
-
 
 // Request represents a request to the system
 type Request struct {
@@ -161,8 +160,8 @@ type DeanonymizationReport struct {
 // DecryptedReport represents a decrypted deanonymization report
 type DecryptedReport struct {
 	ApplicationID   ApplicationIdType `json:"applicationId"`
-	RequestID       RequestIdType `json:"requestId"`
-	ReportDataBytes []byte `json:"reportDataBytes"`
+	RequestID       RequestIdType     `json:"requestId"`
+	ReportDataBytes []byte            `json:"reportDataBytes"`
 }
 
 // PlainEvent represents an emitted event before encryption.
@@ -198,4 +197,70 @@ type EnclaveKeySetRecovery struct {
 	KeySetCiphertext []byte `json:"keySetCiphertext"`
 	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.
 	RecoveryCiphertext []byte `json:"recoveryCiphertext"`
+}
+
+type ChannelConnectionParams interface {
+	IsChannelConnectionParams()
+}
+
+type VSockChannelConnectionParams struct {
+	CID  uint32
+	Port uint32
+}
+
+func (VSockChannelConnectionParams) IsChannelConnectionParams() {}
+
+// NewVSockChannelConnectionParams parses "cid:port"
+func NewVSockChannelConnectionParams(s string) (*VSockChannelConnectionParams, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid vsock address %q, expected cid:port", s)
+	}
+
+	// Parse CID
+	cid64, err := strconv.ParseUint(parts[0], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CID %q: %w", parts[0], err)
+	}
+
+	// Parse port
+	port64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port %q: %w", parts[1], err)
+	}
+
+	return &VSockChannelConnectionParams{
+		CID:  uint32(cid64),
+		Port: uint32(port64),
+	}, nil
+}
+
+type TcpChannelConnectionParams struct {
+	Ip   string
+	Port uint32
+}
+
+func (TcpChannelConnectionParams) IsChannelConnectionParams() {}
+
+func (f TcpChannelConnectionParams) Url() string {
+	return fmt.Sprintf("%s:%d", f.Ip, f.Port)
+}
+
+// NewTcpChannelConnectionParams parses "ip:port"
+func NewTcpChannelConnectionParams(addr string) (*TcpChannelConnectionParams, error) {
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid address %q, expected ip:port", addr)
+	}
+
+	// Parse port
+	port64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port %q: %w", parts[1], err)
+	}
+
+	return &TcpChannelConnectionParams{
+		Ip:   parts[0],
+		Port: uint32(port64),
+	}, nil
 }

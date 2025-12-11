@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/horizen-pes/pkg/common"
 	"github.com/mdlayher/vsock"
 	"github.com/rs/zerolog"
 )
@@ -196,7 +196,7 @@ func (w *AsyncWriter) connectWithRetry() error {
 			w.mu.Lock()
 			w.conn = conn
 			w.mu.Unlock()
-			fmt.Printf("[zeronetwork] connected to %s\n", w.cfg.RemoteLogAddress)
+			fmt.Printf("[zeronetwork] connected on %s\n", w.cfg.RemoteLogNetwork)
 			return nil
 		}
 		lastErr = err
@@ -229,8 +229,8 @@ func (w *AsyncWriter) drainBuffer() {
 			if msg == nil {
 				return
 			}
-		if _, err := w.conn.Write(msg); err != nil {
-			fmt.Printf("[zeronetwork] failed to write during drain: %v\n", err)
+			if _, err := w.conn.Write(msg); err != nil {
+				fmt.Printf("[zeronetwork] failed to write during drain: %v\n", err)
 			}
 		default:
 			return // buffer empty
@@ -266,9 +266,6 @@ type ZeroNetworkLogger struct {
 
 // NewZeroNetworkLogger creates a new logger instance
 func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
-	if cfg.RemoteLogAddress == "" {
-		panic("RemoteLogAddress cannot be empty")
-	}
 	if cfg.RemoteLogNetwork == "" {
 		cfg.RemoteLogNetwork = "tcp"
 	}
@@ -278,22 +275,11 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	var factory LogConnectionFactory
 	switch cfg.RemoteLogNetwork {
 	case "tcp":
-		factory = NewTCPLogConnectionFactory("tcp", cfg.RemoteLogAddress)
+		factory = NewTCPLogConnectionFactory("tcp", cfg.RemoteLogParams.(common.TcpChannelConnectionParams).Url())
 	case "vsock":
-		// RemoteLogAddress for vsock should be in "cid:port" format
-		parts := splitVsockAddr(cfg.RemoteLogAddress)
-		if len(parts) != 2 {
-			panic(fmt.Sprintf("Invalid VSock RemoteLogAddress format: %s. Expected 'cid:port'", cfg.RemoteLogAddress))
-		}
-		cid, err := strconv.ParseUint(parts[0], 10, 32)
-		if err != nil {
-			panic(fmt.Sprintf("Invalid VSock CID in RemoteLogAddress: %s", parts[0]))
-		}
-		port, err := strconv.ParseUint(parts[1], 10, 32)
-		if err != nil {
-			panic(fmt.Sprintf("Invalid VSock port in RemoteLogAddress: %s", parts[1]))
-		}
-		factory = NewVSockLogConnectionFactory(uint32(cid), uint32(port))
+		factory = NewVSockLogConnectionFactory(
+			cfg.RemoteLogParams.(common.VSockChannelConnectionParams).CID,
+			cfg.RemoteLogParams.(common.VSockChannelConnectionParams).Port)
 	default:
 		panic(fmt.Sprintf("Unsupported RemoteLogNetwork: %s", cfg.RemoteLogNetwork))
 	}

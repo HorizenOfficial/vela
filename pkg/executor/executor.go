@@ -234,11 +234,14 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 
 // Start starts the executor server
 func (e *StatelessExecutor) Start(ctx context.Context) error {
-	switch e.config.ServerType {
+	switch e.config.ChannelType {
 	case "tcp":
-		e.log.Info("Executor: Starting TCP executor server on %s", e.config.ServerAddr)
+		e.log.Info("Executor: Starting TCP executor server on %s", e.config.ChannelParams.(common.TcpChannelConnectionParams).Url())
 	case "vsock":
-		e.log.Info("Executor: Starting v-socket executor server on CID %d, Port %d", e.config.ServerCid, e.config.ServerPort)
+		e.log.Info("Executor: Starting v-socket executor server on CID %d, Port %d",
+			e.config.ChannelParams.(common.VSockChannelConnectionParams).CID,
+			e.config.ChannelParams.(common.VSockChannelConnectionParams).Port,
+		)
 	}
 	return e.server.Start(ctx, "Executor")
 }

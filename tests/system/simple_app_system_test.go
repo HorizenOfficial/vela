@@ -47,7 +47,8 @@ func TestMain(m *testing.M) {
 			Kind:             "zeronetwork",
 			ConsoleLevel:     "trace",
 			RemoteLogNetwork: "tcp",
-			RemoteLogAddress: "127.0.0.1:2233",
+			//			RemoteLogAddress: "127.0.0.1:2233",
+			RemoteLogParams: common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 5000},
 			//RemoteLogNetwork: "vsock",
 			//RemoteLogAddress: "5:2233",
 			NetworkLevel: "trace"},
@@ -159,11 +160,11 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 
 func TestExecutorManagerStart(t *testing.T) {
 
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
-	execConfig, err := executor.LoadConfigFromFile()
+	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger1, testLogger2)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger2, testLogger2)
 	defer suite.Cleanup()
 
 	// 2. Start services
@@ -290,9 +291,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user1Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
 	user2Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
-	execConfig, err := executor.LoadConfigFromFile()
+	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
 	tempDir, err := os.MkdirTemp("", "reports_system_test")
 	require.NoError(t, err)

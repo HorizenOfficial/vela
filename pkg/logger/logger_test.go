@@ -5,17 +5,30 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewLogger(t *testing.T) {
 	// Start a dummy listener for network-based loggers to connect to
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	addr := "127.0.0.1:0"
+	ln, err := net.Listen("tcp", addr)
 	require.NoError(t, err)
+
+	_, portStr, err := net.SplitHostPort(ln.Addr().String())
+	require.NoError(t, err)
+
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	Ip := "127.0.0.1"
+	Port := port
+
 	defer ln.Close()
 	go func() {
 		conn, _ := ln.Accept()
@@ -25,28 +38,26 @@ func TestNewLogger(t *testing.T) {
 	}()
 
 	testCases := []struct {
-		name       string
-		kind       string
-		expected   interface{}
+		name        string
+		kind        string
+		expected    interface{}
 		shouldPanic bool
-		remoteAddr string
+		remoteAddr  common.ChannelConnectionParams
 	}{
-		{"zerolog", "zerolog", (*ZeroLogger)(nil), false, ""},
-		{"zeronetwork", "zeronetwork", (*ZeroNetworkLogger)(nil), false, ln.Addr().String()},
-		{"tcplog", "tcplog", (*TCPLogger)(nil), false, ln.Addr().String()},
-		{"default", "unknown", (*PrintfLogger)(nil), false, ""},
-		{"printf", "printf", (*PrintfLogger)(nil), false, ""},
-		{"tcplog_panic_no_address", "tcplog", nil, true, ""},
-		{"zeronetwork_panic_no_address", "zeronetwork", nil, true, ""},
+		{"zerolog", "zerolog", (*ZeroLogger)(nil), false, nil},
+		{"zeronetwork", "zeronetwork", (*ZeroNetworkLogger)(nil), false, common.TcpChannelConnectionParams{Ip: Ip, Port: uint32(Port)}},
+		{"default", "unknown", (*PrintfLogger)(nil), false, nil},
+		{"printf", "printf", (*PrintfLogger)(nil), false, nil},
+		{"zeronetwork_panic_no_address", "zeronetwork", nil, true, nil},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &Config{
-				Kind:             tc.kind,
-				Console:          true,
-				ConsoleLevel:     "info",
-				RemoteLogAddress: tc.remoteAddr,
+				Kind:            tc.kind,
+				Console:         true,
+				ConsoleLevel:    "info",
+				RemoteLogParams: tc.remoteAddr,
 			}
 
 			if tc.shouldPanic {
@@ -137,6 +148,15 @@ func TestZeroNetworkLogger_SetLevel(t *testing.T) {
 	addr := "127.0.0.1:0"
 	ln, err := net.Listen("tcp", addr)
 	require.NoError(t, err)
+
+	_, portStr, err := net.SplitHostPort(ln.Addr().String())
+	require.NoError(t, err)
+
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	Ip := "127.0.0.1"
+	Port := port
 	defer ln.Close()
 
 	msgChan := make(chan string, 10)
@@ -163,7 +183,7 @@ func TestZeroNetworkLogger_SetLevel(t *testing.T) {
 		Kind:             "zeronetwork",
 		Console:          false,
 		NetworkLevel:     "info",
-		RemoteLogAddress: ln.Addr().String(),
+		RemoteLogParams:  common.TcpChannelConnectionParams{Ip: Ip, Port: uint32(Port)},
 		RemoteLogNetwork: "tcp",
 	}
 

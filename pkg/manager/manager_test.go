@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 		&logger.Config{
 			Kind:             "zeronetwork",
 			ConsoleLevel:     "trace",
-			RemoteLogAddress: "127.0.0.1:2233",
+			RemoteLogParams:  common.TcpChannelConnectionParams{Ip: "localhost", Port: 2233},
 			RemoteLogNetwork: "tcp",
 			NetworkLevel:     "trace"},
 	)

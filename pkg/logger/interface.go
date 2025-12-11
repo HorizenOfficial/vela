@@ -1,5 +1,7 @@
 package logger
 
+import "github.com/horizen-pes/pkg/common"
+
 type Logger interface {
 	Trace(msg string, args ...any)
 	Debug(msg string, args ...any)
@@ -20,9 +22,9 @@ type Config struct {
 	ConsoleColor     bool
 	FileName         string
 	FileLevel        string
-	RemoteLogAddress string // Address for remote logging (e.g., "127.0.0.1:12345")
-	RemoteLogNetwork string // Network for remote logging (e.g., "tcp", "vsock")
-	NetworkLevel     string // Level for remote logging
+	RemoteLogParams  common.ChannelConnectionParams // TCP or Vsock Address for remote logging
+	RemoteLogNetwork string                         // Network for remote logging (e.g., "tcp", "vsock")
+	NetworkLevel     string                         // Level for remote logging
 }
 
 // minimal cfg
@@ -39,8 +41,6 @@ func NewLogger(cfg *Config) Logger {
 	switch cfg.Kind {
 	case "zerolog":
 		return NewZeroLogger(cfg)
-	case "tcplog":
-		return NewTCPLogger(cfg)
 	case "zeronetwork":
 		return NewZeroNetworkLogger(cfg)
 	default:

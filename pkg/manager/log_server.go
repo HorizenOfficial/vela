@@ -34,7 +34,7 @@ func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string)
 
 		if strings.TrimSpace(tcpAddr) == "" && strings.TrimSpace(vsockAddr) == "" {
 			logServerLogger.Error("Log server TCP and VSOCK addresses are both empty, not starting log server.")
-			return
+			panic(fmt.Errorf("log server TCP and VSOCK addresses are both empty, not starting log server"))
 		}
 
 		var logFile *os.File
@@ -43,7 +43,7 @@ func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string)
 			logFile, err = os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				logServerLogger.Error("Failed to open log file %s: %v", logFilePath, err)
-				return
+				panic(err)
 			}
 			logServerLogger.Info("Remote logs will be written to %s", logFilePath)
 		} else {
@@ -62,6 +62,7 @@ func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string)
 			tcpListener, err := net.Listen("tcp", tcpAddr)
 			if err != nil {
 				logServerLogger.Error("Failed to start log server on %s: %v", tcpAddr, err)
+				panic(err)
 			} else {
 				logServerLogger.Info("Log server listening on TCP %s", tcpAddr)
 				wg.Add(1)
@@ -71,7 +72,7 @@ func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string)
 				}()
 			}
 		} else {
-			logServerLogger.Warn("Log server TCP address empty.")
+			logServerLogger.Info("Log server TCP address empty.")
 		}
 
 		// VSOCK listener
@@ -79,10 +80,12 @@ func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string)
 			cid, port, err := parseVSockAddr(vsockAddr)
 			if err != nil {
 				logServerLogger.Error("Invalid VSOCK address: %v", err)
+				panic(err)
 			} else {
 				vsockListener, err := vsock.ListenContextID(cid, port, nil)
 				if err != nil {
 					logServerLogger.Error("Failed to start log server on vsock %s: %v", vsockAddr, err)
+					panic(err)
 				} else {
 					logServerLogger.Info("Log server listening on VSOCK %s", vsockAddr)
 					wg.Add(1)
@@ -93,7 +96,7 @@ func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string)
 				}
 			}
 		} else {
-			logServerLogger.Warn("Log server VSOCK address empty.")
+			logServerLogger.Info("Log server VSOCK address empty.")
 		}
 
 		go func() {

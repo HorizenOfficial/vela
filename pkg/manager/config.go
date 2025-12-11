@@ -22,10 +22,10 @@ type Config struct {
 
 	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests
 	BlockchainPollingInterval int64
-	// ExecutorConnectionType is the type of connection to use for the executor
-	ExecutorConnectionType string
-	// ExecutorConnectionParams are the parameters for the executor connection
-	ExecutorConnectionParams map[string]string
+	// ChannelType is the type of communication channel between manager and executor
+	ChannelType string
+	// ChannelParams are the parameters for the connection with the executor
+	ChannelParams common.ChannelConnectionParams
 
 	// Blockchain client parameters
 	// MockBlockChainClient specifies if the mock BlockChainClient should be used. Only for testing and development.
@@ -54,7 +54,9 @@ type Config struct {
 	// (we may need to load it externally for GAS limitation)
 	InputWasmPath string
 
-	// LogKind is the type of logger to use (e.g., "zeronetwork", "tcplog", "zerolog")
+	// Manager logging
+	//--------------------------
+	// LogKind is the type of logger to use (e.g., "zeronetwork", "zerolog")
 	LogKind string
 	// LogConsole is true if we want output on console
 	LogConsole bool
@@ -66,40 +68,49 @@ type Config struct {
 	LogFileName string
 	// LogFileLevel is the level of logging for the console
 	LogFileLevel string
-
-	// RemoteLogAddress is the address for sending remote logging (e.g., "127.0.0.1:12345"). An empty string means no remote logging.
-	RemoteLogAddress string
-	// RemoteLogNetwork is the network for remote logging (e.g., "tcp", "vsock").
-	RemoteLogNetwork string
 	// LogNetworkLevel is the level of logging for the network
 	LogNetworkLevel string
 
-	// LogServerTCPAddress is the address where the manager's log server will listen for incoming TCP log messages.
+	// Log Server
+	//-------------------------
+	// LogServerTCPAddress is the address where the log server will listen for incoming TCP log messages.
 	LogServerTCPAddress string
-	// LogServerVSockAddress is the address where the manager's log server will listen for incoming VSOCK log messages.
+	// LogServerVSockAddress is the address where the log server will listen for incoming VSOCK log messages.
 	LogServerVSockAddress string
 	// LogServerLogFile is the file path where the manager's log server will write incoming log messages.
 	LogServerLogFile string
+	// LogServerConsole is true if we want output on console
+	LogServerConsole bool
+	// LogServerConsoleLevel is the level of logging for the console
+	LogServerConsoleLevel string
+	// LogFileLevel is the level of logging for the console
+	LogServerFileLevel string
 }
 
-// DefaultConfig returns the default configuration for the Secure Processor Manager  (possibly overridden by env variables)
-func DefaultConfig() *Config {
-	executorServerType := os.Getenv("EXECUTOR_SERVER_TYPE")
-	if executorServerType == "" {
-		executorServerType = "tcp"
+func LoadConfig() (*Config, error) {
+	fileProperties := properties.NewProperties()
+	if common.FileExists(confFileName) {
+		filePropertiesFromFile, err := properties.LoadFile(confFileName, properties.UTF8)
+		if err != nil {
+			return nil, err
+		}
+		fileProperties = filePropertiesFromFile
 	}
-	executorServerCid := os.Getenv("MANAGER_VSOCK_CID")
-	if executorServerCid == "" {
-		executorServerCid = "2"
+
+	var channelType = common.GetConfigVar("CHANNEL_TYPE", "vsock", fileProperties)
+	var channelConnectionParams common.ChannelConnectionParams
+	executorServerPort := common.GetConfigVarInt64("EXECUTOR_PORT", 4000, fileProperties)
+	logServerVsockAddress := ""
+	if channelType == "vsock" {
+		executorServerCid := common.GetConfigVarInt64("CHANNEL_VSOCK_CID", 20, fileProperties)
+		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
+		logServerVsockAddress = strconv.FormatInt(executorServerCid, 10) + ":" + strconv.FormatInt(executorServerPort, 10)
+	} else {
+		executorIpAddress := common.GetConfigVar("EXECUTOR_IP_ADDRESS", "localhost", fileProperties)
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
 	}
-	executorServerAddress := os.Getenv("EXECUTOR_IP_ADDRESS")
-	if executorServerAddress == "" {
-		executorServerAddress = "localhost"
-	}
-	executorServerPort := os.Getenv("EXECUTOR_IP_PORT")
-	if executorServerPort == "" {
-		executorServerPort = "8080"
-	}
+	logServerTcpAddress := common.GetConfigVar("LOG_SERVER_TCP_ADDRESS", "localhost:5000", fileProperties)
+
 	var privateKey *cryptotypes.PrivateKeySecp256k1
 	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")
 	if privateKeyFromEnv == "" {
@@ -107,175 +118,40 @@ func DefaultConfig() *Config {
 	} else {
 		privateKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
 	}
-	dataPath := os.Getenv("MANAGER_DATA_FOLDER")
-	if dataPath == "" {
-		dataPath = "/tmp/horizen-pes-data/manager_db"
-	}
-	inputWasmPath := os.Getenv("MANAGER_INPUT_WASMS")
-
-	nodeProtocol := os.Getenv("CHAIN_RPC_PROTOCOL")
-	if nodeProtocol == "" {
-		nodeProtocol = "http"
-	}
-	nodeUrl := os.Getenv("CHAIN_RPC_ADDRESS")
-	if nodeUrl == "" {
-		nodeUrl = "127.0.0.1"
-	}
-	nodePort := os.Getenv("CHAIN_RPC_PORT")
-	if nodePort == "" {
-		nodePort = "8545"
-	}
-	processorAddress := os.Getenv("CHAIN_PROCESSOR_ADDRESS")
-	teeAuthAddress := os.Getenv("CHAIN_TEEAUTHENTICATOR_ADDRESS")
-
-	reportsPath := os.Getenv("MANAGER_REPORTS_FOLDER")
-
-	reorgTimeoutEnvVar := os.Getenv("REORG_TIMEOUT")
-	reorgTimeout, err := strconv.ParseInt(reorgTimeoutEnvVar, 10, 32)
-	if err != nil {
-		reorgTimeout = 180
-	}
-
-	handshakeTimeoutEnvVar := os.Getenv("HANDSHAKE_TIMEOUT")
-	handshakeTimeout, err := strconv.ParseInt(handshakeTimeoutEnvVar, 10, 32)
-	if err != nil {
-		handshakeTimeout = 5
-	}
-
-	blockchainPollingIntervalEnvVar := os.Getenv("BLOCKCHAIN_POLLING_INTERVAL")
-	blockchainPollingInterval, err := strconv.ParseInt(blockchainPollingIntervalEnvVar, 10, 32)
-	if err != nil {
-		blockchainPollingInterval = 5
-	}
-
-	logKind := os.Getenv("MANAGER_LOG_KIND")
-	if logKind == "" {
-		logKind = "zerolog"
-	}
-
-	logConsole, err := strconv.ParseBool(os.Getenv("MANAGER_LOG_CONSOLE"))
-	if err != nil {
-		logConsole = true
-	}
-
-	logConsoleLevel := os.Getenv("MANAGER_LOG_CONSOLE_LEVEL")
-	if logConsoleLevel == "" {
-		logConsoleLevel = "info"
-	}
-
-	logFileName := os.Getenv("MANAGER_LOG_FILE_NAME")
-	if logFileName == "" {
-		logFileName = ""
-	}
-
-	logFileLevel := os.Getenv("MANAGER_LOG_FILE_LEVEL")
-	if logFileLevel == "" {
-		if logFileName != "" {
-			logFileLevel = "info"
-		}
-	}
-
-	logConsoleColor, err := strconv.ParseBool(os.Getenv("MANAGER_LOG_CONSOLE_COLOR"))
-	if err != nil {
-		logConsoleColor = false
-	}
-
-	remoteLogAddress := os.Getenv("MANAGER_LOG_REMOTE_ADDRESS")
-	remoteLogNetwork := os.Getenv("MANAGER_LOG_REMOTE_NETWORK")
-	networkLevel := os.Getenv("MANAGER_LOG_NETWORK_LEVEL")
-	if networkLevel == "" {
-		networkLevel = "info"
-	}
-
-	logServerTCPAddress := os.Getenv("MANAGER_LOG_SERVER_TCP_ADDRESS")
-	logServerVSockAddress := os.Getenv("MANAGER_LOG_SERVER_VSOCK_ADDRESS")
-	logServerLogFile := os.Getenv("MANAGER_LOG_SERVER_LOG_FILE")
 
 	return &Config{
-		ReorgTimeout:              reorgTimeout,
-		HandshakeTimeout:          handshakeTimeout,
-		BlockchainPollingInterval: blockchainPollingInterval,
-		ExecutorConnectionType:    executorServerType,
-		ExecutorConnectionParams: map[string]string{
-			"url": executorServerAddress + ":" + executorServerPort,
-			"cid":  executorServerCid,
-			"port": executorServerPort,
-		},
-		RpcURL:           nodeProtocol + "://" + nodeUrl + ":" + nodePort,
-		PrivateKey:       *privateKey,
-		ProcessorAddress: processorAddress,
-		TeeAuthAddress:   teeAuthAddress,
+		ChannelType:   channelType,
+		ChannelParams: channelConnectionParams,
 
+		ReorgTimeout:              common.GetConfigVarInt64("REORG_TIMEOUT", 180, fileProperties), // 3 minutes
+		HandshakeTimeout:          common.GetConfigVarInt64("HANDSHAKE_TIMEOUT", 5, fileProperties),
+		BlockchainPollingInterval: common.GetConfigVarInt64("BLOCKCHAIN_POLLING_INTERVAL", 5, fileProperties),
+
+		RpcURL: common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProperties) + "://" +
+			common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProperties) + ":" +
+			common.GetConfigVar("CHAIN_RPC_PORT", "8545", fileProperties),
+
+		PrivateKey:           *privateKey,
+		ProcessorAddress:     common.GetConfigVar("CHAIN_PROCESSOR_ADDRESS", "", fileProperties),
+		TeeAuthAddress:       common.GetConfigVar("CHAIN_TEEAUTHENTICATOR_ADDRESS", "", fileProperties),
 		MockBlockChainClient: false,
 		// Data layer configuration
 		DataLayerType:             "versioned_leveldb",
-		DataLayerDBPath:           dataPath,
-		DataLayerNumOfVersions:    10,          // useful only for versioned leveldb
-		DeanonymizationReportPath: reportsPath, // optional, default to not-there semantic
-		InputWasmPath:             inputWasmPath,
-
-		LogKind:         logKind,
-		LogConsole:      logConsole,
-		LogConsoleLevel: logConsoleLevel,
-		LogConsoleColor: logConsoleColor,
-
-		LogFileName:           logFileName,
-		LogFileLevel:          logFileLevel,
-		RemoteLogAddress:      remoteLogAddress,
-		RemoteLogNetwork:      remoteLogNetwork,
-		LogNetworkLevel:       networkLevel,
-		LogServerTCPAddress:   logServerTCPAddress,
-		LogServerVSockAddress: logServerVSockAddress,
-		LogServerLogFile:      logServerLogFile,
-	}
-}
-
-// LoadConfigFromFile loads the configuration from the given file
-func LoadConfigFromFile() (*Config, error) {
-	if !common.FileExists(confFileName) {
-		return DefaultConfig(), nil
-	}
-	// Load properties from file
-	config, err := properties.LoadFile(confFileName, properties.UTF8)
-	if err != nil {
-		return nil, err
-	}
-	PrivateKey, err := crypto.ImportPrivateKeySecp256k1FromHex(config.MustGetString("PrivateKey"))
-	if err != nil {
-		return nil, err
-	}
-	return &Config{
-		ReorgTimeout:              config.GetInt64("ReorgTimeout", 180), // 3 minutes
-		HandshakeTimeout:          config.GetInt64("HandshakeTimeout", 5),
-		BlockchainPollingInterval: config.GetInt64("BlockchainPollingInterval", 1),
-		ExecutorConnectionType:    config.MustGetString("ExecutorConnectionType"),
-		ExecutorConnectionParams: map[string]string{
-			"url":  config.GetString("ExecutorConnectionUrl", "localhost:8080"),
-			"cid":  config.GetString("ExecutorConnectionCid", "2"),
-			"port": config.GetString("ExecutorConnectionPort", "8080"),
-		},
-		RpcURL:               config.MustGetString("RpcUrl"),
-		PrivateKey:           *PrivateKey,
-		ProcessorAddress:     config.MustGetString("ProcessorAddress"),
-		TeeAuthAddress:       config.MustGetString("TeeAuthenticatorAddress"),
-		MockBlockChainClient: config.MustGetBool("MockBlockChainClient"),
-		// Data layer configuration
-		DataLayerType:             config.MustGetString("DataLayerType"),
-		DataLayerDBPath:           config.MustGetString("DataLayerDBPath"),
-		DataLayerNumOfVersions:    config.MustGetInt("DataLayerNumOfVersions"),
-		DeanonymizationReportPath: config.GetString("DeanonymizationReportPath", ""),
-		InputWasmPath:             config.GetString("InputWasmPath", ""),
-		LogKind:                   config.GetString("LogKind", "zerolog"),
-		LogConsole:                config.GetBool("LogConsole", true),
-		LogConsoleLevel:           config.GetString("LogConsoleLevel", "info"),
-		LogConsoleColor:           config.GetBool("LogColor", true),
-		LogFileName:               config.GetString("LogFileName", ""),
-		LogFileLevel:              config.GetString("LogFileLevel", "info"),
-		RemoteLogAddress:          config.GetString("RemoteLogAddress", ""),
-		RemoteLogNetwork:          config.GetString("RemoteLogNetwork", ""),
-		LogNetworkLevel:           config.GetString("LogNetworkLevel", "info"),
-		LogServerTCPAddress:       config.GetString("LogServerTCPAddress", ""),
-		LogServerVSockAddress:     config.GetString("LogServerVSockAddress", ""),
-		LogServerLogFile:          config.GetString("LogServerLogFile", "log_server.log"),
+		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
+		DataLayerNumOfVersions:    10,
+		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "", fileProperties),
+		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
+		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
+		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
+		LogConsoleLevel:           common.GetConfigVar("MANAGER_LOG_CONSOLE_LEVEL", "info", fileProperties),
+		LogConsoleColor:           common.GetConfigVarBool("MANAGER_LOG_CONSOLE_COLOR", false, fileProperties),
+		LogFileName:               common.GetConfigVar("MANAGER_LOG_FILE_NAME", "", fileProperties),
+		LogFileLevel:              common.GetConfigVar("MANAGER_LOG_FILE_LEVEL", "info", fileProperties),
+		LogServerTCPAddress:       logServerTcpAddress,
+		LogServerVSockAddress:     logServerVsockAddress,
+		LogServerLogFile:          common.GetConfigVar("LOG_SERVER_FILE_NAME", "", fileProperties),
+		LogServerConsole:          common.GetConfigVarBool("LOG_SERVER_CONSOLE", true, fileProperties),
+		LogServerConsoleLevel:     common.GetConfigVar("LOG_SERVER_CONSOLE_LEVEL", "warn", fileProperties),
+		LogServerFileLevel:        common.GetConfigVar("LOG_SERVER_FILE_LEVEL", "info", fileProperties),
 	}, nil
 }
