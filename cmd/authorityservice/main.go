@@ -73,6 +73,8 @@ func main() {
 	}
 	signal.Stop(sigChan)
 	cancel()
-	_ = server.Stop(ctx)
+	if err := server.Stop(ctx); err != nil {
+		log.Error("Failed to stop HTTP server: %v", err)
+	}
 	log.Info("Authority service stopped")
 }
