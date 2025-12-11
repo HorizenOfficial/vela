@@ -16,13 +16,24 @@ import (
 	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
+	"github.com/horizen-pes/pkg/logger"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestService(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time) *AuthorityService {
 	t.Helper()
 	dir := t.TempDir()
-	svc, err := NewAuthorityService(chainID, ttl, dir)
+	testLogger := logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			ConsoleLevel: "trace",
+			//FileName:     "qqq.log",
+			//FileLevel:    "info",
+		},
+	)
+	svc, err := NewAuthorityService(chainID, ttl, dir, testLogger)
 	require.NoError(t, err)
 	svc.secret = bytes.Repeat([]byte{0x01}, 32)
 	svc.clock = func() time.Time { return fixedTime }

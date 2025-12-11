@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/authorityservice"
+	"github.com/horizen-pes/pkg/logger"
 )
 
 func main() {
@@ -18,30 +19,53 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg := authorityservice.ReadConfig()
-
-	if strings.TrimSpace(cfg.ReportsPath) == "" {
-		log.Fatalf("Reports path is not configured")
+	cfg, err := authorityservice.LoadConfig()
+	if err != nil {
+		// Use a temporary logger for fatal error
+		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
+		log.Fatal("Failed to load configuration: %v", err)
 	}
 
-	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath)
+	// Create a logger from config
+	log := logger.NewLogger(&logger.Config{
+		Kind:         "zerolog",
+		Console:      cfg.LogConsole,
+		ConsoleLevel: cfg.LogConsoleLevel,
+		ConsoleColor: cfg.LogConsoleColor,
+		FileName:     cfg.LogFileName,
+		FileLevel:    cfg.LogFileLevel,
+	})
+	defer func() {
+		if err := log.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error closing logger: %v\n", err)
+		}
+	}()
+
+	if strings.TrimSpace(cfg.ReportsPath) == "" {
+		log.Error("Reports path is not configured")
+		return
+	}
+
+	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, log)
 	if err != nil {
-		log.Fatalf("Failed to create authority service: %v", err)
+		log.Error("Failed to create authority service: %v", err)
+		return
 	}
 
 	server := authorityservice.NewHTTPServer(cfg, svc.Handler())
 
 	go func() {
 		if err := server.Start(); err != nil {
-			log.Fatalf("Failed to start HTTP server: %v", err)
+			log.Error("Failed to start HTTP server: %v", err)
+			return
 		}
 	}()
 
-	log.Printf("Authority service listening on %s", cfg.ListenAddress)
+	log.Info("Authority service listening on %s", cfg.ListenAddress)
 
 	<-sigChan
 	signal.Stop(sigChan)
 	cancel()
 	_ = server.Stop(ctx)
-	log.Println("Authority service stopped")
+	log.Info("Authority service stopped")
 }

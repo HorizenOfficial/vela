@@ -149,7 +149,7 @@ func TestStart(t *testing.T) {
 	executorHandShake := ExecutorHandShake{
 		isComplete: make(chan struct{}),
 	}
-	bcClient, manager := setupTestWithConfig(*config, false, &executorHandShake, stopChan)
+	bcClient, manager := setupTestWithConfig(t, *config, false, &executorHandShake, stopChan)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
@@ -201,7 +201,7 @@ func TestStop(t *testing.T) {
 	executorHandShake := ExecutorHandShake{
 		isComplete: make(chan struct{}),
 	}
-	bcClient, manager := setupTestWithConfig(*config, false, &executorHandShake, stopChan)
+	bcClient, manager := setupTestWithConfig(t, *config, false, &executorHandShake, stopChan)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Stop a manager that is not running

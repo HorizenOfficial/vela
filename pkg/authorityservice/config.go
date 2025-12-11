@@ -1,10 +1,7 @@
 package authorityservice
 
 import (
-	"log"
-	"os"
-	"strconv"
-
+	"github.com/horizen-pes/pkg/common"
 	"github.com/magiconair/properties"
 )
 
@@ -26,40 +23,45 @@ type Config struct {
 
 	// ReportsPath is the filesystem path where deanonymization reports are stored.
 	ReportsPath string
+
+	// LogConsole is true if we want output on console
+	LogConsole bool
+	// LogConsoleLevel is the level of logging for the console
+	LogConsoleLevel string
+	// LogConsoleColor is true if the log output should be colored
+	LogConsoleColor bool
+
+	// LogFileName is the path to the log file. An empty string means no output on log file
+	LogFileName string
+	// LogFIleLevel is the level of logging for the console
+	LogFileLevel string
 }
 
-// DefaultConfig builds a config using environment variables as overrides.
-func DefaultConfig() *Config {
-	listenAddr := os.Getenv("AUTHORITY_SERVICE_LISTEN_ADDRESS")
-	if listenAddr == "" {
-		listenAddr = ":8081"
-	}
-
-	tlsCert := os.Getenv("AUTHORITY_SERVICE_TLS_CERT")
-	tlsKey := os.Getenv("AUTHORITY_SERVICE_TLS_KEY")
-
-	chainID := uint64(0)
-	if chainIDStr := os.Getenv("AUTHORITY_SERVICE_CHAIN_ID"); chainIDStr != "" {
-		if val, err := strconv.ParseUint(chainIDStr, 10, 64); err == nil {
-			chainID = val
-		} else {
-			log.Printf("Failed to parse AUTHORITY_SERVICE_CHAIN_ID: %v", err)
+func LoadConfig() (*Config, error) {
+	fileProps := properties.NewProperties()
+	if common.FileExists(confFileName) {
+		p, err := properties.LoadFile(confFileName, properties.UTF8)
+		if err != nil {
+			return nil, err
 		}
+		fileProps = p
 	}
 
-	nonceTTL := int64(300)
-	if ttlStr := os.Getenv("AUTHORITY_SERVICE_NONCE_TTL"); ttlStr != "" {
-		if val, err := strconv.ParseInt(ttlStr, 10, 64); err == nil {
-			nonceTTL = val
-		} else {
-			log.Printf("Failed to parse AUTHORITY_SERVICE_NONCE_TTL: %v", err)
-		}
-	}
+	listenAddr := common.GetConfigVar("AUTHORITY_SERVICE_LISTEN_ADDRESS", ":8081", fileProps)
+	tlsCert := common.GetConfigVar("AUTHORITY_SERVICE_TLS_CERT", "", fileProps)
+	tlsKey := common.GetConfigVar("AUTHORITY_SERVICE_TLS_KEY", "", fileProps)
 
-	reportsPath := os.Getenv("MANAGER_REPORTS_FOLDER")
-	if reportsPath == "" {
-		reportsPath = "/tmp/horizen-pes-data/manager_reports"
-	}
+	chainID := uint64(common.GetConfigVarInt64("AUTHORITY_SERVICE_CHAIN_ID", 0, fileProps))
+	nonceTTL := common.GetConfigVarInt64("AUTHORITY_SERVICE_NONCE_TTL", 300, fileProps)
+
+	// We reuse MANAGER_REPORTS_FOLDER so manager and authority service point to the same folder by default
+	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProps)
+
+	logConsole := common.GetConfigVarBool("AUTHORITY_SERVICE_LOG_CONSOLE", true, fileProps)
+	logConsoleLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL", "info", fileProps)
+	logConsoleColor := common.GetConfigVarBool("AUTHORITY_SERVICE_LOG_CONSOLE_COLOR", false, fileProps)
+	logFileName := common.GetConfigVar("AUTHORITY_SERVICE_LOG_FILE_NAME", "", fileProps)
+	logFileLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_FILE_LEVEL", "info", fileProps)
 
 	return &Config{
 		ListenAddress:   listenAddr,
@@ -68,34 +70,11 @@ func DefaultConfig() *Config {
 		ChainID:         chainID,
 		NonceTTLSeconds: nonceTTL,
 		ReportsPath:     reportsPath,
-	}
+		LogConsole:      logConsole,
+		LogConsoleLevel: logConsoleLevel,
+		LogConsoleColor: logConsoleColor,
+		LogFileName:     logFileName,
+		LogFileLevel:    logFileLevel,
+	}, nil
 }
 
-// ReadConfig loads configuration from authorityservice.conf if present, otherwise falls back to defaults.
-func ReadConfig() *Config {
-	if !fileExists(confFileName) {
-		log.Printf("File %s not found. Using default configuration for authority service.\n", confFileName)
-		return DefaultConfig()
-	}
-
-	config, err := properties.LoadFile(confFileName, properties.UTF8)
-	if err != nil {
-		log.Fatalf("Couldn't load %s file.\n", confFileName)
-	}
-
-	chainID := config.GetUint64("ChainID", 0)
-
-	return &Config{
-		ListenAddress:   config.GetString("ListenAddress", ":8081"),
-		TLSCertFile:     config.GetString("TLSCertFile", ""),
-		TLSKeyFile:      config.GetString("TLSKeyFile", ""),
-		ChainID:         chainID,
-		NonceTTLSeconds: config.GetInt64("NonceTTLSeconds", 300),
-		ReportsPath:     config.GetString("ReportsPath", "/tmp/horizen-pes-data/manager_reports"),
-	}
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}

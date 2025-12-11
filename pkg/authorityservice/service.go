@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/logger"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.
@@ -27,10 +27,11 @@ type AuthorityService struct {
 	chainID    uint64
 	reportPath string
 	clock      func() time.Time
+	log    logger.Logger
 }
 
 // NewAuthorityService builds a new service instance.
-func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string) (*AuthorityService, error) {
+func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, log logger.Logger) (*AuthorityService, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC secret: %w", err)
@@ -42,6 +43,7 @@ func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath stri
 		chainID:    chainID,
 		reportPath: reportPath,
 		clock:      time.Now,
+		log:              log,
 	}, nil
 }
 
@@ -76,7 +78,7 @@ func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("Failed to write nonce response: %v", err)
+		s.log.Error("Failed to write nonce response: %v", err)
 	}
 }
 
@@ -88,21 +90,21 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 
 	var req api.GetReportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("getreport: invalid json body: %v", err)
+		s.log.Error("getreport: invalid json body: %v", err)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
 	if s.chainID != 0 && req.ChainID != s.chainID {
-		log.Printf("getreport: unexpected chain_id: got %d expected %d", req.ChainID, s.chainID)
+		s.log.Error("getreport: unexpected chain_id: got %d expected %d", req.ChainID, s.chainID)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
 	reportID, err := api.ParseRequestID(req.ReportID)
 	if err != nil {
-		log.Printf("getreport: invalid report_id %q: %v", req.ReportID, err)
+		s.log.Error("getreport: invalid report_id %q: %v", req.ReportID, err)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -110,33 +112,33 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	appID := common.ApplicationIdType(req.AppID)
 
 	if err := s.validateNonce(req.Salt, req.Nonce, req.Timestamp); err != nil {
-		log.Printf("getreport: nonce validation failed for report %s app %d: %v", reportID.String(), appID, err)
+		s.log.Error("getreport: nonce validation failed for report %s app %d: %v", reportID.String(), appID, err)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	report, err := s.loadReport(appID, reportID)
 	if err != nil {
-		log.Printf("getreport: report %s not found: %v", reportID.String(), err)
+		s.log.Error("getreport: report %s not found: %v", reportID.String(), err)
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
 	if report.ApplicationID != appID {
-		log.Printf("getreport: applicationId mismatch for report %s: expected %s got %s", reportID.String(), report.ApplicationID.String(), appID.String())
+		s.log.Error("getreport: applicationId mismatch for report %s: expected %s got %s", reportID.String(), report.ApplicationID.String(), appID.String())
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
 	signerAddr, err := s.recoverSigner(req, reportID)
 	if err != nil {
-		log.Printf("getreport: failed to recover signer for report %s app %d: %v", reportID.String(), appID, err)
+		s.log.Error("getreport: failed to recover signer for report %s app %d: %v", reportID.String(), appID, err)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if report.Authority != signerAddr {
-		log.Printf("getreport: authority mismatch for report %s: expected %s got %s", reportID.String(), report.Authority.Hex(), signerAddr.Hex())
+		s.log.Error("getreport: authority mismatch for report %s: expected %s got %s", reportID.String(), report.Authority.Hex(), signerAddr.Hex())
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -157,7 +159,7 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("Failed to write report response: %v", err)
+		s.log.Error("Failed to write report response: %v", err)
 	}
 }
 
