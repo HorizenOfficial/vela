@@ -378,8 +378,8 @@ func TestHandleGetReportSignatureMismatch(t *testing.T) {
 
 	svc.handleGetReport(rr, req)
 
-	require.Equal(t, http.StatusUnauthorized, rr.Code)
-	require.Contains(t, rr.Body.String(), "unauthorized")
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	require.Contains(t, rr.Body.String(), "bad request")
 }
 
 func TestHandleGetReportAuthorityMismatch(t *testing.T) {

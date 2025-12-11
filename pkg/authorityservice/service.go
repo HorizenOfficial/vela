@@ -139,7 +139,7 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	signerAddr, err := s.recoverSigner(req, reportID)
 	if err != nil {
 		s.log.Error("getreport: failed to recover signer for report %s app %d: %v", reportID.String(), appID, err)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
