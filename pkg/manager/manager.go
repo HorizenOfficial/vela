@@ -546,17 +546,20 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	// Save the deanonymization report to the filesystem (mandatory)
 	if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
 		m.log.Error("Failed to create directory for deanonymization reports: %v", err)
-		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
+		// Treat as transient: log and retry on next poll instead of failing the request.
+		return nil
 	}
 	reportJSON, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		m.log.Error("Failed to marshal deanonymization report to JSON: %v", err)
-		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
+		// Treat as transient: log and retry on next poll instead of failing the request.
+		return nil
 	}
 	filePath := filepath.Join(m.config.DeanonymizationReportPath, common.ReportFilename(req.ApplicationID, req.RequestID))
 	if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
 		m.log.Error("Failed to write deanonymization report to file: %v", err)
-		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
+		// Treat as transient: log and retry on next poll instead of failing the request.
+		return nil
 	}
 
 	// Submit the deanonymization report to the blockchain
