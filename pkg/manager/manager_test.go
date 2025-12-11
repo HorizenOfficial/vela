@@ -1114,7 +1114,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 	// Check that the report file exists
-	reportFilePath := filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID.String())
+	reportFilePath := filepath.Join(tempDir, common.ReportFilename(request.ApplicationID, request.RequestID))
 	_, err = os.Stat(reportFilePath)
 	require.NoError(t, err, "Report file should exist when DeanonymizationReportPath is set")
 	// Read the report from the filesystem and verify its contents

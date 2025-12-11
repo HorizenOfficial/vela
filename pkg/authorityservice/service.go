@@ -243,7 +243,7 @@ func (s *AuthorityService) recoverSigner(req api.GetReportRequest, reportID comm
 
 func (s *AuthorityService) loadReport(appID common.ApplicationIdType, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
 	// Try with the provided appID first
-	paths := []string{filepath.Join(s.reportPath, appID.String()+"_"+reportID.String())}
+	paths := []string{filepath.Join(s.reportPath, common.ReportFilename(appID, reportID))}
 	// Fallback: find by reportID regardless of appID to detect mismatches
 	glob, _ := filepath.Glob(filepath.Join(s.reportPath, "*_"+reportID.String()))
 	paths = append(paths, glob...)

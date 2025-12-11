@@ -55,7 +55,7 @@ func writeReport(t *testing.T, svc *AuthorityService, report *common.Deanonymiza
 	if err := os.MkdirAll(svc.reportPath, 0755); err != nil {
 		t.Fatalf("failed to create report dir: %v", err)
 	}
-	filePath := filepath.Join(svc.reportPath, report.ApplicationID.String()+"_"+report.ReportID.String())
+	filePath := filepath.Join(svc.reportPath, common.ReportFilename(report.ApplicationID, report.ReportID))
 	data, err := json.Marshal(report)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filePath, data, 0644))

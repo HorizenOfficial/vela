@@ -556,7 +556,7 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		m.log.Error("Failed to marshal deanonymization report to JSON: %v", err)
 		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
 	}
-	filePath := filepath.Join(m.config.DeanonymizationReportPath, req.ApplicationID.String()+"_"+req.RequestID.String())
+	filePath := filepath.Join(m.config.DeanonymizationReportPath, common.ReportFilename(req.ApplicationID, req.RequestID))
 	if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
 		m.log.Error("Failed to write deanonymization report to file: %v", err)
 		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
