@@ -79,6 +79,7 @@ func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.log.Error("Failed to write nonce response: %v", err)
+		http.Error(w, "failed to write nonce response", http.StatusInternalServerError)
 	}
 }
 
@@ -96,7 +97,12 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	}
 	defer r.Body.Close()
 
-	if s.chainID != 0 && req.ChainID != s.chainID {
+	if s.chainID == 0 {
+		s.log.Error("getreport: authority service chain_id not configured")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if req.ChainID != s.chainID {
 		s.log.Error("getreport: unexpected chain_id: got %d expected %d", req.ChainID, s.chainID)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -160,6 +166,7 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.log.Error("Failed to write report response: %v", err)
+		http.Error(w, "failed to write report response", http.StatusInternalServerError)
 	}
 }
 
