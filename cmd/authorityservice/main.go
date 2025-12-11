@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -54,16 +56,21 @@ func main() {
 
 	server := authorityservice.NewHTTPServer(cfg, svc.Handler())
 
+	serverErr := make(chan error, 1)
 	go func() {
-		if err := server.Start(); err != nil {
-			log.Error("Failed to start HTTP server: %v", err)
-			return
+		if err := server.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
 		}
 	}()
 
 	log.Info("Authority service listening on %s", cfg.ListenAddress)
 
-	<-sigChan
+	select {
+	case sig := <-sigChan:
+		log.Info("Received signal %s, shutting down", sig)
+	case err := <-serverErr:
+		log.Error("HTTP server exited with error: %v", err)
+	}
 	signal.Stop(sigChan)
 	cancel()
 	_ = server.Stop(ctx)
