@@ -444,7 +444,14 @@ func TestHandleGetReportAppMismatch(t *testing.T) {
 		Authority:       authority,
 		EncryptedReport: []byte("encrypted-report"),
 	}
-	writeReport(t, svc, report)
+	if err := os.MkdirAll(svc.reportPath, 0755); err != nil {
+		t.Fatalf("failed to create report dir: %v", err)
+	}
+	// Store under the requested appID to ensure loadReport finds it, but with mismatched ApplicationID inside.
+	path := filepath.Join(svc.reportPath, common.ReportFilename(appID, reportID))
+	data, err := json.Marshal(report)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0644))
 
 	body := api.GetReportRequest{
 		ChainID:   chainID,

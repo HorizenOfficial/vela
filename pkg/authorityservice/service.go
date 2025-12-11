@@ -242,28 +242,17 @@ func (s *AuthorityService) recoverSigner(req api.GetReportRequest, reportID comm
 }
 
 func (s *AuthorityService) loadReport(appID common.ApplicationIdType, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
-	// Try with the provided appID first
-	paths := []string{filepath.Join(s.reportPath, common.ReportFilename(appID, reportID))}
-	// Fallback: find by reportID regardless of appID to detect mismatches
-	glob, _ := filepath.Glob(filepath.Join(s.reportPath, "*_"+reportID.String()))
-	paths = append(paths, glob...)
+	path := filepath.Join(s.reportPath, common.ReportFilename(appID, reportID))
 
-	var lastErr error
-	for _, p := range paths {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		var report common.DeanonymizationReport
-		if err := json.Unmarshal(data, &report); err != nil {
-			lastErr = err
-			continue
-		}
-		return &report, nil
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("report not found for app %s id %s: %w", appID.String(), reportID.String(), err)
 	}
-	if lastErr != nil {
-		return nil, lastErr
+
+	var report common.DeanonymizationReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("failed to decode report %s for app %s: %w", reportID.String(), appID.String(), err)
 	}
-	return nil, fmt.Errorf("report not found")
+
+	return &report, nil
 }
