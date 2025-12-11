@@ -33,9 +33,9 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
 - exposed addresses/ports (see `.env.template` for defaults):
   - authorityservice: listens on `${AUTHORITY_SERVICE_LISTEN_ADDRESS}` on `${AUTHORITY_SERVICE_IP_ADDRESS}` inside the internal network.
 
-- the manager database and the chain data is persisted in two docker volumes (horizen-cce-manager-reports and horizen-cce-chain-data).<br>
+- the manager database and chain data are persisted in docker volumes (`horizen-cce-manager-data` for the DB, `horizen-cce-chain-data` for chain data).<br>
   To start from scratch, delete the volumes.
-- the authority service shares the manager database volume (horizen-cce-manager-reports) so it can read the same deanonymization reports.
+- deanonymization reports are stored in `horizen-cce-manager-reports`; the authority service shares this reports volume so it can read the same outputs.
 - to connect to the chain from Metamask, use the following parameters:
    - rpc url: http://localhost:8545
    - chainid: 31337
