@@ -184,7 +184,7 @@ func (s *AuthorityService) validateNonce(saltHex, nonceHex string, ts int64) err
 	now := s.clock()
 	tsTime := time.Unix(ts, 0)
 
-	if tsTime.After(now.Add(1 * time.Minute)) {
+	if tsTime.After(now) {
 		return fmt.Errorf("nonce timestamp in the future")
 	}
 	if now.Sub(tsTime) > s.nonceTTL {
