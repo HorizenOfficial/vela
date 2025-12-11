@@ -544,9 +544,6 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 	}
 
 	// Save the deanonymization report to the filesystem (mandatory)
-	if strings.TrimSpace(m.config.DeanonymizationReportPath) == "" {
-		return apperrors.New(apperrors.CodeInternalFallback, "DeanonymizationReportPath not configured", nil)
-	}
 	if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
 		m.log.Error("Failed to create directory for deanonymization reports: %v", err)
 		return apperrors.New(apperrors.CodeInternalFallback, "failed to persist report", err)
