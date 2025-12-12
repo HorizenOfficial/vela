@@ -1,14 +1,14 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
-import CertManagerArtifact from '../nitro-validator/CertManager.json';
-import NitroValidatorArtifact from '../nitro-validator/Validator.json';
+import CertManagerArtifact from '../nitro_prover/CertManager.json';
+import NitroProverArtifact from '../nitro_prover/NitroProver.json';
 
 //This test suite doesn't work on Hardhat network. Due to using foundry precompiles, it should be executed on the Anvil (foundry) network
 describe('TeeAuthenticator Test', function () {
     let signers: Signer[];
     let teeAuthenticator: any;
-    let nitroValidator: any;
+    let nitroProver: any;
 
     let PCR0: string = "0xc980e59163ce244bb4bb6211f48c7b46f88a4f40943e84eb99bdc41e129bd293"
     let TEE_MAX_VERIFICATION_AGE = "9000000000000000000000000000" //a lot of time
@@ -24,27 +24,27 @@ describe('TeeAuthenticator Test', function () {
         const certManagerAddress = await certManager.getAddress();
 
         //deploy nitro prover
-        const NitroValidatorFactory = new ethers.ContractFactory(NitroValidatorArtifact.abi, NitroValidatorArtifact.bytecode, signers[0]);
-        nitroValidator = await NitroValidatorFactory.deploy(certManagerAddress);
-        await nitroValidator.deploymentTransaction()!.wait();
-        const nitroValidatorAddress = await nitroValidator.getAddress();
+        const NitroProverFactory = new ethers.ContractFactory(NitroProverArtifact.abi, NitroProverArtifact.bytecode, signers[0]);
+        nitroProver = await NitroProverFactory.deploy(certManagerAddress);
+        await nitroProver.deploymentTransaction()!.wait();
+        const nitroProverAddress = await nitroProver.getAddress();
 
         //deploy TeeAuthenticator
         const TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-        teeAuthenticator = await TeeAuthenticator.deploy(signers[0], nitroValidatorAddress, PCR0, TEE_MAX_VERIFICATION_AGE);
+        teeAuthenticator = await TeeAuthenticator.deploy(signers[0], nitroProverAddress, PCR0, TEE_MAX_VERIFICATION_AGE);
         await teeAuthenticator.deploymentTransaction()!.wait();
     })
 
     it('should verify valid attestation', async function () {
         //invoke verification
-        await nitroValidator.verifyAttestation(VALID_ATTESTATION, TEE_MAX_VERIFICATION_AGE);
+        await nitroProver.verifyAttestation(VALID_ATTESTATION, TEE_MAX_VERIFICATION_AGE);
     })
 
     it('should not verify invalid attestation', async function () {
         //invoke verification
         VALID_ATTESTATION.replace("a", "b");
         expect(
-            await nitroValidator.verifyAttestation(VALID_ATTESTATION, TEE_MAX_VERIFICATION_AGE)
+            await nitroProver.verifyAttestation(VALID_ATTESTATION, TEE_MAX_VERIFICATION_AGE)
         ).to.be.reverted;
     })
 
