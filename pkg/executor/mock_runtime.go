@@ -74,7 +74,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationId
 }
 
 func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	log.Printf("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, depositAmount, sender)
+	r.log.Info("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, depositAmount, sender)
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
