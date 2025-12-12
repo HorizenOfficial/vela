@@ -119,3 +119,12 @@ If the network is unavailable or buffer is full:
 2. `AsyncWriter.Write()` copies the log message into `logBuffer`.
 3. Background goroutine sends messages from `logBuffer` to the remote server.
 4. If the network is down or buffer overflows, messages are written immediately to the `fallbackWriter`.
+
+**Miscellanea**
+
+Because of asynchronous writing and buffering/flushing, logs may not always be written to an output file in chronological order. Here is a useful command to sort a log file by timestamp:
+
+
+```
+$ jq -s 'sort_by(.time)[]'   bin/log_server_test.log
+```

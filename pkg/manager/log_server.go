@@ -64,6 +64,11 @@ func StartLogServer(
 			panic(fmt.Errorf("log server TCP and VSOCK addresses are both empty, not starting log server"))
 		}
 
+		if logFilePath == "" && !consoleEnabled {
+			logServerLogger.Error("Log server file path is empty and console output is disabled, not starting log server.")
+			panic(fmt.Errorf("log server file path is empty and console output is disabled, not starting log server"))
+		}
+
 		var logFile *os.File
 		var err error
 		if logFilePath != "" {
@@ -74,7 +79,12 @@ func StartLogServer(
 			}
 			logServerLogger.Info("Remote logs will be written to %s", logFilePath)
 		} else {
-			logServerLogger.Warn("Log server file path empty, writing logs to console output.")
+			if consoleEnabled {
+				logServerLogger.Warn("Log server file path empty. Remote logs will only be written to console output.")
+			} else {
+				// This case should already be cauhgt
+				logServerLogger.Warn("Log server file path empty and console output is disabled. Remote logs will be dropped (this should not happen).")
+			}
 		}
 
 		logServer := &LogServer{
@@ -93,14 +103,13 @@ func StartLogServer(
 			if err != nil {
 				logServerLogger.Error("Failed to start log server on %s: %v", tcpAddrStr, err)
 				panic(err)
-			} else {
-				logServerLogger.Info("Log server listening on TCP %s", tcpAddrStr)
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					logServer.acceptConnections(ctx, tcpListener)
-				}()
 			}
+			logServerLogger.Info("Log server listening on TCP %s", tcpAddrStr)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				logServer.acceptConnections(ctx, tcpListener)
+			}()
 		} else {
 			logServerLogger.Info("Log server TCP address empty.")
 		}
@@ -111,14 +120,13 @@ func StartLogServer(
 			if err != nil {
 				logServerLogger.Error("Failed to start log server on vsock %d:%d: %v", vsockAddr.CID, vsockAddr.Port, err)
 				panic(err)
-			} else {
-				logServerLogger.Info("Log server listening on VSOCK %d:%d", vsockAddr.CID, vsockAddr.Port)
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					logServer.acceptConnections(ctx, vsockListener)
-				}()
 			}
+			logServerLogger.Info("Log server listening on VSOCK %d:%d", vsockAddr.CID, vsockAddr.Port)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				logServer.acceptConnections(ctx, vsockListener)
+			}()
 		} else {
 			logServerLogger.Info("Log server VSOCK address empty.")
 		}
@@ -126,10 +134,15 @@ func StartLogServer(
 		go func() {
 			<-ctx.Done()
 			logServerLogger.Info("Shutting down log server...")
+
+			logServer.fileMutex.Lock()
+			defer logServer.fileMutex.Unlock()
+
 			if logServer.logFile != nil {
 				if err := logServer.logFile.Close(); err != nil {
 					logServerLogger.Error("Error closing log file: %v", err)
 				}
+				logServer.logFile = nil
 			}
 		}()
 
@@ -170,7 +183,9 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 	for {
 		message, err := reader.ReadString('\n')
 		if err != nil {
-			if err != io.EOF {
+			if err == io.EOF {
+				ls.logger.Info("Log connection from %s closed gracefully", conn.RemoteAddr())
+			} else {
 				ls.logger.Error("Error reading from log connection %s: %v", conn.RemoteAddr(), err)
 			}
 			break
@@ -186,12 +201,9 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 			ls.logger.Error("Error processing remote log: %v", err)
 		}
 	}
-	ls.logger.Info("Log connection from %s closed", conn.RemoteAddr())
 }
 
-// filterAndWrite routes an incoming JSON log entry to console and/or file depending
-// on configured log levels. Entries missing or with unknown levels default to "info".
-// File writes are protected by fileMutex to ensure thread-safe concurrent access.
+// filterAndWrite routes an incoming JSON log entry to console and/or file depending on configured log levels
 func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
 	var entry struct {
 		Level string `json:"level"`
