@@ -2,7 +2,9 @@ package manager
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -17,13 +19,32 @@ import (
 
 // LogServer handles writing log messages from remote clients to a file.
 type LogServer struct {
-	logger    logger.Logger
-	logFile   *os.File
-	fileMutex sync.Mutex
+	logger         logger.Logger
+	logFile        *os.File
+	fileMutex      sync.Mutex
+	consoleEnabled bool
+	consoleLevel   string
+	fileLevel      string
+}
+
+// Static log level priority map
+var levelPriority = map[string]int{
+	"trace": 0, "debug": 1, "info": 2, "warn": 3, "error": 4, "fatal": 5, "panic": 6,
 }
 
 // StartLogServer starts servers to receive log messages from remote clients via TCP and VSOCK.
-func StartLogServer(ctx context.Context, tcpAddr common.TcpChannelConnectionParams, vsockAddr, logFilePath string) {
+// Console and file output behavior is controlled via configuration parameters so we can
+// enable/disable console logging and choose levels for console/file outputs.
+// TODO: have a dynamic levels configuration via setLevel() func etc...
+func StartLogServer(
+	ctx context.Context,
+	tcpAddr common.TcpChannelConnectionParams,
+	vsockAddr common.VSockChannelConnectionParams,
+	logFilePath string,
+	consoleEnabled bool,
+	consoleLevel string,
+	fileLevel string,
+) {
 	go func() {
 		tcpAddrStr := ""
 		if strings.TrimSpace(tcpAddr.Ip) != "" && tcpAddr.Port != 0 {
@@ -34,11 +55,11 @@ func StartLogServer(ctx context.Context, tcpAddr common.TcpChannelConnectionPara
 		logServerLogger := logger.NewLogger(&logger.Config{
 			Kind:         "zerolog",
 			Console:      true,
-			ConsoleLevel: "info",
+			ConsoleLevel: "trace",
 		})
 		defer logServerLogger.Close()
 
-		if strings.TrimSpace(tcpAddrStr) == "" && strings.TrimSpace(vsockAddr) == "" {
+		if strings.TrimSpace(tcpAddrStr) == "" && vsockAddr.Port == 0 {
 			logServerLogger.Error("Log server TCP and VSOCK addresses are both empty, not starting log server.")
 			panic(fmt.Errorf("log server TCP and VSOCK addresses are both empty, not starting log server"))
 		}
@@ -57,8 +78,11 @@ func StartLogServer(ctx context.Context, tcpAddr common.TcpChannelConnectionPara
 		}
 
 		logServer := &LogServer{
-			logger:  logServerLogger,
-			logFile: logFile,
+			logger:         logServerLogger,
+			logFile:        logFile,
+			consoleEnabled: consoleEnabled,
+			consoleLevel:   consoleLevel,
+			fileLevel:      fileLevel,
 		}
 
 		var wg sync.WaitGroup
@@ -82,24 +106,18 @@ func StartLogServer(ctx context.Context, tcpAddr common.TcpChannelConnectionPara
 		}
 
 		// VSOCK listener
-		if vsockAddr != "" {
-			cid, port, err := parseVSockAddr(vsockAddr)
+		if vsockAddr.Port != 0 {
+			vsockListener, err := vsock.ListenContextID(vsockAddr.CID, vsockAddr.Port, nil)
 			if err != nil {
-				logServerLogger.Error("Invalid VSOCK address: %v", err)
+				logServerLogger.Error("Failed to start log server on vsock %d:%d: %v", vsockAddr.CID, vsockAddr.Port, err)
 				panic(err)
 			} else {
-				vsockListener, err := vsock.ListenContextID(cid, port, nil)
-				if err != nil {
-					logServerLogger.Error("Failed to start log server on vsock %s: %v", vsockAddr, err)
-					panic(err)
-				} else {
-					logServerLogger.Info("Log server listening on VSOCK %s", vsockAddr)
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						logServer.acceptConnections(ctx, vsockListener)
-					}()
-				}
+				logServerLogger.Info("Log server listening on VSOCK %d:%d", vsockAddr.CID, vsockAddr.Port)
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					logServer.acceptConnections(ctx, vsockListener)
+				}()
 			}
 		} else {
 			logServerLogger.Info("Log server VSOCK address empty.")
@@ -158,40 +176,50 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 			break
 		}
 
-		// Print to console
-		// TODO: we always log on console, shall we render it configurable? Or as an alternative to using a file?
-		fmt.Print(message)
+		trimmed := bytes.TrimSpace([]byte(message))
+		if len(trimmed) == 0 {
+			continue
+		}
 
-		// Write to file if configured
-		if ls.logFile != nil {
-			ls.fileMutex.Lock()
-			if _, err := ls.logFile.WriteString(message); err != nil {
-				ls.logger.Error("Error writing to log file: %v", err)
-			}
-			ls.fileMutex.Unlock()
+		// Apply per-level filtering for console/file outputs.
+		if err := ls.filterAndWrite(trimmed); err != nil {
+			ls.logger.Error("Error processing remote log: %v", err)
 		}
 	}
 	ls.logger.Info("Log connection from %s closed", conn.RemoteAddr())
 }
 
-func parseVSockAddr(addr string) (uint32, uint32, error) {
-	parts := strings.Split(addr, ":")
-	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("invalid vsock address format")
+// filterAndWrite routes an incoming JSON log entry to console and/or file depending
+// on configured log levels. Entries missing or with unknown levels default to "info".
+// File writes are protected by fileMutex to ensure thread-safe concurrent access.
+func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
+	var entry struct {
+		Level string `json:"level"`
 	}
-	cid, err := Atoi(parts[0])
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid vsock cid: %v", err)
+	if err := json.Unmarshal(jsonMsg, &entry); err != nil {
+		return fmt.Errorf("invalid JSON log: %w", err)
 	}
-	port, err := Atoi(parts[1])
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid vsock port: %v", err)
-	}
-	return uint32(cid), uint32(port), nil
-}
 
-func Atoi(s string) (int, error) {
-	var n int
-	_, err := fmt.Sscan(s, &n)
-	return n, err
+	msgLevel := strings.ToLower(strings.TrimSpace(entry.Level))
+	entryPriority, ok := levelPriority[msgLevel]
+	if !ok {
+		entryPriority = levelPriority["info"]
+	}
+
+	consolePriority := levelPriority[strings.ToLower(ls.consoleLevel)]
+	filePriority := levelPriority[strings.ToLower(ls.fileLevel)]
+
+	if ls.consoleEnabled && entryPriority >= consolePriority {
+		fmt.Println(string(jsonMsg))
+	}
+
+	if ls.logFile != nil && entryPriority >= filePriority {
+		ls.fileMutex.Lock()
+		defer ls.fileMutex.Unlock()
+		if _, err := ls.logFile.Write(append(jsonMsg, '\n')); err != nil {
+			return fmt.Errorf("failed to write to file: %w", err)
+		}
+	}
+
+	return nil
 }

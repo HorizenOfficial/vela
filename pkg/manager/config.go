@@ -2,7 +2,6 @@ package manager
 
 import (
 	"os"
-	"strconv"
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -76,7 +75,7 @@ type Config struct {
 	// LogServerTCPAddress contains the TCP address where the log server will listen for incoming log messages.
 	LogServerTCPAddress common.TcpChannelConnectionParams
 	// LogServerVSockAddress is the address where the log server will listen for incoming VSOCK log messages.
-	LogServerVSockAddress string
+	LogServerVSockAddress common.VSockChannelConnectionParams
 	// LogServerLogFile is the file path where the manager's log server will write incoming log messages.
 	LogServerLogFile string
 	// LogServerConsole is true if we want output on console
@@ -98,21 +97,30 @@ func LoadConfig() (*Config, error) {
 	}
 
 	var channelType = common.GetConfigVar("CHANNEL_TYPE", "vsock", fileProperties)
-	var channelConnectionParams common.ChannelConnectionParams
+
+	// We use the same port value for TCP or Vsock channel types
 	executorServerPort := common.GetConfigVarInt64("EXECUTOR_PORT", 4000, fileProperties)
-	logServerVsockAddress := ""
+	logServerPort := common.GetConfigVarInt64("LOG_SERVER_PORT", 5000, fileProperties)
+
+	// channel communication between manager and executor
+	var channelConnectionParams common.ChannelConnectionParams
+
+	// log server Vsock address, initialized only in case channel type is Vsock
+	var logServerVsockAddress common.VSockChannelConnectionParams
+
 	if channelType == "vsock" {
 		executorServerCid := common.GetConfigVarInt64("CHANNEL_VSOCK_CID", 20, fileProperties)
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
-		logServerVsockAddress = strconv.FormatInt(executorServerCid, 10) + ":" + strconv.FormatInt(executorServerPort, 10)
+		// if channel is vsock it means we also have a vsock connection used by executor for logging, we use of course a separate port
+		logServerVsockAddress = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(logServerPort)}
 	} else {
 		executorIpHost := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
 		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(executorServerPort)}
 	}
 
+	// TCP connection on log server, typically used for manager logs
 	logServerTcpHost := common.GetConfigVar("LOG_SERVER_TCP_HOST", "localhost", fileProperties)
-	logServerTcpPort := common.GetConfigVarInt64("LOG_SERVER_TCP_PORT", 5000, fileProperties)
-	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: uint32(logServerTcpPort)}
+	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: uint32(logServerPort)}
 
 	var privateKey *cryptotypes.PrivateKeySecp256k1
 	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")

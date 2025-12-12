@@ -20,7 +20,7 @@ func init() {
 	zerolog.CallerSkipFrameCount = 3
 	// print timestamp in human readable format with milliseconds precision
 	//zerolog.TimeFieldFormat = time.StampMilli
-	zerolog.TimeFieldFormat = "2006-Dec-02 15:04:05.000"
+	zerolog.TimeFieldFormat = TimeStampFormatMs
 
 }
 
@@ -60,7 +60,7 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 			Out:     os.Stderr,
 			NoColor: !cfg.ConsoleColor,
 			// Zerolog ConsoleWriter does not use the global zerolog.TimeFieldFormat, fix it
-			TimeFormat: "2006-Jan-02 15:04:05.000",
+			TimeFormat: TimeStampFormatMs,
 		}
 
 		l := zerolog.New(writer).

@@ -101,7 +101,15 @@ func NewSystemTestSuiteWithConfigs(
 
 	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, mgrLog)
 
-	manager.StartLogServer(ctx, mgrConfig.LogServerTCPAddress, mgrConfig.LogServerVSockAddress, mgrConfig.LogServerLogFile)
+	manager.StartLogServer(
+		ctx,
+		mgrConfig.LogServerTCPAddress,
+		mgrConfig.LogServerVSockAddress,
+		mgrConfig.LogServerLogFile,
+		mgrConfig.LogServerConsole,
+		mgrConfig.LogServerConsoleLevel,
+		mgrConfig.LogServerFileLevel,
+	)
 
 	// Create executor
 	server := communication.NewServer(factory, excLog)

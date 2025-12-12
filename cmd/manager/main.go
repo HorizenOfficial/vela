@@ -106,7 +106,8 @@ func main() {
 		}
 	}()
 
-	log.Info("Starting manager...")
+	log.Warn("Initializing manager...")
+	log.Trace("This is a trace")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -116,7 +117,15 @@ func main() {
 	defer cancel()
 
 	// Start the log server if configured
-	manager.StartLogServer(ctx, config.LogServerTCPAddress, config.LogServerVSockAddress, config.LogServerLogFile)
+	manager.StartLogServer(
+		ctx,
+		config.LogServerTCPAddress,
+		config.LogServerVSockAddress,
+		config.LogServerLogFile,
+		config.LogServerConsole,
+		config.LogServerConsoleLevel,
+		config.LogServerFileLevel,
+	)
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)

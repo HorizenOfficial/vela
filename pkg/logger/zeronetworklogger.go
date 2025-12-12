@@ -163,7 +163,7 @@ func (w *AsyncWriter) processBuffer() bool {
 				return true // Channel closed
 			}
 			if _, err := w.conn.Write(msg); err != nil {
-				errMsg := fmt.Sprintf("[zeronetwork] write failed: %v. Reconnecting...", err)
+				errMsg := fmt.Sprintf("[zeronetwork] write failed: %v. Reconnecting...\n", err)
 				w.fallbackWriter.Write([]byte(errMsg))
 				w.closeConn()
 				// put the message back in the buffer, but non-blocking
@@ -198,7 +198,7 @@ func (w *AsyncWriter) connectWithRetry() error {
 			w.fallbackWriter.Write([]byte(logMsg))
 			return nil
 		} else {
-			errMsg := fmt.Sprintf("[zeronetwork] VSOCK connection failed: %v\n", err)
+			errMsg := fmt.Sprintf("[zeronetwork] connection failed: %v\n", err)
 			w.fallbackWriter.Write([]byte(errMsg))
 		}
 		lastErr = err
@@ -221,11 +221,11 @@ func (w *AsyncWriter) drainBuffer() {
 	defer w.mu.Unlock()
 
 	if w.conn == nil {
-		w.fallbackWriter.Write([]byte("[zeronetwork] cannot drain buffer, no connection."))
+		w.fallbackWriter.Write([]byte("[zeronetwork] cannot drain buffer, no connection.\n"))
 		return
 	}
 	close(w.logBuffer) // Close channel to range over remaining items
-	w.fallbackWriter.Write([]byte("[zeronetwork] draining log buffer before shutdown..."))
+	w.fallbackWriter.Write([]byte("[zeronetwork] draining log buffer before shutdown...\n"))
 	for {
 		select {
 		case msg := <-w.logBuffer:
@@ -273,7 +273,7 @@ type TimestampWriter struct {
 }
 
 func (tw *TimestampWriter) Write(p []byte) (int, error) {
-	stamp := time.Now().Format("2006-Jan-02 15:04:05.000")
+	stamp := time.Now().Format(TimeStampFormatMs)
 	line := fmt.Sprintf("%s %s", stamp, p)
 	return tw.out.Write([]byte(line))
 }
