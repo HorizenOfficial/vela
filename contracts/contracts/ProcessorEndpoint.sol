@@ -89,11 +89,11 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value, // part of the sent value forwarded to the application, for app logic
+        uint256 depositAmount, // part of the sent value forwarded to the application, for app logic
         uint256 maxFeeValue // part ot the sent value reserved for fee payment
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
         //check values
-        if(msg.value != value + maxFeeValue) revert InvalidValue();
+        if(msg.value != depositAmount + maxFeeValue) revert InvalidValue();
         if(maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
 
         //check queue size
@@ -104,8 +104,8 @@ contract ProcessorEndpoint is AccessControl {
             if (payload.length != 133) revert InvalidPayload();
         } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
 
-            // deanonymization requests MUST have value = 0
-            if (value != 0) revert InvalidValue();
+            // deanonymization requests MUST have depositAmount = 0
+            if (depositAmount != 0) revert InvalidValue();
 
             // only allowed authorities can request deanonymization
             if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
@@ -115,7 +115,7 @@ contract ProcessorEndpoint is AccessControl {
 
         
         //create request
-        bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, value, _tail);
+        bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, depositAmount, _tail);
         requestById[requestId] = 
             Structs.PendingRequest(
                 protocolVersion,
@@ -125,7 +125,7 @@ contract ProcessorEndpoint is AccessControl {
                 payload,
                 block.timestamp,
                 msg.sender,
-                value,
+                depositAmount,
                 maxFeeValue
             );
         _requestIdByOrder[_tail] = requestId;
@@ -178,12 +178,12 @@ contract ProcessorEndpoint is AccessControl {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         address sender = requestById[requestId].sender;
-        uint256 value = requestById[requestId].value;
+        uint256 depositAmount = requestById[requestId].depositAmount;
         uint256 maxFeeValue = requestById[requestId].maxFeeValue;
 
         _removeRequest();
         //refunds
-        uint256 refund = value + (maxFeeValue - minFeePerRequest);
+        uint256 refund = depositAmount + (maxFeeValue - minFeePerRequest);
         if(refund > 0) {
             (bool refundSent, ) = payable(sender).call{value: refund}("");
             if (refundSent) {
@@ -333,7 +333,7 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value,
+        uint256 depositAmount,
         uint256 idx
         ) public pure returns (bytes32) {
         
@@ -342,7 +342,7 @@ contract ProcessorEndpoint is AccessControl {
             applicationId,
             requestType,
             payload,
-            value,
+            depositAmount,
             idx
        ));
 

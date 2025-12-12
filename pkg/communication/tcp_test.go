@@ -11,8 +11,8 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/testutil"
 	apperrors "github.com/horizen-pes/pkg/common/apperrors"
+	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,14 +37,14 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 	}
 	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
-			ApplicationID: req.ApplicationID,
-			RequestID:     req.RequestID,
-			PrevStateRoot: appState.StateRoot,
-			NewStateRoot:  newStateRoot,
-			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-			Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
-			Signature:     []byte("test-signature"),
-			RefundAmount: req.MaxFeeValue,
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  appState.StateRoot,
+			NewStateRoot:   newStateRoot,
+			Events:         []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
+			Withdrawals:    []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
+			Signature:      []byte("test-signature"),
+			RefundAmount:   req.MaxFeeValue,
 			ApplicationFee: big.NewInt(100),
 		},
 		&common.ApplicationState{
@@ -61,12 +61,12 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 	}
 	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
-			ApplicationID: req.ApplicationID,
-			RequestID:     req.RequestID,
-			PrevStateRoot: [32]byte{},
-			NewStateRoot:  newStateRoot,
-			Signature:     []byte("test-signature"),
-			RefundAmount: req.MaxFeeValue,
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  [32]byte{},
+			NewStateRoot:   newStateRoot,
+			Signature:      []byte("test-signature"),
+			RefundAmount:   req.MaxFeeValue,
 			ApplicationFee: big.NewInt(100),
 		},
 		&common.ApplicationState{
@@ -91,7 +91,7 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 
 // MockClientRequestHandler is a mock implementation for testing the new client
 type MockClientRequestHandler struct {
-	GetUserKeysFunc func(ctx context.Context, users []string) (map[string][]byte, *apperrors.RequestFailure)
+	GetUserKeysFunc       func(ctx context.Context, users []string) (map[string][]byte, *apperrors.RequestFailure)
 	SetKeysetRecoveryFunc func(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
 	GetKeysetRecoveryFunc func(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
 }
@@ -154,8 +154,8 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
-		Value:           big.NewInt(0),
-		MaxFeeValue: big.NewInt(100),
+		DepositAmount:   big.NewInt(0),
+		MaxFeeValue:     big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  ApplicationId,
@@ -233,8 +233,8 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 			Sender:          senderAddress,
-			Value:           big.NewInt(0),
-			MaxFeeValue: big.NewInt(100),
+			DepositAmount:   big.NewInt(0),
+			MaxFeeValue:     big.NewInt(100),
 		}
 		appState := &common.ApplicationState{
 			ApplicationID:  ApplicationId,
@@ -285,8 +285,8 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 			Sender:          senderAddress,
-			Value:           big.NewInt(0),
-			MaxFeeValue: big.NewInt(100),
+			DepositAmount:   big.NewInt(0),
+			MaxFeeValue:     big.NewInt(100),
 		}
 
 		_, appState, failure := client.SendDeployApp(ctx, req)
@@ -345,8 +345,8 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
-		Value:           big.NewInt(0),
-		MaxFeeValue: big.NewInt(100),
+		DepositAmount:   big.NewInt(0),
+		MaxFeeValue:     big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  ApplicationId,
@@ -440,13 +440,13 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 			// check is performed each 5 seconds, and timeout is 30 seconds, so 35 is the worst case
 			time.Sleep(35 * time.Second)
 			return &common.UpdatePayload{
-				ApplicationID: req.ApplicationID,
-				PrevStateRoot: appState.StateRoot,
-				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
-				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
-				Signature:     []byte("test-signature"),
-				RefundAmount: req.MaxFeeValue,
+				ApplicationID:  req.ApplicationID,
+				PrevStateRoot:  appState.StateRoot,
+				NewStateRoot:   sha256.Sum256([]byte("new-state-root")),
+				Events:         []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
+				Withdrawals:    []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
+				Signature:      []byte("test-signature"),
+				RefundAmount:   req.MaxFeeValue,
 				ApplicationFee: big.NewInt(100),
 			}, appState, nil
 		},
@@ -480,8 +480,8 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
-		Value:           big.NewInt(0),
-		MaxFeeValue: big.NewInt(100),
+		DepositAmount:   big.NewInt(0),
+		MaxFeeValue:     big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  1,

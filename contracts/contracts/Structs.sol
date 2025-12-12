@@ -34,7 +34,7 @@ contract Structs {
         bytes payload;
         uint256 timestamp; //assigned automatically
         address sender; //assigned automatically
-        uint256 value; //assigned automatically
+        uint256 depositAmount; //assigned automatically
         uint256 maxFeeValue;
     }
 

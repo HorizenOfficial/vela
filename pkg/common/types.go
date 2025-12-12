@@ -78,8 +78,8 @@ type Request struct {
 	Timestamp *big.Int `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
-	// Value is the optional deposit value in WEI
-	Value *big.Int `json:"value"`
+	// DepositAmount is the optional deposit value in WEI
+	DepositAmount *big.Int `json:"depositAmount"`
 	// MaxFeeValue is the maximum fee value reserved for fee payment
 	MaxFeeValue *big.Int `json:"maxFeeValue"`
 }

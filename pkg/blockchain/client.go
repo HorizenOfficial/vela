@@ -165,8 +165,8 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			Payload:         request.Payload,
 			Timestamp:       request.Timestamp,
 			Sender:          request.Sender,
-			Value:           request.Value,
-			MaxFeeValue: request.MaxFeeValue,
+			DepositAmount:   request.DepositAmount,
+			MaxFeeValue:     request.MaxFeeValue,
 		}
 
 		output = append(output, req)
@@ -206,8 +206,8 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		Payload:         request.Payload,
 		Timestamp:       request.Timestamp,
 		Sender:          request.Sender,
-		Value:           request.Value,
-		MaxFeeValue: request.MaxFeeValue,
+		DepositAmount:   request.DepositAmount,
+		MaxFeeValue:     request.MaxFeeValue,
 	}
 
 	return req, stateRoot, nil
@@ -255,17 +255,17 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID comm
 	c.account.Value = nil
 
 	if requestFailure == nil {
-        requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
-    }
-	
+		requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
+	}
+
 	solCode := uint8(requestFailure.Category())
-    msg := requestFailure.ExternalMessage()
+	msg := requestFailure.ExternalMessage()
 
 	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(requestID, solCode, msg))
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
-func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -276,9 +276,9 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	reqType := uint8(requestType)
 
 	// Pack the transaction data using the generated binding
-	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, value, maxFeeValue)
+	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount, maxFeeValue)
 	// Set the value for the transaction (msg.value)
-	c.account.Value = new(big.Int).Add(value, maxFeeValue)
+	c.account.Value = new(big.Int).Add(depositAmount, maxFeeValue)
 
 	// Send the transaction
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)

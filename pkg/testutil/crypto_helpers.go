@@ -7,8 +7,8 @@ import (
 	"math/big"
 	"time"
 
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -60,13 +60,13 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 		Payload:       payload,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		DepositAmount: big.NewInt(0),
+		MaxFeeValue:   big.NewInt(100),
 	}, nil
 }
 
 // CreateDepositRequest creates an encrypted deposit request
-func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, value *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, depositAmount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -88,8 +88,8 @@ func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requ
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         value,
-		MaxFeeValue:         big.NewInt(100),
+		DepositAmount: depositAmount,
+		MaxFeeValue:   big.NewInt(100),
 	}, nil
 }
 
@@ -127,8 +127,8 @@ func (c *CryptoHelper) CreateTransferRequest(appID common.ApplicationIdType, req
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         big.NewInt(0), // No deposit for transfer
-		MaxFeeValue:         big.NewInt(100),
+		DepositAmount: big.NewInt(0), // No deposit for transfer
+		MaxFeeValue:   big.NewInt(100),
 	}, nil
 }
 
@@ -166,8 +166,8 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, r
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         big.NewInt(0), // No deposit for withdrawal
-		MaxFeeValue:         big.NewInt(100),
+		DepositAmount: big.NewInt(0), // No deposit for withdrawal
+		MaxFeeValue:   big.NewInt(100),
 	}, nil
 }
 
@@ -192,8 +192,8 @@ func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdTy
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		DepositAmount: big.NewInt(0),
+		MaxFeeValue:   big.NewInt(100),
 	}, nil
 }
 
@@ -247,21 +247,21 @@ func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requ
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		DepositAmount: big.NewInt(0),
+		MaxFeeValue:   big.NewInt(100),
 	}, nil
 }
 
 func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *cryptotypes.PublicKeySecp256k1) error {
 	// Create the original payload that was signed
 	originalPayload := &common.UpdatePayload{
-		ApplicationID: payload.ApplicationID,
-		RequestID:     payload.RequestID,
-		PrevStateRoot: payload.PrevStateRoot,
-		NewStateRoot:  payload.NewStateRoot,
-		Events:        payload.Events,
-		Withdrawals:   payload.Withdrawals,
-		RefundAmount: payload.RefundAmount,
+		ApplicationID:  payload.ApplicationID,
+		RequestID:      payload.RequestID,
+		PrevStateRoot:  payload.PrevStateRoot,
+		NewStateRoot:   payload.NewStateRoot,
+		Events:         payload.Events,
+		Withdrawals:    payload.Withdrawals,
+		RefundAmount:   payload.RefundAmount,
 		ApplicationFee: payload.ApplicationFee,
 	}
 
