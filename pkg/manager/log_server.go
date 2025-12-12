@@ -27,127 +27,130 @@ type LogServer struct {
 	fileLevel      string
 }
 
+// LogServerConfig holds configuration for starting the log server.
+type LogServerConfig struct {
+	TCPAddr        common.TcpChannelConnectionParams
+	VSockAddr      common.VSockChannelConnectionParams
+	LogFilePath    string
+	ConsoleEnabled bool
+	ConsoleLevel   string
+	FileLevel      string
+}
+
 // Static log level priority map
 var levelPriority = map[string]int{
 	"trace": 0, "debug": 1, "info": 2, "warn": 3, "error": 4, "fatal": 5, "panic": 6,
 }
 
 // StartLogServer starts servers to receive log messages from remote clients via TCP and VSOCK.
-// Console and file output behavior is controlled via configuration parameters so we can
-// enable/disable console logging and choose levels for console/file outputs.
-// TODO: have a dynamic levels configuration via setLevel() func etc...
-func StartLogServer(
-	ctx context.Context,
-	tcpAddr common.TcpChannelConnectionParams,
-	vsockAddr common.VSockChannelConnectionParams,
-	logFilePath string,
-	consoleEnabled bool,
-	consoleLevel string,
-	fileLevel string,
-) {
+// It performs synchronous validation of inputs and file access before launching background routines.
+func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
+	tcpAddrStr := ""
+	if strings.TrimSpace(cfg.TCPAddr.Ip) != "" && cfg.TCPAddr.Port != 0 {
+		tcpAddrStr = cfg.TCPAddr.Url()
+	}
+
+	if strings.TrimSpace(tcpAddrStr) == "" && cfg.VSockAddr.Port == 0 {
+		return fmt.Errorf("log server TCP and VSOCK addresses are both empty, not starting log server")
+	}
+
+	if cfg.LogFilePath == "" && !cfg.ConsoleEnabled {
+		return fmt.Errorf("log server file path is empty and console output is disabled, not starting log server")
+	}
+
+	var logFile *os.File
+	var err error
+	if cfg.LogFilePath != "" {
+		logFile, err = os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to open log file %s: %w", cfg.LogFilePath, err)
+		}
+	}
+
+	logServerLogger := logger.NewLogger(&logger.Config{
+		Kind:         "zerolog",
+		Console:      true,
+		ConsoleLevel: "trace",
+	})
+
+	if logFile != nil {
+		logServerLogger.Info("Remote logs will be written to %s", cfg.LogFilePath)
+	} else if cfg.ConsoleEnabled {
+		logServerLogger.Warn("Log server file path empty. Remote logs will only be written to console output.")
+	}
+
+	logServer := &LogServer{
+		logger:         logServerLogger,
+		logFile:        logFile,
+		consoleEnabled: cfg.ConsoleEnabled,
+		consoleLevel:   cfg.ConsoleLevel,
+		fileLevel:      cfg.FileLevel,
+	}
+
+	// Launch Background Listeners
+	go logServer.run(ctx, tcpAddrStr, cfg.VSockAddr)
+
+	return nil
+}
+
+// run handles the lifecycle of the listeners and shutdown
+func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr common.VSockChannelConnectionParams) {
+	// Ensure logger is closed when the server stops completely
+	defer ls.logger.Close()
+
+	var wg sync.WaitGroup
+
+	// TCP listener
+	if tcpAddrStr != "" {
+		tcpListener, err := net.Listen("tcp", tcpAddrStr)
+		if err != nil {
+			ls.logger.Error("Failed to start log server on %s: %v", tcpAddrStr, err)
+			// We don't panic here to allow the other listener (VSOCK) to potentially work
+			// TODO: or we could decide to shutdown all
+		} else {
+			ls.logger.Info("Log server listening on TCP %s", tcpAddrStr)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ls.acceptConnections(ctx, tcpListener)
+			}()
+		}
+	}
+
+	// VSOCK listener
+	if vsockAddr.Port != 0 {
+		vsockListener, err := vsock.ListenContextID(vsockAddr.CID, vsockAddr.Port, nil)
+		if err != nil {
+			ls.logger.Error("Failed to start log server on vsock %d:%d: %v", vsockAddr.CID, vsockAddr.Port, err)
+		} else {
+			ls.logger.Info("Log server listening on VSOCK %d:%d", vsockAddr.CID, vsockAddr.Port)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ls.acceptConnections(ctx, vsockListener)
+			}()
+		}
+	}
+
+	// Shutdown Monitor
+	// We handle this in a separate goroutine to ensure we close the file
+	// even if the listeners are stuck or empty.
 	go func() {
-		tcpAddrStr := ""
-		if strings.TrimSpace(tcpAddr.Ip) != "" && tcpAddr.Port != 0 {
-			tcpAddrStr = tcpAddr.Url()
-		}
+		<-ctx.Done()
+		ls.logger.Info("Shutting down log server...")
 
-		// Internal logger for the log server itself, to avoid circular dependencies.
-		logServerLogger := logger.NewLogger(&logger.Config{
-			Kind:         "zerolog",
-			Console:      true,
-			ConsoleLevel: "trace",
-		})
-		defer logServerLogger.Close()
+		ls.fileMutex.Lock()
+		defer ls.fileMutex.Unlock()
 
-		if strings.TrimSpace(tcpAddrStr) == "" && vsockAddr.Port == 0 {
-			logServerLogger.Error("Log server TCP and VSOCK addresses are both empty, not starting log server.")
-			panic(fmt.Errorf("log server TCP and VSOCK addresses are both empty, not starting log server"))
-		}
-
-		if logFilePath == "" && !consoleEnabled {
-			logServerLogger.Error("Log server file path is empty and console output is disabled, not starting log server.")
-			panic(fmt.Errorf("log server file path is empty and console output is disabled, not starting log server"))
-		}
-
-		var logFile *os.File
-		var err error
-		if logFilePath != "" {
-			logFile, err = os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				logServerLogger.Error("Failed to open log file %s: %v", logFilePath, err)
-				panic(err)
+		if ls.logFile != nil {
+			if err := ls.logFile.Close(); err != nil {
+				ls.logger.Error("Error closing log file: %v", err)
 			}
-			logServerLogger.Info("Remote logs will be written to %s", logFilePath)
-		} else {
-			if consoleEnabled {
-				logServerLogger.Warn("Log server file path empty. Remote logs will only be written to console output.")
-			} else {
-				// This case should already be cauhgt
-				logServerLogger.Warn("Log server file path empty and console output is disabled. Remote logs will be dropped (this should not happen).")
-			}
+			ls.logFile = nil // Prevent further writes
 		}
-
-		logServer := &LogServer{
-			logger:         logServerLogger,
-			logFile:        logFile,
-			consoleEnabled: consoleEnabled,
-			consoleLevel:   consoleLevel,
-			fileLevel:      fileLevel,
-		}
-
-		var wg sync.WaitGroup
-
-		// TCP listener
-		if tcpAddrStr != "" {
-			tcpListener, err := net.Listen("tcp", tcpAddrStr)
-			if err != nil {
-				logServerLogger.Error("Failed to start log server on %s: %v", tcpAddrStr, err)
-				panic(err)
-			}
-			logServerLogger.Info("Log server listening on TCP %s", tcpAddrStr)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				logServer.acceptConnections(ctx, tcpListener)
-			}()
-		} else {
-			logServerLogger.Info("Log server TCP address empty.")
-		}
-
-		// VSOCK listener
-		if vsockAddr.Port != 0 {
-			vsockListener, err := vsock.ListenContextID(vsockAddr.CID, vsockAddr.Port, nil)
-			if err != nil {
-				logServerLogger.Error("Failed to start log server on vsock %d:%d: %v", vsockAddr.CID, vsockAddr.Port, err)
-				panic(err)
-			}
-			logServerLogger.Info("Log server listening on VSOCK %d:%d", vsockAddr.CID, vsockAddr.Port)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				logServer.acceptConnections(ctx, vsockListener)
-			}()
-		} else {
-			logServerLogger.Info("Log server VSOCK address empty.")
-		}
-
-		go func() {
-			<-ctx.Done()
-			logServerLogger.Info("Shutting down log server...")
-
-			logServer.fileMutex.Lock()
-			defer logServer.fileMutex.Unlock()
-
-			if logServer.logFile != nil {
-				if err := logServer.logFile.Close(); err != nil {
-					logServerLogger.Error("Error closing log file: %v", err)
-				}
-				logServer.logFile = nil
-			}
-		}()
-
-		wg.Wait()
 	}()
+
+	wg.Wait()
 }
 
 func (ls *LogServer) acceptConnections(ctx context.Context, listener net.Listener) {
@@ -225,9 +228,12 @@ func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
 		fmt.Println(string(jsonMsg))
 	}
 
+	ls.fileMutex.Lock()
+	defer ls.fileMutex.Unlock()
+
+	// Check for nil in case file was closed by shutdown routine
 	if ls.logFile != nil && entryPriority >= filePriority {
-		ls.fileMutex.Lock()
-		defer ls.fileMutex.Unlock()
+		// Append newline explicitly
 		if _, err := ls.logFile.Write(append(jsonMsg, '\n')); err != nil {
 			return fmt.Errorf("failed to write to file: %w", err)
 		}

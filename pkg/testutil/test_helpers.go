@@ -103,12 +103,14 @@ func NewSystemTestSuiteWithConfigs(
 
 	manager.StartLogServer(
 		ctx,
-		mgrConfig.LogServerTCPAddress,
-		mgrConfig.LogServerVSockAddress,
-		mgrConfig.LogServerLogFile,
-		mgrConfig.LogServerConsole,
-		mgrConfig.LogServerConsoleLevel,
-		mgrConfig.LogServerFileLevel,
+		manager.LogServerConfig{
+			TCPAddr:        mgrConfig.LogServerTCPAddress,
+			VSockAddr:      mgrConfig.LogServerVSockAddress,
+			LogFilePath:    mgrConfig.LogServerLogFile,
+			ConsoleEnabled: mgrConfig.LogServerConsole,
+			ConsoleLevel:   mgrConfig.LogServerConsoleLevel,
+			FileLevel:      mgrConfig.LogServerFileLevel,
+		},
 	)
 
 	// Create executor

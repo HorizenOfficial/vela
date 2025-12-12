@@ -1119,12 +1119,14 @@ func setupTestWithConfig(
 	if startLogServer {
 		StartLogServer(
 			ctx,
-			config.LogServerTCPAddress,
-			config.LogServerVSockAddress,
-			config.LogServerLogFile,
-			config.LogServerConsole,
-			config.LogServerConsoleLevel,
-			config.LogServerFileLevel,
+			LogServerConfig{
+				TCPAddr:        config.LogServerTCPAddress,
+				VSockAddr:      config.LogServerVSockAddress,
+				LogFilePath:    config.LogServerLogFile,
+				ConsoleEnabled: config.LogServerConsole,
+				ConsoleLevel:   config.LogServerConsoleLevel,
+				FileLevel:      config.LogServerFileLevel,
+			},
 		)
 		time.Sleep(500 * time.Millisecond)
 	}

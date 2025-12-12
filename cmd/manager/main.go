@@ -117,15 +117,21 @@ func main() {
 	defer cancel()
 
 	// Start the log server if configured
-	manager.StartLogServer(
+	err = manager.StartLogServer(
 		ctx,
-		config.LogServerTCPAddress,
-		config.LogServerVSockAddress,
-		config.LogServerLogFile,
-		config.LogServerConsole,
-		config.LogServerConsoleLevel,
-		config.LogServerFileLevel,
+		manager.LogServerConfig{
+			TCPAddr:        config.LogServerTCPAddress,
+			VSockAddr:      config.LogServerVSockAddress,
+			LogFilePath:    config.LogServerLogFile,
+			ConsoleEnabled: config.LogServerConsole,
+			ConsoleLevel:   config.LogServerConsoleLevel,
+			FileLevel:      config.LogServerFileLevel,
+		},
 	)
+	if err != nil {
+		log.Error("Failed to start the log server: %v", err)
+		return
+	}
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)
