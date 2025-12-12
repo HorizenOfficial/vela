@@ -73,8 +73,8 @@ type Config struct {
 
 	// Log Server
 	//-------------------------
-	// LogServerTCPAddress is the address where the log server will listen for incoming TCP log messages.
-	LogServerTCPAddress string
+	// LogServerTCPAddress contains the TCP address where the log server will listen for incoming log messages.
+	LogServerTCPAddress common.TcpChannelConnectionParams
 	// LogServerVSockAddress is the address where the log server will listen for incoming VSOCK log messages.
 	LogServerVSockAddress string
 	// LogServerLogFile is the file path where the manager's log server will write incoming log messages.
@@ -106,10 +106,13 @@ func LoadConfig() (*Config, error) {
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
 		logServerVsockAddress = strconv.FormatInt(executorServerCid, 10) + ":" + strconv.FormatInt(executorServerPort, 10)
 	} else {
-		executorIpAddress := common.GetConfigVar("EXECUTOR_IP_ADDRESS", "localhost", fileProperties)
-		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
+		executorIpHost := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(executorServerPort)}
 	}
-	logServerTcpAddress := common.GetConfigVar("LOG_SERVER_TCP_ADDRESS", "localhost:5000", fileProperties)
+
+	logServerTcpHost := common.GetConfigVar("LOG_SERVER_TCP_HOST", "localhost", fileProperties)
+	logServerTcpPort := common.GetConfigVarInt64("LOG_SERVER_TCP_PORT", 5000, fileProperties)
+	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: uint32(logServerTcpPort)}
 
 	var privateKey *cryptotypes.PrivateKeySecp256k1
 	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")

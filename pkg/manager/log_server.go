@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/mdlayher/vsock"
 )
@@ -22,8 +23,13 @@ type LogServer struct {
 }
 
 // StartLogServer starts servers to receive log messages from remote clients via TCP and VSOCK.
-func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string) {
+func StartLogServer(ctx context.Context, tcpAddr common.TcpChannelConnectionParams, vsockAddr, logFilePath string) {
 	go func() {
+		tcpAddrStr := ""
+		if strings.TrimSpace(tcpAddr.Ip) != "" && tcpAddr.Port != 0 {
+			tcpAddrStr = tcpAddr.Url()
+		}
+
 		// Internal logger for the log server itself, to avoid circular dependencies.
 		logServerLogger := logger.NewLogger(&logger.Config{
 			Kind:         "zerolog",
@@ -32,7 +38,7 @@ func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string)
 		})
 		defer logServerLogger.Close()
 
-		if strings.TrimSpace(tcpAddr) == "" && strings.TrimSpace(vsockAddr) == "" {
+		if strings.TrimSpace(tcpAddrStr) == "" && strings.TrimSpace(vsockAddr) == "" {
 			logServerLogger.Error("Log server TCP and VSOCK addresses are both empty, not starting log server.")
 			panic(fmt.Errorf("log server TCP and VSOCK addresses are both empty, not starting log server"))
 		}
@@ -58,13 +64,13 @@ func StartLogServer(ctx context.Context, tcpAddr, vsockAddr, logFilePath string)
 		var wg sync.WaitGroup
 
 		// TCP listener
-		if tcpAddr != "" {
-			tcpListener, err := net.Listen("tcp", tcpAddr)
+		if tcpAddrStr != "" {
+			tcpListener, err := net.Listen("tcp", tcpAddrStr)
 			if err != nil {
-				logServerLogger.Error("Failed to start log server on %s: %v", tcpAddr, err)
+				logServerLogger.Error("Failed to start log server on %s: %v", tcpAddrStr, err)
 				panic(err)
 			} else {
-				logServerLogger.Info("Log server listening on TCP %s", tcpAddr)
+				logServerLogger.Info("Log server listening on TCP %s", tcpAddrStr)
 				wg.Add(1)
 				go func() {
 					defer wg.Done()

@@ -88,12 +88,6 @@ func main() {
 		logTmp.Fatal("Failed to load configuration: %v", err)
 	}
 
-	// TCP connections params
-	tcpConnParams, err := common.NewTcpChannelConnectionParams(config.LogServerTCPAddress)
-	if err != nil {
-		logTmp.Fatal("Failed to load configuration: %v", err)
-	}
-
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
 		Kind:             config.LogKind,
@@ -102,8 +96,8 @@ func main() {
 		ConsoleColor:     config.LogConsoleColor,
 		FileName:         config.LogFileName,
 		FileLevel:        config.LogFileLevel,
-		RemoteLogParams:  *tcpConnParams,
-		RemoteLogNetwork: config.ChannelType,
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams:  config.LogServerTCPAddress,
 		NetworkLevel:     config.LogNetworkLevel,
 	})
 	defer func() {

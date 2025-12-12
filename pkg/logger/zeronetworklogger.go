@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
+	"os"
 	"sync"
 	"time"
 
@@ -14,9 +14,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// TODO
-// UDP/TCP split based on log severity
-// We would have to implement application-level UDP-like protocol over VSOCK, since VSOCK is stream-oriented and does not support UDP natively.
+// We could consider implementing a UDP/TCP split based on log severity, but that would be feasible
+// only for tcp commections, but we would have to implement application-level UDP-like
+// protocol over VSOCK, since VSOCK is stream-oriented and does not support UDP natively.
 
 const (
 	defaultBuffer      = 1000
@@ -60,11 +60,7 @@ func NewVSockLogConnectionFactory(cid, port uint32) *vsockLogConnectionFactory {
 // Dial establishes a VSOCK connection.
 // NOTE: VSOCK has no built-in connect timeout; this call will block until a peer is available.
 func (f *vsockLogConnectionFactory) Dial(_ time.Duration) (net.Conn, error) {
-	conn, err := vsock.Dial(f.cid, f.port, nil)
-	if err != nil {
-		fmt.Printf("[zeronetwork] VSOCK connection failed: %v\n", err)
-	}
-	return conn, err
+	return vsock.Dial(f.cid, f.port, nil)
 }
 
 // AsyncWriter is a resilient, non-blocking io.Writer.
@@ -107,8 +103,9 @@ func (w *AsyncWriter) Write(p []byte) (n int, err error) {
 
 	// Immediately write to fallback for real-time local logging
 	if w.conn == nil {
-
-		if _, err := w.fallbackWriter.Write(p); err != nil {
+		// we also store it in the buffer too, but if it gets full we lose it completely
+		b := append([]byte("[zeronetwork conn down] "), p...)
+		if _, err := w.fallbackWriter.Write(b); err != nil {
 			fmt.Printf("[zeronetwork] Fallback logger failed: %v\n", err)
 		}
 	}
@@ -121,8 +118,8 @@ func (w *AsyncWriter) Write(p []byte) (n int, err error) {
 	select {
 	case w.logBuffer <- buf:
 	default:
-		// Buffer is full, drop the message but log it to fallback
-		w.fallbackWriter.Write([]byte("Remote log buffer is full. Dropping message.\n"))
+		// Buffer is full, drop the message but log it to fallback writer
+		w.fallbackWriter.Write([]byte("Remote log buffer is full. Dropping message:\n"))
 	}
 
 	return len(p), nil
@@ -166,7 +163,8 @@ func (w *AsyncWriter) processBuffer() bool {
 				return true // Channel closed
 			}
 			if _, err := w.conn.Write(msg); err != nil {
-				fmt.Printf("[zeronetwork] write failed: %v. Reconnecting...\n", err)
+				errMsg := fmt.Sprintf("[zeronetwork] write failed: %v. Reconnecting...", err)
+				w.fallbackWriter.Write([]byte(errMsg))
 				w.closeConn()
 				// put the message back in the buffer, but non-blocking
 				// in case the buffer is full (should be rare)
@@ -190,14 +188,18 @@ func (w *AsyncWriter) connectWithRetry() error {
 	var lastErr error
 
 	for time.Now().Before(deadline) {
-		fmt.Println("[zeronetwork] attempting to connect...")
+		w.fallbackWriter.Write([]byte("[zeronetwork] attempting to connect...\n"))
 		conn, err := w.logFactory.Dial(defaultDialTimeout)
 		if err == nil {
 			w.mu.Lock()
 			w.conn = conn
 			w.mu.Unlock()
-			fmt.Printf("[zeronetwork] connected on %s\n", w.cfg.RemoteLogNetwork)
+			logMsg := fmt.Sprintf("[zeronetwork] connected on %s\n", w.cfg.RemoteLogNetwork)
+			w.fallbackWriter.Write([]byte(logMsg))
 			return nil
+		} else {
+			errMsg := fmt.Sprintf("[zeronetwork] VSOCK connection failed: %v\n", err)
+			w.fallbackWriter.Write([]byte(errMsg))
 		}
 		lastErr = err
 
@@ -208,7 +210,8 @@ func (w *AsyncWriter) connectWithRetry() error {
 			// continue
 		}
 	}
-	fmt.Printf("[zeronetwork] could not connect in time: %v\n", lastErr)
+	errMsg := fmt.Sprintf("[zeronetwork] could not connect in time: %v\n", lastErr)
+	w.fallbackWriter.Write([]byte(errMsg))
 	return fmt.Errorf("could not connect to remote logger in time: %w", lastErr)
 }
 
@@ -218,11 +221,11 @@ func (w *AsyncWriter) drainBuffer() {
 	defer w.mu.Unlock()
 
 	if w.conn == nil {
-		fmt.Println("[zeronetwork] cannot drain buffer, no connection.")
+		w.fallbackWriter.Write([]byte("[zeronetwork] cannot drain buffer, no connection."))
 		return
 	}
 	close(w.logBuffer) // Close channel to range over remaining items
-	fmt.Println("[zeronetwork] draining log buffer before shutdown...")
+	w.fallbackWriter.Write([]byte("[zeronetwork] draining log buffer before shutdown..."))
 	for {
 		select {
 		case msg := <-w.logBuffer:
@@ -230,7 +233,8 @@ func (w *AsyncWriter) drainBuffer() {
 				return
 			}
 			if _, err := w.conn.Write(msg); err != nil {
-				fmt.Printf("[zeronetwork] failed to write during drain: %v\n", err)
+				errMsg := fmt.Sprintf("[zeronetwork] failed to write during drain: %v\n", err)
+				w.fallbackWriter.Write([]byte(errMsg))
 			}
 		default:
 			return // buffer empty
@@ -264,13 +268,25 @@ type ZeroNetworkLogger struct {
 	writer *AsyncWriter
 }
 
+type TimestampWriter struct {
+	out io.Writer
+}
+
+func (tw *TimestampWriter) Write(p []byte) (int, error) {
+	stamp := time.Now().Format("2006-Jan-02 15:04:05.000")
+	line := fmt.Sprintf("%s %s", stamp, p)
+	return tw.out.Write([]byte(line))
+}
+
 // NewZeroNetworkLogger creates a new logger instance
 func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	if cfg.RemoteLogNetwork == "" {
 		cfg.RemoteLogNetwork = "tcp"
 	}
 
-	fallback := NewPrintfLogger(&Config{Console: true, ConsoleLevel: "error"})
+	//	fallback := NewPrintfLogger(&Config{Console: true, ConsoleLevel: "error"})
+	//fallback := os.Stdout
+	fallback := &TimestampWriter{os.Stdout}
 
 	var factory LogConnectionFactory
 	switch cfg.RemoteLogNetwork {
@@ -304,11 +320,6 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 		logger: &logger,
 		writer: writer,
 	}
-}
-
-// splitVsockAddr splits a "cid:port" string.
-func splitVsockAddr(addr string) []string {
-	return strings.Split(strings.TrimSpace(addr), ":")
 }
 
 // SetLevel updates the logging level.

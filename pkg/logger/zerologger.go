@@ -59,6 +59,8 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 		writer := zerolog.ConsoleWriter{
 			Out:     os.Stderr,
 			NoColor: !cfg.ConsoleColor,
+			// Zerolog ConsoleWriter does not use the global zerolog.TimeFieldFormat, fix it
+			TimeFormat: "2006-Jan-02 15:04:05.000",
 		}
 
 		l := zerolog.New(writer).
