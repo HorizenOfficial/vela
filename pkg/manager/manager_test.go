@@ -19,10 +19,34 @@ import (
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
 	cryptos "github.com/horizen-pes/pkg/crypto"
+	"github.com/horizen-pes/pkg/logger"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/require"
 )
+
+var testLogger logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once, by default it writes on stderr
+	//testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+	//cfg := logger.DefaultLogConfig("zerolog")
+	//testLogger = logger.NewLogger(&cfg)
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			ConsoleLevel: "trace",
+			//FileName:     "qqq.log",
+			//FileLevel:    "info",
+		},
+	)
+
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
 
 var (
 	ApplicationId = common.NewApplicationId(1)
@@ -114,11 +138,14 @@ func createRequestWithPayload(requestType common.RequestType, appID common.Appli
 }
 
 func TestStart(t *testing.T) {
-	mockDataLayer := mockdb.NewMockDataLayer()
-	bcClient := blockchain.NewMockClient()
-	execClient := NewMockExecutorClient()
+
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	manager := NewSecureProcessorManager(&Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
+	config := &Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}
+	stopChan := make(chan struct{})
+	executorHandShake := ExecutorHandShake{
+		isComplete: make(chan struct{}),
+	}
+	bcClient, manager := setupTestWithConfig(*config, false, &executorHandShake, stopChan)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
@@ -164,12 +191,13 @@ func TestStart(t *testing.T) {
 }
 
 func TestStop(t *testing.T) {
-
-	mockDataLayer := mockdb.NewMockDataLayer()
-	bcClient := blockchain.NewMockClient()
-	execClient := NewMockExecutorClient()
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	manager := NewSecureProcessorManager(&Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}, bcClient, mockDataLayer, execClient)
+	config := &Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}
+	stopChan := make(chan struct{})
+	executorHandShake := ExecutorHandShake{
+		isComplete: make(chan struct{}),
+	}
+	bcClient, manager := setupTestWithConfig(*config, false, &executorHandShake, stopChan)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Stop a manager that is not running
@@ -1033,16 +1061,29 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 }
 
 func setupTest() (*blockchain.MockClient, *SecureProcessorManager) {
+	config := Config{ReorgTimeout: 60}
+	return setupTestWithConfig(config, true, &ExecutorHandShake{}, nil)
+}
+
+func setupTestWithConfig(
+	config Config,
+	managerIsRunning bool,
+	executorHandShake *ExecutorHandShake,
+	stopChan chan struct{},
+) (*blockchain.MockClient, *SecureProcessorManager) {
 	mockDataLayer := mockdb.NewMockDataLayer()
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
 
 	processor := &SecureProcessorManager{
-		config:           &Config{ReorgTimeout: 60},
-		executorClient:   execClient,
-		blockchainClient: bcClient,
-		dataLayer:        mockDataLayer,
-		isRunning:        true}
+		config:            &config,
+		executorClient:    execClient,
+		blockchainClient:  bcClient,
+		dataLayer:         mockDataLayer,
+		isRunning:         managerIsRunning,
+		executorHandShake: executorHandShake,
+		stopChan:          stopChan,
+		log:               testLogger}
 
 	return bcClient, processor
 }

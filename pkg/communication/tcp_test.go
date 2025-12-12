@@ -128,14 +128,14 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8083")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 
 	// Test connecting to the server
 	err = client.Connect(ctx, "Client")
@@ -204,14 +204,14 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8086")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 	client.SetClientRequestHandler(clientHandler)
 
 	// Test connecting to the server
@@ -260,7 +260,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8087")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 
 	// Test connecting and disconnecting multiple times
 	for i := 0; i < 3; i++ {
-		client := NewClient(factory)
+		client := NewClient(factory, testLogger)
 
 		err = client.Connect(ctx, "Client")
 		require.NoError(t, err, "Connection %d should succeed", i)
@@ -318,14 +318,14 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8088")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 	client.SetClientRequestHandler(clientHandler)
 
 	// Test connecting to the server
@@ -392,7 +392,7 @@ func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8090")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	server.SetConnectionHandler(func(ctx context.Context, conn ServerConnection) {
 		wg.Add(1)
@@ -408,7 +408,7 @@ func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 	client.SetClientRequestHandler(clientHandler)
 
 	// Test connecting to the server
@@ -454,14 +454,14 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8089")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(context.Background(), "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 	clientHandler := &MockClientRequestHandler{}
 	client.SetClientRequestHandler(clientHandler)
 

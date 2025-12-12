@@ -4,35 +4,35 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/big"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
+	"github.com/horizen-pes/pkg/logger"
 )
 
 // Local mirror types used in tests to avoid importing wasm-go/app
 
 type testAccountState struct {
 	Address ethCommon.Address `json:"address"`
-	Balance *big.Int `json:"balance"`
+	Balance *big.Int          `json:"balance"`
 }
 
 type testApplicationInternalState struct {
-	AppID    common.ApplicationIdType     `json:"appId"`
+	AppID    common.ApplicationIdType                `json:"appId"`
 	Accounts map[ethCommon.Address]*testAccountState `json:"accounts"`
-	Nonce    uint64                       `json:"nonce"`
+	Nonce    uint64                                  `json:"nonce"`
 }
 
 type testTransferInstruction struct {
 	To     ethCommon.Address `json:"to"`
-	Amount *big.Int `json:"amount"`
+	Amount *big.Int          `json:"amount"`
 }
 
 type testWithdrawInstruction struct {
 	To     ethCommon.Address `json:"to"`
-	Amount *big.Int `json:"amount"`
+	Amount *big.Int          `json:"amount"`
 }
 
 type testPayloadInstructions struct {
@@ -41,23 +41,23 @@ type testPayloadInstructions struct {
 	Withdraw *testWithdrawInstruction `json:"withdraw,omitempty"`
 }
 
-
 // MockRuntime implements a simple mock runtime that mimics a wasm application
 // It supports deposits, fund transfers, withdrawals, and events with serialized state persistence
-type MockRuntime struct{
+
+type MockRuntime struct {
 	fuel *big.Int
+	log  logger.Logger
 }
 
 // NewMockRuntime creates a new mock runtime instance
-func NewMockRuntime() *MockRuntime {
-	log.Println("Initializing mock runtime")
-	return &MockRuntime{fuel: big.NewInt(10)}
+func NewMockRuntime(log logger.Logger) *MockRuntime {
+	log.Info("Initializing mock runtime")
+	return &MockRuntime{fuel: big.NewInt(10), log: log}
 }
 
 // LoadModule loads a WASM module and returns initial state
 func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
-	log.Printf("Mock Runtime: Loading mock runtime module for application %d (wasm size: %d bytes)", appId, len(wasm))
-
+	r.log.Info("Mock Runtime: Loading mock runtime module for application %d (wasm size: %d bytes)", appId, len(wasm))
 
 	initialState := &testApplicationInternalState{
 		AppID:    appId,
@@ -69,7 +69,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationId
 		return nil, r.fuel, fmt.Errorf("failed to marshal initial state: %w", err)
 	}
 
-	log.Printf("Mock Runtime: Successfully loaded mock runtime module for application %d", appId)
+	r.log.Info("Mock Runtime: Successfully loaded mock runtime module for application %d", appId)
 	return stateBytes, r.fuel, nil
 }
 
@@ -107,14 +107,13 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 		return nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state", err)
 	}
 
-	log.Printf("Mock Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(events))
+	r.log.Info("Mock Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(events))
 	return newSerializedState, events, r.fuel, nil
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
 func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *big.Int, *apperrors.RequestFailure) {
-	log.Printf("Mock Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
-
+	r.log.Info("Mock Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
@@ -191,7 +190,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			}
 
 			// Execute withdrawal
-			senderAcct.Balance.Sub(senderAcct.Balance, amount) 
+			senderAcct.Balance.Sub(senderAcct.Balance, amount)
 			nonce++
 			currentState.Nonce = nonce
 
@@ -214,13 +213,13 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 		return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state", err)
 	}
 
-	log.Printf("Mock Runtime: Successfully processed request for application %d, generated %d events and %d withdrawals", appId, len(events), len(withdrawals))
+	r.log.Info("Mock Runtime: Successfully processed request for application %d, generated %d events and %d withdrawals", appId, len(events), len(withdrawals))
 	return newStateBytes, events, withdrawals, r.fuel, nil
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
 func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *big.Int, *apperrors.RequestFailure) {
-	log.Printf("Mock Runtime: Generating deanonymization report for application %d", appId)
+	r.log.Info("Mock Runtime: Generating deanonymization report for application %d", appId)
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
@@ -237,14 +236,14 @@ func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId c
 		return nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to marshal deanonymization report", err)
 	}
 
-	log.Printf("Mock Runtime: Successfully generated deanonymization report for application %d", appId)
+	r.log.Info("Mock Runtime: Successfully generated deanonymization report for application %d", appId)
 	return reportBytes, r.fuel, nil
 }
 
 // Close closes the mock runtime and cleans up resources
 func (r *MockRuntime) Close() error {
-	log.Printf("Mock Runtime: Closing mock runtime")
-	log.Printf("Mock Runtime: Mock runtime closed successfully")
+	r.log.Info("Mock Runtime: Closing mock runtime")
+	r.log.Info("Mock Runtime: Mock runtime closed successfully")
 	return nil
 }
 
@@ -258,4 +257,3 @@ func ensureAccount(accounts map[ethCommon.Address]*testAccountState, addr ethCom
 	}
 	return acct
 }
-

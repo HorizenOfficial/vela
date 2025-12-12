@@ -3,16 +3,40 @@ package executor
 import (
 	"context"
 	"encoding/json"
-	"math/big"
+	"os"
 	"testing"
+
+	"math/big"
+
+	"github.com/horizen-pes/pkg/logger"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 )
 
+var testLogger logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once, by default it writes on stderr
+	//testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			ConsoleLevel: "trace",
+			//FileName:     "qqq.log",
+			//FileLevel:    "info",
+		},
+	)
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
 
 func TestMockRuntime_LoadModule(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := common.NewApplicationId(1)
@@ -26,7 +50,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 	if len(serializedState) == 0 {
 		t.Error("Expected non-empty serialized state")
 	}
-	
+
 	if fuel.Cmp(big.NewInt(10)) != 0 {
 		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
@@ -52,7 +76,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := common.NewApplicationId(123)
@@ -109,7 +133,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := common.NewApplicationId(123)
@@ -124,7 +148,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
 	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
-	transferAmount := big.NewInt(500000000000000000)     // 0.5 ETH
+	transferAmount := big.NewInt(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -196,7 +220,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := common.NewApplicationId(123)
@@ -211,7 +235,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	withdrawTo := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
 	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
-	withdrawAmount := big.NewInt(500000000000000000)     // 0.5 ETH
+	withdrawAmount := big.NewInt(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -287,7 +311,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := common.NewApplicationId(123)
@@ -329,7 +353,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 }
 
 func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := common.NewApplicationId(123)
@@ -382,7 +406,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 }
 
 func TestMockRuntime_Close(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 
 	err := runtime.Close()
 	if err != nil {

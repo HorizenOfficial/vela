@@ -196,3 +196,25 @@ type EnclaveKeySetRecovery struct {
 	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.
 	RecoveryCiphertext []byte `json:"recoveryCiphertext"`
 }
+
+type ChannelConnectionParams interface {
+	IsChannelConnectionParams()
+}
+
+type VSockChannelConnectionParams struct {
+	CID  uint32
+	Port uint32
+}
+
+func (VSockChannelConnectionParams) IsChannelConnectionParams() {}
+
+type TcpChannelConnectionParams struct {
+	Ip   string
+	Port uint32
+}
+
+func (TcpChannelConnectionParams) IsChannelConnectionParams() {}
+
+func (f TcpChannelConnectionParams) Url() string {
+	return fmt.Sprintf("%s:%d", f.Ip, f.Port)
+}
