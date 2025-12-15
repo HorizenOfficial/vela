@@ -39,7 +39,13 @@ type LogServerConfig struct {
 
 // Static log level priority map
 var levelPriority = map[string]int{
-	"trace": 0, "debug": 1, "info": 2, "warn": 3, "error": 4, "fatal": 5, "panic": 6,
+	"trace": 0,
+	"debug": 1,
+	"info":  2,
+	"warn":  3,
+	"error": 4,
+	"fatal": 5,
+	"panic": 6,
 }
 
 // StartLogServer starts servers to receive log messages from remote clients via TCP and VSOCK.
@@ -58,6 +64,18 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 		return fmt.Errorf("log server file path is empty and console output is disabled, not starting log server")
 	}
 
+	// Validate log levels
+	if cfg.ConsoleEnabled {
+		if _, ok := levelPriority[strings.ToLower(cfg.ConsoleLevel)]; !ok {
+			return fmt.Errorf("invalid console log level: %s", cfg.ConsoleLevel)
+		}
+	}
+	if cfg.LogFilePath != "" {
+		if _, ok := levelPriority[strings.ToLower(cfg.FileLevel)]; !ok {
+			return fmt.Errorf("invalid file log level: %s", cfg.FileLevel)
+		}
+	}
+
 	var logFile *os.File
 	var err error
 	if cfg.LogFilePath != "" {
@@ -73,21 +91,20 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 		ConsoleLevel: "trace",
 	})
 
-	if logFile != nil {
-		logServerLogger.Info("Remote logs will be written to %s", cfg.LogFilePath)
-	} else if cfg.ConsoleEnabled {
-		logServerLogger.Warn("Log server file path empty. Remote logs will only be written to console output.")
-	}
-
 	logServer := &LogServer{
 		logger:         logServerLogger,
 		logFile:        logFile,
 		consoleEnabled: cfg.ConsoleEnabled,
-		consoleLevel:   cfg.ConsoleLevel,
-		fileLevel:      cfg.FileLevel,
+		consoleLevel:   strings.ToLower(cfg.ConsoleLevel),
+		fileLevel:      strings.ToLower(cfg.FileLevel),
 	}
 
-	// Launch Background Listeners
+	if logFile != nil {
+		logServer.logger.Info("Remote logs will be written to %s", cfg.LogFilePath)
+	} else if cfg.ConsoleEnabled {
+		logServer.logger.Warn("Remote logs will only be written to console")
+	}
+
 	go logServer.run(ctx, tcpAddrStr, cfg.VSockAddr)
 
 	return nil
@@ -132,10 +149,10 @@ func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr commo
 		}
 	}
 
-	// Shutdown Monitor
-	// We handle this in a separate goroutine to ensure we close the file
-	// even if the listeners are stuck or empty.
+	// shutdown handler is part of lifecycle
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		<-ctx.Done()
 		ls.logger.Info("Shutting down log server...")
 
@@ -146,7 +163,7 @@ func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr commo
 			if err := ls.logFile.Close(); err != nil {
 				ls.logger.Error("Error closing log file: %v", err)
 			}
-			ls.logFile = nil // Prevent further writes
+			ls.logFile = nil
 		}
 	}()
 
@@ -156,7 +173,7 @@ func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr commo
 func (ls *LogServer) acceptConnections(ctx context.Context, listener net.Listener) {
 	go func() {
 		<-ctx.Done()
-		listener.Close()
+		_ = listener.Close()
 	}()
 
 	for {
@@ -221,19 +238,16 @@ func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
 		entryPriority = levelPriority["info"]
 	}
 
-	consolePriority := levelPriority[strings.ToLower(ls.consoleLevel)]
-	filePriority := levelPriority[strings.ToLower(ls.fileLevel)]
-
-	if ls.consoleEnabled && entryPriority >= consolePriority {
+	if ls.consoleEnabled &&
+		entryPriority >= levelPriority[ls.consoleLevel] {
 		fmt.Println(string(jsonMsg))
 	}
 
 	ls.fileMutex.Lock()
 	defer ls.fileMutex.Unlock()
 
-	// Check for nil in case file was closed by shutdown routine
-	if ls.logFile != nil && entryPriority >= filePriority {
-		// Append newline explicitly
+	if ls.logFile != nil &&
+		entryPriority >= levelPriority[ls.fileLevel] {
 		if _, err := ls.logFile.Write(append(jsonMsg, '\n')); err != nil {
 			return fmt.Errorf("failed to write to file: %w", err)
 		}
