@@ -41,6 +41,17 @@ func createBlockchainClient(cfg *authorityservice.Config) (blockchain.Client, er
 	), nil
 }
 
+func ensureChainID(ctx context.Context, bc blockchain.Client, expected uint64, rpcURL string) error {
+	connectedChainID, err := bc.ChainID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve blockchain chain ID: %w", err)
+	}
+	if connectedChainID == nil || connectedChainID.Uint64() != expected {
+		return fmt.Errorf("blockchain chain ID mismatch: expected %d got %v (rpc %s)", expected, connectedChainID, rpcURL)
+	}
+	return nil
+}
+
 func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -81,6 +92,10 @@ func main() {
 	}
 	if err := bc.Connect(ctx); err != nil {
 		log.Error("Failed to connect blockchain client: %v", err)
+		return
+	}
+	if err := ensureChainID(ctx, bc, cfg.ChainID, cfg.RpcURL); err != nil {
+		log.Error("%v", err)
 		return
 	}
 	defer func() {

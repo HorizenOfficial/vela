@@ -30,10 +30,11 @@ type Client interface {
 	GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType,  fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
 	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
 	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
+	// ChainID returns the connected chain ID.
+	ChainID(ctx context.Context) (*big.Int, error)
 
 	// Close closes the blockchain client
 	Close() error
 	// Connect connects to the blockchain
 	Connect(ctx context.Context) error
 }
-

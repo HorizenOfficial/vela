@@ -1,7 +1,6 @@
 package authorityservice
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/horizen-pes/pkg/common"

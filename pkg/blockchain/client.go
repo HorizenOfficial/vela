@@ -59,6 +59,7 @@ type BlockChainClient struct {
 	client                 ChainClient
 	privKey                *cryptotypes.PrivateKeySecp256k1
 	account                *bind.TransactOpts
+	chainID                *big.Int
 }
 
 func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
@@ -95,9 +96,30 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	}
 
 	c.account = bind.NewKeyedTransactor(c.privKey.PrivateKey, chainID)
+	c.chainID = chainID
 
 	c.connected = true
 	return nil
+}
+
+// ChainID returns the connected chain ID.
+func (c *BlockChainClient) ChainID(ctx context.Context) (*big.Int, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	if c.chainID != nil {
+		return new(big.Int).Set(c.chainID), nil
+	}
+
+	chainID, err := c.client.ChainID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve chain ID: %w", err)
+	}
+	return chainID, nil
 }
 
 func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {

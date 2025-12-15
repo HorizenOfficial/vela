@@ -42,6 +42,7 @@ type MockClient struct {
 	updatePayloads   map[common.RequestIdType]*common.UpdatePayload
 	eventSubscribers []chan<- interface{}
 	stateRoot        [32]byte
+	chainID          *big.Int
 	*testutil.MockFunctions
 }
 
@@ -57,6 +58,28 @@ func NewMockClient() *MockClient {
 		updatePayloads:  make(map[common.RequestIdType]*common.UpdatePayload),
 		MockFunctions:   testutil.NewMockFunctions(),
 	}
+}
+
+func (c *MockClient) ChainID(_ context.Context) (*big.Int, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.chainID == nil {
+		return big.NewInt(0), nil
+	}
+	return new(big.Int).Set(c.chainID), nil
+}
+
+// SetChainID sets the mock chain ID returned by ChainID.
+func (c *MockClient) SetChainID(id *big.Int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if id == nil {
+		c.chainID = nil
+		return
+	}
+	c.chainID = new(big.Int).Set(id)
 }
 
 func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request) error {
