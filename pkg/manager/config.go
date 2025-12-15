@@ -1,7 +1,9 @@
 package manager
 
 import (
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -98,7 +100,7 @@ func LoadConfig() (*Config, error) {
 		privateKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
 	}
 
-	return &Config{
+	cfg := &Config{
 		ChannelType:   channelType,
 		ChannelParams: channelConnectionParams,
 
@@ -118,7 +120,7 @@ func LoadConfig() (*Config, error) {
 		DataLayerType:             "versioned_leveldb",
 		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
 		DataLayerNumOfVersions:    10,
-		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "", fileProperties),
+		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProperties),
 		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
 		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zerolog", fileProperties),
 		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
@@ -126,5 +128,11 @@ func LoadConfig() (*Config, error) {
 		LogConsoleColor:           common.GetConfigVarBool("MANAGER_LOG_CONSOLE_COLOR", false, fileProperties),
 		LogFileName:               common.GetConfigVar("MANAGER_LOG_FILE_NAME", "", fileProperties),
 		LogFileLevel:              common.GetConfigVar("MANAGER_LOG_FILE_LEVEL", "info", fileProperties),
-	}, nil
+	}
+
+	if strings.TrimSpace(cfg.DeanonymizationReportPath) == "" {
+		return nil, fmt.Errorf("MANAGER_REPORTS_FOLDER (DeanonymizationReportPath) not configured")
+	}
+
+	return cfg, nil
 }

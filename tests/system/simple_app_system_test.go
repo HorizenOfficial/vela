@@ -442,7 +442,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NotNil(t, deanonReport)
 
 	// 4. Read and decrypt the report
-	reportFilePath := filepath.Join(tempDir, appID.String()+"_"+RequestID.String())
+	reportFilePath := filepath.Join(tempDir, common.ReportFilename(appID, RequestID))
 	encryptedReportBytes, err := os.ReadFile(reportFilePath)
 	require.NoError(t, err, "The report file should be saved to the filesystem")
 

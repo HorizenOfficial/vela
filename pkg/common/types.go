@@ -149,6 +149,8 @@ type DeanonymizationReport struct {
 	ReportID RequestIdType `json:"reportId"`
 	// EncryptedReport is the encrypted report data
 	EncryptedReport []byte `json:"encryptedReport"`
+	// Authority is the entity requesting the report
+	Authority       ethCommon.Address  `json:"authority"`
 	// RefundAmount is the amount to refund in WEI
 	RefundAmount *big.Int `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
