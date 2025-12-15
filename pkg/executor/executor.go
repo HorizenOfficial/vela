@@ -277,8 +277,8 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
 	var totalFuel *big.Int = big.NewInt(0)
-	if req.Value.Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
+	if req.DepositAmount.Sign() > 0 {
+		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount, tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, failure
 		}
