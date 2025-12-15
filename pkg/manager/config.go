@@ -121,7 +121,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// TCP connection on log server, typically used for manager logs
-	logServerTcpHost := common.GetConfigVar("LOG_SERVER_TCP_HOST", "localhost", fileProperties)
+	logServerTcpHost := common.GetConfigVar("LOG_SERVER_IP_HOST", "localhost", fileProperties)
 	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: uint32(logServerPort)}
 
 	var privateKey *cryptotypes.PrivateKeySecp256k1

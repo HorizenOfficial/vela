@@ -65,7 +65,7 @@ func LoadConfig() (*Config, error) {
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: 3, Port: uint32(executorServerPort)}
 		logConnectionParams = common.VSockChannelConnectionParams{CID: 3, Port: uint32(logExecutorServerPort)}
 	} else {
-		executorIpAddress := common.GetConfigVar("EXECUTOR_IP_ADDRESS", "localhost", fileProperties)
+		executorIpAddress := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
 		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
 		logConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(logExecutorServerPort)}
 	}

@@ -91,7 +91,6 @@ func NewSystemTestSuiteWithConfigs(
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	//factory := communication.NewTCPConnectionFactory(execConfig.ChannelParams.(common.TcpChannelConnectionParams).Url())
 	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
 	executorClient := communication.NewClient(factory, mgrLog)
 

@@ -21,19 +21,22 @@ services:
       - /dev/vsock:/dev/vsock
     networks:
       pes_network:
-        ipv4_address: ${EXECUTOR_IP_ADDRESS}
+        ipv4_address: ${EXECUTOR_IP_HOST}
     environment:
-      - EXECUTOR_IP_ADDRESS
+      - CHANNEL_TYPE
+      - EXECUTOR_IP_HOST
       - EXECUTOR_PORT
       - EXECUTOR_KEYSET_RECOVERY_TYPE
-      - CHANNEL_TYPE
       - EXECUTOR_FUEL_PRICE_PER_UNIT
       - EXECUTOR_MIN_FEE_PER_REQUEST
+      - EXECUTOR_LOG_KIND
       - EXECUTOR_LOG_CONSOLE
       - EXECUTOR_LOG_CONSOLE_LEVEL
       - EXECUTOR_LOG_CONSOLE_COLOR
       - EXECUTOR_LOG_FILE_NAME
       - EXECUTOR_LOG_FILE_LEVEL
+      - EXECUTOR_LOG_PORT
+      - EXECUTOR_LOG_NETWORK_LEVEL
     depends_on:
       - chain
   manager:
@@ -45,9 +48,9 @@ services:
       - /dev/vsock:/dev/vsock 
     environment:
       - CHANNEL_TYPE
-      - EXECUTOR_IP_ADDRESS
-      - EXECUTOR_PORT  
+      - EXECUTOR_IP_HOST
       - CHANNEL_VSOCK_CID
+      - EXECUTOR_PORT  
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
@@ -59,6 +62,11 @@ services:
       - MANAGER_LOG_CONSOLE_COLOR
       - MANAGER_LOG_FILE_NAME
       - MANAGER_LOG_FILE_LEVEL
+      - LOG_SERVER_PORT
+      - LOG_SERVER_CONSOLE
+      - LOG_SERVER_CONSOLE_LEVEL
+      -	LOG_SERVER_FILE_NAME
+      - LOG_SERVER_FILE_LEVEL
       - CHAIN_RPC_PROTOCOL
       - CHAIN_RPC_ADDRESS
       - CHAIN_RPC_PORT
@@ -69,7 +77,7 @@ services:
       - HANDSHAKE_TIMEOUT
     networks:
       pes_network:
-        ipv4_address: ${MANAGER_IP_ADDRESS}
+        ipv4_address: ${MANAGER_IP_HOST}
       inet:    
     volumes:
       - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
