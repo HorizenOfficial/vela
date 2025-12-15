@@ -73,6 +73,15 @@ func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon
 	}
 }
 
+// NewReadOnlyBlockChainClient builds a client configured only for read operations (no signing key required).
+func NewReadOnlyBlockChainClient(processor ethCommon.Address, rpcURL string) *BlockChainClient {
+	return &BlockChainClient{
+		processorAddress:  processor,
+		rpcURL:            rpcURL,
+		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
+	}
+}
+
 func (c *BlockChainClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -88,14 +97,18 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	}
 
 	c.processorBoundContract = c.processorEndpoint.Instance(c.client, c.processorAddress)
-	c.teeAuthBoundContract = c.teeAuthEndpoint.Instance(c.client, c.teeAuthAddress)
+	if c.teeAuthEndpoint != nil && c.teeAuthAddress != (ethCommon.Address{}) {
+		c.teeAuthBoundContract = c.teeAuthEndpoint.Instance(c.client, c.teeAuthAddress)
+	}
 
 	chainID, err := c.client.ChainID(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve chain ID: %w", err)
 	}
 
-	c.account = bind.NewKeyedTransactor(c.privKey.PrivateKey, chainID)
+	if c.privKey != nil {
+		c.account = bind.NewKeyedTransactor(c.privKey.PrivateKey, chainID)
+	}
 	c.chainID = chainID
 
 	c.connected = true
@@ -236,6 +249,10 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 }
 
 func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) error {
+	if c.account == nil {
+		return fmt.Errorf("client not configured for signing transactions")
+	}
+
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
 	if err != nil {
 		return c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
@@ -462,6 +479,9 @@ func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.Pu
 	defer c.mu.RUnlock()
 	if !c.connected {
 		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+	if c.teeAuthBoundContract == nil || c.teeAuthEndpoint == nil {
+		return nil, fmt.Errorf("tee authenticator contract not configured")
 	}
 
 	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,

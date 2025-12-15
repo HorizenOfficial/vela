@@ -15,8 +15,6 @@ The authority service now verifies on-chain completion before serving a report. 
 - `AUTHORITY_SERVICE_CHAIN_ID`: expected chain id.
 - `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`: RPC endpoint to the node.
 - `CHAIN_PROCESSOR_ADDRESS`: ProcessorEndpoint contract address.
-- `CHAIN_TEEAUTHENTICATOR_ADDRESS`: TeeAuthenticator contract address.
-- `AUTHORITY_SERVICE_KEY_SECP256` (optional): secp256k1 private key in hex to init the blockchain client; if omitted, a random key is generated at start.
 - `MANAGER_REPORTS_FOLDER`: path to the report files shared with the manager (default `/tmp/horizen-pes-data/manager_reports`).
 
 Logging/TLS options are documented in `pkg/authorityservice/config.go`.
@@ -130,4 +128,3 @@ Where:
 - `report_id` is the 32-byte report identifier encoded as a hex string.
 - `nonce` and `timestamp` must be used exactly as returned by the `GET /nonce` endpoint (the client must not modify or regenerate them).
 - `signature` is the 65-byte `R || S || V` value encoded as a 130-character hex string, as specified above.
-

@@ -29,15 +29,9 @@ func createBlockchainClient(cfg *authorityservice.Config) (blockchain.Client, er
 		return nil, fmt.Errorf("processor address is not a valid hex address")
 	}
 
-	if !ethCommon.IsHexAddress(cfg.TeeAuthAddress) {
-		return nil, fmt.Errorf("teeauthenticator address is not a valid hex address")
-	}
-
-	return blockchain.NewBlockChainClient(
+	return blockchain.NewReadOnlyBlockChainClient(
 		ethCommon.HexToAddress(cfg.ProcessorAddress),
-		ethCommon.HexToAddress(cfg.TeeAuthAddress),
 		cfg.RpcURL,
-		&cfg.PrivateKey,
 	), nil
 }
 

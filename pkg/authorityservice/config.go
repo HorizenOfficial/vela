@@ -1,11 +1,7 @@
 package authorityservice
 
 import (
-	"os"
-
 	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/crypto"
 	"github.com/magiconair/properties"
 )
 
@@ -32,10 +28,6 @@ type Config struct {
 	RpcURL string
 	// ProcessorAddress is the address of the ProcessorEndpoint contract.
 	ProcessorAddress string
-	// TeeAuthAddress is the address of the TeeAuthenticator contract.
-	TeeAuthAddress string
-	// PrivateKey is the Ethereum private key used to sign transactions (even though authority mostly reads).
-	PrivateKey cryptotypes.PrivateKeySecp256k1
 
 	// LogConsole is true if we want output on console
 	LogConsole bool
@@ -75,15 +67,6 @@ func LoadConfig() (*Config, error) {
 		common.GetConfigVar("CHAIN_RPC_PORT", "8545", fileProps)
 
 	processorAddress := common.GetConfigVar("CHAIN_PROCESSOR_ADDRESS", "", fileProps)
-	teeAuthAddress := common.GetConfigVar("CHAIN_TEEAUTHENTICATOR_ADDRESS", "", fileProps)
-
-	var privateKey *cryptotypes.PrivateKeySecp256k1
-	privateKeyFromEnv := os.Getenv("AUTHORITY_SERVICE_KEY_SECP256")
-	if privateKeyFromEnv == "" {
-		privateKey, _ = crypto.GeneratePrivateKeySecp256k1()
-	} else {
-		privateKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
-	}
 
 	logConsole := common.GetConfigVarBool("AUTHORITY_SERVICE_LOG_CONSOLE", true, fileProps)
 	logConsoleLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL", "info", fileProps)
@@ -100,8 +83,6 @@ func LoadConfig() (*Config, error) {
 		ReportsPath:      reportsPath,
 		RpcURL:           rpcURL,
 		ProcessorAddress: processorAddress,
-		TeeAuthAddress:   teeAuthAddress,
-		PrivateKey:       *privateKey,
 		LogConsole:       logConsole,
 		LogConsoleLevel:  logConsoleLevel,
 		LogConsoleColor:  logConsoleColor,
