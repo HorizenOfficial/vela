@@ -66,10 +66,33 @@ func NewSystemTestSuiteWithConfigs(
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Normalize channel params for tests: default configs may use vsock, but tests run over TCP.
+	var tcpParams common.TcpChannelConnectionParams
+	switch p := execConfig.ChannelParams.(type) {
+	case common.TcpChannelConnectionParams:
+		tcpParams = p
+	case common.VSockChannelConnectionParams:
+		tcpParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
+		execConfig.ChannelParams = tcpParams
+		execConfig.ChannelType = "tcp"
+	default:
+		t.Fatal("unsupported executor channel params type")
+	}
+	switch p := mgrConfig.ChannelParams.(type) {
+	case common.TcpChannelConnectionParams:
+		// keep as is
+	case common.VSockChannelConnectionParams:
+		mgrConfig.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
+		mgrConfig.ChannelType = "tcp"
+	default:
+		t.Fatal("unsupported manager channel params type")
+	}
+
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	factory := communication.NewTCPConnectionFactory(execConfig.ChannelParams.(common.TcpChannelConnectionParams).Url())
+	//factory := communication.NewTCPConnectionFactory(execConfig.ChannelParams.(common.TcpChannelConnectionParams).Url())
+	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
 	executorClient := communication.NewClient(factory, mgrLog)
 
 	// Create manager

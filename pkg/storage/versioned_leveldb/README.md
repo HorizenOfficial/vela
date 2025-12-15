@@ -10,7 +10,7 @@ The system is composed of several layers:
 
 2.  **`VersionedLevelDBAppStateStore`**: This component implements the `storage.ApplicationStateStore` interface and is responsible for handling data that requires versioning, such as application states and WASM bytecode. It uses the `VersionedLevelDbStorageAdapter` to interact with the underlying versioned database. It also handles the serialization and deserialization of application-specific data structures.
 
-3.  **`LevelDBUserKeyStore` and `LevelDBReportStore`**: These are non-versioned stores for user keys and deanonymization reports, respectively. They use a simple `LevelDbStorageAdapter` to interact directly with LevelDB instances, without any versioning capabilities.
+3.  **`LevelDBUserKeyStore`**: Non-versioned store for user keys using a simple `LevelDbStorageAdapter` to interact directly with LevelDB.
 
 4.  **`VersionedLevelDbStorageAdapter`**: This layer adapts the `VersionedLDBKVStore` to the `storage.VersionedStorage` interface. It provides methods for getting, setting, and updating data, as well as for managing versions.
 

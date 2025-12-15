@@ -560,8 +560,9 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		ApplicationID:   req.ApplicationID,
 		ReportID:        req.RequestID,
 		EncryptedReport: encryptedReport,
-		RefundAmount:    refundAmount,
-		ApplicationFee:  applicationFee,
+		Authority:       req.Sender,
+		RefundAmount: refundAmount,
+		ApplicationFee: applicationFee,
 	}
 
 	e.log.Info("Executor: Successfully generated deanonymization report %s", req.RequestID)

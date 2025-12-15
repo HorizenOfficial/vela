@@ -16,7 +16,8 @@ horizen-pes/
     │
     ├── cmd/                            # Main applications entrypoints for this project.
     │   ├── manager/                    # Secure Processor Manager application
-    │   └── executor/                   # WASM Executor application
+    │   ├── executor/                   # WASM Executor application
+    │   └── authorityservice/           # HTTP service to fetch deanonymization reports
     │
     ├── contracts/                      # Smart contracts for the system
     │
@@ -26,6 +27,7 @@ horizen-pes/
     │   ├── communication/              # V-Socket Communication
     │   ├── executor/                   # WASM Executor
     │   ├── manager/                    # Secure Processor Manager
+    │   ├── authorityservice/           # Authority HTTP service (nonce/getreport)
     │   └── storage/                    # Persistent data storage layer
     │
     └── tests/                          # System tests and integration tests
@@ -36,9 +38,10 @@ horizen-pes/
 1. **Blockchain interaction**: Interacts with smart contracts.
 2. **Data models and structures**: Types, structs, and enums used in the system.
 3. **Secure Processor Manager**: Interacts with blockchain, storage, communication and orchestrates the execution of requests.
-4. **Persistent data storage layer**: Interacts with data layer (Amazon S3).
-5. **V-Socket Communication**: Handles communication between the Secure Processor Manager and WASM Executor.
-6. **WASM Executor**: Executes WASM modules in a secure environment (AWS Nitro Enclave).
+4. **Authority Service**: Exposes `/nonce` and `/getreport` to authorities to fetch deanonymization reports (see `pkg/authorityservice/README.md` for the signing scheme).
+5. **Persistent data storage layer**: Interacts with data layer (Amazon S3).
+6. **V-Socket Communication**: Handles communication between the Secure Processor Manager and WASM Executor.
+7. **WASM Executor**: Executes WASM modules in a secure environment (AWS Nitro Enclave).
 
 ### Secure Processor Manager
 

@@ -46,8 +46,8 @@ func TestMain(m *testing.M) {
 	*/
 	testLogger = logger.NewLogger(
 		&logger.Config{
-			Kind:             "zeronetwork",
-			ConsoleLevel:     "trace",
+			Kind:         "zeronetwork",
+			ConsoleLevel: "trace",
 			// use a non-default port otherwise we can have bind failures if running tests concurrently
 			RemoteLogParams:  common.TcpChannelConnectionParams{Ip: "localhost", Port: 5001},
 			RemoteLogNetwork: "tcp",
@@ -102,7 +102,11 @@ func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Conte
 	if f, ok := m.GetMockedFunc("SendGenerateDeanonymizationReport"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure))(ctx, req, appState, wasmModule)
 	}
-	return &common.DeanonymizationReport{ApplicationID: req.ApplicationID, ReportID: req.RequestID}, nil
+	return &common.DeanonymizationReport{
+		ApplicationID: req.ApplicationID,
+		ReportID:      req.RequestID,
+		Authority:     req.Sender,
+	}, nil
 }
 
 func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
@@ -165,7 +169,7 @@ func TestStart(t *testing.T) {
 	ctx := context.Background()
 	mgrAlreadyStarted := false
 	startLogServer := true
-	bcClient, manager := setupTestWithConfig(ctx, *config, mgrAlreadyStarted, &executorHandShake, stopChan, startLogServer)
+	bcClient, manager := setupTestWithConfig(t, ctx, *config, mgrAlreadyStarted, &executorHandShake, stopChan, startLogServer)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
@@ -226,7 +230,7 @@ func TestStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	bcClient, manager := setupTestWithConfig(ctx, *config, false, &executorHandShake, stopChan, false)
+	bcClient, manager := setupTestWithConfig(t, ctx, *config, false, &executorHandShake, stopChan, false)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Stop a manager that is not running
@@ -278,7 +282,7 @@ func TestStop(t *testing.T) {
 }
 
 func TestProcessRequestFromChain(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	// Deploy request
 	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
@@ -355,7 +359,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 }
 
 func TestMarkRequestFailed(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	// Deploy request
 	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
@@ -470,7 +474,7 @@ func TestMarkRequestFailed(t *testing.T) {
 }
 
 func TestMarkRequestFailedWithError(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	request := createRequest(77, ApplicationId)
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
@@ -494,7 +498,7 @@ func TestMarkRequestFailedWithError(t *testing.T) {
 }
 
 func TestProcessRequestsFromChainMixed(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	// Prepare different requests
 
@@ -577,7 +581,7 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 }
 
 func TestProcessDeployAppWithErrors(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
@@ -652,7 +656,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 }
 
 func TestProcessProcessRequestWithErrors(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
 	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
@@ -775,7 +779,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 }
 
 func TestProcessProcessDeanonymization(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
 	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
@@ -841,18 +845,6 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 
 	// Test data layer failure. In this case, it shouldn't return an error (son MarkFailed is not called) but it shouldn't call stateUpdate on chain either
 	expectedError = "failed to store report"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("StoreDeanonymizationReport", func(context.Context, *common.DeanonymizationReport) error {
-		return fmt.Errorf("%s", expectedError)
-	})
-
-	failure = manager.processDeanonymization(context.Background(), request)
-	require.Nil(t, failure)
-
-	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
-
-	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("StoreDeanonymizationReport")
-
 	// Test blockchain failures. For deanonymization, any error shouldn't mark the request as failed
 	mockBCClient.AddMockedFunc("SubmitDeanonymizationReport", func(context.Context, *common.DeanonymizationReport) error {
 		return fmt.Errorf("some other error")
@@ -867,7 +859,7 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 }
 
 func TestProcessRequestFromChainWithReorgs(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	// Prepare initial state in the database
 	_, initialStateRootOnChain, err := mockBCClient.GetNextPendingRequest(context.Background())
@@ -1020,7 +1012,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 }
 
 func TestProcessRequestFromChainWithErrors(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	// Setup the application
 	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
@@ -1086,15 +1078,16 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 
 }
 
-func setupTest() (*blockchain.MockClient, *SecureProcessorManager) {
+func setupTest(t *testing.T) (*blockchain.MockClient, *SecureProcessorManager) {
 	config := Config{
 		ReorgTimeout:        60,
 		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
 	}
-	return setupTestWithConfig(context.Background(), config, true, &ExecutorHandShake{}, nil, false)
+	return setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
 }
 
 func setupTestWithConfig(
+	t *testing.T,
 	ctx context.Context,
 	config Config,
 	managerIsRunning bool,
@@ -1105,6 +1098,9 @@ func setupTestWithConfig(
 	mockDataLayer := mockdb.NewMockDataLayer()
 	bcClient := blockchain.NewMockClient()
 	execClient := NewMockExecutorClient()
+	tmpDir, err := os.MkdirTemp("", "reports")
+	require.NoError(t, err)
+	config.DeanonymizationReportPath = tmpDir
 
 	processor := &SecureProcessorManager{
 		config:            &config,
@@ -1114,7 +1110,8 @@ func setupTestWithConfig(
 		isRunning:         managerIsRunning,
 		executorHandShake: executorHandShake,
 		stopChan:          stopChan,
-		log:               testLogger}
+		log:               testLogger,
+	}
 
 	if startLogServer {
 		StartLogServer(
@@ -1135,7 +1132,7 @@ func setupTestWithConfig(
 }
 
 func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
-	mockBCClient, manager := setupTest()
+	mockBCClient, manager := setupTest(t)
 
 	// Create a temporary directory for the reports
 	tempDir, err := os.MkdirTemp("", "reports")
@@ -1151,37 +1148,18 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	// Case 1: DeanonymizationReportPath is not set, so the report should not be saved to the filesystem
+	// DeanonymizationReportPath is set, so the report should be saved to the filesystem
 	// Create a deanonymization request
 	request := createRequest(common.Deanonymize, ApplicationId)
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
-	manager.config.DeanonymizationReportPath = ""
+	manager.config.DeanonymizationReportPath = tempDir
 	failure := manager.processDeanonymization(context.Background(), request)
 	require.Nil(t, failure)
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
-	// Check that the report file does not exist
-	reportFilePath := filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID.String())
-	_, err = os.Stat(reportFilePath)
-	require.True(t, os.IsNotExist(err), "Report file should not exist when DeanonymizationReportPath is not set")
-	// check we have it in the data layer
-	storedReport, err := manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
-	require.NoError(t, err)
-	require.Equal(t, storedReport.ReportID, request.RequestID)
-
-	// Case 2: DeanonymizationReportPath is set, so the report should be saved to the filesystem
-	// Create a deanonymization request
-	request = createRequest(common.Deanonymize, ApplicationId)
-	err = mockBCClient.SendRequestToChain(context.Background(), request)
-	require.NoError(t, err)
-	manager.config.DeanonymizationReportPath = tempDir
-	failure = manager.processDeanonymization(context.Background(), request)
-	require.Nil(t, failure)
-	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 3, len(completedRequests), "expected 3 completed request")
 	// Check that the report file exists
-	reportFilePath = filepath.Join(tempDir, request.ApplicationID.String()+"_"+request.RequestID.String())
+	reportFilePath := filepath.Join(tempDir, common.ReportFilename(request.ApplicationID, request.RequestID))
 	_, err = os.Stat(reportFilePath)
 	require.NoError(t, err, "Report file should exist when DeanonymizationReportPath is set")
 	// Read the report from the filesystem and verify its contents
@@ -1192,27 +1170,5 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, request.RequestID, report.ReportID, "Report ID should match the request ID")
 	require.Equal(t, request.ApplicationID, report.ApplicationID, "Report App ID should match the request App ID")
-	// check we have it also in the data layer
-	storedReport, err = manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
-	require.NoError(t, err)
-	require.Equal(t, storedReport.ReportID, request.RequestID)
-
-	// Case 3: Error creating the directory
-	// Create a deanonymization request
-	request = createRequest(common.Deanonymize, ApplicationId)
-	err = mockBCClient.SendRequestToChain(context.Background(), request)
-	require.NoError(t, err)
-	// Set the path to a read-only directory to simulate an error
-	readOnlyDir := filepath.Join(tempDir, "readonly")
-	err = os.Mkdir(readOnlyDir, 0555)
-	require.NoError(t, err)
-	manager.config.DeanonymizationReportPath = filepath.Join(readOnlyDir, "reports")
-	failure = manager.processDeanonymization(context.Background(), request)
-	require.Nil(t, failure)
-	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 4, len(completedRequests), "expected 4 completed request")
-	// check we have it also in the data layer
-	storedReport, err = manager.dataLayer.GetDeanonymizationReport(context.Background(), request.RequestID)
-	require.NoError(t, err)
-	require.Equal(t, storedReport.ReportID, request.RequestID)
+	require.Equal(t, sender, report.Authority, "Report authority should match the request sender")
 }

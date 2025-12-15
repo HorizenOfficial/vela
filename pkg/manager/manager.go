@@ -543,35 +543,22 @@ func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req
 		return failure
 	}
 
-	// If a path is configured, save the deanonymization report to the filesystem
-	// Do not bail out from the method even if an error occurs, we must continue saving the report in the data layer
-	if m.config.DeanonymizationReportPath != "" {
-		// Ensure the directory exists
-		if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
-			m.log.Error("Failed to create directory for deanonymization reports: %v", err)
-		} else {
-			// Marshal the report to JSON
-			reportJSON, err := json.MarshalIndent(report, "", "  ")
-			if err != nil {
-				m.log.Error("Failed to marshal deanonymization report to JSON: %v", err)
-			} else {
-				// The request ID is unique across applications, but for cleaner organization we use a folder name that includes both the app ID and the request ID
-				filePath := filepath.Join(m.config.DeanonymizationReportPath, req.ApplicationID.String()+"_"+req.RequestID.String())
-				// Write the report to the file
-				if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
-					m.log.Error("Failed to write deanonymization report to file: %v", err)
-				} else {
-					m.log.Info("Saved deanonymization report %s to %s", report.ReportID, filePath)
-				}
-			}
-		}
+	// Save the deanonymization report to the filesystem (mandatory)
+	if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
+		m.log.Error("Failed to create directory for deanonymization reports: %v", err)
+		// Treat as transient: log and retry on next poll instead of failing the request.
+		return nil
 	}
-
-	// Store the deanonymization report
-	err = m.dataLayer.StoreDeanonymizationReport(ctx, report)
+	reportJSON, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		// TODO must we return an error?
-		m.log.Error("StoreDeanonymizationReport returns an error: %v", err)
+		m.log.Error("Failed to marshal deanonymization report to JSON: %v", err)
+		// Treat as transient: log and retry on next poll instead of failing the request.
+		return nil
+	}
+	filePath := filepath.Join(m.config.DeanonymizationReportPath, common.ReportFilename(req.ApplicationID, req.RequestID))
+	if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
+		m.log.Error("Failed to write deanonymization report to file: %v", err)
+		// Treat as transient: log and retry on next poll instead of failing the request.
 		return nil
 	}
 

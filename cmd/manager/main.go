@@ -16,38 +16,15 @@ import (
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/mockdb"
-	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/horizen-pes/pkg/storage/factory"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
-	// first of all if we are using mockdb do not even care for file and other configs
-	if config.DataLayerType == "mockdb" {
-		return mockdb.NewMockDataLayer(), nil
-	}
-
-	if strings.TrimSpace(config.DataLayerDBPath) == "" {
-		return nil, fmt.Errorf("data layer path is empty")
-	}
-
-	var dl storage.DataLayer
-	var err error
-
-	switch config.DataLayerType {
-	case "versioned_leveldb":
-		cfg := versionedDb.VersionedLevelDBConfig{
-			DBPath:         config.DataLayerDBPath,
-			VersionsToKeep: config.DataLayerNumOfVersions,
-		}
-		dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("unknown data layer type: %s", config.DataLayerType)
-	}
-
-	return dl, nil
+	return factory.NewDataLayer(factory.DataLayerConfig{
+		Type:        config.DataLayerType,
+		DBPath:      config.DataLayerDBPath,
+		NumVersions: config.DataLayerNumOfVersions,
+	})
 }
 
 func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
