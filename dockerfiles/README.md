@@ -40,6 +40,8 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
    - rpc url: http://localhost:8545
    - chainid: 31337
 
+Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`, `CHAIN_TEEAUTHENTICATOR_ADDRESS`, and optionally `AUTHORITY_SERVICE_KEY_SECP256` (secp256k1 hex; if empty a random key is generated on start).
+
 ## Where to go next: 
 
 - The Anvil chain node is created empty: to have a running dev environment you must deploy the contracts using the hardhat scripts in the contracts/ folder. After having deployed them, be sure to update the  CHAIN_PROCESSOR_ADDRESS in the .env file with the address of the ProcessorEndpoint smart contract, and restart the docker compose.

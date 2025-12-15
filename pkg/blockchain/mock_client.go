@@ -347,6 +347,9 @@ func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.Priv
 }
 
 func (c *MockClient) GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
+	if f, ok := c.GetMockedFunc("GetRequestCompletedEvent"); ok {
+		return f.(func(context.Context, common.RequestIdType, uint64, uint64) (*common.RequestResult, error))(ctx, requestID, fromBlock, toBlock)
+	}
 	return nil, nil
 }
 

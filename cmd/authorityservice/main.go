@@ -11,9 +11,35 @@ import (
 	"syscall"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/authorityservice"
+	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/logger"
 )
+
+func createBlockchainClient(cfg *authorityservice.Config) (blockchain.Client, error) {
+	if strings.TrimSpace(cfg.ProcessorAddress) == "" {
+		return nil, fmt.Errorf("processor address is empty")
+	}
+	if strings.TrimSpace(cfg.RpcURL) == "" {
+		return nil, fmt.Errorf("rpc url is empty")
+	}
+
+	if !ethCommon.IsHexAddress(cfg.ProcessorAddress) {
+		return nil, fmt.Errorf("processor address is not a valid hex address")
+	}
+
+	if !ethCommon.IsHexAddress(cfg.TeeAuthAddress) {
+		return nil, fmt.Errorf("teeauthenticator address is not a valid hex address")
+	}
+
+	return blockchain.NewBlockChainClient(
+		ethCommon.HexToAddress(cfg.ProcessorAddress),
+		ethCommon.HexToAddress(cfg.TeeAuthAddress),
+		cfg.RpcURL,
+		&cfg.PrivateKey,
+	), nil
+}
 
 func main() {
 	sigChan := make(chan os.Signal, 1)
@@ -48,7 +74,22 @@ func main() {
 		return
 	}
 
-	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, log)
+	bc, err := createBlockchainClient(cfg)
+	if err != nil {
+		log.Error("Failed to create blockchain client: %v", err)
+		return
+	}
+	if err := bc.Connect(ctx); err != nil {
+		log.Error("Failed to connect blockchain client: %v", err)
+		return
+	}
+	defer func() {
+		if err := bc.Close(); err != nil {
+			log.Error("Failed to close blockchain client: %v", err)
+		}
+	}()
+
+	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, bc, log)
 	if err != nil {
 		log.Error("Failed to create authority service: %v", err)
 		return

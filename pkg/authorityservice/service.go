@@ -16,33 +16,40 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/authorityservice/api"
+	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.
 type AuthorityService struct {
-	secret     []byte
-	nonceTTL   time.Duration
-	chainID    uint64
-	reportPath string
-	clock      func() time.Time
-	log    logger.Logger
+	secret           []byte
+	nonceTTL         time.Duration
+	chainID          uint64
+	reportPath       string
+	blockchainClient blockchain.Client
+	clock            func() time.Time
+	log              logger.Logger
 }
 
 // NewAuthorityService builds a new service instance.
-func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, log logger.Logger) (*AuthorityService, error) {
+func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, bc blockchain.Client, log logger.Logger) (*AuthorityService, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC secret: %w", err)
 	}
 
+	if bc == nil {
+		return nil, fmt.Errorf("blockchain client is required")
+	}
+
 	return &AuthorityService{
-		secret:     secret,
-		nonceTTL:   nonceTTL,
-		chainID:    chainID,
-		reportPath: reportPath,
-		clock:      time.Now,
+		secret:           secret,
+		nonceTTL:         nonceTTL,
+		chainID:          chainID,
+		reportPath:       reportPath,
+		blockchainClient: bc,
+		clock:            time.Now,
 		log:              log,
 	}, nil
 }
@@ -146,6 +153,24 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	if report.Authority != signerAddr {
 		s.log.Error("getreport: authority mismatch for report %s: expected %s got %s", reportID.String(), report.Authority.Hex(), signerAddr.Hex())
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Ensure the request was completed on-chain to avoid serving stale reports after reorgs.
+	event, err := s.blockchainClient.GetRequestCompletedEvent(r.Context(), reportID, 0, 0)
+	if err != nil {
+		s.log.Error("getreport: failed to query RequestCompleted for report %s: %v", reportID.String(), err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if event == nil {
+		s.log.Error("getreport: no on-chain confirmation for report %s", reportID.String())
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if event.Status != common.RequestResultOK {
+		s.log.Error("getreport: on-chain status not OK for report %s: %v", reportID.String(), event.Status)
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 

@@ -1,7 +1,12 @@
 package authorityservice
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/horizen-pes/pkg/common"
+	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/crypto"
 	"github.com/magiconair/properties"
 )
 
@@ -23,6 +28,15 @@ type Config struct {
 
 	// ReportsPath is the filesystem path where deanonymization reports are stored.
 	ReportsPath string
+
+	// RpcURL is the RPC URL used to connect to the blockchain node.
+	RpcURL string
+	// ProcessorAddress is the address of the ProcessorEndpoint contract.
+	ProcessorAddress string
+	// TeeAuthAddress is the address of the TeeAuthenticator contract.
+	TeeAuthAddress string
+	// PrivateKey is the Ethereum private key used to sign transactions (even though authority mostly reads).
+	PrivateKey cryptotypes.PrivateKeySecp256k1
 
 	// LogConsole is true if we want output on console
 	LogConsole bool
@@ -57,6 +71,21 @@ func LoadConfig() (*Config, error) {
 	// We reuse MANAGER_REPORTS_FOLDER so manager and authority service point to the same folder by default
 	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProps)
 
+	rpcURL := common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProps) + "://" +
+		common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProps) + ":" +
+		common.GetConfigVar("CHAIN_RPC_PORT", "8545", fileProps)
+
+	processorAddress := common.GetConfigVar("CHAIN_PROCESSOR_ADDRESS", "", fileProps)
+	teeAuthAddress := common.GetConfigVar("CHAIN_TEEAUTHENTICATOR_ADDRESS", "", fileProps)
+
+	var privateKey *cryptotypes.PrivateKeySecp256k1
+	privateKeyFromEnv := os.Getenv("AUTHORITY_SERVICE_KEY_SECP256")
+	if privateKeyFromEnv == "" {
+		privateKey, _ = crypto.GeneratePrivateKeySecp256k1()
+	} else {
+		privateKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
+	}
+
 	logConsole := common.GetConfigVarBool("AUTHORITY_SERVICE_LOG_CONSOLE", true, fileProps)
 	logConsoleLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL", "info", fileProps)
 	logConsoleColor := common.GetConfigVarBool("AUTHORITY_SERVICE_LOG_CONSOLE_COLOR", false, fileProps)
@@ -64,17 +93,20 @@ func LoadConfig() (*Config, error) {
 	logFileLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_FILE_LEVEL", "info", fileProps)
 
 	return &Config{
-		ListenAddress:   listenAddr,
-		TLSCertFile:     tlsCert,
-		TLSKeyFile:      tlsKey,
-		ChainID:         chainID,
-		NonceTTLSeconds: nonceTTL,
-		ReportsPath:     reportsPath,
-		LogConsole:      logConsole,
-		LogConsoleLevel: logConsoleLevel,
-		LogConsoleColor: logConsoleColor,
-		LogFileName:     logFileName,
-		LogFileLevel:    logFileLevel,
+		ListenAddress:    listenAddr,
+		TLSCertFile:      tlsCert,
+		TLSKeyFile:       tlsKey,
+		ChainID:          chainID,
+		NonceTTLSeconds:  nonceTTL,
+		ReportsPath:      reportsPath,
+		RpcURL:           rpcURL,
+		ProcessorAddress: processorAddress,
+		TeeAuthAddress:   teeAuthAddress,
+		PrivateKey:       *privateKey,
+		LogConsole:       logConsole,
+		LogConsoleLevel:  logConsoleLevel,
+		LogConsoleColor:  logConsoleColor,
+		LogFileName:      logFileName,
+		LogFileLevel:     logFileLevel,
 	}, nil
 }
-

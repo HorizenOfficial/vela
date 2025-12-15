@@ -2,8 +2,10 @@ package authorityservice
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +16,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/authorityservice/api"
+	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/logger"
@@ -21,6 +24,10 @@ import (
 )
 
 func newTestService(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time) *AuthorityService {
+	return newTestServiceWithEvent(t, chainID, ttl, fixedTime, nil)
+}
+
+func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time, eventFn func(context.Context, common.RequestIdType, uint64, uint64) (*common.RequestResult, error)) *AuthorityService {
 	t.Helper()
 	dir := t.TempDir()
 	testLogger := logger.NewLogger(
@@ -33,7 +40,14 @@ func newTestService(t *testing.T, chainID uint64, ttl time.Duration, fixedTime t
 			//FileLevel:    "info",
 		},
 	)
-	svc, err := NewAuthorityService(chainID, ttl, dir, testLogger)
+	mockBlockchain := blockchain.NewMockClient()
+	if eventFn == nil {
+		eventFn = func(_ context.Context, _ common.RequestIdType, _ uint64, _ uint64) (*common.RequestResult, error) {
+			return &common.RequestResult{Status: common.RequestResultOK}, nil
+		}
+	}
+	mockBlockchain.AddMockedFunc("GetRequestCompletedEvent", eventFn)
+	svc, err := NewAuthorityService(chainID, ttl, dir, mockBlockchain, testLogger)
 	require.NoError(t, err)
 	svc.secret = bytes.Repeat([]byte{0x01}, 32)
 	svc.clock = func() time.Time { return fixedTime }
@@ -422,6 +436,138 @@ func TestHandleGetReportAuthorityMismatch(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, rr.Code)
 	require.Contains(t, rr.Body.String(), "forbidden")
+}
+
+func TestHandleGetReportNotConfirmedOnChain(t *testing.T) {
+	chainID := uint64(42)
+	now := time.Unix(1_700_000_000, 0)
+	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType, _ uint64, _ uint64) (*common.RequestResult, error) {
+		return nil, nil
+	})
+
+	saltHex := "00112233445566778899aabbccddeeff"
+	saltBytes, _ := hex.DecodeString(saltHex)
+	ts := now.Unix()
+	nonceBytes := svc.computeNonce(saltBytes, ts)
+
+	reportID := testutil.GenerateRandomRequestID()
+	appID := common.NewApplicationId(1)
+	signatureHex, authority := signRequest(t, chainID, appID, reportID, nonceBytes)
+
+	report := &common.DeanonymizationReport{
+		ApplicationID:   appID,
+		ReportID:        reportID,
+		Authority:       authority,
+		EncryptedReport: []byte("encrypted-report"),
+	}
+	writeReport(t, svc, report)
+
+	body := api.GetReportRequest{
+		ChainID:   chainID,
+		AppID:     uint64(appID),
+		ReportID:  reportID.String(),
+		Salt:      saltHex,
+		Nonce:     hex.EncodeToString(nonceBytes),
+		Timestamp: ts,
+		Signature: signatureHex,
+	}
+	payload, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/getreport", bytes.NewReader(payload))
+	rr := httptest.NewRecorder()
+
+	svc.handleGetReport(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	require.Contains(t, rr.Body.String(), "not found")
+}
+
+func TestHandleGetReportOnChainFailed(t *testing.T) {
+	chainID := uint64(42)
+	now := time.Unix(1_700_000_000, 0)
+	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType, _ uint64, _ uint64) (*common.RequestResult, error) {
+		return &common.RequestResult{Status: common.RequestResultFailed}, nil
+	})
+
+	saltHex := "00112233445566778899aabbccddeeff"
+	saltBytes, _ := hex.DecodeString(saltHex)
+	ts := now.Unix()
+	nonceBytes := svc.computeNonce(saltBytes, ts)
+
+	reportID := testutil.GenerateRandomRequestID()
+	appID := common.NewApplicationId(1)
+	signatureHex, authority := signRequest(t, chainID, appID, reportID, nonceBytes)
+
+	report := &common.DeanonymizationReport{
+		ApplicationID:   appID,
+		ReportID:        reportID,
+		Authority:       authority,
+		EncryptedReport: []byte("encrypted-report"),
+	}
+	writeReport(t, svc, report)
+
+	body := api.GetReportRequest{
+		ChainID:   chainID,
+		AppID:     uint64(appID),
+		ReportID:  reportID.String(),
+		Salt:      saltHex,
+		Nonce:     hex.EncodeToString(nonceBytes),
+		Timestamp: ts,
+		Signature: signatureHex,
+	}
+	payload, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/getreport", bytes.NewReader(payload))
+	rr := httptest.NewRecorder()
+
+	svc.handleGetReport(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	require.Contains(t, rr.Body.String(), "not found")
+}
+
+func TestHandleGetReportOnChainError(t *testing.T) {
+	chainID := uint64(42)
+	now := time.Unix(1_700_000_000, 0)
+	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType, _ uint64, _ uint64) (*common.RequestResult, error) {
+		return nil, fmt.Errorf("boom")
+	})
+
+	saltHex := "00112233445566778899aabbccddeeff"
+	saltBytes, _ := hex.DecodeString(saltHex)
+	ts := now.Unix()
+	nonceBytes := svc.computeNonce(saltBytes, ts)
+
+	reportID := testutil.GenerateRandomRequestID()
+	appID := common.NewApplicationId(1)
+	signatureHex, authority := signRequest(t, chainID, appID, reportID, nonceBytes)
+
+	report := &common.DeanonymizationReport{
+		ApplicationID:   appID,
+		ReportID:        reportID,
+		Authority:       authority,
+		EncryptedReport: []byte("encrypted-report"),
+	}
+	writeReport(t, svc, report)
+
+	body := api.GetReportRequest{
+		ChainID:   chainID,
+		AppID:     uint64(appID),
+		ReportID:  reportID.String(),
+		Salt:      saltHex,
+		Nonce:     hex.EncodeToString(nonceBytes),
+		Timestamp: ts,
+		Signature: signatureHex,
+	}
+	payload, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/getreport", bytes.NewReader(payload))
+	rr := httptest.NewRecorder()
+
+	svc.handleGetReport(rr, req)
+
+	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	require.Contains(t, rr.Body.String(), "internal server error")
 }
 
 func TestHandleGetReportAppMismatch(t *testing.T) {
