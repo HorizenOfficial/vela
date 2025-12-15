@@ -5,11 +5,12 @@ import "./interfaces/INitroProver.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import "hardhat/console.sol"; //TODO REMOVE
 
 contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     uint256 public constant PK_LENGTH = 133; //secp521r1 uncompressed public key length in bytes
     INitroProver public immutable nitroProver;
-    bytes32 public pcr0;
+    bytes public pcr0;
     uint256 public immutable maxVerificationAge;
 
     address public teeSigner;
@@ -17,14 +18,14 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
 
     //events
     event TeeUpdate(address oldTee, address newTee, bytes oldPubSecp521r1, bytes newPubSecp521r1);
-    event PcrZeroUpdate(bytes32 oldPcr0, bytes32 newPcr0);
+    event PcrZeroUpdate(bytes indexed oldPcr0, bytes indexed newPcr0);
 
     //error
     error InvalidPCR();
     error TeeIsNotSet();
     error InvalidPKLength();
 
-    constructor(address owner, INitroProver _nitroProver, bytes32  _pcr0, uint256 _maxVerificationAge) Ownable(owner) {
+    constructor(address owner, INitroProver _nitroProver, bytes memory _pcr0, uint256 _maxVerificationAge) Ownable(owner) {
         pcr0 = _pcr0;
         nitroProver = _nitroProver;
         maxVerificationAge = _maxVerificationAge;
@@ -32,25 +33,20 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
 
     function updateTee(bytes memory attestation) public onlyOwner {
         (bytes memory enclaveKey, bytes memory userData, bytes memory rawPcrs) = nitroProver.verifyAttestation(attestation, maxVerificationAge);
-        
-        //check pcr0
-        bytes32 _pcr0 = _extractPcr0(rawPcrs);
-        if(_pcr0 != pcr0) {
-            revert InvalidPCR();
-        }
 
+        _checkPcr(rawPcrs);
         if(enclaveKey.length != PK_LENGTH) {
             revert InvalidPKLength();
         }
 
-        address newTeeSigner = _extractNewTeeSigner(userData);
+        address newTeeSigner = address(bytes20(userData));
 
         emit TeeUpdate(teeSigner, newTeeSigner, pubSecp521r1, enclaveKey);
         teeSigner = newTeeSigner;
         pubSecp521r1 = enclaveKey;
     }
 
-    function updatePcr0(bytes32 newPcr0) public onlyOwner {
+    function updatePcr0(bytes memory newPcr0) public onlyOwner {
         emit PcrZeroUpdate(pcr0, newPcr0);
         pcr0 = newPcr0;
     }
@@ -93,11 +89,18 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         return pubSecp521r1;
     }
 
-    function _extractPcr0(bytes memory rawPcrs) internal pure returns(bytes32) {
-        return bytes32(0); //TODO
-    }
+    function _checkPcr(bytes memory pcrs) internal view {
+        if (pcrs.length < 4 + pcr0.length) {
+            revert InvalidPCR();
+        }
 
-    function _extractNewTeeSigner(bytes memory userData) internal pure returns(address) {
-        return address(0); //TODO
+        uint256 i;
+        uint256 length = pcr0.length;
+        while (i != length) {
+            if (pcrs[i + 4] != pcr0[i]) {
+                revert InvalidPCR();
+            }
+            i++;
+        }
     }
 }

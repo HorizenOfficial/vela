@@ -49,7 +49,12 @@ const config: HardhatUserConfig = {
             url: 'http://127.0.0.1:8545/',
             accounts,
         }, 
-        
+        'hardhat': {
+            blockGasLimit: 1_000_000_000_000_000,
+            accounts: {
+                accountsBalance: "999999999999999999999999999"
+            }
+        }
     },
 }
 
