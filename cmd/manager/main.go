@@ -129,7 +129,7 @@ func main() {
 		},
 	)
 	if err != nil {
-		log.Error("Failed to start the log server: %v", err)
+		logTmp.Error("Failed to start the log server: %v", err)
 		return
 	}
 
