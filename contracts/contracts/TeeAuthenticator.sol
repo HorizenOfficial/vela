@@ -18,18 +18,18 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
 
     //step update
     uint256 public currentUpdateStep;
+    uint256 public step2CurrentIndex;
+    bytes private _pubKey;
+
     bytes private _enclaveKey;
     bytes private _userData;
     bytes private _rawPcrs;
     bytes private _attestationSig;
-    bytes private _pubKey;
     bytes private _certificate;
     bytes[] private _cabundle;
     bytes[] private _attestation_decoded;
     bytes private _buf;
     
-    uint256 public step2_1CurrentIndex;
-
     //events
     event TeeUpdate(address oldTee, address newTee, bytes oldPubSecp521r1, bytes newPubSecp521r1);
     event PcrZeroUpdate(bytes indexed oldPcr0, bytes indexed newPcr0);
@@ -53,25 +53,27 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     }
 
     // -- STEPS UPDATE
+    // if you want to reset and begin a new step update, invoke step 1
     function updateTeeStep1(bytes calldata attestation) public onlyOwner {
+        _resetStepUpdate();
         (_attestation_decoded, _certificate, _cabundle, _enclaveKey, _userData, _rawPcrs) = nitroProver.verifyAttestationStep1(attestation, maxVerificationAge);
         currentUpdateStep = 1;
     }
 
-    function updateTeeStep2() public onlyOwner returns(bool canGoToNextStep){
+    //this should be invoked "getStep2TotalLength()" times
+    //check currentUpdateStep to see if you can go to the next step
+    function updateTeeStep2() public onlyOwner{
         if(currentUpdateStep != 1) revert WrongStep();
 
-        _pubKey = nitroProver.verifyAttestationStep2(_cabundle, step2_1CurrentIndex, _pubKey);
-        step2_1CurrentIndex++;
+        _pubKey = nitroProver.verifyAttestationStep2(_cabundle, step2CurrentIndex, _pubKey);
+        unchecked { ++step2CurrentIndex; }
 
-        if(step2_1CurrentIndex == _cabundle.length) {
-            currentUpdateStep = 2;
-            return true; //step 2 finished
+        if(step2CurrentIndex == _cabundle.length) {
+            currentUpdateStep = 2; //you can go to step 3
         }
-        return false;
     }
 
-    function updateTeeStep3() public onlyOwner{
+    function updateTeeStep3() public onlyOwner {
         if(currentUpdateStep != 2) revert WrongStep();
         (_attestationSig, _pubKey, _buf) = nitroProver.verifyAttestationStep3(_attestation_decoded, _certificate, _pubKey);
         currentUpdateStep = 3;
@@ -84,10 +86,6 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         _updateTee(address(bytes20(_userData)), _enclaveKey);
     }
 
-    function getStep2_1TotalLength() public view returns(uint256) {
-        return _cabundle.length;
-    }
-
     function _updateTee(address newTeeSigner, bytes memory newPubSecp521r1) internal {
         if(newPubSecp521r1.length != PK_LENGTH) {
             revert InvalidPKLength();
@@ -96,10 +94,22 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         emit TeeUpdate(teeSigner, newTeeSigner, pubSecp521r1, newPubSecp521r1);
         teeSigner = newTeeSigner;
         pubSecp521r1 = newPubSecp521r1;
-        currentUpdateStep = 0;
-        step2_1CurrentIndex = 0;
+        _resetStepUpdate();
     }
 
+    function _resetStepUpdate() internal {
+        currentUpdateStep = 0;
+        step2CurrentIndex = 0;
+        _pubKey = bytes("");
+    }
+
+    //check number of transactions needed to complete step2
+    function getStep2TotalLength() public view returns(uint256) {
+        return _cabundle.length;
+    }
+
+
+    /// @dev Update the PCR0 value
     function updatePcr0(bytes memory newPcr0) public onlyOwner {
         emit PcrZeroUpdate(pcr0, newPcr0);
         pcr0 = newPcr0;
