@@ -30,7 +30,7 @@ type LogServer struct {
 	logFile        *os.File
 	fileMutex      sync.Mutex
 	consoleEnabled bool
-	levels  atomic.Value // stores logLevels
+	levels         atomic.Value // stores logLevels
 }
 
 // LogServerConfig holds configuration for starting the log server.
@@ -159,7 +159,8 @@ func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr commo
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				ls.acceptConnections(ctx, tcpListener)
+				// Pass &wg to track individual connections
+				ls.acceptConnections(ctx, tcpListener, &wg)
 			}()
 		}
 	}
@@ -174,7 +175,8 @@ func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr commo
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				ls.acceptConnections(ctx, vsockListener)
+				// Pass &wg to track individual connections
+				ls.acceptConnections(ctx, vsockListener, &wg)
 			}()
 		}
 	}
@@ -200,7 +202,7 @@ func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr commo
 	wg.Wait()
 }
 
-func (ls *LogServer) acceptConnections(ctx context.Context, listener net.Listener) {
+func (ls *LogServer) acceptConnections(ctx context.Context, listener net.Listener, wg *sync.WaitGroup) {
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
@@ -217,7 +219,13 @@ func (ls *LogServer) acceptConnections(ctx context.Context, listener net.Listene
 			}
 			continue
 		}
-		go ls.handleLogConnection(conn)
+
+		// Track individual connection so we don't exit while handling a log
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ls.handleLogConnection(conn)
+		}()
 	}
 }
 
@@ -255,6 +263,7 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 
 // filterAndWrite routes an incoming JSON log entry to console and/or file depending on configured log levels
 func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
+	// TODO: do something faster than unmarshalling for optimize this
 	var entry struct {
 		Level string `json:"level"`
 	}
