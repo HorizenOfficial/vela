@@ -11,11 +11,18 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/mdlayher/vsock"
 )
+
+// Struct to hold console and file log levels atomically
+type logLevels struct {
+	console int
+	file    int
+}
 
 // LogServer handles writing log messages from remote clients to a file.
 type LogServer struct {
@@ -23,8 +30,7 @@ type LogServer struct {
 	logFile        *os.File
 	fileMutex      sync.Mutex
 	consoleEnabled bool
-	consoleLevel   string
-	fileLevel      string
+	levels  atomic.Value // stores logLevels
 }
 
 // LogServerConfig holds configuration for starting the log server.
@@ -95,9 +101,13 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 		logger:         logServerLogger,
 		logFile:        logFile,
 		consoleEnabled: cfg.ConsoleEnabled,
-		consoleLevel:   strings.ToLower(cfg.ConsoleLevel),
-		fileLevel:      strings.ToLower(cfg.FileLevel),
 	}
+
+	// Initialize atomic logLevels
+	logServer.levels.Store(logLevels{
+		console: levelPriority[strings.ToLower(cfg.ConsoleLevel)],
+		file:    levelPriority[strings.ToLower(cfg.FileLevel)],
+	})
 
 	if logFile != nil {
 		logServer.logger.Info("Remote logs will be written to %s", cfg.LogFilePath)
@@ -107,6 +117,26 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 
 	go logServer.run(ctx, tcpAddrStr, cfg.VSockAddr)
 
+	return nil
+}
+
+// Public method to update console and file log levels at runtime
+func (ls *LogServer) UpdateLogLevels(consoleLevel, fileLevel string) error {
+	console, ok := levelPriority[strings.ToLower(consoleLevel)]
+	if !ok {
+		return fmt.Errorf("invalid console log level: %s", consoleLevel)
+	}
+	file, ok := levelPriority[strings.ToLower(fileLevel)]
+	if !ok {
+		return fmt.Errorf("invalid file log level: %s", fileLevel)
+	}
+
+	ls.levels.Store(logLevels{
+		console: console,
+		file:    file,
+	})
+
+	ls.logger.Info("Log levels updated at runtime (console=%s, file=%s)", consoleLevel, fileLevel)
 	return nil
 }
 
@@ -238,16 +268,16 @@ func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
 		entryPriority = levelPriority["info"]
 	}
 
-	if ls.consoleEnabled &&
-		entryPriority >= levelPriority[ls.consoleLevel] {
+	levels := ls.levels.Load().(logLevels)
+
+	if ls.consoleEnabled && entryPriority >= levels.console {
 		fmt.Println(string(jsonMsg))
 	}
 
 	ls.fileMutex.Lock()
 	defer ls.fileMutex.Unlock()
 
-	if ls.logFile != nil &&
-		entryPriority >= levelPriority[ls.fileLevel] {
+	if ls.logFile != nil && entryPriority >= levels.file {
 		if _, err := ls.logFile.Write(append(jsonMsg, '\n')); err != nil {
 			return fmt.Errorf("failed to write to file: %w", err)
 		}
