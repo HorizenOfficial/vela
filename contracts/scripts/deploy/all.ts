@@ -42,14 +42,18 @@ async function deploy()  {
   const certManager = await CertManagerFactory.deploy();
   await certManager.deploymentTransaction()!.wait();
   const certManagerAddress = await certManager.getAddress();
-  console.log(`CertManager deployed at ${certManagerAddress}`);
+  console.log(`CertManager`);
+  console.log(`  contract address: ${certManagerAddress}`);
+
 
   //deploy nitro prover
   const NitroProverFactory = new ethers.ContractFactory(NitroProverArtifact.abi, NitroProverArtifact.bytecode, deployer);
   const nitroProver = await NitroProverFactory.deploy(certManagerAddress);
   await nitroProver.deploymentTransaction()!.wait();
   const nitroProverAddress = await nitroProver.getAddress();
-  console.log(`NitroProver deployed at ${nitroProverAddress}`);
+  console.log(`NitroProver`);
+  console.log(`  contract address: ${nitroProverAddress}`);
+
 
   //deploy TeeAuthenticator
   const TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
@@ -57,11 +61,8 @@ async function deploy()  {
   await teeAuthenticator.deploymentTransaction()!.wait();
   const teeAuthenticatorAddr = await teeAuthenticator.getAddress();
 
-  console.log(`TeeAuthenticator deployed at ${teeAuthenticatorAddr}`);
-  console.log(`TeeAuthenticator`)
+  console.log(`TeeAuthenticator`);
   console.log(`  contract address: ${teeAuthenticatorAddr}`);
-  console.log(`  Tee signer address (executor address): ${process.env.TEE_SIGNER!}`);
-  console.log(`  Tee PUB_SECP521R1 (executor P521 pub key): ${process.env.TEE_PUB_SECP521R1!}`);
 
   // 4) ProcessorEndpoint
   const ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");
