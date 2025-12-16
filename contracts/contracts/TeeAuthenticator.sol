@@ -16,6 +16,15 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     address public teeSigner;
     bytes public pubSecp521r1;
 
+    //step update
+    uint256 public currentUpdateStep;
+    bytes private _enclaveKey;
+    bytes private _userData;
+    bytes private _rawPcrs;
+    bytes private _attestationSig;
+    bytes private _pubKey;
+    bytes private _buf;
+
     //events
     event TeeUpdate(address oldTee, address newTee, bytes oldPubSecp521r1, bytes newPubSecp521r1);
     event PcrZeroUpdate(bytes indexed oldPcr0, bytes indexed newPcr0);
@@ -24,6 +33,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     error InvalidPCR();
     error TeeIsNotSet();
     error InvalidPKLength();
+    error WrongStep();
 
     constructor(address owner, INitroProver _nitroProver, bytes memory _pcr0, uint256 _maxVerificationAge) Ownable(owner) {
         pcr0 = _pcr0;
@@ -31,19 +41,41 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         maxVerificationAge = _maxVerificationAge;
     }
 
-    function updateTee(bytes memory attestation) public onlyOwner {
+    function updateTee(bytes calldata attestation) public onlyOwner {
         (bytes memory enclaveKey, bytes memory userData, bytes memory rawPcrs) = nitroProver.verifyAttestation(attestation, maxVerificationAge);
+        _checkPcr(rawPcrs);
+        _updateTee(address(bytes20(userData)), enclaveKey);
+    }
+
+    // -- STEPS UPDATE
+    function updateTeeStep1(bytes calldata attestation) public onlyOwner {
+        (_enclaveKey, _userData, _rawPcrs, _attestationSig, _pubKey, _buf) = nitroProver.verifyAttestationStep1(attestation, maxVerificationAge);
+        currentUpdateStep = 1;
+    }
+
+    function updateTeeStep2() public onlyOwner {
+        if(currentUpdateStep != 1) revert WrongStep();
+        nitroProver.verifyAttestationStep2(_attestationSig, _pubKey, _buf);
+        _checkPcr(_rawPcrs);
+        _updateTee(address(bytes20(_userData)), _enclaveKey);
+    }
+
+    function updateTeeDecoded(bytes[] calldata attestation_decoded) public onlyOwner {
+        (bytes memory enclaveKey, bytes memory userData, bytes memory rawPcrs) = nitroProver.verifyAttestationFromDecoded(attestation_decoded, maxVerificationAge);
 
         _checkPcr(rawPcrs);
-        if(enclaveKey.length != PK_LENGTH) {
+        _updateTee(address(bytes20(userData)), enclaveKey);
+    }
+    
+    function _updateTee(address newTeeSigner, bytes memory newPubSecp521r1) internal {
+        if(newPubSecp521r1.length != PK_LENGTH) {
             revert InvalidPKLength();
         }
 
-        address newTeeSigner = address(bytes20(userData));
-
-        emit TeeUpdate(teeSigner, newTeeSigner, pubSecp521r1, enclaveKey);
+        emit TeeUpdate(teeSigner, newTeeSigner, pubSecp521r1, newPubSecp521r1);
         teeSigner = newTeeSigner;
-        pubSecp521r1 = enclaveKey;
+        pubSecp521r1 = newPubSecp521r1;
+        currentUpdateStep = 0;
     }
 
     function updatePcr0(bytes memory newPcr0) public onlyOwner {
