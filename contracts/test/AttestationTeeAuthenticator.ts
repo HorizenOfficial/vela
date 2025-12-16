@@ -68,9 +68,12 @@ describe('TeeAuthenticator Test', function () {
         expect(await teeAuthenticator.getTeeSigner()).to.equal(EXTRACTED_ADDRESS);
         expect(await teeAuthenticator.getPubSecp521r1()).to.equal(EXTRACTED_KEY);
 
+        let sum = BigInt(0);
         for (let i = 0; i < receipts.length; i++) {
             console.log("Gas used for TEE Update (attestation verification - tx " + (i+1) + "): " + receipts[i].gasUsed);
+            sum += receipts[i].gasUsed;
         }
+        console.log("Total gas used for TEE Update (attestation verification - steps): " + sum);
     })
 
     it('should not verify invalid attestation', async function () {
