@@ -11,14 +11,14 @@ async function deploy()  {
   //load attestation in base 64 and convert it to hex
   const attestation = "0x"+Buffer.from(process.env.ATTESTATION_BASE64!, 'base64').toString('hex');
   
-  //invoke verification
+  // --------- STEP 1 -------------
   let tx1 = await teeAuthenticator.updateTeeStep1(attestation);
   await tx1.wait();
   console.log("Step 1 completed on tx: ", tx1.hash);
 
-  //count needed transactions for step 2
+  // --------- STEP 2 -------------
+  let i = 1; //update this index if step 2 was interrupted
   let step2TxCount = await teeAuthenticator.getStep2TotalLength();
-  let i = 1;
   while(i <= step2TxCount) {
       let tx2 = await teeAuthenticator.updateTeeStep2();
       await tx2.wait();
@@ -26,9 +26,13 @@ async function deploy()  {
       i++;
   }
   console.log("Step 2 completed");
+
+  // --------- STEP 3 -------------
   let tx3 = await teeAuthenticator.updateTeeStep3();
   await tx3.wait();
   console.log("Step 3 completed on tx: ", tx3.hash);
+
+  // --------- STEP 4 -------------
   let tx4 = await teeAuthenticator.updateTeeStep4();
   await tx4.wait();
   console.log("Step 4 completed on tx: ", tx4.hash);

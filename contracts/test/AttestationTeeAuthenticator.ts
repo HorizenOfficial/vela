@@ -36,29 +36,16 @@ describe('TeeAuthenticator Test', function () {
         await teeAuthenticator.deploymentTransaction()!.wait();
     })
 
-    it('should verify valid attestation (on NitroProver)', async function () {
-        //invoke verification
-        await nitroProver.verifyAttestation(VALID_ATTESTATION, TEE_MAX_VERIFICATION_AGE);
-    })
-
-    it('should verify valid attestation (on TeeAuthenticator)', async function () {
-        //invoke verification
-        const tx = await teeAuthenticator.updateTee(VALID_ATTESTATION);
-        const receipt = await tx.wait();
-        expect(await teeAuthenticator.getTeeSigner()).to.equal(EXTRACTED_ADDRESS);
-        expect(await teeAuthenticator.getPubSecp521r1()).to.equal(EXTRACTED_KEY);
-
-        console.log("Gas used for TEE Update (attestation verification - single step): " + receipt.gasUsed);
-    })
-
     it('should verify valid attestation (on TeeAuthenticator - steps)', async function () {
-        //invoke verification
         let receipts = [];
         let tx1 = await teeAuthenticator.updateTeeStep1(VALID_ATTESTATION);
         receipts.push(await tx1.wait());
-        while(await teeAuthenticator.currentUpdateStep() == 1) {
+        let step2TxCount = await teeAuthenticator.getStep2TotalLength();
+        let i = 1;
+        while(i <= step2TxCount) {
             let tx2 = await teeAuthenticator.updateTeeStep2();
             receipts.push(await tx2.wait());
+            i++;
         }
         let tx3 = await teeAuthenticator.updateTeeStep3();
         receipts.push(await tx3.wait());
