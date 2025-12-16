@@ -41,22 +41,6 @@ describe('TeeAuthenticator Test', function () {
         await nitroProver.verifyAttestation(VALID_ATTESTATION, TEE_MAX_VERIFICATION_AGE);
     })
 
-    it('should verify valid attestation (on TeeAuthenticator - steps)', async function () {
-        //invoke verification
-        let tx1 = await teeAuthenticator.updateTeeStep1(VALID_ATTESTATION);
-        const receipt1 = await tx1.wait();
-        let tx2 = await teeAuthenticator.updateTeeStep2();
-        const receipt2 = await tx2.wait();
-
-        expect(await teeAuthenticator.getTeeSigner()).to.equal(EXTRACTED_ADDRESS);
-        expect(await teeAuthenticator.getPubSecp521r1()).to.equal(EXTRACTED_KEY);
-
-        console.log("Gas used for TEE Update (attestation verification - step 1): " + receipt1.gasUsed);
-        console.log("Gas used for TEE Update (attestation verification - step 2): " + receipt2.gasUsed);
-
-    })
-
-
     it('should verify valid attestation (on TeeAuthenticator)', async function () {
         //invoke verification
         const tx = await teeAuthenticator.updateTee(VALID_ATTESTATION);
@@ -64,7 +48,29 @@ describe('TeeAuthenticator Test', function () {
         expect(await teeAuthenticator.getTeeSigner()).to.equal(EXTRACTED_ADDRESS);
         expect(await teeAuthenticator.getPubSecp521r1()).to.equal(EXTRACTED_KEY);
 
-        console.log("Gas used for TEE Update (attestation verification): " + receipt.gasUsed);
+        console.log("Gas used for TEE Update (attestation verification - single step): " + receipt.gasUsed);
+    })
+
+    it('should verify valid attestation (on TeeAuthenticator - steps)', async function () {
+        //invoke verification
+        let receipts = [];
+        let tx1 = await teeAuthenticator.updateTeeStep1(VALID_ATTESTATION);
+        receipts.push(await tx1.wait());
+        while(await teeAuthenticator.currentUpdateStep() == 1) {
+            let tx2 = await teeAuthenticator.updateTeeStep2();
+            receipts.push(await tx2.wait());
+        }
+        let tx3 = await teeAuthenticator.updateTeeStep3();
+        receipts.push(await tx3.wait());
+        let tx4 = await teeAuthenticator.updateTeeStep4();
+        receipts.push(await tx4.wait());
+
+        expect(await teeAuthenticator.getTeeSigner()).to.equal(EXTRACTED_ADDRESS);
+        expect(await teeAuthenticator.getPubSecp521r1()).to.equal(EXTRACTED_KEY);
+
+        for (let i = 0; i < receipts.length; i++) {
+            console.log("Gas used for TEE Update (attestation verification - tx " + (i+1) + "): " + receipts[i].gasUsed);
+        }
     })
 
     it('should not verify invalid attestation', async function () {
