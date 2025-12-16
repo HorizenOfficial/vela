@@ -63,7 +63,7 @@ func LoadConfig() (*Config, error) {
 	if channelType == "vsock" {
 		//note: CID is always 3 inside AWS-Nitro, and since we are not planning to use other TEE it is hard-coded
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: 3, Port: uint32(executorServerPort)}
-		logConnectionParams = common.VSockChannelConnectionParams{CID: 3, Port: uint32(logExecutorServerPort)}
+		logConnectionParams = common.VSockChannelConnectionParams{CID: 20, Port: uint32(logExecutorServerPort)}
 	} else {
 		executorIpAddress := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
 		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}

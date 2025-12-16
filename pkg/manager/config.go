@@ -114,7 +114,7 @@ func LoadConfig() (*Config, error) {
 		executorServerCid := common.GetConfigVarInt64("CHANNEL_VSOCK_CID", 20, fileProperties)
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
 		// if channel is vsock it means we also have a vsock connection used by executor for logging, we use of course a separate port
-		logServerVsockAddress = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(logServerPort)}
+		logServerVsockAddress = common.VSockChannelConnectionParams{CID: uint32(3), Port: uint32(logServerPort)}
 	} else {
 		executorIpHost := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
 		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(executorServerPort)}
