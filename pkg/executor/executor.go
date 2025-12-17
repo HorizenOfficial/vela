@@ -242,22 +242,27 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 
 // Start starts the executor server
 func (e *StatelessExecutor) Start(ctx context.Context) error {
-	switch e.config.ServerType {
+	switch e.config.ChannelType {
 	case "tcp":
-		e.log.Info("Executor: Starting TCP executor server on %s", e.config.ServerAddr)
+		e.log.Info("Executor: Starting TCP executor server on %s", e.config.ChannelParams.(common.TcpChannelConnectionParams).Url())
 	case "vsock":
-		e.log.Info("Executor: Starting v-socket executor server on CID %d, Port %d", e.config.ServerCid, e.config.ServerPort)
+		e.log.Info("Executor: Starting v-socket executor server on CID %d, Port %d",
+			e.config.ChannelParams.(common.VSockChannelConnectionParams).CID,
+			e.config.ChannelParams.(common.VSockChannelConnectionParams).Port,
+		)
 	}
 
 	if err := e.server.Start(ctx, "Executor"); err != nil {	
 		return err
 	}
 
-	switch e.config.ServerType {
+	switch e.config.ChannelType {
 	case "tcp":
-		e.log.Info("Executor: Starting TCP admin executor server on %s", e.config.AdminServerAddr)
+		e.log.Info("Executor: Starting TCP admin executor server on %s", e.config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
 	case "vsock":
-		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d", e.config.ServerCid, e.config.AdminServerPort)
+		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d", 
+		e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID, 
+		e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
 	}
 	return e.admCmdServer.Start(ctx, "Executor")
 }
@@ -304,8 +309,8 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
 	var totalFuel *big.Int = big.NewInt(0)
-	if req.Value.Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.Value, tempState, wasmModule)
+	if req.DepositAmount.Sign() > 0 {
+		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount, tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, failure
 		}
@@ -587,8 +592,9 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		ApplicationID:   req.ApplicationID,
 		ReportID:        req.RequestID,
 		EncryptedReport: encryptedReport,
-		RefundAmount:    refundAmount,
-		ApplicationFee:  applicationFee,
+		Authority:       req.Sender,
+		RefundAmount: refundAmount,
+		ApplicationFee: applicationFee,
 	}
 
 	e.log.Info("Executor: Successfully generated deanonymization report %s", req.RequestID)

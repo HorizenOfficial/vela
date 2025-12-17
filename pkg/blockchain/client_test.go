@@ -10,9 +10,9 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
-	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -81,7 +81,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, 1, request.Timestamp.Sign(), "Timestamp should be set and positive")
 
 	require.Equal(t, testHelper.Submitter.From, request.Sender, "Sender should match")
-	require.Equal(t, transferValue, request.Value, "Value should match")
+	require.Equal(t, transferValue, request.DepositAmount, "Value should match")
 
 	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
 
 	require.Equal(t, testHelper.Submitter.From, pendingRequest.Sender, "Sender should match")
-	require.Equal(t, transferValue, pendingRequest.Value, "Value should match")
+	require.Equal(t, transferValue, pendingRequest.DepositAmount, "Value should match")
 
 	require.Equal(t, currentStateRoot, stateRoot)
 
@@ -190,10 +190,10 @@ func TestMarkRequestFailed(t *testing.T) {
 	require.NoError(t, err)
 
 	failure := apperrors.New(
-        apperrors.CodeSubmittingStateUpdateFailed,
-        "test failure",
-        nil,
-    )
+		apperrors.CodeSubmittingStateUpdateFailed,
+		"test failure",
+		nil,
+	)
 
 	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID, failure)
 	require.NoError(t, err)
@@ -243,9 +243,9 @@ func TestSubmitStateUpdate(t *testing.T) {
 	// =========================================================
 	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
 	// =========================================================
-	payloadWrongSum := *payload                          // copy value
-	payloadWrongSum.RefundAmount = big.NewInt(80)       
-	payloadWrongSum.ApplicationFee = big.NewInt(10)      
+	payloadWrongSum := *payload // copy value
+	payloadWrongSum.RefundAmount = big.NewInt(80)
+	payloadWrongSum.ApplicationFee = big.NewInt(10)
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), &payloadWrongSum)
 	require.Error(t, err)
@@ -255,8 +255,8 @@ func TestSubmitStateUpdate(t *testing.T) {
 	// Case 2: applicationFees < minFeePerRequest but correct sum -> InvalidValue
 	// =========================================================
 	payloadWrongFee := *payload
-	payloadWrongFee.RefundAmount = big.NewInt(100)   
-	payloadWrongFee.ApplicationFee = big.NewInt(0)   
+	payloadWrongFee.RefundAmount = big.NewInt(100)
+	payloadWrongFee.ApplicationFee = big.NewInt(0)
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), &payloadWrongFee)
 	require.Error(t, err)
@@ -472,14 +472,14 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 
 	signature := [65]byte{}
 	payload := &common.UpdatePayload{
-		ApplicationID: res[0].ApplicationID,
-		RequestID:     res[0].RequestID,
-		PrevStateRoot: oldStateRoot,
-		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
-		Events:        events[:],
-		Withdrawals:   withdrawals,
-		Signature:     signature[:],
-		RefundAmount: big.NewInt(90),
+		ApplicationID:  res[0].ApplicationID,
+		RequestID:      res[0].RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   [32]byte{0x04, 0x05, 0x06},
+		Events:         events[:],
+		Withdrawals:    withdrawals,
+		Signature:      signature[:],
+		RefundAmount:   big.NewInt(90),
 		ApplicationFee: big.NewInt(10),
 	}
 
@@ -500,11 +500,11 @@ func TestSubmitRequest(t *testing.T) {
 	applicationId := common.NewApplicationId(1)
 	requestType := common.Deploy
 	payload := []byte("test-payload")
-	value := big.NewInt(1)
+	depositAmount := big.NewInt(1)
 	maxFeeValue := big.NewInt(100)
 
 	// Submit the request
-	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, value, maxFeeValue)
+	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, depositAmount, maxFeeValue)
 	require.NoError(t, err)
 	// Get pending requests
 	pending, err := blockchainClient.GetPendingRequests(context.Background())
@@ -520,11 +520,11 @@ func TestSubmitRequest(t *testing.T) {
 		if r.RequestID == requestId {
 			found = true
 
-			if r.ProtocolVersion != protocolVersion || r.ApplicationID != applicationId || r.RequestType != requestType || string(r.Payload) != string(payload) || r.Value.Cmp(value) != 0 {
+			if r.ProtocolVersion != protocolVersion || r.ApplicationID != applicationId || r.RequestType != requestType || string(r.Payload) != string(payload) || r.DepositAmount.Cmp(depositAmount) != 0 {
 				t.Errorf(
 					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
-					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.Value,
-					protocolVersion, applicationId, requestType, string(payload), value,
+					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.DepositAmount,
+					protocolVersion, applicationId, requestType, string(payload), depositAmount,
 				)
 			}
 		}
@@ -645,14 +645,14 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 
 	signature := [65]byte{}
 	payload := &common.UpdatePayload{
-		ApplicationID: res[0].ApplicationID,
-		RequestID:     res[0].RequestID,
-		PrevStateRoot: oldStateRoot,
-		NewStateRoot:  [32]byte{0x04, 0x05, 0x06},
-		Events:        events[:],
-		Withdrawals:   withdrawals,
-		Signature:     signature[:],
-		RefundAmount: big.NewInt(90),
+		ApplicationID:  res[0].ApplicationID,
+		RequestID:      res[0].RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   [32]byte{0x04, 0x05, 0x06},
+		Events:         events[:],
+		Withdrawals:    withdrawals,
+		Signature:      signature[:],
+		RefundAmount:   big.NewInt(90),
 		ApplicationFee: big.NewInt(10),
 	}
 

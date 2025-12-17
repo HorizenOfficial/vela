@@ -56,9 +56,9 @@ type SystemTestSuite struct {
 
 func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *SystemTestSuite {
 	// log is passed from outside, the log settings in the manager configuration does not affect it.
-	mgrConfig, err := manager.LoadConfigFromFile()
+	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
-	execConfig, err := executor.LoadConfigFromFile()
+	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
@@ -76,10 +76,32 @@ func NewSystemTestSuiteWithConfigs(
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Normalize channel params for tests: default configs may use vsock, but tests run over TCP.
+	var tcpParams common.TcpChannelConnectionParams
+	switch p := execConfig.ChannelParams.(type) {
+	case common.TcpChannelConnectionParams:
+		tcpParams = p
+	case common.VSockChannelConnectionParams:
+		tcpParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
+		execConfig.ChannelParams = tcpParams
+		execConfig.ChannelType = "tcp"
+	default:
+		t.Fatal("unsupported executor channel params type")
+	}
+	switch p := mgrConfig.ChannelParams.(type) {
+	case common.TcpChannelConnectionParams:
+		// keep as is
+	case common.VSockChannelConnectionParams:
+		mgrConfig.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
+		mgrConfig.ChannelType = "tcp"
+	default:
+		t.Fatal("unsupported manager channel params type")
+	}
+
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	factory := communication.NewTCPConnectionFactory(execConfig.ServerAddr)
+	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
 	executorClient := communication.NewClient(factory, log)
 
 	// Create manager
@@ -409,8 +431,8 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		Payload:       bytecode,
 		Sender:        userAddress,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         big.NewInt(0),
-		MaxFeeValue:         big.NewInt(100),
+		DepositAmount: big.NewInt(0),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)

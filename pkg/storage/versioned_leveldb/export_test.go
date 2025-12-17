@@ -8,8 +8,6 @@ var (
 	TestAppStatePrefix = appStatePrefix
 	// TestWasmPrefix is the prefix for wasm bytecode keys.
 	TestWasmPrefix = wasmPrefix
-	// TestDeanonymizationReportPrefix is the prefix for deanonymization report keys.
-	TestDeanonymizationReportPrefix = deanonymizationReportPrefix
 )
 
 // GetAdapter_ForTest returns the underlying VersionedLevelDbStorageAdapter instance for testing purposes.

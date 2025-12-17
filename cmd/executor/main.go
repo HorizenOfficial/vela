@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 
 	"github.com/horizen-pes/pkg/executor"
@@ -21,7 +22,7 @@ func main() {
 
 
 	// Create the executor configuration
-	config, err := executor.LoadConfigFromFile()
+	config, err := executor.LoadConfig()
 	if err != nil {
 		// Use a temporary logger for fatal error
 		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
@@ -48,22 +49,31 @@ func main() {
 	runtime := wasm.NewWasmtimeRuntime(log)
 
 	// Create the appropriate server based on configuration
-	var factory communication.ConnectionFactory
-	var adminFactory communication.ConnectionFactory
-	switch config.ServerType {
+
+	var server communication.ExecutorServer
+	var adminServer communication.AdminCommandServer
+	switch config.ChannelType {
 	case "tcp":
-		factory = communication.NewTCPConnectionFactory(config.ServerAddr)
-		adminFactory = communication.NewTCPConnectionFactory(config.AdminServerAddr)
+		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
+		server = communication.NewServer(factory, log)
+		adminFactory := communication.NewTCPConnectionFactory(config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
+		adminServer = communication.NewAdminServer(adminFactory, log)
 	case "vsock":
-		factory = communication.NewVSockConnectionFactory(config.ServerCid, config.ServerPort)
-		adminFactory = communication.NewVSockConnectionFactory(config.ServerCid, config.AdminServerPort)
+		factory := communication.NewVSockConnectionFactory(
+			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
+			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
+		)
+		server = communication.NewServer(factory, log)
+		adminFactory := communication.NewVSockConnectionFactory(
+			config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
+			config.AdminChannelParams.(common.VSockChannelConnectionParams).Port,
+		)
+		adminServer = communication.NewAdminServer(adminFactory, log)
 	default:
-		log.Error("Unsupported server type: %s", config.ServerType)
+		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return
 	}
 
-	server := communication.NewServer(factory, log)
-	adminServer := communication.NewAdminServer(adminFactory, log)
 
 	// Create the executor
 	exec, err := executor.NewStatelessExecutor(config, runtime, server, adminServer, log)

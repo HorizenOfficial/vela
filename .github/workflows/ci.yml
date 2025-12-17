@@ -221,6 +221,16 @@ jobs:
             ${{ env.DOCKER_HUB_ORG }}/cce-manager:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-manager:latest
 
+      - name: Build and push authorityservice image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/authorityservice/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-authorityservice:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-authorityservice:latest
+
       - name: Build and push chain image
         uses: docker/build-push-action@v5
         with:

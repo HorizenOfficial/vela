@@ -61,14 +61,14 @@ describe('ProcessorEndpoint Test', function () {
         expect(isNextPending).eql(false);
 
         // first request - value 0, only min fee value
-        let value = 0;
+        let depositAmount = 0;
         const maxFeeValue1 = MIN_FEE;
         let tx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
             1,
             "0x01",
-            value,
+            depositAmount,
             maxFeeValue1,
             { value: maxFeeValue1 }
         );
@@ -91,7 +91,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(currentReq[2]).eql(BigInt(1)); //requestType
         expect(currentReq[4]).eql("0x01"); //payload
         expect(currentReq[6]).eql(await signers[0].getAddress()); //sender
-        expect(currentReq[7]).eql(BigInt(0)); //value
+        expect(currentReq[7]).eql(BigInt(0)); //depositAmount
         
 
         let rq = await processorEndpoint.requestById(currentReq.requestId);
@@ -101,7 +101,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(rq.requestId).eql(currentReq.requestId); 
         expect(rq[4]).eql("0x01"); //payload
         expect(rq[6]).eql(await signers[0].getAddress()); //sender
-        expect(rq[7]).eql(BigInt(0)); //value
+        expect(rq[7]).eql(BigInt(0)); //depositAmount
 
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(1));
@@ -111,21 +111,21 @@ describe('ProcessorEndpoint Test', function () {
 
 
         //*********************************************************************************** */
-        //second request with value + fee       
+        //second request with depositAmount + fee       
 
         let processorBalanceBefore = await ethers.provider.getBalance(processorEndpoint.getAddress());
         let userBalanceBefore = await ethers.provider.getBalance(await signers[0].getAddress());
 
-        value = 100;
+        depositAmount = 100;
         const maxFeeValue2 = MIN_FEE;
         tx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
             1,
             "0x02",
-            value,
+            depositAmount,
             maxFeeValue2,
-            { value: BigInt(value) + maxFeeValue2 }
+            { value: BigInt(depositAmount) + maxFeeValue2 }
         );
         await expect(tx).to.emit(processorEndpoint, "RequestSubmitted");
 
@@ -133,13 +133,13 @@ describe('ProcessorEndpoint Test', function () {
         receipt = await tx.wait();
         let gasUsed = receipt.gasUsed * receipt.gasPrice;
         let expectedUserBalanceAfter =
-            userBalanceBefore - gasUsed - (BigInt(value) + maxFeeValue2);
+            userBalanceBefore - gasUsed - (BigInt(depositAmount) + maxFeeValue2);
         let userBalanceAfter = await ethers.provider.getBalance(await signers[0].getAddress());
         expect(userBalanceAfter).eql(expectedUserBalanceAfter);
 
         let processorBalanceAfter = await ethers.provider.getBalance(processorEndpoint.getAddress());
         expect(processorBalanceAfter).eql(
-            processorBalanceBefore + BigInt(value) + maxFeeValue2
+            processorBalanceBefore + BigInt(depositAmount) + maxFeeValue2
         );
 
         length = await processorEndpoint.getPendingRequestsSize();
@@ -155,14 +155,14 @@ describe('ProcessorEndpoint Test', function () {
         expect(queue[0][2]).eql(BigInt(1)); //requestType
         expect(queue[0][4]).eql("0x01"); //payload
         expect(queue[0][6]).eql(await signers[0].getAddress()); //sender
-        expect(queue[0][7]).eql(BigInt(0)); //value
+        expect(queue[0][7]).eql(BigInt(0)); //depositAmount
 
         expect(queue[1][0]).eql(protocolVersion); //protocolVersion
         expect(queue[1][1]).eql(applicationId); //applicationId
         expect(queue[1][2]).eql(BigInt(1)); //requestType
         expect(queue[1][4]).eql("0x02"); //payload
         expect(queue[1][6]).eql(await signers[0].getAddress()); //sender
-        expect(queue[1][7]).eql(BigInt(100)); //value
+        expect(queue[1][7]).eql(BigInt(100)); //depositAmount
 
         [currentReq, stateRoot, exists] = await processorEndpoint.getNextPendingRequest();
         expect(exists).eql(true)
@@ -180,7 +180,7 @@ describe('ProcessorEndpoint Test', function () {
         let updateTx = await processorEndpoint.connect(signers[1]).updateQueueThreshold(1);
         await updateTx.wait();
 
-        let value = 100;
+        let depositAmount = 100;
         const maxFeeValue = MIN_FEE;
 
         let tx = await processorEndpoint.submitRequest(
@@ -188,9 +188,9 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             1,
             "0x01",
-            value,
+            depositAmount,
             maxFeeValue,
-            { value: BigInt(value) + maxFeeValue }
+            { value: BigInt(depositAmount) + maxFeeValue }
         );
         await tx.wait();
         await expect(
@@ -199,9 +199,9 @@ describe('ProcessorEndpoint Test', function () {
                 applicationId,
                 2,
                 "0x02",
-                value,
+                depositAmount,
                 maxFeeValue,
-                { value: BigInt(value) + maxFeeValue }
+                { value: BigInt(depositAmount) + maxFeeValue }
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "QueueThresholdExceeded");
     });
@@ -237,7 +237,7 @@ describe('ProcessorEndpoint Test', function () {
     })
 
     it('should not save requests with wrong value', async function () {
-        // msg.value != value + maxFeeValue
+        // msg.value != depositAmount + maxFeeValue
         await expect(
             processorEndpoint.submitRequest(
                 protocolVersion,
@@ -264,8 +264,8 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "FeeValueBelowMinimum")
     })
 
-    it('should revert submitRequest if msg.value is not value + maxFeeValue', async function () {
-        const value = 100;
+    it('should revert submitRequest if msg.value is not depositAmount + maxFeeValue', async function () {
+        const depositAmount = 100;
         const maxFeeValue = MIN_FEE; // 5
 
         await expect(
@@ -274,15 +274,15 @@ describe('ProcessorEndpoint Test', function () {
                 applicationId,
                 1,
                 "0x01",
-                value,
+                depositAmount,
                 maxFeeValue,
-                { value: BigInt(value) }
+                { value: BigInt(depositAmount) }
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
     });
 
-    it('should revert submitRequest if msg.value is greater than value + maxFeeValue', async function () {
-        const value = 100;
+    it('should revert submitRequest if msg.value is greater than depositAmount + maxFeeValue', async function () {
+        const depositAmount = 100;
         const maxFeeValue = MIN_FEE; // 5
 
         await expect(
@@ -291,16 +291,16 @@ describe('ProcessorEndpoint Test', function () {
                 applicationId,
                 1,
                 "0x01",
-                value,
+                depositAmount,
                 maxFeeValue,
-                { value: BigInt(value) + maxFeeValue + 1n }
+                { value: BigInt(depositAmount) + maxFeeValue + 1n }
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
     });
 
 
     it('should revert submitRequest if maxFeeValue is below minFeePerRequest', async function () {
-        const value = 0;
+        const depositAmount = 0;
         const maxFeeValue = MIN_FEE - 1n; // 4 < 5
 
         await expect(
@@ -309,9 +309,9 @@ describe('ProcessorEndpoint Test', function () {
                 applicationId,
                 1,
                 "0x01",
-                value,
+                depositAmount,
                 maxFeeValue,
-                { value: BigInt(value) + maxFeeValue }
+                { value: BigInt(depositAmount) + maxFeeValue }
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "FeeValueBelowMinimum");
     });
@@ -331,7 +331,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, "AuthorityNotAllowed")
     })
 
-    it('should revert denanonymization request if value is not zero', async function () {
+    it('should revert denanonymization request if depositAmount is not zero', async function () {
         await expect(
             processorEndpoint.submitRequest(
                 protocolVersion,
@@ -531,7 +531,7 @@ describe('ProcessorEndpoint Test', function () {
     });
 
     it('should not mark request as completed if refund + applicationFees does not match maxFeeValue', async function () {
-        const value = 0;
+        const depositAmount = 0;
         const maxFeeValue = MIN_FEE;
 
         const submitTx = await processorEndpoint.submitRequest(
@@ -539,7 +539,7 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             1,
             "0x01",
-            value,
+            depositAmount,
             maxFeeValue,
             { value: maxFeeValue }
         );
@@ -560,7 +560,7 @@ describe('ProcessorEndpoint Test', function () {
     });
 
     it('should not mark request as completed if applicationFees is below minFeePerRequest', async function () {
-        const value = 0;
+        const depositAmount = 0;
         const maxFeeValue = MIN_FEE;
 
         const submitTx = await processorEndpoint.submitRequest(
@@ -568,7 +568,7 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             1,
             "0x01",
-            value,
+            depositAmount,
             maxFeeValue,
             { value: maxFeeValue }
         );
