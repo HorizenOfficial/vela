@@ -186,7 +186,8 @@ func (w *AsyncWriter) processBuffer() bool {
 				w.requeueMessage(msg)
 				return false // Signal connection is broken
 			}
-			return true
+			// go on with the for loop and consume any other msg if any
+			//return true
 		case <-w.stopChan:
 			return true // Shutdown
 		}
