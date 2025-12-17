@@ -18,6 +18,7 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/logserver"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/mockdb"
@@ -123,9 +124,9 @@ func NewSystemTestSuiteWithConfigs(
 
 	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, mgrLog)
 
-	manager.StartLogServer(
+	logserver.StartLogServer(
 		ctx,
-		manager.LogServerConfig{
+		logserver.LogServerConfig{
 			TCPAddr:        mgrConfig.LogServerTCPAddress,
 			VSockAddr:      mgrConfig.LogServerVSockAddress,
 			LogFilePath:    mgrConfig.LogServerLogFile,

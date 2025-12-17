@@ -20,6 +20,7 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	cryptos "github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/logserver"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/require"
@@ -1114,9 +1115,9 @@ func setupTestWithConfig(
 	}
 
 	if startLogServer {
-		StartLogServer(
+		logserver.StartLogServer(
 			ctx,
-			LogServerConfig{
+			logserver.LogServerConfig{
 				TCPAddr:        config.LogServerTCPAddress,
 				VSockAddr:      config.LogServerVSockAddress,
 				LogFilePath:    config.LogServerLogFile,

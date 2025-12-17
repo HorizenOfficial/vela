@@ -1,4 +1,4 @@
-package manager
+package logserver
 
 import (
 	"bufio"
@@ -120,7 +120,7 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 	return nil
 }
 
-// Public method to update console and file log levels at runtime
+// UpdateLogLevels updates console and file log levels at runtime
 func (ls *LogServer) UpdateLogLevels(consoleLevel, fileLevel string) error {
 	console, ok := levelPriority[strings.ToLower(consoleLevel)]
 	if !ok {

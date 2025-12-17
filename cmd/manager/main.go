@@ -14,6 +14,7 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/logserver"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/factory"
@@ -94,9 +95,9 @@ func main() {
 	defer cancel()
 
 	// Start the log server if configured
-	err = manager.StartLogServer(
+	err = logserver.StartLogServer(
 		ctx,
-		manager.LogServerConfig{
+		logserver.LogServerConfig{
 			TCPAddr:        config.LogServerTCPAddress,
 			VSockAddr:      config.LogServerVSockAddress,
 			LogFilePath:    config.LogServerLogFile,
