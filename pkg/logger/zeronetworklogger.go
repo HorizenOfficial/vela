@@ -141,7 +141,7 @@ func (w *AsyncWriter) run() {
 			// Shutdown signal received, buffer will be drained in Close()
 			return
 		default:
-			// If not connected, block until we are.
+			// attempt to connect until success or shutdown
 			if w.getConn() == nil {
 				if err := w.connectWithRetry(); err != nil {
 					// Sleep before retrying connection
@@ -166,10 +166,6 @@ func (w *AsyncWriter) processBuffer() bool {
 	for {
 		select {
 		case msg := <-w.logBuffer:
-			if msg == nil {
-				return true // Channel closed
-			}
-
 			// Capture a snapshot of the connection to prevent race during Write
 			conn := w.getConn()
 			if conn == nil {
@@ -239,19 +235,16 @@ func (w *AsyncWriter) connectWithRetry() error {
 // drainBuffer writes any remaining logs in the queue before shutdown.
 func (w *AsyncWriter) drainBuffer() {
 	conn := w.getConn()
-
 	if conn == nil {
 		w.fallbackWriter.Write([]byte("[zeronetwork] cannot drain buffer, no connection.\n"))
 		return
 	}
-	close(w.logBuffer) // Close channel to range over remaining items
+	// do not close logBuffer, Write() might still attempt to send into it
+	//close(w.logBuffer)
 	w.fallbackWriter.Write([]byte("[zeronetwork] draining log buffer before shutdown...\n"))
 	for {
 		select {
 		case msg := <-w.logBuffer:
-			if msg == nil {
-				return
-			}
 			if _, err := conn.Write(msg); err != nil {
 				errMsg := fmt.Sprintf("[zeronetwork] failed to write during drain: %v\n", err)
 				w.fallbackWriter.Write([]byte(errMsg))
@@ -276,8 +269,8 @@ func (w *AsyncWriter) closeConn() {
 func (w *AsyncWriter) Close() error {
 	close(w.stopChan) // Signal worker to stop
 	w.wg.Wait()       // Wait for worker to finish
-	w.closeConn()     // Close active network connection
 	w.drainBuffer()   // Drain remaining logs safely
+	w.closeConn()     // Close active network connection
 	return nil
 }
 
