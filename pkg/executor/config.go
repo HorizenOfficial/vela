@@ -23,6 +23,10 @@ type Config struct {
 	ServerCid uint32
 	// ServerPort is the port for the v-socket server
 	ServerPort uint32
+	// AdminServerAddr is the address for the Admin TCP server, in the format "host:port"
+	AdminServerAddr string
+	// AdminServerPort is the TCP/VSock port for the Admin server
+	AdminServerPort uint32
 	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
 	KeySetRecoveryType int
 	// FuelPricePerUnit is the price of fuel per unit
@@ -68,6 +72,13 @@ func DefaultConfig() *Config {
 		fmt.Printf("Failed to convert EXECUTOR_IP_PORT for error %v, using default value\n", err)
 		serverPort = 8080
 	}
+
+	adminServerPort, err := strconv.ParseUint(os.Getenv("EXECUTOR_ADMIN_PORT"), 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert EXECUTOR_ADMIN_PORT for error %v, using default value\n", err)
+		adminServerPort = 9080
+	}
+
 
 	recType, err := strconv.Atoi(os.Getenv("EXECUTOR_KEYSET_RECOVERY_TYPE"))
 	if err != nil {
@@ -123,9 +134,11 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		ServerType:         serverType,
-		ServerAddr:         serverAddress + ":" + strconv.FormatUint(uint64(serverPort), 10),
+		ServerAddr:         serverAddress + ":" + strconv.FormatUint(serverPort, 10),
 		ServerCid:          uint32(serverCid),
 		ServerPort:         uint32(serverPort),
+		AdminServerAddr:    serverAddress + ":" + strconv.FormatUint(adminServerPort, 10),
+		AdminServerPort:    uint32(adminServerPort),
 		KeySetRecoveryType: recType,
 		FuelPricePerUnit:   fuelPrice,
 		MinFeePerRequest:   minFeePerRequest,
@@ -149,11 +162,17 @@ func LoadConfigFromFile() (*Config, error) {
 		return nil, err
 	}
 
+	serverAddress := config.MustGetString("ServerAddr")
+	serverPort := config.GetUint32("ServerPort", 54321)
+	adminServerPort := config.GetUint32("AdminServerPort", 55321)
+
 	return &Config{
 		ServerType:         config.MustGetString("ServerType"),
-		ServerAddr:         config.MustGetString("ServerAddr"),
+		ServerAddr:         serverAddress + ":" + strconv.FormatUint(uint64(serverPort), 10),
 		ServerCid:          config.GetUint32("ServerCid", 2),
 		ServerPort:         config.GetUint32("ServerPort", 54321),
+		AdminServerAddr: 	serverAddress + ":" + strconv.FormatUint(uint64(adminServerPort), 10),
+		AdminServerPort:    adminServerPort,
 		KeySetRecoveryType: config.GetInt("KeySetRecoveryType", 0),
 		FuelPricePerUnit:   big.NewInt(int64(config.GetInt("FuelPricePerUnit", 1))),
 		MinFeePerRequest:   big.NewInt(int64(config.GetInt("MinFeePerRequest", 5))),

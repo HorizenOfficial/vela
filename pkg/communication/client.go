@@ -291,7 +291,7 @@ func (c *Client) sendMessage(msg Message) error {
 	c.log.Debug("%s: MagBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add delimiter
-	data = append(data, delimiter)
+	data = append(data, msgDelimiter)
 	c.log.Debug("%s: MagBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write message with delimiter

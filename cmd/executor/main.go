@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/horizen-pes/pkg/communication"
 
@@ -13,9 +15,10 @@ import (
 )
 
 func main() {
-	// Create a context that is canceled on SIGINT or SIGTERM
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 
 	// Create the executor configuration
 	config, err := executor.LoadConfigFromFile()
@@ -40,25 +43,30 @@ func main() {
 		}
 	}()
 
+
 	// Create the WASM runtime
 	runtime := wasm.NewWasmtimeRuntime(log)
 
 	// Create the appropriate server based on configuration
-	var server communication.ExecutorServer
+	var factory communication.ConnectionFactory
+	var adminFactory communication.ConnectionFactory
 	switch config.ServerType {
 	case "tcp":
-		factory := communication.NewTCPConnectionFactory(config.ServerAddr)
-		server = communication.NewServer(factory, log)
+		factory = communication.NewTCPConnectionFactory(config.ServerAddr)
+		adminFactory = communication.NewTCPConnectionFactory(config.AdminServerAddr)
 	case "vsock":
-		factory := communication.NewVSockConnectionFactory(config.ServerCid, config.ServerPort)
-		server = communication.NewServer(factory, log)
+		factory = communication.NewVSockConnectionFactory(config.ServerCid, config.ServerPort)
+		adminFactory = communication.NewVSockConnectionFactory(config.ServerCid, config.AdminServerPort)
 	default:
 		log.Error("Unsupported server type: %s", config.ServerType)
 		return
 	}
 
+	server := communication.NewServer(factory, log)
+	adminServer := communication.NewAdminServer(adminFactory, log)
+
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(config, runtime, server, log)
+	exec, err := executor.NewStatelessExecutor(config, runtime, server, adminServer, log)
 	if err != nil {
 		log.Error("Error creating executor: %v", err)
 		return
@@ -66,16 +74,25 @@ func main() {
 
 	// Start the executor
 	log.Info("Starting executor service...")
+	// Create a context that is canceled on SIGINT or SIGTERM
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
 	if err := exec.Start(ctx); err != nil {
 		log.Error("Error starting executor: %v", err)
 		return
 	}
 	log.Info("Executor started")
 
-	// Wait for the context to be canceled
-	<-ctx.Done()
-
+	// Wait for shutdown signal
+	<-sigChan
+	signal.Stop(sigChan)
+	// Handle shutdown signal (Ctrl+C or SIGTERM)
+	log.Info("Received shutdown signal. Shutting down gracefully...")
+	
 	// Stop the executor
+	cancel()
+
 	log.Info("Stopping executor service...")
 	if err := exec.Close(); err != nil {
 		log.Error("Error stopping executor: %v", err)

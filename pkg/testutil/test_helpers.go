@@ -27,6 +27,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+
+type MockAdminServer struct {}
+
+func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
+func (*MockAdminServer)	Stop() error { return nil}
+func (*MockAdminServer)	SetCmdHandler(handler communication.AdminCmdHandler)  { }
+
+
+
+
+
 type SystemTestSuite struct {
 	t                  *testing.T
 	manager            manager.Manager
@@ -113,7 +124,7 @@ func NewSystemTestSuiteWithConfigs(
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, log)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, &MockAdminServer{}, log)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {
