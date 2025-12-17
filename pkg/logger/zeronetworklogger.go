@@ -66,7 +66,7 @@ func (f *vsockLogConnectionFactory) Dial(_ time.Duration) (net.Conn, error) {
 // AsyncWriter is a resilient, non-blocking io.Writer.
 // It writes to a fallback writer immediately and buffers logs for an async worker.
 type AsyncWriter struct {
-	mu             sync.Mutex
+	mu             sync.RWMutex
 	conn           net.Conn
 	cfg            *Config
 	fallbackWriter io.Writer
@@ -92,6 +92,13 @@ func NewAsyncWriter(cfg *Config, fallback io.Writer, factory LogConnectionFactor
 	return writer
 }
 
+// getConn provides a thread-safe snapshot of the current connection.
+func (w *AsyncWriter) getConn() net.Conn {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.conn
+}
+
 // Write implements the io.Writer interface. It is non-blocking.
 func (w *AsyncWriter) Write(p []byte) (n int, err error) {
 	select {
@@ -102,7 +109,7 @@ func (w *AsyncWriter) Write(p []byte) (n int, err error) {
 	}
 
 	// Immediately write to fallback for real-time local logging
-	if w.conn == nil {
+	if w.getConn() == nil {
 		// we also store it in the buffer too, but if it gets full we lose it completely
 		b := append([]byte("[zeronetwork conn down] "), p...)
 		if _, err := w.fallbackWriter.Write(b); err != nil {
@@ -135,7 +142,7 @@ func (w *AsyncWriter) run() {
 			return
 		default:
 			// If not connected, block until we are.
-			if w.conn == nil {
+			if w.getConn() == nil {
 				if err := w.connectWithRetry(); err != nil {
 					// Sleep before retrying connection
 					time.Sleep(defaultRetryDelay)
@@ -162,16 +169,21 @@ func (w *AsyncWriter) processBuffer() bool {
 			if msg == nil {
 				return true // Channel closed
 			}
-			if _, err := w.conn.Write(msg); err != nil {
+
+			// Capture a snapshot of the connection to prevent race during Write
+			conn := w.getConn()
+			if conn == nil {
+				w.requeueMessage(msg)
+				return false
+			}
+
+			if _, err := conn.Write(msg); err != nil {
 				errMsg := fmt.Sprintf("[zeronetwork] write failed: %v. Reconnecting...\n", err)
 				w.fallbackWriter.Write([]byte(errMsg))
 				w.closeConn()
 				// put the message back in the buffer, but non-blocking
 				// in case the buffer is full (should be rare)
-				select {
-				case w.logBuffer <- msg:
-				default:
-				}
+				w.requeueMessage(msg)
 				return false // Signal connection is broken
 			}
 		case <-w.stopChan:
@@ -179,6 +191,15 @@ func (w *AsyncWriter) processBuffer() bool {
 		default:
 			return true // No more messages
 		}
+	}
+}
+
+// requeueMessage attempts to put a message back in the buffer if a write fails.
+func (w *AsyncWriter) requeueMessage(msg []byte) {
+	select {
+	case w.logBuffer <- msg:
+	default:
+		// If buffer is full, we must drop it to prevent deadlock
 	}
 }
 
@@ -217,10 +238,9 @@ func (w *AsyncWriter) connectWithRetry() error {
 
 // drainBuffer writes any remaining logs in the queue before shutdown.
 func (w *AsyncWriter) drainBuffer() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	conn := w.getConn()
 
-	if w.conn == nil {
+	if conn == nil {
 		w.fallbackWriter.Write([]byte("[zeronetwork] cannot drain buffer, no connection.\n"))
 		return
 	}
@@ -232,7 +252,7 @@ func (w *AsyncWriter) drainBuffer() {
 			if msg == nil {
 				return
 			}
-			if _, err := w.conn.Write(msg); err != nil {
+			if _, err := conn.Write(msg); err != nil {
 				errMsg := fmt.Sprintf("[zeronetwork] failed to write during drain: %v\n", err)
 				w.fallbackWriter.Write([]byte(errMsg))
 			}
