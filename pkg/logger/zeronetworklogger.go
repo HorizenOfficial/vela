@@ -165,7 +165,11 @@ func (w *AsyncWriter) run() {
 func (w *AsyncWriter) processBuffer() bool {
 	for {
 		select {
-		case msg := <-w.logBuffer:
+		// blocks until a msg is available or the chan is closed
+		case msg, ok := <-w.logBuffer:
+			if !ok {
+				return true // channel closed
+			}
 			// Capture a snapshot of the connection to prevent race during Write
 			conn := w.getConn()
 			if conn == nil {
@@ -182,10 +186,9 @@ func (w *AsyncWriter) processBuffer() bool {
 				w.requeueMessage(msg)
 				return false // Signal connection is broken
 			}
+			return true
 		case <-w.stopChan:
 			return true // Shutdown
-		default:
-			return true // No more messages
 		}
 	}
 }
