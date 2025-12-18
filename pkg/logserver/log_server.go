@@ -110,9 +110,13 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 	})
 
 	if logFile != nil {
-		logServer.logger.Info("Remote logs will be written to %s", cfg.LogFilePath)
-	} else if cfg.ConsoleEnabled {
-		logServer.logger.Warn("Remote logs will only be written to console")
+		logServer.logger.Info("Remote logs will be written to file %s with level [%s]", cfg.LogFilePath, cfg.FileLevel)
+	}
+	if cfg.ConsoleEnabled {
+		if logFile == nil {
+			logServer.logger.Warn("No log file configured, logs will only be written to console")
+		}
+		logServer.logger.Info("Remote logs will be written to console with level [%s]", cfg.ConsoleLevel)
 	}
 
 	go logServer.run(ctx, tcpAddrStr, cfg.VSockAddr)
