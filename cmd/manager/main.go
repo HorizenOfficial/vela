@@ -57,8 +57,9 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 }
 
 func main() {
-	// Use a temporary logger for fatal error
+	// Use a temporary logger for fatal error, used only during early startup
 	logTmp := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
+	defer logTmp.Close()
 
 	// Load configuration
 	config, err := manager.LoadConfig()
@@ -85,7 +86,6 @@ func main() {
 	}()
 
 	log.Warn("Initializing manager...")
-	log.Trace("This is a trace")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

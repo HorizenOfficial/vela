@@ -113,7 +113,7 @@ func LoadConfig() (*Config, error) {
 	if channelType == "vsock" {
 		// CID >= 16 are available values for EC2 enclaves (where executor runs)
 		// CID and port are both used when connecting to a server
-		executorServerCid := common.GetConfigVarInt64("EXCUTOR_VSOCK_CID", 20, fileProperties)
+		executorServerCid := common.GetConfigVarInt64("EXECUTOR_VSOCK_CID", 20, fileProperties)
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
 		// if channel is vsock it means we also have a vsock connection used by executor for logging, we use of course a separate port
 		// CID is not used actually when creating a lstening server

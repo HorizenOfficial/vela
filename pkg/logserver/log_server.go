@@ -167,11 +167,11 @@ func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr commo
 
 	// VSOCK listener
 	if vsockAddr.Port != 0 {
-		vsockListener, err := vsock.ListenContextID(vsockAddr.CID, vsockAddr.Port, nil)
+		vsockListener, err := vsock.Listen(vsockAddr.Port, nil)
 		if err != nil {
-			ls.logger.Error("Failed to start log server on vsock %d:%d: %v", vsockAddr.CID, vsockAddr.Port, err)
+			ls.logger.Error("Failed to start log server on vsock port:%d: %v", vsockAddr.Port, err)
 		} else {
-			ls.logger.Info("Log server listening on VSOCK %d:%d", vsockAddr.CID, vsockAddr.Port)
+			ls.logger.Info("Log server listening on %s %s", vsockListener.Addr().Network(), vsockListener.Addr().String())
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
