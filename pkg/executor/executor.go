@@ -768,7 +768,7 @@ func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, e
 		}
 	}()
 
-	signerAddress, err := hex.DecodeString(keySet.SigningKey.PublicKey().Address())
+	signerAddress, err := hex.DecodeString(keySet.SigningKey.PublicKey().Address()[2:]) // remove 0x prefix
 	if err != nil {
 		e.log.Error("Executor: error while decoding signer address: %v", err)
 		return nil, fmt.Errorf("failed to generate attestation")
