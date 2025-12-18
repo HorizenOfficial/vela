@@ -15,7 +15,7 @@ import (
 )
 
 // We could consider implementing a UDP/TCP split based on log severity, but that would be feasible
-// only for tcp commections, but we would have to implement application-level UDP-like
+// only for tcp connections, but we would have to implement application-level UDP-like
 // protocol over VSOCK, since VSOCK is stream-oriented and does not support UDP natively.
 
 const (
@@ -28,6 +28,7 @@ const (
 // LogConnectionFactory abstracts the network dialling logic for different protocols.
 type LogConnectionFactory interface {
 	Dial(timeout time.Duration) (net.Conn, error)
+	GetAddress() string
 }
 
 // tcpLogConnectionFactory implements LogConnectionFactory for TCP connections.
@@ -46,10 +47,18 @@ func (f *tcpLogConnectionFactory) Dial(timeout time.Duration) (net.Conn, error) 
 	return net.DialTimeout(f.network, f.address, timeout)
 }
 
+func (f *tcpLogConnectionFactory) GetAddress() string {
+	return fmt.Sprintf("%s:%s", f.network, f.address)
+}
+
 // vsockLogConnectionFactory implements LogConnectionFactory for v-sock connections.
 type vsockLogConnectionFactory struct {
 	cid  uint32
 	port uint32
+}
+
+func (f *vsockLogConnectionFactory) GetAddress() string {
+	return fmt.Sprintf("%d:%d", f.cid, f.port)
 }
 
 // NewVSockLogConnectionFactory creates a new v-sock log connection factory.
@@ -209,7 +218,7 @@ func (w *AsyncWriter) connectWithRetry() error {
 	var lastErr error
 
 	for time.Now().Before(deadline) {
-		w.fallbackWriter.Write([]byte("[zeronetwork] attempting to connect...\n"))
+		w.fallbackWriter.Write(fmt.Appendf(nil, "[zeronetwork] attempting to connect to %s...\n", w.logFactory.GetAddress()))
 		conn, err := w.logFactory.Dial(defaultDialTimeout)
 		if err == nil {
 			w.mu.Lock()

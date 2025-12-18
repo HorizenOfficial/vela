@@ -20,6 +20,8 @@ func TestNewLogger(t *testing.T) {
 	ln, err := net.Listen("tcp", addr)
 	require.NoError(t, err)
 
+	defer ln.Close()
+
 	_, portStr, err := net.SplitHostPort(ln.Addr().String())
 	require.NoError(t, err)
 
@@ -29,7 +31,6 @@ func TestNewLogger(t *testing.T) {
 	Ip := "127.0.0.1"
 	Port := port
 
-	defer ln.Close()
 	go func() {
 		conn, _ := ln.Accept()
 		if conn != nil {

@@ -54,7 +54,7 @@ var levelPriority = map[string]int{
 	"panic": 6,
 }
 
-// StartLogServer starts servers to receive log messages from remote clients via TCP and VSOCK.
+// StartLogServer starts server to receive log messages from remote clients via TCP and VSOCK.
 // It performs synchronous validation of inputs and file access before launching background routines.
 func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 	tcpAddrStr := ""
