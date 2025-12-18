@@ -33,27 +33,27 @@ func TestMain(m *testing.M) {
 	//testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
 	//cfg := logger.DefaultLogConfig("zerolog")
 	//testLogger = logger.NewLogger(&cfg)
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			ConsoleLevel: "trace",
+			//FileName:     "qqq.log",
+			//FileLevel:    "info",
+		},
+	)
 	/*
 		testLogger = logger.NewLogger(
 			&logger.Config{
-				Kind:         "zerolog",
-				ConsoleColor: false, // colors can print escape chars on tty
-				Console:      true,
+				Kind:         "zeronetwork",
 				ConsoleLevel: "trace",
-				//FileName:     "qqq.log",
-				//FileLevel:    "info",
-			},
+				// use a non-default port otherwise we can have bind failures if running tests concurrently
+				RemoteLogParams:  common.TcpChannelConnectionParams{Ip: "localhost", Port: 5001},
+				RemoteLogNetwork: "tcp",
+				NetworkLevel:     "trace"},
 		)
 	*/
-	testLogger = logger.NewLogger(
-		&logger.Config{
-			Kind:         "zeronetwork",
-			ConsoleLevel: "trace",
-			// use a non-default port otherwise we can have bind failures if running tests concurrently
-			RemoteLogParams:  common.TcpChannelConnectionParams{Ip: "localhost", Port: 5001},
-			RemoteLogNetwork: "tcp",
-			NetworkLevel:     "trace"},
-	)
 
 	// Run tests
 	code := m.Run()
