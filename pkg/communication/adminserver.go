@@ -165,7 +165,7 @@ func (s *AdminServer) handleNewClient(ctx context.Context, conn net.Conn, idLogT
 	default:
 	}
 
-	s.client.handleAdminCommand(ctx, s.handler)
+	client.handleAdminCommand(ctx, s.handler)
 }
 
 // Close closes the client connection
