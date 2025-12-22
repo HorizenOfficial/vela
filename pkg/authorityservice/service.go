@@ -1,6 +1,7 @@
 package authorityservice
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -28,12 +29,14 @@ type AuthorityService struct {
 	chainID          uint64
 	reportPath       string
 	blockchainClient blockchain.Client
+	eventBatchSize   uint64
+	eventMaxBatches  int
 	clock            func() time.Time
 	log              logger.Logger
 }
 
 // NewAuthorityService builds a new service instance.
-func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, bc blockchain.Client, log logger.Logger) (*AuthorityService, error) {
+func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, bc blockchain.Client, eventBatchSize uint64, eventMaxBatches int, log logger.Logger) (*AuthorityService, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC secret: %w", err)
@@ -42,6 +45,12 @@ func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath stri
 	if bc == nil {
 		return nil, fmt.Errorf("blockchain client is required")
 	}
+	if eventBatchSize == 0 {
+		eventBatchSize = 100_000
+	}
+	if eventMaxBatches <= 0 {
+		eventMaxBatches = 1
+	}
 
 	return &AuthorityService{
 		secret:           secret,
@@ -49,6 +58,8 @@ func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath stri
 		chainID:          chainID,
 		reportPath:       reportPath,
 		blockchainClient: bc,
+		eventBatchSize:   eventBatchSize,
+		eventMaxBatches:  eventMaxBatches,
 		clock:            time.Now,
 		log:              log,
 	}, nil
@@ -60,6 +71,41 @@ func (s *AuthorityService) Handler() http.Handler {
 	mux.HandleFunc("/nonce", s.handleNonce)
 	mux.HandleFunc("/getreport", s.handleGetReport)
 	return mux
+}
+
+// findCompletionEvent paginates backward from the tip to find a RequestCompleted event within configured window.
+func (s *AuthorityService) findCompletionEvent(ctx context.Context, reportID common.RequestIdType) (*common.RequestResult, error) {
+	latest, err := s.blockchainClient.LatestBlockNumber(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest block number: %w", err)
+	}
+
+	currentEnd := latest
+	for i := 0; i < s.eventMaxBatches; i++ {
+		var start uint64
+		if currentEnd > s.eventBatchSize {
+			start = currentEnd
+			currentEnd = currentEnd - s.eventBatchSize + 1
+		} else {
+			start = currentEnd
+			currentEnd = 0
+		}
+
+		event, err := s.blockchainClient.GetRequestCompletedEvent(ctx, reportID, start, currentEnd)
+		if err != nil {
+			return nil, err
+		}
+		if event != nil {
+			return event, nil
+		}
+		if currentEnd == 0 {
+			break
+		}
+		// Move to the previous block for the next window.
+		currentEnd--
+	}
+
+	return nil, nil
 }
 
 func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +203,7 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Ensure the request was completed on-chain to avoid serving stale reports after reorgs.
-	event, err := s.blockchainClient.GetRequestCompletedEvent(r.Context(), reportID, 0, 0)
+	event, err := s.findCompletionEvent(r.Context(), reportID)
 	if err != nil {
 		s.log.Error("getreport: failed to query RequestCompleted for report %s: %v", reportID.String(), err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

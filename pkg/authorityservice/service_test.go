@@ -47,7 +47,8 @@ func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fi
 		}
 	}
 	mockBlockchain.AddMockedFunc("GetRequestCompletedEvent", eventFn)
-	svc, err := NewAuthorityService(chainID, ttl, dir, mockBlockchain, testLogger)
+	mockBlockchain.SetBlockNumber(1)
+	svc, err := NewAuthorityService(chainID, ttl, dir, mockBlockchain, 100_000, 10, testLogger)
 	require.NoError(t, err)
 	svc.secret = bytes.Repeat([]byte{0x01}, 32)
 	svc.clock = func() time.Time { return fixedTime }
@@ -436,6 +437,38 @@ func TestHandleGetReportAuthorityMismatch(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, rr.Code)
 	require.Contains(t, rr.Body.String(), "forbidden")
+}
+
+func TestFindCompletionEventBatchedLookup(t *testing.T) {
+	chainID := uint64(42)
+	log := logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false,
+			Console:      true,
+			ConsoleLevel: "trace",
+		},
+	)
+	defer log.Close()
+
+	mockBlockchain := blockchain.NewMockClient()
+	mockBlockchain.SetBlockNumber(250_000)
+	callCount := 0
+	mockBlockchain.AddMockedFunc("GetRequestCompletedEvent", func(_ context.Context, _ common.RequestIdType, _ uint64, toBlock uint64) (*common.RequestResult, error) {
+		callCount++
+		if toBlock == 50_001 {
+			return &common.RequestResult{Status: common.RequestResultOK}, nil
+		}
+		return nil, nil
+	})
+
+	svc, err := NewAuthorityService(chainID, time.Minute, t.TempDir(), mockBlockchain, 100_000, 3, log)
+	require.NoError(t, err)
+
+	event, err := svc.findCompletionEvent(context.Background(), testutil.GenerateRandomRequestID())
+	require.NoError(t, err)
+	require.NotNil(t, event)
+	require.Equal(t, 2, callCount)
 }
 
 func TestHandleGetReportNotConfirmedOnChain(t *testing.T) {

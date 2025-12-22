@@ -135,6 +135,17 @@ func (c *BlockChainClient) ChainID(ctx context.Context) (*big.Int, error) {
 	return chainID, nil
 }
 
+// LatestBlockNumber returns the latest block number from the chain.
+func (c *BlockChainClient) LatestBlockNumber(ctx context.Context) (uint64, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return 0, fmt.Errorf("client not connected, call Connect first")
+	}
+	return c.client.BlockNumber(ctx)
+}
+
 func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
 	if chainErr == nil {
 		return nil

@@ -15,6 +15,7 @@ The authority service now verifies on-chain completion before serving a report. 
 - `AUTHORITY_SERVICE_CHAIN_ID`: expected chain id.
 - `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`: RPC endpoint to the node.
 - `CHAIN_PROCESSOR_ADDRESS`: ProcessorEndpoint contract address.
+- `AUTHORITY_SERVICE_EVENT_BATCH_SIZE` / `AUTHORITY_SERVICE_EVENT_MAX_BATCHES`: block span per log query and maximum number of batches when searching for `RequestCompleted` events (defaults: 100_000 blocks, 10 batches).
 - `MANAGER_REPORTS_FOLDER`: path to the report files shared with the manager (default `/tmp/horizen-pes-data/manager_reports`).
 
 Logging/TLS options are documented in `pkg/authorityservice/config.go`.

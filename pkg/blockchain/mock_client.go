@@ -43,6 +43,7 @@ type MockClient struct {
 	eventSubscribers []chan<- interface{}
 	stateRoot        [32]byte
 	chainID          *big.Int
+	blockNumber      uint64
 	*testutil.MockFunctions
 }
 
@@ -80,6 +81,20 @@ func (c *MockClient) SetChainID(id *big.Int) {
 		return
 	}
 	c.chainID = new(big.Int).Set(id)
+}
+
+// LatestBlockNumber returns the configured mock block number (default 0).
+func (c *MockClient) LatestBlockNumber(_ context.Context) (uint64, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.blockNumber, nil
+}
+
+// SetBlockNumber sets the mock block number returned by LatestBlockNumber.
+func (c *MockClient) SetBlockNumber(n uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.blockNumber = n
 }
 
 func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request) error {

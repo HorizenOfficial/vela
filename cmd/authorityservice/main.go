@@ -98,7 +98,7 @@ func main() {
 		}
 	}()
 
-	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, bc, log)
+	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, bc, cfg.EventQueryBatchSize, cfg.EventQueryMaxBatches, log)
 	if err != nil {
 		log.Error("Failed to create authority service: %v", err)
 		return
