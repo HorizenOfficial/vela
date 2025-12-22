@@ -18,6 +18,7 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/logserver"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/mockdb"
@@ -43,7 +44,7 @@ type SystemTestSuite struct {
 	log                logger.Logger
 }
 
-func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *SystemTestSuite {
+func NewSystemTestSuite(t *testing.T, appType string, mgrLog logger.Logger, excLog logger.Logger) *SystemTestSuite {
 	// log is passed from outside, the log settings in the manager configuration does not affect it.
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
@@ -51,7 +52,7 @@ func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *System
 	require.NoError(t, err)
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, log)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLog, excLog)
 }
 
 func NewSystemTestSuiteWithConfigs(
@@ -61,7 +62,8 @@ func NewSystemTestSuiteWithConfigs(
 	execConfig *executor.Config,
 	keySet *executor.EnclaveKeySet,
 	recoveryData *common.EnclaveKeySetRecovery,
-	log logger.Logger,
+	mgrLog logger.Logger,
+	excLog logger.Logger,
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -91,7 +93,7 @@ func NewSystemTestSuiteWithConfigs(
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
-	executorClient := communication.NewClient(factory, log)
+	executorClient := communication.NewClient(factory, mgrLog)
 
 	// Create manager
 	var err error
@@ -120,22 +122,34 @@ func NewSystemTestSuiteWithConfigs(
 		require.NoError(t, err)
 	}
 
-	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, log)
+	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, mgrLog)
+
+	logserver.StartLogServer(
+		ctx,
+		logserver.LogServerConfig{
+			TCPAddr:        mgrConfig.LogServerTCPAddress,
+			VSockAddr:      mgrConfig.LogServerVSockAddress,
+			LogFilePath:    mgrConfig.LogServerLogFile,
+			ConsoleEnabled: mgrConfig.LogServerConsole,
+			ConsoleLevel:   mgrConfig.LogServerConsoleLevel,
+			FileLevel:      mgrConfig.LogServerFileLevel,
+		},
+	)
 
 	// Create executor
-	server := communication.NewServer(factory, log)
+	server := communication.NewServer(factory, excLog)
 	var runtime executor.Runtime
 	switch appType {
 	case "mock-runtime":
 		t.Log("mock app type: ", appType)
-		runtime = executor.NewMockRuntime(log)
+		runtime = executor.NewMockRuntime(excLog)
 	default:
 		t.Log("wasm app type: ", appType)
-		runtime = wasm.NewWasmtimeRuntime(log)
+		runtime = wasm.NewWasmtimeRuntime(excLog)
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, log)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, excLog)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {
@@ -158,7 +172,7 @@ func NewSystemTestSuiteWithConfigs(
 		cancel:           cancel,
 		dbPath:           dbPath,
 		reportsPath:      reportsPath,
-		log:              log,
+		log:              mgrLog,
 	}
 
 	if keySet != nil {

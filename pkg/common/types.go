@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
@@ -210,6 +212,31 @@ type VSockChannelConnectionParams struct {
 
 func (VSockChannelConnectionParams) IsChannelConnectionParams() {}
 
+// NewVSockChannelConnectionParams parses "cid:port"
+func NewVSockChannelConnectionParams(s string) (*VSockChannelConnectionParams, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid vsock address %q, expected cid:port", s)
+	}
+
+	// Parse CID
+	cid64, err := strconv.ParseUint(parts[0], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CID %q: %w", parts[0], err)
+	}
+
+	// Parse port
+	port64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port %q: %w", parts[1], err)
+	}
+
+	return &VSockChannelConnectionParams{
+		CID:  uint32(cid64),
+		Port: uint32(port64),
+	}, nil
+}
+
 type TcpChannelConnectionParams struct {
 	Ip   string
 	Port uint32
@@ -219,4 +246,23 @@ func (TcpChannelConnectionParams) IsChannelConnectionParams() {}
 
 func (f TcpChannelConnectionParams) Url() string {
 	return fmt.Sprintf("%s:%d", f.Ip, f.Port)
+}
+
+// NewTcpChannelConnectionParams parses "ip:port"
+func NewTcpChannelConnectionParams(addr string) (*TcpChannelConnectionParams, error) {
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid address %q, expected ip:port", addr)
+	}
+
+	// Parse port
+	port64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port %q: %w", parts[1], err)
+	}
+
+	return &TcpChannelConnectionParams{
+		Ip:   parts[0],
+		Port: uint32(port64),
+	}, nil
 }

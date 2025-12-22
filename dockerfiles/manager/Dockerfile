@@ -55,6 +55,8 @@ ENV MANAGER_DATA_FOLDER="/data"
 ENV MANAGER_REPORTS_FOLDER="/reports"
 #default location for input wasms folder (can be overridden by docker compose or docker run)
 ENV MANAGER_INPUT_WASMS="/input_wasms"
+#default location for logs folder (can be overridden by docker compose or docker run)
+ENV LOG_SERVER_FOLDER="/logs"
 
 # Create a non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -68,6 +70,7 @@ COPY --from=builder /manager /manager
 
 VOLUME ${MANAGER_DATA_FOLDER}
 VOLUME ${MANAGER_REPORTS_FOLDER}
+VOLUME ${LOG_SERVER_FOLDER}
 
 # Set the entrypoint to our script.
 # The user is still root here, so the script can chown.
