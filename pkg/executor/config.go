@@ -62,7 +62,7 @@ func LoadConfig() (*Config, error) {
 	logServerPort := common.GetConfigVarInt64("LOG_SERVER_PORT", 5000, fileProperties)
 	if channelType == "vsock" {
 		// CID 3 is reserved for the parent EC2 instance (where manager runs), CID >= 16 are available for enclaves (where executor runs)
-		// CID is not used actually when creating a lstening server
+		// CID is not used actually when creating a listening server
 		channelServerConnectionParams = common.VSockChannelConnectionParams{Port: uint32(executorServerPort)}
 		// CID and port are both used when connecting to a server
 		managerCid := common.GetConfigVarInt64("MANAGER_VSOCK_CID", 3, fileProperties)

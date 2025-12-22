@@ -131,12 +131,7 @@ func (w *AsyncWriter) Write(p []byte) (n int, err error) {
 	copy(buf, p)
 
 	// Send to buffer without blocking
-	select {
-	case w.logBuffer <- buf:
-	default:
-		// Buffer is full, drop the message but log it to fallback writer
-		w.fallbackWriter.Write([]byte("Remote log buffer is full. Dropping message:\n"))
-	}
+	w.sendToLogBuffer(buf)
 
 	return len(p), nil
 }
@@ -160,30 +155,27 @@ func (w *AsyncWriter) run() {
 			}
 
 			// Connection is live, start processing buffer.
-			if !w.processBuffer() {
-				// processBuffer returned false, meaning connection is dead.
-				// The loop will now attempt to reconnect.
-				continue
-			}
+			w.processBuffer()
 		}
 	}
 }
 
 // processBuffer reads from the buffer and writes to the network.
 // Returns false if connection is broken.
-func (w *AsyncWriter) processBuffer() bool {
+func (w *AsyncWriter) processBuffer() {
 	for {
 		select {
 		// blocks until a msg is available or the chan is closed
 		case msg, ok := <-w.logBuffer:
 			if !ok {
-				return true // channel closed
+				return // channel closed
 			}
 			// Capture a snapshot of the connection to prevent race during Write
 			conn := w.getConn()
 			if conn == nil {
-				w.requeueMessage(msg)
-				return false
+				// put the msg back in the buffer
+				w.sendToLogBuffer(msg)
+				return
 			}
 
 			if _, err := conn.Write(msg); err != nil {
@@ -192,23 +184,24 @@ func (w *AsyncWriter) processBuffer() bool {
 				w.closeConn()
 				// put the message back in the buffer, but non-blocking
 				// in case the buffer is full (should be rare)
-				w.requeueMessage(msg)
-				return false // Signal connection is broken
+				w.sendToLogBuffer(msg)
+				return // Signal connection is broken
 			}
 			// go on with the for loop and consume any other msg if any
 			//return true
 		case <-w.stopChan:
-			return true // Shutdown
+			return // Shutdown
 		}
 	}
 }
 
-// requeueMessage attempts to put a message back in the buffer if a write fails.
-func (w *AsyncWriter) requeueMessage(msg []byte) {
+// sendToLogBuffer attempts to put a message in the writer log buffer
+func (w *AsyncWriter) sendToLogBuffer(msg []byte) {
 	select {
 	case w.logBuffer <- msg:
 	default:
 		// If buffer is full, we must drop it to prevent deadlock
+		w.fallbackWriter.Write([]byte("Remote log buffer is full. Dropping message:\n"))
 	}
 }
 
