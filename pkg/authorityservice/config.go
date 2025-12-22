@@ -60,7 +60,7 @@ func LoadConfig() (*Config, error) {
 	tlsCert := common.GetConfigVar("AUTHORITY_SERVICE_TLS_CERT", "", fileProps)
 	tlsKey := common.GetConfigVar("AUTHORITY_SERVICE_TLS_KEY", "", fileProps)
 
-	chainID := uint64(common.GetConfigVarInt64("AUTHORITY_SERVICE_CHAIN_ID", 0, fileProps))
+	chainID := uint64(common.GetConfigVarInt64("CHAIN_ID", 0, fileProps))
 	nonceTTL := common.GetConfigVarInt64("AUTHORITY_SERVICE_NONCE_TTL", 300, fileProps)
 
 	// We reuse MANAGER_REPORTS_FOLDER so manager and authority service point to the same folder by default

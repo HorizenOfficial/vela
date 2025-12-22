@@ -85,7 +85,7 @@ services:
     restart: always
     environment:
       - AUTHORITY_SERVICE_LISTEN_ADDRESS
-      - AUTHORITY_SERVICE_CHAIN_ID
+      - CHAIN_ID
       - AUTHORITY_SERVICE_NONCE_TTL
       - CHAIN_RPC_PROTOCOL
       - CHAIN_RPC_ADDRESS

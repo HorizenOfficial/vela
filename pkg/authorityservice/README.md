@@ -12,7 +12,7 @@ The signature is sent as a **65-byte R||S||V hex string**.
 
 The authority service now verifies on-chain completion before serving a report. Provide these settings via environment variables or `authorityservice.conf`:
 
-- `AUTHORITY_SERVICE_CHAIN_ID`: expected chain id.
+- `CHAIN_ID`: expected chain id.
 - `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`: RPC endpoint to the node.
 - `CHAIN_PROCESSOR_ADDRESS`: ProcessorEndpoint contract address.
 - `AUTHORITY_SERVICE_EVENT_BATCH_SIZE` / `AUTHORITY_SERVICE_EVENT_MAX_BATCHES`: block span per log query and maximum number of batches when searching for `RequestCompleted` events (defaults: 100_000 blocks, 10 batches).
