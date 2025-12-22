@@ -332,7 +332,7 @@ func TestGetUserEvents_StopAtFirst(t *testing.T) {
 	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message, teeKey, userPub)
 
 	//retrieve and decrypt user events
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, nil, true)
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, "", nil, true)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
 
@@ -363,7 +363,7 @@ func TestGetUserEvents_MultipleEvents(t *testing.T) {
 	_submitRequestAndStateUpdateWithEncryptedMessageEvent(t, blockchainClient, testHelper, message3, teeKey, userPub)
 
 	//retrieve and decrypt user events
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, nil, false)
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, "", nil, false)
 	require.NoError(t, err)
 	require.Equal(t, 3, len(userEvents), "There should be 3 user event")
 
@@ -401,7 +401,7 @@ func TestGetUserEvents_WithFilter(t *testing.T) {
 	}
 
 	//retrieve and decrypt user events
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, filter, false)
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, "", filter, false)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
 	require.Equal(t, []byte(messageTrue), userEvents[0], "Decrypted message should match the one that passes the filter")
@@ -436,13 +436,13 @@ func TestGetUserEvents_OtherUsersEvents(t *testing.T) {
 
 	//retrieve and decrypt user events
 	// for user
-	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, nil, true)
+	userEvents, err := blockchainClient.GetUserEvents(context.Background(), *userKey, applicationId, 0, 0, "", nil, true)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(userEvents), "There should be 1 user event")
 	require.Equal(t, []byte(message), userEvents[0], "Decrypted message should match original")
 
 	// for other user
-	otherUserEvents, err := blockchainClient.GetUserEvents(context.Background(), *otherUserKey, applicationId, 0, 0, nil, true)
+	otherUserEvents, err := blockchainClient.GetUserEvents(context.Background(), *otherUserKey, applicationId, 0, 0, "", nil, true)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(otherUserEvents), "There should be 1 user event (other)")
 	require.Equal(t, []byte(messageOther), otherUserEvents[0], "Decrypted message should match original (other)")

@@ -25,9 +25,9 @@ type Client interface {
 	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
 	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
 	// GetUserEvents gets decryptable user events in the given block range
-	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
+	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, eventSubType string, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
 	// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
-	GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType,  fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
+	GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType, fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
 	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
 	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
 
@@ -36,4 +36,3 @@ type Client interface {
 	// Connect connects to the blockchain
 	Connect(ctx context.Context) error
 }
-
