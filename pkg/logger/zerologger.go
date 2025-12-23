@@ -2,12 +2,13 @@ package logger
 
 import (
 	"os"
-	"time"
+	"sync"
 
 	"github.com/rs/zerolog"
 )
 
 type ZeroLogger struct {
+	mu            sync.RWMutex
 	fileLogger    *zerolog.Logger
 	consoleLogger *zerolog.Logger
 	logFile       *os.File
@@ -19,7 +20,7 @@ func init() {
 	zerolog.CallerSkipFrameCount = 3
 	// print timestamp in human readable format with milliseconds precision
 	//zerolog.TimeFieldFormat = time.StampMilli
-	zerolog.TimeFieldFormat = "2006-Dec-02 15:04:05.000"
+	zerolog.TimeFieldFormat = TimeStampFormatMs
 
 }
 
@@ -56,9 +57,10 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 		}
 
 		writer := zerolog.ConsoleWriter{
-			Out:        os.Stderr,
-			TimeFormat: time.RFC3339,
-			NoColor:    !cfg.ConsoleColor,
+			Out:     os.Stderr,
+			NoColor: !cfg.ConsoleColor,
+			// Zerolog ConsoleWriter does not use the global zerolog.TimeFieldFormat, fix it
+			TimeFormat: TimeStampFormatMs,
 		}
 
 		l := zerolog.New(writer).
@@ -73,7 +75,28 @@ func NewZeroLogger(cfg *Config) *ZeroLogger {
 	return &ZeroLogger{fileLogger: fileLogger, consoleLogger: consoleLogger, logFile: logFile}
 }
 
+// we have two loggers here actually, for the time being we set both
+func (z *ZeroLogger) SetLevel(level string) error {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+	lvl, err := zerolog.ParseLevel(level)
+	if err != nil {
+		return err
+	}
+	if z.fileLogger != nil {
+		lgr := z.fileLogger.Level(lvl)
+		z.fileLogger = &lgr
+	}
+	if z.consoleLogger != nil {
+		lgr := z.consoleLogger.Level(lvl)
+		z.consoleLogger = &lgr
+	}
+	return nil
+}
+
 func (z *ZeroLogger) Trace(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
 	if z.consoleLogger != nil {
 		z.consoleLogger.Trace().Msgf(msg, args...)
 	}
@@ -82,6 +105,8 @@ func (z *ZeroLogger) Trace(msg string, args ...any) {
 	}
 }
 func (z *ZeroLogger) Debug(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
 	if z.consoleLogger != nil {
 		z.consoleLogger.Debug().Msgf(msg, args...)
 	}
@@ -90,6 +115,8 @@ func (z *ZeroLogger) Debug(msg string, args ...any) {
 	}
 }
 func (z *ZeroLogger) Info(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
 	if z.consoleLogger != nil {
 		z.consoleLogger.Info().Msgf(msg, args...)
 	}
@@ -98,6 +125,8 @@ func (z *ZeroLogger) Info(msg string, args ...any) {
 	}
 }
 func (z *ZeroLogger) Warn(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
 	if z.consoleLogger != nil {
 		z.consoleLogger.Warn().Msgf(msg, args...)
 	}
@@ -106,6 +135,8 @@ func (z *ZeroLogger) Warn(msg string, args ...any) {
 	}
 }
 func (z *ZeroLogger) Error(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
 	if z.consoleLogger != nil {
 		z.consoleLogger.Error().Msgf(msg, args...)
 	}
@@ -114,6 +145,8 @@ func (z *ZeroLogger) Error(msg string, args ...any) {
 	}
 }
 func (z *ZeroLogger) Fatal(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
 	if z.consoleLogger != nil {
 		z.consoleLogger.Fatal().Stack().Msgf(msg, args...)
 	}
@@ -122,6 +155,8 @@ func (z *ZeroLogger) Fatal(msg string, args ...any) {
 	}
 }
 func (z *ZeroLogger) Panic(msg string, args ...any) {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
 	if z.consoleLogger != nil {
 		z.consoleLogger.Panic().Stack().Msgf(msg, args...)
 	}

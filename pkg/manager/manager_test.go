@@ -20,6 +20,7 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	cryptos "github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/logserver"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/stretchr/testify/require"
@@ -42,6 +43,17 @@ func TestMain(m *testing.M) {
 			//FileLevel:    "info",
 		},
 	)
+	/*
+		testLogger = logger.NewLogger(
+			&logger.Config{
+				Kind:         "zeronetwork",
+				ConsoleLevel: "trace",
+				// use a non-default port otherwise we can have bind failures if running tests concurrently
+				RemoteLogParams:  common.TcpChannelConnectionParams{Ip: "localhost", Port: 5001},
+				RemoteLogNetwork: "tcp",
+				NetworkLevel:     "trace"},
+		)
+	*/
 
 	// Run tests
 	code := m.Run()
@@ -144,19 +156,28 @@ func createRequestWithPayload(requestType common.RequestType, appID common.Appli
 func TestStart(t *testing.T) {
 
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	config := &Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}
+	config := &Config{
+		HandshakeTimeout:          10,
+		BlockchainPollingInterval: 10,
+		PrivateKey:                *key,
+		LogServerTCPAddress:       common.TcpChannelConnectionParams{Ip: "localhost", Port: 5001},
+		LogServerLogFile:          "/tmp/temp.log",
+	}
 	stopChan := make(chan struct{})
 	executorHandShake := ExecutorHandShake{
 		isComplete: make(chan struct{}),
 	}
-	bcClient, manager := setupTestWithConfig(t, *config, false, &executorHandShake, stopChan)
+	ctx := context.Background()
+	mgrAlreadyStarted := false
+	startLogServer := true
+	bcClient, manager := setupTestWithConfig(t, ctx, *config, mgrAlreadyStarted, &executorHandShake, stopChan, startLogServer)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Start the manager but execClient fails to connect
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
 		return fmt.Errorf("Connect failed")
 	})
-	err := manager.Start(context.Background())
+	err := manager.Start(ctx)
 	require.Error(t, err, "Failed to connect to executor, should return error")
 	require.False(t, manager.isRunning, "Manager should not be running after failed start")
 
@@ -187,6 +208,7 @@ func TestStart(t *testing.T) {
 	err = manager.Start(context.Background())
 	require.Error(t, err, "Manager is already started, should return error")
 
+	time.Sleep(1 * time.Second)
 	// Stopping the polling goroutine
 	cancel()
 	manager.wg.Wait()
@@ -196,20 +218,25 @@ func TestStart(t *testing.T) {
 
 func TestStop(t *testing.T) {
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
-	config := &Config{HandshakeTimeout: 10, BlockchainPollingInterval: 10, PrivateKey: *key}
+	config := &Config{
+		HandshakeTimeout:          10,
+		BlockchainPollingInterval: 10,
+		PrivateKey:                *key,
+		LogServerTCPAddress:       common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
 	stopChan := make(chan struct{})
 	executorHandShake := ExecutorHandShake{
 		isComplete: make(chan struct{}),
 	}
-	bcClient, manager := setupTestWithConfig(t, *config, false, &executorHandShake, stopChan)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bcClient, manager := setupTestWithConfig(t, ctx, *config, false, &executorHandShake, stopChan, false)
 	require.False(t, manager.isRunning, "Manager should not be running initially")
 
 	// Stop a manager that is not running
 	err := manager.Stop()
 	require.NoError(t, err, "Stopping a non-running manager should not return error")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Mock successful executor client connection and handshake completion
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
@@ -1053,16 +1080,21 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 }
 
 func setupTest(t *testing.T) (*blockchain.MockClient, *SecureProcessorManager) {
-	config := Config{ReorgTimeout: 60}
-	return setupTestWithConfig(t, config, true, &ExecutorHandShake{}, nil)
+	config := Config{
+		ReorgTimeout:        60,
+		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
+	return setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
 }
 
 func setupTestWithConfig(
 	t *testing.T,
+	ctx context.Context,
 	config Config,
 	managerIsRunning bool,
 	executorHandShake *ExecutorHandShake,
 	stopChan chan struct{},
+	startLogServer bool,
 ) (*blockchain.MockClient, *SecureProcessorManager) {
 	mockDataLayer := mockdb.NewMockDataLayer()
 	bcClient := blockchain.NewMockClient()
@@ -1082,9 +1114,23 @@ func setupTestWithConfig(
 		log:               testLogger,
 	}
 
+	if startLogServer {
+		logserver.StartLogServer(
+			ctx,
+			logserver.LogServerConfig{
+				TCPAddr:        config.LogServerTCPAddress,
+				VSockAddr:      config.LogServerVSockAddress,
+				LogFilePath:    config.LogServerLogFile,
+				ConsoleEnabled: config.LogServerConsole,
+				ConsoleLevel:   config.LogServerConsoleLevel,
+				FileLevel:      config.LogServerFileLevel,
+			},
+		)
+		time.Sleep(500 * time.Millisecond)
+	}
+
 	return bcClient, processor
 }
-
 
 func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	mockBCClient, manager := setupTest(t)

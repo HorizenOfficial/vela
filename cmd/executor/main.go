@@ -28,12 +28,15 @@ func main() {
 
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
-		Kind:         "zerolog",
-		Console:      config.LogConsole,
-		ConsoleLevel: config.LogConsoleLevel,
-		ConsoleColor: config.LogConsoleColor,
-		FileName:     config.LogFileName,
-		FileLevel:    config.LogFileLevel,
+		Kind:             config.LogKind,
+		Console:          config.LogConsole,
+		ConsoleLevel:     config.LogConsoleLevel,
+		ConsoleColor:     config.LogConsoleColor,
+		FileName:         config.LogFileName,
+		FileLevel:        config.LogFileLevel,
+		RemoteLogNetwork: config.ChannelType,
+		RemoteLogParams:  config.LogChannelParams,
+		NetworkLevel:     config.LogNetworkLevel,
 	})
 	defer func() {
 		if err := log.Close(); err != nil {
