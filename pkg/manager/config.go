@@ -55,20 +55,37 @@ type Config struct {
 	// (we may need to load it externally for GAS limitation)
 	InputWasmPath string
 
-	// LogKind is the type of logger to use (e.g., "zerolog", "tcplog")
+	// Manager logging
+	//--------------------------
+	// LogKind is the type of logger to use (e.g., "zeronetwork", "zerolog")
 	LogKind string
-
 	// LogConsole is true if we want output on console
 	LogConsole bool
 	// LogConsoleLevel is the level of logging for the console
 	LogConsoleLevel string
 	// LogConsoleColor is true if the log output should be colored
 	LogConsoleColor bool
-
 	// LogFileName is the path to the log file. An empty string means no output on log file
 	LogFileName string
-	// LogFIleLevel is the level of logging for the console
+	// LogFileLevel is the level of logging for the console
 	LogFileLevel string
+	// LogNetworkLevel is the level of logging for the network
+	LogNetworkLevel string
+
+	// Log Server
+	//-------------------------
+	// LogServerTCPAddress contains the TCP address where the log server will listen for incoming log messages.
+	LogServerTCPAddress common.TcpChannelConnectionParams
+	// LogServerVSockAddress is the address where the log server will listen for incoming VSOCK log messages.
+	LogServerVSockAddress common.VSockChannelConnectionParams
+	// LogServerLogFile is the file path where the manager's log server will write incoming log messages.
+	LogServerLogFile string
+	// LogServerConsole is true if we want output on console
+	LogServerConsole bool
+	// LogServerConsoleLevel is the level of logging for the console
+	LogServerConsoleLevel string
+	// LogFileLevel is the level of logging for the console
+	LogServerFileLevel string
 }
 
 func LoadConfig() (*Config, error) {
@@ -82,15 +99,33 @@ func LoadConfig() (*Config, error) {
 	}
 
 	var channelType = common.GetConfigVar("CHANNEL_TYPE", "vsock", fileProperties)
-	var channelConnectionParams common.ChannelConnectionParams
+
+	// We use the same port value for TCP or Vsock channel types
 	executorServerPort := common.GetConfigVarInt64("EXECUTOR_PORT", 4000, fileProperties)
+	logServerPort := common.GetConfigVarInt64("LOG_SERVER_PORT", 5000, fileProperties)
+
+	// channel communication between manager and executor
+	var channelConnectionParams common.ChannelConnectionParams
+
+	// log server Vsock address, initialized only in case channel type is Vsock
+	var logServerVsockAddress common.VSockChannelConnectionParams
+
 	if channelType == "vsock" {
-		executorServerCid := common.GetConfigVarInt64("CHANNEL_VSOCK_CID", 20, fileProperties)
+		// CID >= 16 are available values for EC2 enclaves (where executor runs)
+		// CID and port are both used when connecting to a server
+		executorServerCid := common.GetConfigVarInt64("EXECUTOR_VSOCK_CID", 20, fileProperties)
 		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
+		// if channel is vsock it means we also have a vsock connection used by executor for logging, we use of course a separate port
+		// CID is not used actually when creating a lstening server
+		logServerVsockAddress = common.VSockChannelConnectionParams{Port: uint32(logServerPort)}
 	} else {
-		executorIpAddress := common.GetConfigVar("EXECUTOR_IP_ADDRESS", "localhost", fileProperties)
-		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpAddress, Port: uint32(executorServerPort)}
+		executorIpHost := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(executorServerPort)}
 	}
+
+	// TCP connection on log server, typically used for manager logs
+	logServerTcpHost := common.GetConfigVar("LOG_SERVER_IP_HOST", "localhost", fileProperties)
+	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: uint32(logServerPort)}
 
 	var privateKey *cryptotypes.PrivateKeySecp256k1
 	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")
@@ -122,12 +157,18 @@ func LoadConfig() (*Config, error) {
 		DataLayerNumOfVersions:    10,
 		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProperties),
 		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
-		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zerolog", fileProperties),
+		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
 		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
 		LogConsoleLevel:           common.GetConfigVar("MANAGER_LOG_CONSOLE_LEVEL", "info", fileProperties),
 		LogConsoleColor:           common.GetConfigVarBool("MANAGER_LOG_CONSOLE_COLOR", false, fileProperties),
 		LogFileName:               common.GetConfigVar("MANAGER_LOG_FILE_NAME", "", fileProperties),
 		LogFileLevel:              common.GetConfigVar("MANAGER_LOG_FILE_LEVEL", "info", fileProperties),
+		LogServerTCPAddress:       logServerTcpAddress,
+		LogServerVSockAddress:     logServerVsockAddress,
+		LogServerLogFile:          common.GetConfigVar("LOG_SERVER_FILE_NAME", "", fileProperties),
+		LogServerConsole:          common.GetConfigVarBool("LOG_SERVER_CONSOLE", true, fileProperties),
+		LogServerConsoleLevel:     common.GetConfigVar("LOG_SERVER_CONSOLE_LEVEL", "warn", fileProperties),
+		LogServerFileLevel:        common.GetConfigVar("LOG_SERVER_FILE_LEVEL", "info", fileProperties),
 	}
 
 	if strings.TrimSpace(cfg.DeanonymizationReportPath) == "" {

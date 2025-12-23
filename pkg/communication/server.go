@@ -69,6 +69,7 @@ func (s *Server) Start(ctx context.Context, idLogTag string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create listener: %w", err)
 	}
+	s.log.Info("%s: server listening on %s %s", idLogTag, listener.Addr().Network(), listener.Addr().String())
 
 	s.listener = listener
 	s.isRunning = true

@@ -251,12 +251,9 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 func (e *StatelessExecutor) Start(ctx context.Context) error {
 	switch e.config.ChannelType {
 	case "tcp":
-		e.log.Info("Executor: Starting TCP executor server on %s", e.config.ChannelParams.(common.TcpChannelConnectionParams).Url())
+		e.log.Info("Executor: Starting TCP executor server")
 	case "vsock":
-		e.log.Info("Executor: Starting v-socket executor server on CID %d, Port %d",
-			e.config.ChannelParams.(common.VSockChannelConnectionParams).CID,
-			e.config.ChannelParams.(common.VSockChannelConnectionParams).Port,
-		)
+		e.log.Info("Executor: Starting v-socket executor server")
 	}
 
 	if err := e.server.Start(ctx, "Executor"); err != nil {	
@@ -600,8 +597,8 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 		ReportID:        req.RequestID,
 		EncryptedReport: encryptedReport,
 		Authority:       req.Sender,
-		RefundAmount: refundAmount,
-		ApplicationFee: applicationFee,
+		RefundAmount:    refundAmount,
+		ApplicationFee:  applicationFee,
 	}
 
 	e.log.Info("Executor: Successfully generated deanonymization report %s", req.RequestID)

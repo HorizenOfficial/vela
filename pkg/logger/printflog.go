@@ -36,7 +36,7 @@ func NewPrintfLogger(cfg *Config) *PrintfLogger {
 		writer = os.Stderr
 	}
 
-	return &PrintfLogger{logger: log.New(writer, "", log.LstdFlags), logFile: logFile}
+	return &PrintfLogger{logger: log.New(writer, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile), logFile: logFile}
 }
 
 func (p *PrintfLogger) Trace(msg string, args ...any) { p.logger.Printf("TRC: "+msg, args...) }
@@ -46,6 +46,18 @@ func (p *PrintfLogger) Warn(msg string, args ...any)  { p.logger.Printf("WRN: "+
 func (p *PrintfLogger) Error(msg string, args ...any) { p.logger.Printf("ERR: "+msg, args...) }
 func (p *PrintfLogger) Fatal(msg string, args ...any) { p.logger.Fatalf("FTL: "+msg, args...) }
 func (p *PrintfLogger) Panic(msg string, args ...any) { p.logger.Panicf("PNC: "+msg, args...) }
+
+// SetLevel is a no-op for PrintfLogger as it does not support levels.
+func (p *PrintfLogger) SetLevel(level string) error {
+	return nil
+}
+
+// Write implements the io.Writer interface for PrintfLogger. It is used for having a fallback logger
+// for zerolog, which needs this method
+func (p *PrintfLogger) Write(b []byte) (n int, err error) {
+	return p.logger.Writer().Write(b)
+}
+
 func (p *PrintfLogger) Close() error {
 	if p.logFile != nil {
 		return p.logFile.Close()
