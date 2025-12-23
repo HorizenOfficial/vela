@@ -11,6 +11,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
 	"github.com/hf/nsm/request"
+	"github.com/hf/nsm/response"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/appdata"
@@ -20,6 +21,12 @@ import (
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/logger"
 )
+
+// NsmSession is an interface abstracting nsm.Session for testability.
+type NsmSession interface {
+	Send(req request.Request) (response.Response, error)
+	Close() error
+}
 
 func CreateNewKeySet() (*EnclaveKeySet, error) {
 	communicationKey, err := crypto.GeneratePrivateKeyP521()
@@ -752,12 +759,22 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {
+	return e.createKeyAttestationInternal(ctx, func() (NsmSession, error) {
+		s, err := nsm.OpenDefaultSession()
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	})
+}
+
+func (e *StatelessExecutor) createKeyAttestationInternal(ctx context.Context, nsmSessionOpener func() (NsmSession, error)) ([]byte, error) {
 	keySet := e.keySet
 	if keySet == nil {
 		return nil, fmt.Errorf("keyset is empty")
 	}
 
-	session, err := nsm.OpenDefaultSession()
+	session, err := nsmSessionOpener()
 	if err != nil {
 		e.log.Info("Executor: error opening nms session: %v", err)
 		return nil, fmt.Errorf("failed to generate attestation")
