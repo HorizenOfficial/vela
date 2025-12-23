@@ -163,10 +163,18 @@ type DeanonymizationReport struct {
 // errors, but to be on the safe side we should consider using a different type in the Guest application,
 // for instance 8xuint32 or 4xuint64 structs representing uint256 values
 
+// LoadModuleResult is a local replacemente for wasmCommon.LoadModuleResult
+type LoadModuleResult struct {
+	State []byte   `json:"state"`
+	Fuel  *big.Int `json:"fuel"`
+	Error string   `json:"error,omitempty"`
+}
+
 // DepositResult is a local replacement for wasmCommon.DepositResult
 type DepositResult struct {
 	State  []byte       `json:"state"`
 	Events []PlainEvent `json:"events"`
+	Fuel   *big.Int     `json:"fuel"`
 	Error  string       `json:"error,omitempty"`
 }
 
@@ -175,18 +183,20 @@ type ProcessResult struct {
 	State       []byte       `json:"state"`
 	Events      []PlainEvent `json:"events"`
 	Withdrawals []Withdrawal `json:"withdrawals"`
+	Fuel        *big.Int     `json:"fuel"`
 	Error       string       `json:"error,omitempty"`
 }
 
 // DeanonymizationResult is a local replacement for wasmCommon.DeanonymizationResult
 type DeanonymizationResult struct {
-	Report []byte `json:"report"`
-	Error  string `json:"error,omitempty"`
+	Report []byte   `json:"report"`
+	Fuel   *big.Int `json:"fuel"`
+	Error  string   `json:"error,omitempty"`
 }
 
 // PlainEvent is a local replacement for common.PlainEvent
 type PlainEvent struct {
-	UserID Address `json:"userID"`
+	UserID Address `json:"userId"`
 	Data   []byte  `json:"data"`
 }
 
@@ -196,13 +206,31 @@ type Withdrawal struct {
 	Amount             *big.Int `json:"amount"`
 }
 
-// WithdrawalEvent is a local replacement for wasmCommon.WithdrawalEvent
-type WithdrawalEvent struct {
+type DepositEvent struct {
+	Type    string   `json:"type"`
+	Amount  *big.Int `json:"amount"`
+	Balance *big.Int `json:"balance"`
+	Nonce   uint64   `json:"nonce"`
+}
+
+type SenderEvent struct {
 	Type    string   `json:"type"`
 	To      Address  `json:"to"`
 	Amount  *big.Int `json:"amount"`
 	Balance *big.Int `json:"balance"`
+	Nonce   uint64   `json:"nonce"`
 }
+
+type RecipientEvent struct {
+	Type    string   `json:"type"`
+	From    Address  `json:"from"`
+	Amount  *big.Int `json:"amount"`
+	Balance *big.Int `json:"balance"`
+	Nonce   uint64   `json:"nonce"`
+}
+
+// WithdrawalEvent is a local replacement for wasmCommon.WithdrawalEvent
+type WithdrawalEvent = SenderEvent
 
 const (
 	WasmSerializationError = `{"error":"wasm serialization error"}`

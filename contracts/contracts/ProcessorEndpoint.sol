@@ -26,16 +26,23 @@ contract ProcessorEndpoint is AccessControl {
 
     ITeeAuthenticator public teeAuthenticator;
     AuthorityRegistry public authorityRegistry;
+
+    uint256 public minFeePerRequest;
+    address payable public feeCollector;
+
     //events
+    event Refund(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
-    event RequestCompleted(bytes32 indexed requestId, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
+    event RequestCompleted(bytes32 indexed requestId, uint256 applicationFees, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
     event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
     event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     event QueueThresholdUpdated(uint256 newThreshold);
+    event FeeCollectorUpdated(address newFeeCollector);
 
     //errors
     error AddressCantBeZero();
+    error FeeValueBelowMinimum();
     error InvalidValue();
     error InvalidProtocolVersion();
     error InvalidApplicationId();
@@ -46,6 +53,7 @@ contract ProcessorEndpoint is AccessControl {
     error InsufficientBalance();
     error AuthorityNotAllowed();
     error QueueThresholdExceeded();
+    error TransferFailed();
 
 
     modifier validProtocolVersion(uint8 protocolVersion) {
@@ -59,7 +67,7 @@ contract ProcessorEndpoint is AccessControl {
     }
 
     //constructor
-    constructor(ITeeAuthenticator _teeAuthenticator, AuthorityRegistry _authorityRegistry, address updateStatusOperator, address admin) {
+    constructor(ITeeAuthenticator _teeAuthenticator, AuthorityRegistry _authorityRegistry, address updateStatusOperator, address admin, uint256 _minFeePerRequest) {
         if(
             _teeAuthenticator == ITeeAuthenticator(address(0)) || 
             _authorityRegistry == AuthorityRegistry(address(0)) ||
@@ -69,8 +77,10 @@ contract ProcessorEndpoint is AccessControl {
 
         teeAuthenticator = _teeAuthenticator;
         authorityRegistry = _authorityRegistry; 
+        feeCollector = payable(updateStatusOperator);
         _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
         _grantRole(ADMIN, admin);
+        minFeePerRequest = _minFeePerRequest;
     }
 
     //request management functions
@@ -79,20 +89,33 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value
+        uint256 depositAmount, // part of the sent value forwarded to the application, for app logic
+        uint256 maxFeeValue // part ot the sent value reserved for fee payment
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
-        //check value
-        if(msg.value != value) revert InvalidValue(); //'value' is redundant now, but it will be needed when using ERC20
+        //check values
+        if(msg.value != depositAmount + maxFeeValue) revert InvalidValue();
+        if(maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
+
         //check queue size
         if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
         if (requestType == Structs.RequestType.ASSOCIATEKEY) {
             //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
             if (payload.length != 133) revert InvalidPayload();
-        }else if  (requestType == Structs.RequestType.DEANONYMIZATION && !authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) revert AuthorityNotAllowed();
+        } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
+
+            // deanonymization requests MUST have depositAmount = 0
+            if (depositAmount != 0) revert InvalidValue();
+
+            // only allowed authorities can request deanonymization
+            if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
+                revert AuthorityNotAllowed();
+            }
+        }
+
         
         //create request
-        bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, value, _tail);
+        bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, depositAmount, _tail);
         requestById[requestId] = 
             Structs.PendingRequest(
                 protocolVersion,
@@ -102,7 +125,8 @@ contract ProcessorEndpoint is AccessControl {
                 payload,
                 block.timestamp,
                 msg.sender,
-                value
+                depositAmount,
+                maxFeeValue
             );
         _requestIdByOrder[_tail] = requestId;
 
@@ -122,37 +146,58 @@ contract ProcessorEndpoint is AccessControl {
 
     }
 
-    function markRequestCompleted(bytes32 requestId) public onlyRole(UPDATE_STATUS_ROLE) {
+    function markRequestCompleted(bytes32 requestId, uint256 refund, uint256 applicationFees) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
-        _markRequestCompleted(requestId);
+        //check values
+        Structs.PendingRequest memory requestInfo = requestById[requestId];
+        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue(); 
+        if(applicationFees < minFeePerRequest) {
+            revert InvalidValue();
+        }
+        if(refund > 0) {
+            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+            if (refundSent) {
+                emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
+            }
+        }
+
+        (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+        _markRequestCompleted(requestId, applicationFees);
     }
 
-    function _markRequestCompleted(bytes32 requestId) private {
+    function _markRequestCompleted(bytes32 requestId, uint256 applicationFees) private {
 
        _removeRequest();
 
-        emit RequestCompleted(requestId, Structs.RequestResult.COMPLETED, Structs.ErrorCode.NO_ERROR, "");
+        emit RequestCompleted(requestId, applicationFees, Structs.RequestResult.COMPLETED, Structs.ErrorCode.NO_ERROR, "");
     }
 
+    // We return the maxValueFee - minFeePerRequest (to be changed in the future)
     function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         address sender = requestById[requestId].sender;
-        uint256 value = requestById[requestId].value;
+        uint256 depositAmount = requestById[requestId].depositAmount;
+        uint256 maxFeeValue = requestById[requestId].maxFeeValue;
 
-       _removeRequest();
-
-        if (value == 0) {
-            emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
-            return;
-        }
+        _removeRequest();
         //refunds
-        (bool refunded, ) = payable(sender).call{value: value}("");
+        uint256 refund = depositAmount + (maxFeeValue - minFeePerRequest);
+        if(refund > 0) {
+            (bool refundSent, ) = payable(sender).call{value: refund}("");
+            if (refundSent) {
+                emit Refund(requestById[requestId].applicationId, requestId, sender, refund);
+            }
+        }
 
-        if(refunded) emit RequestCompleted(requestId, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
-        else emit RequestCompleted(requestId, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage); 
-
+        //minimum fee is collected
+        (bool feeSent, ) = payable(feeCollector).call{value: minFeePerRequest}("");
+        if (feeSent) {
+            emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
+        } else {
+            emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage); 
+        }
     }
 
     function getPendingRequestsSize() public view returns(uint256) {
@@ -187,16 +232,24 @@ contract ProcessorEndpoint is AccessControl {
         bytes32 processedRequestId,
         bytes[] memory events, 
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
+        uint256 refund,
+        uint256 applicationFees,
         bytes memory signature
     ) public validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
-
         //check prev state root
         if(stateRoot != bytes32(0) && prevStateRoot != stateRoot) revert InvalidStateRoot();
         //check valid request
         if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
         //check signature
-        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature)) revert InvalidSignature();
+        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, refund, applicationFees, signature)) revert InvalidSignature();
+
+        //check values
+        Structs.PendingRequest memory requestInfo = requestById[processedRequestId];
+        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue();
+        if(applicationFees < minFeePerRequest) {
+            revert InvalidValue();
+        }
 
         //check withdrawal sums 
         uint256 i;
@@ -205,10 +258,11 @@ contract ProcessorEndpoint is AccessControl {
             sum += withdrawalRequests[i].amount;
             unchecked {++i;}
         }
+        sum += refund + applicationFees;
         if(sum > address(this).balance) revert InsufficientBalance();
 
         //set requests as completed
-        _markRequestCompleted(processedRequestId);
+        _markRequestCompleted(processedRequestId, applicationFees);
 
         //emit encrypted event
         i = 0;
@@ -221,19 +275,41 @@ contract ProcessorEndpoint is AccessControl {
         stateRoot = newStateRoot;
         emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
+        if(refund > 0) {
+            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+            if (!refundSent) {
+                revert TransferFailed();
+            }
+        }
+        emit Refund(applicationId, processedRequestId, requestInfo.sender, refund);
+
+        (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+        if (!feeSent) {
+            revert TransferFailed();
+        }
+            
         //execute withdrawals (as last operation)
         i = 0;
         while(i < withdrawalRequests.length) {
-            withdrawalRequests[i].receiver.transfer(withdrawalRequests[i].amount);
+            (bool withdrawn, ) = payable(withdrawalRequests[i].receiver).call{value: withdrawalRequests[i].amount}("");
+            if (!withdrawn) {
+                revert TransferFailed();
+            }
             emit Withdrawal(applicationId, processedRequestId, withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
             unchecked {++i;}
-        }
+        }  
     }
 
     function updateQueueThreshold(uint256 newThreshold) public onlyRole(ADMIN) {
         if (newThreshold == 0) revert InvalidValue();
         maxQueueSize = newThreshold;
         emit QueueThresholdUpdated(newThreshold);
+    }
+
+    function updateFeeCollector(address payable newFeeCollector) public onlyRole(ADMIN) {
+        if (newFeeCollector == address(0)) revert AddressCantBeZero();
+        feeCollector = newFeeCollector;
+        emit FeeCollectorUpdated(newFeeCollector);
     }
 
     function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {
@@ -257,7 +333,7 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value,
+        uint256 depositAmount,
         uint256 idx
         ) public pure returns (bytes32) {
         
@@ -266,7 +342,7 @@ contract ProcessorEndpoint is AccessControl {
             applicationId,
             requestType,
             payload,
-            value,
+            depositAmount,
             idx
        ));
 

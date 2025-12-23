@@ -2,15 +2,38 @@ package wasm
 
 import (
 	"encoding/binary"
+	"os"
 	"testing"
 
 	"github.com/bytecodealliance/wasmtime-go"
+	"github.com/horizen-pes/pkg/logger"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
 
+var testLogger logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once, by default it writes on stderr
+	//	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			ConsoleLevel: "trace",
+			//FileName:     "qqq.log",
+			//FileLevel:    "info",
+		},
+	)
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
+
 func TestWriteToMemory_NilModule(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	_, err := runtime.writeToMemory(nil, []byte("some data"))
@@ -19,7 +42,7 @@ func TestWriteToMemory_NilModule(t *testing.T) {
 }
 
 func TestWriteToMemory_NilModuleStore(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	// Create a per-module store
@@ -42,7 +65,7 @@ func TestWriteToMemory_NilModuleStore(t *testing.T) {
 }
 
 func TestWriteToMemory_NilMemory(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	module := &ApplicationModule{} // memory is nil by default
@@ -53,7 +76,7 @@ func TestWriteToMemory_NilMemory(t *testing.T) {
 }
 
 func TestWriteToMemory_NilData(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	// Create a per-module store
@@ -83,7 +106,7 @@ func TestWriteToMemory_NilData(t *testing.T) {
 }
 
 func TestExtractResultBytes(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	// Create a per-module store
@@ -150,7 +173,7 @@ func TestExtractResultBytes(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	runtime := NewWasmtimeRuntime()
+	runtime := NewWasmtimeRuntime(testLogger)
 	// Add a dummy module to ensure the map is cleared
 	runtime.modules[1] = &ApplicationModule{}
 

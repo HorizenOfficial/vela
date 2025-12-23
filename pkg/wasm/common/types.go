@@ -12,10 +12,18 @@ const WasmSerializationError = `{"error":"wasm serialization error"}`
 
 // TODO add applicationId to the definitions where appropriate, in future we will have many different apps
 
+// LoadModuleResult represents the result of a load module operation
+type LoadModuleResult struct {
+	State []byte   `json:"state"`
+	Fuel  *big.Int `json:"fuel"`
+	Error string   `json:"error,omitempty"`
+}
+
 // DepositResult represents the result of a deposit operation
 type DepositResult struct {
 	State  []byte              `json:"state"`
 	Events []common.PlainEvent `json:"events"`
+	Fuel   *big.Int            `json:"fuel"`
 	Error  string              `json:"error,omitempty"`
 }
 
@@ -24,13 +32,15 @@ type ProcessResult struct {
 	State       []byte              `json:"state"`
 	Events      []common.PlainEvent `json:"events"`
 	Withdrawals []common.Withdrawal `json:"withdrawals"`
+	Fuel        *big.Int            `json:"fuel"`
 	Error       string              `json:"error,omitempty"`
 }
 
 // DeanonymizationResult represents the result of generating deanonymization report
 type DeanonymizationResult struct {
-	Report []byte `json:"report"`
-	Error  string `json:"error,omitempty"`
+	Report []byte   `json:"report"`
+	Fuel   *big.Int `json:"fuel"`
+	Error  string   `json:"error,omitempty"`
 }
 
 type DepositEvent struct {

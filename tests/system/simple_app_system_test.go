@@ -20,10 +20,45 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/executor"
+	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/testutil"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
+
+var testLogger1 logger.Logger
+var testLogger2 logger.Logger
+
+func TestMain(m *testing.M) {
+	// Initialize once
+	//	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
+	testLogger1 = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleLevel: "info",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			//FileName:     "qqq.log", //no file here
+			//FileLevel:    "info",
+		},
+	)
+
+	testLogger2 = logger.NewLogger(
+		&logger.Config{
+			Kind:             "zeronetwork",
+			ConsoleLevel:     "trace",
+			RemoteLogNetwork: "tcp",
+			//			RemoteLogAddress: "127.0.0.1:2233",
+			RemoteLogParams: common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 5000},
+			//RemoteLogNetwork: "vsock",
+			//RemoteLogAddress: "5:2233",
+			NetworkLevel: "trace"},
+	)
+
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
+}
 
 // buildAndLoadWasmModule is a helper function to build the wasm module and read its bytecode.
 func buildAndLoadWasmModule(t *testing.T) []byte {
@@ -61,6 +96,8 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		Payload:       wasmBytecode,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
+		DepositAmount: big.NewInt(0),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -124,9 +161,11 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 
 func TestExecutorManagerStart(t *testing.T) {
 
-	mgrConfig := manager.ReadConfig()
-	execConfig := executor.ReadConfig()
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil)
+	mgrConfig, err := manager.LoadConfig()
+	require.NoError(t, err)
+	execConfig, err := executor.LoadConfig()
+	require.NoError(t, err)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger2, testLogger2)
 	defer suite.Cleanup()
 
 	// 2. Start services
@@ -137,7 +176,8 @@ func TestExecutorManagerStart(t *testing.T) {
 }
 
 func TestDeploySimpleApp(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+	// we use for both mgr and executor the remote network logger
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger2, testLogger2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -154,7 +194,7 @@ func TestDeploySimpleApp(t *testing.T) {
 
 // this will be modified when we support an app id other that "1"
 func TestDeploySimpleAppNegativeCase(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -178,6 +218,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Payload:       wasmBytecode,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
+		DepositAmount: big.NewInt(0),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -208,6 +250,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Payload:       wasmBytecode,
 		Sender:        sender,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
+		DepositAmount: big.NewInt(0),
+		MaxFeeValue:   big.NewInt(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -229,7 +273,7 @@ func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)
@@ -248,8 +292,10 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	user1Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
 	user2Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 
-	mgrConfig := manager.ReadConfig()
-	execConfig := executor.ReadConfig()
+	mgrConfig, err := manager.LoadConfig()
+	require.NoError(t, err)
+	execConfig, err := executor.LoadConfig()
+	require.NoError(t, err)
 	tempDir, err := os.MkdirTemp("", "reports_system_test")
 	require.NoError(t, err)
 	mgrConfig.DeanonymizationReportPath = tempDir
@@ -257,7 +303,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// we need to pass the keys for having them in the test suite
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -411,7 +457,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NotNil(t, deanonReport)
 
 	// 4. Read and decrypt the report
-	reportFilePath := filepath.Join(tempDir, appID.String()+"_"+RequestID.String())
+	reportFilePath := filepath.Join(tempDir, common.ReportFilename(appID, RequestID))
 	encryptedReportBytes, err := os.ReadFile(reportFilePath)
 	require.NoError(t, err, "The report file should be saved to the filesystem")
 
@@ -463,7 +509,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	}
 	timeout_value := 10 * time.Second
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime")
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode

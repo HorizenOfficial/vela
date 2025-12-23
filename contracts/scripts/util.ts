@@ -7,7 +7,9 @@ export async function ethSignStateUpdate(
   newStateRoot: string,
   processedRequestId: string,
   events: string[],
-  withdrawalRequests: any[][]
+  withdrawalRequests: any[][],
+  refund: number | BigNumberish,
+  applicationFees: number | BigNumberish,
 ): Promise<string> {
   const eventsHash = ethers.keccak256(AbiCoder.defaultAbiCoder().encode(["bytes[]"], [events]));
   const withdrawalRequestsHash = ethers.keccak256(AbiCoder.defaultAbiCoder().encode(["tuple(address recipient, uint256 amount)[]"], [withdrawalRequests]));
@@ -19,9 +21,11 @@ export async function ethSignStateUpdate(
       "bytes32",
       "bytes32",
       "bytes32",
-      "bytes32"
+      "bytes32",
+      "uint256",
+      "uint256",
     ],
-    [applicationId, prevStateRoot, newStateRoot, processedRequestId, eventsHash, withdrawalRequestsHash]
+    [applicationId, prevStateRoot, newStateRoot, processedRequestId, eventsHash, withdrawalRequestsHash, refund, applicationFees]
   )
 
   const messageHash = ethers.keccak256(encoded)

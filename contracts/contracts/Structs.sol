@@ -22,7 +22,8 @@ contract Structs {
         WRONG_KEY_SENT,
         PUB_KEY_NOT_REGISTERED,
         NO_REPORT_DATA_FOUND,
-        WASM_INTERNAL
+        WASM_INTERNAL,
+        INSUFFICIENT_FUEL
     }
     
     struct PendingRequest {
@@ -33,7 +34,8 @@ contract Structs {
         bytes payload;
         uint256 timestamp; //assigned automatically
         address sender; //assigned automatically
-        uint256 value; //assigned automatically
+        uint256 depositAmount; //assigned automatically
+        uint256 maxFeeValue;
     }
 
     struct WithdrawalRequest {

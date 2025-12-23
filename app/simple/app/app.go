@@ -10,16 +10,21 @@ import (
 
 // --- High-Level Application Logic ---
 
-func LoadModule(appId int64) []byte {
+func LoadModule(appId int64) LoadModuleResult {
 	initialState := &ApplicationInternalState{
 		AppID:    appId,
 		Accounts: make(map[string]*AccountState),
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
-		return []byte(WasmSerializationError)
+		return LoadModuleResult{
+			Error: fmt.Sprintf("failed to marshal initial state: %v", err),
+		}
 	}
-	return stateJSON
+	return LoadModuleResult{
+		State: stateJSON,
+		Fuel:  big.NewInt(5),
+	}
 }
 
 func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositResult {
@@ -70,7 +75,7 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	if err != nil {
 		return DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %+v", &currentState)}
 	}
-	return DepositResult{State: newStateBytes, Events: events}
+	return DepositResult{State: newStateBytes, Events: events, Fuel: big.NewInt(35)}
 }
 
 func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessResult {
@@ -197,6 +202,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
+		Fuel:        big.NewInt(50),
 	}
 }
 
@@ -228,7 +234,7 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) Deanonymizatio
 	if err != nil {
 		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %+v", report)}
 	}
-	return DeanonymizationResult{Report: reportBytes}
+	return DeanonymizationResult{Report: reportBytes, Fuel: big.NewInt(20)}
 }
 
 func GetAllocatedMemoryStats() MemoryStats {

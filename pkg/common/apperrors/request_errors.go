@@ -24,6 +24,7 @@ const (
 	categoryPubKeyNotRegistered
 	categoryNoReportDataFound
 	categoryWasmInternal
+	categoryInsufficientFuel
 	// NOTE: Keep category IDs in sync with ErrorCode enum in contracts/contracts/Structs.sol.
 )
 
@@ -49,6 +50,7 @@ var (
 	CategoryPubKeyNotRegisteredMeta             = errorCategory{Category: categoryPubKeyNotRegistered, Message: "public key not registered"}
 	CategoryNoReportDataFoundMeta               = errorCategory{Category: categoryNoReportDataFound, Message: "no report data found"}
 	CategoryWasmInternalMeta					= errorCategory{Category: categoryWasmInternal, Message: "wasm internal error"}
+	CategoryInsufficientFuelMeta                = errorCategory{Category: categoryInsufficientFuel, Message: "insufficient fuel"}
 )
 
 type FailureCode struct {
@@ -89,6 +91,7 @@ var (
 	CodePubKeyNotRegistered          = FailureCode{"PUBKEY_NOT_REGISTERED", CategoryPubKeyNotRegisteredMeta}
 	CodeWrongKey                     = FailureCode{"WRONG_KEY", CategoryWrongKeySentMeta}
 	CodeNoReportDataFound            = FailureCode{"NO_REPORT_DATA_FOUND", CategoryNoReportDataFoundMeta}
+	CodeInsufficientFuel			 = FailureCode{"INSUFFICIENT_FUEL", CategoryInsufficientFuelMeta}
 )
 
 type RequestFailure struct {

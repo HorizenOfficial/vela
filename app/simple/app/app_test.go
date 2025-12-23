@@ -11,6 +11,7 @@ import (
 const (
 	testAppId = int64(1)
 )
+
 var (
 	user1Address = HexToAddress("0xadd0000000000000000000000000000000000001")
 	user2Address = HexToAddress("0xadd0000000000000000000000000000000000002")
@@ -43,11 +44,12 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 }
 
 func TestLoadModule(t *testing.T) {
-	stateBytes := LoadModule(testAppId)
-	require.NotNil(t, stateBytes)
+	result := LoadModule(testAppId)
+	require.NotNil(t, result.State)
+	require.NotNil(t, result.Fuel)
 
 	var state ApplicationInternalState
-	err := json.Unmarshal(stateBytes, &state)
+	err := json.Unmarshal(result.State, &state)
 	require.NoError(t, err)
 
 	require.Equal(t, testAppId, state.AppID)
@@ -75,7 +77,7 @@ func TestDepositFunds(t *testing.T) {
 		event := result.Events[0]
 		require.Equal(t, user1Address, event.UserID)
 		var eventData struct {
-			Type   string  `json:"type"`
+			Type   string   `json:"type"`
 			Amount *big.Int `json:"amount"`
 		}
 		err = json.Unmarshal(event.Data, &eventData)
@@ -326,7 +328,7 @@ func TestProcessRequest(t *testing.T) {
 
 		result := ProcessRequest(&nonexistent, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Contains(t, result.Error, "does not exist")
+		require.Equal(t, "Account "+nonexistent.Hex()+" does not exist!", result.Error)
 	})
 
 	t.Run("compare with missing instruction", func(t *testing.T) {

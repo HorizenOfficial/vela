@@ -11,8 +11,8 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/testutil"
 	apperrors "github.com/horizen-pes/pkg/common/apperrors"
+	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,13 +37,15 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 	}
 	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
-			ApplicationID: req.ApplicationID,
-			RequestID:     req.RequestID,
-			PrevStateRoot: appState.StateRoot,
-			NewStateRoot:  newStateRoot,
-			Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-			Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
-			Signature:     []byte("test-signature"),
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  appState.StateRoot,
+			NewStateRoot:   newStateRoot,
+			Events:         []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
+			Withdrawals:    []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
+			Signature:      []byte("test-signature"),
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: big.NewInt(100),
 		},
 		&common.ApplicationState{
 			ApplicationID:  req.ApplicationID,
@@ -59,11 +61,13 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 	}
 	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
-			ApplicationID: req.ApplicationID,
-			RequestID:     req.RequestID,
-			PrevStateRoot: [32]byte{},
-			NewStateRoot:  newStateRoot,
-			Signature:     []byte("test-signature"),
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  [32]byte{},
+			NewStateRoot:   newStateRoot,
+			Signature:      []byte("test-signature"),
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: big.NewInt(100),
 		},
 		&common.ApplicationState{
 			ApplicationID:  req.ApplicationID,
@@ -87,7 +91,7 @@ func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Con
 
 // MockClientRequestHandler is a mock implementation for testing the new client
 type MockClientRequestHandler struct {
-	GetUserKeysFunc func(ctx context.Context, users []string) (map[string][]byte, *apperrors.RequestFailure)
+	GetUserKeysFunc       func(ctx context.Context, users []string) (map[string][]byte, *apperrors.RequestFailure)
 	SetKeysetRecoveryFunc func(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
 	GetKeysetRecoveryFunc func(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
 }
@@ -124,14 +128,14 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8083")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 
 	// Test connecting to the server
 	err = client.Connect(ctx, "Client")
@@ -150,7 +154,8 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
-		//Value:           0,
+		DepositAmount:   big.NewInt(0),
+		MaxFeeValue:     big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  ApplicationId,
@@ -199,14 +204,14 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8086")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 	client.SetClientRequestHandler(clientHandler)
 
 	// Test connecting to the server
@@ -228,7 +233,8 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 			Sender:          senderAddress,
-			//Value:           0,
+			DepositAmount:   big.NewInt(0),
+			MaxFeeValue:     big.NewInt(100),
 		}
 		appState := &common.ApplicationState{
 			ApplicationID:  ApplicationId,
@@ -254,7 +260,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8087")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
@@ -262,7 +268,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 
 	// Test connecting and disconnecting multiple times
 	for i := 0; i < 3; i++ {
-		client := NewClient(factory)
+		client := NewClient(factory, testLogger)
 
 		err = client.Connect(ctx, "Client")
 		require.NoError(t, err, "Connection %d should succeed", i)
@@ -279,7 +285,8 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 			Sender:          senderAddress,
-			//Value:           0,
+			DepositAmount:   big.NewInt(0),
+			MaxFeeValue:     big.NewInt(100),
 		}
 
 		_, appState, failure := client.SendDeployApp(ctx, req)
@@ -311,14 +318,14 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8088")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(ctx, "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 	client.SetClientRequestHandler(clientHandler)
 
 	// Test connecting to the server
@@ -338,7 +345,8 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
-		//Value:           0,
+		DepositAmount:   big.NewInt(0),
+		MaxFeeValue:     big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  ApplicationId,
@@ -384,7 +392,7 @@ func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8090")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	server.SetConnectionHandler(func(ctx context.Context, conn ServerConnection) {
 		wg.Add(1)
@@ -400,7 +408,7 @@ func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 	client.SetClientRequestHandler(clientHandler)
 
 	// Test connecting to the server
@@ -432,26 +440,28 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 			// check is performed each 5 seconds, and timeout is 30 seconds, so 35 is the worst case
 			time.Sleep(35 * time.Second)
 			return &common.UpdatePayload{
-				ApplicationID: req.ApplicationID,
-				PrevStateRoot: appState.StateRoot,
-				NewStateRoot:  sha256.Sum256([]byte("new-state-root")),
-				Events:        []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:   []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
-				Signature:     []byte("test-signature"),
+				ApplicationID:  req.ApplicationID,
+				PrevStateRoot:  appState.StateRoot,
+				NewStateRoot:   sha256.Sum256([]byte("new-state-root")),
+				Events:         []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
+				Withdrawals:    []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
+				Signature:      []byte("test-signature"),
+				RefundAmount:   req.MaxFeeValue,
+				ApplicationFee: big.NewInt(100),
 			}, appState, nil
 		},
 	}
 
 	// Create a server
 	factory := NewTCPConnectionFactory(":8089")
-	server := NewServer(factory)
+	server := NewServer(factory, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(context.Background(), "Server")
 	require.NoError(t, err)
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory)
+	client := NewClient(factory, testLogger)
 	clientHandler := &MockClientRequestHandler{}
 	client.SetClientRequestHandler(clientHandler)
 
@@ -470,6 +480,8 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
 		Sender:          senderAddress,
+		DepositAmount:   big.NewInt(0),
+		MaxFeeValue:     big.NewInt(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  1,

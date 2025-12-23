@@ -143,7 +143,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From)
+	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, big.NewInt(5))
 	// set up params to deploy an instance of the ProcessorEndpoint contract
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},
@@ -224,7 +224,7 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	return helper
 }
 
-func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
+func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
 	if payload == nil {
 		payload = ethCommon.FromHex("0x00")
 	}
@@ -243,15 +243,15 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 		panic("Unsupported request type")
 	}
 
-	sender.Value = value
-	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, value))
+	sender.Value = new(big.Int).Add(depositAmount, maxFeeValue)
+	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount, maxFeeValue))
 	require.NoError(s.t, err, "failed to submit transaction")
 	sender.Value = big.NewInt(0)
 	return tx
 }
 
-func (s *SimTestHelper) SubmitRequest(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int) *ethTypes.Transaction {
-	return s.SubmitRequestFromUser(applicationId, requestType, payload, value, s.Submitter)
+func (s *SimTestHelper) SubmitRequest(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) *ethTypes.Transaction {
+	return s.SubmitRequestFromUser(applicationId, requestType, payload, depositAmount, maxFeeValue, s.Submitter)
 }
 
 func (s *SimTestHelper) MineBlock() ethCommon.Hash {

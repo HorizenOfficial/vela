@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"net"
 	"time"
+
+	"github.com/horizen-pes/pkg/logger"
 )
 
 //---
@@ -23,9 +24,10 @@ func MessageReaderLoop(
 	shutdownChan chan struct{},
 	routeMessage func(context.Context, Message),
 	closeConnection func(),
+	log logger.Logger,
 ) {
 	defer closeConnection()
-	log.Printf("%s: Entering message reader loop!", logPrefix)
+	log.Info("%s: Entering message reader loop!", logPrefix)
 
 	// A constant for the read timeout, long enough to handle a brief pause in data flow
 	const readTimeout = 1 * time.Second
@@ -56,10 +58,10 @@ func MessageReaderLoop(
 				// Check if it's a timeout error
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 					if len(chunk) > 0 {
-						log.Printf("%s: Read operation timed out while reading!", logPrefix)
+						log.Warn("%s: Read operation timed out while reading!", logPrefix)
 						// bytes has been consumed on the connection communication buffer, save them before resuming reading
 						msgBytes = append(msgBytes, chunk...)
-						log.Printf("%s: added %d bytes to msgBytes buffer, total length now is %d.",
+						log.Info("%s: added %d bytes to msgBytes buffer, total length now is %d.",
 							logPrefix, len(chunk), len(msgBytes))
 					}
 					// Continue the inner loop, hoping more data arrives later in case of partial read
@@ -69,9 +71,9 @@ func MessageReaderLoop(
 				// If it's a non-timeout error, it's a fatal problem
 				if err == io.EOF {
 					// TODO shall we consider it an error?
-					log.Printf("%s: Connection closed gracefully.", logPrefix)
+					log.Warn("%s: Connection closed gracefully.", logPrefix)
 				} else {
-					log.Printf("%s: Read error, closing connection: %v", logPrefix, err)
+					log.Warn("%s: Read error, closing connection: %v", logPrefix, err)
 				}
 				return // Exit the entire function
 			}
@@ -79,7 +81,7 @@ func MessageReaderLoop(
 			// Append the received chunk to the message buffer
 			if len(msgBytes) > 0 {
 				// we have a partial read recovered here, log it
-				log.Printf("%s: adding %d bytes to msgBytes buffer, total length %d",
+				log.Warn("%s: adding %d bytes to msgBytes buffer, total length %d",
 					logPrefix, len(chunk), len(msgBytes)+len(chunk))
 			}
 			msgBytes = append(msgBytes, chunk...)
@@ -89,25 +91,25 @@ func MessageReaderLoop(
 				break // The full message has been received, exit the inner loop
 			} else {
 				// TODO shall we consider it an error?
-				log.Printf("%s: delimiter not found in msgBytes buffer, total length %d", logPrefix, len(msgBytes))
+				log.Warn("%s: delimiter not found in msgBytes buffer, total length %d", logPrefix, len(msgBytes))
 			}
 		}
 
 		// At this point, a full message has been read into msgBytes
 		if len(msgBytes) > 2*startEndBufSize {
-			log.Printf("%s: message %d bytes: %x...%x", logPrefix, len(msgBytes), msgBytes[:16], msgBytes[len(msgBytes)-16:])
+			log.Debug("%s: message %d bytes: %x...%x", logPrefix, len(msgBytes), msgBytes[:16], msgBytes[len(msgBytes)-16:])
 		} else {
-			log.Printf("%s: message %d bytes: %x", logPrefix, len(msgBytes), msgBytes)
+			log.Debug("%s: message %d bytes: %x", logPrefix, len(msgBytes), msgBytes)
 		}
 
 		// Parse and route the complete message
 		var msg Message
 		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			log.Printf("%s: Error parsing message: %v", logPrefix, err)
+			log.Error("%s: Error parsing message: %v", logPrefix, err)
 			continue
 		}
 
-		log.Printf("%s: Received message: ID=%s, Type=%v", logPrefix, msg.ID, msg.Type)
+		log.Info("%s: Received message: ID=%s, Type=%v", logPrefix, msg.ID, msg.Type)
 		// Route message in a separate goroutine, making a copy of the message to avoid capturing a loop variable.
 		// By creating this explicit copy, we ensure that each goroutine receives a pointer to its own message,
 		// that is local to this specific iteration of the loop
