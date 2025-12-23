@@ -1,4 +1,4 @@
-package communication
+package admin
 
 import (
 	"bufio"
@@ -11,9 +11,13 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/communication"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+
+var testLogger logger.Logger
 
 func init() {
 	testLogger = logger.NewLogger(
@@ -110,11 +114,11 @@ func TestAdminServer_HandleRequestsKeyAttestationSuccess(t *testing.T) {
 	// Send request from client side
 	req := AdminMessage{Type: KeyAttestationRequestMessage}
 	reqBytes, _ := json.Marshal(req)
-	_, err := clientConn.Write(append(reqBytes, msgDelimiter))
+	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
 
 	// Read response on client side
-	respBytes, err := bufio.NewReader(clientConn).ReadBytes(msgDelimiter)
+	respBytes, err := bufio.NewReader(clientConn).ReadBytes(communication.MsgDelimiter)
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
@@ -141,17 +145,17 @@ func TestAdminServer_HandleRequestsKeyAttestationHandlerError(t *testing.T) {
 
 	req := AdminMessage{Type: KeyAttestationRequestMessage}
 	reqBytes, _ := json.Marshal(req)
-	_, err := clientConn.Write(append(reqBytes, msgDelimiter))
+	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
 
-	respBytes, err := bufio.NewReader(clientConn).ReadBytes(msgDelimiter)
+	respBytes, err := bufio.NewReader(clientConn).ReadBytes(communication.MsgDelimiter)
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
 	json.Unmarshal(respBytes, &respMsg)
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
-	var errData ErrorData
+	var errData communication.ErrorData
 	dataBytes, _ := json.Marshal(respMsg.Data)
 	json.Unmarshal(dataBytes, &errData)
 
@@ -175,17 +179,17 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 
 	req := AdminMessage{Type: 999} // Unknown type
 	reqBytes, _ := json.Marshal(req)
-	_, err := clientConn.Write(append(reqBytes, msgDelimiter))
+	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
 
-	respBytes, err := bufio.NewReader(clientConn).ReadBytes(msgDelimiter)
+	respBytes, err := bufio.NewReader(clientConn).ReadBytes(communication.MsgDelimiter)
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
 	json.Unmarshal(respBytes, &respMsg)
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
-	var errData ErrorData
+	var errData communication.ErrorData
 	dataBytes, _ := json.Marshal(respMsg.Data)
 	json.Unmarshal(dataBytes, &errData)
 
@@ -215,14 +219,14 @@ func TestAdminServer_ServerBusy(t *testing.T) {
 	go server.handleNewClient(context.Background(), serverConn2, "test_busy_2")
 
 	// The second client should get a busy message
-	respBytes, err := bufio.NewReader(clientConn2).ReadBytes(msgDelimiter)
+	respBytes, err := bufio.NewReader(clientConn2).ReadBytes(communication.MsgDelimiter)
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
 	json.Unmarshal(respBytes, &respMsg)
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
-	var errData ErrorData
+	var errData communication.ErrorData
 	dataBytes, _ := json.Marshal(respMsg.Data)
 	json.Unmarshal(dataBytes, &errData)
 
@@ -242,11 +246,11 @@ func TestAdminServer_ServerBusy(t *testing.T) {
 	// Send request from third client side
 	req := AdminMessage{Type: KeyAttestationRequestMessage}
 	reqBytes, _ := json.Marshal(req)
-	_, err = clientConn3.Write(append(reqBytes, msgDelimiter))
+	_, err = clientConn3.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
 
 	// Read response on client side
-	respBytes, err = bufio.NewReader(clientConn3).ReadBytes(msgDelimiter)
+	respBytes, err = bufio.NewReader(clientConn3).ReadBytes(communication.MsgDelimiter)
 	require.NoError(t, err)
 
 	err = json.Unmarshal(respBytes, &respMsg)
@@ -262,6 +266,6 @@ func TestReadMessageFromSocket_ConnectionClosed(t *testing.T) {
 		server.Close() // Close the connection immediately
 	}()
 
-	_, err := ReadMessageFromSocket(client, bufio.NewReader(client), "test", testLogger)
+	_, err := communication.ReadMessageFromSocket(client, bufio.NewReader(client), "test", testLogger)
 	assert.Error(t, err, "Expected an error when connection is closed")
 }

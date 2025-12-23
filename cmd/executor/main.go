@@ -9,6 +9,7 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
@@ -54,13 +55,13 @@ func main() {
 	// Create the appropriate server based on configuration
 
 	var server communication.ExecutorServer
-	var adminServer communication.AdminCommandServer
+	var adminServer admin.AdminCommandServer
 	switch config.ChannelType {
 	case "tcp":
 		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
 		server = communication.NewServer(factory, log)
 		adminFactory := communication.NewTCPConnectionFactory(config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
-		adminServer = communication.NewAdminServer(adminFactory, log)
+		adminServer = admin.NewAdminServer(adminFactory, log)
 	case "vsock":
 		factory := communication.NewVSockConnectionFactory(
 			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
@@ -71,7 +72,7 @@ func main() {
 			config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
 			config.AdminChannelParams.(common.VSockChannelConnectionParams).Port,
 		)
-		adminServer = communication.NewAdminServer(adminFactory, log)
+		adminServer = admin.NewAdminServer(adminFactory, log)
 	default:
 		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return

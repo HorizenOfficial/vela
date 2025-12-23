@@ -76,7 +76,7 @@ func ReadMessageFromSocket(conn net.Conn, reader *bufio.Reader, logPrefix string
 		conn.SetReadDeadline(time.Now().Add(readTimeout))
 
 		// Read a chunk of data from the connection
-		chunk, err := reader.ReadBytes(msgDelimiter)
+		chunk, err := reader.ReadBytes(MsgDelimiter)
 		if err != nil {
 			// Check if it's a timeout error
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -110,7 +110,7 @@ func ReadMessageFromSocket(conn net.Conn, reader *bufio.Reader, logPrefix string
 		msgBytes = append(msgBytes, chunk...)
 
 		// Check if the delimiter was found at the end of the chunk
-		if len(chunk) > 0 && chunk[len(chunk)-1] == msgDelimiter {
+		if len(chunk) > 0 && chunk[len(chunk)-1] == MsgDelimiter {
 			break // The full message has been received, exit the inner loop
 		} else {
 			// TODO shall we consider it an error?

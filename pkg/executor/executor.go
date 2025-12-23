@@ -18,6 +18,7 @@ import (
 	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/logger"
 )
@@ -151,14 +152,14 @@ type StatelessExecutor struct {
 	config  *Config
 	runtime Runtime
 	server  communication.ExecutorServer
-	admCmdServer communication.AdminCommandServer
+	admCmdServer admin.AdminCommandServer
 	*MsgToSignBuilder
 	keySet *EnclaveKeySet
 	log    logger.Logger
 }
 
 // NewStatelessExecutor creates a new stateless executor
-func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, admCmdServer communication.AdminCommandServer, log logger.Logger) (*StatelessExecutor, error) {
+func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, admCmdServer admin.AdminCommandServer, log logger.Logger) (*StatelessExecutor, error) {
 	msgBuilder, err := NewMsgToSignBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup msg to sign builder: %w", err)

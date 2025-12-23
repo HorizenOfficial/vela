@@ -10,8 +10,7 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
-
-const msgDelimiter = byte('\n')
+const MsgDelimiter = byte('\n')
 
 // MessageType represents the type of message being sent
 type MessageType int

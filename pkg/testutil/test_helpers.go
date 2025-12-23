@@ -16,6 +16,7 @@ import (
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/logserver"
@@ -33,7 +34,7 @@ type MockAdminServer struct {}
 
 func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
 func (*MockAdminServer)	Stop() error { return nil}
-func (*MockAdminServer)	SetCmdHandler(handler communication.AdminCmdHandler)  { }
+func (*MockAdminServer)	SetCmdHandler(handler admin.AdminCmdHandler)  { }
 
 
 

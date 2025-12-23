@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/mdlayher/vsock"
 )
@@ -48,8 +49,8 @@ func run() error {
 
 	fmt.Println("Connected to server")
 
-	reqMsg := communication.AdminMessage{
-		Type: communication.KeyAttestationRequestMessage,
+	reqMsg := admin.AdminMessage{
+		Type: admin.KeyAttestationRequestMessage,
 		Data: nil,
 	}
 
@@ -76,14 +77,14 @@ func run() error {
 		return fmt.Errorf("error reading response: %w", err)
 	}
 
-	var respMsg communication.AdminMessage
+	var respMsg admin.AdminMessage
 	if err := json.Unmarshal(respBytes, &respMsg); err != nil {
 		return fmt.Errorf("error unmarshalling response: %w", err)
 	}
 
 	fmt.Println("Received response: ")
 	switch respMsg.Type {
-	case communication.AdminResponseMessage:
+	case admin.AdminResponseMessage:
 		fmt.Println("Type: AdminResponseMessage")
 		responseData, err := json.MarshalIndent(respMsg.Data, "  ", "  ")
 		if err != nil {
@@ -91,7 +92,7 @@ func run() error {
 		}
 		fmt.Printf("Data: %s\n", string(responseData))
 
-	case communication.AdminErrorMessage:
+	case admin.AdminErrorMessage:
 		fmt.Println("Type: AdminErrorMessage")
 		var errData communication.ErrorData
 		dataBytes, _ := json.Marshal(respMsg.Data)

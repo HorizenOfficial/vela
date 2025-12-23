@@ -1,4 +1,4 @@
-package communication
+package admin
 
 import (
 	"bufio"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/communication"
 )
 
 type AdminClientConnection struct {
@@ -23,7 +24,7 @@ type AdminClientConnection struct {
 
 // AdminServer is an implementation of the AdminCommandServer interface
 type AdminServer struct {
-	factory       ConnectionFactory
+	factory       communication.ConnectionFactory
 	mu            sync.Mutex
 	isRunning     bool
 	listener      net.Listener
@@ -36,7 +37,7 @@ type AdminServer struct {
 }
 
 // NewAdminServer creates a new server with the specified connection factory
-func NewAdminServer(factory ConnectionFactory, log logger.Logger) *AdminServer {
+func NewAdminServer(factory communication.ConnectionFactory, log logger.Logger) *AdminServer {
 	return &AdminServer{
 		factory:       factory,
 		shutdownChan:  make(chan struct{}),
@@ -187,7 +188,7 @@ func (c *AdminClientConnection) sendMessage(msg AdminMessage) error {
 	c.log.Debug("%s: MsgBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add newline delimiter
-	data = append(data, msgDelimiter)
+	data = append(data, communication.MsgDelimiter)
 	c.log.Debug("%s: MsgBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write a message
@@ -208,7 +209,7 @@ func (c *AdminClientConnection) handleAdminCommand(ctx context.Context, handler 
 		return
 	}
 
-	msgBytes, connectionClosedErr := ReadMessageFromSocket(c.conn, c.reader, c.idLogTag, c.log)
+	msgBytes, connectionClosedErr := communication.ReadMessageFromSocket(c.conn, c.reader, c.idLogTag, c.log)
 	if connectionClosedErr != nil {
 		return
 	}
@@ -258,7 +259,7 @@ func (c *AdminClientConnection) sendErrorResponse(code string, err error) {
 	c.log.Info("%s: Sending error response: Code=%s, Error=%v", c.idLogTag, code, err)
 	response := AdminMessage{
 		Type: AdminErrorMessage,
-		Data: ErrorData{
+		Data: communication.ErrorData{
 			Code:    code,
 			Message: err.Error(),
 		},
