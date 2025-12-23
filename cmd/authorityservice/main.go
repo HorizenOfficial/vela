@@ -11,9 +11,40 @@ import (
 	"syscall"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/authorityservice"
+	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/logger"
 )
+
+func createBlockchainClient(cfg *authorityservice.Config) (blockchain.Client, error) {
+	if strings.TrimSpace(cfg.ProcessorAddress) == "" {
+		return nil, fmt.Errorf("processor address is empty")
+	}
+	if strings.TrimSpace(cfg.RpcURL) == "" {
+		return nil, fmt.Errorf("rpc url is empty")
+	}
+
+	if !ethCommon.IsHexAddress(cfg.ProcessorAddress) {
+		return nil, fmt.Errorf("processor address is not a valid hex address")
+	}
+
+	return blockchain.NewReadOnlyBlockChainClient(
+		ethCommon.HexToAddress(cfg.ProcessorAddress),
+		cfg.RpcURL,
+	), nil
+}
+
+func ensureChainID(ctx context.Context, bc blockchain.Client, expected uint64, rpcURL string) error {
+	connectedChainID, err := bc.ChainID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve blockchain chain ID: %w", err)
+	}
+	if connectedChainID == nil || connectedChainID.Uint64() != expected {
+		return fmt.Errorf("blockchain chain ID mismatch: expected %d got %v (rpc %s)", expected, connectedChainID, rpcURL)
+	}
+	return nil
+}
 
 func main() {
 	sigChan := make(chan os.Signal, 1)
@@ -48,7 +79,26 @@ func main() {
 		return
 	}
 
-	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, log)
+	bc, err := createBlockchainClient(cfg)
+	if err != nil {
+		log.Error("Failed to create blockchain client: %v", err)
+		return
+	}
+	if err := bc.Connect(ctx); err != nil {
+		log.Error("Failed to connect blockchain client: %v", err)
+		return
+	}
+	if err := ensureChainID(ctx, bc, cfg.ChainID, cfg.RpcURL); err != nil {
+		log.Error("%v", err)
+		return
+	}
+	defer func() {
+		if err := bc.Close(); err != nil {
+			log.Error("Failed to close blockchain client: %v", err)
+		}
+	}()
+
+	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, bc, cfg.EventQueryBatchSize, cfg.EventQueryMaxBatches, log)
 	if err != nil {
 		log.Error("Failed to create authority service: %v", err)
 		return

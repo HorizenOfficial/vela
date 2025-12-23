@@ -24,6 +24,15 @@ type Config struct {
 	// ReportsPath is the filesystem path where deanonymization reports are stored.
 	ReportsPath string
 
+	// RpcURL is the RPC URL used to connect to the blockchain node.
+	RpcURL string
+	// ProcessorAddress is the address of the ProcessorEndpoint contract.
+	ProcessorAddress string
+	// EventQueryBatchSize is the block span per query when searching for completion events.
+	EventQueryBatchSize uint64
+	// EventQueryMaxBatches is the maximum number of batched queries when searching for completion events.
+	EventQueryMaxBatches int
+
 	// LogConsole is true if we want output on console
 	LogConsole bool
 	// LogConsoleLevel is the level of logging for the console
@@ -51,11 +60,19 @@ func LoadConfig() (*Config, error) {
 	tlsCert := common.GetConfigVar("AUTHORITY_SERVICE_TLS_CERT", "", fileProps)
 	tlsKey := common.GetConfigVar("AUTHORITY_SERVICE_TLS_KEY", "", fileProps)
 
-	chainID := uint64(common.GetConfigVarInt64("AUTHORITY_SERVICE_CHAIN_ID", 0, fileProps))
+	chainID := uint64(common.GetConfigVarInt64("CHAIN_ID", 0, fileProps))
 	nonceTTL := common.GetConfigVarInt64("AUTHORITY_SERVICE_NONCE_TTL", 300, fileProps)
 
 	// We reuse MANAGER_REPORTS_FOLDER so manager and authority service point to the same folder by default
 	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProps)
+
+	rpcURL := common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProps) + "://" +
+		common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProps) + ":" +
+		common.GetConfigVar("CHAIN_RPC_PORT", "8545", fileProps)
+
+	processorAddress := common.GetConfigVar("CHAIN_PROCESSOR_ADDRESS", "", fileProps)
+	eventQueryBatchSize := uint64(common.GetConfigVarInt64("AUTHORITY_SERVICE_EVENT_BATCH_SIZE", 100_000, fileProps))
+	eventQueryMaxBatches := int(common.GetConfigVarInt64("AUTHORITY_SERVICE_EVENT_MAX_BATCHES", 10, fileProps))
 
 	logConsole := common.GetConfigVarBool("AUTHORITY_SERVICE_LOG_CONSOLE", true, fileProps)
 	logConsoleLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL", "info", fileProps)
@@ -64,17 +81,20 @@ func LoadConfig() (*Config, error) {
 	logFileLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_FILE_LEVEL", "info", fileProps)
 
 	return &Config{
-		ListenAddress:   listenAddr,
-		TLSCertFile:     tlsCert,
-		TLSKeyFile:      tlsKey,
-		ChainID:         chainID,
-		NonceTTLSeconds: nonceTTL,
-		ReportsPath:     reportsPath,
-		LogConsole:      logConsole,
-		LogConsoleLevel: logConsoleLevel,
-		LogConsoleColor: logConsoleColor,
-		LogFileName:     logFileName,
-		LogFileLevel:    logFileLevel,
+		ListenAddress:        listenAddr,
+		TLSCertFile:          tlsCert,
+		TLSKeyFile:           tlsKey,
+		ChainID:              chainID,
+		NonceTTLSeconds:      nonceTTL,
+		ReportsPath:          reportsPath,
+		RpcURL:               rpcURL,
+		ProcessorAddress:     processorAddress,
+		EventQueryBatchSize:  eventQueryBatchSize,
+		EventQueryMaxBatches: eventQueryMaxBatches,
+		LogConsole:           logConsole,
+		LogConsoleLevel:      logConsoleLevel,
+		LogConsoleColor:      logConsoleColor,
+		LogFileName:          logFileName,
+		LogFileLevel:         logFileLevel,
 	}, nil
 }
-

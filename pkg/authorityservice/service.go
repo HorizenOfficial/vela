@@ -1,6 +1,7 @@
 package authorityservice
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -16,33 +17,50 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/authorityservice/api"
+	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.
 type AuthorityService struct {
-	secret     []byte
-	nonceTTL   time.Duration
-	chainID    uint64
-	reportPath string
-	clock      func() time.Time
-	log    logger.Logger
+	secret           []byte
+	nonceTTL         time.Duration
+	chainID          uint64
+	reportPath       string
+	blockchainClient blockchain.Client
+	eventBatchSize   uint64
+	eventMaxBatches  int
+	clock            func() time.Time
+	log              logger.Logger
 }
 
 // NewAuthorityService builds a new service instance.
-func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, log logger.Logger) (*AuthorityService, error) {
+func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, bc blockchain.Client, eventBatchSize uint64, eventMaxBatches int, log logger.Logger) (*AuthorityService, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC secret: %w", err)
 	}
 
+	if bc == nil {
+		return nil, fmt.Errorf("blockchain client is required")
+	}
+	if eventBatchSize == 0 {
+		eventBatchSize = 100_000
+	}
+	if eventMaxBatches <= 0 {
+		eventMaxBatches = 1
+	}
+
 	return &AuthorityService{
-		secret:     secret,
-		nonceTTL:   nonceTTL,
-		chainID:    chainID,
-		reportPath: reportPath,
-		clock:      time.Now,
+		secret:           secret,
+		nonceTTL:         nonceTTL,
+		chainID:          chainID,
+		reportPath:       reportPath,
+		blockchainClient: bc,
+		eventBatchSize:   eventBatchSize,
+		eventMaxBatches:  eventMaxBatches,
+		clock:            time.Now,
 		log:              log,
 	}, nil
 }
@@ -53,6 +71,41 @@ func (s *AuthorityService) Handler() http.Handler {
 	mux.HandleFunc("/nonce", s.handleNonce)
 	mux.HandleFunc("/getreport", s.handleGetReport)
 	return mux
+}
+
+// findCompletionEvent paginates backward from the tip to find a RequestCompleted event within configured window.
+func (s *AuthorityService) findCompletionEvent(ctx context.Context, reportID common.RequestIdType) (*common.RequestResult, error) {
+	latest, err := s.blockchainClient.LatestBlockNumber(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest block number: %w", err)
+	}
+
+	currentEnd := latest
+	for i := 0; i < s.eventMaxBatches; i++ {
+		var start uint64
+		if currentEnd > s.eventBatchSize {
+			start = currentEnd
+			currentEnd = currentEnd - s.eventBatchSize + 1
+		} else {
+			start = currentEnd
+			currentEnd = 0
+		}
+
+		event, err := s.blockchainClient.GetRequestCompletedEvent(ctx, reportID, start, currentEnd)
+		if err != nil {
+			return nil, err
+		}
+		if event != nil {
+			return event, nil
+		}
+		if currentEnd == 0 {
+			break
+		}
+		// Move to the previous block for the next window.
+		currentEnd--
+	}
+
+	return nil, nil
 }
 
 func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
@@ -146,6 +199,24 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 	if report.Authority != signerAddr {
 		s.log.Error("getreport: authority mismatch for report %s: expected %s got %s", reportID.String(), report.Authority.Hex(), signerAddr.Hex())
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Ensure the request was completed on-chain to avoid serving stale reports after reorgs.
+	event, err := s.findCompletionEvent(r.Context(), reportID)
+	if err != nil {
+		s.log.Error("getreport: failed to query RequestCompleted for report %s: %v", reportID.String(), err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if event == nil {
+		s.log.Error("getreport: no on-chain confirmation for report %s", reportID.String())
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if event.Status != common.RequestResultOK {
+		s.log.Error("getreport: on-chain status not OK for report %s: %v", reportID.String(), event.Status)
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
