@@ -20,7 +20,7 @@ func deposit(appId int64, senderPtr *byte, senderLen int32, valuePtr *byte, valu
 	_ = appId
 	sender := app.PtrToAddress(senderPtr, senderLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
-	value := app.PtrToNonNegativeBigInt(valuePtr, valueLen)
+	value := app.PtrToUint256(valuePtr, valueLen)
 	result := app.DepositFunds(sender, value, stateJSON)
 	return app.SerializeAndWriteResult(result)
 }

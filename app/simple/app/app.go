@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
 
 	"github.com/horizen-pes/app/simple/utils"
 )
@@ -23,11 +22,11 @@ func LoadModule(appId int64) LoadModuleResult {
 	}
 	return LoadModuleResult{
 		State: stateJSON,
-		Fuel:  big.NewInt(5),
+		Fuel:  NewUint256(5),
 	}
 }
 
-func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositResult {
+func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositResult {
 	if senderPtr == nil {
 		return DepositResult{Error: "Sender address is nil"}
 	}
@@ -48,7 +47,7 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	if currentState.Accounts[senderHex] == nil {
 		currentState.Accounts[senderHex] = &AccountState{
 			Address: sender,
-			Balance: big.NewInt(0),
+			Balance: NewUint256(0),
 		}
 	}
 
@@ -75,7 +74,7 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	if err != nil {
 		return DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %+v", &currentState)}
 	}
-	return DepositResult{State: newStateBytes, Events: events, Fuel: big.NewInt(35)}
+	return DepositResult{State: newStateBytes, Events: events, Fuel: NewUint256(35)}
 }
 
 func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessResult {
@@ -202,7 +201,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
-		Fuel:        big.NewInt(50),
+		Fuel:        NewUint256(50),
 	}
 }
 
@@ -234,7 +233,7 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) Deanonymizatio
 	if err != nil {
 		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %+v", report)}
 	}
-	return DeanonymizationResult{Report: reportBytes, Fuel: big.NewInt(20)}
+	return DeanonymizationResult{Report: reportBytes, Fuel: NewUint256(20)}
 }
 
 func GetAllocatedMemoryStats() MemoryStats {

@@ -2,9 +2,11 @@ package app
 
 import (
 	"encoding/json"
-	"math/big"
 	"testing"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/common"
+	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,8 +36,8 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 	state := ApplicationInternalState{
 		AppID: testAppId,
 		Accounts: map[string]*AccountState{
-			user1Address.Hex(): {Address: user1Address, Balance: big.NewInt(1000)},
-			user2Address.Hex(): {Address: user2Address, Balance: big.NewInt(500)},
+			user1Address.Hex(): {Address: user1Address, Balance: NewUint256(1000)},
+			user2Address.Hex(): {Address: user2Address, Balance: NewUint256(500)},
 		},
 	}
 	stateBytes, err := json.Marshal(state)
@@ -59,7 +61,7 @@ func TestLoadModule(t *testing.T) {
 func TestDepositFunds(t *testing.T) {
 	t.Run("deposit to new account", func(t *testing.T) {
 		stateJSON, _ := getInitialState(t)
-		depositAmount := big.NewInt(100)
+		depositAmount := NewUint256(100)
 
 		result := DepositFunds(&user1Address, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
@@ -78,7 +80,7 @@ func TestDepositFunds(t *testing.T) {
 		require.Equal(t, user1Address, event.UserID)
 		var eventData struct {
 			Type   string   `json:"type"`
-			Amount *big.Int `json:"amount"`
+			Amount *Uint256 `json:"amount"`
 		}
 		err = json.Unmarshal(event.Data, &eventData)
 		require.NoError(t, err)
@@ -89,14 +91,14 @@ func TestDepositFunds(t *testing.T) {
 
 	t.Run("deposit to existing account", func(t *testing.T) {
 		_, state := getInitialState(t)
-		initialBalance := big.NewInt(50)
+		initialBalance := NewUint256(50)
 		state.Accounts[user1Address.Hex()] = &AccountState{Address: user1Address, Balance: initialBalance}
 
 		stateBytes, err := json.Marshal(state)
 		require.NoError(t, err)
 		stateJSON := string(stateBytes)
 
-		depositAmount := big.NewInt(100)
+		depositAmount := NewUint256(100)
 		result := DepositFunds(&user1Address, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
 
@@ -104,12 +106,12 @@ func TestDepositFunds(t *testing.T) {
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
 
-		sum := big.NewInt(0).Add(initialBalance, depositAmount)
+		sum := NewUint256(0).Add(initialBalance, depositAmount)
 		require.Equal(t, sum, newState.Accounts[user1Address.Hex()].Balance)
 	})
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		result := DepositFunds(&user1Address, big.NewInt(100), "{invalid json}")
+		result := DepositFunds(&user1Address, NewUint256(100), "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
@@ -119,7 +121,7 @@ func TestProcessRequest(t *testing.T) {
 	stateJSON, _ := getPopulatedState(t)
 
 	t.Run("withdraw success", func(t *testing.T) {
-		withdrawAmount := big.NewInt(200)
+		withdrawAmount := NewUint256(200)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -138,7 +140,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, big.NewInt(800), newState.Accounts[user1Address.Hex()].Balance)
+		require.Equal(t, NewUint256(800), newState.Accounts[user1Address.Hex()].Balance)
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -150,7 +152,7 @@ func TestProcessRequest(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
 				To:     user3Address,
-				Amount: big.NewInt(2000),
+				Amount: NewUint256(2000),
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
@@ -166,7 +168,7 @@ func TestProcessRequest(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
 				To:     user1Address,
-				Amount: big.NewInt(100),
+				Amount: NewUint256(100),
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
@@ -189,7 +191,7 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("withdraw zero amount", func(t *testing.T) {
-		withdrawAmount := big.NewInt(0)
+		withdrawAmount := NewUint256(0)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -208,7 +210,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, big.NewInt(1000), newState.Accounts[user1Address.Hex()].Balance) // balance should not change
+		require.Equal(t, NewUint256(1000), newState.Accounts[user1Address.Hex()].Balance) // balance should not change
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -216,7 +218,7 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("withdraw exact balance", func(t *testing.T) {
-		withdrawAmount := big.NewInt(500)
+		withdrawAmount := NewUint256(500)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -235,7 +237,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, big.NewInt(0), newState.Accounts[user2Address.Hex()].Balance)
+		require.Equal(t, NewUint256(0), newState.Accounts[user2Address.Hex()].Balance)
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -288,8 +290,8 @@ func TestProcessRequest(t *testing.T) {
 		state := ApplicationInternalState{
 			AppID: testAppId,
 			Accounts: map[string]*AccountState{
-				user1Address.Hex(): {Address: user1Address, Balance: big.NewInt(1000)},
-				user2Address.Hex(): {Address: user2Address, Balance: big.NewInt(1000)},
+				user1Address.Hex(): {Address: user1Address, Balance: NewUint256(1000)},
+				user2Address.Hex(): {Address: user2Address, Balance: NewUint256(1000)},
 			},
 		}
 		stateBytes, err := json.Marshal(state)
@@ -421,4 +423,187 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse payload")
 	})
+}
+
+// TestJsonCompatibility ensures that the local WASM guest types have the same JSON representation
+// as the corresponding host types. This is crucial because the guest and host communicate
+// via JSON serialization/deserialization, and any discrepancy would lead to communication failures.
+func TestJsonCompatibility(t *testing.T) {
+	// Address compatibility
+	addrStr := "0x1234567890123456789012345678901234567890"
+	guestAddr := HexToAddress(addrStr)
+	hostAddr := ethCommon.HexToAddress(addrStr)
+
+	// PlainEvent
+	guestPlainEvent := PlainEvent{
+		UserID: guestAddr,
+		Data:   []byte("test data"),
+	}
+	jsonBytes, err := json.Marshal(guestPlainEvent)
+	require.NoError(t, err)
+
+	var hostPlainEvent common.PlainEvent
+	err = json.Unmarshal(jsonBytes, &hostPlainEvent)
+	require.NoError(t, err)
+	require.Equal(t, hostAddr, hostPlainEvent.UserID)
+	require.Equal(t, guestPlainEvent.Data, hostPlainEvent.Data)
+
+	// Withdrawal
+	guestWithdrawal := Withdrawal{
+		DestinationAddress: guestAddr,
+		Amount:             NewUint256(100),
+	}
+	jsonBytes, err = json.Marshal(guestWithdrawal)
+	require.NoError(t, err)
+
+	var hostWithdrawal common.Withdrawal
+	err = json.Unmarshal(jsonBytes, &hostWithdrawal)
+	require.NoError(t, err)
+	require.Equal(t, hostAddr, hostWithdrawal.DestinationAddress)
+	require.Equal(t, guestWithdrawal.Amount.String(), hostWithdrawal.Amount.String())
+
+	// LoadModuleResult
+	guestLoadModuleResult := LoadModuleResult{
+		State: []byte("state"),
+		Fuel:  NewUint256(10),
+		Error: "load error",
+	}
+	jsonBytes, err = json.Marshal(guestLoadModuleResult)
+	require.NoError(t, err)
+
+	var hostLoadModuleResult wasmCommon.LoadModuleResult
+	err = json.Unmarshal(jsonBytes, &hostLoadModuleResult)
+	require.NoError(t, err)
+	require.Equal(t, guestLoadModuleResult.State, hostLoadModuleResult.State)
+	require.Equal(t, guestLoadModuleResult.Fuel.String(), hostLoadModuleResult.Fuel.String())
+	require.Equal(t, guestLoadModuleResult.Error, hostLoadModuleResult.Error)
+
+	// DepositResult
+	guestDepositResult := DepositResult{
+		State:  []byte("new state"),
+		Events: []PlainEvent{guestPlainEvent},
+		Fuel:   NewUint256(20),
+		Error:  "deposit error",
+	}
+	jsonBytes, err = json.Marshal(guestDepositResult)
+	require.NoError(t, err)
+
+	var hostDepositResult wasmCommon.DepositResult
+	err = json.Unmarshal(jsonBytes, &hostDepositResult)
+	require.NoError(t, err)
+	require.Equal(t, guestDepositResult.State, hostDepositResult.State)
+	require.Len(t, hostDepositResult.Events, 1)
+	require.Equal(t, hostAddr, hostDepositResult.Events[0].UserID)
+	require.Equal(t, guestDepositResult.Fuel.String(), hostDepositResult.Fuel.String())
+	require.Equal(t, guestDepositResult.Error, hostDepositResult.Error)
+
+	// ProcessResult
+	guestProcessResult := ProcessResult{
+		State:       []byte("state"),
+		Events:      []PlainEvent{guestPlainEvent},
+		Withdrawals: []Withdrawal{guestWithdrawal},
+		Fuel:        NewUint256(50),
+		Error:       "error",
+	}
+	jsonBytes, err = json.Marshal(guestProcessResult)
+	require.NoError(t, err)
+
+	var hostProcessResult wasmCommon.ProcessResult
+	err = json.Unmarshal(jsonBytes, &hostProcessResult)
+	require.NoError(t, err)
+	require.Equal(t, guestProcessResult.State, hostProcessResult.State)
+	require.Len(t, hostProcessResult.Events, 1)
+	require.Equal(t, hostAddr, hostProcessResult.Events[0].UserID)
+	require.Len(t, hostProcessResult.Withdrawals, 1)
+	require.Equal(t, hostAddr, hostProcessResult.Withdrawals[0].DestinationAddress)
+	require.Equal(t, guestProcessResult.Fuel.String(), hostProcessResult.Fuel.String())
+	require.Equal(t, guestProcessResult.Error, hostProcessResult.Error)
+
+	// DeanonymizationResult
+	guestDeResult := DeanonymizationResult{
+		Report: []byte("report"),
+		Fuel:   NewUint256(30),
+		Error:  "de error",
+	}
+	jsonBytes, err = json.Marshal(guestDeResult)
+	require.NoError(t, err)
+
+	var hostDeResult wasmCommon.DeanonymizationResult
+	err = json.Unmarshal(jsonBytes, &hostDeResult)
+	require.NoError(t, err)
+	require.Equal(t, guestDeResult.Report, hostDeResult.Report)
+	require.Equal(t, guestDeResult.Fuel.String(), hostDeResult.Fuel.String())
+	require.Equal(t, guestDeResult.Error, hostDeResult.Error)
+
+	// DepositEvent
+	guestDepositEvent := DepositEvent{
+		Type:    "deposit",
+		Amount:  NewUint256(100),
+		Balance: NewUint256(1100),
+		Nonce:   5,
+	}
+	jsonBytes, err = json.Marshal(guestDepositEvent)
+	require.NoError(t, err)
+
+	var hostDepositEvent wasmCommon.DepositEvent
+	err = json.Unmarshal(jsonBytes, &hostDepositEvent)
+	require.NoError(t, err)
+	require.Equal(t, guestDepositEvent.Type, hostDepositEvent.Type)
+	require.Equal(t, guestDepositEvent.Amount.String(), hostDepositEvent.Amount.String())
+	require.Equal(t, guestDepositEvent.Balance.String(), hostDepositEvent.Balance.String())
+	require.Equal(t, guestDepositEvent.Nonce, hostDepositEvent.Nonce)
+
+	// SenderEvent / WithdrawalEvent
+	guestSenderEvent := SenderEvent{
+		Type:    "sender",
+		To:      guestAddr,
+		Amount:  NewUint256(200),
+		Balance: NewUint256(800),
+		Nonce:   6,
+	}
+	jsonBytes, err = json.Marshal(guestSenderEvent)
+	require.NoError(t, err)
+
+	var hostSenderEvent wasmCommon.SenderEvent
+	err = json.Unmarshal(jsonBytes, &hostSenderEvent)
+	require.NoError(t, err)
+	require.Equal(t, guestSenderEvent.Type, hostSenderEvent.Type)
+	require.Equal(t, hostAddr, hostSenderEvent.To)
+	require.Equal(t, guestSenderEvent.Amount.String(), hostSenderEvent.Amount.String())
+	require.Equal(t, guestSenderEvent.Balance.String(), hostSenderEvent.Balance.String())
+	require.Equal(t, guestSenderEvent.Nonce, hostSenderEvent.Nonce)
+
+	// RecipientEvent
+	guestRecipientEvent := RecipientEvent{
+		Type:    "recipient",
+		From:    guestAddr,
+		Amount:  NewUint256(200),
+		Balance: NewUint256(1200),
+		Nonce:   7,
+	}
+	jsonBytes, err = json.Marshal(guestRecipientEvent)
+	require.NoError(t, err)
+
+	var hostRecipientEvent wasmCommon.RecipientEvent
+	err = json.Unmarshal(jsonBytes, &hostRecipientEvent)
+	require.NoError(t, err)
+	require.Equal(t, guestRecipientEvent.Type, hostRecipientEvent.Type)
+	require.Equal(t, hostAddr, hostRecipientEvent.From)
+	require.Equal(t, guestRecipientEvent.Amount.String(), hostRecipientEvent.Amount.String())
+	require.Equal(t, guestRecipientEvent.Balance.String(), hostRecipientEvent.Balance.String())
+	require.Equal(t, guestRecipientEvent.Nonce, hostRecipientEvent.Nonce)
+
+	// MemoryStats
+	guestMemoryStats := MemoryStats{
+		MapSize:              10,
+		CumulativeMemorySize: 100,
+	}
+	jsonBytes, err = json.Marshal(guestMemoryStats)
+	require.NoError(t, err)
+
+	var hostMemoryStats wasmCommon.MemoryStats
+	err = json.Unmarshal(jsonBytes, &hostMemoryStats)
+	require.NoError(t, err)
+	require.Equal(t, guestMemoryStats.MapSize, hostMemoryStats.MapSize)
+	require.Equal(t, guestMemoryStats.CumulativeMemorySize, hostMemoryStats.CumulativeMemorySize)
 }
