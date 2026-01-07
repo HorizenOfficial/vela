@@ -42,6 +42,8 @@ type MockClient struct {
 	updatePayloads   map[common.RequestIdType]*common.UpdatePayload
 	eventSubscribers []chan<- interface{}
 	stateRoot        [32]byte
+	chainID          *big.Int
+	blockNumber      uint64
 	*testutil.MockFunctions
 }
 
@@ -57,6 +59,42 @@ func NewMockClient() *MockClient {
 		updatePayloads:  make(map[common.RequestIdType]*common.UpdatePayload),
 		MockFunctions:   testutil.NewMockFunctions(),
 	}
+}
+
+func (c *MockClient) ChainID(_ context.Context) (*big.Int, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.chainID == nil {
+		return big.NewInt(0), nil
+	}
+	return new(big.Int).Set(c.chainID), nil
+}
+
+// SetChainID sets the mock chain ID returned by ChainID.
+func (c *MockClient) SetChainID(id *big.Int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if id == nil {
+		c.chainID = nil
+		return
+	}
+	c.chainID = new(big.Int).Set(id)
+}
+
+// LatestBlockNumber returns the configured mock block number (default 0).
+func (c *MockClient) LatestBlockNumber(_ context.Context) (uint64, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.blockNumber, nil
+}
+
+// SetBlockNumber sets the mock block number returned by LatestBlockNumber.
+func (c *MockClient) SetBlockNumber(n uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.blockNumber = n
 }
 
 func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request) error {
@@ -347,6 +385,9 @@ func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.Priv
 }
 
 func (c *MockClient) GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
+	if f, ok := c.GetMockedFunc("GetRequestCompletedEvent"); ok {
+		return f.(func(context.Context, common.RequestIdType, uint64, uint64) (*common.RequestResult, error))(ctx, requestID, fromBlock, toBlock)
+	}
 	return nil, nil
 }
 
