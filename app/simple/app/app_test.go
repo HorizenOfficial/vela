@@ -398,6 +398,7 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 
 		require.Len(t, report.Accounts, len(state.Accounts))
 		// Check if the accounts in the report match the expected ones (from state)
+		require.Equal(t, len(state.Accounts), len(report.Accounts))
 		for _, expectedAcc := range state.Accounts {
 			found := false
 			for _, reportAcc := range report.Accounts {
