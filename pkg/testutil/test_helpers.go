@@ -16,6 +16,7 @@ import (
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/logserver"
@@ -27,6 +28,17 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
+
+
+type MockAdminServer struct {}
+
+func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
+func (*MockAdminServer)	Stop() error { return nil}
+func (*MockAdminServer)	SetCmdHandler(handler admin.AdminCmdHandler)  { }
+
+
+
+
 
 type SystemTestSuite struct {
 	t                  *testing.T
@@ -149,7 +161,7 @@ func NewSystemTestSuiteWithConfigs(
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, excLog)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, &MockAdminServer{}, excLog)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {

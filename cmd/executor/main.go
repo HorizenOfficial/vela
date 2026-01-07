@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
@@ -14,9 +17,10 @@ import (
 )
 
 func main() {
-	// Create a context that is canceled on SIGINT or SIGTERM
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 
 	// Create the executor configuration
 	config, err := executor.LoadConfig()
@@ -44,28 +48,39 @@ func main() {
 		}
 	}()
 
+
 	// Create the WASM runtime
 	runtime := wasm.NewWasmtimeRuntime(log)
 
 	// Create the appropriate server based on configuration
+
 	var server communication.ExecutorServer
+	var adminServer admin.AdminCommandServer
 	switch config.ChannelType {
 	case "tcp":
 		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
 		server = communication.NewServer(factory, log)
+		adminFactory := communication.NewTCPConnectionFactory(config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
+		adminServer = admin.NewAdminServer(adminFactory, log)
 	case "vsock":
 		factory := communication.NewVSockConnectionFactory(
 			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
 			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
 		)
 		server = communication.NewServer(factory, log)
+		adminFactory := communication.NewVSockConnectionFactory(
+			config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
+			config.AdminChannelParams.(common.VSockChannelConnectionParams).Port,
+		)
+		adminServer = admin.NewAdminServer(adminFactory, log)
 	default:
 		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return
 	}
 
+
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(config, runtime, server, log)
+	exec, err := executor.NewStatelessExecutor(config, runtime, server, adminServer, log)
 	if err != nil {
 		log.Error("Error creating executor: %v", err)
 		return
@@ -73,16 +88,25 @@ func main() {
 
 	// Start the executor
 	log.Info("Starting executor service...")
+	// Create a context that is canceled on SIGINT or SIGTERM
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
 	if err := exec.Start(ctx); err != nil {
 		log.Error("Error starting executor: %v", err)
 		return
 	}
 	log.Info("Executor started")
 
-	// Wait for the context to be canceled
-	<-ctx.Done()
-
+	// Wait for shutdown signal
+	<-sigChan
+	signal.Stop(sigChan)
+	// Handle shutdown signal (Ctrl+C or SIGTERM)
+	log.Info("Received shutdown signal. Shutting down gracefully...")
+	
 	// Stop the executor
+	cancel()
+
 	log.Info("Stopping executor service...")
 	if err := exec.Close(); err != nil {
 		log.Error("Error stopping executor: %v", err)
