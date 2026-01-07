@@ -13,26 +13,30 @@ import (
 
 const AddressLength = 20
 
+const (
+	MaxBigIntBytes  = 64
+	MaxAddressBytes = AddressLength
+)
+
 type Address [AddressLength]byte
 
-func HexToAddress(s string) Address {
+// HexToAddress converts a hex string to Address with validation.
+func HexToAddress(s string) (Address, error) {
 	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
 		s = s[2:]
 	}
-	if len(s)%2 != 0 {
-		s = "0" + s
+	if len(s) != AddressLength*2 {
+		return Address{}, fmt.Errorf("invalid address length: got %d hex chars, want %d", len(s), AddressLength*2)
 	}
+
 	data, err := hex.DecodeString(s)
 	if err != nil {
-		// Instead of panicking, return an empty address and let callers handle it.
-		return Address{}
+		return Address{}, err
 	}
+
 	var address Address
-	if len(data) > AddressLength {
-		data = data[len(data)-AddressLength:]
-	}
-	copy(address[AddressLength-len(data):], data)
-	return address
+	copy(address[:], data)
+	return address, nil
 }
 
 func BytesToAddress(b []byte) Address {
@@ -42,14 +46,17 @@ func BytesToAddress(b []byte) Address {
 }
 
 func (a *Address) SetBytes(b []byte) {
-	if len(b) > len(a) {
+	if len(b) > AddressLength {
 		b = b[len(b)-AddressLength:]
 	}
 	copy(a[AddressLength-len(b):], b)
 }
 
+// Bytes returns a copy of address bytes (safe, immutable to caller)
 func (a Address) Bytes() []byte {
-	return a[:]
+	b := make([]byte, AddressLength)
+	copy(b, a[:])
+	return b
 }
 
 func (a Address) Hex() string {
@@ -61,10 +68,11 @@ func (a *Address) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	if s == "" {
-		return fmt.Errorf("empty address string")
+	addr, err := HexToAddress(s)
+	if err != nil {
+		return fmt.Errorf("invalid address: %w", err)
 	}
-	*a = HexToAddress(s)
+	*a = addr
 	return nil
 }
 
@@ -88,16 +96,16 @@ func SerializeAndWriteResult(result any) *byte {
 // PtrToNonNegativeBigInt converts a WASM pointer and length representing the a big.Int value to a Go big.Int pointer.
 // The byte slice is obtained with the (big.Int).Bytes() method, i.e. it represents the absolute value in big-endian byte order, so the value is always non-negative.
 func PtrToNonNegativeBigInt(ptr *byte, length int32) *big.Int {
-	if ptr == nil || length == 0 {
+	if ptr == nil || length <= 0 || length > MaxBigIntBytes {
 		return big.NewInt(0)
 	}
-
-	return new(big.Int).SetBytes(unsafe.Slice(ptr, length))
+	b := unsafe.Slice(ptr, length)
+	return new(big.Int).SetBytes(b)
 }
 
 // PtrToAddress converts a WASM pointer and length to a ethereum address.
 func PtrToAddress(ptr *byte, length int32) *Address {
-	if ptr == nil || length == 0 {
+	if ptr == nil || length <= 0 || length > MaxAddressBytes {
 		return nil
 	}
 	var address Address
@@ -231,7 +239,7 @@ type RecipientEvent struct {
 }
 
 // WithdrawalEvent is a local replacement for wasmCommon.WithdrawalEvent
-type WithdrawalEvent = SenderEvent
+type WithdrawalEvent SenderEvent
 
 const (
 	WasmSerializationError = `{"error":"wasm serialization error"}`
