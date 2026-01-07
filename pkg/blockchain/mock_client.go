@@ -380,7 +380,8 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID comm
 	return report, nil
 }
 
-func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, eventSubType string, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+	_ = eventSubType
 	return [][]byte{}, nil
 }
 

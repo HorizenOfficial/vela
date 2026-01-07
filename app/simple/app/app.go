@@ -66,8 +66,9 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	}
 
 	events := []PlainEvent{{
-		UserID: sender,
-		Data:   eventDataBytes,
+		UserID:       sender,
+		EventSubType: "deposit",
+		Data:         eventDataBytes,
 	}}
 
 	// Serialize the updated state
@@ -144,8 +145,9 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 
 			events = append(events, PlainEvent{
-				UserID: sender,
-				Data:   eventDataBytes,
+				UserID:       sender,
+				EventSubType: "compare_accounts",
+				Data:         eventDataBytes,
 			})
 
 		case "withdraw":
@@ -184,8 +186,9 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 
 			events = append(events, PlainEvent{
-				UserID: sender,
-				Data:   withdrawEventDataBytes,
+				UserID:       sender,
+				EventSubType: "withdrawal",
+				Data:         withdrawEventDataBytes,
 			})
 
 		default:

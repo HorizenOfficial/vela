@@ -196,8 +196,9 @@ type DeanonymizationResult struct {
 
 // PlainEvent is a local replacement for common.PlainEvent
 type PlainEvent struct {
-	UserID Address `json:"userId"`
-	Data   []byte  `json:"data"`
+	UserID       Address `json:"userId"`
+	EventSubType string  `json:"eventSubType"`
+	Data         []byte  `json:"data"`
 }
 
 // Withdrawal is a local replacement for common.Withdrawal

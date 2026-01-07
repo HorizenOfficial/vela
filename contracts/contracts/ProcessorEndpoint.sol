@@ -35,7 +35,7 @@ contract ProcessorEndpoint is AccessControl {
     event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
     event RequestCompleted(bytes32 indexed requestId, uint256 applicationFees, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
-    event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
+    event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, string indexed eventSubType, bytes encryptedData);
     event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     event QueueThresholdUpdated(uint256 newThreshold);
     event FeeCollectorUpdated(address newFeeCollector);
@@ -230,7 +230,8 @@ contract ProcessorEndpoint is AccessControl {
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 
         bytes32 processedRequestId,
-        bytes[] memory events, 
+        bytes[] memory events,
+        string[] memory eventSubTypes,
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         uint256 refund,
         uint256 applicationFees,
@@ -242,7 +243,8 @@ contract ProcessorEndpoint is AccessControl {
         if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
         //check signature
-        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, refund, applicationFees, signature)) revert InvalidSignature();
+        if (events.length != eventSubTypes.length) revert InvalidPayload();
+        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refund, applicationFees, signature)) revert InvalidSignature();
 
         //check values
         Structs.PendingRequest memory requestInfo = requestById[processedRequestId];
@@ -267,7 +269,7 @@ contract ProcessorEndpoint is AccessControl {
         //emit encrypted event
         i = 0;
         while(i < events.length) {
-            emit UserEvent(applicationId, processedRequestId, events[i]);
+            emit UserEvent(applicationId, processedRequestId, eventSubTypes[i], events[i]);
             unchecked {++i;}
         }
 
