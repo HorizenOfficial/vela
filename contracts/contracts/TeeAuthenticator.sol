@@ -5,7 +5,6 @@ import "./interfaces/INitroProver.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import "hardhat/console.sol"; //TODO REMOVE
 
 contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     uint256 public constant PK_LENGTH = 133; //secp521r1 uncompressed public key length in bytes
@@ -48,7 +47,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
 
     function updateTee(bytes calldata attestation) public onlyOwner {
         (bytes memory enclaveKey, bytes memory userData, bytes memory rawPcrs) = nitroProver.verifyAttestation(attestation, maxVerificationAge);
-        _checkPcr(rawPcrs);
+        _checkPcrAndKey(rawPcrs, enclaveKey);
         _updateTee(address(bytes20(userData)), enclaveKey);
     }
 
@@ -57,6 +56,9 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     function updateTeeStep1(bytes calldata attestation) public onlyOwner {
         _resetStepUpdate();
         (_attestation_decoded, _certificate, _cabundle, _enclaveKey, _userData, _rawPcrs) = nitroProver.verifyAttestationStep1(attestation, maxVerificationAge);
+
+        _checkPcrAndKey(_rawPcrs, _enclaveKey);
+
         currentUpdateStep = 1;
     }
 
@@ -82,15 +84,10 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
     function updateTeeStep4() public onlyOwner {
         if(currentUpdateStep != 3) revert WrongStep();
         nitroProver.verifyAttestationStep4(_attestationSig, _pubKey, _buf);
-        _checkPcr(_rawPcrs);
         _updateTee(address(bytes20(_userData)), _enclaveKey);
     }
 
     function _updateTee(address newTeeSigner, bytes memory newPubSecp521r1) internal {
-        if(newPubSecp521r1.length != PK_LENGTH) {
-            revert InvalidPKLength();
-        }
-
         emit TeeUpdate(teeSigner, newTeeSigner, pubSecp521r1, newPubSecp521r1);
         teeSigner = newTeeSigner;
         pubSecp521r1 = newPubSecp521r1;
@@ -153,7 +150,10 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         return pubSecp521r1;
     }
 
-    function _checkPcr(bytes memory pcrs) internal view {
+    function _checkPcrAndKey(bytes memory pcrs, bytes memory enclaveKey) internal view {
+        if(enclaveKey.length != PK_LENGTH) {
+            revert InvalidPKLength();
+        }
         if (pcrs.length < 4 + pcr0.length) {
             revert InvalidPCR();
         }

@@ -10,7 +10,7 @@ async function deploy()  {
   const teeAuthenticator = await ethers.getContractAt("TeeAuthenticator", process.env.TEE_AUTH_ADDRESS!);
   //load attestation in base 64 and convert it to hex
   const attestation = "0x"+Buffer.from(process.env.ATTESTATION_BASE64!, 'base64').toString('hex');
-  
+  /*
   // --------- STEP 1 -------------
   let tx1 = await teeAuthenticator.updateTeeStep1(attestation);
   await tx1.wait();
@@ -31,7 +31,7 @@ async function deploy()  {
   let tx3 = await teeAuthenticator.updateTeeStep3();
   await tx3.wait();
   console.log("Step 3 completed on tx: ", tx3.hash);
-
+  */
   // --------- STEP 4 -------------
   let tx4 = await teeAuthenticator.updateTeeStep4();
   await tx4.wait();
