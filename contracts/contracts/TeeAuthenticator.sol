@@ -40,6 +40,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         bytes32 newStateRoot,
         bytes32 processedRequestId,
         bytes[] memory events,
+        string[] memory eventSubTypes,
         Structs.WithdrawalRequest[] memory withdrawalRequests,
         uint256 refundAmount, 
         uint256 applicationFee,
@@ -48,6 +49,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         if(teeSigner == address(0) || pubSecp521r1.length != PK_LENGTH) revert TeeIsNotSet();
 
         bytes32 eventsHash = keccak256(abi.encode(events));
+        bytes32 eventSubTypesHash = keccak256(abi.encode(eventSubTypes));
         bytes32 withdrawalRequestsHash = keccak256(abi.encode(withdrawalRequests));
 
         bytes32 messageHash = keccak256(abi.encode(
@@ -56,6 +58,7 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
             newStateRoot,
             processedRequestId,
             eventsHash,
+            eventSubTypesHash,
             withdrawalRequestsHash,
             refundAmount,
             applicationFee

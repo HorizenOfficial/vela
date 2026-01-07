@@ -84,6 +84,7 @@ describe('TeeAuthenticator Test', function () {
             "0x1234000000000000000000000000000000000000000000000000000000000000", // newStateRoot
             requestId,
             ["0x"],
+            [""],
             [[addr1, 50], [addr2, 50]],
             refund,
             applicationFees
@@ -95,6 +96,7 @@ describe('TeeAuthenticator Test', function () {
             "0x1234000000000000000000000000000000000000000000000000000000000000",
             requestId,
             ["0x"],
+            [""],
             [[addr1, 50], [addr2, 50]],
             refund,
             applicationFees,
@@ -126,6 +128,7 @@ describe('TeeAuthenticator Test', function () {
             "0x1234000000000000000000000000000000000000000000000000000000000000",
             requestId,
             ["0x"],
+            [""],
             [[addr1, 50], [addr2, 50]],
             refund,
             applicationFees
@@ -137,6 +140,7 @@ describe('TeeAuthenticator Test', function () {
             "0x1234000000000000000000000000000000000000000000000000000000000000",
             requestId,
             ["0x"],
+            [""],
             [[addr1, 50], [addr2, 50]],
             refund,
             applicationFees,
@@ -162,6 +166,7 @@ describe('TeeAuthenticator Test', function () {
             "0x1234000000000000000000000000000000000000000000000000000000000000",
             requestId,
             ["0x"],
+            [""],
             [[addr1, 50], [addr2, 50]],
             refund,
             applicationFees
@@ -174,6 +179,7 @@ describe('TeeAuthenticator Test', function () {
                 "0x1234000000000000000000000000000000000000000000000000000000000000",
                 requestId,
                 ["0x"],
+                [""],
                 [[addr1, 50], [addr2, 50]],
                 refund,
                 applicationFees,

@@ -290,8 +290,9 @@ func (s *SystemTestSuite) AssertRequestCompleted(requestID common.RequestIdType,
 	return s.blockchainClient.WaitForRequestCompletion(requestID, timeout)
 }
 
-// WaitForEvent waits for a specific event to be published for a user
-func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, timeout time.Duration) (*common.Event, error) {
+// WaitForEvent waits for a specific event to be published for a user.
+// If eventSubType is empty, any subtype is accepted.
+func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType string, timeout time.Duration) (*common.Event, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -300,7 +301,7 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, timeout time.Du
 	for {
 		select {
 		case event := <-s.eventChannel:
-			if evt, ok := event.(common.Event); ok && evt.UserID == userID {
+			if evt, ok := event.(common.Event); ok && evt.UserID == userID && (eventSubType == "" || evt.EventSubType == eventSubType) {
 				s.log.Info("TESTING: Received event: %+v", event.(common.Event))
 				return &evt, nil
 			} else {
@@ -517,7 +518,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for deposit event
-	depositEvent, err := suite.WaitForEvent(userAddress, timeout_value)
+	depositEvent, err := suite.WaitForEvent(userAddress, "deposit", timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, depositEvent)
 
@@ -613,7 +614,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for withdrawal event
-	withdrawalEvent, err := suite.WaitForEvent(userAddress, timeout_value)
+	withdrawalEvent, err := suite.WaitForEvent(userAddress, "withdrawal", timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawalEvent)
 
