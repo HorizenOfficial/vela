@@ -96,8 +96,9 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 		currentState.Nonce = nonce
 
 		depositEvent := common.PlainEvent{
-			UserID: sender,
-			Data:   []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, depositAmount, balance, nonce)),
+			UserID:       sender,
+			EventSubType: "deposit",
+			Data:         []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, depositAmount, balance, nonce)),
 		}
 		events = append(events, depositEvent)
 	}
@@ -162,12 +163,14 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 
 			// Events
 			senderEvent := common.PlainEvent{
-				UserID: sender,
+				UserID:       sender,
+				EventSubType: "transfer_sent",
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					to, amount, senderAcct.Balance, nonce)),
 			}
 			recipientEvent := common.PlainEvent{
-				UserID: to,
+				UserID:       to,
+				EventSubType: "transfer_received",
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					sender, amount, recipientAcct.Balance, nonce)),
 			}
@@ -197,7 +200,8 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			withdrawals = append(withdrawals, common.Withdrawal{DestinationAddress: to, Amount: amount})
 
 			withdrawEvent := common.PlainEvent{
-				UserID: sender,
+				UserID:       sender,
+				EventSubType: "withdrawal",
 				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					to, amount, senderAcct.Balance, nonce)),
 			}

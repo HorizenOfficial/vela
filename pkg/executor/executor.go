@@ -638,6 +638,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 		encryptedEvents[i] = common.Event{
 			ApplicationID: appId,
 			UserID:        event.UserID,
+			EventSubType:  event.EventSubType,
 			EncryptedData: encryptedData,
 		}
 	}

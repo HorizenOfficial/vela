@@ -138,7 +138,7 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
 
 	// Wait for, decrypt and verify deposit event
-	depositEvent, err := suite.WaitForEvent(user, timeout)
+	depositEvent, err := suite.WaitForEvent(user, "deposit", timeout)
 	require.NoError(t, err)
 	decryptedDepositData, err := cryptoHelper.DecryptEvent(user, depositEvent, executorPubKey)
 	require.NoError(t, err)
@@ -376,7 +376,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, suite.AssertRequestCompleted(compareReqID, timeout_value))
 
 	// Wait for action event
-	actionEvent, err := suite.WaitForEvent(user1Address, timeout_value)
+	actionEvent, err := suite.WaitForEvent(user1Address, "compare_accounts", timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, actionEvent)
 
@@ -397,7 +397,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// Find the action event
 	var compareEvent *common.Event
 	for i := range updatePayload.Events {
-		if updatePayload.Events[i].UserID == user1Address {
+		if updatePayload.Events[i].UserID == user1Address && updatePayload.Events[i].EventSubType == "compare_accounts" {
 			compareEvent = &updatePayload.Events[i]
 			break
 		}
