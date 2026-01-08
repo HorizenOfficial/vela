@@ -54,15 +54,20 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 		currentState.Accounts[senderHex] = acc
 	}
 
-	// safe big.Int Addition (Immutable-style to prevent side effects)
-	// We create a new Int to store the result rather than modifying the existing pointer in-place
-	acc.Balance = NewUint256(0).Add(acc.Balance, value)
+	// Update balance in-place
+	acc.Balance.Add(*acc.Balance, *value)
 
 	// Create deposit event
-	eventData := map[string]interface{}{
-		"type":   "deposit",
-		"amount": value,
+	type Event struct {
+		Type   string   `json:"type"`
+		Amount *Uint256 `json:"amount"`
 	}
+
+	eventData := Event{
+		Type:   "deposit",
+		Amount: value,
+	}
+
 	eventDataBytes, err := json.Marshal(eventData)
 	if err != nil {
 		return DepositResult{Error: fmt.Sprintf("Failed to serialize event data: %+v", eventData)}
@@ -125,7 +130,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			senderBalance := currentState.Accounts[senderHex].Balance
 
 			var cmp = ""
-			switch targetBalance.Cmp(senderBalance) {
+			switch targetBalance.Cmp(*senderBalance) {
 			case -1:
 				cmp = "richer than"
 			case 1:
@@ -157,18 +162,21 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			if instructions.Withdraw == nil {
 				return ProcessResult{Error: fmt.Sprintf("Withdraw instruction is missing in payload: %s", payloadJSON)}
 			}
+			if instructions.Withdraw.Amount == nil {
+				return ProcessResult{Error: "Withdraw amount is nil"}
+			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[senderHex] == nil {
 				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist", sender.Hex())}
 			}
 
-			if currentState.Accounts[senderHex].Balance.Cmp(instructions.Withdraw.Amount) < 0 {
+			if currentState.Accounts[senderHex].Balance.Cmp(*instructions.Withdraw.Amount) < 0 {
 				return ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", sender.Hex())}
 			}
 
 			// Execute withdrawal
-			currentState.Accounts[senderHex].Balance.Sub(currentState.Accounts[senderHex].Balance, instructions.Withdraw.Amount)
+			currentState.Accounts[senderHex].Balance.Sub(*currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount)
 
 			// Create withdrawal
 			withdrawals = append(withdrawals, Withdrawal{

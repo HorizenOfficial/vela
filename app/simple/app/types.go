@@ -95,8 +95,12 @@ func SerializeAndWriteResult(result any) *byte {
 // PtrToUint256 converts a WASM pointer and length representing a big integer value to a Uint256 pointer.
 // The byte slice is obtained with the (big.Int).Bytes() method, i.e. it represents the absolute value in big-endian byte order, so the value is always non-negative.
 func PtrToUint256(ptr *byte, length int32) *Uint256 {
-	if ptr == nil || length == 0 {
+	if ptr == nil || length <= 0 {
 		return NewUint256(0)
+	}
+	// just to be on the very safe side and avoid panics. Should never happen
+	if length > MaxBigIntBytes {
+		length = MaxBigIntBytes
 	}
 
 	return new(Uint256).SetBytes(unsafe.Slice(ptr, length))

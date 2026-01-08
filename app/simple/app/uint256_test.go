@@ -59,7 +59,7 @@ func TestAdd(t *testing.T) {
 		mask := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
 		sumBig.And(sumBig, mask)
 
-		sumU := new(Uint256).Add(u1, u2)
+		sumU := new(Uint256).Add(*u1, *u2)
 
 		require.Equal(t, sumBig.String(), sumU.String(), "Add mismatch: %v + %v", b1, b2)
 	}
@@ -82,7 +82,7 @@ func TestSub(t *testing.T) {
 		u2 := new(Uint256).SetBytes(b2.Bytes())
 
 		diffBig := new(big.Int).Sub(b1, b2)
-		diffU := new(Uint256).Sub(u1, u2)
+		diffU := new(Uint256).Sub(*u1, *u2)
 
 		require.Equal(t, diffBig.String(), diffU.String(), "Sub mismatch: %v - %v", b1, b2)
 	}
@@ -109,7 +109,7 @@ func TestCmp(t *testing.T) {
 			uA := new(Uint256).SetBytes(bA.Bytes())
 			uB := new(Uint256).SetBytes(bB.Bytes())
 
-			require.Equal(t, tt.expected, uA.Cmp(uB))
+			require.Equal(t, tt.expected, uA.Cmp(*uB))
 		})
 	}
 }
@@ -119,8 +119,8 @@ func TestString(t *testing.T) {
 		"0",
 		"1",
 		"123456789",
-		"18446744073709551615",                                     // Max Uint64
-		"340282366920938463463374607431768211455",                   // Max Uint128
+		"18446744073709551615", // Max Uint64
+		"340282366920938463463374607431768211455",                                        // Max Uint128
 		"115792089237316195423570985008687907853269984665640564039457584007913129639935", // Max Uint256
 	}
 
@@ -179,12 +179,34 @@ func TestJSON(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "12345", w.Val.String())
 	})
+
+	t.Run("unquoted string", func(t *testing.T) {
+		jsonStr := `{"val": 12345}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		require.Equal(t, "12345", w.Val.String())
+	})
+}
+
+func TestUnmarshalJSONOverflow(t *testing.T) {
+	// 2^256
+	overMax := "115792089237316195423570985008687907853269984665640564039457584007913129639936"
+	jsonStr := `{"val": "` + overMax + `"}`
+
+	type wrapper struct {
+		Val *Uint256 `json:"val"`
+	}
+	var w wrapper
+	err := json.Unmarshal([]byte(jsonStr), &w)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Uint256 overflow")
 }
 
 func TestIsZero(t *testing.T) {
 	require.True(t, NewUint256(0).IsZero())
 	require.False(t, NewUint256(1).IsZero())
-	
+
 	u := NewUint256(0)
 	u[1] = 1
 	require.False(t, u.IsZero())

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -108,7 +109,7 @@ func TestDepositFunds(t *testing.T) {
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
 
-		sum := NewUint256(0).Add(initialBalance, depositAmount)
+		sum := NewUint256(0).Add(*initialBalance, *depositAmount)
 		require.Equal(t, sum, newState.Accounts[user1Address.Hex()].Balance)
 	})
 
@@ -406,7 +407,7 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 		for _, expectedAcc := range state.Accounts {
 			found := false
 			for _, reportAcc := range report.Accounts {
-				if reportAcc.Address == expectedAcc.Address && reportAcc.Balance.Cmp(expectedAcc.Balance) == 0 {
+				if reportAcc.Address == expectedAcc.Address && reportAcc.Balance.Cmp(*expectedAcc.Balance) == 0 {
 					found = true
 					break
 				}
@@ -678,5 +679,52 @@ func TestHexToAddress_Empty(t *testing.T) {
 	_, err := HexToAddress("")
 	if err == nil {
 		t.Fatalf("expected error for empty string, got nil")
+	}
+}
+
+func TestBigIntUint256JSONRoundTrip(t *testing.T) {
+	// Step 1: start with a big.Int value
+	orig := new(big.Int)
+	orig.SetString("115792089237316195423570985008687907853269984665640564039457584007913129639935", 10) // 2^256-1
+
+	// Step 2: marshal big.Int into JSON
+	type HostStruct struct {
+		Amount *big.Int `json:"amount"`
+	}
+	hostObj := HostStruct{Amount: orig}
+
+	jsonData, err := json.Marshal(hostObj)
+	if err != nil {
+		t.Fatalf("failed to marshal host JSON: %v", err)
+	}
+	t.Logf("JSON output from host (big.Int): %s", string(jsonData))
+
+	// Step 3: unmarshal JSON into Uint256 (like WASM side)
+	type WASMStruct struct {
+		Amount Uint256 `json:"amount"`
+	}
+	var wasmObj WASMStruct
+	if err := json.Unmarshal(jsonData, &wasmObj); err != nil {
+		t.Fatalf("failed to unmarshal into Uint256: %v", err)
+	}
+
+	// Step 4: marshal Uint256 back to JSON (WASM → host)
+	jsonData2, err := json.Marshal(wasmObj)
+	if err != nil {
+		t.Fatalf("failed to marshal Uint256 back to JSON: %v", err)
+	}
+	t.Logf("JSON output from Uint256: %s", string(jsonData2))
+
+	// Step 5: unmarshal back into big.Int (host)
+	var hostObj2 HostStruct
+	if err := json.Unmarshal(jsonData2, &hostObj2); err != nil {
+		t.Fatalf("failed to unmarshal JSON back into big.Int: %v", err)
+	}
+
+	// Step 6: compare
+	if orig.Cmp(hostObj2.Amount) != 0 {
+		t.Errorf("round-trip mismatch:\noriginal: %s\nfinal:    %s", orig.String(), hostObj2.Amount.String())
+	} else {
+		t.Logf("Round-trip successful: value preserved exactly")
 	}
 }
