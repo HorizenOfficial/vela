@@ -13,7 +13,7 @@ import (
 // Client defines the interface for interacting with the blockchain
 type Client interface {
 	// SubmitRequest submits a request to the blockchain, returning submitted request id as a string and block number in which it is submitted
-	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error)
+	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error)
 	// GetPendingRequests gets pending requests from the blockchain
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
 	// GetNextPendingRequest gets next pending request and current state root from the blockchain
@@ -25,15 +25,18 @@ type Client interface {
 	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
 	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
 	// GetUserEvents gets decryptable user events in the given block range
-	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
+	GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, eventSubType string, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error)
 	// GetRequestCompletedEvent looks for the RequestComleted event for the given request in the given block range and returns if the request was successful or failed
-	GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType,  fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
+	GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType, fromBlock uint64, toBlock uint64) (*common.RequestResult, error)
 	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
 	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
+	// ChainID returns the connected chain ID.
+	ChainID(ctx context.Context) (*big.Int, error)
+	// LatestBlockNumber returns the latest block number from the chain.
+	LatestBlockNumber(ctx context.Context) (uint64, error)
 
 	// Close closes the blockchain client
 	Close() error
 	// Connect connects to the blockchain
 	Connect(ctx context.Context) error
 }
-

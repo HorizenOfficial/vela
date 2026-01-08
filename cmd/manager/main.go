@@ -14,40 +14,18 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/logserver"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/mockdb"
-	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/horizen-pes/pkg/storage/factory"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
-	// first of all if we are using mockdb do not even care for file and other configs
-	if config.DataLayerType == "mockdb" {
-		return mockdb.NewMockDataLayer(), nil
-	}
-
-	if strings.TrimSpace(config.DataLayerDBPath) == "" {
-		return nil, fmt.Errorf("data layer path is empty")
-	}
-
-	var dl storage.DataLayer
-	var err error
-
-	switch config.DataLayerType {
-	case "versioned_leveldb":
-		cfg := versionedDb.VersionedLevelDBConfig{
-			DBPath:         config.DataLayerDBPath,
-			VersionsToKeep: config.DataLayerNumOfVersions,
-		}
-		dl, err = versionedDb.NewVersionedLevelDBDataLayer(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create VersionedLevelDBDataLayer: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("unknown data layer type: %s", config.DataLayerType)
-	}
-
-	return dl, nil
+	return factory.NewDataLayer(factory.DataLayerConfig{
+		Type:        config.DataLayerType,
+		DBPath:      config.DataLayerDBPath,
+		NumVersions: config.DataLayerNumOfVersions,
+	})
 }
 
 func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
@@ -79,22 +57,27 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 }
 
 func main() {
+	// Use a temporary logger for fatal error, used only during early startup
+	logTmp := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
+	defer logTmp.Close()
+
 	// Load configuration
 	config, err := manager.LoadConfig()
 	if err != nil {
-		// Use a temporary logger for fatal error
-		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
-		log.Fatal("Failed to load configuration: %v", err)
+		logTmp.Fatal("Failed to load configuration: %v", err)
 	}
 
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
-		Kind:         config.LogKind,
-		Console:      config.LogConsole,
-		ConsoleLevel: config.LogConsoleLevel,
-		ConsoleColor: config.LogConsoleColor,
-		FileName:     config.LogFileName,
-		FileLevel:    config.LogFileLevel,
+		Kind:             config.LogKind,
+		Console:          config.LogConsole,
+		ConsoleLevel:     config.LogConsoleLevel,
+		ConsoleColor:     config.LogConsoleColor,
+		FileName:         config.LogFileName,
+		FileLevel:        config.LogFileLevel,
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams:  config.LogServerTCPAddress,
+		NetworkLevel:     config.LogNetworkLevel,
 	})
 	defer func() {
 		if err := log.Close(); err != nil {
@@ -102,7 +85,7 @@ func main() {
 		}
 	}()
 
-	log.Info("Starting manager...")
+	log.Warn("Initializing manager...")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -110,6 +93,23 @@ func main() {
 	// Create a context that is canceled on SIGINT or SIGTERM
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start the log server if configured
+	err = logserver.StartLogServer(
+		ctx,
+		logserver.LogServerConfig{
+			TCPAddr:        config.LogServerTCPAddress,
+			VSockAddr:      config.LogServerVSockAddress,
+			LogFilePath:    config.LogServerLogFile,
+			ConsoleEnabled: config.LogServerConsole,
+			ConsoleLevel:   config.LogServerConsoleLevel,
+			FileLevel:      config.LogServerFileLevel,
+		},
+	)
+	if err != nil {
+		logTmp.Error("Failed to start the log server: %v", err)
+		return
+	}
 
 	// Create the blockchain client
 	blockchainClient, err := createBlockchainClient(config)

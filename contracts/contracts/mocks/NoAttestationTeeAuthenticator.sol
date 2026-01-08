@@ -35,19 +35,21 @@ contract NoAttestationTeeAuthenticator is ITeeAuthenticator, Ownable {
     }
 
     function checkSignature(
-        uint64 applicationId,
-        bytes32 prevStateRoot,
-        bytes32 newStateRoot,
+        uint64 applicationId, 
+        bytes32 prevStateRoot, 
+        bytes32 newStateRoot, 
         bytes32 processedRequestId,
         bytes[] memory events,
-        Structs.WithdrawalRequest[] memory withdrawalRequests,
+        string[] memory eventSubTypes,
+        Structs.WithdrawalRequest[] memory withdrawalRequests, 
         uint256 refundAmount, 
         uint256 applicationFee,
-        bytes calldata signature
+        bytes memory signature
     ) external view override returns (bool) {
         if(teeSigner == address(0) || pubSecp521r1.length != PK_LENGTH) revert TeeIsNotSet();
 
         bytes32 eventsHash = keccak256(abi.encode(events));
+        bytes32 eventSubTypesHash = keccak256(abi.encode(eventSubTypes));
         bytes32 withdrawalRequestsHash = keccak256(abi.encode(withdrawalRequests));
 
         bytes32 messageHash = keccak256(abi.encode(
@@ -56,6 +58,7 @@ contract NoAttestationTeeAuthenticator is ITeeAuthenticator, Ownable {
             newStateRoot,
             processedRequestId,
             eventsHash,
+            eventSubTypesHash,
             withdrawalRequestsHash,
             refundAmount,
             applicationFee

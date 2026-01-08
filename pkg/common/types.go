@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
@@ -78,8 +80,8 @@ type Request struct {
 	Timestamp *big.Int `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
-	// Value is the optional deposit value in WEI
-	Value *big.Int `json:"value"`
+	// DepositAmount is the optional deposit value in WEI
+	DepositAmount *big.Int `json:"depositAmount"`
 	// MaxFeeValue is the maximum fee value reserved for fee payment
 	MaxFeeValue *big.Int `json:"maxFeeValue"`
 }
@@ -90,6 +92,8 @@ type Event struct {
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
 	UserID ethCommon.Address `json:"userId"`
+	// EventSubType is the optional subtype used for filtering
+	EventSubType string `json:"eventSubType"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`
 }
@@ -149,6 +153,8 @@ type DeanonymizationReport struct {
 	ReportID RequestIdType `json:"reportId"`
 	// EncryptedReport is the encrypted report data
 	EncryptedReport []byte `json:"encryptedReport"`
+	// Authority is the entity requesting the report
+	Authority       ethCommon.Address  `json:"authority"`
 	// RefundAmount is the amount to refund in WEI
 	RefundAmount *big.Int `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
@@ -166,6 +172,8 @@ type DecryptedReport struct {
 type PlainEvent struct {
 	// UserID is the address of the user associated with the event
 	UserID ethCommon.Address `json:"userId"`
+	// EventSubType is the optional subtype used for filtering
+	EventSubType string `json:"eventSubType"`
 	// Data is the encrypted event data
 	Data []byte `json:"data"`
 }
@@ -208,6 +216,31 @@ type VSockChannelConnectionParams struct {
 
 func (VSockChannelConnectionParams) IsChannelConnectionParams() {}
 
+// NewVSockChannelConnectionParams parses "cid:port"
+func NewVSockChannelConnectionParams(s string) (*VSockChannelConnectionParams, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid vsock address %q, expected cid:port", s)
+	}
+
+	// Parse CID
+	cid64, err := strconv.ParseUint(parts[0], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CID %q: %w", parts[0], err)
+	}
+
+	// Parse port
+	port64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port %q: %w", parts[1], err)
+	}
+
+	return &VSockChannelConnectionParams{
+		CID:  uint32(cid64),
+		Port: uint32(port64),
+	}, nil
+}
+
 type TcpChannelConnectionParams struct {
 	Ip   string
 	Port uint32
@@ -217,4 +250,23 @@ func (TcpChannelConnectionParams) IsChannelConnectionParams() {}
 
 func (f TcpChannelConnectionParams) Url() string {
 	return fmt.Sprintf("%s:%d", f.Ip, f.Port)
+}
+
+// NewTcpChannelConnectionParams parses "ip:port"
+func NewTcpChannelConnectionParams(addr string) (*TcpChannelConnectionParams, error) {
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid address %q, expected ip:port", addr)
+	}
+
+	// Parse port
+	port64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port %q: %w", parts[1], err)
+	}
+
+	return &TcpChannelConnectionParams{
+		Ip:   parts[0],
+		Port: uint32(port64),
+	}, nil
 }

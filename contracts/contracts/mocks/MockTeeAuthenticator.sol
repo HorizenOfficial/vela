@@ -17,6 +17,7 @@ contract MockTeeAuthenticator is ITeeAuthenticator {
         bytes32 /*newStateRoot*/,
         bytes32 /*processedRequestId*/,
         bytes[] memory /*events*/,
+        string[] memory /*eventSubTypes*/,
         Structs.WithdrawalRequest[] memory /*withdrawalRequests*/,
         uint256 /*refundAmount*/,
         uint256 /*applicationFees*/,

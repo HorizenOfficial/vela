@@ -10,6 +10,7 @@ volumes:
   horizen-cce-manager-data:  
   horizen-cce-manager-reports:
   horizen-cce-chain-data:
+  horizen-cce-logs:
 
 services:
   executor:
@@ -21,19 +22,24 @@ services:
       - /dev/vsock:/dev/vsock
     networks:
       pes_network:
-        ipv4_address: ${EXECUTOR_IP_ADDRESS}
+        ipv4_address: ${EXECUTOR_IP_HOST}
     environment:
-      - EXECUTOR_IP_ADDRESS
-      - EXECUTOR_PORT
-      - EXECUTOR_KEYSET_RECOVERY_TYPE
       - CHANNEL_TYPE
+      - EXECUTOR_IP_HOST
+      - EXECUTOR_PORT
+      - EXECUTOR_ADMIN_POR
+      - LOG_SERVER_IP_HOST
+      - EXECUTOR_KEYSET_RECOVERY_TYPE
       - EXECUTOR_FUEL_PRICE_PER_UNIT
       - EXECUTOR_MIN_FEE_PER_REQUEST
+      - EXECUTOR_LOG_KIND
       - EXECUTOR_LOG_CONSOLE
       - EXECUTOR_LOG_CONSOLE_LEVEL
       - EXECUTOR_LOG_CONSOLE_COLOR
       - EXECUTOR_LOG_FILE_NAME
       - EXECUTOR_LOG_FILE_LEVEL
+      - EXECUTOR_LOG_PORT
+      - EXECUTOR_LOG_NETWORK_LEVEL
     depends_on:
       - chain
   manager:
@@ -45,20 +51,28 @@ services:
       - /dev/vsock:/dev/vsock 
     environment:
       - CHANNEL_TYPE
-      - EXECUTOR_IP_ADDRESS
+      - EXECUTOR_IP_HOST
+      - EXECUTOR_VSOCK_CID
       - EXECUTOR_PORT  
-      - CHANNEL_VSOCK_CID
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
+      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
       - MANAGER_INPUT_WASMS
       # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
-      - MANAGER_REPORTS_FOLDER
       - MANAGER_LOG_KIND
       - MANAGER_LOG_CONSOLE
       - MANAGER_LOG_CONSOLE_LEVEL
       - MANAGER_LOG_CONSOLE_COLOR
       - MANAGER_LOG_FILE_NAME
       - MANAGER_LOG_FILE_LEVEL
+      - MANAGER_VSOCK_CID
+      - LOG_SERVER_IP_HOST
+      - LOG_SERVER_PORT
+      - LOG_SERVER_CONSOLE
+      - LOG_SERVER_CONSOLE_LEVEL
+      - LOG_SERVER_FOLDER=${LOG_SERVER_FOLDER:-/logs}
+      - LOG_SERVER_FILE_NAME
+      - LOG_SERVER_FILE_LEVEL
       - CHAIN_RPC_PROTOCOL
       - CHAIN_RPC_ADDRESS
       - CHAIN_RPC_PORT
@@ -69,18 +83,46 @@ services:
       - HANDSHAKE_TIMEOUT
     networks:
       pes_network:
-        ipv4_address: ${MANAGER_IP_ADDRESS}
+        ipv4_address: ${MANAGER_IP_HOST}
       inet:    
     volumes:
       - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
-      # We must set a default path if .env does not set it, otherwise compose will throw an error
-      # If the optional feature is not enabled, we will simply have an empty volume
       - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
       # WASM input folder
       - ./wasms:${MANAGER_INPUT_WASMS:-/input_wasms}
+      - horizen-cce-logs:${LOG_SERVER_FOLDER:-/logs}
     depends_on:
       - executor 
       - chain
+  authorityservice:
+    image: horizen/cce-authorityservice
+    container_name: horizen-cce-authorityservice
+    restart: always
+    environment:
+      - AUTHORITY_SERVICE_LISTEN_ADDRESS
+      - CHAIN_ID
+      - AUTHORITY_SERVICE_NONCE_TTL
+      - CHAIN_RPC_PROTOCOL
+      - CHAIN_RPC_ADDRESS
+      - CHAIN_RPC_PORT
+      - CHAIN_PROCESSOR_ADDRESS
+      - AUTHORITY_SERVICE_EVENT_BATCH_SIZE
+      - AUTHORITY_SERVICE_EVENT_MAX_BATCHES
+      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
+      - AUTHORITY_SERVICE_LOG_CONSOLE
+      - AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL
+      - AUTHORITY_SERVICE_LOG_CONSOLE_COLOR
+      - AUTHORITY_SERVICE_LOG_FILE_NAME
+      - AUTHORITY_SERVICE_LOG_FILE_LEVEL
+    networks:
+      pes_network:
+        ipv4_address: ${AUTHORITY_SERVICE_IP_ADDRESS}
+      inet:
+    volumes:
+      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
+    depends_on:
+      - chain
+      - manager
   chain:
     image: horizen/cce-chain
     container_name: horizen-cce-chain
@@ -96,4 +138,3 @@ services:
       inet:    
     volumes:
       - horizen-cce-chain-data:${CHAIN_DATA_FOLDER:-/data} 
-

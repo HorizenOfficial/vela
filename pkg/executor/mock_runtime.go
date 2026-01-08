@@ -73,8 +73,8 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationId
 	return stateBytes, r.fuel, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, value *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	r.log.Info("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, value, sender)
+func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+	r.log.Info("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, depositAmount, sender)
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
@@ -85,19 +85,20 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 	nonce := currentState.Nonce
 
 	var events []common.PlainEvent
-	if value.Sign() == 1 {
+	if depositAmount.Sign() == 1 {
 		// Ensure sender account exists
 		acct := ensureAccount(accounts, sender)
 		// Update balance
-		balance := new(big.Int).Add(acct.Balance, value)
+		balance := new(big.Int).Add(acct.Balance, depositAmount)
 		acct.Balance = balance
 		// Increment nonce
 		nonce++
 		currentState.Nonce = nonce
 
 		depositEvent := common.PlainEvent{
-			UserID: sender,
-			Data:   []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, value, balance, nonce)),
+			UserID:       sender,
+			EventSubType: "deposit",
+			Data:         []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, depositAmount, balance, nonce)),
 		}
 		events = append(events, depositEvent)
 	}
@@ -162,12 +163,14 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 
 			// Events
 			senderEvent := common.PlainEvent{
-				UserID: sender,
+				UserID:       sender,
+				EventSubType: "transfer_sent",
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					to, amount, senderAcct.Balance, nonce)),
 			}
 			recipientEvent := common.PlainEvent{
-				UserID: to,
+				UserID:       to,
+				EventSubType: "transfer_received",
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					sender, amount, recipientAcct.Balance, nonce)),
 			}
@@ -197,7 +200,8 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			withdrawals = append(withdrawals, common.Withdrawal{DestinationAddress: to, Amount: amount})
 
 			withdrawEvent := common.PlainEvent{
-				UserID: sender,
+				UserID:       sender,
+				EventSubType: "withdrawal",
 				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
 					to, amount, senderAcct.Balance, nonce)),
 			}

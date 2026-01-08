@@ -16,8 +16,10 @@ import (
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/logserver"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/mockdb"
@@ -26,6 +28,17 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
+
+
+type MockAdminServer struct {}
+
+func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
+func (*MockAdminServer)	Stop() error { return nil}
+func (*MockAdminServer)	SetCmdHandler(handler admin.AdminCmdHandler)  { }
+
+
+
+
 
 type SystemTestSuite struct {
 	t                  *testing.T
@@ -43,7 +56,7 @@ type SystemTestSuite struct {
 	log                logger.Logger
 }
 
-func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *SystemTestSuite {
+func NewSystemTestSuite(t *testing.T, appType string, mgrLog logger.Logger, excLog logger.Logger) *SystemTestSuite {
 	// log is passed from outside, the log settings in the manager configuration does not affect it.
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
@@ -51,7 +64,7 @@ func NewSystemTestSuite(t *testing.T, appType string, log logger.Logger) *System
 	require.NoError(t, err)
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, log)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLog, excLog)
 }
 
 func NewSystemTestSuiteWithConfigs(
@@ -61,15 +74,38 @@ func NewSystemTestSuiteWithConfigs(
 	execConfig *executor.Config,
 	keySet *executor.EnclaveKeySet,
 	recoveryData *common.EnclaveKeySetRecovery,
-	log logger.Logger,
+	mgrLog logger.Logger,
+	excLog logger.Logger,
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Normalize channel params for tests: default configs may use vsock, but tests run over TCP.
+	var tcpParams common.TcpChannelConnectionParams
+	switch p := execConfig.ChannelParams.(type) {
+	case common.TcpChannelConnectionParams:
+		tcpParams = p
+	case common.VSockChannelConnectionParams:
+		tcpParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
+		execConfig.ChannelParams = tcpParams
+		execConfig.ChannelType = "tcp"
+	default:
+		t.Fatal("unsupported executor channel params type")
+	}
+	switch p := mgrConfig.ChannelParams.(type) {
+	case common.TcpChannelConnectionParams:
+		// keep as is
+	case common.VSockChannelConnectionParams:
+		mgrConfig.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
+		mgrConfig.ChannelType = "tcp"
+	default:
+		t.Fatal("unsupported manager channel params type")
+	}
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	factory := communication.NewTCPConnectionFactory(execConfig.ChannelParams.(common.TcpChannelConnectionParams).Url())
-	executorClient := communication.NewClient(factory, log)
+	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
+	executorClient := communication.NewClient(factory, mgrLog)
 
 	// Create manager
 	var err error
@@ -98,22 +134,34 @@ func NewSystemTestSuiteWithConfigs(
 		require.NoError(t, err)
 	}
 
-	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, log)
+	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, mgrLog)
+
+	logserver.StartLogServer(
+		ctx,
+		logserver.LogServerConfig{
+			TCPAddr:        mgrConfig.LogServerTCPAddress,
+			VSockAddr:      mgrConfig.LogServerVSockAddress,
+			LogFilePath:    mgrConfig.LogServerLogFile,
+			ConsoleEnabled: mgrConfig.LogServerConsole,
+			ConsoleLevel:   mgrConfig.LogServerConsoleLevel,
+			FileLevel:      mgrConfig.LogServerFileLevel,
+		},
+	)
 
 	// Create executor
-	server := communication.NewServer(factory, log)
+	server := communication.NewServer(factory, excLog)
 	var runtime executor.Runtime
 	switch appType {
 	case "mock-runtime":
 		t.Log("mock app type: ", appType)
-		runtime = executor.NewMockRuntime(log)
+		runtime = executor.NewMockRuntime(excLog)
 	default:
 		t.Log("wasm app type: ", appType)
-		runtime = wasm.NewWasmtimeRuntime(log)
+		runtime = wasm.NewWasmtimeRuntime(excLog)
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, log)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, &MockAdminServer{}, excLog)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {
@@ -136,7 +184,7 @@ func NewSystemTestSuiteWithConfigs(
 		cancel:           cancel,
 		dbPath:           dbPath,
 		reportsPath:      reportsPath,
-		log:              log,
+		log:              mgrLog,
 	}
 
 	if keySet != nil {
@@ -242,8 +290,9 @@ func (s *SystemTestSuite) AssertRequestCompleted(requestID common.RequestIdType,
 	return s.blockchainClient.WaitForRequestCompletion(requestID, timeout)
 }
 
-// WaitForEvent waits for a specific event to be published for a user
-func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, timeout time.Duration) (*common.Event, error) {
+// WaitForEvent waits for a specific event to be published for a user.
+// If eventSubType is empty, any subtype is accepted.
+func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType string, timeout time.Duration) (*common.Event, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -252,7 +301,7 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, timeout time.Du
 	for {
 		select {
 		case event := <-s.eventChannel:
-			if evt, ok := event.(common.Event); ok && evt.UserID == userID {
+			if evt, ok := event.(common.Event); ok && evt.UserID == userID && (eventSubType == "" || evt.EventSubType == eventSubType) {
 				s.log.Info("TESTING: Received event: %+v", event.(common.Event))
 				return &evt, nil
 			} else {
@@ -398,7 +447,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		Payload:       bytecode,
 		Sender:        userAddress,
 		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		Value:         big.NewInt(0),
+		DepositAmount: big.NewInt(0),
 		MaxFeeValue:   big.NewInt(100),
 	}
 	err = suite.SubmitRequest(deployReq)
@@ -469,7 +518,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for deposit event
-	depositEvent, err := suite.WaitForEvent(userAddress, timeout_value)
+	depositEvent, err := suite.WaitForEvent(userAddress, "deposit", timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, depositEvent)
 
@@ -565,7 +614,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for withdrawal event
-	withdrawalEvent, err := suite.WaitForEvent(userAddress, timeout_value)
+	withdrawalEvent, err := suite.WaitForEvent(userAddress, "withdrawal", timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawalEvent)
 

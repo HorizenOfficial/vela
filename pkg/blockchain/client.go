@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
@@ -59,6 +60,7 @@ type BlockChainClient struct {
 	client                 ChainClient
 	privKey                *cryptotypes.PrivateKeySecp256k1
 	account                *bind.TransactOpts
+	chainID                *big.Int
 }
 
 func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
@@ -69,6 +71,15 @@ func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon
 		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
 		teeAuthEndpoint:   tee.NewTeeAuthenticator(),
 		privKey:           key,
+	}
+}
+
+// NewReadOnlyBlockChainClient builds a client configured only for read operations (no signing key required).
+func NewReadOnlyBlockChainClient(processor ethCommon.Address, rpcURL string) *BlockChainClient {
+	return &BlockChainClient{
+		processorAddress:  processor,
+		rpcURL:            rpcURL,
+		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
 	}
 }
 
@@ -87,17 +98,53 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	}
 
 	c.processorBoundContract = c.processorEndpoint.Instance(c.client, c.processorAddress)
-	c.teeAuthBoundContract = c.teeAuthEndpoint.Instance(c.client, c.teeAuthAddress)
+	if c.teeAuthEndpoint != nil && c.teeAuthAddress != (ethCommon.Address{}) {
+		c.teeAuthBoundContract = c.teeAuthEndpoint.Instance(c.client, c.teeAuthAddress)
+	}
 
 	chainID, err := c.client.ChainID(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve chain ID: %w", err)
 	}
 
-	c.account = bind.NewKeyedTransactor(c.privKey.PrivateKey, chainID)
+	if c.privKey != nil {
+		c.account = bind.NewKeyedTransactor(c.privKey.PrivateKey, chainID)
+	}
+	c.chainID = chainID
 
 	c.connected = true
 	return nil
+}
+
+// ChainID returns the connected chain ID.
+func (c *BlockChainClient) ChainID(ctx context.Context) (*big.Int, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	if c.chainID != nil {
+		return new(big.Int).Set(c.chainID), nil
+	}
+
+	chainID, err := c.client.ChainID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve chain ID: %w", err)
+	}
+	return chainID, nil
+}
+
+// LatestBlockNumber returns the latest block number from the chain.
+func (c *BlockChainClient) LatestBlockNumber(ctx context.Context) (uint64, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return 0, fmt.Errorf("client not connected, call Connect first")
+	}
+	return c.client.BlockNumber(ctx)
 }
 
 func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
@@ -165,8 +212,8 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			Payload:         request.Payload,
 			Timestamp:       request.Timestamp,
 			Sender:          request.Sender,
-			Value:           request.Value,
-			MaxFeeValue: request.MaxFeeValue,
+			DepositAmount:   request.DepositAmount,
+			MaxFeeValue:     request.MaxFeeValue,
 		}
 
 		output = append(output, req)
@@ -206,14 +253,18 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		Payload:         request.Payload,
 		Timestamp:       request.Timestamp,
 		Sender:          request.Sender,
-		Value:           request.Value,
-		MaxFeeValue: request.MaxFeeValue,
+		DepositAmount:   request.DepositAmount,
+		MaxFeeValue:     request.MaxFeeValue,
 	}
 
 	return req, stateRoot, nil
 }
 
 func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) error {
+	if c.account == nil {
+		return fmt.Errorf("client not configured for signing transactions")
+	}
+
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
 	if err != nil {
 		return c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
@@ -255,17 +306,17 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID comm
 	c.account.Value = nil
 
 	if requestFailure == nil {
-        requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
-    }
-	
+		requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
+	}
+
 	solCode := uint8(requestFailure.Category())
-    msg := requestFailure.ExternalMessage()
+	msg := requestFailure.ExternalMessage()
 
 	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(requestID, solCode, msg))
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
-func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, value *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -276,9 +327,9 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	reqType := uint8(requestType)
 
 	// Pack the transaction data using the generated binding
-	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, value, maxFeeValue)
+	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount, maxFeeValue)
 	// Set the value for the transaction (msg.value)
-	c.account.Value = new(big.Int).Add(value, maxFeeValue)
+	c.account.Value = new(big.Int).Add(depositAmount, maxFeeValue)
 
 	// Send the transaction
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
@@ -321,8 +372,10 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	}
 
 	events := make([][]byte, len(update.Events))
+	eventSubTypes := make([]string, len(update.Events))
 	for i, event := range update.Events {
 		events[i] = event.EncryptedData
+		eventSubTypes[i] = event.EventSubType
 	}
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
@@ -340,6 +393,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		update.NewStateRoot,
 		update.RequestID,
 		events,
+		eventSubTypes,
 		withdrawals,
 		update.RefundAmount,
 		update.ApplicationFee,
@@ -371,7 +425,7 @@ func (c *BlockChainClient) Close() error {
 // toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
 // f: optional filter function for decrypted events
 // stopAtFirst: bool flag to stop at first found event
-func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, eventSubType string, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -400,6 +454,10 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 
 	appIdHash := applicationId.ToHash()
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
+	if eventSubType != "" {
+		eventSubTypeHash := ethCrypto.Keccak256Hash([]byte(eventSubType))
+		topicsHash = append(topicsHash, []ethCommon.Hash{eventSubTypeHash})
+	}
 
 	var events [][]byte
 	query := ethereum.FilterQuery{
@@ -440,6 +498,9 @@ func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.Pu
 	defer c.mu.RUnlock()
 	if !c.connected {
 		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+	if c.teeAuthBoundContract == nil || c.teeAuthEndpoint == nil {
+		return nil, fmt.Errorf("tee authenticator contract not configured")
 	}
 
 	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,

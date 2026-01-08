@@ -35,7 +35,7 @@ contract ProcessorEndpoint is AccessControl {
     event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
     event RequestCompleted(bytes32 indexed requestId, uint256 applicationFees, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
-    event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, bytes encryptedData);
+    event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, string indexed eventSubType, bytes encryptedData);
     event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     event QueueThresholdUpdated(uint256 newThreshold);
     event FeeCollectorUpdated(address newFeeCollector);
@@ -89,11 +89,11 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value, // part of the sent value forwarded to the application, for app logic
+        uint256 depositAmount, // part of the sent value forwarded to the application, for app logic
         uint256 maxFeeValue // part ot the sent value reserved for fee payment
     ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
         //check values
-        if(msg.value != value + maxFeeValue) revert InvalidValue();
+        if(msg.value != depositAmount + maxFeeValue) revert InvalidValue();
         if(maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
 
         //check queue size
@@ -104,8 +104,8 @@ contract ProcessorEndpoint is AccessControl {
             if (payload.length != 133) revert InvalidPayload();
         } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
 
-            // deanonymization requests MUST have value = 0
-            if (value != 0) revert InvalidValue();
+            // deanonymization requests MUST have depositAmount = 0
+            if (depositAmount != 0) revert InvalidValue();
 
             // only allowed authorities can request deanonymization
             if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
@@ -115,7 +115,7 @@ contract ProcessorEndpoint is AccessControl {
 
         
         //create request
-        bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, value, _tail);
+        bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, depositAmount, _tail);
         requestById[requestId] = 
             Structs.PendingRequest(
                 protocolVersion,
@@ -125,7 +125,7 @@ contract ProcessorEndpoint is AccessControl {
                 payload,
                 block.timestamp,
                 msg.sender,
-                value,
+                depositAmount,
                 maxFeeValue
             );
         _requestIdByOrder[_tail] = requestId;
@@ -178,12 +178,12 @@ contract ProcessorEndpoint is AccessControl {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         address sender = requestById[requestId].sender;
-        uint256 value = requestById[requestId].value;
+        uint256 depositAmount = requestById[requestId].depositAmount;
         uint256 maxFeeValue = requestById[requestId].maxFeeValue;
 
         _removeRequest();
         //refunds
-        uint256 refund = value + (maxFeeValue - minFeePerRequest);
+        uint256 refund = depositAmount + (maxFeeValue - minFeePerRequest);
         if(refund > 0) {
             (bool refundSent, ) = payable(sender).call{value: refund}("");
             if (refundSent) {
@@ -230,7 +230,8 @@ contract ProcessorEndpoint is AccessControl {
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 
         bytes32 processedRequestId,
-        bytes[] memory events, 
+        bytes[] memory events,
+        string[] memory eventSubTypes,
         Structs.WithdrawalRequest[] memory withdrawalRequests, 
         uint256 refund,
         uint256 applicationFees,
@@ -242,7 +243,8 @@ contract ProcessorEndpoint is AccessControl {
         if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
         //check signature
-        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, refund, applicationFees, signature)) revert InvalidSignature();
+        if (events.length != eventSubTypes.length) revert InvalidPayload();
+        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refund, applicationFees, signature)) revert InvalidSignature();
 
         //check values
         Structs.PendingRequest memory requestInfo = requestById[processedRequestId];
@@ -267,7 +269,7 @@ contract ProcessorEndpoint is AccessControl {
         //emit encrypted event
         i = 0;
         while(i < events.length) {
-            emit UserEvent(applicationId, processedRequestId, events[i]);
+            emit UserEvent(applicationId, processedRequestId, eventSubTypes[i], events[i]);
             unchecked {++i;}
         }
 
@@ -333,7 +335,7 @@ contract ProcessorEndpoint is AccessControl {
         uint64 applicationId, 
         Structs.RequestType requestType, 
         bytes calldata payload, 
-        uint256 value,
+        uint256 depositAmount,
         uint256 idx
         ) public pure returns (bytes32) {
         
@@ -342,7 +344,7 @@ contract ProcessorEndpoint is AccessControl {
             applicationId,
             requestType,
             payload,
-            value,
+            depositAmount,
             idx
        ));
 
