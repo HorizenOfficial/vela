@@ -203,6 +203,51 @@ func TestUnmarshalJSONOverflow(t *testing.T) {
 	require.Contains(t, err.Error(), "Uint256 overflow")
 }
 
+func TestUnmarshalJSONRobustness(t *testing.T) {
+	type wrapper struct {
+		Val *Uint256 `json:"val"`
+	}
+
+	tests := []struct {
+		name        string
+		input       string
+		expectError bool
+	}{
+		{
+			name:        "internal whitespace",
+			input:       `{"val": "1 2 3"}`,
+			expectError: true, // Should not allow internal spaces
+		},
+		{
+			name:        "empty string",
+			input:       `{"val": ""}`,
+			expectError: true, // Should not allow empty value
+		},
+		{
+			name:        "only whitespace",
+			input:       `{"val": "   "}`,
+			expectError: true, // Should not allow whitespace-only
+		},
+		{
+			name:        "malformed JSON string",
+			input:       `{"val": "\"123"}`, // missing closing quote
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var w wrapper
+			err := json.Unmarshal([]byte(tt.input), &w)
+			if tt.expectError {
+				require.Error(t, err, "Expected error for input: %s", tt.input)
+			} else {
+				require.NoError(t, err, "Expected no error for input: %s", tt.input)
+			}
+		})
+	}
+}
+
 func TestIsZero(t *testing.T) {
 	require.True(t, NewUint256(0).IsZero())
 	require.False(t, NewUint256(1).IsZero())

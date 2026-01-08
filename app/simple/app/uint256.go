@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"strings"
 )
 
 // Uint256 represents a 256-bit unsigned integer using 4 uint64 values.
@@ -120,7 +121,7 @@ func (z Uint256) String() string {
 	return string(res)
 }
 
-// divModWord computes z / divisor and z % divisor.
+// divModWord computes z / divisor and z % divisor. We assume the divisor has been checked by the caller to be != 0
 func (z Uint256) divModWord(divisor uint64) (Uint256, uint64) {
 	var quot Uint256
 	var r uint64
@@ -137,7 +138,7 @@ func (z Uint256) divModWord(divisor uint64) (Uint256, uint64) {
 }
 
 // MarshalJSON implements json.Marshaler.
-// It marshals the Uint256 as a JSON number (no quotes), or string if large?
+// It marshals the Uint256 as a JSON number (no quotes)
 // math/big.Int marshals as digits.
 func (z Uint256) MarshalJSON() ([]byte, error) {
 	return []byte(z.String()), nil
@@ -147,21 +148,35 @@ func (z Uint256) MarshalJSON() ([]byte, error) {
 // Only decimal strings or numbers are accepted. Overflow returns an error.
 func (z *Uint256) UnmarshalJSON(data []byte) error {
 	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		// If it's not a JSON string, try treating it as a raw JSON number
-		s = string(data)
+
+	// 1. Determine if input is a JSON string or raw number by peeking the first non-whitespace char using a recursive for loop
+	trimmedData := data
+	for len(trimmedData) > 0 && (trimmedData[0] == ' ' || trimmedData[0] == '\t' || trimmedData[0] == '\n' || trimmedData[0] == '\r') {
+		trimmedData = trimmedData[1:]
 	}
 
-	*z = Uint256{}
-
-	const ten = uint64(10)
-
-	for _, c := range s {
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
-			continue
+	if len(trimmedData) > 0 && trimmedData[0] == '"' {
+		// First non-whitespace character is a quote, this is a JSON string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
 		}
+	} else {
+		// First non-whitespace character is not a quote, this is a raw JSON number or we have empty input
+		s = string(trimmedData)
+	}
+
+	// 2. Clean up surrounding whitespace and validate non-empty
+	s = strings.TrimSpace(s)
+	if len(s) == 0 {
+		return errors.New("Uint256 value is empty")
+	}
+
+	// 3. Strict digit-only parsing
+	*z = Uint256{}
+	const ten = uint64(10)
+	for _, c := range s {
 		if c < '0' || c > '9' {
-			return fmt.Errorf("invalid character in Uint256 string: %c", c)
+			return fmt.Errorf("invalid character in Uint256: %c", c)
 		}
 		digit := uint64(c - '0')
 
@@ -189,7 +204,7 @@ func (z *Uint256) Mul64(y uint64) {
 // Mul64Overflow sets z = z * y and reports whether overflow occurred.
 func (z *Uint256) Mul64Overflow(y uint64) (overflow bool) {
 	var carry uint64
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		hi, lo := bits.Mul64(z[i], y)
 		var c uint64
 		z[i], c = bits.Add64(lo, carry, 0)
