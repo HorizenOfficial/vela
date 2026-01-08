@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
@@ -15,9 +17,9 @@ const (
 )
 
 var (
-	user1Address = HexToAddress("0xadd0000000000000000000000000000000000001")
-	user2Address = HexToAddress("0xadd0000000000000000000000000000000000002")
-	user3Address = HexToAddress("0xadd0000000000000000000000000000000000003")
+	user1Address, _ = HexToAddress("0xadd0000000000000000000000000000000000001")
+	user2Address, _ = HexToAddress("0xadd0000000000000000000000000000000000002")
+	user3Address, _ = HexToAddress("0xadd0000000000000000000000000000000000003")
 )
 
 func getInitialState(t *testing.T) (string, ApplicationInternalState) {
@@ -174,7 +176,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		nonexistent := HexToAddress("0xadd0000000000000000000000000000000009999")
+		nonexistent, _ := HexToAddress("0xadd0000000000000000000000000000000009999")
 		result := ProcessRequest(&nonexistent, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "does not exist")
@@ -318,7 +320,7 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("compare with non-existent account", func(t *testing.T) {
-		nonexistent := HexToAddress("0xadd0000000000000000000000000000000009999")
+		nonexistent, _ := HexToAddress("0xadd0000000000000000000000000000000009999")
 		instruction := PayloadInstructions{
 			Type: "compare_addresses",
 			CompareAccounts: &CompareInstructions{
@@ -400,6 +402,7 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 
 		require.Len(t, report.Accounts, len(state.Accounts))
 		// Check if the accounts in the report match the expected ones (from state)
+		require.Equal(t, len(state.Accounts), len(report.Accounts))
 		for _, expectedAcc := range state.Accounts {
 			found := false
 			for _, reportAcc := range report.Accounts {
@@ -431,7 +434,8 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 func TestJsonCompatibility(t *testing.T) {
 	// Address compatibility
 	addrStr := "0x1234567890123456789012345678901234567890"
-	guestAddr := HexToAddress(addrStr)
+	guestAddr, err := HexToAddress(addrStr)
+	require.NoError(t, err)
 	hostAddr := ethCommon.HexToAddress(addrStr)
 
 	// PlainEvent
@@ -606,4 +610,73 @@ func TestJsonCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, guestMemoryStats.MapSize, hostMemoryStats.MapSize)
 	require.Equal(t, guestMemoryStats.CumulativeMemorySize, hostMemoryStats.CumulativeMemorySize)
+}
+
+func TestHexToAddress_ValidFullLength(t *testing.T) {
+	s := "0x00112233445566778899aabbccddeeff00112233"
+	addr, err := HexToAddress(s)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []byte{
+		0x00, 0x11, 0x22, 0x33, 0x44,
+		0x55, 0x66, 0x77, 0x88, 0x99,
+		0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+		0xff, 0x00, 0x11, 0x22, 0x33,
+	}
+
+	if !bytes.Equal(addr[:], expected) {
+		t.Fatalf("address mismatch\nexpected: %x\ngot:      %x", expected, addr[:])
+	}
+}
+
+func TestHexToAddress_NoPrefix(t *testing.T) {
+	s := "00112233445566778899aabbccddeeff00112233"
+	addr1, err := HexToAddress(s)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	addr2, err := HexToAddress("0x" + s)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if addr1 != addr2 {
+		t.Fatalf("addresses differ with/without prefix")
+	}
+}
+
+func TestHexToAddress_InvalidLength(t *testing.T) {
+	_, err := HexToAddress("0x1234")
+	if err == nil {
+		t.Fatalf("expected error for short address")
+	}
+
+	_, err = HexToAddress("0x" + strings.Repeat("11", 21))
+	if err == nil {
+		t.Fatalf("expected error for long address")
+	}
+}
+
+func TestHexToAddress_OddLengthRejected(t *testing.T) {
+	_, err := HexToAddress("abc")
+	if err == nil {
+		t.Fatalf("expected error for odd-length input")
+	}
+}
+
+func TestHexToAddress_InvalidHex(t *testing.T) {
+	_, err := HexToAddress("0xzz1122")
+	if err == nil {
+		t.Fatalf("expected error for invalid hex, got nil")
+	}
+}
+
+func TestHexToAddress_Empty(t *testing.T) {
+	_, err := HexToAddress("")
+	if err == nil {
+		t.Fatalf("expected error for empty string, got nil")
+	}
 }

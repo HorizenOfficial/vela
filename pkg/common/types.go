@@ -115,6 +115,8 @@ type Event struct {
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
 	UserID ethCommon.Address `json:"userId"`
+	// EventSubType is the optional subtype used for filtering
+	EventSubType string `json:"eventSubType"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`
 }
@@ -193,6 +195,8 @@ type DecryptedReport struct {
 type PlainEvent struct {
 	// UserID is the address of the user associated with the event
 	UserID ethCommon.Address `json:"userId"`
+	// EventSubType is the optional subtype used for filtering
+	EventSubType string `json:"eventSubType"`
 	// Data is the encrypted event data
 	Data []byte `json:"data"`
 }

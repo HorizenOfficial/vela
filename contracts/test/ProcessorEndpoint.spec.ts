@@ -743,6 +743,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
+            [],
             0,
             MIN_FEE
         );
@@ -754,6 +755,7 @@ describe('ProcessorEndpoint Test', function () {
                 initialStateRoot,
                 newStateRoot,
                 currentPendingRequest.requestId,
+                [],
                 [],
                 [],
                 0,
@@ -768,6 +770,7 @@ describe('ProcessorEndpoint Test', function () {
             initialStateRoot,
             newStateRoot,
             currentPendingRequest.requestId,
+            [],
             [],
             [],
             0,
@@ -802,6 +805,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
+            [],
             0,
             MIN_FEE
         );
@@ -810,6 +814,7 @@ describe('ProcessorEndpoint Test', function () {
             stateRoot,
             newStateRoot,
             currentPendingRequest.requestId,
+            [],
             [],
             [],
             0,
@@ -862,6 +867,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
+            [],
             refund,
             applicationFees
         );
@@ -872,6 +878,7 @@ describe('ProcessorEndpoint Test', function () {
                 initialStateRoot,
                 newStateRoot,
                 currentPendingRequest.requestId,
+                [],
                 [],
                 [],
                 refund,
@@ -913,6 +920,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
+            [],
             refund,
             applicationFees
         );
@@ -923,6 +931,7 @@ describe('ProcessorEndpoint Test', function () {
                 initialStateRoot,
                 newStateRoot,
                 currentPendingRequest.requestId,
+                [],
                 [],
                 [],
                 refund,
@@ -971,6 +980,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
+            [],
             0,
             MIN_FEE
         );
@@ -979,6 +989,7 @@ describe('ProcessorEndpoint Test', function () {
             initialStateRoot,
             newStateRoot,
             currentPendingRequest.requestId,
+            [],
             [],
             [],
             0,
@@ -1002,6 +1013,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
+            [],
             0,
             MIN_FEE
         );
@@ -1011,6 +1023,7 @@ describe('ProcessorEndpoint Test', function () {
                 initialStateRoot,
                 newStateRoot,
                 currentPendingRequest.requestId,
+                [],
                 [],
                 [],
                 0,
@@ -1045,6 +1058,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
+            [],
             0,
             MIN_FEE
         ); //signed by signer[1] instead of [0]
@@ -1055,6 +1069,7 @@ describe('ProcessorEndpoint Test', function () {
                 stateRoot,
                 "0x1234560000000000000000000000000000000000000000000000000000000000",
                 currentPendingRequest.requestId,
+                [],
                 [],
                 [],
                 0,
@@ -1096,6 +1111,7 @@ describe('ProcessorEndpoint Test', function () {
             newStateRoot,
             currentPendingRequest.requestId,
             [],
+            [],
             [[addr1, 49], [addr2, 51]],
             0,
             MIN_FEE
@@ -1105,6 +1121,7 @@ describe('ProcessorEndpoint Test', function () {
             initialStateRoot,
             newStateRoot,
             currentPendingRequest.requestId,
+            [],
             [],
             [[addr1, 49], [addr2, 51]],
             0,
@@ -1159,6 +1176,7 @@ describe('ProcessorEndpoint Test', function () {
             newStateRoot,
             currentPendingRequest.requestId,
             ["0x1234"],
+            ["subtype"],
             [],
             0,
             MIN_FEE
@@ -1170,6 +1188,7 @@ describe('ProcessorEndpoint Test', function () {
                 newStateRoot,
                 currentPendingRequest.requestId,
                 ["0x1234"],
+                ["subtype"],
                 [],
                 0,
                 MIN_FEE,
@@ -1178,8 +1197,58 @@ describe('ProcessorEndpoint Test', function () {
         ).to.emit(processorEndpoint, "UserEvent").withArgs(
             applicationId,
             currentPendingRequest.requestId,
+            "subtype",
             "0x1234"
         );
+    });
+
+    it('should fail signature check if event subtype changes', async function () {
+        let submitTx = await processorEndpoint.submitRequest(
+            protocolVersion,
+            applicationId,
+            2,
+            "0x02",
+            0,
+            MIN_FEE,
+            { value: MIN_FEE }
+        );
+        await submitTx.wait();
+        let initialStateRoot = await processorEndpoint.stateRoot();
+        let [currentPendingRequest, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
+        expect(success).eql(true)
+        expect(initialStateRoot).eql(stateRoot);
+
+        let newStateRoot = "0x1234000000000000000000000000000000000000000000000000000000000000";
+
+        // Sign with subtype = "subtype"
+        let signature = await ethSignStateUpdate(
+            signers[0],
+            applicationId,
+            initialStateRoot,
+            newStateRoot,
+            currentPendingRequest.requestId,
+            ["0x1234"],
+            ["subtype"],
+            [],
+            0,
+            MIN_FEE
+        );
+
+        // Call stateUpdate with a different subtype -> signature must fail
+        await expect(
+            processorEndpoint.stateUpdate(
+                applicationId,
+                initialStateRoot,
+                newStateRoot,
+                currentPendingRequest.requestId,
+                ["0x1234"],
+                ["different"],
+                [],
+                0,
+                MIN_FEE,
+                signature,
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidSignature");
     });
 
     it('should not update status with wrong transfer values', async function () {
@@ -1209,6 +1278,7 @@ describe('ProcessorEndpoint Test', function () {
             "0x1234000000000000000000000000000000000000000000000000000000000000",
             currentPendingRequest.requestId,
             [],
+            [],
             [[addr1, 100], [addr2, 100]],
             0,
             MIN_FEE
@@ -1219,6 +1289,7 @@ describe('ProcessorEndpoint Test', function () {
                 initialStateRoot,
                 "0x1234000000000000000000000000000000000000000000000000000000000000",
                 currentPendingRequest.requestId,
+                [],
                 [],
                 [[addr1, 100], [addr2, 100]],
                 0,

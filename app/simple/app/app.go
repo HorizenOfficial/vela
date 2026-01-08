@@ -31,8 +31,6 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 		return DepositResult{Error: "Sender address is nil"}
 	}
 
-	sender := *senderPtr
-	senderHex := sender.Hex()
 	//This should never happens but just in case
 	if value == nil {
 		return DepositResult{Error: "value is nil"}
@@ -40,19 +38,25 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return DepositResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
+		// we could add the stateJSON to the error, but it is not safe if it is very large
+		return DepositResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
 	}
 
-	// Ensure sender account exists
-	if currentState.Accounts[senderHex] == nil {
-		currentState.Accounts[senderHex] = &AccountState{
-			Address: sender,
+	senderHex := senderPtr.Hex()
+
+	// safe Map Access & Initialization
+	acc, exists := currentState.Accounts[senderHex]
+	if !exists {
+		acc = &AccountState{
+			Address: *senderPtr,
 			Balance: NewUint256(0),
 		}
+		currentState.Accounts[senderHex] = acc
 	}
 
-	// Add deposit to sender's balance
-	currentState.Accounts[senderHex].Balance.Add(currentState.Accounts[senderHex].Balance, value)
+	// safe big.Int Addition (Immutable-style to prevent side effects)
+	// We create a new Int to store the result rather than modifying the existing pointer in-place
+	acc.Balance = NewUint256(0).Add(acc.Balance, value)
 
 	// Create deposit event
 	eventData := map[string]interface{}{
@@ -65,8 +69,9 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 	}
 
 	events := []PlainEvent{{
-		UserID: sender,
-		Data:   eventDataBytes,
+		UserID:       *senderPtr,
+		EventSubType: "deposit",
+		Data:         eventDataBytes,
 	}}
 
 	// Serialize the updated state
@@ -88,7 +93,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
+		return ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
 	}
 
 	var events []PlainEvent
@@ -143,8 +148,9 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 
 			events = append(events, PlainEvent{
-				UserID: sender,
-				Data:   eventDataBytes,
+				UserID:       sender,
+				EventSubType: "compare_accounts",
+				Data:         eventDataBytes,
 			})
 
 		case "withdraw":
@@ -183,8 +189,9 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 
 			events = append(events, PlainEvent{
-				UserID: sender,
-				Data:   withdrawEventDataBytes,
+				UserID:       sender,
+				EventSubType: "withdrawal",
+				Data:         withdrawEventDataBytes,
 			})
 
 		default:
@@ -215,7 +222,7 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) Deanonymizatio
 	// Deserialize current state
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to parse application state: %s", stateJSON)}
+		return DeanonymizationResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
 	}
 
 	// Create deanonymization report

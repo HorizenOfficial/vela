@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
@@ -371,8 +372,10 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	}
 
 	events := make([][]byte, len(update.Events))
+	eventSubTypes := make([]string, len(update.Events))
 	for i, event := range update.Events {
 		events[i] = event.EncryptedData
+		eventSubTypes[i] = event.EventSubType
 	}
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
@@ -390,6 +393,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		update.NewStateRoot,
 		update.RequestID,
 		events,
+		eventSubTypes,
 		withdrawals,
 		update.RefundAmount,
 		update.ApplicationFee,
@@ -421,7 +425,7 @@ func (c *BlockChainClient) Close() error {
 // toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
 // f: optional filter function for decrypted events
 // stopAtFirst: bool flag to stop at first found event
-func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
+func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, eventSubType string, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -450,6 +454,10 @@ func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotype
 
 	appIdHash := applicationId.ToHash()
 	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
+	if eventSubType != "" {
+		eventSubTypeHash := ethCrypto.Keccak256Hash([]byte(eventSubType))
+		topicsHash = append(topicsHash, []ethCommon.Hash{eventSubTypeHash})
+	}
 
 	var events [][]byte
 	query := ethereum.FilterQuery{
