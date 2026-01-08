@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
-import "./interfaces/ITeeAuthenticator.sol";
+
+import "./AbstractTeeAuthenticator.sol";
 import "./interfaces/INitroProver.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-contract TeeAuthenticator is ITeeAuthenticator, Ownable {
-    uint256 public constant PK_LENGTH = 133; //secp521r1 uncompressed public key length in bytes
+contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
     INitroProver public immutable nitroProver;
     bytes public pcr0;
     uint256 public immutable maxVerificationAge;
@@ -35,7 +35,6 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
 
     //error
     error InvalidPCR();
-    error TeeIsNotSet();
     error InvalidPKLength();
     error WrongStep();
 
@@ -112,44 +111,10 @@ contract TeeAuthenticator is ITeeAuthenticator, Ownable {
         pcr0 = newPcr0;
     }
 
-    function checkSignature(
-        uint64 applicationId,
-        bytes32 prevStateRoot,
-        bytes32 newStateRoot,
-        bytes32 processedRequestId,
-        bytes[] memory events,
-        string[] memory eventSubTypes,
-        Structs.WithdrawalRequest[] memory withdrawalRequests,
-        uint256 refundAmount, 
-        uint256 applicationFee,
-        bytes calldata signature
-    ) external view override returns (bool) {
-        if(teeSigner == address(0) || pubSecp521r1.length != PK_LENGTH) revert TeeIsNotSet();
-
-        bytes32 eventsHash = keccak256(abi.encode(events));
-        bytes32 eventSubTypesHash = keccak256(abi.encode(eventSubTypes));
-        bytes32 withdrawalRequestsHash = keccak256(abi.encode(withdrawalRequests));
-
-        bytes32 messageHash = keccak256(abi.encode(
-            applicationId,
-            prevStateRoot,
-            newStateRoot,
-            processedRequestId,
-            eventsHash,
-            eventSubTypesHash,
-            withdrawalRequestsHash,
-            refundAmount,
-            applicationFee
-        ));
-
-        address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);
-        return recovered == teeSigner;
-    }
-
-    function getTeeSigner() external view override returns(address) {
+    function getTeeSigner() public view override returns(address) {
         return teeSigner;
     }
-    function getPubSecp521r1() external view returns(bytes memory) {
+    function getPubSecp521r1() public view override returns(bytes memory) {
         return pubSecp521r1;
     }
 
