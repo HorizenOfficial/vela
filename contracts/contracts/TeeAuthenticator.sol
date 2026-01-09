@@ -15,11 +15,14 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
     address public teeSigner;
     bytes public pubSecp521r1;
 
+    mapping(bytes32 => bool) private _usedAttestations;
+
     //step update
     uint256 public currentUpdateStep;
     uint256 public step2CurrentIndex;
     bytes private _pubKey;
 
+    bytes32 private _attestationHash;
     bytes private _enclaveKey;
     bytes private _userData;
     bytes private _rawPcrs;
@@ -36,6 +39,8 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
     //error
     error InvalidPCR();
     error InvalidPKLength();
+    error InvalidUserDataLength();
+    error AttestationAlreadyUsed();
     error WrongStep();
 
     constructor(address owner, INitroProver _nitroProver, bytes memory _pcr0, uint256 _maxVerificationAge) Ownable(owner) {
@@ -45,18 +50,25 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
     }
 
     function updateTee(bytes calldata attestation) public onlyOwner {
+        bytes32 attestationHash = keccak256(attestation);
+        if(_usedAttestations[attestationHash]) revert AttestationAlreadyUsed();
+
         (bytes memory enclaveKey, bytes memory userData, bytes memory rawPcrs) = nitroProver.verifyAttestation(attestation, maxVerificationAge);
-        _checkPcrAndKey(rawPcrs, enclaveKey);
-        _updateTee(address(bytes20(userData)), enclaveKey);
+        _checkAttestationContent(rawPcrs, enclaveKey, userData);
+        _updateTee(address(bytes20(userData)), enclaveKey, attestationHash);
     }
 
     // -- STEPS UPDATE
     // if you want to reset and begin a new step update, invoke step 1
     function updateTeeStep1(bytes calldata attestation) public onlyOwner {
         _resetStepUpdate();
+
+        _attestationHash = keccak256(attestation);
+        if(_usedAttestations[_attestationHash]) revert AttestationAlreadyUsed();
+
         (_attestation_decoded, _certificate, _cabundle, _enclaveKey, _userData, _rawPcrs) = nitroProver.verifyAttestationStep1(attestation, maxVerificationAge);
 
-        _checkPcrAndKey(_rawPcrs, _enclaveKey);
+        _checkAttestationContent(_rawPcrs, _enclaveKey, _userData);
 
         currentUpdateStep = 1;
     }
@@ -83,11 +95,12 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
     function updateTeeStep4() public onlyOwner {
         if(currentUpdateStep != 3) revert WrongStep();
         nitroProver.verifyAttestationStep4(_attestationSig, _pubKey, _buf);
-        _updateTee(address(bytes20(_userData)), _enclaveKey);
+        _updateTee(address(bytes20(_userData)), _enclaveKey, _attestationHash);
     }
 
-    function _updateTee(address newTeeSigner, bytes memory newPubSecp521r1) internal {
+    function _updateTee(address newTeeSigner, bytes memory newPubSecp521r1, bytes32 attestationHash) internal {
         emit TeeUpdate(teeSigner, newTeeSigner, pubSecp521r1, newPubSecp521r1);
+        _usedAttestations[attestationHash] = true;
         teeSigner = newTeeSigner;
         pubSecp521r1 = newPubSecp521r1;
         _resetStepUpdate();
@@ -118,7 +131,11 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
         return pubSecp521r1;
     }
 
-    function _checkPcrAndKey(bytes memory pcrs, bytes memory enclaveKey) internal view {
+    function _checkAttestationContent(bytes memory pcrs, bytes memory enclaveKey, bytes memory userData) internal view {
+        if(userData.length != 20) { //it contains an address
+            revert InvalidUserDataLength();
+        }
+
         if(enclaveKey.length != PK_LENGTH) {
             revert InvalidPKLength();
         }
