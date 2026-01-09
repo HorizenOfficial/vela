@@ -7,7 +7,7 @@ import NitroProverArtifact from '../../nitro_prover/NitroProver.json';
   Needed parameters are:
   TEE_MAX_VERIFICATION_AGE: tolerance from expiration of the attestation to be still considered valid
   TEE_PCR0: PCR0 of the Nitro application
-  UPDATE_STATUS_OPERATOR: ehtereum address of the processor endpoint status updater (manager address)
+  UPDATE_STATUS_OPERATOR: ethereum address of the processor endpoint status updater (manager address)
 */
 
 async function deploy()  {
