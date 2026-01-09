@@ -84,13 +84,19 @@ func (s *AdminServer) Stop() error {
 	s.isRunning = false
 	close(s.shutdownChan)
 
-	// Close listener
-	if s.listener != nil {
-		s.listener.Close()
-	}
-
-	return nil
-}
+			// Close listener
+			if s.listener != nil {
+				s.listener.Close()
+			}
+	
+			// Forcefully close any active client connection to unblock handlers.
+			s.clientMu.Lock()
+			if s.client != nil {
+				s.client.conn.Close()
+			}
+			s.clientMu.Unlock()
+	
+			return nil}
 
 // SetRequestHandler sets the handler for client requests
 func (s *AdminServer) SetCmdHandler(handler AdminCmdHandler) {
