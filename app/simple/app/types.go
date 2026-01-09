@@ -163,7 +163,7 @@ type DeanonymizationReport struct {
 // This maintains a clean separation between the two environments.
 // The Wasm module is a separate, sandboxed program and should not import types directly from
 // the host application's packages, even if they are defined exacltly the same way.
-// Moreovre we do use analogous but different types. for instance ethereum addresses in the Host
+// Moreover we do use analogous but different types, for instance ethereum addresses in the Host
 // and [20]byte array type in the guest (this is because tinygo does not support the full standard
 // go runtime needed by go-ethereum).
 // ---

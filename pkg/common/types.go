@@ -69,9 +69,9 @@ func (rt RequestIdType) MarshalJSON() ([]byte, error) {
 }
 
 func (rt *RequestIdType) UnmarshalJSON(data []byte) error {
-	// data is expected to be a hex string with a "0x" prefix in quotes
-	// e.g. "0x1234..."
-	if len(data) < 5 || data[0] != '"' || data[1] != '0' || data[2] != 'x' || data[len(data)-1] != '"' {
+	// data is expected to be a hex string with a "0x" prefix in quotes representing an array of exactly 32 bytes
+	// e.g. "0xab12...a8" (68 chars in total, prefix and start-end quotes included)
+	if len(data) != 68 || data[0] != '"' || data[1] != '0' || data[2] != 'x' || data[len(data)-1] != '"' {
 		return fmt.Errorf("invalid RequestIdType format")
 	}
 

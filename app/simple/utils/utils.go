@@ -62,13 +62,20 @@ func allocate(size int32) int32 {
 func deallocate(ptr *byte, size int32) {
 	println("Calling deallocate on ptr =", ptr, ", with size =", size)
 
+	if ptr == nil {
+		println("deallocate called with nil ptr")
+		return
+	}
+
+	if allocatedMemory == nil {
+		println("allocatedMemory map is nil")
+		return
+	}
+
 	// Get the uintptr from the pointer.
 	uptr := uintptr(unsafe.Pointer(ptr))
 	println("uptr =", uptr)
 
-	if allocatedMemory == nil {
-		println("map is nil!")
-	}
 	b, ok := allocatedMemory[uptr]
 	if !ok {
 		// we exit even if delete on a map would be a no op, but we also do not decrement the counter
@@ -78,7 +85,6 @@ func deallocate(ptr *byte, size int32) {
 
 	// Delete the reference from the map. This unpins the memory, making it eligible for garbage collection.
 	delete(allocatedMemory, uptr)
-	println("map=", allocatedMemory)
 
 	if int32(len(b)) != size {
 		// do not update the counter, that would be incorrect anyway. We could add more counters for errors and stats in future

@@ -103,7 +103,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 	if payloadJSON != "" {
 		var instructions PayloadInstructions
 		if err := json.Unmarshal([]byte(payloadJSON), &instructions); err != nil {
-			return ProcessResult{Error: fmt.Sprintf("Failed to parse payload instructions: %s", payloadJSON)}
+			return ProcessResult{Error: fmt.Sprintf("Failed to parse payload instructions: %v", err)}
 		}
 
 		switch instructions.Type {
@@ -116,10 +116,10 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 
 			// Validate accounts to be compared
 			if currentState.Accounts[senderHex] == nil {
-				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", sender.Hex())}
+				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", senderHex)}
 			}
 			if currentState.Accounts[targetAddressHex] == nil {
-				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", targetAddress.Hex())}
+				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", targetAddressHex)}
 			}
 
 			targetBalance := currentState.Accounts[targetAddressHex].Balance
@@ -161,11 +161,11 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[senderHex] == nil {
-				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist", sender.Hex())}
+				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist", senderHex)}
 			}
 
 			if currentState.Accounts[senderHex].Balance.Cmp(instructions.Withdraw.Amount) < 0 {
-				return ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", sender.Hex())}
+				return ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", senderHex)}
 			}
 
 			// Execute withdrawal
