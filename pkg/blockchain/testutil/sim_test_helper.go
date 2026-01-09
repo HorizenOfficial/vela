@@ -200,10 +200,11 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	helper.processEndpointInstance = helper.processEndpointContract.Instance(helper.sim.Client(), helper.ProcessorContractAddress)
 
 	if autoMining {
+		ctx, cancel := context.WithCancel(context.Background())
+		helper.cancel = cancel
+
 		go func() {
 			fmt.Println("Auto mining enabled")
-			ctx, cancel := context.WithCancel(context.Background())
-			helper.cancel = cancel
 			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
 			for {
