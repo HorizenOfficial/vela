@@ -59,20 +59,20 @@ func main() {
 	switch config.ChannelType {
 	case "tcp":
 		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
-		server = communication.NewServer(factory, log)
+		server = communication.NewServer(factory, config.CommunicationParams,log)
 		adminFactory := communication.NewTCPConnectionFactory(config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
-		adminServer = admin.NewAdminServer(adminFactory, log)
+		adminServer = admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
 	case "vsock":
 		factory := communication.NewVSockConnectionFactory(
 			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
 			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
 		)
-		server = communication.NewServer(factory, log)
+		server = communication.NewServer(factory, config.CommunicationParams, log)
 		adminFactory := communication.NewVSockConnectionFactory(
 			config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
 			config.AdminChannelParams.(common.VSockChannelConnectionParams).Port,
 		)
-		adminServer = admin.NewAdminServer(adminFactory, log)
+		adminServer = admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
 	default:
 		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return

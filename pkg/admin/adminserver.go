@@ -11,7 +11,9 @@ import (
 
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/common"
 )
+
 
 type AdminClientConnection struct {
 	conn     net.Conn
@@ -37,11 +39,11 @@ type AdminServer struct {
 }
 
 // NewAdminServer creates a new server with the specified connection factory
-func NewAdminServer(factory communication.ConnectionFactory, log logger.Logger) *AdminServer {
+func NewAdminServer(factory communication.ConnectionFactory, communicationParams common.CommunicationParams, log logger.Logger) *AdminServer {
 	return &AdminServer{
 		factory:       factory,
 		shutdownChan:  make(chan struct{}),
-		clientTimeout: 30 * time.Second,
+		clientTimeout: communicationParams.RequestTimeoutSec * time.Second,
 		log:           log,
 	}
 }

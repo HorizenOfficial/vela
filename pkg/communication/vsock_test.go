@@ -13,7 +13,7 @@ func TestVsockClientServer_Connection(t *testing.T) {
 	// Create a server
 	// Using CID 3 (QEMU/KVM guest agent default) and a common port for testing
 	factory := NewVSockConnectionFactory(3, 8080)
-	server := NewServer(factory, testLogger)
+	server := NewServer(factory, commParams, testLogger)
 	server.SetRequestHandler(&MockRequestHandler{}) // A mock handler is still needed for the server to start
 	err := server.Start(ctx, "VsockServer")
 	// Expect an error if vsock is not available, but don't fail the test if it's just a connection issue
@@ -26,7 +26,7 @@ func TestVsockClientServer_Connection(t *testing.T) {
 	defer server.Stop()
 
 	// Create a client
-	client := NewClient(factory, testLogger)
+	client := NewClient(factory, commParams, testLogger)
 
 	// Test connecting to the server
 	err = client.Connect(ctx, "VsockClient")

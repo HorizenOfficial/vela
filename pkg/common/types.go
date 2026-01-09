@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
@@ -212,6 +213,10 @@ type ChannelConnectionParams interface {
 type VSockChannelConnectionParams struct {
 	CID  uint32
 	Port uint32
+}
+
+type CommunicationParams struct {		
+	RequestTimeoutSec time.Duration
 }
 
 func (VSockChannelConnectionParams) IsChannelConnectionParams() {}
