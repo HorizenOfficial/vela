@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"math/big"
+	"math/bits"
 	"math/rand"
 	"testing"
 	"time"
@@ -282,4 +283,47 @@ func TestAdd64(t *testing.T) {
 	// 2^64
 	expected := new(big.Int).Add(new(big.Int).SetUint64(^uint64(0)), big.NewInt(1))
 	require.Equal(t, expected.String(), u.String())
+}
+
+// This test targets worst-case carry propagation during mul-by-word.
+// If carry handling between limbs is wrong, this case should fail.
+func TestMul64CarryPropagationWorstCase(t *testing.T) {
+	// max256 = 2^256 - 1
+	max256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+	// max value for a uint64: 2^64 - 1
+	y := ^uint64(0)
+
+	expected := new(big.Int).Mul(new(big.Int).Set(max256), new(big.Int).SetUint64(y))
+	expectedOverflow := expected.BitLen() > 256
+
+	// expectedMod = expected mod 2^256
+	mask := new(big.Int).Set(max256)
+	expectedMod := new(big.Int).And(expected, mask)
+
+	u := new(Uint256).SetBytes(max256.Bytes())
+
+	// Mul64: modulo 2^256
+	u1 := *u
+	(&u1).Mul64(y)
+	require.Equal(t, expectedMod.String(), u1.String())
+
+	// Mul64Overflow: should produce same truncated value and report overflow.
+	u2 := *u
+	overflow := (&u2).Mul64Overflow(y)
+	require.Equal(t, expectedOverflow, overflow)
+	require.Equal(t, expectedMod.String(), u2.String())
+}
+
+func TestMul64Consistency(t *testing.T) {
+	// This test proves that for Mul64(z, y), hi + c actually won't overflow
+	// because of the 64-bit product limit
+	max := ^uint64(0)
+	hi, _ := bits.Mul64(max, max)
+
+	if hi == max {
+		t.Error("If hi could reach max, Mul64 would be broken. ")
+	} else {
+		t.Logf("Max hi in Mul64 is %x, which is < %x", hi, max)
+	}
 }
