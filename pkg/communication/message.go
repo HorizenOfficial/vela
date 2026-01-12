@@ -10,10 +10,10 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
+const MsgDelimiter = byte('\n')
+
 // MessageType represents the type of message being sent
 type MessageType int
-
-const delimiter = byte('\n')
 
 const (
 	// ProcessRequestMessage represents a request to process an action

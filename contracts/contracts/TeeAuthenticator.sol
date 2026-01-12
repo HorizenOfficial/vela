@@ -1,77 +1,155 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
-import "./interfaces/ITeeAuthenticator.sol";
+
+import "./AbstractTeeAuthenticator.sol";
+import "./interfaces/INitroProver.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-contract TeeAuthenticator is ITeeAuthenticator, Ownable {
-    uint256 public constant PK_LENGTH = 133;
-    
+contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
+    INitroProver public immutable nitroProver;
+    bytes public pcr0;
+    uint256 public immutable maxVerificationAge;
+
     address public teeSigner;
     bytes public pubSecp521r1;
 
+    mapping(bytes32 => bool) private _usedAttestations;
+
+    //step update
+    uint256 public currentUpdateStep;
+    uint256 public step2CurrentIndex;
+    bytes private _pubKey;
+
+    bytes32 private _attestationHash;
+    bytes private _enclaveKey;
+    bytes private _userData;
+    bytes private _rawPcrs;
+    bytes private _attestationSig;
+    bytes private _certificate;
+    bytes[] private _cabundle;
+    bytes[] private _attestation_decoded;
+    bytes private _buf;
+    
     //events
     event TeeUpdate(address oldTee, address newTee, bytes oldPubSecp521r1, bytes newPubSecp521r1);
+    event PcrZeroUpdate(bytes indexed oldPcr0, bytes indexed newPcr0);
 
     //error
-    error TeeAddressCantBeZero();
-    error TeeIsNotSet();
+    error InvalidPCR();
     error InvalidPKLength();
+    error InvalidUserDataLength();
+    error AttestationAlreadyUsed();
+    error WrongStep();
 
-    constructor(address owner, address _teeSigner, bytes memory _pubSecp521r1) Ownable(owner) {
-        teeSigner = _teeSigner;
-        pubSecp521r1 = _pubSecp521r1;
-        emit TeeUpdate(address(0), teeSigner, bytes(""), pubSecp521r1);
+    constructor(address owner, INitroProver _nitroProver, bytes memory _pcr0, uint256 _maxVerificationAge) Ownable(owner) {
+        pcr0 = _pcr0;
+        nitroProver = _nitroProver;
+        maxVerificationAge = _maxVerificationAge;
     }
 
-    function updateTee(address newTeeSigner, bytes memory newPubSecp521r1) public onlyOwner {
-        if(newTeeSigner == address(0)) revert TeeAddressCantBeZero();
-        if(newPubSecp521r1.length != PK_LENGTH) revert InvalidPKLength();
+    function updateTee(bytes calldata attestation) public onlyOwner {
+        bytes32 attestationHash = keccak256(attestation);
+        if(_usedAttestations[attestationHash]) revert AttestationAlreadyUsed();
 
+        (bytes memory enclaveKey, bytes memory userData, bytes memory rawPcrs) = nitroProver.verifyAttestation(attestation, maxVerificationAge);
+        _checkAttestationContent(rawPcrs, enclaveKey, userData);
+        _updateTee(address(bytes20(userData)), enclaveKey, attestationHash);
+    }
+
+    // -- STEPS UPDATE
+    // if you want to reset and begin a new step update, invoke step 1
+    function updateTeeStep1(bytes calldata attestation) public onlyOwner {
+        _resetStepUpdate();
+
+        _attestationHash = keccak256(attestation);
+        if(_usedAttestations[_attestationHash]) revert AttestationAlreadyUsed();
+
+        (_attestation_decoded, _certificate, _cabundle, _enclaveKey, _userData, _rawPcrs) = nitroProver.verifyAttestationStep1(attestation, maxVerificationAge);
+
+        _checkAttestationContent(_rawPcrs, _enclaveKey, _userData);
+
+        currentUpdateStep = 1;
+    }
+
+    //this should be invoked "getStep2TotalLength()" times
+    //check currentUpdateStep to see if you can go to the next step
+    function updateTeeStep2() public onlyOwner{
+        if(currentUpdateStep != 1) revert WrongStep();
+
+        _pubKey = nitroProver.verifyAttestationStep2(_cabundle, step2CurrentIndex, _pubKey);
+        unchecked { ++step2CurrentIndex; }
+
+        if(step2CurrentIndex == _cabundle.length) {
+            currentUpdateStep = 2; //you can go to step 3
+        }
+    }
+
+    function updateTeeStep3() public onlyOwner {
+        if(currentUpdateStep != 2) revert WrongStep();
+        (_attestationSig, _pubKey, _buf) = nitroProver.verifyAttestationStep3(_attestation_decoded, _certificate, _pubKey);
+        currentUpdateStep = 3;
+    }
+
+    function updateTeeStep4() public onlyOwner {
+        if(currentUpdateStep != 3) revert WrongStep();
+        nitroProver.verifyAttestationStep4(_attestationSig, _pubKey, _buf);
+        _updateTee(address(bytes20(_userData)), _enclaveKey, _attestationHash);
+    }
+
+    function _updateTee(address newTeeSigner, bytes memory newPubSecp521r1, bytes32 attestationHash) internal {
         emit TeeUpdate(teeSigner, newTeeSigner, pubSecp521r1, newPubSecp521r1);
+        _usedAttestations[attestationHash] = true;
         teeSigner = newTeeSigner;
         pubSecp521r1 = newPubSecp521r1;
+        _resetStepUpdate();
     }
 
-    function checkSignature(
-        uint64 applicationId,
-        bytes32 prevStateRoot,
-        bytes32 newStateRoot,
-        bytes32 processedRequestId,
-        bytes[] memory events,
-        string[] memory eventSubTypes,
-        Structs.WithdrawalRequest[] memory withdrawalRequests,
-        uint256 refundAmount, 
-        uint256 applicationFee,
-        bytes calldata signature
-    ) external view override returns (bool) {
-        if(teeSigner == address(0) || pubSecp521r1.length != PK_LENGTH) revert TeeIsNotSet();
-
-        bytes32 eventsHash = keccak256(abi.encode(events));
-        bytes32 eventSubTypesHash = keccak256(abi.encode(eventSubTypes));
-        bytes32 withdrawalRequestsHash = keccak256(abi.encode(withdrawalRequests));
-
-        bytes32 messageHash = keccak256(abi.encode(
-            applicationId,
-            prevStateRoot,
-            newStateRoot,
-            processedRequestId,
-            eventsHash,
-            eventSubTypesHash,
-            withdrawalRequestsHash,
-            refundAmount,
-            applicationFee
-        ));
-
-        address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);
-        return recovered == teeSigner;
+    function _resetStepUpdate() internal {
+        currentUpdateStep = 0;
+        step2CurrentIndex = 0;
+        _pubKey = bytes("");
     }
 
-    function getTeeSigner() external view override returns(address) {
+    //check number of transactions needed to complete step2
+    function getStep2TotalLength() public view returns(uint256) {
+        return _cabundle.length;
+    }
+
+
+    /// @dev Update the PCR0 value
+    function updatePcr0(bytes memory newPcr0) public onlyOwner {
+        emit PcrZeroUpdate(pcr0, newPcr0);
+        pcr0 = newPcr0;
+    }
+
+    function getTeeSigner() public view override returns(address) {
         return teeSigner;
     }
-    function getPubSecp521r1() external view returns(bytes memory) {
+    function getPubSecp521r1() public view override returns(bytes memory) {
         return pubSecp521r1;
+    }
+
+    function _checkAttestationContent(bytes memory pcrs, bytes memory enclaveKey, bytes memory userData) internal view {
+        if(userData.length != 20) { //it contains an address
+            revert InvalidUserDataLength();
+        }
+
+        if(enclaveKey.length != PK_LENGTH) {
+            revert InvalidPKLength();
+        }
+        if (pcrs.length < 4 + pcr0.length) {
+            revert InvalidPCR();
+        }
+
+        uint256 i;
+        uint256 length = pcr0.length;
+        while (i != length) {
+            if (pcrs[i + 4] != pcr0[i]) {
+                revert InvalidPCR();
+            }
+            unchecked { ++i; }
+        }
     }
 }

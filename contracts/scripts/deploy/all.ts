@@ -1,11 +1,13 @@
 import { ethers } from 'hardhat';
+import CertManagerArtifact from '../../nitro_prover/CertManager.json';
+import NitroProverArtifact from '../../nitro_prover/NitroProver.json';
 
 /*
   Deploy scripts for all the contracts.
   Needed parameters are:
-  TEE_SIGNER: ethereum address of the TEE signer (is the executor address)
-  TEE_PUB_SECP521R1: TEE public SECP521R1 key (is the executor SECP521 key)
-  UPDATE_STATUS_OPERATOR: ehtereum address of the processor endpoint status updater (manager address)
+  TEE_MAX_VERIFICATION_AGE: tolerance from expiration of the attestation to be still considered valid
+  TEE_PCR0: PCR0 of the Nitro application
+  UPDATE_STATUS_OPERATOR: ethereum address of the processor endpoint status updater (manager address)
 */
 
 async function deploy()  {
@@ -35,14 +37,32 @@ async function deploy()  {
   console.log(`  default authority contract: ${defaultAuthorityAddr}`);
 
   // 3) TeeAuthenticator
+  //deploy cert manager
+  const CertManagerFactory = new ethers.ContractFactory(CertManagerArtifact.abi, CertManagerArtifact.bytecode, deployer);
+  const certManager = await CertManagerFactory.deploy();
+  await certManager.deploymentTransaction()!.wait();
+  const certManagerAddress = await certManager.getAddress();
+  console.log(`CertManager`);
+  console.log(`  contract address: ${certManagerAddress}`);
+
+
+  //deploy nitro prover
+  const NitroProverFactory = new ethers.ContractFactory(NitroProverArtifact.abi, NitroProverArtifact.bytecode, deployer);
+  const nitroProver = await NitroProverFactory.deploy(certManagerAddress);
+  await nitroProver.deploymentTransaction()!.wait();
+  const nitroProverAddress = await nitroProver.getAddress();
+  console.log(`NitroProver`);
+  console.log(`  contract address: ${nitroProverAddress}`);
+
+
+  //deploy TeeAuthenticator
   const TeeAuthenticator = await ethers.getContractFactory("TeeAuthenticator");
-  const teeAuthenticator = await TeeAuthenticator.deploy(deployerAddress, process.env.TEE_SIGNER!, process.env.TEE_PUB_SECP521R1!);
+  const teeAuthenticator = await TeeAuthenticator.deploy(deployerAddress, nitroProverAddress, process.env.TEE_PCR0!, process.env.TEE_MAX_VERIFICATION_AGE!);
   await teeAuthenticator.deploymentTransaction()!.wait();
-  var teeAuthenticatorAddr =  await teeAuthenticator.getAddress();
-  console.log(`TeeAuthenticator`)
+  const teeAuthenticatorAddr = await teeAuthenticator.getAddress();
+
+  console.log(`TeeAuthenticator`);
   console.log(`  contract address: ${teeAuthenticatorAddr}`);
-  console.log(`  Tee signer address (executor address): ${process.env.TEE_SIGNER!}`);
-  console.log(`  Tee PUB_SECP521R1 (executor P521 pub key): ${process.env.TEE_PUB_SECP521R1!}`);
 
   // 4) ProcessorEndpoint
   const ProcessorEndpoint = await ethers.getContractFactory("ProcessorEndpoint");

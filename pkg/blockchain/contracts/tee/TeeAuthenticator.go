@@ -30,6 +30,284 @@ type StructsWithdrawalRequest struct {
 	Amount   *big.Int
 }
 
+// AbstractTeeAuthenticatorMetaData contains all meta data concerning the AbstractTeeAuthenticator contract.
+var AbstractTeeAuthenticatorMetaData = bind.MetaData{
+	ABI: "[{\"inputs\":[],\"name\":\"ECDSAInvalidSignature\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"length\",\"type\":\"uint256\"}],\"name\":\"ECDSAInvalidSignatureLength\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"s\",\"type\":\"bytes32\"}],\"name\":\"ECDSAInvalidSignatureS\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"TeeIsNotSet\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"PK_LENGTH\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"internalType\":\"bytes32\",\"name\":\"prevStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"newStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"processedRequestId\",\"type\":\"bytes32\"},{\"internalType\":\"bytes[]\",\"name\":\"events\",\"type\":\"bytes[]\"},{\"internalType\":\"string[]\",\"name\":\"eventSubTypes\",\"type\":\"string[]\"},{\"components\":[{\"internalType\":\"addresspayable\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"internalType\":\"structStructs.WithdrawalRequest[]\",\"name\":\"withdrawalRequests\",\"type\":\"tuple[]\"},{\"internalType\":\"uint256\",\"name\":\"refundAmount\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"applicationFee\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"}],\"name\":\"checkSignature\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getPubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getTeeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
+	ID:  "23ef737ffafb52353b16334779ed8f3e1e",
+}
+
+// AbstractTeeAuthenticator is an auto generated Go binding around an Ethereum contract.
+type AbstractTeeAuthenticator struct {
+	abi abi.ABI
+}
+
+// NewAbstractTeeAuthenticator creates a new instance of AbstractTeeAuthenticator.
+func NewAbstractTeeAuthenticator() *AbstractTeeAuthenticator {
+	parsed, err := AbstractTeeAuthenticatorMetaData.ParseABI()
+	if err != nil {
+		panic(errors.New("invalid ABI: " + err.Error()))
+	}
+	return &AbstractTeeAuthenticator{abi: *parsed}
+}
+
+// Instance creates a wrapper for a deployed contract instance at the given address.
+// Use this to create the instance object passed to abigen v2 library functions Call, Transact, etc.
+func (c *AbstractTeeAuthenticator) Instance(backend bind.ContractBackend, addr common.Address) *bind.BoundContract {
+	return bind.NewBoundContract(addr, c.abi, backend, backend, backend)
+}
+
+// PackPKLENGTH is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xc91496c6.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function PK_LENGTH() view returns(uint256)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) PackPKLENGTH() []byte {
+	enc, err := abstractTeeAuthenticator.abi.Pack("PK_LENGTH")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackPKLENGTH is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xc91496c6.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function PK_LENGTH() view returns(uint256)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) TryPackPKLENGTH() ([]byte, error) {
+	return abstractTeeAuthenticator.abi.Pack("PK_LENGTH")
+}
+
+// UnpackPKLENGTH is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0xc91496c6.
+//
+// Solidity: function PK_LENGTH() view returns(uint256)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackPKLENGTH(data []byte) (*big.Int, error) {
+	out, err := abstractTeeAuthenticator.abi.Unpack("PK_LENGTH", data)
+	if err != nil {
+		return new(big.Int), err
+	}
+	out0 := abi.ConvertType(out[0], new(big.Int)).(*big.Int)
+	return out0, nil
+}
+
+// PackCheckSignature is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x64c062d1.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function checkSignature(uint64 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, string[] eventSubTypes, (address,uint256)[] withdrawalRequests, uint256 refundAmount, uint256 applicationFee, bytes signature) view returns(bool)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) PackCheckSignature(applicationId uint64, prevStateRoot [32]byte, newStateRoot [32]byte, processedRequestId [32]byte, events [][]byte, eventSubTypes []string, withdrawalRequests []StructsWithdrawalRequest, refundAmount *big.Int, applicationFee *big.Int, signature []byte) []byte {
+	enc, err := abstractTeeAuthenticator.abi.Pack("checkSignature", applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refundAmount, applicationFee, signature)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackCheckSignature is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x64c062d1.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function checkSignature(uint64 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, string[] eventSubTypes, (address,uint256)[] withdrawalRequests, uint256 refundAmount, uint256 applicationFee, bytes signature) view returns(bool)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) TryPackCheckSignature(applicationId uint64, prevStateRoot [32]byte, newStateRoot [32]byte, processedRequestId [32]byte, events [][]byte, eventSubTypes []string, withdrawalRequests []StructsWithdrawalRequest, refundAmount *big.Int, applicationFee *big.Int, signature []byte) ([]byte, error) {
+	return abstractTeeAuthenticator.abi.Pack("checkSignature", applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refundAmount, applicationFee, signature)
+}
+
+// UnpackCheckSignature is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x64c062d1.
+//
+// Solidity: function checkSignature(uint64 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, string[] eventSubTypes, (address,uint256)[] withdrawalRequests, uint256 refundAmount, uint256 applicationFee, bytes signature) view returns(bool)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackCheckSignature(data []byte) (bool, error) {
+	out, err := abstractTeeAuthenticator.abi.Unpack("checkSignature", data)
+	if err != nil {
+		return *new(bool), err
+	}
+	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
+	return out0, nil
+}
+
+// PackGetPubSecp521r1 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x081bec7e.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function getPubSecp521r1() view returns(bytes)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) PackGetPubSecp521r1() []byte {
+	enc, err := abstractTeeAuthenticator.abi.Pack("getPubSecp521r1")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackGetPubSecp521r1 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x081bec7e.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function getPubSecp521r1() view returns(bytes)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) TryPackGetPubSecp521r1() ([]byte, error) {
+	return abstractTeeAuthenticator.abi.Pack("getPubSecp521r1")
+}
+
+// UnpackGetPubSecp521r1 is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x081bec7e.
+//
+// Solidity: function getPubSecp521r1() view returns(bytes)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackGetPubSecp521r1(data []byte) ([]byte, error) {
+	out, err := abstractTeeAuthenticator.abi.Unpack("getPubSecp521r1", data)
+	if err != nil {
+		return *new([]byte), err
+	}
+	out0 := *abi.ConvertType(out[0], new([]byte)).(*[]byte)
+	return out0, nil
+}
+
+// PackGetTeeSigner is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x0dd7ce2f.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function getTeeSigner() view returns(address)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) PackGetTeeSigner() []byte {
+	enc, err := abstractTeeAuthenticator.abi.Pack("getTeeSigner")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackGetTeeSigner is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x0dd7ce2f.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function getTeeSigner() view returns(address)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) TryPackGetTeeSigner() ([]byte, error) {
+	return abstractTeeAuthenticator.abi.Pack("getTeeSigner")
+}
+
+// UnpackGetTeeSigner is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x0dd7ce2f.
+//
+// Solidity: function getTeeSigner() view returns(address)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackGetTeeSigner(data []byte) (common.Address, error) {
+	out, err := abstractTeeAuthenticator.abi.Unpack("getTeeSigner", data)
+	if err != nil {
+		return *new(common.Address), err
+	}
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+	return out0, nil
+}
+
+// UnpackError attempts to decode the provided error data using user-defined
+// error definitions.
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackError(raw []byte) (any, error) {
+	if bytes.Equal(raw[:4], abstractTeeAuthenticator.abi.Errors["ECDSAInvalidSignature"].ID.Bytes()[:4]) {
+		return abstractTeeAuthenticator.UnpackECDSAInvalidSignatureError(raw[4:])
+	}
+	if bytes.Equal(raw[:4], abstractTeeAuthenticator.abi.Errors["ECDSAInvalidSignatureLength"].ID.Bytes()[:4]) {
+		return abstractTeeAuthenticator.UnpackECDSAInvalidSignatureLengthError(raw[4:])
+	}
+	if bytes.Equal(raw[:4], abstractTeeAuthenticator.abi.Errors["ECDSAInvalidSignatureS"].ID.Bytes()[:4]) {
+		return abstractTeeAuthenticator.UnpackECDSAInvalidSignatureSError(raw[4:])
+	}
+	if bytes.Equal(raw[:4], abstractTeeAuthenticator.abi.Errors["TeeIsNotSet"].ID.Bytes()[:4]) {
+		return abstractTeeAuthenticator.UnpackTeeIsNotSetError(raw[4:])
+	}
+	return nil, errors.New("Unknown error")
+}
+
+// AbstractTeeAuthenticatorECDSAInvalidSignature represents a ECDSAInvalidSignature error raised by the AbstractTeeAuthenticator contract.
+type AbstractTeeAuthenticatorECDSAInvalidSignature struct {
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error ECDSAInvalidSignature()
+func AbstractTeeAuthenticatorECDSAInvalidSignatureErrorID() common.Hash {
+	return common.HexToHash("0xf645eedf0193584640b6b90cb9477e4c95b98636c148a891d4c0a146dc46e75a")
+}
+
+// UnpackECDSAInvalidSignatureError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error ECDSAInvalidSignature()
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackECDSAInvalidSignatureError(raw []byte) (*AbstractTeeAuthenticatorECDSAInvalidSignature, error) {
+	out := new(AbstractTeeAuthenticatorECDSAInvalidSignature)
+	if err := abstractTeeAuthenticator.abi.UnpackIntoInterface(out, "ECDSAInvalidSignature", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AbstractTeeAuthenticatorECDSAInvalidSignatureLength represents a ECDSAInvalidSignatureLength error raised by the AbstractTeeAuthenticator contract.
+type AbstractTeeAuthenticatorECDSAInvalidSignatureLength struct {
+	Length *big.Int
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error ECDSAInvalidSignatureLength(uint256 length)
+func AbstractTeeAuthenticatorECDSAInvalidSignatureLengthErrorID() common.Hash {
+	return common.HexToHash("0xfce698f7e8e5342cd615f641317bc45fe7e1e4a8b0a14dd1383ff8dc9c41917f")
+}
+
+// UnpackECDSAInvalidSignatureLengthError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error ECDSAInvalidSignatureLength(uint256 length)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackECDSAInvalidSignatureLengthError(raw []byte) (*AbstractTeeAuthenticatorECDSAInvalidSignatureLength, error) {
+	out := new(AbstractTeeAuthenticatorECDSAInvalidSignatureLength)
+	if err := abstractTeeAuthenticator.abi.UnpackIntoInterface(out, "ECDSAInvalidSignatureLength", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AbstractTeeAuthenticatorECDSAInvalidSignatureS represents a ECDSAInvalidSignatureS error raised by the AbstractTeeAuthenticator contract.
+type AbstractTeeAuthenticatorECDSAInvalidSignatureS struct {
+	S [32]byte
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error ECDSAInvalidSignatureS(bytes32 s)
+func AbstractTeeAuthenticatorECDSAInvalidSignatureSErrorID() common.Hash {
+	return common.HexToHash("0xd78bce0cccb935155ed6428d1c13e50b7f3550fd2b66b9fe266006fea4a5e1eb")
+}
+
+// UnpackECDSAInvalidSignatureSError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error ECDSAInvalidSignatureS(bytes32 s)
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackECDSAInvalidSignatureSError(raw []byte) (*AbstractTeeAuthenticatorECDSAInvalidSignatureS, error) {
+	out := new(AbstractTeeAuthenticatorECDSAInvalidSignatureS)
+	if err := abstractTeeAuthenticator.abi.UnpackIntoInterface(out, "ECDSAInvalidSignatureS", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AbstractTeeAuthenticatorTeeIsNotSet represents a TeeIsNotSet error raised by the AbstractTeeAuthenticator contract.
+type AbstractTeeAuthenticatorTeeIsNotSet struct {
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error TeeIsNotSet()
+func AbstractTeeAuthenticatorTeeIsNotSetErrorID() common.Hash {
+	return common.HexToHash("0xf64b1d7b3df6940d5da676c1cc07a6144e620b0858b161be25b6cd0ef7569425")
+}
+
+// UnpackTeeIsNotSetError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error TeeIsNotSet()
+func (abstractTeeAuthenticator *AbstractTeeAuthenticator) UnpackTeeIsNotSetError(raw []byte) (*AbstractTeeAuthenticatorTeeIsNotSet, error) {
+	out := new(AbstractTeeAuthenticatorTeeIsNotSet)
+	if err := abstractTeeAuthenticator.abi.UnpackIntoInterface(out, "TeeIsNotSet", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContextMetaData contains all meta data concerning the Context contract.
 var ContextMetaData = bind.MetaData{
 	ABI: "[]",
@@ -167,6 +445,233 @@ func (eCDSA *ECDSA) UnpackECDSAInvalidSignatureSError(raw []byte) (*ECDSAECDSAIn
 		return nil, err
 	}
 	return out, nil
+}
+
+// INitroProverMetaData contains all meta data concerning the INitroProver contract.
+var INitroProverMetaData = bind.MetaData{
+	ABI: "[{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"attestation\",\"type\":\"bytes\"},{\"internalType\":\"uint256\",\"name\":\"maxAge\",\"type\":\"uint256\"}],\"name\":\"verifyAttestation\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"attestation\",\"type\":\"bytes\"},{\"internalType\":\"uint256\",\"name\":\"max_age\",\"type\":\"uint256\"}],\"name\":\"verifyAttestationStep1\",\"outputs\":[{\"internalType\":\"bytes[]\",\"name\":\"attestation_decoded\",\"type\":\"bytes[]\"},{\"internalType\":\"bytes\",\"name\":\"certificate\",\"type\":\"bytes\"},{\"internalType\":\"bytes[]\",\"name\":\"cabundle\",\"type\":\"bytes[]\"},{\"internalType\":\"bytes\",\"name\":\"enclaveKey\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"userData\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"rawPcrs\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes[]\",\"name\":\"cabundle\",\"type\":\"bytes[]\"},{\"internalType\":\"uint256\",\"name\":\"index\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"parentPubKey\",\"type\":\"bytes\"}],\"name\":\"verifyAttestationStep2\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"pubKey\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes[]\",\"name\":\"attestation_decoded\",\"type\":\"bytes[]\"},{\"internalType\":\"bytes\",\"name\":\"certificate\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"parentPubKey\",\"type\":\"bytes\"}],\"name\":\"verifyAttestationStep3\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"attestationSig\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"pubKey\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"bufBufBuf\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"attestationSig\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"pubKey\",\"type\":\"bytes\"},{\"internalType\":\"bytes\",\"name\":\"buf\",\"type\":\"bytes\"}],\"name\":\"verifyAttestationStep4\",\"outputs\":[],\"stateMutability\":\"view\",\"type\":\"function\"}]",
+	ID:  "58a55af41d95bda4586bda5febb361b1bf",
+}
+
+// INitroProver is an auto generated Go binding around an Ethereum contract.
+type INitroProver struct {
+	abi abi.ABI
+}
+
+// NewINitroProver creates a new instance of INitroProver.
+func NewINitroProver() *INitroProver {
+	parsed, err := INitroProverMetaData.ParseABI()
+	if err != nil {
+		panic(errors.New("invalid ABI: " + err.Error()))
+	}
+	return &INitroProver{abi: *parsed}
+}
+
+// Instance creates a wrapper for a deployed contract instance at the given address.
+// Use this to create the instance object passed to abigen v2 library functions Call, Transact, etc.
+func (c *INitroProver) Instance(backend bind.ContractBackend, addr common.Address) *bind.BoundContract {
+	return bind.NewBoundContract(addr, c.abi, backend, backend, backend)
+}
+
+// PackVerifyAttestation is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x2b5f2f81.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function verifyAttestation(bytes attestation, uint256 maxAge) view returns(bytes, bytes, bytes)
+func (iNitroProver *INitroProver) PackVerifyAttestation(attestation []byte, maxAge *big.Int) []byte {
+	enc, err := iNitroProver.abi.Pack("verifyAttestation", attestation, maxAge)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackVerifyAttestation is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x2b5f2f81.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function verifyAttestation(bytes attestation, uint256 maxAge) view returns(bytes, bytes, bytes)
+func (iNitroProver *INitroProver) TryPackVerifyAttestation(attestation []byte, maxAge *big.Int) ([]byte, error) {
+	return iNitroProver.abi.Pack("verifyAttestation", attestation, maxAge)
+}
+
+// VerifyAttestationOutput serves as a container for the return parameters of contract
+// method VerifyAttestation.
+type VerifyAttestationOutput struct {
+	Arg0 []byte
+	Arg1 []byte
+	Arg2 []byte
+}
+
+// UnpackVerifyAttestation is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x2b5f2f81.
+//
+// Solidity: function verifyAttestation(bytes attestation, uint256 maxAge) view returns(bytes, bytes, bytes)
+func (iNitroProver *INitroProver) UnpackVerifyAttestation(data []byte) (VerifyAttestationOutput, error) {
+	out, err := iNitroProver.abi.Unpack("verifyAttestation", data)
+	outstruct := new(VerifyAttestationOutput)
+	if err != nil {
+		return *outstruct, err
+	}
+	outstruct.Arg0 = *abi.ConvertType(out[0], new([]byte)).(*[]byte)
+	outstruct.Arg1 = *abi.ConvertType(out[1], new([]byte)).(*[]byte)
+	outstruct.Arg2 = *abi.ConvertType(out[2], new([]byte)).(*[]byte)
+	return *outstruct, nil
+}
+
+// PackVerifyAttestationStep1 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xd420f66a.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function verifyAttestationStep1(bytes attestation, uint256 max_age) view returns(bytes[] attestation_decoded, bytes certificate, bytes[] cabundle, bytes enclaveKey, bytes userData, bytes rawPcrs)
+func (iNitroProver *INitroProver) PackVerifyAttestationStep1(attestation []byte, maxAge *big.Int) []byte {
+	enc, err := iNitroProver.abi.Pack("verifyAttestationStep1", attestation, maxAge)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackVerifyAttestationStep1 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xd420f66a.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function verifyAttestationStep1(bytes attestation, uint256 max_age) view returns(bytes[] attestation_decoded, bytes certificate, bytes[] cabundle, bytes enclaveKey, bytes userData, bytes rawPcrs)
+func (iNitroProver *INitroProver) TryPackVerifyAttestationStep1(attestation []byte, maxAge *big.Int) ([]byte, error) {
+	return iNitroProver.abi.Pack("verifyAttestationStep1", attestation, maxAge)
+}
+
+// VerifyAttestationStep1Output serves as a container for the return parameters of contract
+// method VerifyAttestationStep1.
+type VerifyAttestationStep1Output struct {
+	AttestationDecoded [][]byte
+	Certificate        []byte
+	Cabundle           [][]byte
+	EnclaveKey         []byte
+	UserData           []byte
+	RawPcrs            []byte
+}
+
+// UnpackVerifyAttestationStep1 is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0xd420f66a.
+//
+// Solidity: function verifyAttestationStep1(bytes attestation, uint256 max_age) view returns(bytes[] attestation_decoded, bytes certificate, bytes[] cabundle, bytes enclaveKey, bytes userData, bytes rawPcrs)
+func (iNitroProver *INitroProver) UnpackVerifyAttestationStep1(data []byte) (VerifyAttestationStep1Output, error) {
+	out, err := iNitroProver.abi.Unpack("verifyAttestationStep1", data)
+	outstruct := new(VerifyAttestationStep1Output)
+	if err != nil {
+		return *outstruct, err
+	}
+	outstruct.AttestationDecoded = *abi.ConvertType(out[0], new([][]byte)).(*[][]byte)
+	outstruct.Certificate = *abi.ConvertType(out[1], new([]byte)).(*[]byte)
+	outstruct.Cabundle = *abi.ConvertType(out[2], new([][]byte)).(*[][]byte)
+	outstruct.EnclaveKey = *abi.ConvertType(out[3], new([]byte)).(*[]byte)
+	outstruct.UserData = *abi.ConvertType(out[4], new([]byte)).(*[]byte)
+	outstruct.RawPcrs = *abi.ConvertType(out[5], new([]byte)).(*[]byte)
+	return *outstruct, nil
+}
+
+// PackVerifyAttestationStep2 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xc13734e7.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function verifyAttestationStep2(bytes[] cabundle, uint256 index, bytes parentPubKey) view returns(bytes pubKey)
+func (iNitroProver *INitroProver) PackVerifyAttestationStep2(cabundle [][]byte, index *big.Int, parentPubKey []byte) []byte {
+	enc, err := iNitroProver.abi.Pack("verifyAttestationStep2", cabundle, index, parentPubKey)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackVerifyAttestationStep2 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xc13734e7.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function verifyAttestationStep2(bytes[] cabundle, uint256 index, bytes parentPubKey) view returns(bytes pubKey)
+func (iNitroProver *INitroProver) TryPackVerifyAttestationStep2(cabundle [][]byte, index *big.Int, parentPubKey []byte) ([]byte, error) {
+	return iNitroProver.abi.Pack("verifyAttestationStep2", cabundle, index, parentPubKey)
+}
+
+// UnpackVerifyAttestationStep2 is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0xc13734e7.
+//
+// Solidity: function verifyAttestationStep2(bytes[] cabundle, uint256 index, bytes parentPubKey) view returns(bytes pubKey)
+func (iNitroProver *INitroProver) UnpackVerifyAttestationStep2(data []byte) ([]byte, error) {
+	out, err := iNitroProver.abi.Unpack("verifyAttestationStep2", data)
+	if err != nil {
+		return *new([]byte), err
+	}
+	out0 := *abi.ConvertType(out[0], new([]byte)).(*[]byte)
+	return out0, nil
+}
+
+// PackVerifyAttestationStep3 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x5d522337.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function verifyAttestationStep3(bytes[] attestation_decoded, bytes certificate, bytes parentPubKey) view returns(bytes attestationSig, bytes pubKey, bytes bufBufBuf)
+func (iNitroProver *INitroProver) PackVerifyAttestationStep3(attestationDecoded [][]byte, certificate []byte, parentPubKey []byte) []byte {
+	enc, err := iNitroProver.abi.Pack("verifyAttestationStep3", attestationDecoded, certificate, parentPubKey)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackVerifyAttestationStep3 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x5d522337.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function verifyAttestationStep3(bytes[] attestation_decoded, bytes certificate, bytes parentPubKey) view returns(bytes attestationSig, bytes pubKey, bytes bufBufBuf)
+func (iNitroProver *INitroProver) TryPackVerifyAttestationStep3(attestationDecoded [][]byte, certificate []byte, parentPubKey []byte) ([]byte, error) {
+	return iNitroProver.abi.Pack("verifyAttestationStep3", attestationDecoded, certificate, parentPubKey)
+}
+
+// VerifyAttestationStep3Output serves as a container for the return parameters of contract
+// method VerifyAttestationStep3.
+type VerifyAttestationStep3Output struct {
+	AttestationSig []byte
+	PubKey         []byte
+	BufBufBuf      []byte
+}
+
+// UnpackVerifyAttestationStep3 is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x5d522337.
+//
+// Solidity: function verifyAttestationStep3(bytes[] attestation_decoded, bytes certificate, bytes parentPubKey) view returns(bytes attestationSig, bytes pubKey, bytes bufBufBuf)
+func (iNitroProver *INitroProver) UnpackVerifyAttestationStep3(data []byte) (VerifyAttestationStep3Output, error) {
+	out, err := iNitroProver.abi.Unpack("verifyAttestationStep3", data)
+	outstruct := new(VerifyAttestationStep3Output)
+	if err != nil {
+		return *outstruct, err
+	}
+	outstruct.AttestationSig = *abi.ConvertType(out[0], new([]byte)).(*[]byte)
+	outstruct.PubKey = *abi.ConvertType(out[1], new([]byte)).(*[]byte)
+	outstruct.BufBufBuf = *abi.ConvertType(out[2], new([]byte)).(*[]byte)
+	return *outstruct, nil
+}
+
+// PackVerifyAttestationStep4 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x5aefbb26.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function verifyAttestationStep4(bytes attestationSig, bytes pubKey, bytes buf) view returns()
+func (iNitroProver *INitroProver) PackVerifyAttestationStep4(attestationSig []byte, pubKey []byte, buf []byte) []byte {
+	enc, err := iNitroProver.abi.Pack("verifyAttestationStep4", attestationSig, pubKey, buf)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackVerifyAttestationStep4 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x5aefbb26.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function verifyAttestationStep4(bytes attestationSig, bytes pubKey, bytes buf) view returns()
+func (iNitroProver *INitroProver) TryPackVerifyAttestationStep4(attestationSig []byte, pubKey []byte, buf []byte) ([]byte, error) {
+	return iNitroProver.abi.Pack("verifyAttestationStep4", attestationSig, pubKey, buf)
 }
 
 // ITeeAuthenticatorMetaData contains all meta data concerning the ITeeAuthenticator contract.
@@ -900,9 +1405,9 @@ func (c *Structs) Instance(backend bind.ContractBackend, addr common.Address) *b
 
 // TeeAuthenticatorMetaData contains all meta data concerning the TeeAuthenticator contract.
 var TeeAuthenticatorMetaData = bind.MetaData{
-	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"_teeSigner\",\"type\":\"address\"},{\"internalType\":\"bytes\",\"name\":\"_pubSecp521r1\",\"type\":\"bytes\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"ECDSAInvalidSignature\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"length\",\"type\":\"uint256\"}],\"name\":\"ECDSAInvalidSignatureLength\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"s\",\"type\":\"bytes32\"}],\"name\":\"ECDSAInvalidSignatureS\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"InvalidPKLength\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"}],\"name\":\"OwnableInvalidOwner\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"}],\"name\":\"OwnableUnauthorizedAccount\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"TeeAddressCantBeZero\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"TeeIsNotSet\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"oldTee\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"newTee\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"bytes\",\"name\":\"oldPubSecp521r1\",\"type\":\"bytes\"},{\"indexed\":false,\"internalType\":\"bytes\",\"name\":\"newPubSecp521r1\",\"type\":\"bytes\"}],\"name\":\"TeeUpdate\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"PK_LENGTH\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"internalType\":\"bytes32\",\"name\":\"prevStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"newStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"processedRequestId\",\"type\":\"bytes32\"},{\"internalType\":\"bytes[]\",\"name\":\"events\",\"type\":\"bytes[]\"},{\"internalType\":\"string[]\",\"name\":\"eventSubTypes\",\"type\":\"string[]\"},{\"components\":[{\"internalType\":\"addresspayable\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"internalType\":\"structStructs.WithdrawalRequest[]\",\"name\":\"withdrawalRequests\",\"type\":\"tuple[]\"},{\"internalType\":\"uint256\",\"name\":\"refundAmount\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"applicationFee\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"}],\"name\":\"checkSignature\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getPubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getTeeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"pubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"teeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newTeeSigner\",\"type\":\"address\"},{\"internalType\":\"bytes\",\"name\":\"newPubSecp521r1\",\"type\":\"bytes\"}],\"name\":\"updateTee\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"contractINitroProver\",\"name\":\"_nitroProver\",\"type\":\"address\"},{\"internalType\":\"bytes\",\"name\":\"_pcr0\",\"type\":\"bytes\"},{\"internalType\":\"uint256\",\"name\":\"_maxVerificationAge\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"AttestationAlreadyUsed\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"ECDSAInvalidSignature\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"length\",\"type\":\"uint256\"}],\"name\":\"ECDSAInvalidSignatureLength\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"s\",\"type\":\"bytes32\"}],\"name\":\"ECDSAInvalidSignatureS\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"InvalidPCR\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"InvalidPKLength\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"InvalidUserDataLength\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"}],\"name\":\"OwnableInvalidOwner\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"}],\"name\":\"OwnableUnauthorizedAccount\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"TeeIsNotSet\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"WrongStep\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"bytes\",\"name\":\"oldPcr0\",\"type\":\"bytes\"},{\"indexed\":true,\"internalType\":\"bytes\",\"name\":\"newPcr0\",\"type\":\"bytes\"}],\"name\":\"PcrZeroUpdate\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"oldTee\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"newTee\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"bytes\",\"name\":\"oldPubSecp521r1\",\"type\":\"bytes\"},{\"indexed\":false,\"internalType\":\"bytes\",\"name\":\"newPubSecp521r1\",\"type\":\"bytes\"}],\"name\":\"TeeUpdate\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"PK_LENGTH\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"internalType\":\"bytes32\",\"name\":\"prevStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"newStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"processedRequestId\",\"type\":\"bytes32\"},{\"internalType\":\"bytes[]\",\"name\":\"events\",\"type\":\"bytes[]\"},{\"internalType\":\"string[]\",\"name\":\"eventSubTypes\",\"type\":\"string[]\"},{\"components\":[{\"internalType\":\"addresspayable\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"internalType\":\"structStructs.WithdrawalRequest[]\",\"name\":\"withdrawalRequests\",\"type\":\"tuple[]\"},{\"internalType\":\"uint256\",\"name\":\"refundAmount\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"applicationFee\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"}],\"name\":\"checkSignature\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"currentUpdateStep\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getPubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getStep2TotalLength\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getTeeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"maxVerificationAge\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"nitroProver\",\"outputs\":[{\"internalType\":\"contractINitroProver\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"pcr0\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"pubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"step2CurrentIndex\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"teeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"newPcr0\",\"type\":\"bytes\"}],\"name\":\"updatePcr0\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"attestation\",\"type\":\"bytes\"}],\"name\":\"updateTee\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"attestation\",\"type\":\"bytes\"}],\"name\":\"updateTeeStep1\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"updateTeeStep2\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"updateTeeStep3\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"updateTeeStep4\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
 	ID:  "a8d895d4d49ffcfa5f7559dd61ad47cda6",
-	Bin: "0x6080604052346100305761001a6100146101b7565b9161066d565b610022610035565b611b616107b18239611b6190f35b61003b565b60405190565b5f80fd5b601f801991011690565b634e487b7160e01b5f52604160045260245ffd5b906100679061003f565b810190811060018060401b0382111761007f57604052565b610049565b90610097610090610035565b928361005d565b565b5f80fd5b5f80fd5b60018060a01b031690565b6100b5906100a1565b90565b6100c1816100ac565b036100c857565b5f80fd5b905051906100d9826100b8565b565b5f80fd5b5f80fd5b60018060401b0381116100ff576100fb60209161003f565b0190565b610049565b90825f9392825e0152565b9092919261012461011f826100e3565b610084565b938185526020850190828401116101405761013e92610104565b565b6100df565b9080601f83011215610163578160206101609351910161010f565b90565b6100db565b916060838303126101b25761017f825f85016100cc565b9261018d83602083016100cc565b92604082015160018060401b0381116101ad576101aa9201610145565b90565b61009d565b610099565b6101d5612312803803806101ca81610084565b928339810190610168565b909192565b5f1b90565b906101f060018060a01b03916101da565b9181191691161790565b90565b61021161020c610216926100a1565b6101fa565b6100a1565b90565b610222906101fd565b90565b61022e90610219565b90565b90565b9061024961024461025092610225565b610231565b82546101df565b9055565b5190565b634e487b7160e01b5f52602260045260245ffd5b906001600283049216801561028c575b602083101461028757565b610258565b91607f169161027c565b5f5260205f2090565b601f602091010490565b1b90565b919060086102c89102916102c25f19846102a9565b926102a9565b9181191691161790565b90565b6102e96102e46102ee926102d2565b6101fa565b6102d2565b90565b90565b919061030a610305610312936102d5565b6102f1565b9083546102ad565b9055565b5f90565b61032c91610326610316565b916102f4565b565b5b81811061033a575050565b806103475f60019361031a565b0161032f565b9190601f811161035d575b505050565b61036961038e93610296565b9060206103758461029f565b83019310610396575b6103879061029f565b019061032e565b5f8080610358565b91506103878192905061037e565b1c90565b906103b8905f19906008026103a4565b191690565b816103c7916103a8565b906002021790565b906103d981610254565b9060018060401b038211610497576103fb826103f5855461026c565b8561034d565b602090601f831160011461042f5791809161041e935f92610423575b50506103bd565b90555b565b90915001515f80610417565b601f1983169161043e85610296565b925f5b81811061047f57509160029391856001969410610465575b50505002019055610421565b610475910151601f8416906103a8565b90555f8080610459565b91936020600181928787015181550195019201610441565b610049565b906104a6916103cf565b565b90565b6104bf6104ba6104c4926104a8565b6101fa565b6100a1565b90565b6104d0906104ab565b90565b5f1c90565b60018060a01b031690565b6104ef6104f4916104d3565b6104d8565b90565b61050190546104e3565b90565b60018060401b0381116105205761051c60209161003f565b0190565b610049565b9061053761053283610504565b610084565b918252565b6105455f610525565b90565b61055061053c565b90565b61055c906100ac565b9052565b60209181520190565b6105886105916020936105969361057f81610254565b93848093610560565b95869101610104565b61003f565b0190565b905f92918054906105b46105ad8361026c565b8094610560565b916001811690815f1461060b57506001146105cf575b505050565b6105dc9192939450610296565b915f925b8184106105f357505001905f80806105ca565b600181602092959395548486015201910192906105e0565b92949550505060ff19168252151560200201905f80806105ca565b929061065c9161064f61066a969461064560808801945f890190610553565b6020870190610553565b8482036040860152610569565b91606081840391015261059a565b90565b61068c929161067e610685926106fa565b6001610234565b600261049c565b6106955f6104c7565b61069f60016104f7565b6106a7610548565b916106e060027f1882fd6e997ef1dc5e2691efe78564a5c540b36547363e8a7dcd454c61a944b6946106d7610035565b94859485610626565b0390a1565b91906106f8905f60208501940190610553565b565b8061071561070f61070a5f6104c7565b6100ac565b916100ac565b146107255761072390610751565b565b6107486107315f6104c7565b5f918291631e4fbdf760e01b8352600483016106e5565b0390fd5b5f0190565b61075a5f6104f7565b610764825f610234565b906107986107927f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e093610225565b91610225565b916107a1610035565b806107ab8161074c565b0390a356fe60806040526004361015610013575b610bc2565b61001d5f356100bc565b8063081bec7e146100b75780630dd7ce2f146100b257806343f855c3146100ad57806364c062d1146100a8578063715018a6146100a35780638da5cb5b1461009e578063c64af6fb14610099578063c91496c614610094578063f2fde38b1461008f5763fe4993ca0361000e57610b8d565b610a15565b6109c2565b610932565b610895565b610862565b61081b565b610231565b6101b8565b61014a565b60e01c90565b60405190565b5f80fd5b5f80fd5b5f9103126100da57565b6100cc565b5190565b60209181520190565b90825f9392825e0152565b601f801991011690565b61012061012960209361012e93610117816100df565b938480936100e3565b958691016100ec565b6100f7565b0190565b6101479160208201915f818403910152610101565b90565b3461017a5761015a3660046100d0565b610176610165610bd7565b61016d6100c2565b91829182610132565b0390f35b6100c8565b60018060a01b031690565b6101939061017f565b90565b61019f9061018a565b9052565b91906101b6905f60208501940190610196565b565b346101e8576101c83660046100d0565b6101e46101d3610c17565b6101db6100c2565b918291826101a3565b0390f35b6100c8565b1c90565b60018060a01b031690565b61020c90600861021193026101ed565b6101f1565b90565b9061021f91546101fc565b90565b61022e60015f90610214565b90565b34610261576102413660046100d0565b61025d61024c610222565b6102546100c2565b918291826101a3565b0390f35b6100c8565b5f80fd5b67ffffffffffffffff1690565b6102808161026a565b0361028757565b5f80fd5b9050359061029882610277565b565b90565b6102a68161029a565b036102ad57565b5f80fd5b905035906102be8261029d565b565b5f80fd5b634e487b7160e01b5f52604160045260245ffd5b906102e2906100f7565b810190811067ffffffffffffffff8211176102fc57604052565b6102c4565b9061031461030d6100c2565b92836102d8565b565b67ffffffffffffffff811161032e5760208091020190565b6102c4565b5f80fd5b5f80fd5b67ffffffffffffffff8111610359576103556020916100f7565b0190565b6102c4565b90825f939282370152565b9092919261037e6103798261033b565b610301565b9381855260208501908284011161039a576103989261035e565b565b610337565b9080601f830112156103bd578160206103ba93359101610369565b90565b6102c0565b9291906103d66103d182610316565b610301565b938185526020808601920281019183831161042d5781905b8382106103fc575050505050565b813567ffffffffffffffff81116104285760209161041d878493870161039f565b8152019101906103ee565b6102c0565b610333565b9080601f830112156104505781602061044d933591016103c2565b90565b6102c0565b67ffffffffffffffff811161046d5760208091020190565b6102c4565b67ffffffffffffffff81116104905761048c6020916100f7565b0190565b6102c4565b909291926104aa6104a582610472565b610301565b938185526020850190828401116104c6576104c49261035e565b565b610337565b9080601f830112156104e9578160206104e693359101610495565b90565b6102c0565b9291906105026104fd82610455565b610301565b93818552602080860192028101918383116105595781905b838210610528575050505050565b813567ffffffffffffffff81116105545760209161054987849387016104cb565b81520191019061051a565b6102c0565b610333565b9080601f8301121561057c57816020610579933591016104ee565b90565b6102c0565b67ffffffffffffffff81116105995760208091020190565b6102c4565b5f80fd5b6105ab9061017f565b90565b6105b7816105a2565b036105be57565b5f80fd5b905035906105cf826105ae565b565b90565b6105dd816105d1565b036105e457565b5f80fd5b905035906105f5826105d4565b565b91906040838203126106315761062a906106116040610301565b9361061e825f83016105c2565b5f8601526020016105e8565b6020830152565b61059e565b9092919261064b61064682610581565b610301565b93818552604060208601920283019281841161068a57915b8383106106705750505050565b602060409161067f84866105f7565b815201920191610663565b610333565b9080601f830112156106ad578160206106aa93359101610636565b90565b6102c0565b5f80fd5b909182601f830112156106f05781359167ffffffffffffffff83116106eb5760200192600183028401116106e657565b610333565b6106b2565b6102c0565b90610140828203126107ef5761070d815f840161028b565b9261071b82602085016102b1565b9261072983604083016102b1565b9261073781606084016102b1565b92608083013567ffffffffffffffff81116107ea5782610758918501610432565b9260a081013567ffffffffffffffff81116107e5578361077991830161055e565b9260c082013567ffffffffffffffff81116107e0578161079a91840161068f565b926107a88260e085016105e8565b926107b78361010083016105e8565b9261012082013567ffffffffffffffff81116107db576107d792016106b6565b9091565b610266565b610266565b610266565b610266565b6100cc565b151590565b610802906107f4565b9052565b9190610819905f602085019401906107f9565b565b34610858576108546108436108313660046106f5565b99989098979197969296959395610fa6565b61084b6100c2565b91829182610806565b0390f35b6100c8565b5f0190565b34610890576108723660046100d0565b61087a611190565b6108826100c2565b8061088c8161085d565b0390f35b6100c8565b346108c5576108a53660046100d0565b6108c16108b061119a565b6108b86100c2565b918291826101a3565b0390f35b6100c8565b6108d38161018a565b036108da57565b5f80fd5b905035906108eb826108ca565b565b91909160408184031261092d57610906835f83016108de565b92602082013567ffffffffffffffff811161092857610925920161039f565b90565b610266565b6100cc565b346109615761094b6109453660046108ed565b906115f0565b6109536100c2565b8061095d8161085d565b0390f35b6100c8565b90565b90565b61098061097b61098592610966565b610969565b6105d1565b90565b610992608561096c565b90565b61099d610988565b90565b6109a9906105d1565b9052565b91906109c0905f602085019401906109a0565b565b346109f2576109d23660046100d0565b6109ee6109dd610995565b6109e56100c2565b918291826109ad565b0390f35b6100c8565b90602082820312610a1057610a0d915f016108de565b90565b6100cc565b34610a4357610a2d610a283660046109f7565b611661565b610a356100c2565b80610a3f8161085d565b0390f35b6100c8565b634e487b7160e01b5f525f60045260245ffd5b634e487b7160e01b5f52602260045260245ffd5b9060016002830492168015610a8f575b6020831014610a8a57565b610a5b565b91607f1691610a7f565b60209181520190565b5f5260205f2090565b905f9291805490610ac5610abe83610a6f565b8094610a99565b916001811690815f14610b1c5750600114610ae0575b505050565b610aed9192939450610aa2565b915f925b818410610b0457505001905f8080610adb565b60018160209295939554848601520191019290610af1565b92949550505060ff19168252151560200201905f8080610adb565b90610b4191610aab565b90565b90610b64610b5d92610b546100c2565b93848092610b37565b03836102d8565b565b905f10610b7957610b7690610b44565b90565b610a48565b610b8a60025f90610b66565b90565b34610bbd57610b9d3660046100d0565b610bb9610ba8610b7e565b610bb06100c2565b91829182610132565b0390f35b6100c8565b5f80fd5b606090565b610bd490610b44565b90565b610bdf610bc6565b50610bea6002610bcb565b90565b5f90565b5f1c90565b610c02610c0791610bf1565b6101f1565b90565b610c149054610bf6565b90565b610c1f610bed565b50610c2a6001610c0a565b90565b5f90565b90565b610c48610c43610c4d92610c31565b610969565b61017f565b90565b610c5990610c34565b90565b610c669054610a6f565b90565b5190565b60209181520190565b60200190565b610c9b610ca4602093610ca993610c92816100df565b93848093610a99565b958691016100ec565b6100f7565b0190565b90610cb791610c7c565b90565b60200190565b90610cd4610ccd83610c69565b8092610c6d565b9081610ce560208302840194610c76565b925f915b838310610cf857505050505090565b90919293946020610d1a610d1483856001950387528951610cad565b97610cba565b9301930191939290610ce9565b610d3c9160208201915f818403910152610cc0565b90565b60200190565b5190565b60209181520190565b60200190565b5190565b60209181520190565b610d84610d8d602093610d9293610d7b81610d58565b93848093610d5c565b958691016100ec565b6100f7565b0190565b90610da091610d65565b90565b60200190565b90610dbd610db683610d45565b8092610d49565b9081610dce60208302840194610d52565b925f915b838310610de157505050505090565b90919293946020610e03610dfd83856001950387528951610d96565b97610da3565b9301930191939290610dd2565b610e259160208201915f818403910152610da9565b90565b5190565b60209181520190565b60200190565b610e44906105a2565b9052565b610e51906105d1565b9052565b90602080610e7793610e6d5f8201515f860190610e3b565b0151910190610e48565b565b90610e8681604093610e55565b0190565b60200190565b90610ead610ea7610ea084610e28565b8093610e2c565b92610e35565b905f5b818110610ebd5750505090565b909192610ed6610ed06001928651610e79565b94610e8a565b9101919091610eb0565b610ef59160208201915f818403910152610e90565b90565b610f019061026a565b9052565b610f0e9061029a565b9052565b9694929099989795939161012088019a5f8901610f2e91610ef8565b60208801610f3b91610f05565b60408701610f4891610f05565b60608601610f5591610f05565b60808501610f6291610f05565b60a08401610f6f91610f05565b60c08301610f7c91610f05565b60e08201610f89916109a0565b61010001610f96916109a0565b565b610fa3913691610369565b90565b9799969994939194929092610fb9610c2d565b50610fc46001610c0a565b610fde610fd8610fd35f610c50565b61018a565b9161018a565b148015611140575b611124576111059a6110ff996110f9986110e1976110926110a161105b61106a6110246110336110d29c6110186100c2565b92839160208301610d27565b602082018103825203826102d8565b61104561103f826100df565b91610d3f565b209461104f6100c2565b92839160208301610e10565b602082018103825203826102d8565b61107c611076826100df565b91610d3f565b20936110866100c2565b92839160208301610ee0565b602082018103825203826102d8565b6110b36110ad826100df565b91610d3f565b20929799959091929394956110c66100c2565b9a8b9960208b01610f12565b602082018103825203826102d8565b6110f36110ed826100df565b91610d3f565b20611670565b92610f98565b906116a6565b61112061111a6111156001610c0a565b61018a565b9161018a565b1490565b5f63f64b1d7b60e01b81528061113c6004820161085d565b0390fd5b5061114b6002610c5c565b61116461115e611159610988565b6105d1565b916105d1565b1415610fe6565b6111736116c8565b61117b61117d565b565b61118e6111895f610c50565b611716565b565b61119861116b565b565b6111a2610bed565b506111ac5f610c0a565b90565b906111c1916111bc6116c8565b611511565b565b905f92918054906111dd6111d683610a6f565b80946100e3565b916001811690815f1461123457506001146111f8575b505050565b6112059192939450610aa2565b915f925b81841061121c57505001905f80806111f3565b60018160209295939554848601520191019290611209565b92949550505060ff19168252151560200201905f80806111f3565b929061128591611278611293969461126e60808801945f890190610196565b6020870190610196565b84820360408601526111c3565b916060818403910152610101565b90565b5f1b90565b906112ac60018060a01b0391611296565b9181191691161790565b6112ca6112c56112cf9261017f565b610969565b61017f565b90565b6112db906112b6565b90565b6112e7906112d2565b90565b90565b906113026112fd611309926112de565b6112ea565b825461129b565b9055565b601f602091010490565b1b90565b919060086113369102916113305f1984611317565b92611317565b9181191691161790565b61135461134f611359926105d1565b610969565b6105d1565b90565b90565b919061137561137061137d93611340565b61135c565b90835461131b565b9055565b5f90565b61139791611391611381565b9161135f565b565b5b8181106113a5575050565b806113b25f600193611385565b0161139a565b9190601f81116113c8575b505050565b6113d46113f993610aa2565b9060206113e08461130d565b83019310611401575b6113f29061130d565b0190611399565b5f80806113c3565b91506113f2819290506113e9565b9061141f905f19906008026101ed565b191690565b8161142e9161140f565b906002021790565b90611440816100df565b9067ffffffffffffffff8211611500576114648261145e8554610a6f565b856113b8565b602090601f831160011461149857918091611487935f9261148c575b5050611424565b90555b565b90915001515f80611480565b601f198316916114a785610aa2565b925f5b8181106114e8575091600293918560019694106114ce575b5050500201905561148a565b6114de910151601f84169061140f565b90555f80806114c2565b919360206001819287870151815501950192016114aa565b6102c4565b9061150f91611436565b565b908161152d6115276115225f610c50565b61018a565b9161018a565b146115d45761153b816100df565b61155461154e611549610988565b6105d1565b916105d1565b036115b8576115af6115b69261156a6001610c0a565b816002916115a5867f1882fd6e997ef1dc5e2691efe78564a5c540b36547363e8a7dcd454c61a944b69461159c6100c2565b9485948561124f565b0390a160016112ed565b6002611505565b565b5f634ae601c160e11b8152806115d06004820161085d565b0390fd5b5f6303a4d16560e51b8152806115ec6004820161085d565b0390fd5b906115fa916111af565b565b61160d906116086116c8565b61160f565b565b8061162a61162461161f5f610c50565b61018a565b9161018a565b1461163a5761163890611716565b565b61165d6116465f610c50565b5f918291631e4fbdf760e01b8352600483016101a3565b0390fd5b61166a906115fc565b565b5f90565b61167861166c565b507f19457468657265756d205369676e6564204d6573736167653a0a3332000000005f52601c52603c5f2090565b6116c5916116bc916116b6610bed565b506117b8565b909291926118b5565b90565b6116d061119a565b6116e96116e36116de611986565b61018a565b9161018a565b036116f057565b6117126116fb611986565b5f91829163118cdaa760e01b8352600483016101a3565b0390fd5b61171f5f610c0a565b611729825f6112ed565b9061175d6117577f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0936112de565b916112de565b916117666100c2565b806117708161085d565b0390a3565b5f90565b90565b61179061178b61179592611779565b610969565b6105d1565b90565b6117ac6117a76117b1926105d1565b611296565b61029a565b90565b5f90565b9190916117c3610bed565b506117cc611775565b506117d561166c565b506117df836100df565b6117f26117ec604161177c565b916105d1565b145f1461183957611832919261180661166c565b5061180f61166c565b506118186117b4565b506020810151606060408301519201515f1a909192611a2f565b9192909190565b506118435f610c50565b906118576118526002946100df565b611798565b91929190565b634e487b7160e01b5f52602160045260245ffd5b6004111561187b57565b61185d565b9061188a82611871565b565b919061189f905f60208501940190610f05565b565b6118ad6118b291610bf1565b611340565b90565b806118c86118c25f611880565b91611880565b145f146118d3575050565b806118e76118e16001611880565b91611880565b145f1461190a575f63f645eedf60e01b8152806119066004820161085d565b0390fd5b8061191e6119186002611880565b91611880565b145f1461194c57611948611931836118a1565b5f91829163fce698f760e01b8352600483016109ad565b0390fd5b61195f6119596003611880565b91611880565b146119675750565b611982905f9182916335e2f38360e21b83526004830161188c565b0390fd5b61198e610bed565b503390565b90565b6119aa6119a56119af92611993565b610969565b6105d1565b90565b60ff1690565b6119c1906119b2565b9052565b6119fa611a01946119f06060949897956119e6608086019a5f870190610f05565b60208501906119b8565b6040830190610f05565b0190610f05565b565b611a0b6100c2565b3d5f823e3d90fd5b611a27611a22611a2c92610c31565b611296565b61029a565b90565b939293611a3a610bed565b50611a43611775565b50611a4c61166c565b50611a56856118a1565b611a88611a827f7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0611996565b916105d1565b11611b155790611aab602094955f94939293611aa26100c2565b948594856119c5565b838052039060015afa15611b1057611ac35f51611296565b80611ade611ad8611ad35f610c50565b61018a565b9161018a565b14611af4575f91611aee5f611a13565b91929190565b50611afe5f610c50565b600191611b0a5f611a13565b91929190565b611a03565b505050611b215f610c50565b906003929192919056fea26469706673582212206483dc1a14725035ded79f95247f28d9952030f32d6e3d0fd868eb5675a0d09964736f6c634300081e0033",
+	Bin: "0x60c0604052346100765761001d610014610260565b929190916104d8565b61002561007b565b6134666106a182396080518181816102310152818161128d0152818161179301528181611fde015281816127530152612972015260a0518181816103e7015281816120120152612787015261346690f35b610081565b60405190565b5f80fd5b601f801991011690565b634e487b7160e01b5f52604160045260245ffd5b906100ad90610085565b810190811060018060401b038211176100c557604052565b61008f565b906100dd6100d661007b565b92836100a3565b565b5f80fd5b5f80fd5b60018060a01b031690565b6100fb906100e7565b90565b610107816100f2565b0361010e57565b5f80fd5b9050519061011f826100fe565b565b61012a906100f2565b90565b61013681610121565b0361013d57565b5f80fd5b9050519061014e8261012d565b565b5f80fd5b5f80fd5b60018060401b03811161017457610170602091610085565b0190565b61008f565b90825f9392825e0152565b9092919261019961019482610158565b6100ca565b938185526020850190828401116101b5576101b392610179565b565b610154565b9080601f830112156101d8578160206101d593519101610184565b90565b610150565b90565b6101e9816101dd565b036101f057565b5f80fd5b90505190610201826101e0565b565b60808183031261025b57610219825f8301610112565b926102278360208401610141565b9260408301519060018060401b0382116102565761024a816102539386016101ba565b936060016101f4565b90565b6100e3565b6100df565b61027e613b0780380380610273816100ca565b928339810190610203565b90919293565b5190565b634e487b7160e01b5f52602260045260245ffd5b90600160028304921680156102bc575b60208310146102b757565b610288565b91607f16916102ac565b5f5260205f2090565b601f602091010490565b1b90565b919060086102f89102916102f25f19846102d9565b926102d9565b9181191691161790565b90565b61031961031461031e926101dd565b610302565b6101dd565b90565b90565b919061033a61033561034293610305565b610321565b9083546102dd565b9055565b5f90565b61035c91610356610346565b91610324565b565b5b81811061036a575050565b806103775f60019361034a565b0161035f565b9190601f811161038d575b505050565b6103996103be936102c6565b9060206103a5846102cf565b830193106103c6575b6103b7906102cf565b019061035e565b5f8080610388565b91506103b7819290506103ae565b1c90565b906103e8905f19906008026103d4565b191690565b816103f7916103d8565b906002021790565b9061040981610284565b9060018060401b0382116104c75761042b82610425855461029c565b8561037d565b602090601f831160011461045f5791809161044e935f92610453575b50506103ed565b90555b565b90915001515f80610447565b601f1983169161046e856102c6565b925f5b8181106104af57509160029391856001969410610495575b50505002019055610451565b6104a5910151601f8416906103d8565b90555f8080610489565b91936020600181928787015181550195019201610471565b61008f565b906104d6916103ff565b565b916104e66104ed9293610542565b60016104cc565b60805260a052565b90565b61050c610507610511926104f5565b610302565b6100e7565b90565b61051d906104f8565b90565b610529906100f2565b9052565b9190610540905f60208501940190610520565b565b8061055d6105576105525f610514565b6100f2565b916100f2565b1461056d5761056b90610641565b565b6105906105795f610514565b5f918291631e4fbdf760e01b83526004830161052d565b0390fd5b5f1c90565b60018060a01b031690565b6105b06105b591610594565b610599565b90565b6105c290546105a4565b90565b5f1b90565b906105db60018060a01b03916105c5565b9181191691161790565b6105f96105f46105fe926100e7565b610302565b6100e7565b90565b61060a906105e5565b90565b61061690610601565b90565b90565b9061063161062c6106389261060d565b610619565b82546105ca565b9055565b5f0190565b61064a5f6105b8565b610654825f61061c565b906106886106827f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e09361060d565b9161060d565b9161069161007b565b8061069b8161063c565b0390a356fe60806040526004361015610013575b610fc9565b61001d5f3561016c565b8063081bec7e146101675780630a83fb91146101625780630b1bfab91461015d5780630dd7ce2f14610158578063127379db1461015357806334010ccf1461014e57806343f855c3146101495780635520916c1461014457806364c062d11461013f578063715018a61461013a5780637637d58a146101355780637ed2d7fc1461013057806381a9d38a1461012b5780638890b84e146101265780638da5cb5b14610121578063c3b331221461011c578063c91496c614610117578063d22a29d114610112578063db6a7b711461010d578063f2fde38b146101085763fe4993ca0361000e57610f94565b610f52565b610edc565b610e9a565b610e65565b610df9565b610dc4565b610d90565b610d5b565b610be3565b610b7a565b610ace565b610a8c565b6104eb565b6104b6565b610443565b610409565b6103b0565b61034d565b6102b7565b6101fa565b60e01c90565b60405190565b5f80fd5b5f80fd5b5f91031261018a57565b61017c565b5190565b60209181520190565b90825f9392825e0152565b601f801991011690565b6101d06101d96020936101de936101c78161018f565b93848093610193565b9586910161019c565b6101a7565b0190565b6101f79160208201915f8184039101526101b1565b90565b3461022a5761020a366004610180565b610226610215610fde565b61021d610172565b918291826101e2565b0390f35b610178565b7f000000000000000000000000000000000000000000000000000000000000000090565b60018060a01b031690565b90565b61027561027061027a92610253565b61025e565b610253565b90565b61028690610261565b90565b6102929061027d565b90565b61029e90610289565b9052565b91906102b5905f60208501940190610295565b565b346102e7576102c7366004610180565b6102e36102d261022f565b6102da610172565b918291826102a2565b0390f35b610178565b1c90565b90565b61030390600861030893026102ec565b6102f0565b90565b9061031691546102f3565b90565b61032560055f9061030b565b90565b90565b61033490610328565b9052565b919061034b905f6020850194019061032b565b565b3461037d5761035d366004610180565b610379610368610319565b610370610172565b91829182610338565b0390f35b610178565b61038b90610253565b90565b61039790610382565b9052565b91906103ae905f6020850194019061038e565b565b346103e0576103c0366004610180565b6103dc6103cb61101e565b6103d3610172565b9182918261039b565b0390f35b610178565b7f000000000000000000000000000000000000000000000000000000000000000090565b3461043957610419366004610180565b6104356104246103e5565b61042c610172565b91829182610338565b0390f35b610178565b5f0190565b3461047157610453366004610180565b61045b611381565b610463610172565b8061046d8161043e565b0390f35b610178565b60018060a01b031690565b61049190600861049693026102ec565b610476565b90565b906104a49154610481565b90565b6104b360025f90610499565b90565b346104e6576104c6366004610180565b6104e26104d16104a7565b6104d9610172565b9182918261039b565b0390f35b610178565b34610519576104fb366004610180565b6105036118b5565b61050b610172565b806105158161043e565b0390f35b610178565b5f80fd5b67ffffffffffffffff1690565b61053881610522565b0361053f57565b5f80fd5b905035906105508261052f565b565b90565b61055e81610552565b0361056557565b5f80fd5b9050359061057682610555565b565b5f80fd5b634e487b7160e01b5f52604160045260245ffd5b9061059a906101a7565b810190811067ffffffffffffffff8211176105b457604052565b61057c565b906105cc6105c5610172565b9283610590565b565b67ffffffffffffffff81116105e65760208091020190565b61057c565b5f80fd5b5f80fd5b67ffffffffffffffff81116106115761060d6020916101a7565b0190565b61057c565b90825f939282370152565b90929192610636610631826105f3565b6105b9565b938185526020850190828401116106525761065092610616565b565b6105ef565b9080601f830112156106755781602061067293359101610621565b90565b610578565b92919061068e610689826105ce565b6105b9565b93818552602080860192028101918383116106e55781905b8382106106b4575050505050565b813567ffffffffffffffff81116106e0576020916106d58784938701610657565b8152019101906106a6565b610578565b6105eb565b9080601f83011215610708578160206107059335910161067a565b90565b610578565b67ffffffffffffffff81116107255760208091020190565b61057c565b67ffffffffffffffff8111610748576107446020916101a7565b0190565b61057c565b9092919261076261075d8261072a565b6105b9565b9381855260208501908284011161077e5761077c92610616565b565b6105ef565b9080601f830112156107a15781602061079e9335910161074d565b90565b610578565b9291906107ba6107b58261070d565b6105b9565b93818552602080860192028101918383116108115781905b8382106107e0575050505050565b813567ffffffffffffffff811161080c576020916108018784938701610783565b8152019101906107d2565b610578565b6105eb565b9080601f8301121561083457816020610831933591016107a6565b90565b610578565b67ffffffffffffffff81116108515760208091020190565b61057c565b5f80fd5b61086390610253565b90565b61086f8161085a565b0361087657565b5f80fd5b9050359061088782610866565b565b61089281610328565b0361089957565b5f80fd5b905035906108aa82610889565b565b91906040838203126108e6576108df906108c660406105b9565b936108d3825f830161087a565b5f86015260200161089d565b6020830152565b610856565b909291926109006108fb82610839565b6105b9565b93818552604060208601920283019281841161093f57915b8383106109255750505050565b602060409161093484866108ac565b815201920191610918565b6105eb565b9080601f830112156109625781602061095f933591016108eb565b90565b610578565b9061014082820312610a605761097f815f8401610543565b9261098d8260208501610569565b9261099b8360408301610569565b926109a98160608401610569565b92608083013567ffffffffffffffff8111610a5b57826109ca9185016106ea565b9260a081013567ffffffffffffffff8111610a5657836109eb918301610816565b9260c082013567ffffffffffffffff8111610a515781610a0c918401610944565b92610a1a8260e0850161089d565b92610a2983610100830161089d565b9261012082013567ffffffffffffffff8111610a4c57610a499201610657565b90565b61051e565b61051e565b61051e565b61051e565b61017c565b151590565b610a7390610a65565b9052565b9190610a8a905f60208501940190610a6a565b565b34610ac957610ac5610ab4610aa2366004610967565b98979097969196959295949394611c14565b610abc610172565b91829182610a77565b0390f35b610178565b34610afc57610ade366004610180565b610ae6611df2565b610aee610172565b80610af88161043e565b0390f35b610178565b5f80fd5b909182601f83011215610b3f5781359167ffffffffffffffff8311610b3a576020019260018302840111610b3557565b6105eb565b610b01565b610578565b90602082820312610b75575f82013567ffffffffffffffff8111610b7057610b6c9201610b05565b9091565b61051e565b61017c565b34610ba957610b93610b8d366004610b44565b906120e9565b610b9b610172565b80610ba58161043e565b0390f35b610178565b90602082820312610bde575f82013567ffffffffffffffff8111610bd957610bd69201610657565b90565b61051e565b61017c565b34610c1157610bfb610bf6366004610bae565b612263565b610c03610172565b80610c0d8161043e565b0390f35b610178565b634e487b7160e01b5f525f60045260245ffd5b634e487b7160e01b5f52602260045260245ffd5b9060016002830492168015610c5d575b6020831014610c5857565b610c29565b91607f1691610c4d565b60209181520190565b5f5260205f2090565b905f9291805490610c93610c8c83610c3d565b8094610c67565b916001811690815f14610cea5750600114610cae575b505050565b610cbb9192939450610c70565b915f925b818410610cd257505001905f8080610ca9565b60018160209295939554848601520191019290610cbf565b92949550505060ff19168252151560200201905f8080610ca9565b90610d0f91610c79565b90565b90610d32610d2b92610d22610172565b93848092610d05565b0383610590565b565b905f10610d4757610d4490610d12565b90565b610c16565b610d5860015f90610d34565b90565b34610d8b57610d6b366004610180565b610d87610d76610d4c565b610d7e610172565b918291826101e2565b0390f35b610178565b34610dbf57610da9610da3366004610b44565b906128c5565b610db1610172565b80610dbb8161043e565b0390f35b610178565b34610df457610dd4366004610180565b610df0610ddf6128d1565b610de7610172565b9182918261039b565b0390f35b610178565b34610e2957610e09366004610180565b610e25610e146128e6565b610e1c610172565b91829182610338565b0390f35b610178565b90565b610e45610e40610e4a92610e2e565b61025e565b610328565b90565b610e576085610e31565b90565b610e62610e4d565b90565b34610e9557610e75366004610180565b610e91610e80610e5a565b610e88610172565b91829182610338565b0390f35b610178565b34610ec857610eaa366004610180565b610eb2612a66565b610eba610172565b80610ec48161043e565b0390f35b610178565b610ed960065f9061030b565b90565b34610f0c57610eec366004610180565b610f08610ef7610ecd565b610eff610172565b91829182610338565b0390f35b610178565b610f1a81610382565b03610f2157565b5f80fd5b90503590610f3282610f11565b565b90602082820312610f4d57610f4a915f01610f25565b90565b61017c565b34610f8057610f6a610f65366004610f34565b612ad5565b610f72610172565b80610f7c8161043e565b0390f35b610178565b610f9160035f90610d34565b90565b34610fc457610fa4366004610180565b610fc0610faf610f85565b610fb7610172565b918291826101e2565b0390f35b610178565b5f80fd5b606090565b610fdb90610d12565b90565b610fe6610fcd565b50610ff16003610fd2565b90565b5f90565b5f1c90565b61100961100e91610ff8565b610476565b90565b61101b9054610ffd565b90565b611026610ff4565b506110316002611011565b90565b61103c612ae0565b611044611266565b565b61105261105791610ff8565b6102f0565b90565b6110649054611046565b90565b90565b61107e61107961108392611067565b61025e565b610328565b90565b5f80fd5b60e01b90565b5f91031261109a57565b61017c565b905f92918054906110b96110b283610c3d565b8094610193565b916001811690815f1461111057506001146110d4575b505050565b6110e19192939450610c70565b915f925b8184106110f857505001905f80806110cf565b600181602092959395548486015201910192906110e5565b92949550505060ff19168252151560200201905f80806110cf565b9161115790611149611165959360608601908682035f88015261109f565b90848203602086015261109f565b91604081840391015261109f565b90565b611170610172565b3d5f823e3d90fd5b6111829054610c3d565b90565b60601c90565b60601b90565b61119a9061118b565b90565b6111a96111ae91611185565b611191565b90565b6111bb905461119d565b90565b1b90565b6111df6111ce82611178565b9180601f8411611212575b506111b1565b90601481106111ed575b5090565b61120b906bffffffffffffffffffffffff19906014036008026111be565b165f6111e9565b61121c9150610c70565b5f6111d9565b61122e61123391611185565b610261565b90565b61123f90611222565b90565b90565b61125161125691610ff8565b611242565b90565b6112639054611245565b90565b611270600561105a565b61128361127d600361106a565b91610328565b03611365576112b17f0000000000000000000000000000000000000000000000000000000000000000610289565b635aefbb26600c6007926010813b15611360575f936112ec6112e1926112d5610172565b9788968795869561108a565b85526004850161112b565b03915afa801561135b5761132f575b5061132d61131161130c600a6111c2565b611236565b6009906113276113216008611259565b92610fd2565b90612c04565b565b61134e905f3d8111611354575b6113468183610590565b810190611090565b5f6112fb565b503d61133c565b611168565b611086565b5f635e1e452d60e11b81528061137d6004820161043e565b0390fd5b611389611034565b565b611393612ae0565b61139b61176c565b565b90565b6113b46113af6113b99261139d565b61025e565b610328565b90565b909291926113d16113cc826105f3565b6105b9565b938185526020850190828401116113ed576113eb9261019c565b565b6105ef565b9080601f830112156114105781602061140d935191016113bc565b90565b610578565b90602082820312611445575f82015167ffffffffffffffff81116114405761143d92016113f2565b90565b61051e565b61017c565b5490565b60209181520190565b5f5260205f2090565b60010190565b9061147a6114738361144a565b809261144e565b908161148b60208302840194611457565b925f915b83831061149e57505050505090565b909192939460206114bf6114b9838560019503875289610d05565b97611460565b930193019193929061148f565b6114f36114e8611500959360608401908482035f860152611466565b93602083019061032b565b604081840391015261109f565b90565b601f602091010490565b919060086115289102916115225f19846111be565b926111be565b9181191691161790565b61154661154161154b92610328565b61025e565b610328565b90565b90565b919061156761156261156f93611532565b61154e565b90835461150d565b9055565b5f90565b61158991611583611573565b91611551565b565b5b818110611597575050565b806115a45f600193611577565b0161158c565b9190601f81116115ba575b505050565b6115c66115eb93610c70565b9060206115d284611503565b830193106115f3575b6115e490611503565b019061158b565b5f80806115b5565b91506115e4819290506115db565b90611611905f19906008026102ec565b191690565b8161162091611601565b906002021790565b906116328161018f565b9067ffffffffffffffff82116116f257611656826116508554610c3d565b856115aa565b602090601f831160011461168a57918091611679935f9261167e575b5050611616565b90555b565b90915001515f80611672565b601f1983169161169985610c70565b925f5b8181106116da575091600293918560019694106116c0575b5050500201905561167c565b6116d0910151601f841690611601565b90555f80806116b4565b9193602060018192878701518155019501920161169c565b61057c565b9061170191611628565b565b600161170f9101610328565b90565b5f1b90565b906117235f1991611712565b9181191691161790565b9061174261173d61174992611532565b61154e565b8254611717565b9055565b90565b61176461175f6117699261174d565b61025e565b610328565b90565b611776600561105a565b61178961178360016113a0565b91610328565b03611899576117b77f0000000000000000000000000000000000000000000000000000000000000000610289565b5f63c13734e791600e906117e86117ce600661105a565b946117f360076117dc610172565b9788968795869561108a565b8552600485016114cc565b03915afa801561189457611810915f91611872575b5060076116f7565b61182c611825611820600661105a565b611703565b600661172d565b611836600661105a565b61185161184b611846600e61144a565b610328565b91610328565b14611859575b565b61186d6118666002611750565b600561172d565b611857565b61188e91503d805f833e6118868183610590565b810190611415565b5f611808565b611168565b5f635e1e452d60e11b8152806118b16004820161043e565b0390fd5b6118bd61138b565b565b5f90565b90565b6118da6118d56118df926118c3565b61025e565b610253565b90565b6118eb906118c6565b90565b5190565b60200190565b6119176119206020936119259361190e8161018f565b93848093610c67565b9586910161019c565b6101a7565b0190565b90611933916118f8565b90565b60200190565b90611950611949836118ee565b809261144e565b9081611961602083028401946118f2565b925f915b83831061197457505050505090565b9091929394602061199661199083856001950387528951611929565b97611936565b9301930191939290611965565b6119b89160208201915f81840391015261193c565b90565b60200190565b5190565b60209181520190565b60200190565b5190565b60209181520190565b611a00611a09602093611a0e936119f7816119d4565b938480936119d8565b9586910161019c565b6101a7565b0190565b90611a1c916119e1565b90565b60200190565b90611a39611a32836119c1565b80926119c5565b9081611a4a602083028401946119ce565b925f915b838310611a5d57505050505090565b90919293946020611a7f611a7983856001950387528951611a12565b97611a1f565b9301930191939290611a4e565b611aa19160208201915f818403910152611a25565b90565b5190565b60209181520190565b60200190565b611ac09061085a565b9052565b611acd90610328565b9052565b90602080611af393611ae95f8201515f860190611ab7565b0151910190611ac4565b565b90611b0281604093611ad1565b0190565b60200190565b90611b29611b23611b1c84611aa4565b8093611aa8565b92611ab1565b905f5b818110611b395750505090565b909192611b52611b4c6001928651611af5565b94611b06565b9101919091611b2c565b611b719160208201915f818403910152611b0c565b90565b611b7d90610522565b9052565b611b8a90610552565b9052565b9694929099989795939161012088019a5f8901611baa91611b74565b60208801611bb791611b81565b60408701611bc491611b81565b60608601611bd191611b81565b60808501611bde91611b81565b60a08401611beb91611b81565b60c08301611bf891611b81565b60e08201611c059161032b565b61010001611c129161032b565b565b9897909392919596611c246118bf565b50611c2d61101e565b611c47611c41611c3c5f6118e2565b610382565b91610382565b148015611d9c575b611d8057611d6399611d5e98611d4697611cf7611d06611cc0611ccf611c89611c98611d379c611c7d610172565b928391602083016119a3565b60208201810382520382610590565b611caa611ca48261018f565b916119bb565b2094611cb4610172565b92839160208301611a8c565b60208201810382520382610590565b611ce1611cdb8261018f565b916119bb565b2093611ceb610172565b92839160208301611b5c565b60208201810382520382610590565b611d18611d128261018f565b916119bb565b2092979995909192939495611d2b610172565b9a8b9960208b01611b8e565b60208201810382520382610590565b611d58611d528261018f565b916119bb565b20612c85565b612cbb565b611d7c611d76611d7161101e565b610382565b91610382565b1490565b5f63f64b1d7b60e01b815280611d986004820161043e565b0390fd5b50611dad611da8610fde565b61018f565b611dc6611dc0611dbb610e4d565b610328565b91610328565b1415611c4f565b611dd5612ae0565b611ddd611ddf565b565b611df0611deb5f6118e2565b612cdd565b565b611dfa611dcd565b565b90611e0e91611e09612ae0565b611f9f565b565b611e1b913691610621565b90565b611e2790610552565b90565b90611e3490611e1e565b5f5260205260405f2090565b60ff1690565b611e52611e5791610ff8565b611e40565b90565b611e649054611e46565b90565b91606083830312611ee3575f83015167ffffffffffffffff8111611ede5782611e919185016113f2565b92602081015167ffffffffffffffff8111611ed95783611eb29183016113f2565b92604082015167ffffffffffffffff8111611ed457611ed192016113f2565b90565b61051e565b61051e565b61051e565b61017c565b9190611f0281611efb81611f0795610193565b8095610616565b6101a7565b0190565b939290611f29602091611f319460408801918883035f8a0152611ee8565b94019061032b565b565b6bffffffffffffffffffffffff191690565b611f4f9051611f33565b90565b611f6c611f67611f618361018f565b926119bb565b611f45565b9060148110611f7a575b5090565b611f98906bffffffffffffffffffffffff19906014036008026111be565b165f611f76565b90611fab828290611e10565b611fbd611fb78261018f565b916119bb565b2090611fd3611fce60048490611e2a565b611e5a565b6120cd575f906120027f0000000000000000000000000000000000000000000000000000000000000000610289565b612045632b5f2f819592956120507f0000000000000000000000000000000000000000000000000000000000000000612039610172565b9889968795869561108a565b855260048501611f0b565b03915afa9081156120c857612092925f8080929094612094575b5061208a91612080612085929591868391612e7f565b611f52565b611236565b919091612c04565b565b612080945061208a925061208591506120be903d805f833e6120b68183610590565b810190611e67565b935094509061206a565b611168565b5f6305fb89e760e21b8152806120e56004820161043e565b0390fd5b906120f391611dfc565b565b61210690612101612ae0565b61220a565b565b905090565b905f929180549061212761212083610c3d565b8094612108565b916001811690815f146121795750600114612142575b505050565b61214f9192939450610c70565b5f905b83821061216557505001905f808061213d565b600181602092548486015201910190612152565b92949550505060ff191682528015150201905f808061213d565b61219c9161210d565b90565b6121b4906121ab610172565b91829182612193565b03902090565b6121df6121d6926020926121cd8161018f565b94858093612108565b9384910161019c565b0190565b6121ec916121ba565b90565b612204906121fb610172565b918291826121e3565b03902090565b6122619060018161224461223e7f7cb84e5a76f21dbf9cffe637ecb554a3d4f4eeb2cf05cd38c8a0db9d34ed65419361219f565b916121ef565b9161224d610172565b806122578161043e565b0390a360016116f7565b565b61226c906120f5565b565b906122809161227b612ae0565b6126fa565b565b61228b90610ff8565b90565b906122a361229e6122aa92611e1e565b612282565b8254611717565b9055565b9291906122c26122bd826105ce565b6105b9565b93818552602080860192028101918383116123195781905b8382106122e8575050505050565b815167ffffffffffffffff81116123145760209161230987849387016113f2565b8152019101906122da565b610578565b6105eb565b9080601f8301121561233c57816020612339935191016122ae565b90565b610578565b9160c08383031261242f575f83015167ffffffffffffffff811161242a578261236b91850161231e565b92602081015167ffffffffffffffff8111612425578361238c9183016113f2565b92604082015167ffffffffffffffff811161242057816123ad91840161231e565b92606083015167ffffffffffffffff811161241b57826123ce9185016113f2565b92608081015167ffffffffffffffff811161241657836123ef9183016113f2565b9260a082015167ffffffffffffffff81116124115761240e92016113f2565b90565b61051e565b61051e565b61051e565b61051e565b61051e565b61051e565b61017c565b634e487b7160e01b5f52601160045260245ffd5b600190818003010490565b90612466905f19906020036008026102ec565b8154169055565b905f9161248461247c82610c70565b928354611616565b905555565b919290602082105f146124e257601f84116001146124b2576124ac929350611616565b90555b5b565b50906124d86124dd9360016124cf6124c985610c70565b92611503565b8201910161158b565b61246d565b6124af565b5061251982936124f3600194610c70565b6125126124ff85611503565b820192601f861680612524575b50611503565b019061158b565b6002021790556124b0565b61253090888603612453565b5f61250c565b929091680100000000000000008211612596576020115f1461258757602081105f1461256b5761256591611616565b90555b5b565b60019160ff191661257b84610c70565b55600202019055612568565b60019150600202019055612569565b61057c565b9081546125a781610c3d565b908183116125d0575b8183106125be575b50505050565b6125c793612489565b5f8080806125b8565b6125dc83838387612536565b6125b0565b5f6125eb9161259b565b565b905f036125ff576125fd906125e1565b565b610c16565b5b818110612610575050565b8061261d5f6001936125ed565b01612605565b9091828110612632575b505050565b61265061264a61264461265b95612448565b92612448565b92611457565b918201910190612604565b5f808061262d565b9068010000000000000000811161268c578161268161268a9361144a565b90828155612623565b565b61057c565b5190565b6126ba6126b46126a4846118ee565b936126af8585612663565b6118f2565b91611457565b5f915b8383106126ca5750505050565b60016020826126e26126dc8495612691565b866116f7565b019201920191906126bd565b906126f891612695565b565b90612703613050565b61272b612711838390611e10565b61272361271d8261018f565b916119bb565b20600861228e565b612748612743600461273d6008611259565b90611e2a565b611e5a565b6128a9575f906127777f0000000000000000000000000000000000000000000000000000000000000000610289565b6127ba63d420f66a9492946127c57f00000000000000000000000000000000000000000000000000000000000000006127ae610172565b9788968795869561108a565b855260048501611f0b565b03915afa9081156128a457612824915f80808080809192939495612865575b61281d9596509161280861280f926128016128169695600b6116f7565b600a6116f7565b60096116f7565b600e6126ee565b600d6116f7565b600f6126ee565b61284f600b60099061284961284361283d600a93610fd2565b93610fd2565b91610fd2565b91612e7f565b61286361285c60016113a0565b600561172d565b565b50505050505061281d61280861281661280161289561280f953d805f833e61288d8183610590565b810190612341565b939750939750935093506127e4565b611168565b5f6305fb89e760e21b8152806128c16004820161043e565b0390fd5b906128cf9161226e565b565b6128d9610ff4565b506128e35f611011565b90565b6128ee611573565b506128f9600e61144a565b90565b612904612ae0565b61290c61294b565b565b9161293a9061292c612948959360608601908682035f880152611466565b90848203602086015261109f565b91604081840391015261109f565b90565b612955600561105a565b6129686129626002611750565b91610328565b03612a4a576129967f0000000000000000000000000000000000000000000000000000000000000000610289565b5f635d52233791600f906129bf600d946129ca60076129b3610172565b9788968795869561108a565b85526004850161290e565b03915afa908115612a4557612a02915f80809192612a18575b6129fb9293506129f49060106116f7565b60076116f7565b600c6116f7565b612a16612a0f600361106a565b600561172d565b565b5050506129fb612a3c6129f4923d805f833e612a348183610590565b810190611e67565b909192506129e3565b611168565b5f635e1e452d60e11b815280612a626004820161043e565b0390fd5b612a6e6128fc565b565b612a8190612a7c612ae0565b612a83565b565b80612a9e612a98612a935f6118e2565b610382565b91610382565b14612aae57612aac90612cdd565b565b612ad1612aba5f6118e2565b5f918291631e4fbdf760e01b83526004830161039b565b0390fd5b612ade90612a70565b565b612ae86128d1565b612b01612afb612af661308a565b610382565b91610382565b03612b0857565b612b2a612b1361308a565b5f91829163118cdaa760e01b83526004830161039b565b0390fd5b9290612b6491612b57612b729694612b4d60808801945f89019061038e565b602087019061038e565b848203604086015261109f565b9160608184039101526101b1565b90565b90612b8160ff91611712565b9181191691161790565b612b9490610a65565b90565b90565b90612baf612baa612bb692612b8b565b612b97565b8254612b75565b9055565b90612bcb60018060a01b0391611712565b9181191691161790565b612bde9061027d565b90565b90565b90612bf9612bf4612c0092612bd5565b612be1565b8254612bba565b9055565b612c7090612c69612c7794612c196002611011565b83600391612c54887f1882fd6e997ef1dc5e2691efe78564a5c540b36547363e8a7dcd454c61a944b694612c4b610172565b94859485612b2e565b0390a1612c646001916004611e2a565b612b9a565b6002612be4565b60036116f7565b612c7f613050565b565b5f90565b612c8d612c81565b507f19457468657265756d205369676e6564204d6573736167653a0a3332000000005f52601c52603c5f2090565b612cda91612cd191612ccb610ff4565b506130da565b909291926131d7565b90565b612ce65f611011565b612cf0825f612be4565b90612d24612d1e7f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e093612bd5565b91612bd5565b91612d2d610172565b80612d378161043e565b0390a3565b90565b612d53612d4e612d5892612d3c565b61025e565b610328565b90565b90565b612d72612d6d612d7792612d5b565b61025e565b610328565b90565b612d89612d8f91939293610328565b92610328565b8201809211612d9a57565b612434565b634e487b7160e01b5f52603260045260245ffd5b90612dbd8261018f565b811015612dcf57600160209102010190565b612d9f565b60ff60f81b1690565b612de79051612dd4565b90565b5f5260205f2090565b906020612e05818306601f0393612dea565b91040191565b90612e1582611178565b80821015612e42576020115f14612e325760209006601f0390915b565b612e3b91612df3565b9091612e30565b612d9f565b60f81b90565b612e5690612e47565b90565b612e69906008612e6e93026102ec565b612e4d565b90565b90612e7c9154612e59565b90565b91612e899061018f565b612e9c612e966014612d3f565b91610328565b03612fea57612eaa9061018f565b612ec3612ebd612eb8610e4d565b610328565b91610328565b03612fce57612ed18161018f565b612eff612ef9612ef46004612eef612ee96001611178565b91612d5e565b612d7a565b610328565b91610328565b10612fb257612f0c611573565b91612f176001611178565b925b80612f2c612f2686610328565b91610328565b14612fac57612f57612f5284612f4c84612f466004612d5e565b90612d7a565b90612db3565b612ddd565b612f7d612f77612f72612f6c60018690612e0b565b90612e71565b612dd4565b91612dd4565b03612f9057612f8b90611703565b612f19565b5f63719a9a4960e01b815280612fa86004820161043e565b0390fd5b50915050565b5f63719a9a4960e01b815280612fca6004820161043e565b0390fd5b5f634ae601c160e11b815280612fe66004820161043e565b0390fd5b5f6342f6e2a360e11b8152806130026004820161043e565b0390fd5b61301a61301561301f926118c3565b61025e565b610328565b90565b9061303461302f8361072a565b6105b9565b918252565b6130425f613022565b90565b61304d613039565b90565b61306361305c5f613006565b600561172d565b61307661306f5f613006565b600661172d565b613088613081613045565b60076116f7565b565b613092610ff4565b503390565b5f90565b90565b6130b26130ad6130b79261309b565b61025e565b610328565b90565b6130ce6130c96130d392610328565b611712565b610552565b90565b5f90565b9190916130e5610ff4565b506130ee613097565b506130f7612c81565b506131018361018f565b61311461310e604161309e565b91610328565b145f1461315b576131549192613128612c81565b50613131612c81565b5061313a6130d6565b506020810151606060408301519201515f1a909192613334565b9192909190565b506131655f6118e2565b9061317961317460029461018f565b6130ba565b91929190565b634e487b7160e01b5f52602160045260245ffd5b6004111561319d57565b61317f565b906131ac82613193565b565b91906131c1905f60208501940190611b81565b565b6131cf6131d491610ff8565b611532565b90565b806131ea6131e45f6131a2565b916131a2565b145f146131f5575050565b8061320961320360016131a2565b916131a2565b145f1461322c575f63f645eedf60e01b8152806132286004820161043e565b0390fd5b8061324061323a60026131a2565b916131a2565b145f1461326e5761326a613253836131c3565b5f91829163fce698f760e01b835260048301610338565b0390fd5b61328161327b60036131a2565b916131a2565b146132895750565b6132a4905f9182916335e2f38360e21b8352600483016131ae565b0390fd5b90565b6132bf6132ba6132c4926132a8565b61025e565b610328565b90565b60ff1690565b6132d6906132c7565b9052565b61330f613316946133056060949897956132fb608086019a5f870190611b81565b60208501906132cd565b6040830190611b81565b0190611b81565b565b61332c613327613331926118c3565b611712565b610552565b90565b93929361333f610ff4565b50613348613097565b50613351612c81565b5061335b856131c3565b61338d6133877f7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a06132ab565b91610328565b1161341a57906133b0602094955f949392936133a7610172565b948594856132da565b838052039060015afa15613415576133c85f51611712565b806133e36133dd6133d85f6118e2565b610382565b91610382565b146133f9575f916133f35f613318565b91929190565b506134035f6118e2565b60019161340f5f613318565b91929190565b611168565b5050506134265f6118e2565b906003929192919056fea2646970667358221220209f0087fcea73dc5285888afc31d2fda7bc8cb7a1a6be5936cd53f8621cd52064736f6c634300081e0033",
 }
 
 // TeeAuthenticator is an auto generated Go binding around an Ethereum contract.
@@ -928,9 +1433,9 @@ func (c *TeeAuthenticator) Instance(backend bind.ContractBackend, addr common.Ad
 // PackConstructor is the Go binding used to pack the parameters required for
 // contract deployment.
 //
-// Solidity: constructor(address owner, address _teeSigner, bytes _pubSecp521r1) returns()
-func (teeAuthenticator *TeeAuthenticator) PackConstructor(owner common.Address, _teeSigner common.Address, _pubSecp521r1 []byte) []byte {
-	enc, err := teeAuthenticator.abi.Pack("", owner, _teeSigner, _pubSecp521r1)
+// Solidity: constructor(address owner, address _nitroProver, bytes _pcr0, uint256 _maxVerificationAge) returns()
+func (teeAuthenticator *TeeAuthenticator) PackConstructor(owner common.Address, _nitroProver common.Address, _pcr0 []byte, _maxVerificationAge *big.Int) []byte {
+	enc, err := teeAuthenticator.abi.Pack("", owner, _nitroProver, _pcr0, _maxVerificationAge)
 	if err != nil {
 		panic(err)
 	}
@@ -1007,6 +1512,41 @@ func (teeAuthenticator *TeeAuthenticator) UnpackCheckSignature(data []byte) (boo
 	return out0, nil
 }
 
+// PackCurrentUpdateStep is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x0b1bfab9.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function currentUpdateStep() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) PackCurrentUpdateStep() []byte {
+	enc, err := teeAuthenticator.abi.Pack("currentUpdateStep")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackCurrentUpdateStep is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x0b1bfab9.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function currentUpdateStep() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) TryPackCurrentUpdateStep() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("currentUpdateStep")
+}
+
+// UnpackCurrentUpdateStep is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x0b1bfab9.
+//
+// Solidity: function currentUpdateStep() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) UnpackCurrentUpdateStep(data []byte) (*big.Int, error) {
+	out, err := teeAuthenticator.abi.Unpack("currentUpdateStep", data)
+	if err != nil {
+		return new(big.Int), err
+	}
+	out0 := abi.ConvertType(out[0], new(big.Int)).(*big.Int)
+	return out0, nil
+}
+
 // PackGetPubSecp521r1 is the Go binding used to pack the parameters required for calling
 // the contract method with ID 0x081bec7e.  This method will panic if any
 // invalid/nil inputs are passed.
@@ -1042,6 +1582,41 @@ func (teeAuthenticator *TeeAuthenticator) UnpackGetPubSecp521r1(data []byte) ([]
 	return out0, nil
 }
 
+// PackGetStep2TotalLength is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xc3b33122.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function getStep2TotalLength() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) PackGetStep2TotalLength() []byte {
+	enc, err := teeAuthenticator.abi.Pack("getStep2TotalLength")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackGetStep2TotalLength is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xc3b33122.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function getStep2TotalLength() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) TryPackGetStep2TotalLength() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("getStep2TotalLength")
+}
+
+// UnpackGetStep2TotalLength is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0xc3b33122.
+//
+// Solidity: function getStep2TotalLength() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) UnpackGetStep2TotalLength(data []byte) (*big.Int, error) {
+	out, err := teeAuthenticator.abi.Unpack("getStep2TotalLength", data)
+	if err != nil {
+		return new(big.Int), err
+	}
+	out0 := abi.ConvertType(out[0], new(big.Int)).(*big.Int)
+	return out0, nil
+}
+
 // PackGetTeeSigner is the Go binding used to pack the parameters required for calling
 // the contract method with ID 0x0dd7ce2f.  This method will panic if any
 // invalid/nil inputs are passed.
@@ -1070,6 +1645,76 @@ func (teeAuthenticator *TeeAuthenticator) TryPackGetTeeSigner() ([]byte, error) 
 // Solidity: function getTeeSigner() view returns(address)
 func (teeAuthenticator *TeeAuthenticator) UnpackGetTeeSigner(data []byte) (common.Address, error) {
 	out, err := teeAuthenticator.abi.Unpack("getTeeSigner", data)
+	if err != nil {
+		return *new(common.Address), err
+	}
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+	return out0, nil
+}
+
+// PackMaxVerificationAge is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x127379db.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function maxVerificationAge() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) PackMaxVerificationAge() []byte {
+	enc, err := teeAuthenticator.abi.Pack("maxVerificationAge")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackMaxVerificationAge is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x127379db.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function maxVerificationAge() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) TryPackMaxVerificationAge() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("maxVerificationAge")
+}
+
+// UnpackMaxVerificationAge is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x127379db.
+//
+// Solidity: function maxVerificationAge() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) UnpackMaxVerificationAge(data []byte) (*big.Int, error) {
+	out, err := teeAuthenticator.abi.Unpack("maxVerificationAge", data)
+	if err != nil {
+		return new(big.Int), err
+	}
+	out0 := abi.ConvertType(out[0], new(big.Int)).(*big.Int)
+	return out0, nil
+}
+
+// PackNitroProver is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x0a83fb91.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function nitroProver() view returns(address)
+func (teeAuthenticator *TeeAuthenticator) PackNitroProver() []byte {
+	enc, err := teeAuthenticator.abi.Pack("nitroProver")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackNitroProver is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x0a83fb91.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function nitroProver() view returns(address)
+func (teeAuthenticator *TeeAuthenticator) TryPackNitroProver() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("nitroProver")
+}
+
+// UnpackNitroProver is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x0a83fb91.
+//
+// Solidity: function nitroProver() view returns(address)
+func (teeAuthenticator *TeeAuthenticator) UnpackNitroProver(data []byte) (common.Address, error) {
+	out, err := teeAuthenticator.abi.Unpack("nitroProver", data)
 	if err != nil {
 		return *new(common.Address), err
 	}
@@ -1109,6 +1754,41 @@ func (teeAuthenticator *TeeAuthenticator) UnpackOwner(data []byte) (common.Addre
 		return *new(common.Address), err
 	}
 	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+	return out0, nil
+}
+
+// PackPcr0 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x81a9d38a.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function pcr0() view returns(bytes)
+func (teeAuthenticator *TeeAuthenticator) PackPcr0() []byte {
+	enc, err := teeAuthenticator.abi.Pack("pcr0")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackPcr0 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x81a9d38a.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function pcr0() view returns(bytes)
+func (teeAuthenticator *TeeAuthenticator) TryPackPcr0() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("pcr0")
+}
+
+// UnpackPcr0 is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0x81a9d38a.
+//
+// Solidity: function pcr0() view returns(bytes)
+func (teeAuthenticator *TeeAuthenticator) UnpackPcr0(data []byte) ([]byte, error) {
+	out, err := teeAuthenticator.abi.Unpack("pcr0", data)
+	if err != nil {
+		return *new([]byte), err
+	}
+	out0 := *abi.ConvertType(out[0], new([]byte)).(*[]byte)
 	return out0, nil
 }
 
@@ -1169,6 +1849,41 @@ func (teeAuthenticator *TeeAuthenticator) TryPackRenounceOwnership() ([]byte, er
 	return teeAuthenticator.abi.Pack("renounceOwnership")
 }
 
+// PackStep2CurrentIndex is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xdb6a7b71.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function step2CurrentIndex() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) PackStep2CurrentIndex() []byte {
+	enc, err := teeAuthenticator.abi.Pack("step2CurrentIndex")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackStep2CurrentIndex is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xdb6a7b71.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function step2CurrentIndex() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) TryPackStep2CurrentIndex() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("step2CurrentIndex")
+}
+
+// UnpackStep2CurrentIndex is the Go binding that unpacks the parameters returned
+// from invoking the contract method with ID 0xdb6a7b71.
+//
+// Solidity: function step2CurrentIndex() view returns(uint256)
+func (teeAuthenticator *TeeAuthenticator) UnpackStep2CurrentIndex(data []byte) (*big.Int, error) {
+	out, err := teeAuthenticator.abi.Unpack("step2CurrentIndex", data)
+	if err != nil {
+		return new(big.Int), err
+	}
+	out0 := abi.ConvertType(out[0], new(big.Int)).(*big.Int)
+	return out0, nil
+}
+
 // PackTeeSigner is the Go binding used to pack the parameters required for calling
 // the contract method with ID 0x43f855c3.  This method will panic if any
 // invalid/nil inputs are passed.
@@ -1226,13 +1941,35 @@ func (teeAuthenticator *TeeAuthenticator) TryPackTransferOwnership(newOwner comm
 	return teeAuthenticator.abi.Pack("transferOwnership", newOwner)
 }
 
-// PackUpdateTee is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xc64af6fb.  This method will panic if any
+// PackUpdatePcr0 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x7ed2d7fc.  This method will panic if any
 // invalid/nil inputs are passed.
 //
-// Solidity: function updateTee(address newTeeSigner, bytes newPubSecp521r1) returns()
-func (teeAuthenticator *TeeAuthenticator) PackUpdateTee(newTeeSigner common.Address, newPubSecp521r1 []byte) []byte {
-	enc, err := teeAuthenticator.abi.Pack("updateTee", newTeeSigner, newPubSecp521r1)
+// Solidity: function updatePcr0(bytes newPcr0) returns()
+func (teeAuthenticator *TeeAuthenticator) PackUpdatePcr0(newPcr0 []byte) []byte {
+	enc, err := teeAuthenticator.abi.Pack("updatePcr0", newPcr0)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackUpdatePcr0 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x7ed2d7fc.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function updatePcr0(bytes newPcr0) returns()
+func (teeAuthenticator *TeeAuthenticator) TryPackUpdatePcr0(newPcr0 []byte) ([]byte, error) {
+	return teeAuthenticator.abi.Pack("updatePcr0", newPcr0)
+}
+
+// PackUpdateTee is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x7637d58a.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function updateTee(bytes attestation) returns()
+func (teeAuthenticator *TeeAuthenticator) PackUpdateTee(attestation []byte) []byte {
+	enc, err := teeAuthenticator.abi.Pack("updateTee", attestation)
 	if err != nil {
 		panic(err)
 	}
@@ -1240,12 +1977,100 @@ func (teeAuthenticator *TeeAuthenticator) PackUpdateTee(newTeeSigner common.Addr
 }
 
 // TryPackUpdateTee is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xc64af6fb.  This method will return an error
+// the contract method with ID 0x7637d58a.  This method will return an error
 // if any inputs are invalid/nil.
 //
-// Solidity: function updateTee(address newTeeSigner, bytes newPubSecp521r1) returns()
-func (teeAuthenticator *TeeAuthenticator) TryPackUpdateTee(newTeeSigner common.Address, newPubSecp521r1 []byte) ([]byte, error) {
-	return teeAuthenticator.abi.Pack("updateTee", newTeeSigner, newPubSecp521r1)
+// Solidity: function updateTee(bytes attestation) returns()
+func (teeAuthenticator *TeeAuthenticator) TryPackUpdateTee(attestation []byte) ([]byte, error) {
+	return teeAuthenticator.abi.Pack("updateTee", attestation)
+}
+
+// PackUpdateTeeStep1 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x8890b84e.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function updateTeeStep1(bytes attestation) returns()
+func (teeAuthenticator *TeeAuthenticator) PackUpdateTeeStep1(attestation []byte) []byte {
+	enc, err := teeAuthenticator.abi.Pack("updateTeeStep1", attestation)
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackUpdateTeeStep1 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x8890b84e.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function updateTeeStep1(bytes attestation) returns()
+func (teeAuthenticator *TeeAuthenticator) TryPackUpdateTeeStep1(attestation []byte) ([]byte, error) {
+	return teeAuthenticator.abi.Pack("updateTeeStep1", attestation)
+}
+
+// PackUpdateTeeStep2 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x5520916c.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function updateTeeStep2() returns()
+func (teeAuthenticator *TeeAuthenticator) PackUpdateTeeStep2() []byte {
+	enc, err := teeAuthenticator.abi.Pack("updateTeeStep2")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackUpdateTeeStep2 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x5520916c.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function updateTeeStep2() returns()
+func (teeAuthenticator *TeeAuthenticator) TryPackUpdateTeeStep2() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("updateTeeStep2")
+}
+
+// PackUpdateTeeStep3 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xd22a29d1.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function updateTeeStep3() returns()
+func (teeAuthenticator *TeeAuthenticator) PackUpdateTeeStep3() []byte {
+	enc, err := teeAuthenticator.abi.Pack("updateTeeStep3")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackUpdateTeeStep3 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xd22a29d1.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function updateTeeStep3() returns()
+func (teeAuthenticator *TeeAuthenticator) TryPackUpdateTeeStep3() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("updateTeeStep3")
+}
+
+// PackUpdateTeeStep4 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x34010ccf.  This method will panic if any
+// invalid/nil inputs are passed.
+//
+// Solidity: function updateTeeStep4() returns()
+func (teeAuthenticator *TeeAuthenticator) PackUpdateTeeStep4() []byte {
+	enc, err := teeAuthenticator.abi.Pack("updateTeeStep4")
+	if err != nil {
+		panic(err)
+	}
+	return enc
+}
+
+// TryPackUpdateTeeStep4 is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x34010ccf.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function updateTeeStep4() returns()
+func (teeAuthenticator *TeeAuthenticator) TryPackUpdateTeeStep4() ([]byte, error) {
+	return teeAuthenticator.abi.Pack("updateTeeStep4")
 }
 
 // TeeAuthenticatorOwnershipTransferred represents a OwnershipTransferred event raised by the TeeAuthenticator contract.
@@ -1272,6 +2097,48 @@ func (teeAuthenticator *TeeAuthenticator) UnpackOwnershipTransferredEvent(log *t
 		return nil, errors.New("event signature mismatch")
 	}
 	out := new(TeeAuthenticatorOwnershipTransferred)
+	if len(log.Data) > 0 {
+		if err := teeAuthenticator.abi.UnpackIntoInterface(out, event, log.Data); err != nil {
+			return nil, err
+		}
+	}
+	var indexed abi.Arguments
+	for _, arg := range teeAuthenticator.abi.Events[event].Inputs {
+		if arg.Indexed {
+			indexed = append(indexed, arg)
+		}
+	}
+	if err := abi.ParseTopics(out, indexed, log.Topics[1:]); err != nil {
+		return nil, err
+	}
+	out.Raw = log
+	return out, nil
+}
+
+// TeeAuthenticatorPcrZeroUpdate represents a PcrZeroUpdate event raised by the TeeAuthenticator contract.
+type TeeAuthenticatorPcrZeroUpdate struct {
+	OldPcr0 common.Hash
+	NewPcr0 common.Hash
+	Raw     *types.Log // Blockchain specific contextual infos
+}
+
+const TeeAuthenticatorPcrZeroUpdateEventName = "PcrZeroUpdate"
+
+// ContractEventName returns the user-defined event name.
+func (TeeAuthenticatorPcrZeroUpdate) ContractEventName() string {
+	return TeeAuthenticatorPcrZeroUpdateEventName
+}
+
+// UnpackPcrZeroUpdateEvent is the Go binding that unpacks the event data emitted
+// by contract.
+//
+// Solidity: event PcrZeroUpdate(bytes indexed oldPcr0, bytes indexed newPcr0)
+func (teeAuthenticator *TeeAuthenticator) UnpackPcrZeroUpdateEvent(log *types.Log) (*TeeAuthenticatorPcrZeroUpdate, error) {
+	event := "PcrZeroUpdate"
+	if log.Topics[0] != teeAuthenticator.abi.Events[event].ID {
+		return nil, errors.New("event signature mismatch")
+	}
+	out := new(TeeAuthenticatorPcrZeroUpdate)
 	if len(log.Data) > 0 {
 		if err := teeAuthenticator.abi.UnpackIntoInterface(out, event, log.Data); err != nil {
 			return nil, err
@@ -1337,6 +2204,9 @@ func (teeAuthenticator *TeeAuthenticator) UnpackTeeUpdateEvent(log *types.Log) (
 // UnpackError attempts to decode the provided error data using user-defined
 // error definitions.
 func (teeAuthenticator *TeeAuthenticator) UnpackError(raw []byte) (any, error) {
+	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["AttestationAlreadyUsed"].ID.Bytes()[:4]) {
+		return teeAuthenticator.UnpackAttestationAlreadyUsedError(raw[4:])
+	}
 	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["ECDSAInvalidSignature"].ID.Bytes()[:4]) {
 		return teeAuthenticator.UnpackECDSAInvalidSignatureError(raw[4:])
 	}
@@ -1346,8 +2216,14 @@ func (teeAuthenticator *TeeAuthenticator) UnpackError(raw []byte) (any, error) {
 	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["ECDSAInvalidSignatureS"].ID.Bytes()[:4]) {
 		return teeAuthenticator.UnpackECDSAInvalidSignatureSError(raw[4:])
 	}
+	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["InvalidPCR"].ID.Bytes()[:4]) {
+		return teeAuthenticator.UnpackInvalidPCRError(raw[4:])
+	}
 	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["InvalidPKLength"].ID.Bytes()[:4]) {
 		return teeAuthenticator.UnpackInvalidPKLengthError(raw[4:])
+	}
+	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["InvalidUserDataLength"].ID.Bytes()[:4]) {
+		return teeAuthenticator.UnpackInvalidUserDataLengthError(raw[4:])
 	}
 	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["OwnableInvalidOwner"].ID.Bytes()[:4]) {
 		return teeAuthenticator.UnpackOwnableInvalidOwnerError(raw[4:])
@@ -1355,13 +2231,36 @@ func (teeAuthenticator *TeeAuthenticator) UnpackError(raw []byte) (any, error) {
 	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["OwnableUnauthorizedAccount"].ID.Bytes()[:4]) {
 		return teeAuthenticator.UnpackOwnableUnauthorizedAccountError(raw[4:])
 	}
-	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["TeeAddressCantBeZero"].ID.Bytes()[:4]) {
-		return teeAuthenticator.UnpackTeeAddressCantBeZeroError(raw[4:])
-	}
 	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["TeeIsNotSet"].ID.Bytes()[:4]) {
 		return teeAuthenticator.UnpackTeeIsNotSetError(raw[4:])
 	}
+	if bytes.Equal(raw[:4], teeAuthenticator.abi.Errors["WrongStep"].ID.Bytes()[:4]) {
+		return teeAuthenticator.UnpackWrongStepError(raw[4:])
+	}
 	return nil, errors.New("Unknown error")
+}
+
+// TeeAuthenticatorAttestationAlreadyUsed represents a AttestationAlreadyUsed error raised by the TeeAuthenticator contract.
+type TeeAuthenticatorAttestationAlreadyUsed struct {
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error AttestationAlreadyUsed()
+func TeeAuthenticatorAttestationAlreadyUsedErrorID() common.Hash {
+	return common.HexToHash("0x17ee279c4380943995e5de7b6ca148f56c43f727fc1a52fa3f267e6f5ea97559")
+}
+
+// UnpackAttestationAlreadyUsedError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error AttestationAlreadyUsed()
+func (teeAuthenticator *TeeAuthenticator) UnpackAttestationAlreadyUsedError(raw []byte) (*TeeAuthenticatorAttestationAlreadyUsed, error) {
+	out := new(TeeAuthenticatorAttestationAlreadyUsed)
+	if err := teeAuthenticator.abi.UnpackIntoInterface(out, "AttestationAlreadyUsed", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // TeeAuthenticatorECDSAInvalidSignature represents a ECDSAInvalidSignature error raised by the TeeAuthenticator contract.
@@ -1435,6 +2334,29 @@ func (teeAuthenticator *TeeAuthenticator) UnpackECDSAInvalidSignatureSError(raw 
 	return out, nil
 }
 
+// TeeAuthenticatorInvalidPCR represents a InvalidPCR error raised by the TeeAuthenticator contract.
+type TeeAuthenticatorInvalidPCR struct {
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error InvalidPCR()
+func TeeAuthenticatorInvalidPCRErrorID() common.Hash {
+	return common.HexToHash("0x719a9a4917a12c04cb8a46a64960d788ba098ccc7ac543fcee9fa361a6d1224c")
+}
+
+// UnpackInvalidPCRError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error InvalidPCR()
+func (teeAuthenticator *TeeAuthenticator) UnpackInvalidPCRError(raw []byte) (*TeeAuthenticatorInvalidPCR, error) {
+	out := new(TeeAuthenticatorInvalidPCR)
+	if err := teeAuthenticator.abi.UnpackIntoInterface(out, "InvalidPCR", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TeeAuthenticatorInvalidPKLength represents a InvalidPKLength error raised by the TeeAuthenticator contract.
 type TeeAuthenticatorInvalidPKLength struct {
 }
@@ -1453,6 +2375,29 @@ func TeeAuthenticatorInvalidPKLengthErrorID() common.Hash {
 func (teeAuthenticator *TeeAuthenticator) UnpackInvalidPKLengthError(raw []byte) (*TeeAuthenticatorInvalidPKLength, error) {
 	out := new(TeeAuthenticatorInvalidPKLength)
 	if err := teeAuthenticator.abi.UnpackIntoInterface(out, "InvalidPKLength", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// TeeAuthenticatorInvalidUserDataLength represents a InvalidUserDataLength error raised by the TeeAuthenticator contract.
+type TeeAuthenticatorInvalidUserDataLength struct {
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error InvalidUserDataLength()
+func TeeAuthenticatorInvalidUserDataLengthErrorID() common.Hash {
+	return common.HexToHash("0x85edc5464c5565960356d11f255a83de2f3ba3c24b8485a39f37b6c98eec54bc")
+}
+
+// UnpackInvalidUserDataLengthError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error InvalidUserDataLength()
+func (teeAuthenticator *TeeAuthenticator) UnpackInvalidUserDataLengthError(raw []byte) (*TeeAuthenticatorInvalidUserDataLength, error) {
+	out := new(TeeAuthenticatorInvalidUserDataLength)
+	if err := teeAuthenticator.abi.UnpackIntoInterface(out, "InvalidUserDataLength", raw); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -1506,29 +2451,6 @@ func (teeAuthenticator *TeeAuthenticator) UnpackOwnableUnauthorizedAccountError(
 	return out, nil
 }
 
-// TeeAuthenticatorTeeAddressCantBeZero represents a TeeAddressCantBeZero error raised by the TeeAuthenticator contract.
-type TeeAuthenticatorTeeAddressCantBeZero struct {
-}
-
-// ErrorID returns the hash of canonical representation of the error's signature.
-//
-// Solidity: error TeeAddressCantBeZero()
-func TeeAuthenticatorTeeAddressCantBeZeroErrorID() common.Hash {
-	return common.HexToHash("0x749a2ca096befde4321f5c4e6ddb95f574ec95d21a2dead6e38f622a10fd68c7")
-}
-
-// UnpackTeeAddressCantBeZeroError is the Go binding used to decode the provided
-// error data into the corresponding Go error struct.
-//
-// Solidity: error TeeAddressCantBeZero()
-func (teeAuthenticator *TeeAuthenticator) UnpackTeeAddressCantBeZeroError(raw []byte) (*TeeAuthenticatorTeeAddressCantBeZero, error) {
-	out := new(TeeAuthenticatorTeeAddressCantBeZero)
-	if err := teeAuthenticator.abi.UnpackIntoInterface(out, "TeeAddressCantBeZero", raw); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // TeeAuthenticatorTeeIsNotSet represents a TeeIsNotSet error raised by the TeeAuthenticator contract.
 type TeeAuthenticatorTeeIsNotSet struct {
 }
@@ -1547,6 +2469,29 @@ func TeeAuthenticatorTeeIsNotSetErrorID() common.Hash {
 func (teeAuthenticator *TeeAuthenticator) UnpackTeeIsNotSetError(raw []byte) (*TeeAuthenticatorTeeIsNotSet, error) {
 	out := new(TeeAuthenticatorTeeIsNotSet)
 	if err := teeAuthenticator.abi.UnpackIntoInterface(out, "TeeIsNotSet", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// TeeAuthenticatorWrongStep represents a WrongStep error raised by the TeeAuthenticator contract.
+type TeeAuthenticatorWrongStep struct {
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error WrongStep()
+func TeeAuthenticatorWrongStepErrorID() common.Hash {
+	return common.HexToHash("0xbc3c8a5a94b27f160f1b92f62d402d946766caac5227a2ffc2d1381f57f4e236")
+}
+
+// UnpackWrongStepError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error WrongStep()
+func (teeAuthenticator *TeeAuthenticator) UnpackWrongStepError(raw []byte) (*TeeAuthenticatorWrongStep, error) {
+	out := new(TeeAuthenticatorWrongStep)
+	if err := teeAuthenticator.abi.UnpackIntoInterface(out, "WrongStep", raw); err != nil {
 		return nil, err
 	}
 	return out, nil
