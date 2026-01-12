@@ -493,7 +493,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		appId,
 		RequestID,
 		userAddress,
-		common.ToBig(depositAmount),
+		depositAmount,
 		executorPubKey,
 	)
 	require.NoError(t, err)
@@ -518,7 +518,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	err = json.Unmarshal(decryptedDepositData, &depositEventData)
 	require.NoError(t, err)
 	require.Equal(t, "deposit", depositEventData.Type)
-	require.Equal(t, 0, depositAmount.Cmp(depositEventData.Amount.Int()))
+	require.Equal(t, 0, depositAmount.Cmp(depositEventData.Amount.ToInt()))
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload(RequestID)
@@ -615,14 +615,14 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 	require.Equal(t, "withdrawal", withdrawalEventData.Type)
 	require.Equal(t, recipientAddress, withdrawalEventData.To)
-	require.Equal(t, 0, withdrawAmount.Cmp(withdrawalEventData.Amount.Int()))
+	require.Equal(t, 0, withdrawAmount.Cmp(withdrawalEventData.Amount.ToInt()))
 
 	// Wait for actual withdrawal to be recorded
 	withdrawal, err := suite.WaitForWithdrawal(appId, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawal)
 	require.Equal(t, recipientAddress, withdrawal.DestinationAddress)
-	require.Equal(t, 0, withdrawAmount.Cmp(withdrawal.Amount.Int()))
+	require.Equal(t, 0, withdrawAmount.Cmp(withdrawal.Amount.ToInt()))
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload(RequestID)

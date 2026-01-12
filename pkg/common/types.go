@@ -31,7 +31,7 @@ func (aid ApplicationIdType) ToHash() ethCommon.Hash {
 // Big is a wrapper around big.Int that marshals/unmarshals as a hex string with 0x prefix.
 type Big big.Int
 
-func (b *Big) Int() *big.Int {
+func (b *Big) ToInt() *big.Int {
 	return (*big.Int)(b)
 }
 
@@ -39,36 +39,8 @@ func ToBig(i *big.Int) *Big {
 	return (*Big)(i)
 }
 
-func (b *Big) Sign() int {
-	return (*big.Int)(b).Sign()
-}
-
-func (b *Big) Cmp(y *Big) int {
-	return (*big.Int)(b).Cmp((*big.Int)(y))
-}
-
 func (b *Big) String() string {
 	return (*big.Int)(b).String()
-}
-
-func (b *Big) Add(x, y *Big) *Big {
-	(*big.Int)(b).Add((*big.Int)(x), (*big.Int)(y))
-	return b
-}
-
-func (b *Big) Mul(x, y *Big) *Big {
-	(*big.Int)(b).Mul((*big.Int)(x), (*big.Int)(y))
-	return b
-}
-
-func (b *Big) Sub(x, y *Big) *Big {
-	(*big.Int)(b).Sub((*big.Int)(x), (*big.Int)(y))
-	return b
-}
-
-func (b *Big) Set(x *Big) *Big {
-	(*big.Int)(b).Set((*big.Int)(x))
-	return b
 }
 
 func (b *Big) MarshalJSON() ([]byte, error) {
@@ -87,7 +59,7 @@ func (b *Big) UnmarshalJSON(data []byte) error {
 	}
 	s := string(data[1 : len(data)-1])
 	if !strings.HasPrefix(s, "0x") {
-		// allow non-0x prefixed hex or decimal? 
+		// allow non-0x prefixed hex or decimal?
 		// The user said "the ethereum way ... with 0x prefix"
 		// Ethereum usually requires 0x for hex.
 		return fmt.Errorf("invalid Big prefix: %s", s)

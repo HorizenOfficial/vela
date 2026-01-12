@@ -121,7 +121,7 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 }
 
 // SubmitRequest submits a request to the blockchain according to the official interface
-func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *common.Big, maxFeeValue *common.Big) (common.RequestIdType, uint64, error) {
+func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -131,8 +131,8 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 		ApplicationID:   applicationId,
 		RequestType:     requestType,
 		Payload:         payload,
-		DepositAmount:   depositAmount,
-		MaxFeeValue:     maxFeeValue,
+		DepositAmount:   common.ToBig(depositAmount),
+		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}
 
 	err := c.SendRequestToChain(ctx, req)

@@ -13,7 +13,7 @@ import (
 // Client defines the interface for interacting with the blockchain
 type Client interface {
 	// SubmitRequest submits a request to the blockchain, returning submitted request id as a string and block number in which it is submitted
-	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *common.Big, maxFeeValue *common.Big) (common.RequestIdType, uint64, error)
+	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error)
 	// GetPendingRequests gets pending requests from the blockchain
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
 	// GetNextPendingRequest gets next pending request and current state root from the blockchain

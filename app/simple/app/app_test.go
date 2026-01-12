@@ -722,7 +722,7 @@ func TestBigIntUint256JSONRoundTrip(t *testing.T) {
 	}
 
 	// Step 6: compare
-	if orig.Cmp(hostObj2.Amount.Int()) != 0 {
+	if orig.Cmp(hostObj2.Amount.ToInt()) != 0 {
 		t.Errorf("round-trip mismatch:\noriginal: %s\nfinal:    %s", orig.String(), hostObj2.Amount.String())
 	} else {
 		t.Logf("Round-trip successful: value preserved exactly")

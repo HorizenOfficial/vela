@@ -164,13 +164,19 @@ func (z Uint256) ToHex() string {
 // MarshalJSON implements json.Marshaler.
 // It marshals the Uint256 as a hex string with 0x prefix.
 func (z Uint256) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf("\"%s\"", z.ToHex())), nil
+	s := z.ToHex()
+	buf := make([]byte, 0, len(s)+2)
+	buf = append(buf, '"')
+	buf = append(buf, s...)
+	buf = append(buf, '"')
+	return buf, nil
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 // Only hex strings with "0x" prefix are accepted.
 func (z *Uint256) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
+		*z = Uint256{}
 		return nil
 	}
 	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
@@ -214,8 +220,9 @@ func (z *Uint256) UnmarshalJSON(data []byte) error {
 }
 
 // Mul64 sets z = z * y (mod 2^256).
-func (z *Uint256) Mul64(y uint64) {
+func (z *Uint256) Mul64(y uint64) *Uint256 {
 	_ = z.Mul64Overflow(y)
+	return z
 }
 
 // Mul64Overflow sets z = z * y and reports whether overflow occurred.
@@ -234,12 +241,13 @@ func (z *Uint256) Mul64Overflow(y uint64) (overflow bool) {
 }
 
 // Add64 adds y to z (mod 2^256).
-func (z *Uint256) Add64(y uint64) {
+func (z *Uint256) Add64(y uint64) *Uint256 {
 	var carry uint64
 	z[0], carry = bits.Add64(z[0], y, 0)
 	for i := 1; i < 4 && carry != 0; i++ {
 		z[i], carry = bits.Add64(z[i], 0, carry)
 	}
+	return z
 }
 
 // Add64Overflow adds y to z and reports whether overflow occurred.

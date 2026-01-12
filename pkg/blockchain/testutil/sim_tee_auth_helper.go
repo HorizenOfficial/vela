@@ -44,7 +44,7 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 
 	withdrawals := make([]tee.StructsWithdrawalRequest, len(payload.Withdrawals))
 	for i, withdrawal := range payload.Withdrawals {
-		amount := withdrawal.Amount.Int()
+		amount := withdrawal.Amount.ToInt()
 
 		withdrawals[i] = tee.StructsWithdrawalRequest{
 			Receiver: withdrawal.DestinationAddress,
@@ -60,8 +60,8 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 		events,
 		eventSubTypes,
 		withdrawals,
-		payload.RefundAmount.Int(),
-		payload.ApplicationFee.Int(),
+		payload.RefundAmount.ToInt(),
+		payload.ApplicationFee.ToInt(),
 		payload.Signature,
 	)
 

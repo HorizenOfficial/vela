@@ -51,7 +51,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 		t.Error("Expected non-empty serialized state")
 	}
 
-	if fuel.Cmp(common.ToBig(big.NewInt(10))) != 0 {
+	if fuel.Cmp(big.NewInt(10)) != 0 {
 		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
@@ -81,7 +81,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 
 	appId := common.NewApplicationId(123)
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
-	depositAmount := common.ToBig(big.NewInt(1000000000000000000))
+	depositAmount := big.NewInt(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
@@ -89,7 +89,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
-	if fuel.Cmp(common.ToBig(big.NewInt(10))) != 0 {
+	if fuel.Cmp(big.NewInt(10)) != 0 {
 		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
@@ -99,7 +99,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 	if failure != nil {
 		t.Fatalf("ProcessRequest failed: %v", failure)
 	}
-	if fuel.Cmp(common.ToBig(big.NewInt(10))) != 0 {
+	if fuel.Cmp(big.NewInt(10)) != 0 {
 		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
@@ -123,7 +123,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 		t.Fatal("Expected sender account to exist")
 	}
 
-	if state.Accounts[sender].Balance.Cmp(depositAmount) != 0 {
+	if state.Accounts[sender].Balance.ToInt().Cmp(depositAmount) != 0 {
 		t.Errorf("Expected balance %s, got %s", depositAmount, state.Accounts[sender].Balance)
 	}
 
@@ -147,7 +147,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := common.ToBig(big.NewInt(2000000000000000000)) // 2 ETH
+	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
 	transferAmount := common.ToBig(big.NewInt(500000000000000000)) // 0.5 ETH
 
 	// make a deposit
@@ -186,7 +186,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 		t.Errorf("Expected 0 withdrawals, got %d", len(withdrawals))
 	}
 
-	if fuel.Cmp(common.ToBig(big.NewInt(10))) != 0 {
+	if fuel.Cmp(big.NewInt(10)) != 0 {
 		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
@@ -201,8 +201,8 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedSenderBalance := common.ToBig(new(big.Int).Sub(depositAmount.Int(), transferAmount.Int()))
-	if state.Accounts[sender].Balance.Cmp(expectedSenderBalance) != 0 {
+	expectedSenderBalance := common.ToBig(new(big.Int).Sub(depositAmount, transferAmount.ToInt()))
+	if state.Accounts[sender].Balance.ToInt().Cmp(expectedSenderBalance.ToInt()) != 0 {
 		t.Errorf("Expected sender balance %s, got %s", expectedSenderBalance, state.Accounts[sender].Balance)
 	}
 
@@ -210,7 +210,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	if state.Accounts[recipient] == nil {
 		t.Fatal("Expected recipient account to exist")
 	}
-	if state.Accounts[recipient].Balance.Cmp(transferAmount) != 0 {
+	if state.Accounts[recipient].Balance.ToInt().Cmp(transferAmount.ToInt()) != 0 {
 		t.Errorf("Expected recipient balance %s, got %s", transferAmount, state.Accounts[recipient].Balance)
 	}
 
@@ -234,7 +234,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	withdrawTo := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := common.ToBig(big.NewInt(2000000000000000000)) // 2 ETH
+	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
 	withdrawAmount := common.ToBig(big.NewInt(500000000000000000)) // 0.5 ETH
 
 	// make a deposit
@@ -272,7 +272,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected event UserID %s, got %s", sender, events[0].UserID)
 	}
 
-	if fuel.Cmp(common.ToBig(big.NewInt(10))) != 0 {
+	if fuel.Cmp(big.NewInt(10)) != 0 {
 		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
@@ -285,7 +285,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected withdrawal destination %s, got %s", withdrawTo, withdrawals[0].DestinationAddress)
 	}
 
-	if withdrawals[0].Amount.Cmp(withdrawAmount) != 0 {
+	if withdrawals[0].Amount.ToInt().Cmp(withdrawAmount.ToInt()) != 0 {
 		t.Errorf("Expected withdrawal amount %s, got %s", withdrawAmount, withdrawals[0].Amount)
 	}
 
@@ -300,8 +300,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedBalance := common.ToBig(new(big.Int).Sub(depositAmount.Int(), withdrawAmount.Int()))
-	if state.Accounts[sender].Balance.Cmp(expectedBalance) != 0 {
+	expectedBalance := common.ToBig(new(big.Int).Sub(depositAmount, withdrawAmount.ToInt()))
+	if state.Accounts[sender].Balance.ToInt().Cmp(expectedBalance.ToInt()) != 0 {
 		t.Errorf("Expected sender balance %s, got %s", expectedBalance, state.Accounts[sender].Balance)
 	}
 
@@ -360,7 +360,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 	sender1 := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	sender2 := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := common.ToBig(big.NewInt(1000000000000000000)) // 1 ETH
+	depositAmount := big.NewInt(1000000000000000000) // 1 ETH
 
 	// Load module first
 	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
@@ -371,7 +371,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	// Deposit for sender1
 	ctx := context.Background()
 	serializedState, _, _, failure := runtime.Deposit(ctx, appId, sender1, depositAmount, serializedState, wasmBytes)
-	if failure != nil { 
+	if failure != nil {
 		t.Fatalf("First deposit failed: %v", failure)
 	}
 

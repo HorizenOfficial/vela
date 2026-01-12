@@ -274,25 +274,25 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
 	var totalFuel *big.Int = big.NewInt(0)
-	if req.DepositAmount.Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount, tempState, wasmModule)
+	if req.DepositAmount.ToInt().Sign() > 0 {
+		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount.ToInt(), tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, failure
 		}
 		tempState = newState
 		depositEvents = depEvents
-		totalFuel = totalFuel.Add(totalFuel, reqFuel.Int())
+		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		e.log.Info("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
 
-	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit.Int())
-	if req.MaxFeeValue.Int().Cmp(applicationFee) < 0 {
+	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit.ToInt())
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
 		return nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.Int().String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
@@ -330,31 +330,31 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		tempState = newState
 		events = reqEvents
 		withdrawals = reqWithdrawals
-		totalFuel = totalFuel.Add(totalFuel, reqFuel.Int())
+		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	}
 
 	// Check if there is enough ETH to cover the fuel costs
-	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit.Int())
-	if req.MaxFeeValue.Int().Cmp(applicationFee) < 0 {
+	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit.ToInt())
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
 		return nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.Int().String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
 	}
 
 	// Application fee must be minumum fee at least
-	if applicationFee.Cmp(e.config.MinFeePerRequest.Int()) < 0 {
-		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest.Int())
+	if applicationFee.Cmp(e.config.MinFeePerRequest.ToInt()) < 0 {
+		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest.ToInt())
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue.Int(), applicationFee)
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	//set the updated state
 	appData.SetAppState(tempState)
@@ -429,26 +429,26 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 
 	// Check if there is enough ETH to cover the fuel costs // TODO make a helper function?
-	applicationFee := new(big.Int).Mul(fuel.Int(), e.config.FuelPricePerUnit.Int())
-	if req.MaxFeeValue.Int().Cmp(applicationFee) < 0 {
+	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit.ToInt())
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
 		return nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.Int().String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
 	}
 
 	// Application fee must be minumum fee at least
-	if applicationFee.Cmp(e.config.MinFeePerRequest.Int()) < 0 {
-		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest.Int())
+	if applicationFee.Cmp(e.config.MinFeePerRequest.ToInt()) < 0 {
+		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest.ToInt())
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue.Int(), applicationFee)
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	initialAppData := appdata.NewAppData(initialAppState)
 
@@ -518,26 +518,26 @@ func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Cont
 	}
 
 	// Check if there is enough ETH to cover the fuel costs
-	applicationFee := new(big.Int).Mul(fuel.Int(), e.config.FuelPricePerUnit.Int())
-	if req.MaxFeeValue.Int().Cmp(applicationFee) < 0 {
+	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit.ToInt())
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
 		return nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.Int().String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
 	}
 
 	// Application fee must be minumum fee at least
-	if applicationFee.Cmp(e.config.MinFeePerRequest.Int()) < 0 {
-		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest.Int())
+	if applicationFee.Cmp(e.config.MinFeePerRequest.ToInt()) < 0 {
+		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest.ToInt())
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue.Int(), applicationFee)
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	// Encrypt the report
 	encryptedReport, failure := e.encryptDeanonymizationReport(

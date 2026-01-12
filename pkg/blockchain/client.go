@@ -282,7 +282,7 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 	return nil
 }
 
-func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID common.RequestIdType, refundAmount *common.Big, applicationFees *common.Big) error {
+func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID common.RequestIdType, refundAmount *big.Int, applicationFees *big.Int) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -291,7 +291,7 @@ func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID c
 	}
 
 	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(requestID, refundAmount.Int(), applicationFees.Int()))
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(requestID, refundAmount, applicationFees))
 
 }
 
@@ -316,7 +316,7 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID comm
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
-func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *common.Big, maxFeeValue *common.Big) (common.RequestIdType, uint64, error) {
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -327,9 +327,9 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	reqType := uint8(requestType)
 
 	// Pack the transaction data using the generated binding
-	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount.Int(), maxFeeValue.Int())
+	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount, maxFeeValue)
 	// Set the value for the transaction (msg.value)
-	c.account.Value = new(big.Int).Add(depositAmount.Int(), maxFeeValue.Int())
+	c.account.Value = new(big.Int).Add(depositAmount, maxFeeValue)
 
 	// Send the transaction
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
@@ -360,7 +360,7 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 
 func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
 	// This is the only thing that has to be done on the blockchain for deanonymization reports
-	return c.MarkRequestCompleted(ctx, update.ReportID, update.RefundAmount, update.ApplicationFee)
+	return c.MarkRequestCompleted(ctx, update.ReportID, update.RefundAmount.ToInt(), update.ApplicationFee.ToInt())
 }
 
 func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
@@ -380,7 +380,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
 	for i, withdrawal := range update.Withdrawals {
-		amount := withdrawal.Amount.Int()
+		amount := withdrawal.Amount.ToInt()
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
 			Receiver: withdrawal.DestinationAddress,
 			Amount:   amount,
@@ -395,8 +395,8 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		events,
 		eventSubTypes,
 		withdrawals,
-		update.RefundAmount.Int(),
-		update.ApplicationFee.Int(),
+		update.RefundAmount.ToInt(),
+		update.ApplicationFee.ToInt(),
 		update.Signature,
 	)
 

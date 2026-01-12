@@ -66,7 +66,7 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 }
 
 // CreateDepositRequest creates an encrypted deposit request
-func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, depositAmount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, depositAmount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requ
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: depositAmount,
+		DepositAmount: common.ToBig(depositAmount),
 		MaxFeeValue:   common.ToBig(big.NewInt(100)),
 	}, nil
 }
