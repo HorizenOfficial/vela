@@ -79,7 +79,7 @@ func TestCheckSignature(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: big.NewInt(1)},
+		{DestinationAddress: ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.ToBig(big.NewInt(1))},
 	}
 
 	updatePayload := &common.UpdatePayload{
@@ -89,8 +89,8 @@ func TestCheckSignature(t *testing.T) {
 		NewStateRoot:   [32]byte{0x04, 0x05, 0x06},
 		Events:         events[:],
 		Withdrawals:    withdrawals,
-		RefundAmount:   big.NewInt(100),
-		ApplicationFee: big.NewInt(100),
+		RefundAmount:   common.ToBig(big.NewInt(100)),
+		ApplicationFee: common.ToBig(big.NewInt(100)),
 	}
 
 	signature, err := executor.signUpdatePayload(updatePayload)

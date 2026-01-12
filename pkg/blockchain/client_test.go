@@ -81,7 +81,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, 1, request.Timestamp.Sign(), "Timestamp should be set and positive")
 
 	require.Equal(t, testHelper.Submitter.From, request.Sender, "Sender should match")
-	require.Equal(t, transferValue, request.DepositAmount, "Value should match")
+	require.Equal(t, 0, request.DepositAmount.Cmp(common.ToBig(transferValue)), "Value should match")
 
 	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
 
 	require.Equal(t, testHelper.Submitter.From, pendingRequest.Sender, "Sender should match")
-	require.Equal(t, transferValue, pendingRequest.DepositAmount, "Value should match")
+	require.Equal(t, 0, pendingRequest.DepositAmount.Cmp(common.ToBig(transferValue)), "Value should match")
 
 	require.Equal(t, currentStateRoot, stateRoot)
 
@@ -126,8 +126,8 @@ func TestMarkRequestCompleted(t *testing.T) {
 	err = blockchainClient.MarkRequestCompleted(
 		context.Background(),
 		requestId,
-		big.NewInt(50), // refund
-		big.NewInt(20), // fees  => 50 + 20 = 70 != 100
+		common.ToBig(big.NewInt(50)), // refund
+		common.ToBig(big.NewInt(20)), // fees  => 50 + 20 = 70 != 100
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
@@ -138,8 +138,8 @@ func TestMarkRequestCompleted(t *testing.T) {
 	err = blockchainClient.MarkRequestCompleted(
 		context.Background(),
 		requestId,
-		big.NewInt(100), // refund
-		big.NewInt(0),   // fees => 100 + 0 = 100 == maxFeeValue, but fees < minFeePerRequest
+		common.ToBig(big.NewInt(100)), // refund
+		common.ToBig(big.NewInt(0)),   // fees => 100 + 0 = 100 == maxFeeValue, but fees < minFeePerRequest
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
@@ -150,8 +150,8 @@ func TestMarkRequestCompleted(t *testing.T) {
 	err = blockchainClient.MarkRequestCompleted(
 		context.Background(),
 		requestId,
-		big.NewInt(80),
-		big.NewInt(20),
+		common.ToBig(big.NewInt(80)),
+		common.ToBig(big.NewInt(20)),
 	)
 	require.NoError(t, err)
 
@@ -163,8 +163,8 @@ func TestMarkRequestCompleted(t *testing.T) {
 	err = blockchainClient.MarkRequestCompleted(
 		context.Background(),
 		requestId,
-		big.NewInt(80),
-		big.NewInt(20),
+		common.ToBig(big.NewInt(80)),
+		common.ToBig(big.NewInt(20)),
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
@@ -224,7 +224,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: res.ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: big.NewInt(10)},
+		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.ToBig(big.NewInt(10))},
 	}
 
 	signature := [65]byte{}
@@ -236,16 +236,16 @@ func TestSubmitStateUpdate(t *testing.T) {
 		Events:         events[:],
 		Withdrawals:    withdrawals,
 		Signature:      signature[:],
-		RefundAmount:   big.NewInt(90),
-		ApplicationFee: big.NewInt(10), // 90 + 10 = 100 == maxFeeValue
+		RefundAmount:   common.ToBig(big.NewInt(90)),
+		ApplicationFee: common.ToBig(big.NewInt(10)), // 90 + 10 = 100 == maxFeeValue
 	}
 
 	// =========================================================
 	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
 	// =========================================================
 	payloadWrongSum := *payload // copy value
-	payloadWrongSum.RefundAmount = big.NewInt(80)
-	payloadWrongSum.ApplicationFee = big.NewInt(10)
+	payloadWrongSum.RefundAmount = common.ToBig(big.NewInt(80))
+	payloadWrongSum.ApplicationFee = common.ToBig(big.NewInt(10))
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), &payloadWrongSum)
 	require.Error(t, err)
@@ -255,8 +255,8 @@ func TestSubmitStateUpdate(t *testing.T) {
 	// Case 2: applicationFees < minFeePerRequest but correct sum -> InvalidValue
 	// =========================================================
 	payloadWrongFee := *payload
-	payloadWrongFee.RefundAmount = big.NewInt(100)
-	payloadWrongFee.ApplicationFee = big.NewInt(0)
+	payloadWrongFee.RefundAmount = common.ToBig(big.NewInt(100))
+	payloadWrongFee.ApplicationFee = common.ToBig(big.NewInt(0))
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), &payloadWrongFee)
 	require.Error(t, err)
@@ -465,7 +465,7 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: encryptedMessage}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: big.NewInt(0)},
+		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.ToBig(big.NewInt(0))},
 	}
 
 	oldStateRoot := testHelper.GetStateRoot()
@@ -479,8 +479,8 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 		Events:         events[:],
 		Withdrawals:    withdrawals,
 		Signature:      signature[:],
-		RefundAmount:   big.NewInt(90),
-		ApplicationFee: big.NewInt(10),
+		RefundAmount:   common.ToBig(big.NewInt(90)),
+		ApplicationFee: common.ToBig(big.NewInt(10)),
 	}
 
 	//complete state update
@@ -500,8 +500,8 @@ func TestSubmitRequest(t *testing.T) {
 	applicationId := common.NewApplicationId(1)
 	requestType := common.Deploy
 	payload := []byte("test-payload")
-	depositAmount := big.NewInt(1)
-	maxFeeValue := big.NewInt(100)
+	depositAmount := common.ToBig(big.NewInt(1))
+	maxFeeValue := common.ToBig(big.NewInt(100))
 
 	// Submit the request
 	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, depositAmount, maxFeeValue)
@@ -533,7 +533,7 @@ func TestSubmitRequest(t *testing.T) {
 		t.Errorf("Submitted request not found in pending requests")
 	}
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, big.NewInt(80), big.NewInt(20))
+	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, common.ToBig(big.NewInt(80)), common.ToBig(big.NewInt(20)))
 	require.NoError(t, err)
 }
 
@@ -576,7 +576,7 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 	res, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID, big.NewInt(80), big.NewInt(20))
+	err = blockchainClient.MarkRequestCompleted(context.Background(), res[0].RequestID, common.ToBig(big.NewInt(80)), common.ToBig(big.NewInt(20)))
 	require.NoError(t, err)
 
 	event, err := blockchainClient.GetRequestCompletedEvent(context.Background(), res[0].RequestID, requestBlock, requestBlock+1)
@@ -605,6 +605,8 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 	receipt, err = testHelper.GetTxReceipt(tx)
 	require.NoError(t, err)
 	requestBlock = receipt.BlockNumber.Uint64()
+
+	
 
 	res, err = blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
@@ -638,7 +640,7 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: big.NewInt(10)},
+		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.ToBig(big.NewInt(10))},
 	}
 
 	oldStateRoot := testHelper.GetStateRoot()
@@ -652,8 +654,8 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 		Events:         events[:],
 		Withdrawals:    withdrawals,
 		Signature:      signature[:],
-		RefundAmount:   big.NewInt(90),
-		ApplicationFee: big.NewInt(10),
+		RefundAmount:   common.ToBig(big.NewInt(90)),
+		ApplicationFee: common.ToBig(big.NewInt(10)),
 	}
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
@@ -664,5 +666,4 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 	require.NotNil(t, event, "RequestCompletedEvent should be found")
 
 	require.True(t, event.Status == common.RequestResultOK)
-
 }

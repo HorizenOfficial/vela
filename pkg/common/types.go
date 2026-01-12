@@ -28,6 +28,78 @@ func (aid ApplicationIdType) ToHash() ethCommon.Hash {
 	return ethCommon.BytesToHash(new(big.Int).SetUint64(uint64(aid)).Bytes())
 }
 
+// Big is a wrapper around big.Int that marshals/unmarshals as a hex string with 0x prefix.
+type Big big.Int
+
+func (b *Big) Int() *big.Int {
+	return (*big.Int)(b)
+}
+
+func ToBig(i *big.Int) *Big {
+	return (*Big)(i)
+}
+
+func (b *Big) Sign() int {
+	return (*big.Int)(b).Sign()
+}
+
+func (b *Big) Cmp(y *Big) int {
+	return (*big.Int)(b).Cmp((*big.Int)(y))
+}
+
+func (b *Big) String() string {
+	return (*big.Int)(b).String()
+}
+
+func (b *Big) Add(x, y *Big) *Big {
+	(*big.Int)(b).Add((*big.Int)(x), (*big.Int)(y))
+	return b
+}
+
+func (b *Big) Mul(x, y *Big) *Big {
+	(*big.Int)(b).Mul((*big.Int)(x), (*big.Int)(y))
+	return b
+}
+
+func (b *Big) Sub(x, y *Big) *Big {
+	(*big.Int)(b).Sub((*big.Int)(x), (*big.Int)(y))
+	return b
+}
+
+func (b *Big) Set(x *Big) *Big {
+	(*big.Int)(b).Set((*big.Int)(x))
+	return b
+}
+
+func (b *Big) MarshalJSON() ([]byte, error) {
+	if b == nil {
+		return []byte("null"), nil
+	}
+	return []byte(fmt.Sprintf("\"0x%s\"", (*big.Int)(b).Text(16))), nil
+}
+
+func (b *Big) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return nil
+	}
+	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
+		return fmt.Errorf("invalid Big format: %s", string(data))
+	}
+	s := string(data[1 : len(data)-1])
+	if !strings.HasPrefix(s, "0x") {
+		// allow non-0x prefixed hex or decimal? 
+		// The user said "the ethereum way ... with 0x prefix"
+		// Ethereum usually requires 0x for hex.
+		return fmt.Errorf("invalid Big prefix: %s", s)
+	}
+	var i big.Int
+	if _, ok := i.SetString(s[2:], 16); !ok {
+		return fmt.Errorf("invalid Big hex string: %s", s)
+	}
+	*b = Big(i)
+	return nil
+}
+
 // RequestType represents the type of request being sent to the TEE
 type RequestType uint8
 
@@ -100,13 +172,13 @@ type Request struct {
 	// All payloads except the one for AssociateKey are encrypted
 	Payload []byte `json:"payload"`
 	// Timestamp is the time the request was submitted
-	Timestamp *big.Int `json:"timestamp"`
+	Timestamp *Big `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
 	// DepositAmount is the optional deposit value in WEI
-	DepositAmount *big.Int `json:"depositAmount"`
+	DepositAmount *Big `json:"depositAmount"`
 	// MaxFeeValue is the maximum fee value reserved for fee payment
-	MaxFeeValue *big.Int `json:"maxFeeValue"`
+	MaxFeeValue *Big `json:"maxFeeValue"`
 }
 
 // Event represents an event to be emitted
@@ -126,7 +198,7 @@ type Withdrawal struct {
 	// DestinationAddress is the address to send the funds to
 	DestinationAddress ethCommon.Address `json:"destinationAddress"`
 	// Amount is the amount to withdraw in WEI
-	Amount *big.Int `json:"amount"`
+	Amount *Big `json:"amount"`
 }
 
 // UpdatePayload represents an update to the state
@@ -146,9 +218,9 @@ type UpdatePayload struct {
 	// Signature is the TEE signature
 	Signature []byte `json:"signature"`
 	// RefundAmount is the amount to refund in WEI
-	RefundAmount *big.Int `json:"refundAmount"`
+	RefundAmount *Big `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
-	ApplicationFee *big.Int `json:"applicationFee"`
+	ApplicationFee *Big `json:"applicationFee"`
 }
 
 // ApplicationState represents the state of an application
@@ -179,9 +251,9 @@ type DeanonymizationReport struct {
 	// Authority is the entity requesting the report
 	Authority ethCommon.Address `json:"authority"`
 	// RefundAmount is the amount to refund in WEI
-	RefundAmount *big.Int `json:"refundAmount"`
+	RefundAmount *Big `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
-	ApplicationFee *big.Int `json:"applicationFee"`
+	ApplicationFee *Big `json:"applicationFee"`
 }
 
 // DecryptedReport represents a decrypted deanonymization report

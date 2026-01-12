@@ -81,7 +81,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	// 1. Load the module
 	initialStateBytes, fuel, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
+	require.Equal(t, 0, fuel.Cmp(common.ToBig(big.NewInt(5))))
 
 	var initialState app.ApplicationInternalState
 	err = json.Unmarshal(initialStateBytes, &initialState)
@@ -91,11 +91,11 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User1 Deposits funds
 	deposit1Amount := big.NewInt(1000)
-	depositState1Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), deposit1Amount, initialStateBytes, wasmBytes)
+	depositState1Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), common.ToBig(deposit1Amount), initialStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
+	require.Equal(t, 0, fuel.Cmp(common.ToBig(big.NewInt(35))))
 
 	var depositState app.ApplicationInternalState
 	err = json.Unmarshal(depositState1Bytes, &depositState)
@@ -105,11 +105,11 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User2 Deposits funds (more than previous user)
 	deposit2Amount := big.NewInt(2000)
-	depositState2Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), deposit2Amount, depositState1Bytes, wasmBytes)
+	depositState2Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), common.ToBig(deposit2Amount), depositState1Bytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState2Bytes)
 	require.Len(t, depositEvents, 1)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
+	require.Equal(t, 0, fuel.Cmp(common.ToBig(big.NewInt(35))))
 
 	err = json.Unmarshal(depositState2Bytes, &depositState)
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NotNil(t, withdrawStateBytes)
 	require.Len(t, withdrawEvents, 1)
 	require.Len(t, withdrawals, 1)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(50)))
+	require.Equal(t, 0, fuel.Cmp(common.ToBig(big.NewInt(50))))
 
 	var withdrawState app.ApplicationInternalState
 	err = json.Unmarshal(withdrawStateBytes, &withdrawState)
@@ -144,7 +144,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.Equal(t, diffBalance.String(), withdrawState.Accounts[user1Address.Hex()].Balance.String())
 
 	require.Equal(t, ethCommon.Address(recipient1Address), withdrawals[0].DestinationAddress)
-	require.Equal(t, withdrawAmount, withdrawals[0].Amount)
+	require.Equal(t, 0, common.ToBig(withdrawAmount).Cmp(withdrawals[0].Amount))
 
 	// 4. Generate deanonymization report
 	payloadJSON := `{"tag":"my_custom_tag"}`
@@ -152,7 +152,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	reportBytes, fuel, failure := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, reportBytes)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(20)))
+	require.Equal(t, 0, fuel.Cmp(common.ToBig(big.NewInt(20))))
 
 	var report map[string]interface{}
 	err = json.Unmarshal(reportBytes, &report)
@@ -177,7 +177,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NotNil(t, compareStateBytes)
 	require.Len(t, events, 1)
 	require.Len(t, withdrawals, 0)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(50)))
+	require.Equal(t, 0, fuel.Cmp(common.ToBig(big.NewInt(50))))
 
 	var eventData map[string]interface{}
 	err = json.Unmarshal(events[0].Data, &eventData)
@@ -212,7 +212,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 	// 1. Load the module to get an initial state
 	initialStateBytes, fuel, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
-	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
+	require.Equal(t, 0, fuel.Cmp(common.ToBig(big.NewInt(5))))
 
 	t.Run("null payload json", func(t *testing.T) {
 		nullPayload := []byte{}
@@ -237,10 +237,10 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 	// 2. Create a populated state for testing
 	// User1 deposits 1000
-	populatedStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), initialStateBytes, wasmBytes)
+	populatedStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), common.ToBig(big.NewInt(1000)), initialStateBytes, wasmBytes)
 	require.Nil(t, err)
 	// User2 deposits 500
-	populatedStateBytes, _, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), big.NewInt(500), populatedStateBytes, wasmBytes)
+	populatedStateBytes, _, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), common.ToBig(big.NewInt(500)), populatedStateBytes, wasmBytes)
 	require.Nil(t, err)
 
 	// --- Test Cases ---
@@ -348,7 +348,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	t.Run("deposit with nil state", func(t *testing.T) {
 		// This should fail inside the wasm module because a nil state is not valid JSON.
 		// This test verifies that the runtime correctly handles passing a nil slice to wasm.
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), nil, wasmBytes)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), common.ToBig(big.NewInt(1000)), nil, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -391,7 +391,7 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 
 	// For other functions, the error will come from getOrLoadModule -> LoadModule
 	t.Run("deposit with nil wasm", func(t *testing.T) {
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), initialStateBytes, nil)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), common.ToBig(big.NewInt(1000)), initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
@@ -422,7 +422,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	invalidState := []byte("{invalid-state}")
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), invalidState, wasmBytes)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), common.ToBig(big.NewInt(1000)), invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -477,7 +477,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				require.NoError(t, err)
 
 			runtimeMutex.Lock()
-			newStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), depositAmount, stateBytes, wasmBytes)
+			newStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), common.ToBig(depositAmount), stateBytes, wasmBytes)
 			require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
 			stateBytes = newStateBytes
 			runtimeMutex.Unlock()

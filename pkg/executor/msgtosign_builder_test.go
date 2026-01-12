@@ -21,8 +21,8 @@ func TestMsgToSignBuilder_IncludesEventSubType(t *testing.T) {
 		NewStateRoot:   [32]byte{2},
 		Events:         []common.Event{{EventSubType: "a", EncryptedData: []byte{0x01}}},
 		Withdrawals:    nil,
-		RefundAmount:   big.NewInt(0),
-		ApplicationFee: big.NewInt(0),
+		RefundAmount:   common.ToBig(big.NewInt(0)),
+		ApplicationFee: common.ToBig(big.NewInt(0)),
 	}
 
 	h1, err := builder.BuildMsgHash(base)

@@ -2,9 +2,11 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"math/bits"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,61 +141,70 @@ func TestJSON(t *testing.T) {
 		Val *Uint256 `json:"val"`
 	}
 
-	tests := []string{
-		"0",
-		"100",
-		"12345678901234567890",
+	tests := []struct {
+		valStr string
+		hexStr string
+	}{
+		{"0", "0x0"},
+		{"100", "0x64"},
+		{"12345678901234567890", "0xab54a98ceb1f0ad2"},
 	}
 
-	for _, s := range tests {
-		t.Run(s, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.valStr, func(t *testing.T) {
 			// Test Marshal
-			b, _ := new(big.Int).SetString(s, 10)
+			b, _ := new(big.Int).SetString(tt.valStr, 10)
 			u := new(Uint256).SetBytes(b.Bytes())
 			w := wrapper{Val: u}
 
 			data, err := json.Marshal(w)
 			require.NoError(t, err)
 
-			// Expect plain number or string depending on implementation
-			// Current implementation marshals as string digits without quotes if called directly,
-			// but wrapper with `json:"val"` and MarshalJSON returning []byte(string) usually results in
-			// the raw characters being inserted into the JSON.
-			// However, our MarshalJSON returns []byte(z.String()), which are just the digits.
-			// If we put that into a JSON object value position, it acts as a JSON Number.
-			// Let's verify what comes out.
-			require.Contains(t, string(data), s)
+			// Expect hex string with 0x prefix
+			// "val": "0x..."
+			expected := fmt.Sprintf(`"val":"%s"`, tt.hexStr)
+			// Remove spaces from data just in case
+			jsonStr := strings.ReplaceAll(string(data), " ", "")
+			require.Contains(t, jsonStr, expected)
 
 			// Test Unmarshal
 			var w2 wrapper
 			err = json.Unmarshal(data, &w2)
 			require.NoError(t, err)
-			require.Equal(t, s, w2.Val.String())
+			require.Equal(t, tt.valStr, w2.Val.String())
 		})
 	}
 
-	// Test unmarshal from string (quoted)
-	t.Run("quoted string", func(t *testing.T) {
-		jsonStr := `{"val": "12345"}`
+	// Test unmarshal from hex string (quoted)
+	t.Run("quoted hex string", func(t *testing.T) {
+		jsonStr := `{"val": "0x3039"}` // 12345
 		var w wrapper
 		err := json.Unmarshal([]byte(jsonStr), &w)
 		require.NoError(t, err)
 		require.Equal(t, "12345", w.Val.String())
 	})
+	
+	t.Run("invalid prefix", func(t *testing.T) {
+		jsonStr := `{"val": "12345"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid Uint256 prefix")
+	})
 
-	t.Run("unquoted string", func(t *testing.T) {
+	t.Run("unquoted decimal number rejected", func(t *testing.T) {
 		jsonStr := `{"val": 12345}`
 		var w wrapper
 		err := json.Unmarshal([]byte(jsonStr), &w)
-		require.NoError(t, err)
-		require.Equal(t, "12345", w.Val.String())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid Uint256 format")
 	})
 }
 
 func TestUnmarshalJSONOverflow(t *testing.T) {
 	// 2^256
-	overMax := "115792089237316195423570985008687907853269984665640564039457584007913129639936"
-	jsonStr := `{"val": "` + overMax + `"}`
+	overMaxHex := "0x10000000000000000000000000000000000000000000000000000000000000000"
+	jsonStr := `{"val": "` + overMaxHex + `"}`
 
 	type wrapper struct {
 		Val *Uint256 `json:"val"`

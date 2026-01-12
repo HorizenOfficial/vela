@@ -2,11 +2,9 @@ package app
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/bits"
-	"strings"
 )
 
 // Uint256 represents a 256-bit unsigned integer using 4 uint64 values.
@@ -137,56 +135,79 @@ func (z Uint256) divModWord(divisor uint64) (Uint256, uint64) {
 	return quot, r
 }
 
+// ToHex returns the hex representation of z with "0x" prefix.
+func (z Uint256) ToHex() string {
+	if z.IsZero() {
+		return "0x0"
+	}
+	// Similar logic to String() but base 16
+	val := z
+	res := make([]byte, 0, 66) // 0x + 64 hex digits
+	
+	const sixteen = uint64(16)
+	const hexChars = "0123456789abcdef"
+
+	for !val.IsZero() {
+		var rem uint64
+		val, rem = val.divModWord(sixteen)
+		res = append(res, hexChars[rem])
+	}
+	res = append(res, 'x', '0')
+
+	// reverse
+	for i, j := 0, len(res)-1; i < j; i, j = i+1, j-1 {
+		res[i], res[j] = res[j], res[i]
+	}
+	return string(res)
+}
+
 // MarshalJSON implements json.Marshaler.
-// It marshals the Uint256 as a JSON number (no quotes)
-// math/big.Int marshals as digits.
+// It marshals the Uint256 as a hex string with 0x prefix.
 func (z Uint256) MarshalJSON() ([]byte, error) {
-	return []byte(z.String()), nil
+	return []byte(fmt.Sprintf("\"%s\"", z.ToHex())), nil
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
-// Only decimal strings or numbers are accepted. Overflow returns an error.
+// Only hex strings with "0x" prefix are accepted.
 func (z *Uint256) UnmarshalJSON(data []byte) error {
-	var s string
+	if string(data) == "null" {
+		return nil
+	}
+	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
+		return fmt.Errorf("invalid Uint256 format: %s", string(data))
+	}
+	s := string(data[1 : len(data)-1])
 
-	// 1. Determine if input is a JSON string or raw number by peeking the first non-whitespace char using a recursive for loop
-	trimmedData := data
-	for len(trimmedData) > 0 && (trimmedData[0] == ' ' || trimmedData[0] == '\t' || trimmedData[0] == '\n' || trimmedData[0] == '\r') {
-		trimmedData = trimmedData[1:]
+	if len(s) < 2 || (s[0] != '0' || (s[1] != 'x' && s[1] != 'X')) {
+		return fmt.Errorf("invalid Uint256 prefix: %s", s)
 	}
 
-	if len(trimmedData) > 0 && trimmedData[0] == '"' {
-		// First non-whitespace character is a quote, this is a JSON string
-		if err := json.Unmarshal(data, &s); err != nil {
-			return err
-		}
-	} else {
-		// First non-whitespace character is not a quote, this is a raw JSON number or we have empty input
-		s = string(trimmedData)
-	}
-
-	// 2. Clean up surrounding whitespace and validate non-empty
-	s = strings.TrimSpace(s)
-	if len(s) == 0 {
-		return errors.New("Uint256 value is empty")
-	}
-
-	// 3. Strict digit-only parsing
 	*z = Uint256{}
-	const ten = uint64(10)
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return fmt.Errorf("invalid character in Uint256: %c", c)
-		}
-		digit := uint64(c - '0')
+	s = s[2:]
+	if len(s) == 0 {
+		// "0x" is treated as 0
+		return nil
+	}
 
-		if z.Mul64Overflow(ten) {
-			// we have modified z actually, but caller must check the error
-			return errors.New("Uint256 overflow after multiplication")
+	const sixteen = uint64(16)
+	for _, c := range s {
+		var digit uint64
+		switch {
+		case c >= '0' && c <= '9':
+			digit = uint64(c - '0')
+		case c >= 'a' && c <= 'f':
+			digit = uint64(c - 'a' + 10)
+		case c >= 'A' && c <= 'F':
+			digit = uint64(c - 'A' + 10)
+		default:
+			return fmt.Errorf("invalid hex character in Uint256: %c", c)
+		}
+
+		if z.Mul64Overflow(sixteen) {
+			return errors.New("Uint256 overflow parsing hex")
 		}
 		if z.Add64Overflow(digit) {
-    		// we have modified z actually, but caller must check the error
-			return errors.New("Uint256 overflow after sum")
+			return errors.New("Uint256 overflow parsing hex")
 		}
 	}
 	return nil

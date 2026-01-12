@@ -687,11 +687,11 @@ func TestBigIntUint256JSONRoundTrip(t *testing.T) {
 	orig := new(big.Int)
 	orig.SetString("115792089237316195423570985008687907853269984665640564039457584007913129639935", 10) // 2^256-1
 
-	// Step 2: marshal big.Int into JSON
+	// Step 2: marshal *common.Big into JSON
 	type HostStruct struct {
-		Amount *big.Int `json:"amount"`
+		Amount *common.Big `json:"amount"`
 	}
-	hostObj := HostStruct{Amount: orig}
+	hostObj := HostStruct{Amount: common.ToBig(orig)}
 
 	jsonData, err := json.Marshal(hostObj)
 	if err != nil {
@@ -722,7 +722,7 @@ func TestBigIntUint256JSONRoundTrip(t *testing.T) {
 	}
 
 	// Step 6: compare
-	if orig.Cmp(hostObj2.Amount) != 0 {
+	if orig.Cmp(hostObj2.Amount.Int()) != 0 {
 		t.Errorf("round-trip mismatch:\noriginal: %s\nfinal:    %s", orig.String(), hostObj2.Amount.String())
 	} else {
 		t.Logf("Round-trip successful: value preserved exactly")

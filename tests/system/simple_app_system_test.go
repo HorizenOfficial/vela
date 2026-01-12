@@ -95,9 +95,9 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		RequestID:     deployReqID,
 		Payload:       wasmBytecode,
 		Sender:        sender,
-		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		DepositAmount: big.NewInt(0),
-		MaxFeeValue:   big.NewInt(100),
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		DepositAmount: common.ToBig(big.NewInt(0)),
+		MaxFeeValue:   common.ToBig(big.NewInt(100)),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -118,7 +118,7 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 }
 
 // depositToSimpleApp is a helper function to deposit funds into the simple app.
-func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, reqID common.RequestIdType, user ethCommon.Address, amount *big.Int) {
+func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, reqID common.RequestIdType, user ethCommon.Address, amount *common.Big) {
 	t.Helper()
 	timeout := 100 * time.Second
 
@@ -148,7 +148,7 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	err = json.Unmarshal(decryptedDepositData, &depositEventData)
 	require.NoError(t, err)
 	require.Equal(t, "deposit", depositEventData.Type)
-	require.Equal(t, amount, depositEventData.Amount)
+	require.Equal(t, 0, amount.Cmp(depositEventData.Amount))
 
 	// Verify updatePayload signature
 	executorSigningKey, err := suite.GetExecutorSigningKey()
@@ -217,9 +217,9 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		RequestID:     reqID,
 		Payload:       wasmBytecode,
 		Sender:        sender,
-		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		DepositAmount: big.NewInt(0),
-		MaxFeeValue:   big.NewInt(100),
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		DepositAmount: common.ToBig(big.NewInt(0)),
+		MaxFeeValue:   common.ToBig(big.NewInt(100)),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -249,9 +249,9 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		RequestID:     reqID,
 		Payload:       wasmBytecode,
 		Sender:        sender,
-		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		DepositAmount: big.NewInt(0),
-		MaxFeeValue:   big.NewInt(100),
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		DepositAmount: common.ToBig(big.NewInt(0)),
+		MaxFeeValue:   common.ToBig(big.NewInt(100)),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -344,10 +344,10 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user1Address, big.NewInt(2000))
+	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user1Address, common.ToBig(big.NewInt(2000)))
 
 	// 6. User2 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user2Address, big.NewInt(1000))
+	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user2Address, common.ToBig(big.NewInt(1000)))
 
 	// Get executor's communication key for encryption, for now get from the test suite
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
@@ -539,7 +539,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, big.NewInt(1000))
+	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, common.ToBig(big.NewInt(1000)))
 
 	// Get executor's communication key for encryption
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
