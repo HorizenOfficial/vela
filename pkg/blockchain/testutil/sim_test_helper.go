@@ -18,7 +18,7 @@ import (
 	defaultauthority "github.com/horizen-pes/pkg/blockchain/contracts/defaultauthoritychecker"
 	"github.com/horizen-pes/pkg/blockchain/contracts/mocktee"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
-	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
+	"github.com/horizen-pes/pkg/blockchain/contracts/noattestationtee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/stretchr/testify/require"
 )
@@ -81,19 +81,19 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 		s.TeeSignerAddress, tx = deployRes.Addresses[mocktee.MockTeeAuthenticatorMetaData.ID], deployRes.Txs[mocktee.MockTeeAuthenticatorMetaData.ID]
 	} else {
 		require.NotNil(s.t, teeSigner, "teeSigner address must be provided when not using mock contracts")
-		teeContract := *tee.NewTeeAuthenticator()
+		teeContract := *noattestationtee.NewNoAttestationTeeAuthenticator()
 
 		constructorInput := teeContract.PackConstructor(s.Deployer.From, *teeSigner, teePubSecp521r1)
 		teeDeployParams := bind.DeploymentParams{
-			Contracts: []*bind.MetaData{&tee.TeeAuthenticatorMetaData},
-			Inputs:    map[string][]byte{tee.TeeAuthenticatorMetaData.ID: constructorInput},
+			Contracts: []*bind.MetaData{&noattestationtee.NoAttestationTeeAuthenticatorMetaData},
+			Inputs:    map[string][]byte{noattestationtee.NoAttestationTeeAuthenticatorMetaData.ID: constructorInput},
 		}
 
 		// create and submit the contract deployment
 		deployRes, err := bind.LinkAndDeploy(&teeDeployParams, deployer)
 		require.NoError(s.t, err)
 
-		s.TeeSignerAddress, tx = deployRes.Addresses[tee.TeeAuthenticatorMetaData.ID], deployRes.Txs[tee.TeeAuthenticatorMetaData.ID]
+		s.TeeSignerAddress, tx = deployRes.Addresses[noattestationtee.NoAttestationTeeAuthenticatorMetaData.ID], deployRes.Txs[noattestationtee.NoAttestationTeeAuthenticatorMetaData.ID]
 	}
 
 	s.sim.Commit()
