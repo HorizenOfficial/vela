@@ -19,9 +19,9 @@ type Config struct {
 	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
 	KeySetRecoveryType int
 	// FuelPricePerUnit is the price of fuel per unit
-	FuelPricePerUnit *common.Big
+	FuelPricePerUnit *big.Int
 	// MinFeePerRquest is the minimum fee to be paid for each request
-	MinFeePerRequest *common.Big
+	MinFeePerRequest *big.Int
 
 	// LogKind is the type of logger to use (e.g., "zeronetwork", "tcplog", "zerolog").
 	LogKind string
@@ -78,8 +78,8 @@ func LoadConfig() (*Config, error) {
 		ChannelType:        channelType,
 		ChannelParams:      channelServerConnectionParams,
 		KeySetRecoveryType: int(common.GetConfigVarInt64("EXECUTOR_KEYSET_RECOVERY_TYPE", 0, fileProperties)),
-		FuelPricePerUnit:   common.ToBig(big.NewInt(common.GetConfigVarInt64("EXECUTOR_FUEL_PRICE_PER_UNIT", 1, fileProperties))),
-		MinFeePerRequest:   common.ToBig(big.NewInt(common.GetConfigVarInt64("EXECUTOR_MIN_FEE_PER_REQUEST", 10, fileProperties))),
+		FuelPricePerUnit:   big.NewInt(common.GetConfigVarInt64("EXECUTOR_FUEL_PRICE_PER_UNIT", 1, fileProperties)),
+		MinFeePerRequest:   big.NewInt(common.GetConfigVarInt64("EXECUTOR_MIN_FEE_PER_REQUEST", 10, fileProperties)),
 		LogKind:            common.GetConfigVar("EXECUTOR_LOG_KIND", "zeronetwork", fileProperties),
 		LogConsole:         common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE", true, fileProperties),
 		LogConsoleLevel:    common.GetConfigVar("EXECUTOR_LOG_CONSOLE_LEVEL", "info", fileProperties),
