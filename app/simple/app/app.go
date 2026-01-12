@@ -66,7 +66,7 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	}
 	eventDataBytes, err := json.Marshal(eventData)
 	if err != nil {
-		return DepositResult{Error: fmt.Sprintf("Failed to serialize event data: %+v", eventData)}
+		return DepositResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
 	}
 
 	events := []PlainEvent{{
@@ -78,7 +78,7 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(&currentState)
 	if err != nil {
-		return DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %+v", &currentState)}
+		return DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
 	return DepositResult{State: newStateBytes, Events: events, Fuel: big.NewInt(35)}
 }
@@ -145,7 +145,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 			eventDataBytes, err := json.Marshal(eventData)
 			if err != nil {
-				return ProcessResult{Error: fmt.Sprintf("Failed to serialize event data: %+v", eventData)}
+				return ProcessResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
 			}
 
 			events = append(events, PlainEvent{
@@ -186,7 +186,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
 			if err != nil {
-				return ProcessResult{Error: fmt.Sprintf("Failed to serialize withdraw event data: %+v", withdrawEventData)}
+				return ProcessResult{Error: fmt.Sprintf("Failed to serialize withdraw event data: %+v, err: %v", withdrawEventData, err)}
 			}
 
 			events = append(events, PlainEvent{
@@ -203,7 +203,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(currentState)
 	if err != nil {
-		return ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %+v", currentState)}
+		return ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
 	return ProcessResult{
 		State:       newStateBytes,
@@ -217,7 +217,7 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) Deanonymizatio
 	// Deserialize payload
 	var payload ReportPayloadInstructions
 	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to parse payload: %s", payloadJSON)}
+		return DeanonymizationResult{Error: fmt.Sprintf("Failed to parse payload: %s, err: %v", payloadJSON, err)}
 	}
 
 	// Deserialize current state
@@ -239,7 +239,7 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) Deanonymizatio
 	// Serialize the report
 	reportBytes, err := json.Marshal(report)
 	if err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %+v", report)}
+		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %v", err)}
 	}
 	return DeanonymizationResult{Report: reportBytes, Fuel: big.NewInt(20)}
 }
