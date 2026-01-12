@@ -68,6 +68,84 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+func TestAddOverflow(t *testing.T) {
+	// Test cases where overflow occurs
+	max256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+	tests := []struct {
+		name        string
+		x           string // decimal
+		y           string // decimal
+		expectOverflow bool
+	}{
+		{
+			name:          "no overflow small",
+			x:             "100",
+			y:             "200",
+			expectOverflow: false,
+		},
+		{
+			name:          "no overflow max",
+			x:             max256.String(),
+			y:             "0",
+			expectOverflow: false,
+		},
+		{
+			name:          "overflow max plus one",
+			x:             max256.String(),
+			y:             "1",
+			expectOverflow: true,
+		},
+		{
+			name:          "overflow max plus max",
+			x:             max256.String(),
+			y:             max256.String(),
+			expectOverflow: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bX, _ := new(big.Int).SetString(tt.x, 10)
+			bY, _ := new(big.Int).SetString(tt.y, 10)
+
+			uX := new(Uint256).SetBytes(bX.Bytes())
+			uY := new(Uint256).SetBytes(bY.Bytes())
+
+			// Compute expected overflow
+			sumBig := new(big.Int).Add(bX, bY)
+			expectedOverflow := sumBig.BitLen() > 256
+
+			result := new(Uint256)
+			overflow := result.AddOverflow(*uX, *uY)
+
+			require.Equal(t, expectedOverflow, overflow, "Overflow mismatch for %s + %s", tt.x, tt.y)
+
+			// Verify result matches Add (mod 2^256)
+			resultAdd := new(Uint256).Add(*uX, *uY)
+			require.Equal(t, resultAdd.String(), result.String(), "Result mismatch for %s + %s", tt.x, tt.y)
+		})
+	}
+
+	// Random test for overflow detection
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < 500; i++ {
+		b1 := new(big.Int).Rand(r, new(big.Int).Lsh(big.NewInt(1), 256))
+		b2 := new(big.Int).Rand(r, new(big.Int).Lsh(big.NewInt(1), 256))
+
+		u1 := new(Uint256).SetBytes(b1.Bytes())
+		u2 := new(Uint256).SetBytes(b2.Bytes())
+
+		sumBig := new(big.Int).Add(b1, b2)
+		expectedOverflow := sumBig.BitLen() > 256
+
+		result := new(Uint256)
+		overflow := result.AddOverflow(*u1, *u2)
+
+		require.Equal(t, expectedOverflow, overflow, "Random overflow test: %v + %v", b1, b2)
+	}
+}
+
 func TestSub(t *testing.T) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -88,6 +166,84 @@ func TestSub(t *testing.T) {
 		diffU := new(Uint256).Sub(*u1, *u2)
 
 		require.Equal(t, diffBig.String(), diffU.String(), "Sub mismatch: %v - %v", b1, b2)
+	}
+}
+
+func TestSubWraparound(t *testing.T) {
+	// Test subtraction wraparound: when x < y, result should be x - y + 2^256
+	tests := []struct {
+		name     string
+		x        string // decimal
+		y        string // decimal
+		expected string // decimal (x - y + 2^256)
+	}{
+		{
+			name:     "small wraparound",
+			x:        "5",
+			y:        "10",
+			expected: "115792089237316195423570985008687907853269984665640564039457584007913129639931", // 2^256 - 5
+		},
+		{
+			name:     "zero minus one",
+			x:        "0",
+			y:        "1",
+			expected: "115792089237316195423570985008687907853269984665640564039457584007913129639935", // 2^256 - 1
+		},
+		{
+			name:     "one minus two",
+			x:        "1",
+			y:        "2",
+			expected: "115792089237316195423570985008687907853269984665640564039457584007913129639935", // 2^256 - 1
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bX, _ := new(big.Int).SetString(tt.x, 10)
+			bY, _ := new(big.Int).SetString(tt.y, 10)
+			bExpected, _ := new(big.Int).SetString(tt.expected, 10)
+
+			uX := new(Uint256).SetBytes(bX.Bytes())
+			uY := new(Uint256).SetBytes(bY.Bytes())
+
+			// Compute x - y (will wraparound)
+			result := new(Uint256).Sub(*uX, *uY)
+
+			// Expected result mod 2^256
+			mask := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+			bExpectedMod := new(big.Int).And(bExpected, mask)
+
+			require.Equal(t, bExpectedMod.String(), result.String(), "Sub wraparound mismatch: %s - %s", tt.x, tt.y)
+		})
+	}
+
+	// Random test for wraparound
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < 100; i++ {
+		b1 := new(big.Int).Rand(r, new(big.Int).Lsh(big.NewInt(1), 256))
+		b2 := new(big.Int).Rand(r, new(big.Int).Lsh(big.NewInt(1), 256))
+
+		// Ensure b1 < b2 for wraparound test
+		if b1.Cmp(b2) >= 0 {
+			b1, b2 = b2, b1
+			if b1.Cmp(b2) >= 0 {
+				// If still not, make b2 larger
+				b2.Add(b1, big.NewInt(1))
+			}
+		}
+
+		u1 := new(Uint256).SetBytes(b1.Bytes())
+		u2 := new(Uint256).SetBytes(b2.Bytes())
+
+		// Expected: (b1 - b2) mod 2^256 = (2^256 + b1 - b2) mod 2^256
+		two256 := new(big.Int).Lsh(big.NewInt(1), 256)
+		expected := new(big.Int).Add(two256, b1)
+		expected.Sub(expected, b2)
+		mask := new(big.Int).Sub(two256, big.NewInt(1))
+		expected.And(expected, mask)
+
+		result := new(Uint256).Sub(*u1, *u2)
+		require.Equal(t, expected.String(), result.String(), "Random wraparound test: %v - %v", b1, b2)
 	}
 }
 
@@ -132,6 +288,34 @@ func TestString(t *testing.T) {
 			b, _ := new(big.Int).SetString(s, 10)
 			u := new(Uint256).SetBytes(b.Bytes())
 			require.Equal(t, s, u.String())
+		})
+	}
+}
+
+func TestToHex(t *testing.T) {
+	tests := []struct {
+		val      string // decimal
+		expected string // hex with 0x prefix
+	}{
+		{"0", "0x0"},
+		{"1", "0x1"},
+		{"10", "0xa"},
+		{"15", "0xf"},
+		{"16", "0x10"},
+		{"255", "0xff"},
+		{"256", "0x100"},
+		{"100", "0x64"},
+		{"12345", "0x3039"},
+		{"18446744073709551615", "0xffffffffffffffff"}, // Max uint64
+		{"340282366920938463463374607431768211455", "0xffffffffffffffffffffffffffffffff"}, // Max uint128
+		{"115792089237316195423570985008687907853269984665640564039457584007913129639935", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}, // Max uint256
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.val, func(t *testing.T) {
+			b, _ := new(big.Int).SetString(tt.val, 10)
+			u := new(Uint256).SetBytes(b.Bytes())
+			require.Equal(t, tt.expected, u.ToHex())
 		})
 	}
 }
@@ -198,6 +382,68 @@ func TestJSON(t *testing.T) {
 		err := json.Unmarshal([]byte(jsonStr), &w)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid Uint256 format")
+	})
+
+	t.Run("leading zeros", func(t *testing.T) {
+		// Leading zeros should be ignored (0x00000064 == 0x64)
+		jsonStr := `{"val": "0x00000064"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		require.Equal(t, "100", w.Val.String())
+
+		// Compare with non-padded version
+		jsonStr2 := `{"val": "0x64"}`
+		var w2 wrapper
+		err = json.Unmarshal([]byte(jsonStr2), &w2)
+		require.NoError(t, err)
+		require.Equal(t, w.Val.String(), w2.Val.String())
+	})
+
+	t.Run("uppercase hex", func(t *testing.T) {
+		// Uppercase hex digits should work
+		jsonStr := `{"val": "0xFF"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		require.Equal(t, "255", w.Val.String())
+
+		// Compare with lowercase version
+		jsonStr2 := `{"val": "0xff"}`
+		var w2 wrapper
+		err = json.Unmarshal([]byte(jsonStr2), &w2)
+		require.NoError(t, err)
+		require.Equal(t, w.Val.String(), w2.Val.String())
+	})
+
+	t.Run("mixed case hex", func(t *testing.T) {
+		jsonStr := `{"val": "0xAbCdEf"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		require.Equal(t, "11259375", w.Val.String()) // 0xABCDEF = 11259375
+	})
+
+	t.Run("very long hex string near max", func(t *testing.T) {
+		// Test with 64 hex digits (max uint256)
+		maxHex := "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+		jsonStr := `{"val": "` + maxHex + `"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		max256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+		require.Equal(t, max256.String(), w.Val.String())
+	})
+
+	t.Run("hex string one digit less than max", func(t *testing.T) {
+		// 63 hex digits (just under max)
+		nearMaxHex := "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+		jsonStr := `{"val": "` + nearMaxHex + `"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		expected, _ := new(big.Int).SetString("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16)
+		require.Equal(t, expected.String(), w.Val.String())
 	})
 }
 
@@ -294,6 +540,79 @@ func TestAdd64(t *testing.T) {
 	// 2^64
 	expected := new(big.Int).Add(new(big.Int).SetUint64(^uint64(0)), big.NewInt(1))
 	require.Equal(t, expected.String(), u.String())
+}
+
+func TestAdd64Overflow(t *testing.T) {
+	max256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+	tests := []struct {
+		name          string
+		initial       string // decimal
+		add           uint64
+		expectOverflow bool
+	}{
+		{
+			name:          "no overflow small",
+			initial:       "100",
+			add:           50,
+			expectOverflow: false,
+		},
+		{
+			name:          "no overflow max",
+			initial:       max256.String(),
+			add:           0,
+			expectOverflow: false,
+		},
+		{
+			name:          "overflow max plus one",
+			initial:       max256.String(),
+			add:           1,
+			expectOverflow: true,
+		},
+		{
+			name:          "overflow max plus max uint64",
+			initial:       max256.String(),
+			add:           ^uint64(0),
+			expectOverflow: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bInitial, _ := new(big.Int).SetString(tt.initial, 10)
+			u := new(Uint256).SetBytes(bInitial.Bytes())
+
+			sumBig := new(big.Int).Add(bInitial, new(big.Int).SetUint64(tt.add))
+			expectedOverflow := sumBig.BitLen() > 256
+
+			uCopy := *u
+			overflow := (&uCopy).Add64Overflow(tt.add)
+
+			require.Equal(t, expectedOverflow, overflow, "Overflow mismatch for %s + %d", tt.initial, tt.add)
+
+			// Verify result matches Add64 (mod 2^256)
+			uCopy2 := *u
+			(&uCopy2).Add64(tt.add)
+			require.Equal(t, uCopy2.String(), uCopy.String(), "Result mismatch for %s + %d", tt.initial, tt.add)
+		})
+	}
+
+	// Random test for overflow detection
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < 200; i++ {
+		b := new(big.Int).Rand(r, new(big.Int).Lsh(big.NewInt(1), 256))
+		add := r.Uint64()
+
+		u := new(Uint256).SetBytes(b.Bytes())
+
+		sumBig := new(big.Int).Add(b, new(big.Int).SetUint64(add))
+		expectedOverflow := sumBig.BitLen() > 256
+
+		uCopy := *u
+		overflow := (&uCopy).Add64Overflow(add)
+
+		require.Equal(t, expectedOverflow, overflow, "Random overflow test: %v + %d", b, add)
+	}
 }
 
 // This test targets worst-case carry propagation during mul-by-word.

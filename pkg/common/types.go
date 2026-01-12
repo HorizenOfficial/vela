@@ -28,50 +28,6 @@ func (aid ApplicationIdType) ToHash() ethCommon.Hash {
 	return ethCommon.BytesToHash(new(big.Int).SetUint64(uint64(aid)).Bytes())
 }
 
-// Big is a wrapper around big.Int that marshals/unmarshals as a hex string with 0x prefix.
-type Big big.Int
-
-func (b *Big) ToInt() *big.Int {
-	return (*big.Int)(b)
-}
-
-func ToBig(i *big.Int) *Big {
-	return (*Big)(i)
-}
-
-func (b *Big) String() string {
-	return (*big.Int)(b).String()
-}
-
-func (b *Big) MarshalJSON() ([]byte, error) {
-	if b == nil {
-		return []byte("null"), nil
-	}
-	return []byte(fmt.Sprintf("\"0x%s\"", (*big.Int)(b).Text(16))), nil
-}
-
-func (b *Big) UnmarshalJSON(data []byte) error {
-	if string(data) == "null" {
-		return nil
-	}
-	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
-		return fmt.Errorf("invalid Big format: %s", string(data))
-	}
-	s := string(data[1 : len(data)-1])
-	if !strings.HasPrefix(s, "0x") {
-		// allow non-0x prefixed hex or decimal?
-		// The user said "the ethereum way ... with 0x prefix"
-		// Ethereum usually requires 0x for hex.
-		return fmt.Errorf("invalid Big prefix: %s", s)
-	}
-	var i big.Int
-	if _, ok := i.SetString(s[2:], 16); !ok {
-		return fmt.Errorf("invalid Big hex string: %s", s)
-	}
-	*b = Big(i)
-	return nil
-}
-
 // RequestType represents the type of request being sent to the TEE
 type RequestType uint8
 
