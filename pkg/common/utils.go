@@ -80,13 +80,20 @@ func init() {
 	)
 }
 
-func validateBigInt(name string, v *big.Int) error {
+func validateBigInt(name string, v *big.Int, allowZero bool) error {
 	if v == nil {
 		return nil // optional field, nil is allowed
 	}
 
 	if v.Sign() < 0 {
-		return fmt.Errorf("%s must be >= 0", name)
+		if allowZero {
+			return fmt.Errorf("%s must be >= 0", name)
+		}
+		return fmt.Errorf("%s must be > 0", name)
+	}
+
+	if !allowZero && v.Sign() == 0 {
+		return fmt.Errorf("%s must be > 0", name)
 	}
 
 	if v.Cmp(maxUint256) > 0 {

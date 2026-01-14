@@ -110,15 +110,15 @@ type Request struct {
 }
 
 func (r *Request) Validate() error {
-	if err := validateBigInt("timestamp", r.Timestamp); err != nil {
+	if err := validateBigInt("timestamp", r.Timestamp, false); err != nil {
 		return err
 	}
 
-	if err := validateBigInt("depositAmount", r.DepositAmount); err != nil {
+	if err := validateBigInt("depositAmount", r.DepositAmount, true); err != nil {
 		return err
 	}
 
-	if err := validateBigInt("maxFeeValue", r.MaxFeeValue); err != nil {
+	if err := validateBigInt("maxFeeValue", r.MaxFeeValue, true); err != nil {
 		return err
 	}
 	return nil
