@@ -104,7 +104,7 @@ func (z Uint256) String() string {
 		return "0"
 	}
 
-	val := z // copy
+	val := z                   // copy
 	res := make([]byte, 0, 78) // Max digits for 2^256
 
 	const ten = uint64(10)
@@ -185,7 +185,7 @@ func (z *Uint256) UnmarshalJSON(data []byte) error {
 			return errors.New("Uint256 overflow after multiplication")
 		}
 		if z.Add64Overflow(digit) {
-    		// we have modified z actually, but caller must check the error
+			// we have modified z actually, but caller must check the error
 			return errors.New("Uint256 overflow after sum")
 		}
 	}
@@ -194,7 +194,7 @@ func (z *Uint256) UnmarshalJSON(data []byte) error {
 
 // Mul64 sets z = z * y (mod 2^256).
 func (z *Uint256) Mul64(y uint64) {
-	_ = z.Mul64Overflow(y)
+	_ = z.Mul64Overflow(y) // Discard the overflow flag
 }
 
 // Mul64Overflow sets z = z * y and reports whether overflow occurred.
@@ -214,11 +214,7 @@ func (z *Uint256) Mul64Overflow(y uint64) (overflow bool) {
 
 // Add64 adds y to z (mod 2^256).
 func (z *Uint256) Add64(y uint64) {
-	var carry uint64
-	z[0], carry = bits.Add64(z[0], y, 0)
-	for i := 1; i < 4 && carry != 0; i++ {
-		z[i], carry = bits.Add64(z[i], 0, carry)
-	}
+	_ = z.Add64Overflow(y) // Discard the overflow flag
 }
 
 // Add64Overflow adds y to z and reports whether overflow occurred.
