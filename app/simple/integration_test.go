@@ -259,7 +259,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "Insufficient balance for withdrawal")
+		require.Contains(t, err.Error(), "Insufficient balance")
 	})
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {
@@ -476,38 +476,38 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				userAddress, err := app.HexToAddress(fmt.Sprintf("0xadd%037d", iterationIndex))
 				require.NoError(t, err)
 
-			runtimeMutex.Lock()
-			newStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), depositAmount, stateBytes, wasmBytes)
-			require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
-			stateBytes = newStateBytes
-			runtimeMutex.Unlock()
+				runtimeMutex.Lock()
+				newStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), depositAmount, stateBytes, wasmBytes)
+				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
+				stateBytes = newStateBytes
+				runtimeMutex.Unlock()
 
-			// Process a withdraw request for the current user
-			withdrawAmount := big.NewInt(1)
-			withdrawInstruction := app.WithdrawInstruction{
-				To:     recipient1Address,
-				Amount: new(app.Uint256).SetBytes(withdrawAmount.Bytes()),
-			}
-			withdrawPayload := app.PayloadInstructions{
-				Type:     "withdraw",
-				Withdraw: &withdrawInstruction,
-			}
-			withdrawPayloadBytes, ret := json.Marshal(withdrawPayload)
-			require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
+				// Process a withdraw request for the current user
+				withdrawAmount := big.NewInt(1)
+				withdrawInstruction := app.WithdrawInstruction{
+					To:     recipient1Address,
+					Amount: new(app.Uint256).SetBytes(withdrawAmount.Bytes()),
+				}
+				withdrawPayload := app.PayloadInstructions{
+					Type:     "withdraw",
+					Withdraw: &withdrawInstruction,
+				}
+				withdrawPayloadBytes, ret := json.Marshal(withdrawPayload)
+				require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
 
-			runtimeMutex.Lock()
-			processStateBytes, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), withdrawPayloadBytes, stateBytes, wasmBytes)
-			require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
-			stateBytes = processStateBytes
-			runtimeMutex.Unlock()
+				runtimeMutex.Lock()
+				processStateBytes, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), withdrawPayloadBytes, stateBytes, wasmBytes)
+				require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
+				stateBytes = processStateBytes
+				runtimeMutex.Unlock()
 
-			// Generate deanonymization report
-			reportPayloadJSON := fmt.Sprintf(`{"tag":"memory_stress_report_%d"}`, iterationIndex)
-			reportPayloadBytes := []byte(reportPayloadJSON)
-			runtimeMutex.Lock()
-			_, _, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
-			require.Nil(t, err, "GenerateDeanonymizationReport failed at iteration %d", iterationIndex)
-			runtimeMutex.Unlock()
+				// Generate deanonymization report
+				reportPayloadJSON := fmt.Sprintf(`{"tag":"memory_stress_report_%d"}`, iterationIndex)
+				reportPayloadBytes := []byte(reportPayloadJSON)
+				runtimeMutex.Lock()
+				_, _, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
+				require.Nil(t, err, "GenerateDeanonymizationReport failed at iteration %d", iterationIndex)
+				runtimeMutex.Unlock()
 			}
 		}(i)
 	}

@@ -163,7 +163,7 @@ func TestProcessRequest(t *testing.T) {
 
 		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Contains(t, result.Error, "Insufficient balance for withdrawal")
+		require.Contains(t, result.Error, "Insufficient balance")
 	})
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {

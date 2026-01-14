@@ -55,7 +55,9 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 	}
 
 	// Update balance in-place
-	acc.Balance.Add(*acc.Balance, *value)
+	if acc.Balance.AddOverflow(*acc.Balance, *value) {
+		return DepositResult{Error: fmt.Sprintf("Overflow while adding amount %s to balance: %s", value, acc.Balance)}
+	}
 
 	// Create deposit event
 	type Event struct {
@@ -172,7 +174,8 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 
 			if currentState.Accounts[senderHex].Balance.Cmp(*instructions.Withdraw.Amount) < 0 {
-				return ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", senderHex)}
+				return ProcessResult{Error: fmt.Sprintf("Insufficient balance %s for withdrawal %s for account %s",
+					currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount, senderHex)}
 			}
 
 			// Execute withdrawal
