@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -86,6 +87,9 @@ type Config struct {
 	LogServerConsoleLevel string
 	// LogFileLevel is the level of logging for the console
 	LogServerFileLevel string
+
+	// CommunicationParams holds parameters for communication between manager and executor
+	CommunicationParams common.CommunicationParams
 }
 
 func LoadConfig() (*Config, error) {
@@ -135,6 +139,10 @@ func LoadConfig() (*Config, error) {
 		privateKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
 	}
 
+	communicationParams := common.CommunicationParams{
+		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
+	}
+
 	cfg := &Config{
 		ChannelType:   channelType,
 		ChannelParams: channelConnectionParams,
@@ -169,6 +177,7 @@ func LoadConfig() (*Config, error) {
 		LogServerConsole:          common.GetConfigVarBool("LOG_SERVER_CONSOLE", true, fileProperties),
 		LogServerConsoleLevel:     common.GetConfigVar("LOG_SERVER_CONSOLE_LEVEL", "warn", fileProperties),
 		LogServerFileLevel:        common.GetConfigVar("LOG_SERVER_FILE_LEVEL", "info", fileProperties),
+		CommunicationParams:       communicationParams,
 	}
 
 	if strings.TrimSpace(cfg.DeanonymizationReportPath) == "" {
