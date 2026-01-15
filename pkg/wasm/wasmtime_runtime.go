@@ -216,7 +216,7 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.Applicati
 
 // loadModuleUnlocked contains the core logic for loading a module, but without locking.
 // This method should only be called when a lock is already held.
-func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
+func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
 	r.log.Info("Wasmtime Runtime: Loading WASM module for application %d (wasm size: %d bytes)", appId, len(wasm))
 
 	wasmAppId, err := ToWasmType(appId)
@@ -232,6 +232,10 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 
 	// Create a per-module store
 	store := wasmtime.NewStore(r.engine)
+	err = r.configureWasiLogPipes(ctx, appId, store)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
+	}
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
@@ -239,71 +243,6 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
 	}
-
-	// create a new WASI config
-	wasiConfig := wasmtime.NewWasiConfig()
-
-	// Make the WASI instance inherit the host stdout/stderr (so println()/fmt.Print from the guest appear here)
-	wasiConfig.InheritStdout()
-	wasiConfig.InheritStderr()
-
-	// Create a named pipe to capture WASI output
-	r.log.Warn("Creating pipe")
-	// add a nanosecond timestamp to the path to prevent collisions between concurrent module loads
-	fifoPath := fmt.Sprintf("/tmp/wasm_log_%d_%d", appId, time.Now().UnixNano())
-
-	// should never happen, but ensure no stale file exists otherwise we will hit an error
-	_ = os.Remove(fifoPath)
-
-	// Create the FIFO (Named Pipe)
-	if err := syscall.Mkfifo(fifoPath, 0666); err != nil {
-		r.log.Error("Error creating pipe")
-		return nil, big.NewInt(0), fmt.Errorf("failed to create log pipe: %w", err)
-	}
-
-	// Start the Reader BEFORE the Writer.
-	// Linux FIFOs block the 'open' call until both ends are connected.
-	// Starting this goroutine prevents the main thread from deadlocking during runtime Instantiate, which writes.
-	go func() {
-    	r.log.Warn("entering go routine")
-		// This call blocks until Wasmtime connects as the writer
-		file, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
-		if err != nil {
-			r.log.Warn("Could not open pipe %s, err: %w", fifoPath, err)
-			return
-		}
-		r.log.Warn("opened pipe for reading")
-
-		// immediate unlink: the connection is established, so we remove the
-		// file path immediately. The data stream survives because the file
-		// descriptors are open, but the file is physically gone from the file system.
-		_ = os.Remove(fifoPath)
-
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		r.log.Warn("starting reading pipe")
-		for scanner.Scan() {
-			r.log.Info("Wasm Guest [%d]: %s", appId, scanner.Text())
-		}
-	}()
-
-	r.log.Warn("Installing pipe")
-	// Configure WASI to use the 'write' end of our pipe
-	err = wasiConfig.SetStdoutFile(fifoPath)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to install stdout pipe: %w", err)
-	}
-	r.log.Warn("Installed pipe 1/2")
-
-	err = wasiConfig.SetStderrFile(fifoPath)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to install stderr pipe: %w", err)
-	}
-	r.log.Warn("Installed pipe 2/2")
-
-	// attach WASI config to the store
-	store.SetWasi(wasiConfig)
 
 	// Instantiate the module using the module-specific store
 	instance, err := linker.Instantiate(store, module)
@@ -795,4 +734,78 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 	// that is allocated in marshal/unmarshall process, but we can leave with that
 
 	return mem_size, total_bytes, nil
+}
+
+func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.ApplicationIdType, store *wasmtime.Store) error {
+	// TODO: we should implement and call a cleanup function somewhere to unload a module otherwise we might leak also file descriptors.
+	// Because the wasmtime map holds the reference to a module, the GC cannot touch the module and all associated resources.
+	//  Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
+	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
+
+	// create a new WASI config
+	wasiConfig := wasmtime.NewWasiConfig()
+
+	// Make the WASI instance inherit the host stdout/stderr (so println()/fmt.Print from the guest appear here)
+	wasiConfig.InheritStdout()
+	wasiConfig.InheritStderr()
+
+	// Create a named pipe to capture WASI output
+	r.log.Warn("Creating pipe")
+	// add a nanosecond timestamp to the path to prevent collisions between concurrent module loads
+	fifoPath := fmt.Sprintf("/tmp/wasm_log_%d_%d", appId, time.Now().UnixNano())
+
+	// should never happen, but ensure no stale file exists otherwise we will hit an error
+	_ = os.Remove(fifoPath)
+
+	// Create the FIFO (Named Pipe)
+	if err := syscall.Mkfifo(fifoPath, 0666); err != nil {
+		r.log.Error("Error creating pipe")
+		return fmt.Errorf("failed to create log pipe: %w", err)
+	}
+
+	// Start the Reader BEFORE the Writer.
+	// Linux FIFOs block the 'open' call until both ends are connected.
+	// Starting this goroutine prevents the main thread from deadlocking during runtime Instantiate, which writes.
+	go func() {
+		r.log.Warn("entering go routine")
+		// This call blocks until Wasmtime connects as the writer
+		file, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
+		if err != nil {
+			r.log.Warn("Could not open pipe %s, err: %w", fifoPath, err)
+			return
+		}
+		r.log.Warn("opened pipe for reading")
+
+		// immediate unlink: the connection is established, so we remove the
+		// file path immediately. The data stream survives because the file
+		// descriptors are open, but the file is physically gone from the file system.
+		_ = os.Remove(fifoPath)
+
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		r.log.Warn("starting reading pipe")
+		for scanner.Scan() {
+			r.log.Info("Wasm Guest [%d]: %s", appId, scanner.Text())
+		}
+	}()
+
+	r.log.Warn("Installing pipe")
+	// Configure WASI to use the 'write' end of our pipe
+	err := wasiConfig.SetStdoutFile(fifoPath)
+	if err != nil {
+		return fmt.Errorf("failed to install stdout pipe: %w", err)
+	}
+	r.log.Warn("Installed pipe 1/2")
+
+	err = wasiConfig.SetStderrFile(fifoPath)
+	if err != nil {
+		return fmt.Errorf("failed to install stderr pipe: %w", err)
+	}
+	r.log.Warn("Installed pipe 2/2")
+
+	// attach WASI config to the store
+	store.SetWasi(wasiConfig)
+
+	return nil
 }
