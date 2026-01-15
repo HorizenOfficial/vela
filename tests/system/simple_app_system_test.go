@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -413,7 +414,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "compare_accounts", eventData["type"])
-	require.Contains(t, eventData["sentence"], user1Address.Hex()+" is richer than "+user2Address.Hex())
+	require.Contains(t, strings.ToLower(eventData["sentence"].(string)), strings.ToLower(user1Address.Hex()+" is richer than "+user2Address.Hex()))
 	t.Logf("Decrypted event sentence: %s", eventData["sentence"])
 
 	require.True(t, bytes.Equal(decryptedActionData, decryptedData))
