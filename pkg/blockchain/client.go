@@ -11,8 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
@@ -29,7 +27,6 @@ import (
 //go:generate mkdir -p ./contracts/tee
 //go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
-
 
 type ChainClient interface {
 	ethereum.BlockNumberReader
@@ -419,81 +416,6 @@ func (c *BlockChainClient) Close() error {
 	return nil
 }
 
-// GetUserEvents scans UserEvent logs backwards and returns all the events that are decryptable with the given key
-// privKey: user key that will be used to decrypt events
-// applicationId: filter events by the given applicationId
-// fromBlock: block from which the function search events
-// toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
-// f: optional filter function for decrypted events
-// stopAtFirst: bool flag to stop at first found event
-func (c *BlockChainClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, eventSubType string, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	EMPTY := [][]byte{}
-
-	if !c.connected {
-		return EMPTY, fmt.Errorf("client not connected, call Connect first")
-	}
-
-	contractAddr := c.processorAddress
-	//check from block
-
-	fromBlock, err := c.checkQueryFromBlock(ctx, fromBlock, toBlock)
-	if err != nil {
-		return EMPTY, err
-	}
-
-	//retrieve tee public key (needed to decrypt)
-	importedPubSecp521r1, err := c.GetTeePublicKey(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("cannot get public key: %w", err)
-	}
-
-	//needed for event filter
-	userEventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointUserEventEventName)
-
-	appIdHash := applicationId.ToHash()
-	topicsHash := [][]ethCommon.Hash{{userEventSig}, {appIdHash}}
-	if eventSubType != "" {
-		eventSubTypeHash := ethCrypto.Keccak256Hash([]byte(eventSubType))
-		topicsHash = append(topicsHash, []ethCommon.Hash{eventSubTypeHash})
-	}
-
-	var events [][]byte
-	query := ethereum.FilterQuery{
-		Addresses: []ethCommon.Address{contractAddr},
-		FromBlock: new(big.Int).SetUint64(toBlock),
-		ToBlock:   new(big.Int).SetUint64(fromBlock),
-		Topics:    topicsHash,
-	}
-
-	logs, err := c.client.FilterLogs(ctx, query)
-	if err != nil {
-		return EMPTY, fmt.Errorf("failed to filter logs: %w", err)
-	}
-
-	for i := len(logs) - 1; i >= 0; i-- { //backwards search
-		vLog := logs[i]
-		if !vLog.Removed {
-			event, err := c.processorEndpoint.UnpackUserEventEvent(&vLog)
-			if err != nil {
-				continue
-			}
-			decrypted, err := crypto.Decrypt(importedPubSecp521r1, &privKey, event.EncryptedData)
-			if err == nil && (filter == nil || filter(decrypted)) {
-				//found decryptable event that pass filter function
-				events = append(events, decrypted)
-				if stopAtFirst {
-					return events, nil
-				}
-			}
-
-		}
-	}
-	return events, nil
-}
-
 func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -512,87 +434,4 @@ func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.Pu
 		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
 	}
 	return crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
-}
-
-func (c *BlockChainClient) checkQueryFromBlock(ctx context.Context, fromBlock uint64, toBlock uint64) (uint64, error) {
-	if fromBlock == 0 {
-		latestBlock, err := c.client.BlockNumber(ctx)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get latest block number: %w", err)
-		}
-		fromBlock = latestBlock
-	}
-
-	if fromBlock < toBlock {
-		return 0, fmt.Errorf("fromBlock should be >= than toBlock")
-	}
-
-	return fromBlock, nil
-}
-
-// GetRequestCompletedEvent looks for the RequestCompleted event for the given request in the given block range and returns if the request was successful or failed
-// requestID: identifier of the request
-// fromBlock: block from which the function search events
-// toBlock: block until which the function search events. Note that fromBlock >= toBlock (backwards search)
-func (c *BlockChainClient) GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return nil, fmt.Errorf("client not connected, call Connect first")
-	}
-
-	fromBlock, err := c.checkQueryFromBlock(ctx, fromBlock, toBlock)
-	if err != nil {
-		return nil, err
-	}
-
-	reqIdHash := ethCommon.BytesToHash(requestID[:])
-
-	eventSig := c.processorEndpoint.GetEventID(processorendpoint.ProcessorEndpointRequestCompletedEventName)
-	topicsHash := [][]ethCommon.Hash{{eventSig}, {reqIdHash}}
-
-	query := ethereum.FilterQuery{
-		Addresses: []ethCommon.Address{c.processorAddress},
-		FromBlock: new(big.Int).SetUint64(toBlock),
-		ToBlock:   new(big.Int).SetUint64(fromBlock),
-		Topics:    topicsHash,
-	}
-
-	logs, err := c.client.FilterLogs(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to filter logs: %w", err)
-	}
-
-	valid_logs := make([]types.Log, 0)
-
-	for _, log := range logs {
-		if !log.Removed {
-			valid_logs = append(valid_logs, log)
-		}
-	}
-
-	if len(valid_logs) == 0 {
-		return nil, nil
-	}
-
-	if len(valid_logs) > 1 {
-		return nil, fmt.Errorf("found more than 1 log for requestID: %s", requestID)
-	}
-
-	event, err := c.processorEndpoint.UnpackRequestCompletedEvent(&valid_logs[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to unpack log: %w", err)
-	}
-
-	status, err := common.UInt8ToRequestResultStatus(event.Status)
-	if err != nil {
-		return nil, fmt.Errorf("unknown status: %w", err)
-	}
-
-	return &common.RequestResult{
-		Status:       status,
-		ErrorCode:    event.ErrorCode,
-		ErrorMessage: event.ErrorMessage,
-	}, nil
 }

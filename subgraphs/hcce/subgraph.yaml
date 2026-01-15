@@ -4,7 +4,7 @@ indexerHints:
 schema:
   file: ./schema.graphql
 dataSources:
-  - kind: ethereum
+  - kind: ethereum/contract
     name: ProcessorEndpoint
     network: horizen-testnet
     source:

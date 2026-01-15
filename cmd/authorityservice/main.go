@@ -15,6 +15,7 @@ import (
 	"github.com/horizen-pes/pkg/authorityservice"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/subgraph"
 )
 
 func createBlockchainClient(cfg *authorityservice.Config) (blockchain.Client, error) {
@@ -79,6 +80,11 @@ func main() {
 		return
 	}
 
+	if strings.TrimSpace(cfg.SubgraphURL) == "" {
+		log.Error("Subgraph URL is not configured")
+		return
+	}
+
 	bc, err := createBlockchainClient(cfg)
 	if err != nil {
 		log.Error("Failed to create blockchain client: %v", err)
@@ -98,7 +104,9 @@ func main() {
 		}
 	}()
 
-	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, bc, cfg.EventQueryBatchSize, cfg.EventQueryMaxBatches, log)
+	sg := subgraph.NewClient(cfg.SubgraphURL)
+
+	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, sg, log)
 	if err != nil {
 		log.Error("Failed to create authority service: %v", err)
 		return

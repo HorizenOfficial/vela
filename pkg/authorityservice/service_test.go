@@ -16,10 +16,10 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/authorityservice/api"
-	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/subgraph"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +27,22 @@ func newTestService(t *testing.T, chainID uint64, ttl time.Duration, fixedTime t
 	return newTestServiceWithEvent(t, chainID, ttl, fixedTime, nil)
 }
 
-func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time, eventFn func(context.Context, common.RequestIdType, uint64, uint64) (*common.RequestResult, error)) *AuthorityService {
+type stubSubgraphClient struct {
+	getRequestCompleted func(context.Context, common.RequestIdType) (*subgraph.RequestCompleted, error)
+}
+
+func (s stubSubgraphClient) GetRequestCompletedByID(ctx context.Context, id common.RequestIdType) (*subgraph.RequestCompleted, error) {
+	if s.getRequestCompleted != nil {
+		return s.getRequestCompleted(ctx, id)
+	}
+	return &subgraph.RequestCompleted{RequestID: id, Status: common.RequestResultOK}, nil
+}
+
+func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdType, string, int) ([]subgraph.UserEvent, error) {
+	return nil, nil
+}
+
+func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time, eventFn func(context.Context, common.RequestIdType) (*subgraph.RequestCompleted, error)) *AuthorityService {
 	t.Helper()
 	dir := t.TempDir()
 	testLogger := logger.NewLogger(
@@ -40,15 +55,9 @@ func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fi
 			//FileLevel:    "info",
 		},
 	)
-	mockBlockchain := blockchain.NewMockClient()
-	if eventFn == nil {
-		eventFn = func(_ context.Context, _ common.RequestIdType, _ uint64, _ uint64) (*common.RequestResult, error) {
-			return &common.RequestResult{Status: common.RequestResultOK}, nil
-		}
-	}
-	mockBlockchain.AddMockedFunc("GetRequestCompletedEvent", eventFn)
-	mockBlockchain.SetBlockNumber(1)
-	svc, err := NewAuthorityService(chainID, ttl, dir, mockBlockchain, 100_000, 10, testLogger)
+	var sgClient subgraph.Client = stubSubgraphClient{getRequestCompleted: eventFn}
+
+	svc, err := NewAuthorityService(chainID, ttl, dir, sgClient, testLogger)
 	require.NoError(t, err)
 	svc.secret = bytes.Repeat([]byte{0x01}, 32)
 	svc.clock = func() time.Time { return fixedTime }
@@ -439,42 +448,10 @@ func TestHandleGetReportAuthorityMismatch(t *testing.T) {
 	require.Contains(t, rr.Body.String(), "forbidden")
 }
 
-func TestFindCompletionEventBatchedLookup(t *testing.T) {
-	chainID := uint64(42)
-	log := logger.NewLogger(
-		&logger.Config{
-			Kind:         "zerolog",
-			ConsoleColor: false,
-			Console:      true,
-			ConsoleLevel: "trace",
-		},
-	)
-	defer log.Close()
-
-	mockBlockchain := blockchain.NewMockClient()
-	mockBlockchain.SetBlockNumber(250_000)
-	callCount := 0
-	mockBlockchain.AddMockedFunc("GetRequestCompletedEvent", func(_ context.Context, _ common.RequestIdType, _ uint64, toBlock uint64) (*common.RequestResult, error) {
-		callCount++
-		if toBlock == 50_001 {
-			return &common.RequestResult{Status: common.RequestResultOK}, nil
-		}
-		return nil, nil
-	})
-
-	svc, err := NewAuthorityService(chainID, time.Minute, t.TempDir(), mockBlockchain, 100_000, 3, log)
-	require.NoError(t, err)
-
-	event, err := svc.findCompletionEvent(context.Background(), testutil.GenerateRandomRequestID())
-	require.NoError(t, err)
-	require.NotNil(t, event)
-	require.Equal(t, 2, callCount)
-}
-
 func TestHandleGetReportNotConfirmedOnChain(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
-	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType, _ uint64, _ uint64) (*common.RequestResult, error) {
+	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType) (*subgraph.RequestCompleted, error) {
 		return nil, nil
 	})
 
@@ -518,8 +495,8 @@ func TestHandleGetReportNotConfirmedOnChain(t *testing.T) {
 func TestHandleGetReportOnChainFailed(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
-	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType, _ uint64, _ uint64) (*common.RequestResult, error) {
-		return &common.RequestResult{Status: common.RequestResultFailed}, nil
+	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType) (*subgraph.RequestCompleted, error) {
+		return &subgraph.RequestCompleted{Status: common.RequestResultFailed}, nil
 	})
 
 	saltHex := "00112233445566778899aabbccddeeff"
@@ -562,7 +539,7 @@ func TestHandleGetReportOnChainFailed(t *testing.T) {
 func TestHandleGetReportOnChainError(t *testing.T) {
 	chainID := uint64(42)
 	now := time.Unix(1_700_000_000, 0)
-	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType, _ uint64, _ uint64) (*common.RequestResult, error) {
+	svc := newTestServiceWithEvent(t, chainID, time.Minute, now, func(_ context.Context, _ common.RequestIdType) (*subgraph.RequestCompleted, error) {
 		return nil, fmt.Errorf("boom")
 	})
 

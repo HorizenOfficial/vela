@@ -17,51 +17,41 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/horizen-pes/pkg/authorityservice/api"
-	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/subgraph"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.
 type AuthorityService struct {
-	secret           []byte
-	nonceTTL         time.Duration
-	chainID          uint64
-	reportPath       string
-	blockchainClient blockchain.Client
-	eventBatchSize   uint64
-	eventMaxBatches  int
-	clock            func() time.Time
-	log              logger.Logger
+	secret         []byte
+	nonceTTL       time.Duration
+	chainID        uint64
+	reportPath     string
+	subgraphClient subgraph.Client
+	clock          func() time.Time
+	log            logger.Logger
 }
 
 // NewAuthorityService builds a new service instance.
-func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, bc blockchain.Client, eventBatchSize uint64, eventMaxBatches int, log logger.Logger) (*AuthorityService, error) {
+func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, sg subgraph.Client, log logger.Logger) (*AuthorityService, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC secret: %w", err)
 	}
 
-	if bc == nil {
-		return nil, fmt.Errorf("blockchain client is required")
-	}
-	if eventBatchSize == 0 {
-		eventBatchSize = 100_000
-	}
-	if eventMaxBatches <= 0 {
-		eventMaxBatches = 1
+	if sg == nil {
+		return nil, fmt.Errorf("subgraph client is required")
 	}
 
 	return &AuthorityService{
-		secret:           secret,
-		nonceTTL:         nonceTTL,
-		chainID:          chainID,
-		reportPath:       reportPath,
-		blockchainClient: bc,
-		eventBatchSize:   eventBatchSize,
-		eventMaxBatches:  eventMaxBatches,
-		clock:            time.Now,
-		log:              log,
+		secret:         secret,
+		nonceTTL:       nonceTTL,
+		chainID:        chainID,
+		reportPath:     reportPath,
+		subgraphClient: sg,
+		clock:          time.Now,
+		log:            log,
 	}, nil
 }
 
@@ -73,39 +63,20 @@ func (s *AuthorityService) Handler() http.Handler {
 	return mux
 }
 
-// findCompletionEvent paginates backward from the tip to find a RequestCompleted event within configured window.
+// findCompletionEvent queries the subgraph for the RequestCompleted event.
 func (s *AuthorityService) findCompletionEvent(ctx context.Context, reportID common.RequestIdType) (*common.RequestResult, error) {
-	latest, err := s.blockchainClient.LatestBlockNumber(ctx)
+	event, err := s.subgraphClient.GetRequestCompletedByID(ctx, reportID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest block number: %w", err)
+		return nil, err
 	}
-
-	currentEnd := latest
-	for i := 0; i < s.eventMaxBatches; i++ {
-		var start uint64
-		if currentEnd > s.eventBatchSize {
-			start = currentEnd
-			currentEnd = currentEnd - s.eventBatchSize + 1
-		} else {
-			start = currentEnd
-			currentEnd = 0
-		}
-
-		event, err := s.blockchainClient.GetRequestCompletedEvent(ctx, reportID, start, currentEnd)
-		if err != nil {
-			return nil, err
-		}
-		if event != nil {
-			return event, nil
-		}
-		if currentEnd == 0 {
-			break
-		}
-		// Move to the previous block for the next window.
-		currentEnd--
+	if event == nil {
+		return nil, nil
 	}
-
-	return nil, nil
+	return &common.RequestResult{
+		Status:       event.Status,
+		ErrorCode:    event.ErrorCode,
+		ErrorMessage: event.ErrorMessage,
+	}, nil
 }
 
 func (s *AuthorityService) handleNonce(w http.ResponseWriter, r *http.Request) {
