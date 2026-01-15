@@ -1,6 +1,7 @@
 package wasm
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -8,7 +9,9 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"os"
 	"sync"
+	"syscall"
 
 	"github.com/bytecodealliance/wasmtime-go"
 	ethCommon "github.com/ethereum/go-ethereum/common"
@@ -236,15 +239,60 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
 	}
 
-	// Attach WASI config to the store
+	// create a new WASI config
 	wasiConfig := wasmtime.NewWasiConfig()
 
 	// Make the WASI instance inherit the host stdout/stderr (so println()/fmt.Print from the guest appear here)
 	wasiConfig.InheritStdout()
 	wasiConfig.InheritStderr()
-	// TODO we could open temporary stdout/stderr files instead. Could we also redirect it to a logger? Maybe reading the temporary file etc...
-	// wasiConfig.SetStdoutFile(file)
 
+	r.log.Warn("Creating pipe")
+	// Create a named pipe to capture WASI output
+	fifoPath := fmt.Sprintf("/tmp/wasm_log_%d", appId)
+	err = syscall.Mkfifo(fifoPath, 0666)
+	if err != nil {
+		r.log.Error("Error creating pipe")
+		return nil, big.NewInt(0), fmt.Errorf("failed to create fifo: %w", err)
+	}
+	// handle the life of the file name in the parent thread to be on the safe side
+	defer os.Remove(fifoPath)
+
+	// Read from the FIFO in the background and redirect traces to log system
+	// Note: be sure to start reading in a goroutine first of instantiating the runtime instance because opening a FIFO for writing
+	// will block the main thread until a reader is connected!!
+	go func() {
+		r.log.Warn("entering go routine")
+		file, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
+		if err != nil {
+			r.log.Warn("Could not open pipe %s, err: %w", fifoPath, err)
+			return
+		}
+		r.log.Warn("opened pipe for reading")
+		defer os.Remove(fifoPath)
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		r.log.Warn("starting reading pipe")
+		for scanner.Scan() {
+			r.log.Info("Wasm Guest [%d]: %s", appId, scanner.Text())
+		}
+	}()
+
+	r.log.Warn("Installing pipe")
+	// Configure WASI to use the 'write' end of our pipe
+	err = wasiConfig.SetStdoutFile(fifoPath)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to install stdout pipe: %w", err)
+	}
+	r.log.Warn("Installed pipe 1/2")
+
+	err = wasiConfig.SetStderrFile(fifoPath)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to install stderr pipe: %w", err)
+	}
+	r.log.Warn("Installed pipe 2/2")
+
+	// attach WASI config to the store
 	store.SetWasi(wasiConfig)
 
 	// Instantiate the module using the module-specific store
