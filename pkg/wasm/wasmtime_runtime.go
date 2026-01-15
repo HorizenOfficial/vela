@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/bytecodealliance/wasmtime-go"
 	ethCommon "github.com/ethereum/go-ethereum/common"
@@ -246,29 +247,38 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 	wasiConfig.InheritStdout()
 	wasiConfig.InheritStderr()
 
-	r.log.Warn("Creating pipe")
 	// Create a named pipe to capture WASI output
-	fifoPath := fmt.Sprintf("/tmp/wasm_log_%d", appId)
-	err = syscall.Mkfifo(fifoPath, 0666)
-	if err != nil {
-		r.log.Error("Error creating pipe")
-		return nil, big.NewInt(0), fmt.Errorf("failed to create fifo: %w", err)
-	}
-	// handle the life of the file name in the parent thread to be on the safe side
-	defer os.Remove(fifoPath)
+	r.log.Warn("Creating pipe")
+	// add a nanosecond timestamp to the path to prevent collisions between concurrent module loads
+	fifoPath := fmt.Sprintf("/tmp/wasm_log_%d_%d", appId, time.Now().UnixNano())
 
-	// Read from the FIFO in the background and redirect traces to log system
-	// Note: be sure to start reading in a goroutine first of instantiating the runtime instance because opening a FIFO for writing
-	// will block the main thread until a reader is connected!!
+	// should never happen, but ensure no stale file exists otherwise we will hit an error
+	_ = os.Remove(fifoPath)
+
+	// Create the FIFO (Named Pipe)
+	if err := syscall.Mkfifo(fifoPath, 0666); err != nil {
+		r.log.Error("Error creating pipe")
+		return nil, big.NewInt(0), fmt.Errorf("failed to create log pipe: %w", err)
+	}
+
+	// Start the Reader BEFORE the Writer.
+	// Linux FIFOs block the 'open' call until both ends are connected.
+	// Starting this goroutine prevents the main thread from deadlocking during runtime Instantiate, which writes.
 	go func() {
-		r.log.Warn("entering go routine")
+    	r.log.Warn("entering go routine")
+		// This call blocks until Wasmtime connects as the writer
 		file, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
 		if err != nil {
 			r.log.Warn("Could not open pipe %s, err: %w", fifoPath, err)
 			return
 		}
 		r.log.Warn("opened pipe for reading")
-		defer os.Remove(fifoPath)
+
+		// immediate unlink: the connection is established, so we remove the
+		// file path immediately. The data stream survives because the file
+		// descriptors are open, but the file is physically gone from the file system.
+		_ = os.Remove(fifoPath)
+
 		defer file.Close()
 
 		scanner := bufio.NewScanner(file)
