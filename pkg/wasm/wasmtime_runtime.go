@@ -745,12 +745,8 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	// create a new WASI config
 	wasiConfig := wasmtime.NewWasiConfig()
 
-	// Make the WASI instance inherit the host stdout/stderr (so println()/fmt.Print from the guest appear here)
-	wasiConfig.InheritStdout()
-	wasiConfig.InheritStderr()
-
 	// Create a named pipe to capture WASI output
-	r.log.Warn("Creating pipe")
+	r.log.Info("Creating named log pipe")
 	// add a nanosecond timestamp to the path to prevent collisions between concurrent module loads
 	fifoPath := fmt.Sprintf("/tmp/wasm_log_%d_%d", appId, time.Now().UnixNano())
 
@@ -763,22 +759,31 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		return fmt.Errorf("failed to create log pipe: %w", err)
 	}
 
-	// Start the Reader BEFORE the Writer.
+	// synchronization channel used to ensure the Reader is ready before we let the Writer (Wasmtime) try to connect.
+	readyCh := make(chan error, 1)
+
+	// Start the Reader pipe (host) BEFORE the Writer one (guest)
 	// Linux FIFOs block the 'open' call until both ends are connected.
 	// Starting this goroutine prevents the main thread from deadlocking during runtime Instantiate, which writes.
 	go func() {
-		r.log.Warn("entering go routine")
-		// This call blocks until Wasmtime connects as the writer
+		r.log.Info("entering go routine for pipe reading")
+		// This call blocks until Wasmtime connects to the other pipe end as the writer
 		file, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
 		if err != nil {
-			r.log.Warn("Could not open pipe %s, err: %w", fifoPath, err)
+			r.log.Error("Could not open pipe %s, err: %w", fifoPath, err)
+			// Signal failure so main thread doesn't hang
+			readyCh <- err
+			// Cleanup the file since we failed to open it
+			_ = os.Remove(fifoPath)
 			return
 		}
-		r.log.Warn("opened pipe for reading")
+		// Signal success to main thread
+		readyCh <- nil
 
 		// immediate unlink: the connection is established, so we remove the
 		// file path immediately. The data stream survives because the file
 		// descriptors are open, but the file is physically gone from the file system.
+		r.log.Info("opened pipe for reading, now unlink the file %s", fifoPath)
 		_ = os.Remove(fifoPath)
 
 		defer file.Close()
@@ -790,19 +795,19 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		}
 	}()
 
-	r.log.Warn("Installing pipe")
+	r.log.Info("Installing log pipes")
 	// Configure WASI to use the 'write' end of our pipe
 	err := wasiConfig.SetStdoutFile(fifoPath)
 	if err != nil {
-		return fmt.Errorf("failed to install stdout pipe: %w", err)
+		return fmt.Errorf("failed to install stdout to pipe: %w", err)
 	}
-	r.log.Warn("Installed pipe 1/2")
+	r.log.Info("Installed stdout log pipe")
 
 	err = wasiConfig.SetStderrFile(fifoPath)
 	if err != nil {
-		return fmt.Errorf("failed to install stderr pipe: %w", err)
+		return fmt.Errorf("failed to install stderr to pipe: %w", err)
 	}
-	r.log.Warn("Installed pipe 2/2")
+	r.log.Info("Installed stderr log pipe")
 
 	// attach WASI config to the store
 	store.SetWasi(wasiConfig)
