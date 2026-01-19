@@ -35,6 +35,7 @@ type ApplicationModule struct {
 	instance   *wasmtime.Instance
 	memory     *wasmtime.Memory
 	deallocate *wasmtime.Func
+	pipeFd     *os.File
 }
 
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
@@ -232,7 +233,7 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 
 	// Create a per-module store
 	store := wasmtime.NewStore(r.engine)
-	err = r.configureWasiLogPipes(ctx, appId, store)
+	err, cleanup := r.configureWasiLogPipes(ctx, appId, store)
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
 	}
@@ -241,12 +242,14 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	linker := wasmtime.NewLinker(r.engine)
 	err = linker.DefineWasi()
 	if err != nil {
+		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
 	}
 
 	// Instantiate the module using the module-specific store
 	instance, err := linker.Instantiate(store, module)
 	if err != nil {
+		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}
 
@@ -255,17 +258,20 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	// check for instance WAT (WebAssembly text format) generated via wasm2wat tool
 	memoryExport := instance.GetExport(store, "memory")
 	if memoryExport == nil {
+		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("memory export not found in WASM module")
 	}
 
 	memory := memoryExport.Memory()
 	if memory == nil {
+		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("memory export is not a memory")
 	}
 
 	// Get the load_module function
 	loadModuleFunc := instance.GetFunc(store, "load_module")
 	if loadModuleFunc == nil {
+		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("load_module function not found in WASM module")
 	}
 
@@ -278,6 +284,8 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 		instance:   instance,
 		memory:     memory,
 		deallocate: deallocateFunc,
+		// TODO add cleanup
+		//	pipeFd:     file,
 	}
 
 	// Call the load_module function
@@ -620,6 +628,10 @@ func (r *WasmtimeRuntime) Close() error {
 		if module.store != nil {
 			module.store = nil
 		}
+		if module.pipeFd != nil {
+			module.pipeFd.Close()
+			module.pipeFd = nil
+		}
 		delete(r.modules, appId)
 	}
 
@@ -736,12 +748,7 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 	return mem_size, total_bytes, nil
 }
 
-func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.ApplicationIdType, store *wasmtime.Store) error {
-	// TODO: we should implement and call a cleanup function somewhere to unload a module otherwise we might leak also file descriptors.
-	// Because the wasmtime map holds the reference to a module, the GC cannot touch the module and all associated resources.
-	//  Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
-	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
-
+func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.ApplicationIdType, store *wasmtime.Store) (error, func()) {
 	// create a new WASI config
 	wasiConfig := wasmtime.NewWasiConfig()
 
@@ -756,61 +763,95 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	// Create the FIFO (Named Pipe)
 	if err := syscall.Mkfifo(fifoPath, 0666); err != nil {
 		r.log.Error("Error creating pipe")
-		return fmt.Errorf("failed to create log pipe: %w", err)
+		return fmt.Errorf("failed to create log pipe: %w", err), nil
 	}
 
-	// synchronization channel used to ensure the Reader is ready before we let the Writer (Wasmtime) try to connect.
-	readyCh := make(chan error, 1)
+	// we use this for avoid that the Reader OpenFile(O_RDONLY) blocks waiting for the WASI writer to connect
+	// this Dummy writer must stay open until cleanup, otherwise will send EOF to the scanner below
+	// (reader blocking is potentially dangerous in edge cases on some error path for races, resource dangling and panics)
+	dummyWriter, err := os.OpenFile(fifoPath, os.O_RDWR, 0600)
+	if err != nil {
+		_ = os.Remove(fifoPath)
+		return fmt.Errorf("failed to open dummy fifo writer: %w", err), nil
+	}
 
-	// Start the Reader pipe (host) BEFORE the Writer one (guest)
-	// Linux FIFOs block the 'open' call until both ends are connected.
-	// Starting this goroutine prevents the main thread from deadlocking during runtime Instantiate, which writes.
+	var readerFile *os.File
+	readyCh := make(chan error, 1)
 	go func() {
 		r.log.Info("entering go routine for pipe reading")
-		// This call blocks until Wasmtime connects to the other pipe end as the writer
-		file, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
+		var err error
+
+		// This call would block until Wasmtime connects to the other pipe end as the writer, but to avoid problems we used
+		// the dummy writer above, therefore we are not blocking here: we will be succesful or we have an error
+		readerFile, err = os.OpenFile(fifoPath, os.O_RDONLY, 0600)
 		if err != nil {
+			readyCh <- fmt.Errorf("reader open failed: %w", err)
 			r.log.Error("Could not open pipe %s, err: %w", fifoPath, err)
-			// Signal failure so main thread doesn't hang
-			readyCh <- err
-			// Cleanup the file since we failed to open it
 			_ = os.Remove(fifoPath)
 			return
 		}
 		// Signal success to main thread
 		readyCh <- nil
 
-		// immediate unlink: the connection is established, so we remove the
-		// file path immediately. The data stream survives because the file
-		// descriptors are open, but the file is physically gone from the file system.
-		r.log.Info("opened pipe for reading, now unlink the file %s", fifoPath)
-		_ = os.Remove(fifoPath)
-
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
+		scanner := bufio.NewScanner(readerFile)
 		r.log.Warn("starting reading pipe")
 		for scanner.Scan() {
 			r.log.Info("Wasm Guest [%d]: %s", appId, scanner.Text())
 		}
 	}()
 
+	// wait for the reader to be ready
+	err = <-readyCh
+	if err != nil {
+		_ = os.Remove(fifoPath)
+		dummyWriter.Close()
+		return err, nil
+	}
+
 	r.log.Info("Installing log pipes")
 	// Configure WASI to use the 'write' end of our pipe
-	err := wasiConfig.SetStdoutFile(fifoPath)
+	err = wasiConfig.SetStdoutFile(fifoPath)
 	if err != nil {
-		return fmt.Errorf("failed to install stdout to pipe: %w", err)
+		_ = os.Remove(fifoPath)
+		_ = dummyWriter.Close()
+		_ = readerFile.Close()
+		return fmt.Errorf("failed to install stdout to pipe: %w", err), nil
 	}
 	r.log.Info("Installed stdout log pipe")
 
 	err = wasiConfig.SetStderrFile(fifoPath)
 	if err != nil {
-		return fmt.Errorf("failed to install stderr to pipe: %w", err)
+		_ = os.Remove(fifoPath)
+		_ = dummyWriter.Close()
+		_ = readerFile.Close()
+		return fmt.Errorf("failed to install stderr to pipe: %w", err), nil
 	}
 	r.log.Info("Installed stderr log pipe")
 
 	// attach WASI config to the store
 	store.SetWasi(wasiConfig)
 
-	return nil
+	// immediate Unlink (The file disappears from /tmp but data flows)
+	// this is expecially useful in the enclave environment, where we have a RAMFS file system
+	_ = os.Remove(fifoPath)
+
+	// This helper cleanup func will be used when the module is disposed of.
+	// We should call it when we unload a module otherwise we might leak file descriptors.
+	// Because the wasmtime map holds the reference to a module, the GC cannot touch the module and all associated resources.
+	//     Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
+	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
+
+	cleanup := func() {
+		// Closing this sends EOF to the scanner loop
+		if err := dummyWriter.Close(); err != nil {
+			r.log.Warn("Failed to close dummy writer FD: %v", err)
+		}
+		// Closing it frees the read FD
+		if err := readerFile.Close(); err != nil {
+			r.log.Warn("Failed to close reader FD: %v", err)
+		}
+		r.log.Debug("Logger for %d closed", appId)
+	}
+
+	return nil, cleanup
 }
