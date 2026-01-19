@@ -13,10 +13,18 @@ A timeout is used to prevent the client from waiting indefinitely for a response
 
 ## Usage
 
-You can run the tool from the command line, specifying the server connection details.
+- Build the executable from the repo root folder:
 
 ```bash
-go run cmd/key_attestation_cmd/main.go [flags]
+go build -o attestation cmd/key_attestation_cmd/main.go
+```
+
+- Upload attestation executable to the hosting machine.
+
+- Run it specifying the server connection details.
+
+```bash
+./attestation -cid 20 -port 4001 -servertype "vsocket"
 ```
 
 ### Flags
