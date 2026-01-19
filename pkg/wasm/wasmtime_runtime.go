@@ -35,7 +35,7 @@ type ApplicationModule struct {
 	instance   *wasmtime.Instance
 	memory     *wasmtime.Memory
 	deallocate *wasmtime.Func
-	pipeFd     *os.File
+	cleanupFds func()
 }
 
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
@@ -233,23 +233,28 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 
 	// Create a per-module store
 	store := wasmtime.NewStore(r.engine)
-	err, cleanup := r.configureWasiLogPipes(ctx, appId, store)
+	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
 	}
+
+	success := false
+	defer func() {
+		if !success && cleanupLogPipes != nil {
+			cleanupLogPipes()
+		}
+	}()
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
 	err = linker.DefineWasi()
 	if err != nil {
-		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
 	}
 
 	// Instantiate the module using the module-specific store
 	instance, err := linker.Instantiate(store, module)
 	if err != nil {
-		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}
 
@@ -258,25 +263,29 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	// check for instance WAT (WebAssembly text format) generated via wasm2wat tool
 	memoryExport := instance.GetExport(store, "memory")
 	if memoryExport == nil {
-		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("memory export not found in WASM module")
 	}
 
 	memory := memoryExport.Memory()
 	if memory == nil {
-		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("memory export is not a memory")
 	}
 
 	// Get the load_module function
 	loadModuleFunc := instance.GetFunc(store, "load_module")
 	if loadModuleFunc == nil {
-		cleanup()
 		return nil, big.NewInt(0), fmt.Errorf("load_module function not found in WASM module")
 	}
 
 	// Get the deallocate function (optional, but recommended for memory management)
 	deallocateFunc := instance.GetFunc(store, "deallocate")
+
+	// Call the load_module function
+	// Wasm supports only int64, so we cast appId to int64
+	result, err := loadModuleFunc.Call(store, wasmAppId)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to call load_module: %w", err)
+	}
 
 	appModule := &ApplicationModule{
 		store:      store,
@@ -284,15 +293,7 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 		instance:   instance,
 		memory:     memory,
 		deallocate: deallocateFunc,
-		// TODO add cleanup
-		//	pipeFd:     file,
-	}
-
-	// Call the load_module function
-	// Wasm supports only int64, so we cast appId to int64
-	result, err := loadModuleFunc.Call(store, wasmAppId)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to call load_module: %w", err)
+		cleanupFds: cleanupLogPipes,
 	}
 
 	// Extract the result bytes
@@ -310,6 +311,13 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	}
 	if loadResult.Error != "" {
 		return nil, big.NewInt(0), fmt.Errorf("failed to load module: %s", loadResult.Error)
+	}
+
+	success = true // Disables the deferred cleanup
+
+	// if a module already exists for this appId, clean it up before overwriting
+	if oldModule, exists := r.modules[appId]; exists {
+		oldModule.cleanupFds()
 	}
 
 	// Store the module in the runtime registry
@@ -607,6 +615,23 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	return resultBytes, nil
 }
 
+// cleanupModule releases all resources associated with a single ApplicationModule.
+func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *ApplicationModule) {
+	r.log.Info("Cleaning up module %d", appId)
+
+	if module.cleanupFds != nil {
+		module.cleanupFds()
+		module.cleanupFds = nil
+	}
+
+	// Deallocate WASM resources
+	module.instance = nil
+	module.module = nil
+	module.memory = nil
+	module.store = nil
+	module.deallocate = nil
+}
+
 // Close closes the wasmtime runtime and cleans up resources
 func (r *WasmtimeRuntime) Close() error {
 	r.log.Info("Wasmtime Runtime: Closing wasmtime runtime")
@@ -615,28 +640,30 @@ func (r *WasmtimeRuntime) Close() error {
 	defer r.moduleLock.Unlock()
 
 	for appId, module := range r.modules {
-		// clear references so GC can reclaim them
-		if module.instance != nil {
-			module.instance = nil
-		}
-		if module.module != nil {
-			module.module = nil
-		}
-		if module.memory != nil {
-			module.memory = nil
-		}
-		if module.store != nil {
-			module.store = nil
-		}
-		if module.pipeFd != nil {
-			module.pipeFd.Close()
-			module.pipeFd = nil
-		}
+		r.cleanupModule(appId, module)
 		delete(r.modules, appId)
 	}
 
 	r.engine = nil
 	r.log.Info("Wasmtime Runtime: Wasmtime runtime closed successfully")
+	return nil
+}
+
+// UnloadModule unloads a WASM module and frees its resources (not used so far - TODO use it).
+func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	module, exists := r.modules[appId]
+	if !exists {
+		r.log.Warn("UnloadModule: module %d not found", appId)
+		return nil
+	}
+
+	r.cleanupModule(appId, module)
+	delete(r.modules, appId)
+
+	r.log.Info("Module %d unloaded successfully", appId)
 	return nil
 }
 
@@ -748,7 +775,7 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 	return mem_size, total_bytes, nil
 }
 
-func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.ApplicationIdType, store *wasmtime.Store) (error, func()) {
+func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.ApplicationIdType, store *wasmtime.Store) (func(), error) {
 	// create a new WASI config
 	wasiConfig := wasmtime.NewWasiConfig()
 
@@ -763,7 +790,31 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	// Create the FIFO (Named Pipe)
 	if err := syscall.Mkfifo(fifoPath, 0666); err != nil {
 		r.log.Error("Error creating pipe")
-		return fmt.Errorf("failed to create log pipe: %w", err), nil
+		return nil, fmt.Errorf("failed to create log pipe: %w", err)
+	}
+
+	var readerFile *os.File
+	var dummyWriter *os.File
+
+	// This helper cleanup func will be also used when the module is disposed of.
+	// We should call it when we unload a module otherwise we might leak file descriptors.
+	// Because the wasmtime map holds the reference to a module, the GC cannot touch the module and all associated resources.
+	//     Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
+	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
+	cleanupFileDescriptors := func() {
+		r.log.Info("Closing log pipe FDs")
+		if dummyWriter != nil {
+			// Closing this sends EOF to the scanner loop
+			if err := dummyWriter.Close(); err != nil {
+				r.log.Warn("Failed to close dummy writer FD: %v", err)
+			}
+		}
+		if readerFile != nil {
+			// Closing it frees the read FD
+			if err := readerFile.Close(); err != nil {
+				r.log.Warn("Failed to close reader FD: %v", err)
+			}
+		}
 	}
 
 	// we use this for avoid that the Reader OpenFile(O_RDONLY) blocks waiting for the WASI writer to connect
@@ -772,10 +823,9 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	dummyWriter, err := os.OpenFile(fifoPath, os.O_RDWR, 0600)
 	if err != nil {
 		_ = os.Remove(fifoPath)
-		return fmt.Errorf("failed to open dummy fifo writer: %w", err), nil
+		return nil, fmt.Errorf("failed to open dummy fifo writer: %w", err)
 	}
 
-	var readerFile *os.File
 	readyCh := make(chan error, 1)
 	go func() {
 		r.log.Info("entering go routine for pipe reading")
@@ -800,58 +850,35 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		}
 	}()
 
+	// immediate Unlink (The file disappears from /tmp but data flows)
+	// this is expecially useful in the enclave environment, where we have a RAMFS file system
+	defer os.Remove(fifoPath)
+
 	// wait for the reader to be ready
 	err = <-readyCh
 	if err != nil {
-		_ = os.Remove(fifoPath)
-		dummyWriter.Close()
-		return err, nil
+		cleanupFileDescriptors()
+		return nil, err
 	}
 
 	r.log.Info("Installing log pipes")
 	// Configure WASI to use the 'write' end of our pipe
 	err = wasiConfig.SetStdoutFile(fifoPath)
 	if err != nil {
-		_ = os.Remove(fifoPath)
-		_ = dummyWriter.Close()
-		_ = readerFile.Close()
-		return fmt.Errorf("failed to install stdout to pipe: %w", err), nil
+		cleanupFileDescriptors()
+		return nil, fmt.Errorf("failed to install stdout to pipe: %w", err)
 	}
 	r.log.Info("Installed stdout log pipe")
 
 	err = wasiConfig.SetStderrFile(fifoPath)
 	if err != nil {
-		_ = os.Remove(fifoPath)
-		_ = dummyWriter.Close()
-		_ = readerFile.Close()
-		return fmt.Errorf("failed to install stderr to pipe: %w", err), nil
+		cleanupFileDescriptors()
+		return nil, fmt.Errorf("failed to install stderr to pipe: %w", err)
 	}
 	r.log.Info("Installed stderr log pipe")
 
 	// attach WASI config to the store
 	store.SetWasi(wasiConfig)
 
-	// immediate Unlink (The file disappears from /tmp but data flows)
-	// this is expecially useful in the enclave environment, where we have a RAMFS file system
-	_ = os.Remove(fifoPath)
-
-	// This helper cleanup func will be used when the module is disposed of.
-	// We should call it when we unload a module otherwise we might leak file descriptors.
-	// Because the wasmtime map holds the reference to a module, the GC cannot touch the module and all associated resources.
-	//     Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
-	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
-
-	cleanup := func() {
-		// Closing this sends EOF to the scanner loop
-		if err := dummyWriter.Close(); err != nil {
-			r.log.Warn("Failed to close dummy writer FD: %v", err)
-		}
-		// Closing it frees the read FD
-		if err := readerFile.Close(); err != nil {
-			r.log.Warn("Failed to close reader FD: %v", err)
-		}
-		r.log.Debug("Logger for %d closed", appId)
-	}
-
-	return nil, cleanup
+	return cleanupFileDescriptors, nil
 }
