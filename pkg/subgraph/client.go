@@ -120,18 +120,22 @@ type userEventsResponse struct {
 	} `json:"userEvents"`
 }
 
-func (c *client) GetUserEvents(ctx context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int) ([]UserEvent, error) {
+func (c *client) GetUserEvents(ctx context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, skip int) ([]UserEvent, error) {
 	if limit <= 0 {
 		limit = 10
 	}
+	if skip < 0 {
+		return nil, fmt.Errorf("invalid skip %d", skip)
+	}
 
 	query := `
-query($applicationId: BigInt!, $limit: Int!) {
+query($applicationId: BigInt!, $limit: Int!, $skip: Int!) {
   userEvents(
     where: { applicationId: $applicationId }
     orderBy: blockNumber
     orderDirection: desc
     first: $limit
+    skip: $skip
   ) {
     applicationId
     requestId
@@ -144,16 +148,18 @@ query($applicationId: BigInt!, $limit: Int!) {
 	variables := map[string]interface{}{
 		"applicationId": fmt.Sprintf("%d", uint64(applicationID)),
 		"limit":         limit,
+		"skip":          skip,
 	}
 
 	if strings.TrimSpace(eventSubType) != "" {
 		query = `
-query($applicationId: BigInt!, $eventSubType: Bytes!, $limit: Int!) {
+query($applicationId: BigInt!, $eventSubType: Bytes!, $limit: Int!, $skip: Int!) {
   userEvents(
     where: { applicationId: $applicationId, eventSubType: $eventSubType }
     orderBy: blockNumber
     orderDirection: desc
     first: $limit
+    skip: $skip
   ) {
     applicationId
     requestId

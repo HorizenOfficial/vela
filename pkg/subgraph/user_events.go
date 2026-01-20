@@ -31,25 +31,40 @@ func FetchAndDecryptUserEvents(
 	if limit <= 0 {
 		limit = 10
 	}
-
-	events, err := sg.GetUserEvents(ctx, applicationID, eventSubType, limit)
-	if err != nil {
-		return nil, err
+	// Graph nodes cap page size; clamp to avoid query errors.
+	if limit > 1000 {
+		limit = 1000
 	}
 
 	var decryptedEvents [][]byte
-	for _, ev := range events {
-		plain, err := crypto.Decrypt(teePubKey, &privKey, ev.EncryptedData)
+	skip := 0
+	for {
+		events, err := sg.GetUserEvents(ctx, applicationID, eventSubType, limit, skip)
 		if err != nil {
-			continue
+			return nil, err
 		}
-		if filter != nil && !filter(plain) {
-			continue
+		if len(events) == 0 {
+			break
 		}
-		decryptedEvents = append(decryptedEvents, plain)
-		if stopAtFirst && len(decryptedEvents) > 0 {
-			return decryptedEvents, nil
+
+		for _, ev := range events {
+			plain, err := crypto.Decrypt(teePubKey, &privKey, ev.EncryptedData)
+			if err != nil {
+				continue
+			}
+			if filter != nil && !filter(plain) {
+				continue
+			}
+			decryptedEvents = append(decryptedEvents, plain)
+			if stopAtFirst && len(decryptedEvents) > 0 {
+				return decryptedEvents, nil
+			}
 		}
+
+		if len(events) < limit {
+			break
+		}
+		skip += len(events)
 	}
 
 	return decryptedEvents, nil

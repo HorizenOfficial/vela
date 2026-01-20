@@ -38,7 +38,7 @@ func (s stubSubgraphClient) GetRequestCompletedByID(ctx context.Context, id comm
 	return &subgraph.RequestCompleted{RequestID: id, Status: common.RequestResultOK}, nil
 }
 
-func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdType, string, int) ([]subgraph.UserEvent, error) {
+func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdType, string, int, int) ([]subgraph.UserEvent, error) {
 	return nil, nil
 }
 

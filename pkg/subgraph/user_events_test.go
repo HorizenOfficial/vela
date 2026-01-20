@@ -66,3 +66,33 @@ func TestFetchAndDecryptUserEvents_Filter(t *testing.T) {
 	require.Len(t, result, 1)
 	require.Equal(t, []byte("keep-this"), result[0])
 }
+
+func TestFetchAndDecryptUserEvents_PaginatesUntilMatch(t *testing.T) {
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+
+	appID := common.NewApplicationId(3)
+	reqID1 := testutil.GenerateRandomRequestID()
+	reqID2 := testutil.GenerateRandomRequestID()
+
+	ev1Cipher, err := crypto.Encrypt(teeKey, userKey.PublicKey(), []byte("skip-me"))
+	require.NoError(t, err)
+	ev2Cipher, err := crypto.Encrypt(teeKey, userKey.PublicKey(), []byte("target"))
+	require.NoError(t, err)
+
+	mock := NewMockClient().WithUserEvents(appID, []UserEvent{
+		{ApplicationID: appID, RequestID: reqID1, EncryptedData: ev1Cipher, EventSubType: "c", BlockNumber: 2},
+		{ApplicationID: appID, RequestID: reqID2, EncryptedData: ev2Cipher, EventSubType: "c", BlockNumber: 1},
+	})
+
+	filter := func(data []byte) bool {
+		return strings.Contains(string(data), "target")
+	}
+
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, filter, true)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Equal(t, []byte("target"), result[0])
+}
