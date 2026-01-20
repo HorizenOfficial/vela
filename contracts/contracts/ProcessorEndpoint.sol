@@ -112,7 +112,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
             );
         _requestIdByOrder[_tail] = requestId;
 
-        _tail++;
+        unchecked { ++_tail; }
 
         //emit event
         emit RequestSubmitted(requestId, msg.sender);
@@ -123,7 +123,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     function _removeRequest() private {
 
         delete _requestIdByOrder[_head];
-        _head++;
+        unchecked { ++_head; }
 
     }
 
