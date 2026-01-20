@@ -15,14 +15,14 @@ contract DefaultAuthority is Ownable, IDefaultAuthorityChecker {
     constructor(address owner) Ownable(owner) {}
 
     /// @inheritdoc IDefaultAuthorityChecker
-    function addAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
+    function addAllowedAuthority(uint256 applicationId, address authority) external onlyOwner {
         if (allowedAuthorities[applicationId][authority]) revert AuthorityAlreadyPresent();
         allowedAuthorities[applicationId][authority] = true;
         emit AddedAuthority(applicationId, authority);
     }
 
     /// @inheritdoc IDefaultAuthorityChecker
-    function removeAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
+    function removeAllowedAuthority(uint256 applicationId, address authority) external onlyOwner {
         if (!allowedAuthorities[applicationId][authority]) revert AuthorityNotPresent();
         allowedAuthorities[applicationId][authority] = false;
         emit RemovedAuthority(applicationId, authority);
@@ -32,7 +32,7 @@ contract DefaultAuthority is Ownable, IDefaultAuthorityChecker {
     function checkAuthorityIsAllowed(
         uint256 applicationId,
         address authority
-    ) public view override returns (bool) {
+    ) external view override returns (bool) {
         return allowedAuthorities[applicationId][authority];
     }
 }

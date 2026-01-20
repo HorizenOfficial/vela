@@ -73,7 +73,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
         bytes calldata payload, 
         uint256 depositAmount, // part of the sent value forwarded to the application, for app logic
         uint256 maxFeeValue // part ot the sent value reserved for fee payment
-    ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
+    ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable external returns(bytes32) {
         //check values
         if(msg.value != depositAmount + maxFeeValue) revert InvalidValue();
         if(maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
@@ -128,7 +128,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     }
 
     /// @inheritdoc IProcessorEndpoint
-    function markRequestCompleted(bytes32 requestId, uint256 refund, uint256 applicationFees) public onlyRole(UPDATE_STATUS_ROLE) {
+    function markRequestCompleted(bytes32 requestId, uint256 refund, uint256 applicationFees) external onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         //check values
@@ -157,7 +157,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
 
     // We return the maxValueFee - minFeePerRequest (to be changed in the future)
     /// @inheritdoc IProcessorEndpoint
-    function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) public onlyRole(UPDATE_STATUS_ROLE) {
+    function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) external onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         address sender = requestById[requestId].sender;
@@ -194,7 +194,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     }
 
     /// @inheritdoc IProcessorEndpoint
-    function getPendingRequests() public view returns(Structs.PendingRequest[] memory) {
+    function getPendingRequests() external view returns(Structs.PendingRequest[] memory) {
         uint256 numOfPendingRequests = getPendingRequestsSize();
 
         Structs.PendingRequest[] memory res = new Structs.PendingRequest[](numOfPendingRequests);
@@ -221,7 +221,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
         uint256 refund,
         uint256 applicationFees,
         bytes memory signature
-    ) public validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
+    ) external validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
         //check prev state root
         if(stateRoot != bytes32(0) && prevStateRoot != stateRoot) revert InvalidStateRoot();
         //check valid request
@@ -288,21 +288,21 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     }
 
     /// @inheritdoc IProcessorEndpoint
-    function updateQueueThreshold(uint256 newThreshold) public onlyRole(ADMIN) {
+    function updateQueueThreshold(uint256 newThreshold) external onlyRole(ADMIN) {
         if (newThreshold == 0) revert InvalidValue();
         maxQueueSize = newThreshold;
         emit QueueThresholdUpdated(newThreshold);
     }
 
     /// @inheritdoc IProcessorEndpoint
-    function updateFeeCollector(address payable newFeeCollector) public onlyRole(ADMIN) {
+    function updateFeeCollector(address payable newFeeCollector) external onlyRole(ADMIN) {
         if (newFeeCollector == address(0)) revert AddressCantBeZero();
         feeCollector = newFeeCollector;
         emit FeeCollectorUpdated(newFeeCollector);
     }
 
     /// @inheritdoc IProcessorEndpoint
-    function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {
+    function getNextPendingRequest() external view returns (Structs.PendingRequest memory, bytes32, bool success) {
         uint256 numOfRequests = getPendingRequestsSize();
         if (numOfRequests > 0){
             bytes32 requestId = _requestIdByOrder[_head];

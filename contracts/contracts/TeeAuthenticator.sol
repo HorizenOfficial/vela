@@ -46,7 +46,7 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
     }
 
     /// @inheritdoc ITeeAuthenticatorAdmin
-    function updateTee(bytes calldata attestation) public onlyOwner {
+    function updateTee(bytes calldata attestation) external onlyOwner {
         bytes32 attestationHash = keccak256(attestation);
         if(_usedAttestations[attestationHash]) revert AttestationAlreadyUsed();
 
@@ -58,7 +58,7 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
     // -- STEPS UPDATE
     // if you want to reset and begin a new step update, invoke step 1
     /// @inheritdoc ITeeAuthenticatorAdmin
-    function updateTeeStep1(bytes calldata attestation) public onlyOwner {
+    function updateTeeStep1(bytes calldata attestation) external onlyOwner {
         _resetStepUpdate();
 
         _attestationHash = keccak256(attestation);
@@ -74,7 +74,7 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
     //this should be invoked "getStep2TotalLength()" times
     //check currentUpdateStep to see if you can go to the next step
     /// @inheritdoc ITeeAuthenticatorAdmin
-    function updateTeeStep2() public onlyOwner{
+    function updateTeeStep2() external onlyOwner{
         if(currentUpdateStep != 1) revert WrongStep();
 
         _pubKey = nitroProver.verifyAttestationStep2(_cabundle, step2CurrentIndex, _pubKey);
@@ -86,14 +86,14 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
     }
 
     /// @inheritdoc ITeeAuthenticatorAdmin
-    function updateTeeStep3() public onlyOwner {
+    function updateTeeStep3() external onlyOwner {
         if(currentUpdateStep != 2) revert WrongStep();
         (_attestationSig, _pubKey, _buf) = nitroProver.verifyAttestationStep3(_attestation_decoded, _certificate, _pubKey);
         currentUpdateStep = 3;
     }
 
     /// @inheritdoc ITeeAuthenticatorAdmin
-    function updateTeeStep4() public onlyOwner {
+    function updateTeeStep4() external onlyOwner {
         if(currentUpdateStep != 3) revert WrongStep();
         nitroProver.verifyAttestationStep4(_attestationSig, _pubKey, _buf);
         _updateTee(address(bytes20(_userData)), _enclaveKey, _attestationHash);
@@ -115,13 +115,13 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
 
     //check number of transactions needed to complete step2
     /// @inheritdoc ITeeAuthenticatorAdmin
-    function getStep2TotalLength() public view returns(uint256) {
+    function getStep2TotalLength() external view returns(uint256) {
         return _cabundle.length;
     }
 
 
     /// @inheritdoc ITeeAuthenticatorAdmin
-    function updatePcr0(bytes memory newPcr0) public onlyOwner {
+    function updatePcr0(bytes memory newPcr0) external onlyOwner {
         emit PcrZeroUpdate(pcr0, newPcr0);
         pcr0 = newPcr0;
     }

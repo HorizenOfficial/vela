@@ -43,7 +43,7 @@ contract AuthorityRegistry is Ownable, IAuthorityRegistry {
     function checkAuthorityIsAllowed(
         uint256 applicationId,
         address authority
-    ) public view returns (bool) {
+    ) external view returns (bool) {
         IAuthorityChecker impl = appAuthorityContracts[applicationId];
 
         if (address(impl) == address(0)) {

@@ -22,7 +22,7 @@ contract NoAttestationTeeAuthenticator is AbstractTeeAuthenticator, Ownable {
         emit TeeUpdate(address(0), teeSigner, bytes(""), pubSecp521r1);
     }
 
-    function updateTee(address newTeeSigner, bytes memory newPubSecp521r1) public onlyOwner {
+    function updateTee(address newTeeSigner, bytes memory newPubSecp521r1) external onlyOwner {
         if(newTeeSigner == address(0)) revert TeeAddressCantBeZero();
         if(newPubSecp521r1.length != PK_LENGTH) revert InvalidPKLength();
 

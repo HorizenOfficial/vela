@@ -21,7 +21,7 @@ contract FallbackFailure {
         bytes calldata payload, 
         uint256 value,
         uint256 maxFeeValue
-    ) payable public {
+    ) payable external {
         processorEndpoint.submitRequest{value:value + maxFeeValue}(protocolVersion, applicationId, requestType, payload, value, maxFeeValue);
     }
 }
