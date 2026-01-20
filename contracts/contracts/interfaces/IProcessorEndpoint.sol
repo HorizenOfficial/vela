@@ -128,12 +128,12 @@ interface IProcessorEndpoint {
         bytes32 prevStateRoot,
         bytes32 newStateRoot,
         bytes32 processedRequestId,
-        bytes[] memory events,
-        string[] memory eventSubTypes,
-        Structs.WithdrawalRequest[] memory withdrawalRequests,
+        bytes[] calldata events,
+        string[] calldata eventSubTypes,
+        Structs.WithdrawalRequest[] calldata withdrawalRequests,
         uint256 refund,
         uint256 applicationFees,
-        bytes memory signature
+        bytes calldata signature
     ) external;
 
     /// @notice Updates the maximum pending queue size.
