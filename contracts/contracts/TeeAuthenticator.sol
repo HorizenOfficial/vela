@@ -3,11 +3,14 @@ pragma solidity ^0.8.28;
 
 import "./AbstractTeeAuthenticator.sol";
 import "./interfaces/INitroProver.sol";
+import "./interfaces/ITeeAuthenticatorAdmin.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
+/// @title TeeAuthenticator
+/// @notice Attestation-based tee signer and key manager.
+contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, Ownable {
     INitroProver public immutable nitroProver;
     bytes public pcr0;
     uint256 public immutable maxVerificationAge;
@@ -32,23 +35,17 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
     bytes[] private _attestation_decoded;
     bytes private _buf;
     
-    //events
-    event TeeUpdate(address oldTee, address newTee, bytes oldPubSecp521r1, bytes newPubSecp521r1);
-    event PcrZeroUpdate(bytes indexed oldPcr0, bytes indexed newPcr0);
-
-    //error
-    error InvalidPCR();
-    error InvalidPKLength();
-    error InvalidUserDataLength();
-    error AttestationAlreadyUsed();
-    error WrongStep();
-
+    /// @param owner Owner address.
+    /// @param _nitroProver Nitro prover contract.
+    /// @param _pcr0 Initial PCR0 value.
+    /// @param _maxVerificationAge Max age for attestation validity.
     constructor(address owner, INitroProver _nitroProver, bytes memory _pcr0, uint256 _maxVerificationAge) Ownable(owner) {
         pcr0 = _pcr0;
         nitroProver = _nitroProver;
         maxVerificationAge = _maxVerificationAge;
     }
 
+    /// @inheritdoc ITeeAuthenticatorAdmin
     function updateTee(bytes calldata attestation) public onlyOwner {
         bytes32 attestationHash = keccak256(attestation);
         if(_usedAttestations[attestationHash]) revert AttestationAlreadyUsed();
@@ -60,6 +57,7 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
 
     // -- STEPS UPDATE
     // if you want to reset and begin a new step update, invoke step 1
+    /// @inheritdoc ITeeAuthenticatorAdmin
     function updateTeeStep1(bytes calldata attestation) public onlyOwner {
         _resetStepUpdate();
 
@@ -75,6 +73,7 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
 
     //this should be invoked "getStep2TotalLength()" times
     //check currentUpdateStep to see if you can go to the next step
+    /// @inheritdoc ITeeAuthenticatorAdmin
     function updateTeeStep2() public onlyOwner{
         if(currentUpdateStep != 1) revert WrongStep();
 
@@ -86,12 +85,14 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
         }
     }
 
+    /// @inheritdoc ITeeAuthenticatorAdmin
     function updateTeeStep3() public onlyOwner {
         if(currentUpdateStep != 2) revert WrongStep();
         (_attestationSig, _pubKey, _buf) = nitroProver.verifyAttestationStep3(_attestation_decoded, _certificate, _pubKey);
         currentUpdateStep = 3;
     }
 
+    /// @inheritdoc ITeeAuthenticatorAdmin
     function updateTeeStep4() public onlyOwner {
         if(currentUpdateStep != 3) revert WrongStep();
         nitroProver.verifyAttestationStep4(_attestationSig, _pubKey, _buf);
@@ -113,20 +114,23 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, Ownable {
     }
 
     //check number of transactions needed to complete step2
+    /// @inheritdoc ITeeAuthenticatorAdmin
     function getStep2TotalLength() public view returns(uint256) {
         return _cabundle.length;
     }
 
 
-    /// @dev Update the PCR0 value
+    /// @inheritdoc ITeeAuthenticatorAdmin
     function updatePcr0(bytes memory newPcr0) public onlyOwner {
         emit PcrZeroUpdate(pcr0, newPcr0);
         pcr0 = newPcr0;
     }
 
+    /// @inheritdoc ITeeAuthenticator
     function getTeeSigner() public view override returns(address) {
         return teeSigner;
     }
+    /// @inheritdoc ITeeAuthenticator
     function getPubSecp521r1() public view override returns(bytes memory) {
         return pubSecp521r1;
     }
