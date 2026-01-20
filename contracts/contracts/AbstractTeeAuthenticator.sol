@@ -6,15 +6,18 @@ import "./Structs.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
+/// @title AbstractTeeAuthenticator
+/// @notice Base implementation for tee signature verification.
 abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
     
     uint256 public constant PK_LENGTH = 133; //secp521r1 uncompressed public key length in bytes
 
-    error TeeIsNotSet();
-
+    /// @inheritdoc ITeeAuthenticator
     function getTeeSigner() public virtual view override returns(address);
+    /// @inheritdoc ITeeAuthenticator
     function getPubSecp521r1() public virtual view override returns(bytes memory);
 
+    /// @inheritdoc ITeeAuthenticator
     function checkSignature(
         uint64 applicationId, 
         bytes32 prevStateRoot, 

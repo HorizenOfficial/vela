@@ -3,8 +3,11 @@ pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IAuthorityChecker.sol";
+import "./interfaces/IAuthorityRegistry.sol";
 
-contract AuthorityRegistry is Ownable {
+/// @title AuthorityRegistry
+/// @notice Registry for application-specific authority checkers.
+contract AuthorityRegistry is Ownable, IAuthorityRegistry {
 
     // mapping appId -> custom authority contract
     mapping(uint256 => IAuthorityChecker) public appAuthorityContracts;
@@ -12,19 +15,15 @@ contract AuthorityRegistry is Ownable {
     // default authority contract (fallback)
     IAuthorityChecker public defaultAuthorityContract;
 
-    // events
-    event AppAuthorityContractSet(uint256 indexed applicationId, address indexed authorityContract);
-    event DefaultAuthorityContractSet(address indexed authorityContract);
-
-    //errors
-    error AddressCantBeZero();
-
+    /// @param owner Owner address.
+    /// @param defaultAuthority Default authority checker.
     constructor(address owner, address defaultAuthority) Ownable(owner) {
         if(defaultAuthority == address(0)) revert AddressCantBeZero();
         defaultAuthorityContract = IAuthorityChecker(defaultAuthority);
         emit DefaultAuthorityContractSet(defaultAuthority);
     }
 
+    /// @inheritdoc IAuthorityRegistry
     function setAppAuthorityContract(
         uint256 applicationId,
         address authorityContract
@@ -33,12 +32,14 @@ contract AuthorityRegistry is Ownable {
         emit AppAuthorityContractSet(applicationId, authorityContract);
     }
 
+    /// @inheritdoc IAuthorityRegistry
     function setDefaultAuthorityContract(address authorityContract) external onlyOwner {
         if(authorityContract == address(0)) revert AddressCantBeZero();
         defaultAuthorityContract = IAuthorityChecker(authorityContract);
         emit DefaultAuthorityContractSet(authorityContract);
     }
 
+    /// @inheritdoc IAuthorityRegistry
     function checkAuthorityIsAllowed(
         uint256 applicationId,
         address authority
