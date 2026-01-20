@@ -64,7 +64,7 @@ jobs:
           go generate -v ./... || { echo "go generate failed"; exit 1; }
           echo "Files after generation:"
           git status
-          if [[ -n "$(git status --porcelain | grep "pkg/blockchain/contracts")" ]]; then
+          if [[ -n "$(git status --porcelain)" ]]; then
             echo "❌ Generated files are out of date. Please run 'go generate ./...' and commit the results."
             git diff
             exit 1
@@ -149,7 +149,7 @@ jobs:
           go generate -v ./... || { echo "go generate failed"; exit 1; }
           echo "Files after generation:"
           git status
-          if [[ -n "$(git status --porcelain | grep "pkg/blockchain/contracts")" ]]; then
+          if [[ -n "$(git status --porcelain)" ]]; then
             echo "❌ Generated files are out of date. Please run 'go generate ./...' and commit the results."
             git diff
             exit 1
