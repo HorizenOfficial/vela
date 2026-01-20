@@ -122,7 +122,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
 
     function _removeRequest() private {
 
-        delete requestById[_requestIdByOrder[_head]];
         delete _requestIdByOrder[_head];
         _head++;
 
