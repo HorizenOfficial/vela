@@ -3,33 +3,32 @@ pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IAuthorityChecker.sol";
+import "./interfaces/IDefaultAuthorityChecker.sol";
 
-contract DefaultAuthority is Ownable, IAuthorityChecker {
+/// @title DefaultAuthority
+/// @notice Ownable authority registry for per-application allowlists.
+contract DefaultAuthority is Ownable, IDefaultAuthorityChecker {
 
     mapping(uint256 => mapping(address => bool)) allowedAuthorities;
 
-    // events
-    event AddedAuthority(uint256 indexed applicationId, address indexed authority);
-    event RemovedAuthority(uint256 indexed applicationId, address indexed authority);
-
-    // errors
-    error AuthorityNotPresent();
-    error AuthorityAlreadyPresent();
-
+    /// @param owner Owner address.
     constructor(address owner) Ownable(owner) {}
 
+    /// @inheritdoc IDefaultAuthorityChecker
     function addAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
         if (allowedAuthorities[applicationId][authority]) revert AuthorityAlreadyPresent();
         allowedAuthorities[applicationId][authority] = true;
         emit AddedAuthority(applicationId, authority);
     }
 
+    /// @inheritdoc IDefaultAuthorityChecker
     function removeAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
         if (!allowedAuthorities[applicationId][authority]) revert AuthorityNotPresent();
         allowedAuthorities[applicationId][authority] = false;
         emit RemovedAuthority(applicationId, authority);
     }
 
+    /// @inheritdoc IAuthorityChecker
     function checkAuthorityIsAllowed(
         uint256 applicationId,
         address authority
