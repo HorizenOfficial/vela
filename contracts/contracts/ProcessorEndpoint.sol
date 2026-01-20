@@ -4,10 +4,13 @@ pragma solidity ^0.8.28;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
 import "./interfaces/ITeeAuthenticator.sol";
+import "./interfaces/IProcessorEndpoint.sol";
 import "./AuthorityRegistry.sol";
 import "./Structs.sol";
 
-contract ProcessorEndpoint is AccessControl {
+/// @title ProcessorEndpoint
+/// @notice Implementation of the processor endpoint interface.
+contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
 
     //constants
     bytes32 public constant UPDATE_STATUS_ROLE = keccak256("UPDATE_STATUS_ROLE");
@@ -30,31 +33,6 @@ contract ProcessorEndpoint is AccessControl {
     uint256 public minFeePerRequest;
     address payable public feeCollector;
 
-    //events
-    event Refund(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
-    event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
-    event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
-    event RequestCompleted(bytes32 indexed requestId, uint256 applicationFees, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
-    event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, string indexed eventSubType, bytes encryptedData);
-    event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
-    event QueueThresholdUpdated(uint256 newThreshold);
-    event FeeCollectorUpdated(address newFeeCollector);
-
-    //errors
-    error AddressCantBeZero();
-    error FeeValueBelowMinimum();
-    error InvalidValue();
-    error InvalidProtocolVersion();
-    error InvalidApplicationId();
-    error InvalidRequestId();
-    error InvalidStateRoot();
-    error InvalidSignature();
-    error InvalidPayload();
-    error InsufficientBalance();
-    error AuthorityNotAllowed();
-    error QueueThresholdExceeded();
-    error TransferFailed();
-
 
     modifier validProtocolVersion(uint8 protocolVersion) {
         if(protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
@@ -66,7 +44,11 @@ contract ProcessorEndpoint is AccessControl {
         _;
     }
 
-    //constructor
+    /// @param _teeAuthenticator Contract used to verify update signatures.
+    /// @param _authorityRegistry Registry for authority checks.
+    /// @param updateStatusOperator Initial operator for status updates.
+    /// @param admin Initial admin address.
+    /// @param _minFeePerRequest Minimum fee enforced per request.
     constructor(ITeeAuthenticator _teeAuthenticator, AuthorityRegistry _authorityRegistry, address updateStatusOperator, address admin, uint256 _minFeePerRequest) {
         if(
             _teeAuthenticator == ITeeAuthenticator(address(0)) || 
@@ -83,7 +65,7 @@ contract ProcessorEndpoint is AccessControl {
         minFeePerRequest = _minFeePerRequest;
     }
 
-    //request management functions
+    /// @inheritdoc IProcessorEndpoint
     function submitRequest(
         uint8 protocolVersion, 
         uint64 applicationId, 
@@ -146,6 +128,7 @@ contract ProcessorEndpoint is AccessControl {
 
     }
 
+    /// @inheritdoc IProcessorEndpoint
     function markRequestCompleted(bytes32 requestId, uint256 refund, uint256 applicationFees) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
@@ -174,6 +157,7 @@ contract ProcessorEndpoint is AccessControl {
     }
 
     // We return the maxValueFee - minFeePerRequest (to be changed in the future)
+    /// @inheritdoc IProcessorEndpoint
     function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) public onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
@@ -200,6 +184,7 @@ contract ProcessorEndpoint is AccessControl {
         }
     }
 
+    /// @inheritdoc IProcessorEndpoint
     function getPendingRequestsSize() public view returns(uint256) {
         if (_tail > _head) {
             return (_tail - _head);
@@ -209,6 +194,7 @@ contract ProcessorEndpoint is AccessControl {
         
     }
 
+    /// @inheritdoc IProcessorEndpoint
     function getPendingRequests() public view returns(Structs.PendingRequest[] memory) {
         uint256 numOfPendingRequests = getPendingRequestsSize();
 
@@ -224,7 +210,7 @@ contract ProcessorEndpoint is AccessControl {
         return res;
     }
 
-    //update status
+    /// @inheritdoc IProcessorEndpoint
     function stateUpdate(
         uint64 applicationId, 
         bytes32 prevStateRoot, 
@@ -302,18 +288,21 @@ contract ProcessorEndpoint is AccessControl {
         }  
     }
 
+    /// @inheritdoc IProcessorEndpoint
     function updateQueueThreshold(uint256 newThreshold) public onlyRole(ADMIN) {
         if (newThreshold == 0) revert InvalidValue();
         maxQueueSize = newThreshold;
         emit QueueThresholdUpdated(newThreshold);
     }
 
+    /// @inheritdoc IProcessorEndpoint
     function updateFeeCollector(address payable newFeeCollector) public onlyRole(ADMIN) {
         if (newFeeCollector == address(0)) revert AddressCantBeZero();
         feeCollector = newFeeCollector;
         emit FeeCollectorUpdated(newFeeCollector);
     }
 
+    /// @inheritdoc IProcessorEndpoint
     function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {
         uint256 numOfRequests = getPendingRequestsSize();
         if (numOfRequests > 0){
@@ -326,10 +315,12 @@ contract ProcessorEndpoint is AccessControl {
  
     }
 
+    /// @inheritdoc IProcessorEndpoint
     function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
         return getPendingRequestsSize() > 0 && _requestIdByOrder[_head] == requestId;
     }
 
+    /// @inheritdoc IProcessorEndpoint
     function generateRequestId(
         address sender,
         uint64 applicationId, 
