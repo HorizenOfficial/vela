@@ -40,6 +40,8 @@ services:
       - EXECUTOR_LOG_FILE_LEVEL
       - EXECUTOR_LOG_PORT
       - EXECUTOR_LOG_NETWORK_LEVEL
+      - EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
+      - ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
     depends_on:
       - chain
   manager:
@@ -81,6 +83,7 @@ services:
       - BLOCKCHAIN_POLLING_INTERVAL
       - REORG_TIMEOUT
       - HANDSHAKE_TIMEOUT
+      - MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
     networks:
       pes_network:
         ipv4_address: ${MANAGER_IP_HOST}

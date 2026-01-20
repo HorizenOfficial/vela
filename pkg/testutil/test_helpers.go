@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
 type MockAdminServer struct {}
 
 func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
@@ -105,7 +105,7 @@ func NewSystemTestSuiteWithConfigs(
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
-	executorClient := communication.NewClient(factory, mgrLog)
+	executorClient := communication.NewClient(factory, commParams,mgrLog)
 
 	// Create manager
 	var err error
@@ -149,7 +149,7 @@ func NewSystemTestSuiteWithConfigs(
 	)
 
 	// Create executor
-	server := communication.NewServer(factory, excLog)
+	server := communication.NewServer(factory, commParams, excLog)
 	var runtime executor.Runtime
 	switch appType {
 	case "mock-runtime":
