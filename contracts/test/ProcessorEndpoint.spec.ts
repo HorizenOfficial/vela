@@ -86,22 +86,22 @@ describe('ProcessorEndpoint Test', function () {
         expect(stateRoot).eql(initialStateRoot);
         expect(currentReq.requestId).eql(eventRequestId);
 
-        expect(currentReq[0]).eql(protocolVersion); //protocolVersion
-        expect(currentReq[1]).eql(applicationId); //applicationId
-        expect(currentReq[2]).eql(BigInt(1)); //requestType
-        expect(currentReq[4]).eql("0x01"); //payload
-        expect(currentReq[6]).eql(await signers[0].getAddress()); //sender
-        expect(currentReq[7]).eql(BigInt(0)); //depositAmount
+        expect(currentReq.protocolVersion).eql(protocolVersion); //protocolVersion
+        expect(currentReq.applicationId).eql(applicationId); //applicationId
+        expect(currentReq.requestType).eql(BigInt(1)); //requestType
+        expect(currentReq.payload).eql("0x01"); //payload
+        expect(currentReq.sender).eql(await signers[0].getAddress()); //sender
+        expect(currentReq.depositAmount).eql(BigInt(0)); //depositAmount
         
 
         let rq = await processorEndpoint.requestById(currentReq.requestId);
-        expect(rq[0]).eql(protocolVersion); //protocolVersion
-        expect(rq[1]).eql(applicationId); //applicationId
-        expect(rq[2]).eql(BigInt(1)); //requestType
+        expect(rq.protocolVersion).eql(protocolVersion); //protocolVersion
+        expect(rq.applicationId).eql(applicationId); //applicationId
+        expect(rq.requestType).eql(BigInt(1)); //requestType
         expect(rq.requestId).eql(currentReq.requestId); 
-        expect(rq[4]).eql("0x01"); //payload
-        expect(rq[6]).eql(await signers[0].getAddress()); //sender
-        expect(rq[7]).eql(BigInt(0)); //depositAmount
+        expect(rq.payload).eql("0x01"); //payload
+        expect(rq.sender).eql(await signers[0].getAddress()); //sender
+        expect(rq.depositAmount).eql(BigInt(0)); //depositAmount
 
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(1));
@@ -150,19 +150,19 @@ describe('ProcessorEndpoint Test', function () {
         expect(queue.length).eql(2);
 
         //check data in pages
-        expect(queue[0][0]).eql(protocolVersion); //protocolVersion
-        expect(queue[0][1]).eql(applicationId); //applicationId
-        expect(queue[0][2]).eql(BigInt(1)); //requestType
-        expect(queue[0][4]).eql("0x01"); //payload
-        expect(queue[0][6]).eql(await signers[0].getAddress()); //sender
-        expect(queue[0][7]).eql(BigInt(0)); //depositAmount
+        expect(queue[0].protocolVersion).eql(protocolVersion); //protocolVersion
+        expect(queue[0].applicationId).eql(applicationId); //applicationId
+        expect(queue[0].requestType).eql(BigInt(1)); //requestType
+        expect(queue[0].payload).eql("0x01"); //payload
+        expect(queue[0].sender).eql(await signers[0].getAddress()); //sender
+        expect(queue[0].depositAmount).eql(BigInt(0)); //depositAmount
 
-        expect(queue[1][0]).eql(protocolVersion); //protocolVersion
-        expect(queue[1][1]).eql(applicationId); //applicationId
-        expect(queue[1][2]).eql(BigInt(1)); //requestType
-        expect(queue[1][4]).eql("0x02"); //payload
-        expect(queue[1][6]).eql(await signers[0].getAddress()); //sender
-        expect(queue[1][7]).eql(BigInt(100)); //depositAmount
+        expect(queue[1].protocolVersion).eql(protocolVersion); //protocolVersion
+        expect(queue[1].applicationId).eql(applicationId); //applicationId
+        expect(queue[1].requestType).eql(BigInt(1)); //requestType
+        expect(queue[1].payload).eql("0x02"); //payload
+        expect(queue[1].sender).eql(await signers[0].getAddress()); //sender
+        expect(queue[1].depositAmount).eql(BigInt(100)); //depositAmount
 
         [currentReq, stateRoot, exists] = await processorEndpoint.getNextPendingRequest();
         expect(exists).eql(true)

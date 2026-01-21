@@ -99,17 +99,17 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
         //create request
         bytes32 requestId = generateRequestId(msg.sender, applicationId, requestType, payload, depositAmount, _tail);
         requestById[requestId] = 
-            Structs.PendingRequest(
-                protocolVersion,
-                applicationId,
-                requestType,
-                requestId,
-                payload,
-                block.timestamp,
-                msg.sender,
-                depositAmount,
-                maxFeeValue
-            );
+            Structs.PendingRequest({
+                timestamp: block.timestamp,
+                depositAmount: depositAmount,
+                maxFeeValue: maxFeeValue,
+                requestId: requestId,
+                payload: payload,
+                sender: msg.sender,
+                applicationId: applicationId,
+                protocolVersion: protocolVersion,
+                requestType: requestType
+            });
         _requestIdByOrder[_tail] = requestId;
 
         unchecked { ++_tail; }

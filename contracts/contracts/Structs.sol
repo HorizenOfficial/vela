@@ -27,15 +27,15 @@ contract Structs {
     }
     
     struct PendingRequest {
-        uint8 protocolVersion;
-        uint64 applicationId;
-        RequestType requestType;
-        bytes32 requestId; //assigned automatically
-        bytes payload;
         uint256 timestamp; //assigned automatically
-        address sender; //assigned automatically
         uint256 depositAmount; //assigned automatically
         uint256 maxFeeValue;
+        bytes32 requestId; //assigned automatically
+        bytes payload;
+        address sender; //assigned automatically
+        uint64 applicationId;
+        uint8 protocolVersion;
+        RequestType requestType;
     }
 
     struct WithdrawalRequest {
