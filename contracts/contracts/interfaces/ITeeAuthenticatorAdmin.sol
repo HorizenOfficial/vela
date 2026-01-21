@@ -54,5 +54,5 @@ interface ITeeAuthenticatorAdmin {
 
     /// @notice Updates the PCR0 value.
     /// @param newPcr0 New PCR0 value.
-    function updatePcr0(bytes memory newPcr0) external;
+    function updatePcr0(bytes calldata newPcr0) external;
 }

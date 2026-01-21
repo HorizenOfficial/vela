@@ -25,12 +25,12 @@ interface ITeeAuthenticator {
         bytes32 prevStateRoot, 
         bytes32 newStateRoot, 
         bytes32 processedRequestId,
-        bytes[] memory events,
-        string[] memory eventSubTypes,
-        Structs.WithdrawalRequest[] memory withdrawalRequests, 
+        bytes[] calldata events,
+        string[] calldata eventSubTypes,
+        Structs.WithdrawalRequest[] calldata withdrawalRequests, 
         uint256 refundAmount, 
         uint256 applicationFee,
-        bytes memory signature
+        bytes calldata signature
     ) external view returns(bool);
 
     /// @notice Returns the configured tee signer address.

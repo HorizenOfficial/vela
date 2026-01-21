@@ -121,7 +121,7 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
 
 
     /// @inheritdoc ITeeAuthenticatorAdmin
-    function updatePcr0(bytes memory newPcr0) external onlyOwner {
+    function updatePcr0(bytes calldata newPcr0) external onlyOwner {
         emit PcrZeroUpdate(pcr0, newPcr0);
         pcr0 = newPcr0;
     }

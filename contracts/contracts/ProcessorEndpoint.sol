@@ -160,7 +160,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
 
     // We return the maxValueFee - minFeePerRequest (to be changed in the future)
     /// @inheritdoc IProcessorEndpoint
-    function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) external onlyRole(UPDATE_STATUS_ROLE) {
+    function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string calldata errorMessage) external onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         Structs.PendingRequest storage requestInfo = requestById[requestId];

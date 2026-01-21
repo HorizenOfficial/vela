@@ -102,7 +102,7 @@ interface IProcessorEndpoint {
     /// @param requestId Request identifier.
     /// @param errorCode Failure reason code.
     /// @param errorMessage Failure reason message.
-    function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) external;
+    function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string calldata errorMessage) external;
 
     /// @notice Returns the number of pending requests in the queue.
     /// @return size Current pending request count.
