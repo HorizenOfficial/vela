@@ -9,7 +9,11 @@ import (
 	"github.com/horizen-pes/pkg/crypto"
 )
 
+var userEventsPageSize = 1000
+
 // FetchAndDecryptUserEvents queries the subgraph for user events and decrypts them.
+// The limit caps the number of decrypted events returned; limit <= 0 means no cap.
+// The page size is internal and capped to avoid query errors.
 // It applies the optional filter on decrypted payloads and can stop at the first match.
 func FetchAndDecryptUserEvents(
 	ctx context.Context,
@@ -28,18 +32,20 @@ func FetchAndDecryptUserEvents(
 	if teePubKey == nil {
 		return nil, fmt.Errorf("tee public key is required")
 	}
-	if limit <= 0 {
-		limit = 10
+
+	maxResults := limit
+	if maxResults < 0 {
+		maxResults = 0
 	}
-	// Graph nodes cap page size; clamp to avoid query errors.
-	if limit > 1000 {
-		limit = 1000
+	pageSize := userEventsPageSize
+	if pageSize <= 0 {
+		pageSize = 1000
 	}
 
 	var decryptedEvents [][]byte
 	skip := 0
 	for {
-		events, err := sg.GetUserEvents(ctx, applicationID, eventSubType, limit, skip)
+		events, err := sg.GetUserEvents(ctx, applicationID, eventSubType, pageSize, skip)
 		if err != nil {
 			return nil, err
 		}
@@ -59,9 +65,12 @@ func FetchAndDecryptUserEvents(
 			if stopAtFirst && len(decryptedEvents) > 0 {
 				return decryptedEvents, nil
 			}
+			if maxResults > 0 && len(decryptedEvents) >= maxResults {
+				return decryptedEvents, nil
+			}
 		}
 
-		if len(events) < limit {
+		if len(events) < pageSize {
 			break
 		}
 		skip += len(events)

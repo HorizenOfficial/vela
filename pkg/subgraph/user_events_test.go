@@ -11,6 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func withUserEventsPageSize(t *testing.T, size int) {
+	t.Helper()
+	old := userEventsPageSize
+	userEventsPageSize = size
+	t.Cleanup(func() {
+		userEventsPageSize = old
+	})
+}
+
 func TestFetchAndDecryptUserEvents_StopAtFirst(t *testing.T) {
 	teeKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err)
@@ -68,6 +77,8 @@ func TestFetchAndDecryptUserEvents_Filter(t *testing.T) {
 }
 
 func TestFetchAndDecryptUserEvents_PaginatesUntilMatch(t *testing.T) {
+	withUserEventsPageSize(t, 1)
+
 	teeKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err)
 	userKey, err := crypto.GeneratePrivateKeyP521()
@@ -95,4 +106,57 @@ func TestFetchAndDecryptUserEvents_PaginatesUntilMatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, []byte("target"), result[0])
+}
+
+func TestFetchAndDecryptUserEvents_MaxResults(t *testing.T) {
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+
+	appID := common.NewApplicationId(4)
+	reqID1 := testutil.GenerateRandomRequestID()
+	reqID2 := testutil.GenerateRandomRequestID()
+
+	ev1Cipher, err := crypto.Encrypt(teeKey, userKey.PublicKey(), []byte("first"))
+	require.NoError(t, err)
+	ev2Cipher, err := crypto.Encrypt(teeKey, userKey.PublicKey(), []byte("second"))
+	require.NoError(t, err)
+
+	mock := NewMockClient().WithUserEvents(appID, []UserEvent{
+		{ApplicationID: appID, RequestID: reqID1, EncryptedData: ev1Cipher, EventSubType: "d", BlockNumber: 2},
+		{ApplicationID: appID, RequestID: reqID2, EncryptedData: ev2Cipher, EventSubType: "d", BlockNumber: 1},
+	})
+
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, nil, false)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Equal(t, []byte("first"), result[0])
+}
+
+func TestFetchAndDecryptUserEvents_NoLimit(t *testing.T) {
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+
+	appID := common.NewApplicationId(5)
+	reqID1 := testutil.GenerateRandomRequestID()
+	reqID2 := testutil.GenerateRandomRequestID()
+
+	ev1Cipher, err := crypto.Encrypt(teeKey, userKey.PublicKey(), []byte("one"))
+	require.NoError(t, err)
+	ev2Cipher, err := crypto.Encrypt(teeKey, userKey.PublicKey(), []byte("two"))
+	require.NoError(t, err)
+
+	mock := NewMockClient().WithUserEvents(appID, []UserEvent{
+		{ApplicationID: appID, RequestID: reqID1, EncryptedData: ev1Cipher, EventSubType: "e", BlockNumber: 2},
+		{ApplicationID: appID, RequestID: reqID2, EncryptedData: ev2Cipher, EventSubType: "e", BlockNumber: 1},
+	})
+
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 0, nil, false)
+	require.NoError(t, err)
+	require.Len(t, result, 2)
+	require.Equal(t, []byte("one"), result[0])
+	require.Equal(t, []byte("two"), result[1])
 }
