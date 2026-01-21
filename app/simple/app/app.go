@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
 
 	"github.com/horizen-pes/app/simple/utils"
 )
@@ -23,11 +22,11 @@ func LoadModule(appId int64) LoadModuleResult {
 	}
 	return LoadModuleResult{
 		State: stateJSON,
-		Fuel:  big.NewInt(5),
+		Fuel:  NewUint256(5),
 	}
 }
 
-func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositResult {
+func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositResult {
 	if senderPtr == nil {
 		return DepositResult{Error: "Sender address is nil"}
 	}
@@ -50,20 +49,27 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	if !exists {
 		acc = &AccountState{
 			Address: *senderPtr,
-			Balance: big.NewInt(0),
+			Balance: NewUint256(0),
 		}
 		currentState.Accounts[senderHex] = acc
 	}
 
-	// safe big.Int Addition (Immutable-style to prevent side effects)
-	// We create a new Int to store the result rather than modifying the existing pointer in-place
-	acc.Balance = new(big.Int).Add(acc.Balance, value)
+	// Update balance in-place
+	if acc.Balance.AddOverflow(*acc.Balance, *value) {
+		return DepositResult{Error: fmt.Sprintf("Overflow while adding amount %s to balance: %s", value, acc.Balance)}
+	}
 
 	// Create deposit event
-	eventData := map[string]interface{}{
-		"type":   "deposit",
-		"amount": value,
+	type Event struct {
+		Type   string   `json:"type"`
+		Amount *Uint256 `json:"amount"`
 	}
+
+	eventData := Event{
+		Type:   "deposit",
+		Amount: value,
+	}
+
 	eventDataBytes, err := json.Marshal(eventData)
 	if err != nil {
 		return DepositResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
@@ -80,7 +86,7 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	if err != nil {
 		return DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
-	return DepositResult{State: newStateBytes, Events: events, Fuel: big.NewInt(35)}
+	return DepositResult{State: newStateBytes, Events: events, Fuel: NewUint256(35)}
 }
 
 func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessResult {
@@ -126,7 +132,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			senderBalance := currentState.Accounts[senderHex].Balance
 
 			var cmp = ""
-			switch targetBalance.Cmp(senderBalance) {
+			switch targetBalance.Cmp(*senderBalance) {
 			case -1:
 				cmp = "richer than"
 			case 1:
@@ -158,18 +164,22 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			if instructions.Withdraw == nil {
 				return ProcessResult{Error: fmt.Sprintf("Withdraw instruction is missing in payload: %s", payloadJSON)}
 			}
+			if instructions.Withdraw.Amount == nil {
+				return ProcessResult{Error: "Withdraw amount is nil"}
+			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[senderHex] == nil {
 				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist", senderHex)}
 			}
 
-			if currentState.Accounts[senderHex].Balance.Cmp(instructions.Withdraw.Amount) < 0 {
-				return ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", senderHex)}
+			if currentState.Accounts[senderHex].Balance.Cmp(*instructions.Withdraw.Amount) < 0 {
+				return ProcessResult{Error: fmt.Sprintf("Insufficient balance %s for withdrawal %s for account %s",
+					currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount, senderHex)}
 			}
 
 			// Execute withdrawal
-			currentState.Accounts[senderHex].Balance.Sub(currentState.Accounts[senderHex].Balance, instructions.Withdraw.Amount)
+			currentState.Accounts[senderHex].Balance.Sub(*currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount)
 
 			// Create withdrawal
 			withdrawals = append(withdrawals, Withdrawal{
@@ -209,7 +219,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
-		Fuel:        big.NewInt(50),
+		Fuel:        NewUint256(50),
 	}
 }
 
@@ -241,7 +251,7 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) Deanonymizatio
 	if err != nil {
 		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %v", err)}
 	}
-	return DeanonymizationResult{Report: reportBytes, Fuel: big.NewInt(20)}
+	return DeanonymizationResult{Report: reportBytes, Fuel: NewUint256(20)}
 }
 
 func GetAllocatedMemoryStats() MemoryStats {

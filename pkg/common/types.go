@@ -110,6 +110,21 @@ type Request struct {
 	MaxFeeValue *big.Int `json:"maxFeeValue"`
 }
 
+func (r *Request) Validate() error {
+	if err := validateBigInt("timestamp", r.Timestamp, false); err != nil {
+		return err
+	}
+
+	if err := validateBigInt("depositAmount", r.DepositAmount, true); err != nil {
+		return err
+	}
+
+	if err := validateBigInt("maxFeeValue", r.MaxFeeValue, true); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Event represents an event to be emitted
 type Event struct {
 	// ApplicationID is the ID of the application

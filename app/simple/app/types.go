@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"strings"
 	"unsafe"
 
@@ -93,14 +92,18 @@ func SerializeAndWriteResult(result any) *byte {
 	return utils.StringToPtr(reportJSON)
 }
 
-// PtrToNonNegativeBigInt converts a WASM pointer and length representing the a big.Int value to a Go big.Int pointer.
+// PtrToUint256 converts a WASM pointer and length representing a big integer value to a Uint256 pointer.
 // The byte slice is obtained with the (big.Int).Bytes() method, i.e. it represents the absolute value in big-endian byte order, so the value is always non-negative.
-func PtrToNonNegativeBigInt(ptr *byte, length int32) *big.Int {
-	if ptr == nil || length <= 0 || length > MaxBigIntBytes {
-		return big.NewInt(0)
+func PtrToUint256(ptr *byte, length int32) *Uint256 {
+	if ptr == nil || length <= 0 {
+		return NewUint256(0)
 	}
-	b := unsafe.Slice(ptr, length)
-	return new(big.Int).SetBytes(b)
+	// just to be on the very safe side and avoid panics. Should never happen
+	if length > MaxBigIntBytes {
+		length = MaxBigIntBytes
+	}
+
+	return new(Uint256).SetBytes(unsafe.Slice(ptr, length))
 }
 
 // PtrToAddress converts a WASM pointer and length to a ethereum address.
@@ -118,7 +121,7 @@ func PtrToAddress(ptr *byte, length int32) *Address {
 // AccountState represents the state of a user account
 type AccountState struct {
 	Address Address  `json:"address"`
-	Balance *big.Int `json:"balance"`
+	Balance *Uint256 `json:"balance"`
 }
 
 // ApplicationInternalState represents the internal state of the application
@@ -130,7 +133,7 @@ type ApplicationInternalState struct {
 // WithdrawInstruction represents instructions for withdrawing funds
 type WithdrawInstruction struct {
 	To     Address  `json:"to"`
-	Amount *big.Int `json:"amount"`
+	Amount *Uint256 `json:"amount"`
 }
 
 type CompareInstructions struct {
@@ -161,20 +164,18 @@ type DeanonymizationReport struct {
 // The application communicates by serializing the host-side struct to JSON, passing it to the
 // Wasm module, which then deserializes it into its own identical local struct.
 // This maintains a clean separation between the two environments.
-// The Wasm module is a separate, sandboxed program and should not import types directly from
+// The Wasm guest module is a separate, sandboxed program and should not import types directly from
 // the host application's packages, even if they are defined exacltly the same way.
 // Moreover we do use analogous but different types, for instance ethereum addresses in the Host
 // and [20]byte array type in the guest (this is because tinygo does not support the full standard
 // go runtime needed by go-ethereum).
+// Similarly we use math/big.Int in the host and Uint256 type in the guest
 // ---
-// TODO: bigInt (math/big pkg) as of now is not fully supported by tinygo, so far we did not experience
-// errors, but to be on the safe side we should consider using a different type in the Guest application,
-// for instance 8xuint32 or 4xuint64 structs representing uint256 values
 
 // LoadModuleResult is a local replacemente for wasmCommon.LoadModuleResult
 type LoadModuleResult struct {
 	State []byte   `json:"state"`
-	Fuel  *big.Int `json:"fuel"`
+	Fuel  *Uint256 `json:"fuel"`
 	Error string   `json:"error,omitempty"`
 }
 
@@ -182,7 +183,7 @@ type LoadModuleResult struct {
 type DepositResult struct {
 	State  []byte       `json:"state"`
 	Events []PlainEvent `json:"events"`
-	Fuel   *big.Int     `json:"fuel"`
+	Fuel   *Uint256     `json:"fuel"`
 	Error  string       `json:"error,omitempty"`
 }
 
@@ -191,14 +192,14 @@ type ProcessResult struct {
 	State       []byte       `json:"state"`
 	Events      []PlainEvent `json:"events"`
 	Withdrawals []Withdrawal `json:"withdrawals"`
-	Fuel        *big.Int     `json:"fuel"`
+	Fuel        *Uint256     `json:"fuel"`
 	Error       string       `json:"error,omitempty"`
 }
 
 // DeanonymizationResult is a local replacement for wasmCommon.DeanonymizationResult
 type DeanonymizationResult struct {
 	Report []byte   `json:"report"`
-	Fuel   *big.Int `json:"fuel"`
+	Fuel   *Uint256 `json:"fuel"`
 	Error  string   `json:"error,omitempty"`
 }
 
@@ -212,29 +213,29 @@ type PlainEvent struct {
 // Withdrawal is a local replacement for common.Withdrawal
 type Withdrawal struct {
 	DestinationAddress Address  `json:"destinationAddress"`
-	Amount             *big.Int `json:"amount"`
+	Amount             *Uint256 `json:"amount"`
 }
 
 type DepositEvent struct {
 	Type    string   `json:"type"`
-	Amount  *big.Int `json:"amount"`
-	Balance *big.Int `json:"balance"`
+	Amount  *Uint256 `json:"amount"`
+	Balance *Uint256 `json:"balance"`
 	Nonce   uint64   `json:"nonce"`
 }
 
 type SenderEvent struct {
 	Type    string   `json:"type"`
 	To      Address  `json:"to"`
-	Amount  *big.Int `json:"amount"`
-	Balance *big.Int `json:"balance"`
+	Amount  *Uint256 `json:"amount"`
+	Balance *Uint256 `json:"balance"`
 	Nonce   uint64   `json:"nonce"`
 }
 
 type RecipientEvent struct {
 	Type    string   `json:"type"`
 	From    Address  `json:"from"`
-	Amount  *big.Int `json:"amount"`
-	Balance *big.Int `json:"balance"`
+	Amount  *Uint256 `json:"amount"`
+	Balance *Uint256 `json:"balance"`
 	Nonce   uint64   `json:"nonce"`
 }
 

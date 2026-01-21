@@ -101,7 +101,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(depositState1Bytes, &depositState)
 	require.NoError(t, err)
 	require.Len(t, depositState.Accounts, 1)
-	require.Equal(t, deposit1Amount, depositState.Accounts[user1Address.Hex()].Balance)
+	require.Equal(t, deposit1Amount.String(), depositState.Accounts[user1Address.Hex()].Balance.String())
 
 	// 2. User2 Deposits funds (more than previous user)
 	deposit2Amount := big.NewInt(2000)
@@ -114,13 +114,13 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(depositState2Bytes, &depositState)
 	require.NoError(t, err)
 	require.Len(t, depositState.Accounts, 2)
-	require.Equal(t, deposit2Amount, depositState.Accounts[user2Address.Hex()].Balance)
+	require.Equal(t, deposit2Amount.String(), depositState.Accounts[user2Address.Hex()].Balance.String())
 
 	// 3. Process a withdraw request for user1
 	withdrawAmount := big.NewInt(200)
 	withdrawInstruction := app.WithdrawInstruction{
 		To:     recipient1Address,
-		Amount: withdrawAmount,
+		Amount: new(app.Uint256).SetBytes(withdrawAmount.Bytes()),
 	}
 	payload := app.PayloadInstructions{
 		Type:     "withdraw",
@@ -141,7 +141,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	diffBalance := new(big.Int).Sub(deposit1Amount, withdrawAmount)
-	require.Equal(t, diffBalance, withdrawState.Accounts[user1Address.Hex()].Balance)
+	require.Equal(t, diffBalance.String(), withdrawState.Accounts[user1Address.Hex()].Balance.String())
 
 	require.Equal(t, ethCommon.Address(recipient1Address), withdrawals[0].DestinationAddress)
 	require.Equal(t, withdrawAmount, withdrawals[0].Amount)
@@ -251,7 +251,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &app.WithdrawInstruction{
 				To:     recipient1Address,
-				Amount: big.NewInt(2000),
+				Amount: app.NewUint256(2000),
 			},
 		}
 		payloadBytes, err := json.Marshal(payload)
@@ -259,7 +259,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "Insufficient balance for withdrawal")
+		require.Contains(t, err.Error(), "Insufficient balance")
 	})
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {
@@ -269,7 +269,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &app.WithdrawInstruction{
 				To:     recipient1Address,
-				Amount: big.NewInt(100),
+				Amount: app.NewUint256(100),
 			},
 		}
 		payloadBytes, err := json.Marshal(payload)
@@ -486,7 +486,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				withdrawAmount := big.NewInt(1)
 				withdrawInstruction := app.WithdrawInstruction{
 					To:     recipient1Address,
-					Amount: withdrawAmount,
+					Amount: new(app.Uint256).SetBytes(withdrawAmount.Bytes()),
 				}
 				withdrawPayload := app.PayloadInstructions{
 					Type:     "withdraw",
