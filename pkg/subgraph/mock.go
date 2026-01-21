@@ -3,6 +3,8 @@ package subgraph
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"sort"
 
 	"github.com/horizen-pes/pkg/common"
 )
@@ -39,13 +41,10 @@ func (m *MockClient) GetRequestCompletedByID(_ context.Context, requestID common
 	return nil, nil
 }
 
-func (m *MockClient) GetUserEvents(_ context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, skip int) ([]UserEvent, error) {
+func (m *MockClient) GetUserEvents(_ context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, before *big.Int) ([]UserEvent, error) {
 	all, ok := m.events[applicationID]
 	if !ok {
 		return nil, nil
-	}
-	if skip < 0 {
-		return nil, fmt.Errorf("invalid skip %d", skip)
 	}
 
 	var filtered []UserEvent
@@ -53,13 +52,15 @@ func (m *MockClient) GetUserEvents(_ context.Context, applicationID common.Appli
 		if eventSubType != "" && ev.EventSubType != eventSubType {
 			continue
 		}
+		if before != nil && userEventSortKey(ev).Cmp(before) >= 0 {
+			continue
+		}
 		filtered = append(filtered, ev)
 	}
 
-	if skip >= len(filtered) {
-		return nil, nil
-	}
-	filtered = filtered[skip:]
+	sort.Slice(filtered, func(i, j int) bool {
+		return userEventSortKey(filtered[i]).Cmp(userEventSortKey(filtered[j])) > 0
+	})
 
 	if limit <= 0 {
 		return filtered, nil

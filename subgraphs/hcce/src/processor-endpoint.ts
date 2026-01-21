@@ -1,10 +1,12 @@
-import { Bytes } from "@graphprotocol/graph-ts";
+import { BigInt } from "@graphprotocol/graph-ts";
 import {
   RequestSubmitted as RequestSubmittedEvent,
   RequestCompleted as RequestCompletedEvent,
   UserEvent as UserEventEvent,
 } from "../generated/ProcessorEndpoint/ProcessorEndpoint";
 import { RequestSubmitted, RequestCompleted, UserEvent } from "../generated/schema";
+
+const SORT_BASE = BigInt.fromI32(1000000000);
 
 export function handleRequestSubmitted(event: RequestSubmittedEvent): void {
   const id = event.transaction.hash.concatI32(event.logIndex.toI32()).toHex();
@@ -42,6 +44,8 @@ export function handleUserEvent(event: UserEventEvent): void {
   entity.eventSubType = event.params.eventSubType;
   entity.encryptedData = event.params.encryptedData;
   entity.blockNumber = event.block.number;
+  entity.logIndex = event.logIndex;
+  entity.sortKey = event.block.number.times(SORT_BASE).plus(event.logIndex);
   entity.blockTimestamp = event.block.timestamp;
 
   entity.save();

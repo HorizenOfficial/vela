@@ -24,5 +24,7 @@ type UserEvent @entity(immutable: true) {
   eventSubType: Bytes!
   encryptedData: Bytes!
   blockNumber: BigInt!
+  logIndex: BigInt!
+  sortKey: BigInt!
   blockTimestamp: BigInt!
 }

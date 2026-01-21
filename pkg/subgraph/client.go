@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -117,59 +118,54 @@ type userEventsResponse struct {
 		EventSubType  string `json:"eventSubType"`
 		EncryptedData string `json:"encryptedData"`
 		BlockNumber   string `json:"blockNumber"`
+		LogIndex      string `json:"logIndex"`
+		SortKey       string `json:"sortKey"`
 	} `json:"userEvents"`
 }
 
-func (c *client) GetUserEvents(ctx context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, skip int) ([]UserEvent, error) {
+func (c *client) GetUserEvents(ctx context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, before *big.Int) ([]UserEvent, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	if skip < 0 {
-		return nil, fmt.Errorf("invalid skip %d", skip)
+	if limit > 1000 {
+		limit = 1000
 	}
-
-	query := `
-query($applicationId: BigInt!, $limit: Int!, $skip: Int!) {
-  userEvents(
-    where: { applicationId: $applicationId }
-    orderBy: blockNumber
-    orderDirection: desc
-    first: $limit
-    skip: $skip
-  ) {
-    applicationId
-    requestId
-    eventSubType
-    encryptedData
-    blockNumber
-  }
-}`
 
 	variables := map[string]interface{}{
 		"applicationId": fmt.Sprintf("%d", uint64(applicationID)),
 		"limit":         limit,
-		"skip":          skip,
 	}
 
+	varDefs := ""
+	whereParts := []string{"applicationId: $applicationId"}
 	if strings.TrimSpace(eventSubType) != "" {
-		query = `
-query($applicationId: BigInt!, $eventSubType: Bytes!, $limit: Int!, $skip: Int!) {
+		varDefs += ", $eventSubType: Bytes!"
+		variables["eventSubType"] = eventSubType
+		whereParts = append(whereParts, "eventSubType: $eventSubType")
+	}
+	if before != nil {
+		varDefs += ", $before: BigInt!"
+		variables["before"] = before.String()
+		whereParts = append(whereParts, "sortKey_lt: $before")
+	}
+
+	query := fmt.Sprintf(`
+query($applicationId: BigInt!, $limit: Int!%s) {
   userEvents(
-    where: { applicationId: $applicationId, eventSubType: $eventSubType }
-    orderBy: blockNumber
+    where: { %s }
+    orderBy: sortKey
     orderDirection: desc
     first: $limit
-    skip: $skip
   ) {
     applicationId
     requestId
     eventSubType
     encryptedData
     blockNumber
+    logIndex
+    sortKey
   }
-}`
-		variables["eventSubType"] = eventSubType
-	}
+}`, varDefs, strings.Join(whereParts, ", "))
 
 	var resp graphResponse[userEventsResponse]
 	if err := c.doGraphQL(ctx, query, variables, &resp); err != nil {
@@ -196,12 +192,24 @@ query($applicationId: BigInt!, $eventSubType: Bytes!, $limit: Int!, $skip: Int!)
 			return nil, fmt.Errorf("invalid blockNumber %q: %w", entity.BlockNumber, err)
 		}
 
+		logIndex, err := strconv.ParseUint(entity.LogIndex, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid logIndex %q: %w", entity.LogIndex, err)
+		}
+
+		sortKey, ok := common.StringToBigInt(entity.SortKey)
+		if !ok {
+			return nil, fmt.Errorf("invalid sortKey %q", entity.SortKey)
+		}
+
 		events = append(events, UserEvent{
 			ApplicationID: applicationID,
 			RequestID:     reqID,
 			EventSubType:  entity.EventSubType,
 			EncryptedData: data,
 			BlockNumber:   blockNumber,
+			LogIndex:      logIndex,
+			SortKey:       sortKey,
 		})
 	}
 

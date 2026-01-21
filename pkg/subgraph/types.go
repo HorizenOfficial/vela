@@ -10,7 +10,7 @@ import (
 // Client defines the subgraph operations used by the services.
 type Client interface {
 	GetRequestCompletedByID(ctx context.Context, requestID common.RequestIdType) (*RequestCompleted, error)
-	GetUserEvents(ctx context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, skip int) ([]UserEvent, error)
+	GetUserEvents(ctx context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, before *big.Int) ([]UserEvent, error)
 }
 
 // RequestCompleted is the projection returned by the subgraph.
@@ -30,4 +30,6 @@ type UserEvent struct {
 	EventSubType  string
 	EncryptedData []byte
 	BlockNumber   uint64
+	LogIndex      uint64
+	SortKey       *big.Int
 }

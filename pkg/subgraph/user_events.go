@@ -3,6 +3,7 @@ package subgraph
 import (
 	"context"
 	"fmt"
+	"math/big"
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -41,11 +42,14 @@ func FetchAndDecryptUserEvents(
 	if pageSize <= 0 {
 		pageSize = 1000
 	}
+	if pageSize > 1000 {
+		pageSize = 1000
+	}
 
 	var decryptedEvents [][]byte
-	skip := 0
+	var before *big.Int
 	for {
-		events, err := sg.GetUserEvents(ctx, applicationID, eventSubType, pageSize, skip)
+		events, err := sg.GetUserEvents(ctx, applicationID, eventSubType, pageSize, before)
 		if err != nil {
 			return nil, err
 		}
@@ -73,8 +77,23 @@ func FetchAndDecryptUserEvents(
 		if len(events) < pageSize {
 			break
 		}
-		skip += len(events)
+		before = userEventSortKey(events[len(events)-1])
 	}
 
 	return decryptedEvents, nil
+}
+
+// Must match SORT_BASE in the subgraph mapping.
+const userEventSortKeyBase = uint64(1000000000)
+
+func userEventSortKey(ev UserEvent) *big.Int {
+	if ev.SortKey != nil {
+		return new(big.Int).Set(ev.SortKey)
+	}
+
+	block := new(big.Int).SetUint64(ev.BlockNumber)
+	base := new(big.Int).SetUint64(userEventSortKeyBase)
+	block.Mul(block, base)
+	block.Add(block, new(big.Int).SetUint64(ev.LogIndex))
+	return block
 }

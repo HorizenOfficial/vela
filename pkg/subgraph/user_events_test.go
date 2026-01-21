@@ -160,3 +160,29 @@ func TestFetchAndDecryptUserEvents_NoLimit(t *testing.T) {
 	require.Equal(t, []byte("one"), result[0])
 	require.Equal(t, []byte("two"), result[1])
 }
+
+func TestFetchAndDecryptUserEvents_OrderWithinBlock(t *testing.T) {
+	teeKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+
+	appID := common.NewApplicationId(6)
+	reqID1 := testutil.GenerateRandomRequestID()
+	reqID2 := testutil.GenerateRandomRequestID()
+
+	ev1Cipher, err := crypto.Encrypt(teeKey, userKey.PublicKey(), []byte("first-log"))
+	require.NoError(t, err)
+	ev2Cipher, err := crypto.Encrypt(teeKey, userKey.PublicKey(), []byte("second-log"))
+	require.NoError(t, err)
+
+	mock := NewMockClient().WithUserEvents(appID, []UserEvent{
+		{ApplicationID: appID, RequestID: reqID1, EncryptedData: ev1Cipher, EventSubType: "f", BlockNumber: 10, LogIndex: 1},
+		{ApplicationID: appID, RequestID: reqID2, EncryptedData: ev2Cipher, EventSubType: "f", BlockNumber: 10, LogIndex: 2},
+	})
+
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, nil, true)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Equal(t, []byte("second-log"), result[0])
+}
