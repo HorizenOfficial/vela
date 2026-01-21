@@ -132,15 +132,18 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
         //check values
-        Structs.PendingRequest memory requestInfo = requestById[requestId];
-        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue(); 
+        Structs.PendingRequest storage requestInfo = requestById[requestId];
+        uint256 maxFeeValue = requestInfo.maxFeeValue;
+        address payable sender = payable(requestInfo.sender);
+        uint64 requestApplicationId = requestInfo.applicationId;
+        if(refund + applicationFees != maxFeeValue) revert InvalidValue(); 
         if(applicationFees < minFeePerRequest) {
             revert InvalidValue();
         }
         if(refund > 0) {
-            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+            (bool refundSent, ) = sender.call{value: refund}("");
             if (refundSent) {
-                emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
+                emit Refund(requestApplicationId, requestId, sender, refund);
             }
         }
 
@@ -160,26 +163,26 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     function markRequestFailed(bytes32 requestId, Structs.ErrorCode errorCode, string memory errorMessage) external onlyRole(UPDATE_STATUS_ROLE) {
         if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
-        address sender = requestById[requestId].sender;
-        uint256 depositAmount = requestById[requestId].depositAmount;
-        uint256 maxFeeValue = requestById[requestId].maxFeeValue;
+        Structs.PendingRequest storage requestInfo = requestById[requestId];
+        uint256 minFee = minFeePerRequest;
 
         _removeRequest();
         //refunds
-        uint256 refund = depositAmount + (maxFeeValue - minFeePerRequest);
+        uint256 refund = requestInfo.depositAmount + (requestInfo.maxFeeValue - minFee);
         if(refund > 0) {
-            (bool refundSent, ) = payable(sender).call{value: refund}("");
+            address payable sender = payable(requestInfo.sender);
+            (bool refundSent, ) = sender.call{value: refund}("");
             if (refundSent) {
-                emit Refund(requestById[requestId].applicationId, requestId, sender, refund);
+                emit Refund(requestInfo.applicationId, requestId, sender, refund);
             }
         }
 
         //minimum fee is collected
-        (bool feeSent, ) = payable(feeCollector).call{value: minFeePerRequest}("");
+        (bool feeSent, ) = payable(feeCollector).call{value: minFee}("");
         if (feeSent) {
-            emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
+            emit RequestCompleted(requestId, minFee, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
         } else {
-            emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage); 
+            emit RequestCompleted(requestId, minFee, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage); 
         }
     }
 
@@ -199,8 +202,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
 
         Structs.PendingRequest[] memory res = new Structs.PendingRequest[](numOfPendingRequests);
         uint256 i = _head;
+        uint256 tail = _tail;
         uint256 j;
-        while(i < _tail) {
+        while(i < tail) {
             bytes32 requestId = _requestIdByOrder[i];
             res[j] = requestById[requestId];
             unchecked { ++i; ++j;}
@@ -228,12 +232,16 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
         if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
         //check signature
-        if (events.length != eventSubTypes.length) revert InvalidPayload();
+        uint256 eventsLength = events.length;
+        uint256 eventSubTypesLength = eventSubTypes.length;
+        if (eventsLength != eventSubTypesLength) revert InvalidPayload();
         if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refund, applicationFees, signature)) revert InvalidSignature();
 
         //check values
-        Structs.PendingRequest memory requestInfo = requestById[processedRequestId];
-        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue();
+        Structs.PendingRequest storage requestInfo = requestById[processedRequestId];
+        uint256 maxFeeValue = requestInfo.maxFeeValue;
+        address payable sender = payable(requestInfo.sender);
+        if(refund + applicationFees != maxFeeValue) revert InvalidValue();
         if(applicationFees < minFeePerRequest) {
             revert InvalidValue();
         }
@@ -241,7 +249,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
         //check withdrawal sums 
         uint256 i;
         uint256 sum;
-        while(i < withdrawalRequests.length) {
+        uint256 withdrawalsLength = withdrawalRequests.length;
+        while(i < withdrawalsLength) {
             sum += withdrawalRequests[i].amount;
             unchecked {++i;}
         }
@@ -253,7 +262,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
 
         //emit encrypted event
         i = 0;
-        while(i < events.length) {
+        while(i < eventsLength) {
             emit UserEvent(applicationId, processedRequestId, eventSubTypes[i], events[i]);
             unchecked {++i;}
         }
@@ -263,12 +272,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
         emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
         if(refund > 0) {
-            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
+            (bool refundSent, ) = sender.call{value: refund}("");
             if (!refundSent) {
                 revert TransferFailed();
             }
         }
-        emit Refund(applicationId, processedRequestId, requestInfo.sender, refund);
+        emit Refund(applicationId, processedRequestId, sender, refund);
 
         (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
         if (!feeSent) {
