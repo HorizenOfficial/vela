@@ -88,7 +88,7 @@ list-deps:
 	@echo $(MANAGER_SRC_FILES) | tr ' ' '\n'
 	@echo "\nExecutor Source Dependencies:"
 	@echo $(EXECUTOR_SRC_FILES) | tr ' ' '\n'
-	@echo "\Attestation Source Dependencies:"
+	@echo "\nAttestation Source Dependencies:"
 	@echo $(ATTESTATION_SRC_FILES) | tr ' ' '\n'
 
 # ----------------------
