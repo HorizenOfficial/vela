@@ -7,6 +7,7 @@ describe('AuthorityRegistry Test', function () {
 
     describe('happy paths', function () {
       it('initializes owner and default authority contract', async () => {});
+      it('emits DefaultAuthorityContractSet on deployment', async () => {});
     });
   });
 });

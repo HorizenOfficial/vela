@@ -6,6 +6,7 @@ describe('ProcessorEndpoint Test', function () {
 
     describe('happy paths', function () {
       it('returns pending requests in FIFO order with correct data', async () => {});
+      it('removes head request after completion or failure', async () => {});
     });
   });
 });

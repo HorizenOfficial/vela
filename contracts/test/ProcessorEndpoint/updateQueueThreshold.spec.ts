@@ -7,6 +7,7 @@ describe('ProcessorEndpoint Test', function () {
 
     describe('happy paths', function () {
       it('updates maxQueueSize and emits QueueThresholdUpdated', async () => {});
+      it('prevents new requests when newThreshold is below current queue size', async () => {});
     });
   });
 });

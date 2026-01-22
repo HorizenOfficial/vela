@@ -4,6 +4,8 @@ describe('ProcessorEndpoint Test', function () {
       it('reverts with InvalidProtocolVersion when protocolVersion is invalid', async () => {});
       it('reverts with InvalidApplicationId when applicationId is invalid', async () => {});
       it('reverts with InvalidValue when msg.value != depositAmount + maxFeeValue', async () => {});
+      it('reverts with InvalidValue when msg.value is less than depositAmount + maxFeeValue', async () => {});
+      it('reverts with InvalidValue when msg.value is greater than depositAmount + maxFeeValue', async () => {});
       it('reverts with FeeValueBelowMinimum when maxFeeValue < minFeePerRequest', async () => {});
       it('reverts with QueueThresholdExceeded when queue is full', async () => {});
       it('reverts with InvalidPayload when ASSOCIATEKEY payload length != 133', async () => {});
@@ -12,7 +14,10 @@ describe('ProcessorEndpoint Test', function () {
     });
 
     describe('happy paths', function () {
+      it('emits RequestSubmitted and stores request data for retrieval', async () => {});
       it('accepts non-deanonymization requests (DEPLOYAPP/PROCESS/ASSOCIATEKEY) and enqueues', async () => {});
+      it('accepts non-deanonymization request from an unauthorized authority', async () => {});
+      it('accepts ASSOCIATEKEY when payload length is 133', async () => {});
       it('accepts DEANONYMIZATION for allowed authority with zero deposit', async () => {});
     });
   });

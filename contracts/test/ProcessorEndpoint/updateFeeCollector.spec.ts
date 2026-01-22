@@ -7,6 +7,9 @@ describe('ProcessorEndpoint Test', function () {
 
     describe('happy paths', function () {
       it('updates feeCollector and emits FeeCollectorUpdated', async () => {});
+      it('routes fees to the new feeCollector for markRequestCompleted', async () => {});
+      it('routes fees to the new feeCollector for markRequestFailed', async () => {});
+      it('routes fees to the new feeCollector for stateUpdate', async () => {});
     });
   });
 });

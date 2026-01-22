@@ -7,6 +7,7 @@ describe('ProcessorEndpoint Test', function () {
       it('reverts with InvalidRequestId when processedRequestId is not current pending', async () => {});
       it('reverts with InvalidPayload when events and eventSubTypes length mismatch', async () => {});
       it('reverts with InvalidSignature when teeAuthenticator checkSignature fails', async () => {});
+      it('reverts with InvalidSignature when event subtype changes', async () => {});
       it('reverts with InvalidValue when refund + applicationFees != maxFeeValue', async () => {});
       it('reverts with InvalidValue when applicationFees < minFeePerRequest', async () => {});
       it('reverts with InsufficientBalance when withdrawals sum exceeds contract balance', async () => {});
@@ -16,8 +17,12 @@ describe('ProcessorEndpoint Test', function () {
     });
 
     describe('happy paths', function () {
+      it('updates state root and emits StateRootUpdate with valid signature', async () => {});
       it('processes update: completes request, emits events, and transfers funds', async () => {});
+      it('emits UserEvent for provided events and subtypes', async () => {});
       it('allows first update when stateRoot is zero and prevStateRoot is zero', async () => {});
+      it('allows update when stateRoot is zero and prevStateRoot is non-zero', async () => {});
+      it('emits Refund even when refund amount is zero', async () => {});
     });
   });
 });
