@@ -38,6 +38,21 @@ type ApplicationModule struct {
 	cleanupFds func()
 }
 
+// Close releases all resources associated with the ApplicationModule.
+func (m *ApplicationModule) Close() {
+	if m.cleanupFds != nil {
+		m.cleanupFds()
+		m.cleanupFds = nil
+	}
+
+	// Clear references to WASM resources
+	m.instance = nil
+	m.module = nil
+	m.memory = nil
+	m.store = nil
+	m.deallocate = nil
+}
+
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
 type WasmtimeRuntime struct {
 	engine     *wasmtime.Engine
@@ -317,7 +332,7 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 
 	// if a module already exists for this appId, clean it up before overwriting
 	if oldModule, exists := r.modules[appId]; exists {
-		oldModule.cleanupFds()
+		r.cleanupModule(appId, oldModule)
 	}
 
 	// Store the module in the runtime registry
@@ -548,88 +563,86 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	return deanonymizationResult.Report, deanonymizationResult.Fuel, nil
 }
 
-// extractResultBytes extracts a pointer returned by the wasm module (single int32 offset)
-// that points to a length-prefixed byte slice: | u32(len) | data... |.
-// It copies the payload into a new Go slice, then frees the guest memory via deallocate.
-func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *ApplicationModule) ([]byte, error) {
+func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *ApplicationModule) (out []byte, err error) {
+	// ---- Panic shield: NEVER let guest crash the host ----
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("panic while extracting wasm result: %v", rec)
+		}
+	}()
+
 	ptr, err := toInt32(result)
 	if err != nil {
 		return nil, fmt.Errorf("wasm module returned unexpected type for result pointer: %w", err)
 	}
 	if ptr == 0 {
-		return nil, fmt.Errorf("wasm module returned null pointer, possibly an allocation failure")
+		return nil, fmt.Errorf("wasm module returned null pointer")
 	}
 
-	if appModule.store == nil {
-		return nil, fmt.Errorf("wasm module has a nil store")
+	if appModule == nil || appModule.store == nil || appModule.memory == nil {
+		return nil, fmt.Errorf("invalid wasm module state")
 	}
 
-	// Read the 4-byte little-endian length prefix
-	memData := appModule.memory.UnsafeData(appModule.store)
+	mem := appModule.memory.UnsafeData(appModule.store)
+	memLen := len(mem)
+
 	start := int(ptr)
-	if start < 0 || start+4 > len(memData) {
+	if start < 0 || start+4 > memLen {
 		return nil, fmt.Errorf("invalid memory access for length prefix")
 	}
-	lengthBytes := memData[start : start+4]
-	dataLen := binary.LittleEndian.Uint32(lengthBytes)
+
+	// ---- Read length prefix ----
+	dataLen := binary.LittleEndian.Uint32(mem[start : start+4])
+
 	if dataLen == 0 {
-		// Still deallocate the 4 bytes used for the prefix
 		if appModule.deallocate != nil {
-			if _, err := appModule.deallocate.Call(appModule.store, ptr, int32(4)); err != nil {
-				// Log the error but don't fail the operation since we have the data
-				r.log.Warn("Wasmtime Runtime: failed to deallocate wasm memory for empty result: %v", err)
-			}
+			_, _ = appModule.deallocate.Call(appModule.store, ptr, int32(4))
 		}
 		return nil, fmt.Errorf("empty result from wasm module")
 	}
 
-	// to be on the safe side, check against overflow. Actually it is necessary for 32-bit platforms only
-	// because on 64-bit platforms 'int' is large enough.
+	// TODO consider using this limit for increasing safety (to be defined as a constant somewhere)
+	/*
+		// ---- Hard limits (DoS protection) ----
+		const maxResultSize = 4 * 1024 * 1024 // 4 MB
+		if dataLen > maxResultSize {
+			return nil, fmt.Errorf("result too large: %d bytes", dataLen)
+		}
+	*/
+
+	// Prevent int overflow
 	if dataLen > uint32(math.MaxInt32-4) {
-		return nil, fmt.Errorf("result too large: length would overflow int")
+		return nil, fmt.Errorf("result length overflows int")
 	}
 
-	// Validate full payload is readable
 	totalLen := int(dataLen) + 4
-	if start+totalLen > len(memData) {
-		return nil, fmt.Errorf("invalid memory access for data payload")
+	if start+totalLen > memLen {
+		return nil, fmt.Errorf("invalid memory access for payload")
 	}
 
-	// Copy the payload into a Go buffer (skip the 4-byte prefix)
-	resultBytes := make([]byte, dataLen)
-	copy(resultBytes, memData[start+4:start+4+int(dataLen)])
+	// ---- Copy payload ----
+	out = make([]byte, dataLen)
+	copy(out, mem[start+4:start+totalLen])
 
-	// Deallocate memory in WASM now that we have copied the data
+	// ---- Deallocate guest memory ----
 	if appModule.deallocate != nil {
-		if _, err := appModule.deallocate.Call(appModule.store, ptr, int32(totalLen)); err != nil {
-			// Log the error but don't fail the operation since we have the data
-			r.log.Warn("Wasmtime Runtime: failed to deallocate wasm memory for result: %v", err)
+		if _, derr := appModule.deallocate.Call(appModule.store, ptr, int32(totalLen)); derr != nil {
+			r.log.Warn("Wasmtime Runtime: failed to deallocate wasm memory for result: %v", derr)
 		}
 	}
 
-	// Check for wasm serialization failure
-	if string(resultBytes) == appCommon.WasmSerializationError {
+	// ---- Detect guest serialization failure sentinel ----
+	if string(out) == appCommon.WasmSerializationError {
 		return nil, fmt.Errorf("wasm module failed to serialize response/error")
 	}
 
-	return resultBytes, nil
+	return out, nil
 }
 
 // cleanupModule releases all resources associated with a single ApplicationModule.
 func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *ApplicationModule) {
 	r.log.Info("Cleaning up module %d", appId)
-
-	if module.cleanupFds != nil {
-		module.cleanupFds()
-		module.cleanupFds = nil
-	}
-
-	// Deallocate WASM resources
-	module.instance = nil
-	module.module = nil
-	module.memory = nil
-	module.store = nil
-	module.deallocate = nil
+	module.Close()
 }
 
 // Close closes the wasmtime runtime and cleans up resources
@@ -793,8 +806,47 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		return nil, fmt.Errorf("failed to create log pipe: %w", err)
 	}
 
-	var readerFile *os.File
-	var dummyWriter *os.File
+	// immediate Unlink after creation (The file disappears from /tmp but data flows)
+	// this is especially useful in the enclave environment, where we have a RAMFS file system
+	defer os.Remove(fifoPath)
+
+	// we use this for avoiding that the Reader OpenFile(O_RDONLY) blocks waiting for the WASI writer to connect
+	// this Dummy writer must stay open until cleanup, otherwise will send EOF to the scanner below
+	// (reader blocking is potentially dangerous in edge cases on some error path for races, resource dangling and panics)
+	dummyWriter, err := os.OpenFile(fifoPath, os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open dummy fifo writer: %w", err)
+	}
+
+	// Open the reader on main thread - won't block because dummyWriter is already connected
+	readerFile, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
+	if err != nil {
+		dummyWriter.Close()
+		return nil, fmt.Errorf("failed to open fifo reader: %w", err)
+	}
+
+	// Channel to signal goroutine termination
+	doneCh := make(chan struct{})
+
+	// Start the log reader goroutine
+	go func() {
+		defer close(doneCh)
+
+		scanner := bufio.NewScanner(readerFile)
+		r.log.Debug("Starting WASM log pipe reader for app %d", appId)
+
+		for scanner.Scan() {
+			r.log.Info("Wasm Guest [%d]: %s", appId, scanner.Text())
+		}
+
+		if err := scanner.Err(); err != nil {
+			// Don't log if it's due to the file being closed during cleanup
+			if !errors.Is(err, os.ErrClosed) {
+				r.log.Warn("WASM log pipe scanner error for app %d: %v", appId, err)
+			}
+		}
+		r.log.Debug("WASM log pipe reader exited for app %d", appId)
+	}()
 
 	// This helper cleanup func will be also used when the module is disposed of.
 	// We should call it when we unload a module otherwise we might leak file descriptors.
@@ -802,63 +854,25 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	//     Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
 	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
 	cleanupFileDescriptors := func() {
-		r.log.Info("Closing log pipe FDs")
-		if dummyWriter != nil {
-			// Closing this sends EOF to the scanner loop
-			if err := dummyWriter.Close(); err != nil {
-				r.log.Warn("Failed to close dummy writer FD: %v", err)
-			}
+		r.log.Info("Closing log pipe FDs for app %d", appId)
+
+		// Close dummy writer first - this sends EOF to the scanner
+		if err := dummyWriter.Close(); err != nil {
+			r.log.Warn("Failed to close dummy writer FD: %v", err)
 		}
-		if readerFile != nil {
-			// Closing it frees the read FD
-			if err := readerFile.Close(); err != nil {
-				r.log.Warn("Failed to close reader FD: %v", err)
-			}
+
+		// Wait for goroutine to finish (with timeout to prevent deadlock)
+		select {
+		case <-doneCh:
+			// Goroutine exited cleanly
+		case <-time.After(2 * time.Second):
+			r.log.Warn("Timeout waiting for log pipe goroutine to exit for app %d", appId)
 		}
-	}
 
-	// we use this for avoid that the Reader OpenFile(O_RDONLY) blocks waiting for the WASI writer to connect
-	// this Dummy writer must stay open until cleanup, otherwise will send EOF to the scanner below
-	// (reader blocking is potentially dangerous in edge cases on some error path for races, resource dangling and panics)
-	dummyWriter, err := os.OpenFile(fifoPath, os.O_RDWR, 0600)
-	if err != nil {
-		_ = os.Remove(fifoPath)
-		return nil, fmt.Errorf("failed to open dummy fifo writer: %w", err)
-	}
-
-	readyCh := make(chan error, 1)
-	go func() {
-		r.log.Info("entering go routine for pipe reading")
-		var err error
-
-		// This call would block until Wasmtime connects to the other pipe end as the writer, but to avoid problems we used
-		// the dummy writer above, therefore we are not blocking here: we will be succesful or we have an error
-		readerFile, err = os.OpenFile(fifoPath, os.O_RDONLY, 0600)
-		if err != nil {
-			readyCh <- fmt.Errorf("reader open failed: %w", err)
-			r.log.Error("Could not open pipe %s, err: %w", fifoPath, err)
-			_ = os.Remove(fifoPath)
-			return
+		// Now safe to close reader - goroutine is done or timed out
+		if err := readerFile.Close(); err != nil {
+			r.log.Warn("Failed to close reader FD: %v", err)
 		}
-		// Signal success to main thread
-		readyCh <- nil
-
-		scanner := bufio.NewScanner(readerFile)
-		r.log.Warn("starting reading pipe")
-		for scanner.Scan() {
-			r.log.Info("Wasm Guest [%d]: %s", appId, scanner.Text())
-		}
-	}()
-
-	// immediate Unlink (The file disappears from /tmp but data flows)
-	// this is expecially useful in the enclave environment, where we have a RAMFS file system
-	defer os.Remove(fifoPath)
-
-	// wait for the reader to be ready
-	err = <-readyCh
-	if err != nil {
-		cleanupFileDescriptors()
-		return nil, err
 	}
 
 	r.log.Info("Installing log pipes")
