@@ -20,7 +20,7 @@ func withUserEventsPageSize(t *testing.T, size int) {
 	})
 }
 
-func TestFetchAndDecryptUserEvents_StopAtFirst(t *testing.T) {
+func TestFetchAndDecryptUserEvents_LimitOne(t *testing.T) {
 	teeKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err)
 	userKey, err := crypto.GeneratePrivateKeyP521()
@@ -40,7 +40,7 @@ func TestFetchAndDecryptUserEvents_StopAtFirst(t *testing.T) {
 		{ApplicationID: appID, RequestID: reqID1, EncryptedData: ev1Cipher, EventSubType: "a", BlockNumber: 2},
 	})
 
-	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 10, nil, true)
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, nil)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, []byte("msg-2"), result[0])
@@ -70,7 +70,7 @@ func TestFetchAndDecryptUserEvents_Filter(t *testing.T) {
 		return strings.Contains(string(data), "keep")
 	}
 
-	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 10, filter, false)
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 10, filter)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, []byte("keep-this"), result[0])
@@ -102,7 +102,7 @@ func TestFetchAndDecryptUserEvents_PaginatesUntilMatch(t *testing.T) {
 		return strings.Contains(string(data), "target")
 	}
 
-	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, filter, true)
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, filter)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, []byte("target"), result[0])
@@ -128,7 +128,7 @@ func TestFetchAndDecryptUserEvents_MaxResults(t *testing.T) {
 		{ApplicationID: appID, RequestID: reqID2, EncryptedData: ev2Cipher, EventSubType: "d", BlockNumber: 1},
 	})
 
-	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, nil, false)
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, nil)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, []byte("first"), result[0])
@@ -154,7 +154,7 @@ func TestFetchAndDecryptUserEvents_NoLimit(t *testing.T) {
 		{ApplicationID: appID, RequestID: reqID2, EncryptedData: ev2Cipher, EventSubType: "e", BlockNumber: 1},
 	})
 
-	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 0, nil, false)
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, result, 2)
 	require.Equal(t, []byte("one"), result[0])
@@ -181,7 +181,7 @@ func TestFetchAndDecryptUserEvents_OrderWithinBlock(t *testing.T) {
 		{ApplicationID: appID, RequestID: reqID2, EncryptedData: ev2Cipher, EventSubType: "f", BlockNumber: 10, LogIndex: 2},
 	})
 
-	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, nil, true)
+	result, err := FetchAndDecryptUserEvents(context.Background(), mock, teeKey.PublicKey(), *userKey, appID, "", 1, nil)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, []byte("second-log"), result[0])

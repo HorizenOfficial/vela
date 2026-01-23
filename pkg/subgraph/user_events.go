@@ -15,7 +15,7 @@ var userEventsPageSize = 1000
 // FetchAndDecryptUserEvents queries the subgraph for user events and decrypts them.
 // The limit caps the number of decrypted events returned; limit <= 0 means no cap.
 // The page size is internal and capped to avoid query errors.
-// It applies the optional filter on decrypted payloads and can stop at the first match.
+// It applies the optional filter on decrypted payloads.
 func FetchAndDecryptUserEvents(
 	ctx context.Context,
 	sg Client,
@@ -25,7 +25,6 @@ func FetchAndDecryptUserEvents(
 	eventSubType string,
 	limit int,
 	filter func([]byte) bool,
-	stopAtFirst bool,
 ) ([][]byte, error) {
 	if sg == nil {
 		return nil, fmt.Errorf("subgraph client is required")
@@ -66,9 +65,6 @@ func FetchAndDecryptUserEvents(
 				continue
 			}
 			decryptedEvents = append(decryptedEvents, plain)
-			if stopAtFirst && len(decryptedEvents) > 0 {
-				return decryptedEvents, nil
-			}
 			if maxResults > 0 && len(decryptedEvents) >= maxResults {
 				return decryptedEvents, nil
 			}
