@@ -157,9 +157,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     address payable sender = payable(requestInfo.sender);
     uint64 requestApplicationId = requestInfo.applicationId;
     if (refund + applicationFees != maxFeeValue) revert InvalidValue();
-    if (applicationFees < minFeePerRequest) {
-      revert InvalidValue();
-    }
+    if (applicationFees < minFeePerRequest) { revert InvalidValue(); }
     if (refund > 0) {
       (bool refundSent, ) = sender.call{value: refund}('');
       if (refundSent) {
