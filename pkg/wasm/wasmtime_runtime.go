@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -836,7 +837,24 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		r.log.Debug("Starting WASM log pipe reader for app %d", appId)
 
 		for scanner.Scan() {
-			r.log.Info("Wasm Guest [%d]: %s", appId, scanner.Text())
+			line := scanner.Text()
+			// Parse guest log level prefix and route to appropriate host log level
+			// Expected format: LVL message (e.g., "INF Processing request")
+			switch {
+			case strings.HasPrefix(line, "ERR "):
+				r.log.Error("Wasm Guest [%d]: %s", appId, line[4:])
+			case strings.HasPrefix(line, "WRN "):
+				r.log.Warn("Wasm Guest [%d]: %s", appId, line[4:])
+			case strings.HasPrefix(line, "INF "):
+				r.log.Info("Wasm Guest [%d]: %s", appId, line[4:])
+			case strings.HasPrefix(line, "DBG "):
+				r.log.Debug("Wasm Guest [%d]: %s", appId, line[4:])
+			case strings.HasPrefix(line, "TRC "):
+				r.log.Trace("Wasm Guest [%d]: %s", appId, line[4:])
+			default:
+				// No recognized prefix - log as info (backwards compatible)
+				r.log.Info("Wasm Guest [%d]: %s", appId, line)
+			}
 		}
 
 		if err := scanner.Err(); err != nil {
@@ -850,6 +868,8 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 
 	// This helper cleanup func will be also used when the module is disposed of.
 	// We should call it when we unload a module otherwise we might leak file descriptors.
+	// Note: the closure maintains all necessary state to coordinate cleanup with the background goroutine, regardless of when or where it's invoked
+	// ---
 	// Because the wasmtime map holds the reference to a module, the GC cannot touch the module and all associated resources.
 	//     Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
 	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
@@ -863,7 +883,7 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 
 		// Wait for goroutine to finish (with timeout to prevent deadlock)
 		select {
-		case <-doneCh:
+		case <-doneCh: // sent by the deferred close(doneCh) call when the go routine exits
 			// Goroutine exited cleanly
 		case <-time.After(2 * time.Second):
 			r.log.Warn("Timeout waiting for log pipe goroutine to exit for app %d", appId)
