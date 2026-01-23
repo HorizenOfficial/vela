@@ -152,11 +152,14 @@ func main() {
 	}
 	log.Info("Manager started")
 
-	// Wait for shutdown signal
-	<-sigChan
-	signal.Stop(sigChan)
-	// Handle shutdown signal (Ctrl+C or SIGTERM)
-	log.Info("Received shutdown signal. Shutting down gracefully...")
+	// Wait for shutdown signal or fatal error
+	select {
+	case <-sigChan:
+		signal.Stop(sigChan)
+		log.Info("Received shutdown signal. Shutting down gracefully...")
+	case err := <-secureProcessorManager.FatalErrChan():
+		log.Error("Fatal error occurred: %v. Shutting down gracefully...", err)
+	}
 
 	// Stop the manager
 	cancel()
