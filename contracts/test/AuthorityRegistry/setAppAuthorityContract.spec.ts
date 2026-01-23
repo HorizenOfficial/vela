@@ -23,10 +23,9 @@ describe('AuthorityRegistry Test', function () {
         const customAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
 
         await expect(
-          authorityRegistry.connect(signers[1]).setAppAuthorityContract(
-            APPLICATION_ID,
-            await customAuthority.getAddress()
-          )
+          authorityRegistry
+            .connect(signers[1])
+            .setAppAuthorityContract(APPLICATION_ID, await customAuthority.getAddress())
         ).to.be.revertedWithCustomError(authorityRegistry, 'OwnableUnauthorizedAccount');
       });
     });
@@ -38,10 +37,9 @@ describe('AuthorityRegistry Test', function () {
 
         await customAuthority.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
 
-        const tx = await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          APPLICATION_ID,
-          await customAuthority.getAddress()
-        );
+        const tx = await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, await customAuthority.getAddress());
 
         await expect(tx)
           .to.emit(authorityRegistry, 'AppAuthorityContractSet')

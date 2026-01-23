@@ -24,10 +24,9 @@ describe('AuthorityRegistry Test', function () {
         const DefaultAuthority = await ethers.getContractFactory('DefaultAuthority');
         const customAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          APPLICATION_ID,
-          await customAuthority.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, await customAuthority.getAddress());
 
         const allowed = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
         expect(allowed).to.equal(false);
@@ -37,9 +36,8 @@ describe('AuthorityRegistry Test', function () {
         const eoa = await signers[2].getAddress();
         await authorityRegistry.connect(signers[0]).setAppAuthorityContract(APPLICATION_ID, eoa);
 
-        await expect(
-          authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr)
-        ).to.be.reverted;
+        await expect(authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr)).to.be
+          .reverted;
       });
     });
 
@@ -51,7 +49,10 @@ describe('AuthorityRegistry Test', function () {
         expect(allowed).to.equal(true);
 
         const otherAddr = await signers[3].getAddress();
-        const notAllowed = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, otherAddr);
+        const notAllowed = await authorityRegistry.checkAuthorityIsAllowed(
+          APPLICATION_ID,
+          otherAddr
+        );
         expect(notAllowed).to.equal(false);
       });
 
@@ -60,10 +61,9 @@ describe('AuthorityRegistry Test', function () {
         const customAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
         await customAuthority.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          APPLICATION_ID,
-          await customAuthority.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, await customAuthority.getAddress());
 
         const allowed = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
         expect(allowed).to.equal(true);
@@ -88,10 +88,9 @@ describe('AuthorityRegistry Test', function () {
         const DefaultAuthority = await ethers.getContractFactory('DefaultAuthority');
         const customAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          APPLICATION_ID,
-          await customAuthority.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, await customAuthority.getAddress());
 
         const allowed = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
         expect(allowed).to.equal(false);
@@ -106,10 +105,9 @@ describe('AuthorityRegistry Test', function () {
         const DefaultAuthority = await ethers.getContractFactory('DefaultAuthority');
         const customAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          appA,
-          await customAuthority.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(appA, await customAuthority.getAddress());
 
         const allowedA = await authorityRegistry.checkAuthorityIsAllowed(appA, testAddr);
         expect(allowedA).to.equal(false);
@@ -124,18 +122,22 @@ describe('AuthorityRegistry Test', function () {
         const custom2 = await DefaultAuthority.deploy(await signers[0].getAddress());
         await custom2.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, await custom1.getAddress());
+        const withCustom1 = await authorityRegistry.checkAuthorityIsAllowed(
           APPLICATION_ID,
-          await custom1.getAddress()
+          testAddr
         );
-        const withCustom1 = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
         expect(withCustom1).to.equal(false);
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, await custom2.getAddress());
+        const withCustom2 = await authorityRegistry.checkAuthorityIsAllowed(
           APPLICATION_ID,
-          await custom2.getAddress()
+          testAddr
         );
-        const withCustom2 = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
         expect(withCustom2).to.equal(true);
       });
 
@@ -145,17 +147,24 @@ describe('AuthorityRegistry Test', function () {
         const DefaultAuthority = await ethers.getContractFactory('DefaultAuthority');
         const customAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          APPLICATION_ID,
-          await customAuthority.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, await customAuthority.getAddress());
 
-        const withCustom = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
+        const withCustom = await authorityRegistry.checkAuthorityIsAllowed(
+          APPLICATION_ID,
+          testAddr
+        );
         expect(withCustom).to.equal(false);
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(APPLICATION_ID, ADDRESS_ZERO);
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, ADDRESS_ZERO);
 
-        const afterReset = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
+        const afterReset = await authorityRegistry.checkAuthorityIsAllowed(
+          APPLICATION_ID,
+          testAddr
+        );
         expect(afterReset).to.equal(true);
       });
 
@@ -163,15 +172,13 @@ describe('AuthorityRegistry Test', function () {
         const DefaultAuthority = await ethers.getContractFactory('DefaultAuthority');
         const customAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          APPLICATION_ID,
-          await customAuthority.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, await customAuthority.getAddress());
 
-        const tx = await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          APPLICATION_ID,
-          ADDRESS_ZERO
-        );
+        const tx = await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APPLICATION_ID, ADDRESS_ZERO);
 
         await expect(tx)
           .to.emit(authorityRegistry, 'AppAuthorityContractSet')

@@ -8,3 +8,8 @@
 main	
 .vscode/
 contract_abis/
+/contracts/cache/
+/contracts/artifacts/
+/contracts/coverage/
+/contracts/node_modules/
+/contracts/typechain/

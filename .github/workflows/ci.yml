@@ -34,6 +34,11 @@ jobs:
         working-directory: contracts
         run: npm ci
 
+      # Format check for contracts
+      - name: Check formatting in contracts
+        working-directory: contracts
+        run: npm run format:check
+
       # Install Go dependencies
       - name: Download Go dependencies
         run: go mod download

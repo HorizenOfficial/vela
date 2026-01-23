@@ -78,8 +78,12 @@ describe('ProcessorEndpoint Test', function () {
       it('initializes dependencies, roles, and config values', async () => {
         const processorEndpoint = await deployProcessorEndpoint();
 
-        expect(await processorEndpoint.teeAuthenticator()).to.equal(await teeAuthenticator.getAddress());
-        expect(await processorEndpoint.authorityRegistry()).to.equal(await authorityRegistry.getAddress());
+        expect(await processorEndpoint.teeAuthenticator()).to.equal(
+          await teeAuthenticator.getAddress()
+        );
+        expect(await processorEndpoint.authorityRegistry()).to.equal(
+          await authorityRegistry.getAddress()
+        );
         expect(await processorEndpoint.feeCollector()).to.equal(updateStatusOperator);
         expect(await processorEndpoint.minFeePerRequest()).to.equal(minFeePerRequest);
         expect(await processorEndpoint.maxQueueSize()).to.equal(10n);

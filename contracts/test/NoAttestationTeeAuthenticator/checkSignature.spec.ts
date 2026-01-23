@@ -30,11 +30,9 @@ describe('NoAttestationTeeAuthenticator Test', function () {
 
     describe('unhappy paths', function () {
       it('reverts with TeeIsNotSet when teeSigner is zero', async () => {
-        const { teeAuthenticator, signers } = await deployNoAttestationTeeAuthenticatorEmptyFixture();
-        const payload = buildPayload(
-          await signers[0].getAddress(),
-          await signers[1].getAddress()
-        );
+        const { teeAuthenticator, signers } =
+          await deployNoAttestationTeeAuthenticatorEmptyFixture();
+        const payload = buildPayload(await signers[0].getAddress(), await signers[1].getAddress());
 
         await expect(
           teeAuthenticator.checkSignature(
@@ -56,10 +54,7 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         const { teeAuthenticator, signers } = await deployNoAttestationTeeAuthenticatorFixture({
           pubKey: getRandomHexString(10),
         });
-        const payload = buildPayload(
-          await signers[0].getAddress(),
-          await signers[1].getAddress()
-        );
+        const payload = buildPayload(await signers[0].getAddress(), await signers[1].getAddress());
 
         await expect(
           teeAuthenticator.checkSignature(
@@ -79,10 +74,7 @@ describe('NoAttestationTeeAuthenticator Test', function () {
 
       it('returns false when signature does not match teeSigner', async () => {
         const { teeAuthenticator, signers } = await deployNoAttestationTeeAuthenticatorFixture();
-        const payload = buildPayload(
-          await signers[0].getAddress(),
-          await signers[2].getAddress()
-        );
+        const payload = buildPayload(await signers[0].getAddress(), await signers[2].getAddress());
 
         const signature = await ethSignStateUpdate(
           signers[2],
@@ -116,10 +108,7 @@ describe('NoAttestationTeeAuthenticator Test', function () {
     describe('happy paths', function () {
       it('returns true when signature is valid', async () => {
         const { teeAuthenticator, signers } = await deployNoAttestationTeeAuthenticatorFixture();
-        const payload = buildPayload(
-          await signers[0].getAddress(),
-          await signers[2].getAddress()
-        );
+        const payload = buildPayload(await signers[0].getAddress(), await signers[2].getAddress());
 
         const signature = await ethSignStateUpdate(
           signers[1],

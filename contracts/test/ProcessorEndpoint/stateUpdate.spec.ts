@@ -54,15 +54,17 @@ describe('ProcessorEndpoint Test', function () {
     depositAmount: bigint,
     maxFeeValue: bigint
   ) {
-    const tx = await processorEndpointInstance.connect(sender).submitRequest(
-      PROTOCOL_VERSION,
-      APPLICATION_ID,
-      REQUEST_TYPE,
-      payload,
-      depositAmount,
-      maxFeeValue,
-      { value: depositAmount + maxFeeValue }
-    );
+    const tx = await processorEndpointInstance
+      .connect(sender)
+      .submitRequest(
+        PROTOCOL_VERSION,
+        APPLICATION_ID,
+        REQUEST_TYPE,
+        payload,
+        depositAmount,
+        maxFeeValue,
+        { value: depositAmount + maxFeeValue }
+      );
     const receipt = await tx.wait();
     const requestId = getRequestIdFromReceipt(processorEndpointInstance, receipt);
     return { requestId, maxFeeValue, depositAmount };
@@ -70,7 +72,9 @@ describe('ProcessorEndpoint Test', function () {
 
   async function deployWithNoAttestation(teeSigner: Signer) {
     const fixture = await deployProcessorEndpointFixture();
-    const NoAttestationTeeAuthenticator = await ethers.getContractFactory('NoAttestationTeeAuthenticator');
+    const NoAttestationTeeAuthenticator = await ethers.getContractFactory(
+      'NoAttestationTeeAuthenticator'
+    );
     const pk = '0x' + '11'.repeat(133);
     const teeAuthenticator = await NoAttestationTeeAuthenticator.deploy(
       await fixture.signers[0].getAddress(),
@@ -96,107 +100,143 @@ describe('ProcessorEndpoint Test', function () {
     describe('unhappy paths', function () {
       it('reverts with InvalidApplicationId when applicationId is invalid', async () => {
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            2,
-            BYTES32_ZERO,
-            '0x' + '11'.repeat(32),
-            '0x' + '00'.repeat(32),
-            [],
-            [],
-            [],
-            0,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              2,
+              BYTES32_ZERO,
+              '0x' + '11'.repeat(32),
+              '0x' + '00'.repeat(32),
+              [],
+              [],
+              [],
+              0,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidApplicationId');
       });
 
       it('reverts when caller lacks UPDATE_STATUS_ROLE', async () => {
         await expect(
-          processorEndpoint.connect(signers[0]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + '11'.repeat(32),
-            '0x' + '00'.repeat(32),
-            [],
-            [],
-            [],
-            0,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[0])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + '11'.repeat(32),
+              '0x' + '00'.repeat(32),
+              [],
+              [],
+              [],
+              0,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'AccessControlUnauthorizedAccount');
       });
 
       it('reverts with InvalidStateRoot when prevStateRoot does not match current stateRoot', async () => {
-        const first = await submitRequest(processorEndpoint, signers[0], '0x01', 0n, minFeePerRequest);
-        await processorEndpoint.connect(signers[1]).stateUpdate(
-          APPLICATION_ID,
-          BYTES32_ZERO,
-          '0x' + '22'.repeat(32),
-          first.requestId,
-          [],
-          [],
-          [],
-          0,
-          minFeePerRequest,
-          '0x'
+        const first = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x01',
+          0n,
+          minFeePerRequest
         );
-
-        const second = await submitRequest(processorEndpoint, signers[0], '0x02', 0n, minFeePerRequest);
-
-        await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
             APPLICATION_ID,
             BYTES32_ZERO,
-            '0x' + '33'.repeat(32),
-            second.requestId,
+            '0x' + '22'.repeat(32),
+            first.requestId,
             [],
             [],
             [],
             0,
             minFeePerRequest,
             '0x'
-          )
+          );
+
+        const second = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x02',
+          0n,
+          minFeePerRequest
+        );
+
+        await expect(
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + '33'.repeat(32),
+              second.requestId,
+              [],
+              [],
+              [],
+              0,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidStateRoot');
       });
 
       it('reverts with InvalidRequestId when processedRequestId is not current pending', async () => {
         await submitRequest(processorEndpoint, signers[0], '0x03', 0n, minFeePerRequest);
-        const second = await submitRequest(processorEndpoint, signers[0], '0x04', 0n, minFeePerRequest);
+        const second = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x04',
+          0n,
+          minFeePerRequest
+        );
 
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + '44'.repeat(32),
-            second.requestId,
-            [],
-            [],
-            [],
-            0,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + '44'.repeat(32),
+              second.requestId,
+              [],
+              [],
+              [],
+              0,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestId');
       });
 
       it('reverts with InvalidPayload when events and eventSubTypes length mismatch', async () => {
-        const request = await submitRequest(processorEndpoint, signers[0], '0x05', 0n, minFeePerRequest);
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x05',
+          0n,
+          minFeePerRequest
+        );
 
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + '55'.repeat(32),
-            request.requestId,
-            ['0x01'],
-            [],
-            [],
-            0,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + '55'.repeat(32),
+              request.requestId,
+              ['0x01'],
+              [],
+              [],
+              0,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
       });
 
@@ -224,18 +264,20 @@ describe('ProcessorEndpoint Test', function () {
         );
 
         await expect(
-          fixture.processorEndpoint.connect(fixture.signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + '66'.repeat(32),
-            request.requestId,
-            [],
-            [],
-            [],
-            0,
-            fixture.minFeePerRequest,
-            signature
-          )
+          fixture.processorEndpoint
+            .connect(fixture.signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + '66'.repeat(32),
+              request.requestId,
+              [],
+              [],
+              [],
+              0,
+              fixture.minFeePerRequest,
+              signature
+            )
         ).to.be.revertedWithCustomError(fixture.processorEndpoint, 'InvalidSignature');
       });
 
@@ -264,37 +306,47 @@ describe('ProcessorEndpoint Test', function () {
         );
 
         await expect(
-          fixture.processorEndpoint.connect(fixture.signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + '77'.repeat(32),
-            request.requestId,
-            events,
-            ['typeB'],
-            [],
-            0,
-            fixture.minFeePerRequest,
-            signature
-          )
+          fixture.processorEndpoint
+            .connect(fixture.signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + '77'.repeat(32),
+              request.requestId,
+              events,
+              ['typeB'],
+              [],
+              0,
+              fixture.minFeePerRequest,
+              signature
+            )
         ).to.be.revertedWithCustomError(fixture.processorEndpoint, 'InvalidSignature');
       });
 
       it('reverts with InvalidValue when refund + applicationFees != maxFeeValue', async () => {
-        const request = await submitRequest(processorEndpoint, signers[0], '0x08', 0n, minFeePerRequest);
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x08',
+          0n,
+          minFeePerRequest
+        );
 
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + '88'.repeat(32),
-            request.requestId,
-            [],
-            [],
-            [],
-            1,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + '88'.repeat(32),
+              request.requestId,
+              [],
+              [],
+              [],
+              1,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
@@ -303,37 +355,47 @@ describe('ProcessorEndpoint Test', function () {
         const request = await submitRequest(processorEndpoint, signers[0], '0x09', 0n, maxFeeValue);
 
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + '99'.repeat(32),
-            request.requestId,
-            [],
-            [],
-            [],
-            maxFeeValue - (minFeePerRequest - 1n),
-            minFeePerRequest - 1n,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + '99'.repeat(32),
+              request.requestId,
+              [],
+              [],
+              [],
+              maxFeeValue - (minFeePerRequest - 1n),
+              minFeePerRequest - 1n,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
       it('reverts with InsufficientBalance when withdrawals sum exceeds contract balance', async () => {
-        const request = await submitRequest(processorEndpoint, signers[0], '0x0a', 0n, minFeePerRequest);
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x0a',
+          0n,
+          minFeePerRequest
+        );
 
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + 'aa'.repeat(32),
-            request.requestId,
-            [],
-            [],
-            [[await signers[2].getAddress(), 1]],
-            0,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + 'aa'.repeat(32),
+              request.requestId,
+              [],
+              [],
+              [[await signers[2].getAddress(), 1]],
+              0,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientBalance');
       });
 
@@ -357,18 +419,20 @@ describe('ProcessorEndpoint Test', function () {
         const requestId = getRequestIdFromReceipt(processorEndpoint, insertReceipt);
 
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + 'bb'.repeat(32),
-            requestId,
-            [],
-            [],
-            [],
-            1,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + 'bb'.repeat(32),
+              requestId,
+              [],
+              [],
+              [],
+              1,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'TransferFailed');
       });
 
@@ -381,21 +445,29 @@ describe('ProcessorEndpoint Test', function () {
           .connect(signers[2])
           .updateFeeCollector(await fallbackFailure.getAddress());
 
-        const request = await submitRequest(processorEndpoint, signers[0], '0x0c', 0n, minFeePerRequest);
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x0c',
+          0n,
+          minFeePerRequest
+        );
 
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + 'cc'.repeat(32),
-            request.requestId,
-            [],
-            [],
-            [],
-            0,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + 'cc'.repeat(32),
+              request.requestId,
+              [],
+              [],
+              [],
+              0,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'TransferFailed');
       });
 
@@ -404,21 +476,29 @@ describe('ProcessorEndpoint Test', function () {
         const fallbackFailure = await FallbackFailure.deploy();
         await fallbackFailure.deploymentTransaction()!.wait();
 
-        const request = await submitRequest(processorEndpoint, signers[0], '0x0d', 10n, minFeePerRequest);
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x0d',
+          10n,
+          minFeePerRequest
+        );
 
         await expect(
-          processorEndpoint.connect(signers[1]).stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
-            '0x' + 'dd'.repeat(32),
-            request.requestId,
-            [],
-            [],
-            [[await fallbackFailure.getAddress(), 10]],
-            0,
-            minFeePerRequest,
-            '0x'
-          )
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              BYTES32_ZERO,
+              '0x' + 'dd'.repeat(32),
+              request.requestId,
+              [],
+              [],
+              [[await fallbackFailure.getAddress(), 10]],
+              0,
+              minFeePerRequest,
+              '0x'
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'TransferFailed');
       });
     });
@@ -448,25 +528,24 @@ describe('ProcessorEndpoint Test', function () {
           fixture.minFeePerRequest
         );
 
-        const tx = await fixture.processorEndpoint.connect(fixture.signers[1]).stateUpdate(
-          APPLICATION_ID,
-          BYTES32_ZERO,
-          newStateRoot,
-          request.requestId,
-          [],
-          [],
-          [],
-          0,
-          fixture.minFeePerRequest,
-          signature
-        );
+        const tx = await fixture.processorEndpoint
+          .connect(fixture.signers[1])
+          .stateUpdate(
+            APPLICATION_ID,
+            BYTES32_ZERO,
+            newStateRoot,
+            request.requestId,
+            [],
+            [],
+            [],
+            0,
+            fixture.minFeePerRequest,
+            signature
+          );
 
-        await expect(tx).to.emit(fixture.processorEndpoint, 'StateRootUpdate').withArgs(
-          APPLICATION_ID,
-          request.requestId,
-          BYTES32_ZERO,
-          newStateRoot
-        );
+        await expect(tx)
+          .to.emit(fixture.processorEndpoint, 'StateRootUpdate')
+          .withArgs(APPLICATION_ID, request.requestId, BYTES32_ZERO, newStateRoot);
         expect(await fixture.processorEndpoint.stateRoot()).to.equal(newStateRoot);
       });
 
@@ -506,13 +585,9 @@ describe('ProcessorEndpoint Test', function () {
           '0x'
         );
 
-        await expect(tx).to.emit(processorEndpoint, 'RequestCompleted').withArgs(
-          request.requestId,
-          applicationFees,
-          0,
-          0,
-          ''
-        );
+        await expect(tx)
+          .to.emit(processorEndpoint, 'RequestCompleted')
+          .withArgs(request.requestId, applicationFees, 0, 0, '');
         const receipt = await tx.wait();
         const userEvents = getUserEvents(processorEndpoint, receipt);
         const eventSubTypes = userEvents.map((event: any) => {
@@ -523,24 +598,15 @@ describe('ProcessorEndpoint Test', function () {
         expect(userEvents.length).to.equal(2);
         expect(eventSubTypes).to.have.members([ethers.id('A'), ethers.id('B')]);
         expect(eventPayloads).to.have.members(['0xaa', '0xbb']);
-        await expect(tx).to.emit(processorEndpoint, 'Refund').withArgs(
-          APPLICATION_ID,
-          request.requestId,
-          sender,
-          refund
-        );
-        await expect(tx).to.emit(processorEndpoint, 'Withdrawal').withArgs(
-          APPLICATION_ID,
-          request.requestId,
-          withdrawalA,
-          10
-        );
-        await expect(tx).to.emit(processorEndpoint, 'Withdrawal').withArgs(
-          APPLICATION_ID,
-          request.requestId,
-          withdrawalB,
-          10
-        );
+        await expect(tx)
+          .to.emit(processorEndpoint, 'Refund')
+          .withArgs(APPLICATION_ID, request.requestId, sender, refund);
+        await expect(tx)
+          .to.emit(processorEndpoint, 'Withdrawal')
+          .withArgs(APPLICATION_ID, request.requestId, withdrawalA, 10);
+        await expect(tx)
+          .to.emit(processorEndpoint, 'Withdrawal')
+          .withArgs(APPLICATION_ID, request.requestId, withdrawalB, 10);
 
         const senderBalanceAfterUpdate = await signers[0].provider!.getBalance(sender);
         const balanceAAfter = await signers[3].provider!.getBalance(withdrawalA);
@@ -551,20 +617,28 @@ describe('ProcessorEndpoint Test', function () {
       });
 
       it('emits UserEvent for provided events and subtypes', async () => {
-        const request = await submitRequest(processorEndpoint, signers[0], '0x10', 0n, minFeePerRequest);
-
-        const tx = await processorEndpoint.connect(signers[1]).stateUpdate(
-          APPLICATION_ID,
-          BYTES32_ZERO,
-          '0x' + '10'.repeat(32),
-          request.requestId,
-          ['0x11', '0x22'],
-          ['type1', 'type2'],
-          [],
-          0,
-          minFeePerRequest,
-          '0x'
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x10',
+          0n,
+          minFeePerRequest
         );
+
+        const tx = await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            APPLICATION_ID,
+            BYTES32_ZERO,
+            '0x' + '10'.repeat(32),
+            request.requestId,
+            ['0x11', '0x22'],
+            ['type1', 'type2'],
+            [],
+            0,
+            minFeePerRequest,
+            '0x'
+          );
 
         const receipt = await tx.wait();
         const userEvents = getUserEvents(processorEndpoint, receipt);
@@ -579,69 +653,90 @@ describe('ProcessorEndpoint Test', function () {
       });
 
       it('allows first update when stateRoot is zero and prevStateRoot is zero', async () => {
-        const request = await submitRequest(processorEndpoint, signers[0], '0x12', 0n, minFeePerRequest);
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x12',
+          0n,
+          minFeePerRequest
+        );
         const newStateRoot = '0x' + '12'.repeat(32);
 
-        await processorEndpoint.connect(signers[1]).stateUpdate(
-          APPLICATION_ID,
-          BYTES32_ZERO,
-          newStateRoot,
-          request.requestId,
-          [],
-          [],
-          [],
-          0,
-          minFeePerRequest,
-          '0x'
-        );
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            APPLICATION_ID,
+            BYTES32_ZERO,
+            newStateRoot,
+            request.requestId,
+            [],
+            [],
+            [],
+            0,
+            minFeePerRequest,
+            '0x'
+          );
 
         expect(await processorEndpoint.stateRoot()).to.equal(newStateRoot);
       });
 
       it('allows update when stateRoot is zero and prevStateRoot is non-zero', async () => {
-        const request = await submitRequest(processorEndpoint, signers[0], '0x13', 0n, minFeePerRequest);
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x13',
+          0n,
+          minFeePerRequest
+        );
         const prevStateRoot = '0x' + '13'.repeat(32);
         const newStateRoot = '0x' + '14'.repeat(32);
 
-        await processorEndpoint.connect(signers[1]).stateUpdate(
-          APPLICATION_ID,
-          prevStateRoot,
-          newStateRoot,
-          request.requestId,
-          [],
-          [],
-          [],
-          0,
-          minFeePerRequest,
-          '0x'
-        );
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            APPLICATION_ID,
+            prevStateRoot,
+            newStateRoot,
+            request.requestId,
+            [],
+            [],
+            [],
+            0,
+            minFeePerRequest,
+            '0x'
+          );
 
         expect(await processorEndpoint.stateRoot()).to.equal(newStateRoot);
       });
 
       it('emits Refund even when refund amount is zero', async () => {
-        const request = await submitRequest(processorEndpoint, signers[0], '0x15', 0n, minFeePerRequest);
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x15',
+          0n,
+          minFeePerRequest
+        );
         const sender = await signers[0].getAddress();
 
-        const tx = await processorEndpoint.connect(signers[1]).stateUpdate(
-          APPLICATION_ID,
-          BYTES32_ZERO,
-          '0x' + '15'.repeat(32),
-          request.requestId,
-          [],
-          [],
-          [],
-          0,
-          minFeePerRequest,
-          '0x'
-        );
+        const tx = await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            APPLICATION_ID,
+            BYTES32_ZERO,
+            '0x' + '15'.repeat(32),
+            request.requestId,
+            [],
+            [],
+            [],
+            0,
+            minFeePerRequest,
+            '0x'
+          );
 
-        await expect(tx).to.emit(processorEndpoint, 'Refund').withArgs(
-          APPLICATION_ID,
-          request.requestId,
-          sender,
-          0
-        );
+        await expect(tx)
+          .to.emit(processorEndpoint, 'Refund')
+          .withArgs(APPLICATION_ID, request.requestId, sender, 0);
       });
     });
   });

@@ -25,7 +25,9 @@ describe('AuthorityRegistry Test', function () {
         const newDefault = await DefaultAuthority.deploy(await signers[0].getAddress());
 
         await expect(
-          authorityRegistry.connect(signers[1]).setDefaultAuthorityContract(await newDefault.getAddress())
+          authorityRegistry
+            .connect(signers[1])
+            .setDefaultAuthorityContract(await newDefault.getAddress())
         ).to.be.revertedWithCustomError(authorityRegistry, 'OwnableUnauthorizedAccount');
       });
 
@@ -49,7 +51,9 @@ describe('AuthorityRegistry Test', function () {
           .to.emit(authorityRegistry, 'DefaultAuthorityContractSet')
           .withArgs(await newDefault.getAddress());
 
-        expect(await authorityRegistry.defaultAuthorityContract()).to.equal(await newDefault.getAddress());
+        expect(await authorityRegistry.defaultAuthorityContract()).to.equal(
+          await newDefault.getAddress()
+        );
       });
 
       it('affects applications without custom authority contracts', async () => {
@@ -60,9 +64,9 @@ describe('AuthorityRegistry Test', function () {
         const newDefault = await DefaultAuthority.deploy(await signers[0].getAddress());
         await newDefault.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr);
 
-        await authorityRegistry.connect(signers[0]).setDefaultAuthorityContract(
-          await newDefault.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setDefaultAuthorityContract(await newDefault.getAddress());
 
         const after = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
         expect(after).to.equal(true);
@@ -76,17 +80,16 @@ describe('AuthorityRegistry Test', function () {
         const customAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
         await customAuthority.connect(signers[0]).addAllowedAuthority(APP_CUSTOM, testAddr);
 
-        await authorityRegistry.connect(signers[0]).setAppAuthorityContract(
-          APP_CUSTOM,
-          await customAuthority.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setAppAuthorityContract(APP_CUSTOM, await customAuthority.getAddress());
 
         const newDefault = await DefaultAuthority.deploy(await signers[0].getAddress());
         await newDefault.connect(signers[0]).addAllowedAuthority(APP_DEFAULT, testAddr);
 
-        await authorityRegistry.connect(signers[0]).setDefaultAuthorityContract(
-          await newDefault.getAddress()
-        );
+        await authorityRegistry
+          .connect(signers[0])
+          .setDefaultAuthorityContract(await newDefault.getAddress());
 
         const afterCustom = await authorityRegistry.checkAuthorityIsAllowed(APP_CUSTOM, testAddr);
         expect(afterCustom).to.equal(true);

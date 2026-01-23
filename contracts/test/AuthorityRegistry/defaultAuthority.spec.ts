@@ -52,7 +52,9 @@ describe('AuthorityRegistry Test', function () {
       it('allows owner to add authority and registry reflects it', async () => {
         await expect(
           defaultAuthority.connect(signers[0]).addAllowedAuthority(APPLICATION_ID, testAddr)
-        ).to.emit(defaultAuthority, 'AddedAuthority').withArgs(APPLICATION_ID, testAddr);
+        )
+          .to.emit(defaultAuthority, 'AddedAuthority')
+          .withArgs(APPLICATION_ID, testAddr);
 
         const allowed = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
         expect(allowed).to.equal(true);
@@ -63,7 +65,9 @@ describe('AuthorityRegistry Test', function () {
 
         await expect(
           defaultAuthority.connect(signers[0]).removeAllowedAuthority(APPLICATION_ID, testAddr)
-        ).to.emit(defaultAuthority, 'RemovedAuthority').withArgs(APPLICATION_ID, testAddr);
+        )
+          .to.emit(defaultAuthority, 'RemovedAuthority')
+          .withArgs(APPLICATION_ID, testAddr);
 
         const allowed = await authorityRegistry.checkAuthorityIsAllowed(APPLICATION_ID, testAddr);
         expect(allowed).to.equal(false);

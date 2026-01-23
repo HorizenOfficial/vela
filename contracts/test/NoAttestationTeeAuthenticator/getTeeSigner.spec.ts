@@ -1,6 +1,9 @@
 import { expect } from 'chai';
 import { ADDRESS_ZERO, BYTES_ZERO } from '../util';
-import { deployNoAttestationTeeAuthenticatorEmptyFixture, deployNoAttestationTeeAuthenticatorFixture } from './fixture';
+import {
+  deployNoAttestationTeeAuthenticatorEmptyFixture,
+  deployNoAttestationTeeAuthenticatorFixture,
+} from './fixture';
 
 describe('NoAttestationTeeAuthenticator Test', function () {
   describe('getTeeSigner', function () {
@@ -17,8 +20,8 @@ describe('NoAttestationTeeAuthenticator Test', function () {
       it('returns the configured teeSigner', async () => {
         const { teeAuthenticator, teeSigner: configuredTeeSigner } =
           await deployNoAttestationTeeAuthenticatorFixture({
-          pubKey: BYTES_ZERO,
-        });
+            pubKey: BYTES_ZERO,
+          });
 
         const teeSigner = await teeAuthenticator.getTeeSigner();
         expect(teeSigner).to.equal(configuredTeeSigner);

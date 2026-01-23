@@ -35,15 +35,11 @@ describe('ProcessorEndpoint Test', function () {
 
   async function submitBasicRequest(sender: Signer, payload: string, maxFeeValue?: bigint) {
     const fee = maxFeeValue ?? minFeePerRequest;
-    const tx = await processorEndpoint.connect(sender).submitRequest(
-      PROTOCOL_VERSION,
-      APPLICATION_ID,
-      REQUEST_TYPE,
-      payload,
-      0,
-      fee,
-      { value: fee }
-    );
+    const tx = await processorEndpoint
+      .connect(sender)
+      .submitRequest(PROTOCOL_VERSION, APPLICATION_ID, REQUEST_TYPE, payload, 0, fee, {
+        value: fee,
+      });
     const receipt = await tx.wait();
     return { requestId: getRequestIdFromReceipt(receipt), maxFeeValue: fee };
   }
@@ -102,7 +98,9 @@ describe('ProcessorEndpoint Test', function () {
         const insertReceipt = await insertTx.wait();
         const requestId = getRequestIdFromReceipt(insertReceipt);
 
-        const tx = await processorEndpoint.connect(signers[1]).markRequestFailed(requestId, 1, 'err');
+        const tx = await processorEndpoint
+          .connect(signers[1])
+          .markRequestFailed(requestId, 1, 'err');
         await expect(tx).to.emit(processorEndpoint, 'RequestCompleted');
       });
 
@@ -111,33 +109,32 @@ describe('ProcessorEndpoint Test', function () {
         const depositAmount = 25n;
         const maxFeeValue = minFeePerRequest + 5n;
 
-        const tx = await processorEndpoint.connect(sender).submitRequest(
-          PROTOCOL_VERSION,
-          APPLICATION_ID,
-          REQUEST_TYPE,
-          '0x07',
-          depositAmount,
-          maxFeeValue,
-          { value: depositAmount + maxFeeValue }
-        );
+        const tx = await processorEndpoint
+          .connect(sender)
+          .submitRequest(
+            PROTOCOL_VERSION,
+            APPLICATION_ID,
+            REQUEST_TYPE,
+            '0x07',
+            depositAmount,
+            maxFeeValue,
+            { value: depositAmount + maxFeeValue }
+          );
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(receipt);
 
-        const senderBalanceAfterSubmit = await sender.provider!.getBalance(await sender.getAddress());
+        const senderBalanceAfterSubmit = await sender.provider!.getBalance(
+          await sender.getAddress()
+        );
         const expectedRefund = depositAmount + (maxFeeValue - minFeePerRequest);
 
-        const failTx = await processorEndpoint.connect(signers[1]).markRequestFailed(
-          requestId,
-          1,
-          'err'
-        );
+        const failTx = await processorEndpoint
+          .connect(signers[1])
+          .markRequestFailed(requestId, 1, 'err');
 
-        await expect(failTx).to.emit(processorEndpoint, 'Refund').withArgs(
-          APPLICATION_ID,
-          requestId,
-          await sender.getAddress(),
-          expectedRefund
-        );
+        await expect(failTx)
+          .to.emit(processorEndpoint, 'Refund')
+          .withArgs(APPLICATION_ID, requestId, await sender.getAddress(), expectedRefund);
 
         const senderBalanceAfterFail = await sender.provider!.getBalance(await sender.getAddress());
         expect(senderBalanceAfterFail - senderBalanceAfterSubmit).to.equal(expectedRefund);
@@ -147,33 +144,25 @@ describe('ProcessorEndpoint Test', function () {
         const sender = signers[4];
         const maxFeeValue = minFeePerRequest + 6n;
 
-        const tx = await processorEndpoint.connect(sender).submitRequest(
-          PROTOCOL_VERSION,
-          APPLICATION_ID,
-          REQUEST_TYPE,
-          '0x05',
-          0,
-          maxFeeValue,
-          { value: maxFeeValue }
-        );
+        const tx = await processorEndpoint
+          .connect(sender)
+          .submitRequest(PROTOCOL_VERSION, APPLICATION_ID, REQUEST_TYPE, '0x05', 0, maxFeeValue, {
+            value: maxFeeValue,
+          });
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(receipt);
 
-        const senderBalanceAfterSubmit = await sender.provider!.getBalance(await sender.getAddress());
-
-        const failTx = await processorEndpoint.connect(signers[1]).markRequestFailed(
-          requestId,
-          1,
-          'err'
+        const senderBalanceAfterSubmit = await sender.provider!.getBalance(
+          await sender.getAddress()
         );
 
-        await expect(failTx).to.emit(processorEndpoint, 'RequestCompleted').withArgs(
-          requestId,
-          minFeePerRequest,
-          1,
-          1,
-          'err'
-        );
+        const failTx = await processorEndpoint
+          .connect(signers[1])
+          .markRequestFailed(requestId, 1, 'err');
+
+        await expect(failTx)
+          .to.emit(processorEndpoint, 'RequestCompleted')
+          .withArgs(requestId, minFeePerRequest, 1, 1, 'err');
 
         const senderBalanceAfterFail = await sender.provider!.getBalance(await sender.getAddress());
         const expectedRefund = maxFeeValue - minFeePerRequest;
@@ -191,19 +180,13 @@ describe('ProcessorEndpoint Test', function () {
 
         const { requestId } = await submitBasicRequest(signers[0], '0x06');
 
-        const tx = await processorEndpoint.connect(signers[1]).markRequestFailed(
-          requestId,
-          1,
-          'err'
-        );
+        const tx = await processorEndpoint
+          .connect(signers[1])
+          .markRequestFailed(requestId, 1, 'err');
 
-        await expect(tx).to.emit(processorEndpoint, 'RequestCompleted').withArgs(
-          requestId,
-          minFeePerRequest,
-          2,
-          1,
-          'err'
-        );
+        await expect(tx)
+          .to.emit(processorEndpoint, 'RequestCompleted')
+          .withArgs(requestId, minFeePerRequest, 2, 1, 'err');
       });
     });
   });

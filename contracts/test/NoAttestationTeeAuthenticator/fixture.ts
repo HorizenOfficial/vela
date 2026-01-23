@@ -11,8 +11,8 @@ export async function deployNoAttestationTeeAuthenticatorFixture(
   options: NoAttestationFixtureOptions = {}
 ) {
   const signers = await ethers.getSigners();
-  const owner = options.owner ?? await signers[0].getAddress();
-  const teeSigner = options.teeSigner ?? await signers[1].getAddress();
+  const owner = options.owner ?? (await signers[0].getAddress());
+  const teeSigner = options.teeSigner ?? (await signers[1].getAddress());
   const pubKey = options.pubKey ?? getRandomHexString(133);
 
   const TeeAuthenticator = await ethers.getContractFactory('NoAttestationTeeAuthenticator');

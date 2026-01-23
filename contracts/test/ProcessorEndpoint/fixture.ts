@@ -17,7 +17,10 @@ export async function deployProcessorEndpointFixture() {
   );
 
   const MockTeeAuthenticator = await ethers.getContractFactory('MockTeeAuthenticator');
-  const teeAuthenticator = await MockTeeAuthenticator.deploy(await signers[0].getAddress(), BYTES_ZERO);
+  const teeAuthenticator = await MockTeeAuthenticator.deploy(
+    await signers[0].getAddress(),
+    BYTES_ZERO
+  );
 
   const processorEndpointFactory = await ethers.getContractFactory('ProcessorEndpoint');
 

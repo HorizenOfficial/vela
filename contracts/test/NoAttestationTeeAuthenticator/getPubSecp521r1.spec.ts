@@ -1,6 +1,9 @@
 import { expect } from 'chai';
 import { BYTES_ZERO, getRandomHexString } from '../util';
-import { deployNoAttestationTeeAuthenticatorEmptyFixture, deployNoAttestationTeeAuthenticatorFixture } from './fixture';
+import {
+  deployNoAttestationTeeAuthenticatorEmptyFixture,
+  deployNoAttestationTeeAuthenticatorFixture,
+} from './fixture';
 
 describe('NoAttestationTeeAuthenticator Test', function () {
   describe('getPubSecp521r1', function () {

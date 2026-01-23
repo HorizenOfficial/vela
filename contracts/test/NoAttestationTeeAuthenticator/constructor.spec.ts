@@ -24,7 +24,8 @@ describe('NoAttestationTeeAuthenticator Test', function () {
 
     describe('happy paths', function () {
       it('sets teeSigner and pubSecp521r1 and emits TeeUpdate', async () => {
-        const { teeAuthenticator, teeSigner, pubKey } = await deployNoAttestationTeeAuthenticatorFixture();
+        const { teeAuthenticator, teeSigner, pubKey } =
+          await deployNoAttestationTeeAuthenticatorFixture();
 
         await expect(teeAuthenticator.deploymentTransaction())
           .to.emit(teeAuthenticator, 'TeeUpdate')

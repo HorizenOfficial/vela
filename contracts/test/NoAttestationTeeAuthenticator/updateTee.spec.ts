@@ -6,13 +6,13 @@ describe('NoAttestationTeeAuthenticator Test', function () {
   describe('updateTee', function () {
     describe('unhappy paths', function () {
       it('reverts when caller is not owner', async () => {
-        const { teeAuthenticator, signers, pkLength } = await deployNoAttestationTeeAuthenticatorFixture();
+        const { teeAuthenticator, signers, pkLength } =
+          await deployNoAttestationTeeAuthenticatorFixture();
 
         await expect(
-          teeAuthenticator.connect(signers[1]).updateTee(
-            await signers[1].getAddress(),
-            getRandomHexString(pkLength)
-          )
+          teeAuthenticator
+            .connect(signers[1])
+            .updateTee(await signers[1].getAddress(), getRandomHexString(pkLength))
         ).to.be.revertedWithCustomError(teeAuthenticator, 'OwnableUnauthorizedAccount');
       });
 
@@ -25,7 +25,8 @@ describe('NoAttestationTeeAuthenticator Test', function () {
       });
 
       it('reverts with InvalidPKLength when pubSecp521r1 length is invalid', async () => {
-        const { teeAuthenticator, signers, pkLength } = await deployNoAttestationTeeAuthenticatorFixture();
+        const { teeAuthenticator, signers, pkLength } =
+          await deployNoAttestationTeeAuthenticatorFixture();
 
         await expect(
           teeAuthenticator.updateTee(
@@ -44,14 +45,9 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         const newTeeSigner = await signers[2].getAddress();
         const newPubKey = getRandomHexString(pkLength);
 
-        await expect(
-          teeAuthenticator.updateTee(newTeeSigner, newPubKey)
-        ).to.emit(teeAuthenticator, 'TeeUpdate').withArgs(
-          teeSigner,
-          newTeeSigner,
-          pubKey,
-          newPubKey
-        );
+        await expect(teeAuthenticator.updateTee(newTeeSigner, newPubKey))
+          .to.emit(teeAuthenticator, 'TeeUpdate')
+          .withArgs(teeSigner, newTeeSigner, pubKey, newPubKey);
 
         expect(await teeAuthenticator.teeSigner()).to.equal(newTeeSigner);
         expect(await teeAuthenticator.pubSecp521r1()).to.equal(newPubKey);

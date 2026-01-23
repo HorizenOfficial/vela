@@ -69,9 +69,7 @@ describe('ProcessorEndpoint Test', function () {
         const { requestId, maxFeeValue } = await submitBasicRequest('0x01');
         const collectorBalanceBefore = await signers[3].provider!.getBalance(newCollector);
 
-        await processorEndpoint
-          .connect(signers[1])
-          .markRequestCompleted(requestId, 0, maxFeeValue);
+        await processorEndpoint.connect(signers[1]).markRequestCompleted(requestId, 0, maxFeeValue);
 
         const collectorBalanceAfter = await signers[3].provider!.getBalance(newCollector);
         expect(collectorBalanceAfter - collectorBalanceBefore).to.equal(maxFeeValue);
@@ -84,9 +82,7 @@ describe('ProcessorEndpoint Test', function () {
         const { requestId, maxFeeValue } = await submitBasicRequest('0x02');
         const collectorBalanceBefore = await signers[4].provider!.getBalance(newCollector);
 
-        await processorEndpoint
-          .connect(signers[1])
-          .markRequestFailed(requestId, 1, 'failed');
+        await processorEndpoint.connect(signers[1]).markRequestFailed(requestId, 1, 'failed');
 
         const collectorBalanceAfter = await signers[4].provider!.getBalance(newCollector);
         expect(collectorBalanceAfter - collectorBalanceBefore).to.equal(maxFeeValue);
@@ -99,18 +95,20 @@ describe('ProcessorEndpoint Test', function () {
         const { requestId, applicationId, maxFeeValue } = await submitBasicRequest('0x03');
         const collectorBalanceBefore = await signers[5].provider!.getBalance(newCollector);
 
-        await processorEndpoint.connect(signers[1]).stateUpdate(
-          applicationId,
-          BYTES32_ZERO,
-          '0x1000000000000000000000000000000000000000000000000000000000000000',
-          requestId,
-          ['0x'],
-          [''],
-          [],
-          0,
-          maxFeeValue,
-          '0x'
-        );
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            '0x1000000000000000000000000000000000000000000000000000000000000000',
+            requestId,
+            ['0x'],
+            [''],
+            [],
+            0,
+            maxFeeValue,
+            '0x'
+          );
 
         const collectorBalanceAfter = await signers[5].provider!.getBalance(newCollector);
         expect(collectorBalanceAfter - collectorBalanceBefore).to.equal(maxFeeValue);

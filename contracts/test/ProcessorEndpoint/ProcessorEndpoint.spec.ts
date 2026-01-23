@@ -33,16 +33,23 @@ describe('ProcessorEndpoint Test', function () {
     throw new Error('RequestSubmitted not found');
   }
 
-  async function submitRequest(sender: Signer, payload: string, depositAmount: bigint, maxFeeValue: bigint) {
-    const tx = await processorEndpoint.connect(sender).submitRequest(
-      PROTOCOL_VERSION,
-      APPLICATION_ID,
-      REQUEST_TYPE,
-      payload,
-      depositAmount,
-      maxFeeValue,
-      { value: depositAmount + maxFeeValue }
-    );
+  async function submitRequest(
+    sender: Signer,
+    payload: string,
+    depositAmount: bigint,
+    maxFeeValue: bigint
+  ) {
+    const tx = await processorEndpoint
+      .connect(sender)
+      .submitRequest(
+        PROTOCOL_VERSION,
+        APPLICATION_ID,
+        REQUEST_TYPE,
+        payload,
+        depositAmount,
+        maxFeeValue,
+        { value: depositAmount + maxFeeValue }
+      );
     const receipt = await tx.wait();
     return { requestId: getRequestIdFromReceipt(receipt), depositAmount, maxFeeValue };
   }
@@ -82,29 +89,37 @@ describe('ProcessorEndpoint Test', function () {
       const first = await submitRequest(senderA, '0x03', 0n, minFeePerRequest + 2n);
       const second = await submitRequest(senderB, '0x04', 0n, minFeePerRequest + 4n);
 
-      const senderABalanceAfterSubmit = await senderA.provider!.getBalance(await senderA.getAddress());
+      const senderABalanceAfterSubmit = await senderA.provider!.getBalance(
+        await senderA.getAddress()
+      );
 
       const refundA = 1n;
       const applicationFeesA = first.maxFeeValue - refundA;
       await expect(
-        processorEndpoint.connect(signers[1]).markRequestCompleted(first.requestId, refundA, applicationFeesA)
+        processorEndpoint
+          .connect(signers[1])
+          .markRequestCompleted(first.requestId, refundA, applicationFeesA)
       ).to.emit(processorEndpoint, 'RequestCompleted');
 
-      const senderABalanceAfterComplete = await senderA.provider!.getBalance(await senderA.getAddress());
+      const senderABalanceAfterComplete = await senderA.provider!.getBalance(
+        await senderA.getAddress()
+      );
       expect(senderABalanceAfterComplete - senderABalanceAfterSubmit).to.equal(refundA);
 
       expect(await processorEndpoint.getPendingRequestsSize()).to.equal(1n);
       expect(await processorEndpoint.isCurrentPendingRequest(second.requestId)).to.equal(true);
 
-      const senderBBalanceAfterSubmit = await senderB.provider!.getBalance(await senderB.getAddress());
-      const failTx = await processorEndpoint.connect(signers[1]).markRequestFailed(
-        second.requestId,
-        1,
-        'failed'
+      const senderBBalanceAfterSubmit = await senderB.provider!.getBalance(
+        await senderB.getAddress()
       );
+      const failTx = await processorEndpoint
+        .connect(signers[1])
+        .markRequestFailed(second.requestId, 1, 'failed');
       await expect(failTx).to.emit(processorEndpoint, 'RequestCompleted');
 
-      const senderBBalanceAfterFail = await senderB.provider!.getBalance(await senderB.getAddress());
+      const senderBBalanceAfterFail = await senderB.provider!.getBalance(
+        await senderB.getAddress()
+      );
       const expectedRefundB = second.maxFeeValue - minFeePerRequest;
       expect(senderBBalanceAfterFail - senderBBalanceAfterSubmit).to.equal(expectedRefundB);
 

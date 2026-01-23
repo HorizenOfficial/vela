@@ -42,7 +42,9 @@ describe('AuthorityRegistry Test', function () {
         const authorityRegistry = await AuthorityRegistry.deploy(owner, defaultAuthorityAddress);
 
         expect(await authorityRegistry.owner()).to.equal(owner);
-        expect(await authorityRegistry.defaultAuthorityContract()).to.equal(defaultAuthorityAddress);
+        expect(await authorityRegistry.defaultAuthorityContract()).to.equal(
+          defaultAuthorityAddress
+        );
       });
 
       it('emits DefaultAuthorityContractSet on deployment', async () => {

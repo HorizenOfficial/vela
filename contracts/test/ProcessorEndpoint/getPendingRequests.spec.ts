@@ -117,9 +117,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(requests.length).to.equal(1);
         expect(requests[0].requestId).to.equal(requestId2);
 
-        await processorEndpoint
-          .connect(signers[1])
-          .markRequestFailed(requestId2, 1, 'failed');
+        await processorEndpoint.connect(signers[1]).markRequestFailed(requestId2, 1, 'failed');
 
         requests = await processorEndpoint.getPendingRequests();
         expect(requests.length).to.equal(0);
@@ -159,9 +157,7 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint
           .connect(signers[1])
           .markRequestCompleted(requestId1, 0, maxFeeValue);
-        await processorEndpoint
-          .connect(signers[1])
-          .markRequestFailed(requestId2, 1, 'failed');
+        await processorEndpoint.connect(signers[1]).markRequestFailed(requestId2, 1, 'failed');
 
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
 

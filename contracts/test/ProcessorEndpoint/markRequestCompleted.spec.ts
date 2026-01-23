@@ -35,15 +35,11 @@ describe('ProcessorEndpoint Test', function () {
 
   async function submitBasicRequest(sender: Signer, payload: string, maxFeeValue?: bigint) {
     const fee = maxFeeValue ?? minFeePerRequest;
-    const tx = await processorEndpoint.connect(sender).submitRequest(
-      PROTOCOL_VERSION,
-      APPLICATION_ID,
-      REQUEST_TYPE,
-      payload,
-      0,
-      fee,
-      { value: fee }
-    );
+    const tx = await processorEndpoint
+      .connect(sender)
+      .submitRequest(PROTOCOL_VERSION, APPLICATION_ID, REQUEST_TYPE, payload, 0, fee, {
+        value: fee,
+      });
     const receipt = await tx.wait();
     return { requestId: getRequestIdFromReceipt(receipt), maxFeeValue: fee };
   }
@@ -90,7 +86,9 @@ describe('ProcessorEndpoint Test', function () {
         const { requestId } = await submitBasicRequest(signers[0], '0x05', maxFeeValue);
 
         await expect(
-          processorEndpoint.connect(signers[1]).markRequestCompleted(requestId, 2, minFeePerRequest - 1n)
+          processorEndpoint
+            .connect(signers[1])
+            .markRequestCompleted(requestId, 2, minFeePerRequest - 1n)
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
     });
@@ -165,18 +163,16 @@ describe('ProcessorEndpoint Test', function () {
         const refund = 3n;
         const applicationFees = maxFeeValue - refund;
 
-        const tx = await processorEndpoint.connect(sender).submitRequest(
-          PROTOCOL_VERSION,
-          APPLICATION_ID,
-          REQUEST_TYPE,
-          '0x09',
-          0,
-          maxFeeValue,
-          { value: maxFeeValue }
-        );
+        const tx = await processorEndpoint
+          .connect(sender)
+          .submitRequest(PROTOCOL_VERSION, APPLICATION_ID, REQUEST_TYPE, '0x09', 0, maxFeeValue, {
+            value: maxFeeValue,
+          });
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(receipt);
-        const senderBalanceAfterSubmit = await sender.provider!.getBalance(await sender.getAddress());
+        const senderBalanceAfterSubmit = await sender.provider!.getBalance(
+          await sender.getAddress()
+        );
 
         const completeTx = await processorEndpoint
           .connect(signers[1])
@@ -186,7 +182,9 @@ describe('ProcessorEndpoint Test', function () {
           .to.emit(processorEndpoint, 'Refund')
           .withArgs(APPLICATION_ID, requestId, await sender.getAddress(), refund);
 
-        const senderBalanceAfterComplete = await sender.provider!.getBalance(await sender.getAddress());
+        const senderBalanceAfterComplete = await sender.provider!.getBalance(
+          await sender.getAddress()
+        );
         expect(senderBalanceAfterComplete - senderBalanceAfterSubmit).to.equal(refund);
       });
     });
