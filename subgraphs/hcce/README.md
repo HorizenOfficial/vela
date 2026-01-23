@@ -1,0 +1,55 @@
+# HCCE Subgraph
+
+## Requirements
+- Node.js + npm or yarn.
+- A Goldsky account with an API key.
+
+## Install Goldsky CLI and log in
+Official guide: https://docs.goldsky.com/subgraphs/deploying-subgraphs#install-goldskys-cli-and-log-in
+
+macOS/Linux:
+```bash
+curl https://goldsky.com | sh
+```
+
+Windows:
+```bash
+npm install -g @goldskycom/cli
+```
+
+Log in with your API key:
+```bash
+goldsky login
+goldsky
+```
+
+## Install The Graph CLI
+Official guide: https://thegraph.com/docs/en/subgraphs/developing/creating/install-the-cli/
+For subgraph creation and general workflow, follow The Graph documentation:
+https://thegraph.com/docs/en/subgraphs/
+
+Using npm:
+```bash
+npm install -g @graphprotocol/graph-cli@latest
+```
+
+Using yarn:
+```bash
+yarn global add @graphprotocol/graph-cli
+```
+
+## Generate and build the subgraph
+From this directory:
+```bash
+graph codegen
+graph build
+```
+
+## Deploy to Goldsky
+Guide: https://docs.goldsky.com/chains/horizen#install-goldskys-cli-and-log-in
+For deployment details and options, follow the Goldsky documentation:
+https://docs.goldsky.com/subgraphs/
+
+```bash
+goldsky subgraph deploy <name>/<version> --path .
+```
