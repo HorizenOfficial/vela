@@ -323,6 +323,11 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 			}
 
 		} else {
+			m.log.Error("Manager: unrecoverable disalignment between DB and chain, no matching state root found in db")
+			emptyStateRoot := [32]byte{}
+			if bytes.Equal(localStateRoot, emptyStateRoot[:]) {
+				m.log.Error("Manager: the DB is empty but the chain state root is non-zero, check if the database file is correct and restart the manager")
+			}
 			return fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
 		}
 
