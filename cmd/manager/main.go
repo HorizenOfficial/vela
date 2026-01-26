@@ -129,12 +129,22 @@ func main() {
 	var executorClient communication.ExecutorClient
 	switch config.ChannelType {
 	case "tcp":
-		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
+		channelParams, ok := config.ChannelParams.(common.TcpChannelConnectionParams)
+		if !ok {
+			log.Error("Invalid channel parameters for tcp channel")
+			return
+		}
+		factory := communication.NewTCPConnectionFactory(channelParams.Url())
 		executorClient = communication.NewClient(factory, config.CommunicationParams, log)
 	case "vsock":
+		channelParams, ok := config.ChannelParams.(common.VSockChannelConnectionParams)
+		if !ok {
+			log.Error("Invalid channel parameters for vsock channel")
+			return
+		}
 		factory := communication.NewVSockConnectionFactory(
-			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
-			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
+			channelParams.CID,
+			channelParams.Port,
 		)
 		executorClient = communication.NewClient(factory, config.CommunicationParams, log)
 	default:
@@ -158,6 +168,7 @@ func main() {
 		signal.Stop(sigChan)
 		log.Info("Received shutdown signal. Shutting down gracefully...")
 	case err := <-secureProcessorManager.FatalErrChan():
+		signal.Stop(sigChan)
 		log.Error("Fatal error occurred: %v. Shutting down gracefully...", err)
 	}
 

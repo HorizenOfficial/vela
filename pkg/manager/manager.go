@@ -40,7 +40,7 @@ type SecureProcessorManager struct {
 	mu                sync.RWMutex
 	isRunning         bool
 	executorHandShake *ExecutorHandShake
-	stopChan          chan struct{} // TODO unused
+	stopChan          chan struct{} // Channel to signal the polling loop to stop
 	wg                sync.WaitGroup
 	endReorgTime      time.Time
 	log               logger.Logger
