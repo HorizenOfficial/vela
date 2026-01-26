@@ -28,6 +28,12 @@ func run() error {
 
 	flag.Parse()
 
+	// If no arguments are provided, print the usage message and exit.
+	if flag.NFlag() == 0 {
+		flag.Usage()
+		return nil
+	}
+
 	var conn net.Conn
 	var err error
 
@@ -109,8 +115,14 @@ func run() error {
 	return nil
 }
 
-
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  This command connects to the executor enclave to request an AWS Nitro attestation.\n")
+		fmt.Fprintf(os.Stderr, "  Example: %s -servertype vsocket -cid 3 -port 12345\n", os.Args[0])
+		flag.PrintDefaults()
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

@@ -4,6 +4,7 @@ package executor
 
 import (
 	"math/big"
+	"time"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/magiconair/properties"
@@ -44,6 +45,12 @@ type Config struct {
 
 	// LogNetworkLevel is the level of logging for the network
 	LogNetworkLevel string
+
+	// CommunicationParams holds parameters for communication between manager and executor
+	CommunicationParams common.CommunicationParams
+
+	// AdminCommunicationParams holds parameters for communication towards the admin server
+	AdminCommunicationParams common.CommunicationParams
 }
 
 const confFileName = "executor.conf"
@@ -82,6 +89,17 @@ func LoadConfig() (*Config, error) {
 		logClientConnectionParams = common.TcpChannelConnectionParams{Ip: logServerIpHost, Port: uint32(logServerPort)}
 	}
 
+	
+	communicationParams := common.CommunicationParams{
+		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
+	}
+	
+	adminCommunicationParams := common.CommunicationParams{
+		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
+	}
+	
+	
+	
 	return &Config{
 		ChannelType:        channelType,
 		ChannelParams:      channelServerConnectionParams,
@@ -97,5 +115,7 @@ func LoadConfig() (*Config, error) {
 		LogFileLevel:       common.GetConfigVar("EXECUTOR_LOG_FILE_LEVEL", "info", fileProperties),
 		LogChannelParams:   logClientConnectionParams,
 		LogNetworkLevel:    common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
+		CommunicationParams: communicationParams,
+		AdminCommunicationParams: adminCommunicationParams,
 	}, nil
 }

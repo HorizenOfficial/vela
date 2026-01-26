@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
@@ -107,6 +108,21 @@ type Request struct {
 	DepositAmount *big.Int `json:"depositAmount"`
 	// MaxFeeValue is the maximum fee value reserved for fee payment
 	MaxFeeValue *big.Int `json:"maxFeeValue"`
+}
+
+func (r *Request) Validate() error {
+	if err := validateBigInt("timestamp", r.Timestamp, false); err != nil {
+		return err
+	}
+
+	if err := validateBigInt("depositAmount", r.DepositAmount, true); err != nil {
+		return err
+	}
+
+	if err := validateBigInt("maxFeeValue", r.MaxFeeValue, true); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Event represents an event to be emitted
@@ -235,6 +251,10 @@ type ChannelConnectionParams interface {
 type VSockChannelConnectionParams struct {
 	CID  uint32
 	Port uint32
+}
+
+type CommunicationParams struct {		
+	RequestTimeoutSec time.Duration
 }
 
 func (VSockChannelConnectionParams) IsChannelConnectionParams() {}

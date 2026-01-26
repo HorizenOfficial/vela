@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
 
 	"github.com/horizen-pes/app/simple/utils"
 )
@@ -22,7 +21,7 @@ func LoadModule(appId int64) LoadModuleResult {
 			Error: fmt.Sprintf("failed to marshal initial state: %v", err),
 		}
 	}
-	fuel := big.NewInt(5)
+	fuel := NewUint256(5)
 	utils.LogDebug("LoadModule: appId=%d, stateSize=%d, fuel=%v", appId, len(stateJSON), fuel)
 	return LoadModuleResult{
 		State: stateJSON,
@@ -30,7 +29,7 @@ func LoadModule(appId int64) LoadModuleResult {
 	}
 }
 
-func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositResult {
+func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositResult {
 	if senderPtr == nil {
 		utils.LogError("DepositFunds: sender address is nil")
 		return DepositResult{Error: "Sender address is nil"}
@@ -56,20 +55,27 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 	if !exists {
 		acc = &AccountState{
 			Address: *senderPtr,
-			Balance: big.NewInt(0),
+			Balance: NewUint256(0),
 		}
 		currentState.Accounts[senderHex] = acc
 	}
 
-	// safe big.Int Addition (Immutable-style to prevent side effects)
-	// We create a new Int to store the result rather than modifying the existing pointer in-place
-	acc.Balance = new(big.Int).Add(acc.Balance, value)
+	// Update balance in-place
+	if acc.Balance.AddOverflow(*acc.Balance, *value) {
+		return DepositResult{Error: fmt.Sprintf("Overflow while adding amount %s to balance: %s", value, acc.Balance)}
+	}
 
 	// Create deposit event
-	eventData := map[string]interface{}{
-		"type":   "deposit",
-		"amount": value,
+	type Event struct {
+		Type   string   `json:"type"`
+		Amount *Uint256 `json:"amount"`
 	}
+
+	eventData := Event{
+		Type:   "deposit",
+		Amount: value,
+	}
+
 	eventDataBytes, err := json.Marshal(eventData)
 	if err != nil {
 		utils.LogError("DepositFunds: failed to serialize event data: %v", err)
@@ -88,7 +94,7 @@ func DepositFunds(senderPtr *Address, value *big.Int, stateJSON string) DepositR
 		utils.LogError("DepositFunds: failed to serialize new state: %v", err)
 		return DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
-	fuel := big.NewInt(35)
+	fuel := NewUint256(35)
 	utils.LogDebug("DepositFunds: sender=%s, value=%v, newBalance=%v, eventsCount=%d, stateSize=%d, fuel=%v",
 		senderHex, value, acc.Balance, len(events), len(newStateBytes), fuel)
 	return DepositResult{State: newStateBytes, Events: events, Fuel: fuel}
@@ -143,7 +149,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			senderBalance := currentState.Accounts[senderHex].Balance
 
 			var cmp = ""
-			switch targetBalance.Cmp(senderBalance) {
+			switch targetBalance.Cmp(*senderBalance) {
 			case -1:
 				cmp = "richer than"
 			case 1:
@@ -177,6 +183,9 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 				utils.LogError("ProcessRequest: withdraw instruction is missing in payload")
 				return ProcessResult{Error: fmt.Sprintf("Withdraw instruction is missing in payload: %s", payloadJSON)}
 			}
+			if instructions.Withdraw.Amount == nil {
+				return ProcessResult{Error: "Withdraw amount is nil"}
+			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[senderHex] == nil {
@@ -184,13 +193,14 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist", senderHex)}
 			}
 
-			if currentState.Accounts[senderHex].Balance.Cmp(instructions.Withdraw.Amount) < 0 {
+			if currentState.Accounts[senderHex].Balance.Cmp(*instructions.Withdraw.Amount) < 0 {
 				utils.LogError("ProcessRequest: insufficient balance for account %s", senderHex)
-				return ProcessResult{Error: fmt.Sprintf("Insufficient balance for withdrawal for account %s", senderHex)}
+				return ProcessResult{Error: fmt.Sprintf("Insufficient balance %s for withdrawal %s for account %s",
+					currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount, senderHex)}
 			}
 
 			// Execute withdrawal
-			currentState.Accounts[senderHex].Balance.Sub(currentState.Accounts[senderHex].Balance, instructions.Withdraw.Amount)
+			currentState.Accounts[senderHex].Balance.Sub(*currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount)
 
 			// Create withdrawal
 			withdrawals = append(withdrawals, Withdrawal{
@@ -229,7 +239,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 		utils.LogError("ProcessRequest: failed to serialize new state: %v", err)
 		return ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
-	fuel := big.NewInt(50)
+	fuel := NewUint256(50)
 	utils.LogDebug("ProcessRequest: sender=%s, eventsCount=%d, withdrawalsCount=%d, stateSize=%d, fuel=%v",
 		senderHex, len(events), len(withdrawals), len(newStateBytes), fuel)
 	return ProcessResult{
@@ -271,7 +281,7 @@ func GenerateDeanonymizationReport(payloadJSON, stateJSON string) Deanonymizatio
 		utils.LogError("GenerateDeanonymizationReport: failed to serialize report: %v", err)
 		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %v", err)}
 	}
-	fuel := big.NewInt(20)
+	fuel := NewUint256(20)
 	utils.LogDebug("GenerateDeanonymizationReport: accountsCount=%d, reportSize=%d, fuel=%v",
 		len(currentState.Accounts), len(reportBytes), fuel)
 	return DeanonymizationResult{Report: reportBytes, Fuel: fuel}

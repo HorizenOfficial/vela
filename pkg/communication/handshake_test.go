@@ -18,6 +18,8 @@ import (
 
 var testLogger logger.Logger
 
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
+
 func TestMain(m *testing.M) {
 	// Initialize once
 	//	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
@@ -143,7 +145,7 @@ func setupHandshakeTest(t *testing.T) (context.Context, *Client, *Server, *mockE
 	factory := NewTCPConnectionFactory("localhost:1234") // Use :0 for random port
 
 	// Setup server (executor)
-	server := NewServer(factory, testLogger)
+	server := NewServer(factory, commParams, testLogger)
 	executor := &mockExecutor{t: t, handshakeDone: make(chan struct{})}
 	server.SetConnectionHandler(executor.handleConnection)
 	err := server.Start(ctx, "Executor")
@@ -154,7 +156,7 @@ func setupHandshakeTest(t *testing.T) (context.Context, *Client, *Server, *mockE
 	//addr := server.Addr().String()
 	//clientFactory := NewTCPConnectionFactory(addr)
 	clientFactory := NewTCPConnectionFactory("localhost:1234")
-	client := NewClient(clientFactory, testLogger)
+	client := NewClient(clientFactory, commParams, testLogger)
 	manager := &mockManager{t: t}
 	client.SetClientRequestHandler(manager)
 

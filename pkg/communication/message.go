@@ -66,6 +66,22 @@ type ProcessRequestData struct {
 	WasmModule []byte `json:"wasmModule"`
 }
 
+func (prd *ProcessRequestData) Validate() error {
+	if prd.Request == nil {
+		return fmt.Errorf("Request is required")
+	}
+	if err := prd.Request.Validate(); err != nil {
+		return fmt.Errorf("invalid Request: %w", err)
+	}
+	if prd.ApplicationState == nil {
+		return fmt.Errorf("ApplicationState is required")
+	}
+	if len(prd.WasmModule) == 0 {
+		return fmt.Errorf("WasmModule cannot be empty")
+	}
+	return nil
+}
+
 // ProcessResponseData represents data for a process response message
 type ProcessResponseData struct {
 	// UpdatePayload is the update payload
@@ -147,6 +163,10 @@ func generateID() string {
 	return hex.EncodeToString(bytes)
 }
 
+type Validatable interface {
+	Validate() error
+}
+
 // extractData extracts request / response message data structs from an interface{}
 func extractData[T any](data interface{}) (*T, error) {
 	// Convert to JSON and back to exact type T
@@ -158,6 +178,12 @@ func extractData[T any](data interface{}) (*T, error) {
 	var respData T
 	if err := json.Unmarshal(jsonData, &respData); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response data: %w", err)
+	}
+
+	if v, ok := any(&respData).(Validatable); ok {
+		if err := v.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	return &respData, nil
