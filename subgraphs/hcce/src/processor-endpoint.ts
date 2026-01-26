@@ -6,7 +6,7 @@ import {
 } from "../generated/ProcessorEndpoint/ProcessorEndpoint";
 import { RequestSubmitted, RequestCompleted, UserEvent } from "../generated/schema";
 
-const SORT_BASE = BigInt.fromI32(1000000000);
+const SORT_BASE = BigInt.fromI64(1000000000000);
 
 export function handleRequestSubmitted(event: RequestSubmittedEvent): void {
   const id = event.transaction.hash.concatI32(event.logIndex.toI32()).toHex();

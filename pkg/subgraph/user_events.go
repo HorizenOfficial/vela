@@ -80,7 +80,7 @@ func FetchAndDecryptUserEvents(
 }
 
 // Must match SORT_BASE in the subgraph mapping.
-const userEventSortKeyBase = uint64(1000000000)
+const userEventSortKeyBase = uint64(1000000000000)
 
 func userEventSortKey(ev UserEvent) *big.Int {
 	if ev.SortKey != nil {
