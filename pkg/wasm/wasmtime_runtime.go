@@ -806,7 +806,7 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	_ = os.Remove(fifoPath)
 
 	// Create the FIFO (Named Pipe)
-	if err := syscall.Mkfifo(fifoPath, 0666); err != nil {
+	if err := syscall.Mkfifo(fifoPath, 0600); err != nil {
 		r.log.Error("Error creating pipe")
 		return nil, fmt.Errorf("failed to create log pipe: %w", err)
 	}
@@ -949,22 +949,24 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	cleanupFileDescriptors := func() {
 		r.log.Info("Closing log pipe FDs for app %d", appId)
 
-		// Close dummy writer first - this sends EOF to the scanner
+		// We force termination by closing both ends of the pipe immediately.
+		// Closing readerFile is critical: it forces the background goroutine to exit
+		// even if the WASM module (the writer) is still holding its FD or is stuck.
+		// This prevents goroutine leaks and avoids long timeouts during cleanup.
 		if err := dummyWriter.Close(); err != nil {
 			r.log.Warn("Failed to close dummy writer FD: %v", err)
 		}
-
-		// Wait for goroutine to finish (with timeout to prevent deadlock)
-		select {
-		case <-doneCh: // sent by the deferred close(doneCh) call when the go routine exits
-			// Goroutine exited cleanly
-		case <-time.After(2 * time.Second):
-			r.log.Warn("Timeout waiting for log pipe goroutine to exit for app %d", appId)
-		}
-
-		// Now safe to close reader - goroutine is done or timed out
 		if err := readerFile.Close(); err != nil {
 			r.log.Warn("Failed to close reader FD: %v", err)
+		}
+
+		// Brief wait for goroutine to complete. The loop in the goroutine
+		// handles os.ErrClosed, so this is safe and deterministic.
+		select {
+		case <-doneCh:
+			// Goroutine exited cleanly
+		case <-time.After(200 * time.Millisecond):
+			r.log.Warn("Log pipe goroutine slow to exit for app %d", appId)
 		}
 	}
 
