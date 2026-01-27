@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/logger"
 )
 
 type graphError struct {
@@ -28,16 +29,33 @@ type graphResponse[T any] struct {
 type client struct {
 	endpoint   string
 	httpClient *http.Client
+	log        logger.Logger
 }
 
 // NewClient builds a subgraph client pointing to the given endpoint.
 func NewClient(endpoint string) Client {
+	return NewClientWithLogger(endpoint, nil)
+}
+
+// NewClientWithLogger builds a subgraph client pointing to the given endpoint and using the provided logger.
+func NewClientWithLogger(endpoint string, log logger.Logger) Client {
 	return &client{
 		endpoint: endpoint,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		log: log,
 	}
+}
+
+func (c *client) Logger() logger.Logger {
+	return c.log
+}
+
+type healthCheckResponse struct {
+	Meta *struct {
+		HasIndexingErrors bool `json:"hasIndexingErrors"`
+	} `json:"_meta"`
 }
 
 type requestCompletedResponse struct {
@@ -109,6 +127,30 @@ query($requestId: Bytes!) {
 		ApplicationFees: appFees,
 		BlockNumber:     blockNumber,
 	}, nil
+}
+
+func (c *client) HealthCheck(ctx context.Context) error {
+	query := `
+query HealthCheck {
+  _meta {
+    hasIndexingErrors
+  }
+}`
+
+	var resp graphResponse[healthCheckResponse]
+	if err := c.doGraphQL(ctx, query, map[string]interface{}{}, &resp); err != nil {
+		return err
+	}
+	if len(resp.Errors) > 0 {
+		return fmt.Errorf("subgraph returned errors: %v", resp.Errors[0].Message)
+	}
+	if resp.Data.Meta == nil {
+		return fmt.Errorf("subgraph health check returned empty meta")
+	}
+	if resp.Data.Meta.HasIndexingErrors {
+		return fmt.Errorf("subgraph reports indexing errors")
+	}
+	return nil
 }
 
 type userEventsResponse struct {

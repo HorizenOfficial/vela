@@ -9,6 +9,7 @@ import (
 
 // Client defines the subgraph operations used by the services.
 type Client interface {
+	HealthCheck(ctx context.Context) error
 	GetRequestCompletedByID(ctx context.Context, requestID common.RequestIdType) (*RequestCompleted, error)
 	GetUserEvents(ctx context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, before *big.Int) ([]UserEvent, error)
 }

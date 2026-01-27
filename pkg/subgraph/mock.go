@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 
 	"github.com/horizen-pes/pkg/common"
 )
@@ -41,6 +42,10 @@ func (m *MockClient) GetRequestCompletedByID(_ context.Context, requestID common
 	return nil, nil
 }
 
+func (m *MockClient) HealthCheck(context.Context) error {
+	return nil
+}
+
 func (m *MockClient) GetUserEvents(_ context.Context, applicationID common.ApplicationIdType, eventSubType string, limit int, before *big.Int) ([]UserEvent, error) {
 	all, ok := m.events[applicationID]
 	if !ok {
@@ -48,8 +53,9 @@ func (m *MockClient) GetUserEvents(_ context.Context, applicationID common.Appli
 	}
 
 	var filtered []UserEvent
+	trimmedSubType := strings.TrimSpace(eventSubType)
 	for _, ev := range all {
-		if eventSubType != "" && ev.EventSubType != eventSubType {
+		if trimmedSubType != "" && ev.EventSubType != trimmedSubType {
 			continue
 		}
 		if before != nil && userEventSortKey(ev).Cmp(before) >= 0 {
@@ -62,14 +68,14 @@ func (m *MockClient) GetUserEvents(_ context.Context, applicationID common.Appli
 		return userEventSortKey(filtered[i]).Cmp(userEventSortKey(filtered[j])) > 0
 	})
 
-	if limit <= 0 {
+	if limit < 0 {
+		return nil, fmt.Errorf("invalid limit %d", limit)
+	}
+	if limit == 0 {
 		return filtered, nil
 	}
 	if len(filtered) <= limit {
 		return filtered, nil
-	}
-	if limit < 0 {
-		return nil, fmt.Errorf("invalid limit %d", limit)
 	}
 	return filtered[:limit], nil
 }

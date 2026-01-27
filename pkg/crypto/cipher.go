@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 
@@ -16,6 +17,9 @@ const (
 	// AES-256
 	aesKeySize = 32
 )
+
+// ErrDecrypt signals that ciphertext cannot be decrypted with the provided key/material.
+var ErrDecrypt = errors.New("decrypt failed")
 
 /*
 Encrypt encrypts a generic byte array.
@@ -87,13 +91,13 @@ func DecryptWithAES(key cryptotypes.AES256Key, message []byte) ([]byte, error) {
 	}
 	nonceSize := aesgcm.NonceSize()
 	if len(message) < nonceSize {
-		return nil, fmt.Errorf("ciphertext too short")
+		return nil, fmt.Errorf("%w: ciphertext too short", ErrDecrypt)
 	}
 	nonce, ciphertext := message[:nonceSize], message[nonceSize:]
 
 	plainMessage, err := aesgcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt message: %w", err)
+		return nil, fmt.Errorf("%w: failed to decrypt message: %v", ErrDecrypt, err)
 	}
 	return plainMessage, nil
 }

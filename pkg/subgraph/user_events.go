@@ -2,12 +2,14 @@ package subgraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
+	"github.com/horizen-pes/pkg/logger"
 )
 
 var userEventsPageSize = 1000
@@ -15,7 +17,7 @@ var userEventsPageSize = 1000
 // FetchAndDecryptUserEvents queries the subgraph for user events and decrypts them.
 // The limit caps the number of decrypted events returned; limit <= 0 means no cap.
 // The page size is internal and capped to avoid query errors.
-// It applies the optional filter on decrypted payloads.
+// It applies the optional filter on decrypted payloads and logs unexpected decrypt errors when a logger is available.
 func FetchAndDecryptUserEvents(
 	ctx context.Context,
 	sg Client,
@@ -33,6 +35,7 @@ func FetchAndDecryptUserEvents(
 		return nil, fmt.Errorf("tee public key is required")
 	}
 
+	log := loggerFromClient(sg)
 	maxResults := limit
 	if maxResults < 0 {
 		maxResults = 0
@@ -59,6 +62,12 @@ func FetchAndDecryptUserEvents(
 		for _, ev := range events {
 			plain, err := crypto.Decrypt(teePubKey, &privKey, ev.EncryptedData)
 			if err != nil {
+				if errors.Is(err, crypto.ErrDecrypt) {
+					continue
+				}
+				if log != nil {
+					log.Warn("subgraph: failed to decrypt user event %s at block %d: %v", ev.RequestID.String(), ev.BlockNumber, err)
+				}
 				continue
 			}
 			if filter != nil && !filter(plain) {
@@ -77,6 +86,17 @@ func FetchAndDecryptUserEvents(
 	}
 
 	return decryptedEvents, nil
+}
+
+type loggerProvider interface {
+	Logger() logger.Logger
+}
+
+func loggerFromClient(sg Client) logger.Logger {
+	if lp, ok := sg.(loggerProvider); ok {
+		return lp.Logger()
+	}
+	return nil
 }
 
 // Must match SORT_BASE in the subgraph mapping.
