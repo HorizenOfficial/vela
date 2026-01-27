@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"os"
@@ -37,21 +38,24 @@ type ApplicationModule struct {
 	memory     *wasmtime.Memory
 	deallocate *wasmtime.Func
 	cleanupFds func()
+	closeOnce  sync.Once
 }
 
 // Close releases all resources associated with the ApplicationModule.
+// Safe to call multiple times concurrently; cleanup runs exactly once.
 func (m *ApplicationModule) Close() {
-	if m.cleanupFds != nil {
-		m.cleanupFds()
-		m.cleanupFds = nil
-	}
+	m.closeOnce.Do(func() {
+		if m.cleanupFds != nil {
+			m.cleanupFds()
+		}
 
-	// Clear references to WASM resources
-	m.instance = nil
-	m.module = nil
-	m.memory = nil
-	m.store = nil
-	m.deallocate = nil
+		// Clear references to WASM resources
+		m.instance = nil
+		m.module = nil
+		m.memory = nil
+		m.store = nil
+		m.deallocate = nil
+	})
 }
 
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
@@ -833,11 +837,40 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	go func() {
 		defer close(doneCh)
 
-		scanner := bufio.NewScanner(readerFile)
+		// Use bufio.Reader.ReadLine() instead of Scanner to handle oversized lines gracefully.
+		// When a line exceeds the buffer, ReadLine() returns isPrefix=true, allowing us to
+		// discard the overflow and continue reading subsequent lines (Scanner would stop entirely).
+		// Buffer size of 64KB should handle most legitimate log lines.
+		const logBufferSize = 64 * 1024 // 64KB
+		reader := bufio.NewReaderSize(readerFile, logBufferSize)
+
 		r.log.Debug("Starting WASM log pipe reader for app %d", appId)
 
-		for scanner.Scan() {
-			line := scanner.Text()
+		for {
+			lineBytes, isPrefix, err := reader.ReadLine()
+			if err != nil {
+				// Don't log if it's due to EOF or file being closed during cleanup
+				if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
+					r.log.Warn("WASM log pipe read error for app %d: %v", appId, err)
+				}
+				break
+			}
+
+			line := string(lineBytes)
+			truncated := isPrefix
+
+			// If line exceeded buffer, discard remaining bytes until end of line
+			for isPrefix {
+				_, isPrefix, err = reader.ReadLine()
+				if err != nil {
+					break
+				}
+			}
+
+			if truncated {
+				line += "... [truncated]"
+			}
+
 			// Parse guest log level prefix and route to appropriate host log level
 			// Expected format: LVL message (e.g., "INF Processing request")
 			switch {
@@ -857,12 +890,6 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 			}
 		}
 
-		if err := scanner.Err(); err != nil {
-			// Don't log if it's due to the file being closed during cleanup
-			if !errors.Is(err, os.ErrClosed) {
-				r.log.Warn("WASM log pipe scanner error for app %d: %v", appId, err)
-			}
-		}
 		r.log.Debug("WASM log pipe reader exited for app %d", appId)
 	}()
 
