@@ -844,6 +844,22 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		const logBufferSize = 64 * 1024 // 64KB
 		reader := bufio.NewReaderSize(readerFile, logBufferSize)
 
+		// Rate limiting to prevent log flooding from malicious/buggy WASM modules.
+		// Uses a simple fixed window: allow up to maxLogsPerWindow logs per time window.
+		// Excess logs are dropped and periodically reported.
+		const (
+			maxLogsPerWindow = 1000              // Max logs allowed per window
+			windowDuration   = 1 * time.Second  // Time window for rate limiting
+			reportInterval   = 10 * time.Second // How often to report dropped logs
+		)
+		var (
+			windowStart     = time.Now()
+			logsInWindow    = 0
+			droppedLogs     = 0
+			lastDropReport  = time.Now()
+			totalDropped    = 0
+		)
+
 		r.log.Debug("Starting WASM log pipe reader for app %d", appId)
 
 		for {
@@ -871,6 +887,30 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 				line += "... [truncated]"
 			}
 
+			// Rate limiting check
+			now := time.Now()
+			if now.Sub(windowStart) >= windowDuration {
+				// Reset window
+				windowStart = now
+				logsInWindow = 0
+			}
+
+			if logsInWindow >= maxLogsPerWindow {
+				// Drop this log
+				droppedLogs++
+				totalDropped++
+
+				// Periodically report dropped logs
+				if now.Sub(lastDropReport) >= reportInterval {
+					r.log.Warn("WASM log rate limit: dropped %d logs from app %d in last %v (total dropped: %d)",
+						droppedLogs, appId, reportInterval, totalDropped)
+					droppedLogs = 0
+					lastDropReport = now
+				}
+				continue
+			}
+			logsInWindow++
+
 			// Parse guest log level prefix and route to appropriate host log level
 			// Expected format: LVL message (e.g., "INF Processing request")
 			switch {
@@ -888,6 +928,12 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 				// No recognized prefix - log as info (backwards compatible)
 				r.log.Info("Wasm Guest [%d]: %s", appId, line)
 			}
+		}
+
+		// Report any remaining dropped logs on exit
+		if droppedLogs > 0 {
+			r.log.Warn("WASM log rate limit: dropped %d logs from app %d before exit (total dropped: %d)",
+				droppedLogs, appId, totalDropped)
 		}
 
 		r.log.Debug("WASM log pipe reader exited for app %d", appId)
