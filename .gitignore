@@ -13,3 +13,4 @@ contract_abis/
 /contracts/coverage/
 /contracts/node_modules/
 /contracts/typechain/
+bin/
