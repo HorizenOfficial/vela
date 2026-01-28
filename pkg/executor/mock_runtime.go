@@ -256,7 +256,7 @@ func (r *MockRuntime) Close() error {
 func ensureAccount(accounts map[ethCommon.Address]*testAccountState, addr ethCommon.Address) *testAccountState {
 	acct := accounts[addr]
 	if acct == nil {
-		acct = &testAccountState{Address: addr, Balance: common.ToBig(big.NewInt(0))}
+		acct = &testAccountState{Address: addr, Balance: common.NewBig(0)}
 		accounts[addr] = acct
 	}
 	return acct

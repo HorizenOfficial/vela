@@ -16,10 +16,10 @@ func TestProcessRequestDataValidate(t *testing.T) {
 		RequestID:       common.RequestIdType([32]byte{1}),
 		RequestType:     common.Process,
 		Payload:         []byte("test"),
-		Timestamp:       common.ToBig(big.NewInt(100)),
+		Timestamp:       common.NewBig(100),
 		Sender:          [20]byte{1},
-		DepositAmount:   common.ToBig(big.NewInt(10)),
-		MaxFeeValue:     common.ToBig(big.NewInt(5)),
+		DepositAmount:   common.NewBig(10),
+		MaxFeeValue:     common.NewBig(5),
 	}
 
 	validApplicationState := &common.ApplicationState{
@@ -82,8 +82,8 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					Payload:         []byte("test"),
 					Timestamp:       common.ToBig(big.NewInt(-1)), // Invalid timestamp
 					Sender:          [20]byte{1},
-					DepositAmount:   common.ToBig(big.NewInt(10)),
-					MaxFeeValue:     common.ToBig(big.NewInt(5)),
+					DepositAmount:   common.NewBig(10),
+					MaxFeeValue:     common.NewBig(5),
 				},
 				ApplicationState: validApplicationState,
 				WasmModule:       validWasmModule,
@@ -99,10 +99,10 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					RequestID:       common.RequestIdType([32]byte{1}),
 					RequestType:     common.Process,
 					Payload:         []byte("test"),
-					Timestamp:       common.ToBig(big.NewInt(100)),
+					Timestamp:       common.NewBig(100),
 					Sender:          [20]byte{1},
-					DepositAmount:   common.ToBig(big.NewInt(0)), // Zero deposit amount
-					MaxFeeValue:     common.ToBig(big.NewInt(5)),
+					DepositAmount:   common.NewBig(0), // Zero deposit amount
+					MaxFeeValue:     common.NewBig(5),
 				},
 				ApplicationState: validApplicationState,
 				WasmModule:       validWasmModule,
@@ -118,10 +118,10 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					RequestID:       common.RequestIdType([32]byte{1}),
 					RequestType:     common.Process,
 					Payload:         []byte("test"),
-					Timestamp:       common.ToBig(big.NewInt(100)),
+					Timestamp:       common.NewBig(100),
 					Sender:          [20]byte{1},
-					DepositAmount:   common.ToBig(big.NewInt(10)),
-					MaxFeeValue:     common.ToBig(big.NewInt(0)), // zero max fee value
+					DepositAmount:   common.NewBig(10),
+					MaxFeeValue:     common.NewBig(0), // zero max fee value
 				},
 				ApplicationState: validApplicationState,
 				WasmModule:       validWasmModule,

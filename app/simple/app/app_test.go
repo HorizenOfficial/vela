@@ -810,9 +810,9 @@ func TestUint256BigStructCompatibility(t *testing.T) {
 
 	// Create host struct with test values
 	hostStruct := HostStruct{
-		Amount:  common.ToBig(big.NewInt(1000000)),
-		Fee:     common.ToBig(big.NewInt(100)),
-		Balance: common.ToBig(big.NewInt(999900)),
+		Amount:  common.NewBig(1000000),
+		Fee:     common.NewBig(100),
+		Balance: common.NewBig(999900),
 	}
 
 	// Marshal host struct

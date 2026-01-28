@@ -227,7 +227,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: res.ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.ToBig(big.NewInt(10))},
+		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(10)},
 	}
 
 	signature := [65]byte{}
@@ -239,16 +239,16 @@ func TestSubmitStateUpdate(t *testing.T) {
 		Events:         events[:],
 		Withdrawals:    withdrawals,
 		Signature:      signature[:],
-		RefundAmount:   common.ToBig(big.NewInt(90)),
-		ApplicationFee: common.ToBig(big.NewInt(10)), // 90 + 10 = 100 == maxFeeValue
+		RefundAmount:   common.NewBig(90),
+		ApplicationFee: common.NewBig(10), // 90 + 10 = 100 == maxFeeValue
 	}
 
 	// =========================================================
 	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
 	// =========================================================
 	payloadWrongSum := *payload // copy value
-	payloadWrongSum.RefundAmount = common.ToBig(big.NewInt(80))
-	payloadWrongSum.ApplicationFee = common.ToBig(big.NewInt(10))
+	payloadWrongSum.RefundAmount = common.NewBig(80)
+	payloadWrongSum.ApplicationFee = common.NewBig(10)
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), &payloadWrongSum)
 	require.Error(t, err)
@@ -258,8 +258,8 @@ func TestSubmitStateUpdate(t *testing.T) {
 	// Case 2: applicationFees < minFeePerRequest but correct sum -> InvalidValue
 	// =========================================================
 	payloadWrongFee := *payload
-	payloadWrongFee.RefundAmount = common.ToBig(big.NewInt(100))
-	payloadWrongFee.ApplicationFee = common.ToBig(big.NewInt(0))
+	payloadWrongFee.RefundAmount = common.NewBig(100)
+	payloadWrongFee.ApplicationFee = common.NewBig(0)
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), &payloadWrongFee)
 	require.Error(t, err)
@@ -468,7 +468,7 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: encryptedMessage}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.ToBig(big.NewInt(0))},
+		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(0)},
 	}
 
 	oldStateRoot := testHelper.GetStateRoot()
@@ -482,8 +482,8 @@ func _submitRequestAndStateUpdateWithEncryptedMessageEvent(t *testing.T, blockch
 		Events:         events[:],
 		Withdrawals:    withdrawals,
 		Signature:      signature[:],
-		RefundAmount:   common.ToBig(big.NewInt(90)),
-		ApplicationFee: common.ToBig(big.NewInt(10)),
+		RefundAmount:   common.NewBig(90),
+		ApplicationFee: common.NewBig(10),
 	}
 
 	//complete state update
@@ -641,7 +641,7 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: res[0].ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.ToBig(big.NewInt(10))},
+		{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(10)},
 	}
 
 	oldStateRoot := testHelper.GetStateRoot()
@@ -655,8 +655,8 @@ func TestGetRequestCompletedEvent(t *testing.T) {
 		Events:         events[:],
 		Withdrawals:    withdrawals,
 		Signature:      signature[:],
-		RefundAmount:   common.ToBig(big.NewInt(90)),
-		ApplicationFee: common.ToBig(big.NewInt(10)),
+		RefundAmount:   common.NewBig(90),
+		ApplicationFee: common.NewBig(10),
 	}
 
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)

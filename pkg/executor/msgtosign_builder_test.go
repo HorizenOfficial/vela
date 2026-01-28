@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"math/big"
 	"testing"
 
 	"github.com/horizen-pes/pkg/common"
@@ -21,8 +20,8 @@ func TestMsgToSignBuilder_IncludesEventSubType(t *testing.T) {
 		NewStateRoot:   [32]byte{2},
 		Events:         []common.Event{{EventSubType: "a", EncryptedData: []byte{0x01}}},
 		Withdrawals:    nil,
-		RefundAmount:   common.ToBig(big.NewInt(0)),
-		ApplicationFee: common.ToBig(big.NewInt(0)),
+		RefundAmount:   common.NewBig(0),
+		ApplicationFee: common.NewBig(0),
 	}
 
 	h1, err := builder.BuildMsgHash(base)

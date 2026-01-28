@@ -60,8 +60,8 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 		Payload:       payload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.ToBig(big.NewInt(0)),
-		MaxFeeValue:   common.ToBig(big.NewInt(100)),
+		DepositAmount: common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
@@ -89,7 +89,7 @@ func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requ
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.ToBig(depositAmount),
-		MaxFeeValue:   common.ToBig(big.NewInt(100)),
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
@@ -127,8 +127,8 @@ func (c *CryptoHelper) CreateTransferRequest(appID common.ApplicationIdType, req
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.ToBig(big.NewInt(0)), // No deposit for transfer
-		MaxFeeValue:   common.ToBig(big.NewInt(100)),
+		DepositAmount: common.NewBig(0), // No deposit for transfer
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
@@ -166,8 +166,8 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, r
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.ToBig(big.NewInt(0)), // No deposit for withdrawal
-		MaxFeeValue:   common.ToBig(big.NewInt(100)),
+		DepositAmount: common.NewBig(0), // No deposit for withdrawal
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
@@ -192,8 +192,8 @@ func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdTy
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.ToBig(big.NewInt(0)),
-		MaxFeeValue:   common.ToBig(big.NewInt(100)),
+		DepositAmount: common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
@@ -247,8 +247,8 @@ func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requ
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.ToBig(big.NewInt(0)),
-		MaxFeeValue:   common.ToBig(big.NewInt(100)),
+		DepositAmount: common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
