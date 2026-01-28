@@ -163,7 +163,7 @@ func TestProcessRequest(t *testing.T) {
 
 		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
-		require.Contains(t, result.Error, "Insufficient balance for withdrawal")
+		require.Contains(t, result.Error, "Insufficient balance")
 	})
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {
@@ -401,14 +401,13 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 
 		require.Equal(t, "SIMPLE_REPORT", report.Tag)
 
-		require.Len(t, report.Accounts, len(state.Accounts))
 		// Check if the accounts in the report match the expected ones (from state)
 		require.Equal(t, len(state.Accounts), len(report.Accounts))
 		for _, expectedAcc := range state.Accounts {
 			found := false
 			for _, reportAcc := range report.Accounts {
-				if reportAcc.Address == expectedAcc.Address && reportAcc.Balance.Cmp(*expectedAcc.Balance) == 0 {
-					found = true
+				if reportAcc.Address == expectedAcc.Address {
+					found = reportAcc.Balance.Cmp(*expectedAcc.Balance) == 0
 					break
 				}
 			}

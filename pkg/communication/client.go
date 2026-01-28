@@ -33,14 +33,12 @@ type Client struct {
 }
 
 // NewClient creates a new client with the specified connection factory
-func NewClient(factory ConnectionFactory, log logger.Logger) *Client {
+func NewClient(factory ConnectionFactory, communicationParams common.CommunicationParams, log logger.Logger) *Client {
 	return &Client{
 		factory:         factory,
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
-		reqTimeout:      30 * time.Second,
-		// For debugging it can be useful to use huge timeout values
-		// reqTimeout: 30 * time.Hour,
+		reqTimeout:      communicationParams.RequestTimeoutSec * time.Second,
 		log: log,
 	}
 }
@@ -291,7 +289,7 @@ func (c *Client) sendMessage(msg Message) error {
 	c.log.Debug("%s: MagBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add delimiter
-	data = append(data, delimiter)
+	data = append(data, MsgDelimiter)
 	c.log.Debug("%s: MagBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write message with delimiter

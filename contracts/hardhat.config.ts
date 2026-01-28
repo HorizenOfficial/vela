@@ -46,10 +46,9 @@ const config: HardhatUserConfig = {
             accounts,
         },
         'local': {
-            url: 'http://10.10.40.30:8545/',
+            url: 'http://127.0.0.1:8545/',
             accounts,
-        }, 
-        
+        }
     },
 }
 

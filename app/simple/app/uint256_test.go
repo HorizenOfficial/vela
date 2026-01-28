@@ -657,3 +657,68 @@ func TestMul64Consistency(t *testing.T) {
 		t.Logf("Max hi in Mul64 is %x, which is < %x", hi, max)
 	}
 }
+
+func TestAddOverflow(t *testing.T) {
+	// Setup constants once
+	// -
+	// limit represents the exclusive upper bound of a 256-bit unsigned integer (2^256)
+	// Any value >= limit cannot be represented in 256 bits and constitutes an overflow.
+	limit := new(big.Int).Lsh(big.NewInt(1), 256)
+
+	// (limit - 1) therefore is the maximum value
+	max256Big := new(big.Int).Sub(limit, big.NewInt(1))
+
+	max256 := *new(Uint256).SetBytes(max256Big.Bytes())
+	one := *NewUint256(1)
+	zero := *NewUint256(0)
+
+	t.Run("no overflow", func(t *testing.T) {
+		u1 := *NewUint256(100)
+		u2 := *NewUint256(200)
+		var res Uint256
+		overflow := res.AddOverflow(u1, u2)
+		require.False(t, overflow)
+		require.Equal(t, "300", res.String())
+	})
+
+	t.Run("overflow boundary", func(t *testing.T) {
+		var res Uint256
+		overflow := res.AddOverflow(max256, one)
+		require.True(t, overflow)
+		require.Equal(t, "0", res.String())
+	})
+
+	t.Run("max + zero", func(t *testing.T) {
+		var res Uint256
+		overflow := res.AddOverflow(max256, zero)
+		require.False(t, overflow)
+		require.Equal(t, max256Big.String(), res.String())
+	})
+
+	t.Run("random cases", func(t *testing.T) {
+		// Use a fixed seed for CI stability
+		r := rand.New(rand.NewSource(1234))
+
+		for i := range 100 {
+			b1 := new(big.Int).Rand(r, limit)
+			b2 := new(big.Int).Rand(r, limit)
+
+			u1 := new(Uint256).SetBytes(b1.Bytes())
+			u2 := new(Uint256).SetBytes(b2.Bytes())
+
+			sumBig := new(big.Int).Add(b1, b2)
+
+			// An overflow occurs if the result is >= 2^256
+			expectedOverflow := sumBig.Cmp(limit) >= 0
+
+			// Apply the full mask to simulate 256-bit wrapping, in other words all bits beyond 256 becomes 0
+			wrappedBig := new(big.Int).And(sumBig, max256Big)
+
+			var sumU Uint256
+			overflow := sumU.AddOverflow(*u1, *u2)
+
+			require.Equal(t, expectedOverflow, overflow, "Seed: 1337, Iteration: %d", i)
+			require.Equal(t, wrappedBig.String(), sumU.String(), "Sum mismatch at index %d", i)
+		}
+	})
+}

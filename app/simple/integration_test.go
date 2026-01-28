@@ -259,7 +259,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "Insufficient balance for withdrawal")
+		require.Contains(t, err.Error(), "Insufficient balance")
 	})
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {

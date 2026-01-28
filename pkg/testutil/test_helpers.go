@@ -16,6 +16,7 @@ import (
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/logserver"
@@ -27,6 +28,17 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
+
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
+type MockAdminServer struct {}
+
+func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
+func (*MockAdminServer)	Stop() error { return nil}
+func (*MockAdminServer)	SetCmdHandler(handler admin.AdminCmdHandler)  { }
+
+
+
+
 
 type SystemTestSuite struct {
 	t                  *testing.T
@@ -93,7 +105,7 @@ func NewSystemTestSuiteWithConfigs(
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
-	executorClient := communication.NewClient(factory, mgrLog)
+	executorClient := communication.NewClient(factory, commParams,mgrLog)
 
 	// Create manager
 	var err error
@@ -137,7 +149,7 @@ func NewSystemTestSuiteWithConfigs(
 	)
 
 	// Create executor
-	server := communication.NewServer(factory, excLog)
+	server := communication.NewServer(factory, commParams, excLog)
 	var runtime executor.Runtime
 	switch appType {
 	case "mock-runtime":
@@ -149,7 +161,7 @@ func NewSystemTestSuiteWithConfigs(
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, excLog)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, &MockAdminServer{}, excLog)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {

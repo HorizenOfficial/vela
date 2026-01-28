@@ -130,13 +130,13 @@ func main() {
 	switch config.ChannelType {
 	case "tcp":
 		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
-		executorClient = communication.NewClient(factory, log)
+		executorClient = communication.NewClient(factory, config.CommunicationParams, log)
 	case "vsock":
 		factory := communication.NewVSockConnectionFactory(
 			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
 			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
 		)
-		executorClient = communication.NewClient(factory, log)
+		executorClient = communication.NewClient(factory, config.CommunicationParams, log)
 	default:
 		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return

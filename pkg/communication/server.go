@@ -44,13 +44,11 @@ type Server struct {
 }
 
 // NewServer creates a new server with the specified connection factory
-func NewServer(factory ConnectionFactory, log logger.Logger) *Server {
+func NewServer(factory ConnectionFactory, communicationParams common.CommunicationParams,log logger.Logger) *Server {
 	return &Server{
 		factory:      factory,
 		shutdownChan: make(chan struct{}),
-		reqTimeout:   30 * time.Second,
-		// For debugging it can be useful to use huge timeout values
-		// reqTimeout: 30 * time.Hour,
+		reqTimeout:   communicationParams.RequestTimeoutSec * time.Second,
 		log: log,
 	}
 }
@@ -377,7 +375,7 @@ func (c *ClientConnection) sendMessage(msg Message) error {
 	c.log.Debug("%s: MsgBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add newline delimiter
-	data = append(data, delimiter)
+	data = append(data, MsgDelimiter)
 	c.log.Debug("%s: MsgBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write a message

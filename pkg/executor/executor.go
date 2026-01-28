@@ -3,19 +3,31 @@ package executor
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/hf/nsm"
+	"github.com/hf/nsm/request"
+	"github.com/hf/nsm/response"
+
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/appdata"
 	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/logger"
 )
+
+// NsmSession is an interface abstracting nsm.Session for testability.
+type NsmSession interface {
+	Send(req request.Request) (response.Response, error)
+	Close() error
+}
 
 func CreateNewKeySet() (*EnclaveKeySet, error) {
 	communicationKey, err := crypto.GeneratePrivateKeyP521()
@@ -140,13 +152,14 @@ type StatelessExecutor struct {
 	config  *Config
 	runtime Runtime
 	server  communication.ExecutorServer
+	admCmdServer admin.AdminCommandServer
 	*MsgToSignBuilder
 	keySet *EnclaveKeySet
 	log    logger.Logger
 }
 
 // NewStatelessExecutor creates a new stateless executor
-func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, log logger.Logger) (*StatelessExecutor, error) {
+func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, admCmdServer admin.AdminCommandServer, log logger.Logger) (*StatelessExecutor, error) {
 	msgBuilder, err := NewMsgToSignBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup msg to sign builder: %w", err)
@@ -156,6 +169,7 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 		config:           config,
 		runtime:          runtime,
 		server:           server,
+		admCmdServer: 	  admCmdServer,
 		MsgToSignBuilder: msgBuilder,
 		log:              log,
 	}
@@ -163,6 +177,8 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 	executor.server.SetRequestHandler(executor)
 	// Set the connection handler to perform handshake
 	executor.server.SetConnectionHandler(executor.handleNewConnection)
+
+	executor.admCmdServer.SetCmdHandler(executor)
 
 	return executor, nil
 }
@@ -240,13 +256,37 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 	case "vsock":
 		e.log.Info("Executor: Starting v-socket executor server")
 	}
-	return e.server.Start(ctx, "Executor")
+
+	if err := e.server.Start(ctx, "Executor"); err != nil {	
+		return err
+	}
+
+	switch e.config.ChannelType {
+	case "tcp":
+		e.log.Info("Executor: Starting TCP admin executor server on %s", e.config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
+	case "vsock":
+		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d", 
+		e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID, 
+		e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
+	}
+	return e.admCmdServer.Start(ctx, "Executor")
 }
 
-// Stop stops the executor server
+// Stop stops the executor servers
 func (e *StatelessExecutor) Stop() error {
 	e.log.Info("Executor: Stopping stateless executor")
-	return e.server.Stop()
+
+	err :=  e.admCmdServer.Stop();
+	if err != nil {
+		e.log.Warn("Executor: Error stopping admin server: %v", err)
+	}
+
+	err = e.server.Stop();
+	if err != nil {
+		e.log.Warn("Executor: Error stopping server: %v", err)
+	}
+
+	return err
 }
 
 // Close closes the executor and its runtime
@@ -713,4 +753,57 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 
 	e.log.Info("Executor: Successfully decrypted request payload")
 	return decryptedPayload, nil
+}
+
+
+
+func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {
+	return e.createKeyAttestationInternal(ctx, func() (NsmSession, error) {
+		s, err := nsm.OpenDefaultSession()
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	})
+}
+
+func (e *StatelessExecutor) createKeyAttestationInternal(ctx context.Context, nsmSessionOpener func() (NsmSession, error)) ([]byte, error) {
+	keySet := e.keySet
+	if keySet == nil {
+		return nil, fmt.Errorf("keyset is empty")
+	}
+
+	session, err := nsmSessionOpener()
+	if err != nil {
+		e.log.Info("Executor: error opening nms session: %v", err)
+		return nil, fmt.Errorf("failed to generate attestation")
+	}
+	defer func() {
+		if err := session.Close(); err != nil {
+			e.log.Warn("Executor: error closing nms session: %v", err)
+		}
+	}()
+
+	signerAddress, err := hex.DecodeString(keySet.SigningKey.PublicKey().Address()[2:]) // remove 0x prefix
+	if err != nil {
+		e.log.Error("Executor: error while decoding signer address: %v", err)
+		return nil, fmt.Errorf("failed to generate attestation")
+	}
+
+	res, err := session.Send(&request.Attestation{PublicKey: keySet.CommunicationKey.PublicKey().Bytes(), UserData: signerAddress})
+	if err != nil {
+		e.log.Warn("failed to get attestation: %v", err)
+		return nil, fmt.Errorf("failed to generate attestation")
+	}
+	if res.Error != "" {
+		e.log.Warn("NSM device returned an error: %s", res.Error)
+		return nil, fmt.Errorf("failed to generate attestation")
+	}
+	if res.Attestation == nil || res.Attestation.Document == nil {
+		e.log.Warn("NSM device did not return an attestation")
+		return nil, fmt.Errorf("failed to generate attestation")
+	}
+
+	return res.Attestation.Document, nil
+
 }

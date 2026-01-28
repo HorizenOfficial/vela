@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
@@ -69,9 +70,9 @@ func (rt RequestIdType) MarshalJSON() ([]byte, error) {
 }
 
 func (rt *RequestIdType) UnmarshalJSON(data []byte) error {
-	// data is expected to be a hex string with a "0x" prefix in quotes
-	// e.g. "0x1234..."
-	if len(data) < 5 || data[0] != '"' || data[1] != '0' || data[2] != 'x' || data[len(data)-1] != '"' {
+	// data is expected to be a hex string with a "0x" prefix in quotes representing an array of exactly 32 bytes
+	// e.g. "0xab12...a8" (68 chars in total, prefix and start-end quotes included)
+	if len(data) != 68 || data[0] != '"' || data[1] != '0' || data[2] != 'x' || data[len(data)-1] != '"' {
 		return fmt.Errorf("invalid RequestIdType format")
 	}
 
@@ -107,6 +108,21 @@ type Request struct {
 	DepositAmount *Big `json:"depositAmount"`
 	// MaxFeeValue is the maximum fee value reserved for fee payment
 	MaxFeeValue *Big `json:"maxFeeValue"`
+}
+
+func (r *Request) Validate() error {
+	if err := validateBigInt("timestamp", r.Timestamp, false); err != nil {
+		return err
+	}
+
+	if err := validateBigInt("depositAmount", r.DepositAmount, true); err != nil {
+		return err
+	}
+
+	if err := validateBigInt("maxFeeValue", r.MaxFeeValue, true); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Event represents an event to be emitted
@@ -235,6 +251,10 @@ type ChannelConnectionParams interface {
 type VSockChannelConnectionParams struct {
 	CID  uint32
 	Port uint32
+}
+
+type CommunicationParams struct {		
+	RequestTimeoutSec time.Duration
 }
 
 func (VSockChannelConnectionParams) IsChannelConnectionParams() {}
