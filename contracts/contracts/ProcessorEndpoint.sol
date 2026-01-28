@@ -5,7 +5,7 @@ import '@openzeppelin/contracts/access/AccessControl.sol';
 
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
-import './AuthorityRegistry.sol';
+import './interfaces/IAuthorityRegistry.sol';
 import './Structs.sol';
 
 /// @title ProcessorEndpoint
@@ -27,7 +27,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
   uint256 public maxQueueSize = 10;
 
   ITeeAuthenticator public teeAuthenticator;
-  AuthorityRegistry public authorityRegistry;
+  IAuthorityRegistry public authorityRegistry;
 
   uint256 public minFeePerRequest;
   address payable public feeCollector;
@@ -49,14 +49,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
   /// @param _minFeePerRequest Minimum fee enforced per request.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
-    AuthorityRegistry _authorityRegistry,
+    IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
     address admin,
     uint256 _minFeePerRequest
   ) {
     if (
       _teeAuthenticator == ITeeAuthenticator(address(0)) ||
-      _authorityRegistry == AuthorityRegistry(address(0)) ||
+      address(_authorityRegistry) == address(0) ||
       updateStatusOperator == address(0) ||
       admin == address(0)
     ) revert AddressCantBeZero();
