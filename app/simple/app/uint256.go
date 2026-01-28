@@ -184,15 +184,14 @@ func (z *Uint256) UnmarshalJSON(data []byte) error {
 	}
 	s := string(data[1 : len(data)-1])
 
-	if len(s) < 2 || (s[0] != '0' || (s[1] != 'x' && s[1] != 'X')) {
-		return fmt.Errorf("invalid Uint256 prefix: %s", s)
+	if len(s) < 2 || s[0] != '0' || s[1] != 'x' {
+		return fmt.Errorf("invalid Uint256 prefix: %s (only lowercase 0x is accepted)", s)
 	}
 
 	*z = Uint256{}
 	s = s[2:]
 	if len(s) == 0 {
-		// "0x" is treated as 0
-		return nil
+		return fmt.Errorf("invalid Uint256 format: empty hex string after 0x prefix")
 	}
 
 	const sixteen = uint64(16)

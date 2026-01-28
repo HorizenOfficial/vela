@@ -268,6 +268,24 @@ func TestJSON(t *testing.T) {
 		require.Equal(t, "11259375", w.Val.String()) // 0xABCDEF = 11259375
 	})
 
+	t.Run("uppercase 0X prefix rejected", func(t *testing.T) {
+		// Uppercase 0X prefix should be rejected for consistency with common.Big
+		jsonStr := `{"val": "0X64"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "only lowercase 0x is accepted")
+	})
+
+	t.Run("empty hex string rejected", func(t *testing.T) {
+		// Empty hex string "0x" should be rejected, use "0x0" for zero
+		jsonStr := `{"val": "0x"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "empty hex string after 0x prefix")
+	})
+
 	t.Run("very long hex string near max", func(t *testing.T) {
 		// Test with 64 hex digits (max uint256)
 		maxHex := "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"

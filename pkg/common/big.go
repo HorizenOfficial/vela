@@ -18,6 +18,12 @@ func ToBig(i *big.Int) *Big {
 	return (*Big)(i)
 }
 
+// NewBig creates a new Big from an int64 value.
+// This is a convenience constructor for common use cases.
+func NewBig(x int64) *Big {
+	return ToBig(big.NewInt(x))
+}
+
 func (b *Big) String() string {
 	return (*big.Int)(b).String()
 }

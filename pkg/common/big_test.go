@@ -28,6 +28,41 @@ func TestToBig(t *testing.T) {
 	assert.Equal(t, int64(98765), b.ToInt().Int64())
 }
 
+// TestToBig_Nil verifies that ToBig(nil) returns a nil *Big that marshals to "null".
+func TestToBig_Nil(t *testing.T) {
+	b := ToBig(nil)
+
+	// ToBig(nil) should return nil
+	assert.Nil(t, b)
+
+	// Nil *Big should marshal to "null"
+	result, err := b.MarshalJSON()
+	require.NoError(t, err)
+	assert.Equal(t, "null", string(result))
+}
+
+// TestNewBig verifies that NewBig creates a Big from an int64 value.
+func TestNewBig(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    int64
+		expected string
+	}{
+		{"zero", 0, `"0x0"`},
+		{"positive", 100, `"0x64"`},
+		{"large", 1234567890, `"0x499602d2"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := NewBig(tt.input)
+			result, err := b.MarshalJSON()
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, string(result))
+		})
+	}
+}
+
 // TestBig_String verifies that String returns the decimal representation.
 func TestBig_String(t *testing.T) {
 	bi := big.NewInt(123456789)
