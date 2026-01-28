@@ -28,10 +28,8 @@ type Config struct {
 	RpcURL string
 	// ProcessorAddress is the address of the ProcessorEndpoint contract.
 	ProcessorAddress string
-	// EventQueryBatchSize is the block span per query when searching for completion events.
-	EventQueryBatchSize uint64
-	// EventQueryMaxBatches is the maximum number of batched queries when searching for completion events.
-	EventQueryMaxBatches int
+	// SubgraphURL is the endpoint for the authority subgraph.
+	SubgraphURL string
 
 	// LogConsole is true if we want output on console
 	LogConsole bool
@@ -71,8 +69,7 @@ func LoadConfig() (*Config, error) {
 		common.GetConfigVar("CHAIN_RPC_PORT", "8545", fileProps)
 
 	processorAddress := common.GetConfigVar("CHAIN_PROCESSOR_ADDRESS", "", fileProps)
-	eventQueryBatchSize := uint64(common.GetConfigVarInt64("AUTHORITY_SERVICE_EVENT_BATCH_SIZE", 100_000, fileProps))
-	eventQueryMaxBatches := int(common.GetConfigVarInt64("AUTHORITY_SERVICE_EVENT_MAX_BATCHES", 10, fileProps))
+	subgraphURL := common.GetConfigVar("AUTHORITY_SERVICE_SUBGRAPH_URL", "", fileProps)
 
 	logConsole := common.GetConfigVarBool("AUTHORITY_SERVICE_LOG_CONSOLE", true, fileProps)
 	logConsoleLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL", "info", fileProps)
@@ -81,20 +78,19 @@ func LoadConfig() (*Config, error) {
 	logFileLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_FILE_LEVEL", "info", fileProps)
 
 	return &Config{
-		ListenAddress:        listenAddr,
-		TLSCertFile:          tlsCert,
-		TLSKeyFile:           tlsKey,
-		ChainID:              chainID,
-		NonceTTLSeconds:      nonceTTL,
-		ReportsPath:          reportsPath,
-		RpcURL:               rpcURL,
-		ProcessorAddress:     processorAddress,
-		EventQueryBatchSize:  eventQueryBatchSize,
-		EventQueryMaxBatches: eventQueryMaxBatches,
-		LogConsole:           logConsole,
-		LogConsoleLevel:      logConsoleLevel,
-		LogConsoleColor:      logConsoleColor,
-		LogFileName:          logFileName,
-		LogFileLevel:         logFileLevel,
+		ListenAddress:    listenAddr,
+		TLSCertFile:      tlsCert,
+		TLSKeyFile:       tlsKey,
+		ChainID:          chainID,
+		NonceTTLSeconds:  nonceTTL,
+		ReportsPath:      reportsPath,
+		RpcURL:           rpcURL,
+		ProcessorAddress: processorAddress,
+		SubgraphURL:      subgraphURL,
+		LogConsole:       logConsole,
+		LogConsoleLevel:  logConsoleLevel,
+		LogConsoleColor:  logConsoleColor,
+		LogFileName:      logFileName,
+		LogFileLevel:     logFileLevel,
 	}, nil
 }
