@@ -111,15 +111,15 @@ type Request struct {
 }
 
 func (r *Request) Validate() error {
-	if err := validateBigInt("timestamp", r.Timestamp, false); err != nil {
+	if err := validateBigInt("timestamp", r.Timestamp.ToInt(), false); err != nil {
 		return err
 	}
 
-	if err := validateBigInt("depositAmount", r.DepositAmount, true); err != nil {
+	if err := validateBigInt("depositAmount", r.DepositAmount.ToInt(), true); err != nil {
 		return err
 	}
 
-	if err := validateBigInt("maxFeeValue", r.MaxFeeValue, true); err != nil {
+	if err := validateBigInt("maxFeeValue", r.MaxFeeValue.ToInt(), true); err != nil {
 		return err
 	}
 	return nil
@@ -253,7 +253,7 @@ type VSockChannelConnectionParams struct {
 	Port uint32
 }
 
-type CommunicationParams struct {		
+type CommunicationParams struct {
 	RequestTimeoutSec time.Duration
 }
 

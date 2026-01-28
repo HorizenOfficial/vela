@@ -16,10 +16,10 @@ func TestProcessRequestDataValidate(t *testing.T) {
 		RequestID:       common.RequestIdType([32]byte{1}),
 		RequestType:     common.Process,
 		Payload:         []byte("test"),
-		Timestamp:       big.NewInt(100),
+		Timestamp:       common.ToBig(big.NewInt(100)),
 		Sender:          [20]byte{1},
-		DepositAmount:   big.NewInt(10),
-		MaxFeeValue:     big.NewInt(5),
+		DepositAmount:   common.ToBig(big.NewInt(10)),
+		MaxFeeValue:     common.ToBig(big.NewInt(5)),
 	}
 
 	validApplicationState := &common.ApplicationState{
@@ -80,10 +80,10 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					RequestID:       common.RequestIdType([32]byte{1}),
 					RequestType:     common.Process,
 					Payload:         []byte("test"),
-					Timestamp:       big.NewInt(-1), // Invalid timestamp
+					Timestamp:       common.ToBig(big.NewInt(-1)), // Invalid timestamp
 					Sender:          [20]byte{1},
-					DepositAmount:   big.NewInt(10),
-					MaxFeeValue:     big.NewInt(5),
+					DepositAmount:   common.ToBig(big.NewInt(10)),
+					MaxFeeValue:     common.ToBig(big.NewInt(5)),
 				},
 				ApplicationState: validApplicationState,
 				WasmModule:       validWasmModule,
@@ -99,10 +99,10 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					RequestID:       common.RequestIdType([32]byte{1}),
 					RequestType:     common.Process,
 					Payload:         []byte("test"),
-					Timestamp:       big.NewInt(100),
+					Timestamp:       common.ToBig(big.NewInt(100)),
 					Sender:          [20]byte{1},
-					DepositAmount:   big.NewInt(0), // Zero deposit amount
-					MaxFeeValue:     big.NewInt(5),
+					DepositAmount:   common.ToBig(big.NewInt(0)), // Zero deposit amount
+					MaxFeeValue:     common.ToBig(big.NewInt(5)),
 				},
 				ApplicationState: validApplicationState,
 				WasmModule:       validWasmModule,
@@ -118,10 +118,10 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					RequestID:       common.RequestIdType([32]byte{1}),
 					RequestType:     common.Process,
 					Payload:         []byte("test"),
-					Timestamp:       big.NewInt(100),
+					Timestamp:       common.ToBig(big.NewInt(100)),
 					Sender:          [20]byte{1},
-					DepositAmount:   big.NewInt(10),
-					MaxFeeValue:     big.NewInt(0), // zero max fee value
+					DepositAmount:   common.ToBig(big.NewInt(10)),
+					MaxFeeValue:     common.ToBig(big.NewInt(0)), // zero max fee value
 				},
 				ApplicationState: validApplicationState,
 				WasmModule:       validWasmModule,
@@ -149,9 +149,9 @@ func TestProcessRequestDataValidate(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, extractedData)
 				// Further checks to ensure data integrity after extraction if needed
-				require.Zero(t, tt.data.Request.Timestamp.Cmp(extractedData.Request.Timestamp))
-				require.Zero(t, tt.data.Request.DepositAmount.Cmp(extractedData.Request.DepositAmount))
-				require.Zero(t, tt.data.Request.MaxFeeValue.Cmp(extractedData.Request.MaxFeeValue))
+				require.Zero(t, tt.data.Request.Timestamp.ToInt().Cmp(extractedData.Request.Timestamp.ToInt()))
+				require.Zero(t, tt.data.Request.DepositAmount.ToInt().Cmp(extractedData.Request.DepositAmount.ToInt()))
+				require.Zero(t, tt.data.Request.MaxFeeValue.ToInt().Cmp(extractedData.Request.MaxFeeValue.ToInt()))
 			}
 		})
 	}
