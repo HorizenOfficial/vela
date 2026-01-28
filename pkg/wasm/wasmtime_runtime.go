@@ -816,7 +816,7 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	defer os.Remove(fifoPath)
 
 	// we use this for avoiding that the Reader OpenFile(O_RDONLY) blocks waiting for the WASI writer to connect
-	// this Dummy writer must stay open until cleanup, otherwise will send EOF to the scanner below
+	// this Dummy writer must stay open until cleanup, otherwise will send EOF to the reader below
 	// (reader blocking is potentially dangerous in edge cases on some error path for races, resource dangling and panics)
 	dummyWriter, err := os.OpenFile(fifoPath, os.O_RDWR, 0600)
 	if err != nil {
@@ -848,16 +848,16 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		// Uses a simple fixed window: allow up to maxLogsPerWindow logs per time window.
 		// Excess logs are dropped and periodically reported.
 		const (
-			maxLogsPerWindow = 1000              // Max logs allowed per window
+			maxLogsPerWindow = 1000             // Max logs allowed per window
 			windowDuration   = 1 * time.Second  // Time window for rate limiting
 			reportInterval   = 10 * time.Second // How often to report dropped logs
 		)
 		var (
-			windowStart     = time.Now()
-			logsInWindow    = 0
-			droppedLogs     = 0
-			lastDropReport  = time.Now()
-			totalDropped    = 0
+			windowStart    = time.Now()
+			logsInWindow   = 0
+			droppedLogs    = 0
+			lastDropReport = time.Now()
+			totalDropped   = 0
 		)
 
 		r.log.Debug("Starting WASM log pipe reader for app %d", appId)
