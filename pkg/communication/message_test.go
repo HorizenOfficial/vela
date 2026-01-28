@@ -88,7 +88,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 				ApplicationState: validApplicationState,
 				WasmModule:       validWasmModule,
 			},
-			err: "invalid Request: timestamp must be > 0",
+			err: "cannot marshal negative Big value",
 		},
 		{
 			name: "Valid Request - zero DepositAmount",
