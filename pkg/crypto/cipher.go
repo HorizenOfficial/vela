@@ -97,7 +97,7 @@ func DecryptWithAES(key cryptotypes.AES256Key, message []byte) ([]byte, error) {
 
 	plainMessage, err := aesgcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to decrypt message: %v", ErrDecrypt, err)
+		return nil, fmt.Errorf("%w: failed to decrypt message: %w", ErrDecrypt, err)
 	}
 	return plainMessage, nil
 }

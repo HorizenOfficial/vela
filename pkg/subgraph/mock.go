@@ -2,7 +2,6 @@ package subgraph
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"sort"
 	"strings"
@@ -68,11 +67,11 @@ func (m *MockClient) GetUserEvents(_ context.Context, applicationID common.Appli
 		return userEventSortKey(filtered[i]).Cmp(userEventSortKey(filtered[j])) > 0
 	})
 
-	if limit < 0 {
-		return nil, fmt.Errorf("invalid limit %d", limit)
+	if limit <= 0 {
+		limit = 10
 	}
-	if limit == 0 {
-		return filtered, nil
+	if limit > 1000 {
+		limit = 1000
 	}
 	if len(filtered) <= limit {
 		return filtered, nil
