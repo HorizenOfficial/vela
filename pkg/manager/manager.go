@@ -40,10 +40,11 @@ type SecureProcessorManager struct {
 	mu                sync.RWMutex
 	isRunning         bool
 	executorHandShake *ExecutorHandShake
-	stopChan          chan struct{} // TODO unused
+	stopChan          chan struct{} // Channel to signal the polling loop to stop
 	wg                sync.WaitGroup
 	endReorgTime      time.Time
 	log               logger.Logger
+	fatalErrChan      chan error // Channel to signal fatal errors to main
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -57,12 +58,18 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 		executorHandShake: &ExecutorHandShake{
 			isComplete: make(chan struct{}),
 		},
-		log: log,
+		log:          log,
+		fatalErrChan: make(chan error, 1), // buffered to avoid blocking
 	}
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
 
 	return manager
+}
+
+// FatalErrChan returns a channel that receives fatal errors requiring shutdown.
+func (m *SecureProcessorManager) FatalErrChan() <-chan error {
+	return m.fatalErrChan
 }
 
 func (m *SecureProcessorManager) waitForExecutorHandshake() error {
@@ -251,7 +258,13 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 		case <-ticker.C:
 			err := m.processRequestFromChain(ctx)
 			if err != nil {
-				m.log.Fatal("Manager: Error processing requests from chain: %v, exiting", err)
+				m.log.Error("Manager: Fatal error processing requests from chain: %v, initiating shutdown", err)
+				select {
+				case m.fatalErrChan <- err:
+				default:
+					// Channel already has an error, don't block
+				}
+				return
 			}
 		}
 	}
@@ -305,11 +318,16 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 			}
 			m.log.Info("Manager: REORG not solved within timeout => Rollback the DB")
 			if err := m.dataLayer.Rollback(stateRoot[:]); err != nil {
-				m.log.Error("Manager: Error while rolling back the DB: %v. ", err)
-				return nil
+				m.log.Error("Manager: Error while rolling back the DB: %v", err)
+				return fmt.Errorf("fatal: rollback failed: %w", err)
 			}
 
 		} else {
+			m.log.Error("Manager: unrecoverable disalignment between DB and chain, no matching state root found in db")
+			emptyStateRoot := [32]byte{}
+			if bytes.Equal(localStateRoot, emptyStateRoot[:]) {
+				m.log.Error("Manager: the DB is empty but the chain state root is non-zero, check if the database file is correct and restart the manager")
+			}
 			return fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
 		}
 
@@ -392,8 +410,10 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 		m.log.Error("Failed to submit state update for error: %v", err)
 		m.log.Info("Rollback the application state to previous version")
 		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
-			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically
-			m.log.Fatal("Failed to rollback application state: %v", err)
+			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
+			// Log and return nil to let REORG detection handle it on the next poll.
+			m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
+			return nil
 		}
 
 		if _, ok := err.(blockchain.ReorgError); ok {
