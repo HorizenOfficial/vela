@@ -36,7 +36,8 @@ type testWithdrawInstruction struct {
 }
 
 type testDeanonymizeInstruction struct {
-	// RequestID or other identifier for the deanonymization request
+	// A dummy tag for the deanonymization request
+	Tag string `json:"type"`
 }
 
 type testPayloadInstructions struct {
@@ -217,10 +218,12 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			// Generate deanonymization report
 			nonce++
 			currentState.Nonce = nonce
+			tag := instructions.Deanonymize.Tag
 
 			reportData := map[string]interface{}{
 				"accounts": currentState.Accounts,
 				"nonce":    currentState.Nonce,
+				"tag":      tag,
 			}
 			var err error
 			report, err = json.Marshal(reportData)

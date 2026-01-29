@@ -384,6 +384,9 @@ func TestMockRuntime_DeanonymizationViaProcessRequest(t *testing.T) {
 	// Generate deanonymization report via ProcessRequest with type "deanonymize"
 	deanonPayload := testPayloadInstructions{
 		Type: "deanonymize",
+		Deanonymize: &testDeanonymizeInstruction{
+			Tag: "dummytag",
+		},
 	}
 	payload, err := json.Marshal(deanonPayload)
 	if err != nil {
@@ -405,6 +408,10 @@ func TestMockRuntime_DeanonymizationViaProcessRequest(t *testing.T) {
 	totalAccounts, ok := report["accounts"].(map[string]interface{})
 	if !ok || len(totalAccounts) != 2 {
 		t.Errorf("Expected totalAccounts 2, got %v", report["totalAccounts"])
+	}
+	tag, ok := report["tag"].(string)
+	if !ok || tag != "dummytag" {
+		t.Errorf("Expected tag in the report")
 	}
 
 	nonce, ok := report["nonce"].(float64)
