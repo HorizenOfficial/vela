@@ -137,6 +137,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
   }
 
   function _removeRequest() private {
+    delete requestById[_requestIdByOrder[_head]];
     delete _requestIdByOrder[_head];
     unchecked {
       ++_head;
@@ -192,7 +193,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
   ) external onlyRole(UPDATE_STATUS_ROLE) {
     if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
 
-    Structs.PendingRequest storage requestInfo = requestById[requestId];
+    Structs.PendingRequest memory requestInfo = requestById[requestId];
     uint256 minFee = minFeePerRequest;
 
     _removeRequest();
