@@ -1168,8 +1168,16 @@ describe('ProcessorEndpoint Test', function () {
         expect(pending2).eql(51n);
 
         // Withdraw the pending funds
-        await processorEndpoint.withdrawPayments(addr1);
-        await processorEndpoint.withdrawPayments(addr2);
+        let paymentTx = await processorEndpoint.withdrawPayments(addr1);
+        await expect(paymentTx).to.emit(processorEndpoint, "PaymentWithdrawn").withArgs(
+            addr1,
+            BigInt(49)
+        );
+        paymentTx = await processorEndpoint.withdrawPayments(addr2);
+        await expect(paymentTx).to.emit(processorEndpoint, "PaymentWithdrawn").withArgs(
+            addr2,
+            BigInt(51)
+        );
 
         //check balance after withdrawal
         let balance1After = await ethers.provider.getBalance(addr1);
@@ -1379,7 +1387,11 @@ describe('ProcessorEndpoint Test', function () {
 
         // signer[3] (not the payee) can trigger withdrawal for signer[2]
         let balanceBefore = await ethers.provider.getBalance(await signers[2].getAddress());
-        await processorEndpoint.connect(signers[3]).withdrawPayments(await signers[2].getAddress());
+        let tx = await processorEndpoint.connect(signers[3]).withdrawPayments(await signers[2].getAddress());
+        await expect(tx).to.emit(processorEndpoint, "PaymentWithdrawn").withArgs(
+            await signers[2].getAddress(),
+            BigInt(100n)
+        );
         let balanceAfter = await ethers.provider.getBalance(await signers[2].getAddress());
 
         expect(balanceAfter).eql(balanceBefore + 100n);

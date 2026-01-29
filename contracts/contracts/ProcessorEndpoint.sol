@@ -2,12 +2,13 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import "./interfaces/ITeeAuthenticator.sol";
 import "./AuthorityRegistry.sol";
 import "./Structs.sol";
 
-contract ProcessorEndpoint is AccessControl {
+contract ProcessorEndpoint is AccessControl, ReentrancyGuard {
 
     //constants
     bytes32 public constant UPDATE_STATUS_ROLE = keccak256("UPDATE_STATUS_ROLE");
@@ -31,7 +32,7 @@ contract ProcessorEndpoint is AccessControl {
     address payable public feeCollector;
 
     // Pull payment pattern state
-    mapping(address => uint256) private _deposits;
+    mapping(address => uint256) public payments;
     uint256 private _totalDeposits;
 
     //events
@@ -43,6 +44,7 @@ contract ProcessorEndpoint is AccessControl {
     event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     event QueueThresholdUpdated(uint256 newThreshold);
     event FeeCollectorUpdated(address newFeeCollector);
+    event PaymentWithdrawn(address indexed payee, uint256 amount);
 
     //errors
     error AddressCantBeZero();
@@ -95,7 +97,7 @@ contract ProcessorEndpoint is AccessControl {
         bytes calldata payload, 
         uint256 depositAmount, // part of the sent value forwarded to the application, for app logic
         uint256 maxFeeValue // part ot the sent value reserved for fee payment
-    ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) payable public returns(bytes32) {
+    ) validProtocolVersion(protocolVersion) validApplicationId(applicationId) nonReentrant payable public returns(bytes32) {
         //check values
         if(msg.value != depositAmount + maxFeeValue) revert InvalidValue();
         if(maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
@@ -312,24 +314,23 @@ contract ProcessorEndpoint is AccessControl {
 
     // Pull payment pattern functions
     function _asyncTransfer(address dest, uint256 amount) internal {
-        _deposits[dest] += amount;
+        payments[dest] += amount;
         _totalDeposits += amount;
     }
 
-    function withdrawPayments(address payable payee) public {
-        uint256 payment = _deposits[payee];
+    function withdrawPayments(address payable payee) public nonReentrant {
+        uint256 payment = payments[payee];
         if (payment == 0) return;
 
-        _deposits[payee] = 0;
+        payments[payee] = 0;
         _totalDeposits -= payment;
 
+        emit PaymentWithdrawn(payee, payment);
+        
         (bool success, ) = payee.call{value: payment}("");
         if (!success) revert TransferFailed();
     }
 
-    function payments(address dest) public view returns (uint256) {
-        return _deposits[dest];
-    }
 
     function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {
         uint256 numOfRequests = getPendingRequestsSize();

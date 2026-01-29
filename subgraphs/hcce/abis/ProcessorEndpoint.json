@@ -113,6 +113,11 @@
   },
   {
     "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "TransferFailed",
     "type": "error"
   },
@@ -127,6 +132,25 @@
       }
     ],
     "name": "FeeCollectorUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "payee",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "PaymentWithdrawn",
     "type": "event"
   },
   {
@@ -831,7 +855,7 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "dest",
+        "name": "",
         "type": "address"
       }
     ],
