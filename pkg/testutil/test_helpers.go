@@ -115,6 +115,7 @@ func NewSystemTestSuiteWithConfigs(
 		// because this is a test environment
 		reportsPath, err = os.MkdirTemp("", "test-reports")
 		require.NoError(t, err)
+		mgrConfig.DeanonymizationReportPath = reportsPath
 	}
 
 	// Create a temporary directory for the database
@@ -313,8 +314,12 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType st
 	}
 }
 
-// WaitForDeanonymizationReport waits for a deanonymization report to be generated
+// WaitForDeanonymizationReport waits for a deanonymization report to be generated and saved to the filesystem
 func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestIdType, timeout time.Duration) (*common.DeanonymizationReport, error) {
+	if s.reportsPath == "" {
+		return nil, fmt.Errorf("reports path not configured")
+	}
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -323,15 +328,56 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestId
 	for {
 		select {
 		case <-ticker.C:
-			// Check if deanonymization report exists in blockchain
-			report, err := s.blockchainClient.GetDeanonymizationReport(s.ctx, reportID)
-			if err == nil && report != nil {
-				return report, nil
+			// Check if deanonymization report exists in filesystem
+			// We need to find the report file by iterating through possible app IDs
+			// since we don't have the app ID in this function
+			files, err := os.ReadDir(s.reportsPath)
+			if err != nil {
+				continue
+			}
+			for _, f := range files {
+				if f.IsDir() {
+					continue
+				}
+				// Report filename format: report_<appID>_<requestID>.json
+				// Check if filename contains the requestID
+				if !contains(f.Name(), reportID.String()) {
+					continue
+				}
+				reportPath := s.reportsPath + "/" + f.Name()
+				data, err := os.ReadFile(reportPath)
+				if err != nil {
+					continue
+				}
+				var report common.DeanonymizationReport
+				if err := json.Unmarshal(data, &report); err != nil {
+					continue
+				}
+				return &report, nil
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for deanonymization report %s", reportID)
 		}
 	}
+}
+
+// GetReportsPath returns the path where deanonymization reports are saved
+func (s *SystemTestSuite) GetReportsPath() string {
+	return s.reportsPath
+}
+
+// contains checks if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // WaitForWithdrawal waits for a withdrawal to be processed
