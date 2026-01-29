@@ -745,7 +745,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         );
 
         // try first with wrong sender
@@ -760,6 +761,7 @@ describe('ProcessorEndpoint Test', function () {
                 [],
                 0,
                 MIN_FEE,
+                false,
                 signature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "AccessControlUnauthorizedAccount");
@@ -775,6 +777,7 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             MIN_FEE,
+            false,
             signature,
         );
         await updateTx.wait();
@@ -807,7 +810,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         );
         updateTx = await processorEndpoint.stateUpdate(
             applicationId,
@@ -819,8 +823,9 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             MIN_FEE,
+            false,
             signature,
-        ); 
+        );
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
         //check if completed
@@ -831,7 +836,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             initialStateRoot,
             newStateRoot
-        );        
+        );
     });
 
     it('should not update status if refund + applicationFees does not match maxFeeValue', async function () {
@@ -869,7 +874,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [],
             refund,
-            applicationFees
+            applicationFees,
+            false
         );
 
         await expect(
@@ -883,6 +889,7 @@ describe('ProcessorEndpoint Test', function () {
                 [],
                 refund,
                 applicationFees,
+                false,
                 signature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
@@ -922,7 +929,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [],
             refund,
-            applicationFees
+            applicationFees,
+            false
         );
 
         await expect(
@@ -936,6 +944,7 @@ describe('ProcessorEndpoint Test', function () {
                 [],
                 refund,
                 applicationFees,
+                false,
                 signature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
@@ -982,7 +991,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         );
         let updateTx = await processorEndpoint.stateUpdate(
             applicationId,
@@ -994,15 +1004,16 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             MIN_FEE,
+            false,
             signature,
-        ); 
+        );
         await updateTx.wait();
         expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
 
         [currentPendingRequest, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
         expect(success).eql(true)
         expect(stateRoot).eql(newStateRoot);
-        
+
         newStateRoot = "0x1234560000000000000000000000000000000000000000000000000000000000"
 
         signature = await ethSignStateUpdate(
@@ -1015,7 +1026,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         );
         await expect(
             processorEndpoint.stateUpdate(
@@ -1028,6 +1040,7 @@ describe('ProcessorEndpoint Test', function () {
                 [],
                 0,
                 MIN_FEE,
+                false,
                 signature,
             ) //wrong prev value
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidStateRoot");
@@ -1060,7 +1073,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         ); //signed by signer[1] instead of [0]
 
         await expect(
@@ -1074,6 +1088,7 @@ describe('ProcessorEndpoint Test', function () {
                 [],
                 0,
                 MIN_FEE,
+                false,
                 invalidSignature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidSignature");
@@ -1114,7 +1129,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [[addr1, 49], [addr2, 51]],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         );
         let updateTx = await processorEndpoint.stateUpdate(
             applicationId,
@@ -1126,6 +1142,7 @@ describe('ProcessorEndpoint Test', function () {
             [[addr1, 49], [addr2, 51]],
             0,
             MIN_FEE,
+            false,
             signature,
         );
         await expect(updateTx).to.emit(processorEndpoint, "Withdrawal").withArgs(
@@ -1179,7 +1196,8 @@ describe('ProcessorEndpoint Test', function () {
             ["subtype"],
             [],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         );
         await expect(
             processorEndpoint.stateUpdate(
@@ -1192,6 +1210,7 @@ describe('ProcessorEndpoint Test', function () {
                 [],
                 0,
                 MIN_FEE,
+                false,
                 signature,
             )
         ).to.emit(processorEndpoint, "UserEvent").withArgs(
@@ -1231,7 +1250,8 @@ describe('ProcessorEndpoint Test', function () {
             ["subtype"],
             [],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         );
 
         // Call stateUpdate with a different subtype -> signature must fail
@@ -1246,6 +1266,7 @@ describe('ProcessorEndpoint Test', function () {
                 [],
                 0,
                 MIN_FEE,
+                false,
                 signature,
             )
         ).to.be.revertedWithCustomError(processorEndpoint, "InvalidSignature");
@@ -1281,7 +1302,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             [[addr1, 100], [addr2, 100]],
             0,
-            MIN_FEE
+            MIN_FEE,
+            false
         );
         await expect(
             processorEndpoint.stateUpdate(
@@ -1294,6 +1316,7 @@ describe('ProcessorEndpoint Test', function () {
                 [[addr1, 100], [addr2, 100]],
                 0,
                 MIN_FEE,
+                false,
                 signature,
             ) //sum of values is 200
         ).to.be.revertedWithCustomError(processorEndpoint, "InsufficientBalance");

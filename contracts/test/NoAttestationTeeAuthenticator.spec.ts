@@ -88,7 +88,8 @@ describe('NoAttestationTeeAuthenticator Test', function () {
             [""],
             [[addr1, 50], [addr2, 50]],
             refund,
-            applicationFees
+            applicationFees,
+            false
         );
 
         const res = await teeAuthenticator.checkSignature(
@@ -101,6 +102,7 @@ describe('NoAttestationTeeAuthenticator Test', function () {
             [[addr1, 50], [addr2, 50]],
             refund,
             applicationFees,
+            false,
             signature,
         );
         expect(res).eql(true);
@@ -132,7 +134,8 @@ describe('NoAttestationTeeAuthenticator Test', function () {
             [""],
             [[addr1, 50], [addr2, 50]],
             refund,
-            applicationFees
+            applicationFees,
+            false
         );
 
         const res = await teeAuthenticator.checkSignature(
@@ -145,6 +148,7 @@ describe('NoAttestationTeeAuthenticator Test', function () {
             [[addr1, 50], [addr2, 50]],
             refund,
             applicationFees,
+            false,
             signature,
         );
         expect(res).eql(false);
@@ -161,7 +165,7 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         const applicationFees = 0;
 
         const signature = await ethSignStateUpdate(
-            signers[1], 
+            signers[1],
             0,
             "0x0000000000000000000000000000000000000000000000000000000000000000",
             "0x1234000000000000000000000000000000000000000000000000000000000000",
@@ -170,7 +174,8 @@ describe('NoAttestationTeeAuthenticator Test', function () {
             [""],
             [[addr1, 50], [addr2, 50]],
             refund,
-            applicationFees
+            applicationFees,
+            false
         );
 
         await expect(
@@ -184,6 +189,7 @@ describe('NoAttestationTeeAuthenticator Test', function () {
                 [[addr1, 50], [addr2, 50]],
                 refund,
                 applicationFees,
+                false,
                 signature,
             )
         ).to.be.revertedWithCustomError(teeAuthenticator, "TeeIsNotSet");
