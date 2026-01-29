@@ -30,6 +30,10 @@ contract ProcessorEndpoint is AccessControl {
     uint256 public minFeePerRequest;
     address payable public feeCollector;
 
+    // Pull payment pattern state
+    mapping(address => uint256) private _deposits;
+    uint256 private _totalDeposits;
+
     //events
     event Refund(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
@@ -151,18 +155,20 @@ contract ProcessorEndpoint is AccessControl {
 
         //check values
         Structs.PendingRequest memory requestInfo = requestById[requestId];
-        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue(); 
+        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue();
         if(applicationFees < minFeePerRequest) {
             revert InvalidValue();
         }
+
+        //credit refund to sender's pending balance (pull pattern)
         if(refund > 0) {
-            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
-            if (refundSent) {
-                emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
-            }
+            _asyncTransfer(requestInfo.sender, refund);
+            emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
         }
 
-        (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
+        //credit fee to feeCollector's pending balance
+        _asyncTransfer(feeCollector, applicationFees);
+
         _markRequestCompleted(requestId, applicationFees);
     }
 
@@ -180,24 +186,21 @@ contract ProcessorEndpoint is AccessControl {
         address sender = requestById[requestId].sender;
         uint256 depositAmount = requestById[requestId].depositAmount;
         uint256 maxFeeValue = requestById[requestId].maxFeeValue;
+        uint64 applicationId = requestById[requestId].applicationId;
 
         _removeRequest();
-        //refunds
+
+        //credit refund to sender's pending balance (pull pattern)
         uint256 refund = depositAmount + (maxFeeValue - minFeePerRequest);
         if(refund > 0) {
-            (bool refundSent, ) = payable(sender).call{value: refund}("");
-            if (refundSent) {
-                emit Refund(requestById[requestId].applicationId, requestId, sender, refund);
-            }
+            _asyncTransfer(sender, refund);
+            emit Refund(applicationId, requestId, sender, refund);
         }
 
-        //minimum fee is collected
-        (bool feeSent, ) = payable(feeCollector).call{value: minFeePerRequest}("");
-        if (feeSent) {
-            emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED_REFUNDED, errorCode, errorMessage); 
-        } else {
-            emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED_NOT_REFUNDED, errorCode, errorMessage); 
-        }
+        //credit minimum fee to feeCollector's pending balance
+        _asyncTransfer(feeCollector, minFeePerRequest);
+
+        emit RequestCompleted(requestId, minFeePerRequest, Structs.RequestResult.FAILED, errorCode, errorMessage);
     }
 
     function getPendingRequestsSize() public view returns(uint256) {
@@ -253,7 +256,7 @@ contract ProcessorEndpoint is AccessControl {
             revert InvalidValue();
         }
 
-        //check withdrawal sums 
+        //check withdrawal sums (account for already committed pending deposits)
         uint256 i;
         uint256 sum;
         while(i < withdrawalRequests.length) {
@@ -261,7 +264,7 @@ contract ProcessorEndpoint is AccessControl {
             unchecked {++i;}
         }
         sum += refund + applicationFees;
-        if(sum > address(this).balance) revert InsufficientBalance();
+        if(sum > address(this).balance - _totalDeposits) revert InsufficientBalance();
 
         //set requests as completed
         _markRequestCompleted(processedRequestId, applicationFees);
@@ -277,29 +280,22 @@ contract ProcessorEndpoint is AccessControl {
         stateRoot = newStateRoot;
         emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
+        //credit refund to sender's pending balance (pull pattern)
         if(refund > 0) {
-            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
-            if (!refundSent) {
-                revert TransferFailed();
-            }
+            _asyncTransfer(requestInfo.sender, refund);
+            emit Refund(applicationId, processedRequestId, requestInfo.sender, refund);
         }
-        emit Refund(applicationId, processedRequestId, requestInfo.sender, refund);
 
-        (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
-        if (!feeSent) {
-            revert TransferFailed();
-        }
-            
-        //execute withdrawals (as last operation)
+        //credit fee to feeCollector's pending balance
+        _asyncTransfer(feeCollector, applicationFees);
+
+        //credit withdrawals to receivers' pending balances
         i = 0;
         while(i < withdrawalRequests.length) {
-            (bool withdrawn, ) = payable(withdrawalRequests[i].receiver).call{value: withdrawalRequests[i].amount}("");
-            if (!withdrawn) {
-                revert TransferFailed();
-            }
+            _asyncTransfer(withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
             emit Withdrawal(applicationId, processedRequestId, withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
             unchecked {++i;}
-        }  
+        }
     }
 
     function updateQueueThreshold(uint256 newThreshold) public onlyRole(ADMIN) {
@@ -312,6 +308,27 @@ contract ProcessorEndpoint is AccessControl {
         if (newFeeCollector == address(0)) revert AddressCantBeZero();
         feeCollector = newFeeCollector;
         emit FeeCollectorUpdated(newFeeCollector);
+    }
+
+    // Pull payment pattern functions
+    function _asyncTransfer(address dest, uint256 amount) internal {
+        _deposits[dest] += amount;
+        _totalDeposits += amount;
+    }
+
+    function withdrawPayments(address payable payee) public {
+        uint256 payment = _deposits[payee];
+        if (payment == 0) return;
+
+        _deposits[payee] = 0;
+        _totalDeposits -= payment;
+
+        (bool success, ) = payee.call{value: payment}("");
+        if (!success) revert TransferFailed();
+    }
+
+    function payments(address dest) public view returns (uint256) {
+        return _deposits[dest];
     }
 
     function getNextPendingRequest() public view returns (Structs.PendingRequest memory, bytes32, bool success) {

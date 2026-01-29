@@ -492,13 +492,31 @@ describe('ProcessorEndpoint Test', function () {
         length = await processorEndpoint.getPendingRequestsSize();
         expect(length).eql(BigInt(0));
 
-        //check refund
+        //check refund is in pending deposits (pull pattern)
         let receipt = await failedTx.wait();
         let gasUsed = receipt.gasUsed * receipt.gasPrice;
-        let expectedBalanceAfter = balanceBefore - gasUsed + 100n + MIN_FEE;
-        let balanceAfter = await ethers.provider.getBalance(
-            await signers[0].getAddress()
-        );
+
+        // With pull pattern, funds are credited to pending deposits
+        // signer[0] is both the request sender AND feeCollector, so pending includes:
+        // - 5n from first markRequestCompleted (applicationFees to feeCollector)
+        // - 100n refund from markRequestFailed (depositAmount + (maxFeeValue - minFeePerRequest))
+        // - 5n minFee from markRequestFailed (to feeCollector)
+        // Total = 110n
+        let pendingAmount = await processorEndpoint.payments(await signers[0].getAddress());
+        expect(pendingAmount).eql(110n);
+
+        // Withdraw the pending funds
+        let withdrawTx = await processorEndpoint.withdrawPayments(await signers[0].getAddress());
+        let withdrawReceipt = await withdrawTx.wait();
+        let withdrawGasUsed = withdrawReceipt.gasUsed * withdrawReceipt.gasPrice;
+
+        // Verify pending is now zero
+        pendingAmount = await processorEndpoint.payments(await signers[0].getAddress());
+        expect(pendingAmount).eql(0n);
+
+        // Check balance after withdraw
+        let balanceAfter = await ethers.provider.getBalance(await signers[0].getAddress());
+        let expectedBalanceAfter = balanceBefore - gasUsed - withdrawGasUsed + 110n;
         expect(balanceAfter).eql(expectedBalanceAfter);
 
         [currentPendingRequest, stateRoot, success] =
@@ -578,7 +596,7 @@ describe('ProcessorEndpoint Test', function () {
             await processorEndpoint.getNextPendingRequest();
         expect(success).eql(true);
 
-        // refund + applicationFees = maxFeeValue, pero applicationFees < minFeePerRequest
+        // refund + applicationFees = maxFeeValue, but applicationFees < minFeePerRequest
         const refund = maxFeeValue;  // 5
         const applicationFees = 0n;  // < MIN_FEE
 
@@ -835,7 +853,7 @@ describe('ProcessorEndpoint Test', function () {
     });
 
     it('should not update status if refund + applicationFees does not match maxFeeValue', async function () {
-        // Request sencilla con maxFeeValue = MIN_FEE
+        // Request with maxFeeValue = MIN_FEE
         const submitTx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
@@ -910,7 +928,7 @@ describe('ProcessorEndpoint Test', function () {
             "0x1234000000000000000000000000000000000000000000000000000000000000";
 
         const refund = MIN_FEE;  // 5
-        const applicationFees = 0n; // < MIN_FEE, pero refund+fees = maxFeeValue
+        const applicationFees = 0n; // < MIN_FEE, but refund+fees = maxFeeValue
 
         const signature = await ethSignStateUpdate(
             signers[0],
@@ -1133,17 +1151,27 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             addr1,
             BigInt(49)
-        ); 
+        );
         await expect(updateTx).to.emit(processorEndpoint, "Withdrawal").withArgs(
             currentPendingRequest.applicationId,
             currentPendingRequest.requestId,
             addr2,
             BigInt(51)
-        ); 
+        );
 
         expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
 
-        //check balance after
+        // With pull pattern, funds are credited to pending deposits
+        let pending1 = await processorEndpoint.payments(addr1);
+        let pending2 = await processorEndpoint.payments(addr2);
+        expect(pending1).eql(49n);
+        expect(pending2).eql(51n);
+
+        // Withdraw the pending funds
+        await processorEndpoint.withdrawPayments(addr1);
+        await processorEndpoint.withdrawPayments(addr2);
+
+        //check balance after withdrawal
         let balance1After = await ethers.provider.getBalance(addr1);
         let balance2After = await ethers.provider.getBalance(addr2);
 
@@ -1320,6 +1348,186 @@ describe('ProcessorEndpoint Test', function () {
 
         let updatedThreshold = await processorEndpoint.maxQueueSize();
         expect(updatedThreshold).eql(BigInt(5));
+    });
+
+    // Pull payment pattern tests
+    it('should allow anyone to trigger withdrawal for any payee', async function () {
+        // Submit a request from signer[2]
+        let submitTx = await processorEndpoint.connect(signers[2]).submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            "0x01",
+            100,
+            MIN_FEE,
+            { value: 100n + MIN_FEE }
+        );
+        await submitTx.wait();
+
+        let [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
+
+        // Fail the request to credit refund to signer[2]
+        await processorEndpoint.markRequestFailed(
+            currentPendingRequest.requestId,
+            1,
+            "Test"
+        );
+
+        // Check pending amount for signer[2]
+        let pendingAmount = await processorEndpoint.payments(await signers[2].getAddress());
+        expect(pendingAmount).eql(100n); // depositAmount + (maxFeeValue - minFeePerRequest) = 100 + 0 = 100
+
+        // signer[3] (not the payee) can trigger withdrawal for signer[2]
+        let balanceBefore = await ethers.provider.getBalance(await signers[2].getAddress());
+        await processorEndpoint.connect(signers[3]).withdrawPayments(await signers[2].getAddress());
+        let balanceAfter = await ethers.provider.getBalance(await signers[2].getAddress());
+
+        expect(balanceAfter).eql(balanceBefore + 100n);
+        expect(await processorEndpoint.payments(await signers[2].getAddress())).eql(0n);
+    });
+
+    it('should not revert withdrawPayments if no pending amount', async function () {
+        // This should not revert, just do nothing
+        await processorEndpoint.withdrawPayments(await signers[5].getAddress());
+    });
+
+    it('should accumulate multiple credits for same address', async function () {
+        // Submit two requests from signer[2]
+        let submitTx = await processorEndpoint.connect(signers[2]).submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            "0x01",
+            50,
+            MIN_FEE,
+            { value: 50n + MIN_FEE }
+        );
+        await submitTx.wait();
+
+        submitTx = await processorEndpoint.connect(signers[2]).submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            "0x02",
+            60,
+            MIN_FEE,
+            { value: 60n + MIN_FEE }
+        );
+        await submitTx.wait();
+
+        // Fail both requests
+        let [req1] = await processorEndpoint.getNextPendingRequest();
+        await processorEndpoint.markRequestFailed(req1.requestId, 1, "Test");
+
+        let [req2] = await processorEndpoint.getNextPendingRequest();
+        await processorEndpoint.markRequestFailed(req2.requestId, 1, "Test");
+
+        // Check accumulated pending: 50 + 60 = 110
+        let pendingAmount = await processorEndpoint.payments(await signers[2].getAddress());
+        expect(pendingAmount).eql(110n);
+    });
+
+    it('should prevent griefing by contracts that reject ETH transfers', async function () {
+        // Deploy FallbackFailure contract
+        const FallbackFailure = await ethers.getContractFactory("FallbackFailure");
+        const fallbackFailure = await FallbackFailure.deploy();
+
+        // FallbackFailure submits a request
+        await fallbackFailure.insertRequestOnProcessorEndpoint(
+            processorEndpoint.getAddress(),
+            protocolVersion,
+            applicationId,
+            1,
+            "0x01",
+            100,
+            MIN_FEE,
+            { value: 100n + MIN_FEE }
+        );
+
+        let [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
+
+        // Mark request as failed - this should NOT revert even though FallbackFailure rejects ETH
+        // With pull pattern, we just credit to pending, don't transfer
+        await processorEndpoint.markRequestFailed(
+            currentPendingRequest.requestId,
+            1,
+            "Test"
+        );
+
+        // Verify funds are in pending deposits
+        let pendingAmount = await processorEndpoint.payments(await fallbackFailure.getAddress());
+        expect(pendingAmount).eql(100n);
+
+        // When someone tries to withdraw for FallbackFailure, it will fail
+        // but the contract operation (markRequestFailed) succeeded
+        await expect(
+            processorEndpoint.withdrawPayments(await fallbackFailure.getAddress())
+        ).to.be.revertedWithCustomError(processorEndpoint, "TransferFailed");
+
+        // Funds remain in pending for FallbackFailure
+        pendingAmount = await processorEndpoint.payments(await fallbackFailure.getAddress());
+        expect(pendingAmount).eql(100n);
+    });
+
+    it('should allow stateUpdate to succeed even with contract receiver that rejects ETH', async function () {
+        // Deploy FallbackFailure contract
+        const FallbackFailure = await ethers.getContractFactory("FallbackFailure");
+        const fallbackFailure = await FallbackFailure.deploy();
+        const fallbackAddr = await fallbackFailure.getAddress();
+
+        // Submit a normal request
+        let submitTx = await processorEndpoint.submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            "0x01",
+            100,
+            MIN_FEE,
+            { value: 100n + MIN_FEE }
+        );
+        await submitTx.wait();
+
+        let initialStateRoot = await processorEndpoint.stateRoot();
+        let [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
+
+        let newStateRoot = "0x1234000000000000000000000000000000000000000000000000000000000000";
+
+        // Create signature for stateUpdate that includes withdrawal to FallbackFailure
+        const { ethSignStateUpdate } = await import('../scripts/util');
+        let signature = await ethSignStateUpdate(
+            signers[0],
+            applicationId,
+            initialStateRoot,
+            newStateRoot,
+            currentPendingRequest.requestId,
+            [],
+            [],
+            [[fallbackAddr, 50]], // withdrawal to FallbackFailure
+            0,
+            MIN_FEE
+        );
+
+        // stateUpdate should succeed (with pull pattern, we just credit to pending)
+        let updateTx = await processorEndpoint.stateUpdate(
+            applicationId,
+            initialStateRoot,
+            newStateRoot,
+            currentPendingRequest.requestId,
+            [],
+            [],
+            [[fallbackAddr, 50]],
+            0,
+            MIN_FEE,
+            signature,
+        );
+        await updateTx.wait();
+
+        // State root should be updated
+        expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
+
+        // Funds should be in pending for FallbackFailure
+        let pendingAmount = await processorEndpoint.payments(fallbackAddr);
+        expect(pendingAmount).eql(50n);
     });
 
 });

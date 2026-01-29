@@ -30,8 +30,6 @@ func UInt8ToRequestResultStatus(i uint8) (RequestResultStatus, error) {
 		return RequestResultOK, nil
 	case 1:
 		return RequestResultFailed, nil
-	case 2:
-		return RequestResultFailedNotRefunded, nil
 	default:
 		return RequestResultUnknown, fmt.Errorf("unknown request status value %d", i)
 	}
