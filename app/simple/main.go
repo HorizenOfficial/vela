@@ -35,14 +35,6 @@ func process_request(appId int64, senderPtr *byte, senderLen int32, payloadPtr *
 	return app.SerializeAndWriteResult(result)
 }
 
-//export generate_deanonymization_report
-func generate_deanonymization_report(payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
-	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
-	stateJSON := utils.PtrToString(statePtr, stateLen)
-	result := app.GenerateDeanonymizationReport(payloadJSON, stateJSON)
-	return app.SerializeAndWriteResult(result)
-}
-
 //export get_memory_stats
 func get_memory_stats() *byte {
 	result := app.GetAllocatedMemoryStats()

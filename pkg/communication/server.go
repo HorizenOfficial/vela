@@ -426,9 +426,6 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg Message,
 		c.handleProcessRequest(ctx, msg, handler)
 	case DeployAppRequestMessage:
 		c.handleDeployAppRequest(ctx, msg, handler)
-	case DeanonymizationRequestMessage:
-		c.handleDeanonymizationRequest(ctx, msg, handler)
-
 	default:
 		c.sendErrorResponse(msg.ID, "UNKNOWN_REQUEST", fmt.Errorf("unknown request type: %v", msg.Type))
 	}
@@ -442,7 +439,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		return
 	}
 
-	updatePayload, updatedState, failure := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
+	updatePayload, updatedState, deanonymizationReport, failure := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
 	if failure != nil {
 		errorResponse := Message{
 			ID:   msg.ID,
@@ -461,6 +458,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		Data: ProcessResponseData{
 			UpdatePayload:           updatePayload,
 			UpdatedApplicationState: updatedState,
+			DeanonymizationReport:   deanonymizationReport,
 		},
 	}
 
@@ -504,41 +502,6 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		c.log.Warn("%s: Failed to send HandleDeployApp response: %v", c.idLogTag, err)
 	}
 	c.log.Info("%s: DeployApp handled successfully, ID=%s", c.idLogTag, msg.ID)
-}
-
-// handleDeanonymizationRequest handles deanonymization messages
-func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg Message, handler RequestHandler) {
-	reqData, err := extractData[DeanonymizationRequestData](msg.Data)
-	if err != nil {
-		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
-		return
-	}
-
-	report, failure := handler.HandleGenerateDeanonymizationReport(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
-	if failure != nil {
-		errorResponse := Message{
-			ID:   msg.ID,
-			Type: ErrorMessage,
-			Data: failure.ToDTO(),
-		}
-		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Info("Server: Failed to send error response: %v", err)
-		}
-		return
-	}
-
-	response := Message{
-		ID:   msg.ID,
-		Type: DeanonymizationResponseMessage,
-		Data: DeanonymizationResponseData{
-			Report: report,
-		},
-	}
-
-	if err := c.sendMessage(response); err != nil {
-		c.log.Warn("%s: Failed to send deanonymization response: %v", c.idLogTag, err)
-	}
-	c.log.Info("%s: Deanonymization handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // sendErrorResponse sends an error response

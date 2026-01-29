@@ -995,6 +995,11 @@
         "type": "uint256"
       },
       {
+        "internalType": "bool",
+        "name": "reportGenerated",
+        "type": "bool"
+      },
+      {
         "internalType": "bytes",
         "name": "signature",
         "type": "bytes"

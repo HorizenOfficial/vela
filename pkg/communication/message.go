@@ -88,6 +88,8 @@ type ProcessResponseData struct {
 	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 	// UpdatedApplicationState is the updated application state
 	UpdatedApplicationState *common.ApplicationState `json:"updatedApplicationState"`
+	// DeanonymizationReport is the optional deanonymization report (present if request type was Deanonymize)
+	DeanonymizationReport *common.DeanonymizationReport `json:"deanonymizationReport,omitempty"`
 }
 
 // DeployAppRequestData represents data for a deploy app request message

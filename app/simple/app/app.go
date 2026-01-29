@@ -205,6 +205,34 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 				Data:         withdrawEventDataBytes,
 			})
 
+		case "deanonymize":
+			// Generate deanonymization report
+			report := DeanonymizationReport{
+				Accounts: currentState.Accounts,
+			}
+
+			// Add optional tag from payload
+			if instructions.Deanonymize != nil && instructions.Deanonymize.IncludeTag != "" {
+				report.Tag = instructions.Deanonymize.IncludeTag
+			}
+
+			// Serialize the report
+			reportBytes, err := json.Marshal(report)
+			if err != nil {
+				return ProcessResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %v", err)}
+			}
+
+			// Serialize the updated state (state changes due to nonce increment handled by executor)
+			newStateBytes, err := json.Marshal(currentState)
+			if err != nil {
+				return ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
+			}
+			return ProcessResult{
+				State:  newStateBytes,
+				Report: reportBytes,
+				Fuel:   NewUint256(20),
+			}
+
 		default:
 			return ProcessResult{Error: fmt.Sprintf("Unsupported instruction type: [%s]", instructions.Type)}
 		}
@@ -221,37 +249,6 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 		Withdrawals: withdrawals,
 		Fuel:        NewUint256(50),
 	}
-}
-
-func GenerateDeanonymizationReport(payloadJSON, stateJSON string) DeanonymizationResult {
-	// Deserialize payload
-	var payload ReportPayloadInstructions
-	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to parse payload: %s, err: %v", payloadJSON, err)}
-	}
-
-	// Deserialize current state
-	var currentState ApplicationInternalState
-	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
-	}
-
-	// Create deanonymization report
-	report := DeanonymizationReport{
-		Accounts: currentState.Accounts,
-	}
-
-	// read contents of the payload and decide how to build the report. In this simple case just add a tag if any
-	if payload.IncludeTag != "" {
-		report.Tag = payload.IncludeTag
-	}
-
-	// Serialize the report
-	reportBytes, err := json.Marshal(report)
-	if err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %v", err)}
-	}
-	return DeanonymizationResult{Report: reportBytes, Fuel: NewUint256(20)}
 }
 
 func GetAllocatedMemoryStats() MemoryStats {

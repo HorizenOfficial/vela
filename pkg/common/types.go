@@ -165,6 +165,8 @@ type UpdatePayload struct {
 	RefundAmount *big.Int `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
 	ApplicationFee *big.Int `json:"applicationFee"`
+	// ReportGenerated indicates if a deanonymization report was generated
+	ReportGenerated bool `json:"reportGenerated"`
 }
 
 // ApplicationState represents the state of an application
@@ -194,10 +196,6 @@ type DeanonymizationReport struct {
 	EncryptedReport []byte `json:"encryptedReport"`
 	// Authority is the entity requesting the report
 	Authority ethCommon.Address `json:"authority"`
-	// RefundAmount is the amount to refund in WEI
-	RefundAmount *big.Int `json:"refundAmount"`
-	// ApplicationFee is the fee charged for the application in WEI
-	ApplicationFee *big.Int `json:"applicationFee"`
 }
 
 // DecryptedReport represents a decrypted deanonymization report

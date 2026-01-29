@@ -4,15 +4,16 @@ import "../Structs.sol";
 
 interface ITeeAuthenticator {
     function checkSignature(
-        uint64 applicationId, 
-        bytes32 prevStateRoot, 
-        bytes32 newStateRoot, 
+        uint64 applicationId,
+        bytes32 prevStateRoot,
+        bytes32 newStateRoot,
         bytes32 processedRequestId,
         bytes[] memory events,
         string[] memory eventSubTypes,
-        Structs.WithdrawalRequest[] memory withdrawalRequests, 
-        uint256 refundAmount, 
+        Structs.WithdrawalRequest[] memory withdrawalRequests,
+        uint256 refundAmount,
         uint256 applicationFee,
+        bool reportGenerated,
         bytes memory signature
     ) external view returns(bool);
 

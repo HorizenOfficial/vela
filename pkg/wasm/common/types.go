@@ -32,6 +32,7 @@ type ProcessResult struct {
 	State       []byte              `json:"state"`
 	Events      []common.PlainEvent `json:"events"`
 	Withdrawals []common.Withdrawal `json:"withdrawals"`
+	Report      []byte              `json:"report,omitempty"` // Optional deanonymization report
 	Fuel        *big.Int            `json:"fuel"`
 	Error       string              `json:"error,omitempty"`
 }

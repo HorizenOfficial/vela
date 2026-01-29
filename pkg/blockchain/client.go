@@ -357,11 +357,6 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	return common.RequestIdType{}, 0, fmt.Errorf("requestId not found in logs")
 }
 
-func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
-	// This is the only thing that has to be done on the blockchain for deanonymization reports
-	return c.MarkRequestCompleted(ctx, update.ReportID, update.RefundAmount, update.ApplicationFee)
-}
-
 func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -396,6 +391,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		withdrawals,
 		update.RefundAmount,
 		update.ApplicationFee,
+		update.ReportGenerated,
 		update.Signature,
 	)
 

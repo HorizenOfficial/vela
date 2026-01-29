@@ -16,15 +16,16 @@ abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
     function getPubSecp521r1() public virtual view override returns(bytes memory);
 
     function checkSignature(
-        uint64 applicationId, 
-        bytes32 prevStateRoot, 
-        bytes32 newStateRoot, 
+        uint64 applicationId,
+        bytes32 prevStateRoot,
+        bytes32 newStateRoot,
         bytes32 processedRequestId,
         bytes[] memory events,
         string[] memory eventSubTypes,
-        Structs.WithdrawalRequest[] memory withdrawalRequests, 
-        uint256 refundAmount, 
+        Structs.WithdrawalRequest[] memory withdrawalRequests,
+        uint256 refundAmount,
         uint256 applicationFee,
+        bool reportGenerated,
         bytes memory signature
     ) external view returns(bool) {
         if(getTeeSigner() == address(0) || getPubSecp521r1().length != PK_LENGTH) revert TeeIsNotSet();
@@ -42,7 +43,8 @@ abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
             eventSubTypesHash,
             withdrawalRequestsHash,
             refundAmount,
-            applicationFee
+            applicationFee,
+            reportGenerated
         ));
 
         address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);

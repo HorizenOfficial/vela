@@ -395,10 +395,8 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 	switch req.RequestType {
 	case common.Deploy:
 		return m.processDeployApp(ctx, req)
-	case common.Process, common.AssociateKey:
+	case common.Process, common.AssociateKey, common.Deanonymize:
 		return m.processProcessRequest(ctx, req)
-	case common.Deanonymize:
-		return m.processDeanonymization(ctx, req)
 	default:
 		return apperrors.New(apperrors.CodeRequestTypeNotPermitted, fmt.Sprintf("unsupported request type: %s", req.RequestType), nil)
 	}
@@ -480,9 +478,9 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 }
 
-// processProcessRequest processes a process request
+// processProcessRequest processes a process request (including deanonymization requests)
 func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
-	m.log.Info("Processing Process app request: %s", req.RequestID)
+	m.log.Info("Processing Process app request: %s (type: %s)", req.RequestID, req.RequestType)
 	if !m.isRunning {
 		m.log.Warn("Manager is not started yet, skipping")
 		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
@@ -508,9 +506,19 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Process the request
-	updatePayload, updatedState, failure := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
+	updatePayload, updatedState, deanonymizationReport, failure := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
 	if failure != nil {
 		return failure
+	}
+
+	// If a deanonymization report was generated, save it to filesystem
+	if deanonymizationReport != nil {
+		if err := m.saveDeanonymizationReport(deanonymizationReport, req); err != nil {
+			// Treat as transient: log and retry on next poll instead of failing the request.
+			m.log.Error("Failed to save deanonymization report: %v", err)
+			return nil
+		}
+		m.log.Info("Manager: Saved deanonymization report %s for application %d", deanonymizationReport.ReportID, req.ApplicationID)
 	}
 
 	// Store the updated application state
@@ -531,65 +539,22 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	return m.submitStateOnChain(ctx, updatePayload)
 }
 
-// processDeanonymization processes a deanonymization request
-func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
-	if !m.isRunning {
-		m.log.Warn("Manager is not started yet, skipping")
-		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
-	}
-
-	// Get the application state
-	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
-	if err != nil {
-		m.log.Error("GetApplicationState returns an error: %v", err)
-		if strings.Contains(err.Error(), "application state not found") {
-			// This can happen if the deploy transaction was not mined yet, mark request as failed
-			return apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID), err)
-		}
-		// Other errors are likely db errors, retry on next poll
-		return nil
-	}
-
-	// Get the WASM module for the application
-	wasmBytes, err := m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
-	if err != nil {
-		m.log.Error("GetWASMBytecode returns an error: %v", err)
-		return nil
-	}
-
-	// Generate the deanonymization report
-	report, failure := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
-	if failure != nil {
-		return failure
-	}
-
-	// Save the deanonymization report to the filesystem (mandatory)
+// saveDeanonymizationReport saves a deanonymization report to the filesystem
+func (m *SecureProcessorManager) saveDeanonymizationReport(report *common.DeanonymizationReport, req *common.Request) error {
 	if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
-		m.log.Error("Failed to create directory for deanonymization reports: %v", err)
-		// Treat as transient: log and retry on next poll instead of failing the request.
-		return nil
+		return fmt.Errorf("failed to create directory for deanonymization reports: %w", err)
 	}
+
 	reportJSON, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		m.log.Error("Failed to marshal deanonymization report to JSON: %v", err)
-		// Treat as transient: log and retry on next poll instead of failing the request.
-		return nil
+		return fmt.Errorf("failed to marshal deanonymization report to JSON: %w", err)
 	}
+
 	filePath := filepath.Join(m.config.DeanonymizationReportPath, common.ReportFilename(req.ApplicationID, req.RequestID))
 	if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
-		m.log.Error("Failed to write deanonymization report to file: %v", err)
-		// Treat as transient: log and retry on next poll instead of failing the request.
-		return nil
+		return fmt.Errorf("failed to write deanonymization report to file: %w", err)
 	}
 
-	// Submit the deanonymization report to the blockchain
-	err = m.blockchainClient.SubmitDeanonymizationReport(ctx, report)
-	if err != nil {
-		// TODO must we return an error?
-		m.log.Error("SubmitDeanonymizationReport returns an error: %v", err)
-		return nil
-	}
-
-	m.log.Info("Manager: Generated deanonymization report %s for application %d", report.ReportID, req.ApplicationID)
 	return nil
 }
+

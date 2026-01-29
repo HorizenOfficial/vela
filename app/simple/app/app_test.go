@@ -386,17 +386,23 @@ func TestProcessRequest(t *testing.T) {
 	})
 }
 
-func TestGenerateDeanonymizationReport(t *testing.T) {
+func TestDeanonymizationViaProcessRequest(t *testing.T) {
 	stateJSON, state := getPopulatedState(t)
-	payloadJSON := `{"tag":"SIMPLE_REPORT"}`
 
-	t.Run("successful report generation", func(t *testing.T) {
-		result := GenerateDeanonymizationReport(payloadJSON, stateJSON)
+	t.Run("successful report generation via process request", func(t *testing.T) {
+		payload := PayloadInstructions{
+			Type:        "deanonymize",
+			Deanonymize: &DeanonymizeInstruction{IncludeTag: "SIMPLE_REPORT"},
+		}
+		payloadBytes, err := json.Marshal(payload)
+		require.NoError(t, err)
+
+		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.NotNil(t, result.Report)
 
 		var report DeanonymizationReport
-		err := json.Unmarshal(result.Report, &report)
+		err = json.Unmarshal(result.Report, &report)
 		require.NoError(t, err)
 
 		require.Equal(t, "SIMPLE_REPORT", report.Tag)
@@ -416,15 +422,15 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 	})
 
 	t.Run("report with invalid state", func(t *testing.T) {
-		result := GenerateDeanonymizationReport("{}", "{invalid json}")
+		payload := PayloadInstructions{
+			Type: "deanonymize",
+		}
+		payloadBytes, err := json.Marshal(payload)
+		require.NoError(t, err)
+
+		result := ProcessRequest(&user1Address, string(payloadBytes), "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
-	})
-
-	t.Run("report with invalid payload", func(t *testing.T) {
-		result := GenerateDeanonymizationReport("{invalid json}", "{}")
-		require.NotEmpty(t, result.Error)
-		require.Contains(t, result.Error, "Failed to parse payload")
 	})
 }
 
@@ -522,22 +528,6 @@ func TestJsonCompatibility(t *testing.T) {
 	require.Equal(t, hostAddr, hostProcessResult.Withdrawals[0].DestinationAddress)
 	require.Equal(t, guestProcessResult.Fuel.String(), hostProcessResult.Fuel.String())
 	require.Equal(t, guestProcessResult.Error, hostProcessResult.Error)
-
-	// DeanonymizationResult
-	guestDeResult := DeanonymizationResult{
-		Report: []byte("report"),
-		Fuel:   NewUint256(30),
-		Error:  "de error",
-	}
-	jsonBytes, err = json.Marshal(guestDeResult)
-	require.NoError(t, err)
-
-	var hostDeResult wasmCommon.DeanonymizationResult
-	err = json.Unmarshal(jsonBytes, &hostDeResult)
-	require.NoError(t, err)
-	require.Equal(t, guestDeResult.Report, hostDeResult.Report)
-	require.Equal(t, guestDeResult.Fuel.String(), hostDeResult.Fuel.String())
-	require.Equal(t, guestDeResult.Error, hostDeResult.Error)
 
 	// DepositEvent
 	guestDepositEvent := DepositEvent{

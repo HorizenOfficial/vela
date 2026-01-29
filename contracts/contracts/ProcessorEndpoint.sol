@@ -226,15 +226,16 @@ contract ProcessorEndpoint is AccessControl {
 
     //update status
     function stateUpdate(
-        uint64 applicationId, 
-        bytes32 prevStateRoot, 
-        bytes32 newStateRoot, 
+        uint64 applicationId,
+        bytes32 prevStateRoot,
+        bytes32 newStateRoot,
         bytes32 processedRequestId,
         bytes[] memory events,
         string[] memory eventSubTypes,
-        Structs.WithdrawalRequest[] memory withdrawalRequests, 
+        Structs.WithdrawalRequest[] memory withdrawalRequests,
         uint256 refund,
         uint256 applicationFees,
+        bool reportGenerated,
         bytes memory signature
     ) public validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
         //check prev state root
@@ -244,7 +245,7 @@ contract ProcessorEndpoint is AccessControl {
 
         //check signature
         if (events.length != eventSubTypes.length) revert InvalidPayload();
-        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refund, applicationFees, signature)) revert InvalidSignature();
+        if(!teeAuthenticator.checkSignature(applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refund, applicationFees, reportGenerated, signature)) revert InvalidSignature();
 
         //check values
         Structs.PendingRequest memory requestInfo = requestById[processedRequestId];

@@ -171,7 +171,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 		t.Fatalf("Failed to marshal transfer instructions: %v", err)
 	}
 
-	newState, events, withdrawals, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	newState, events, withdrawals, _, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Transfer failed: %v", failure)
 	}
@@ -258,7 +258,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Fatalf("Failed to marshal withdraw instructions: %v", err)
 	}
 
-	newState, events, withdrawals, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	newState, events, withdrawals, _, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Withdrawal failed: %v", failure)
 	}
@@ -342,7 +342,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, _, _, _, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	_, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
 	if failure == nil {
 		t.Error("Expected error for insufficient balance, got nil")
 	}
@@ -352,7 +352,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	}
 }
 
-func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
+func TestMockRuntime_DeanonymizationViaProcessRequest(t *testing.T) {
 	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
@@ -371,7 +371,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	// Deposit for sender1
 	ctx := context.Background()
 	serializedState, _, _, failure := runtime.Deposit(ctx, appId, sender1, depositAmount, serializedState, wasmBytes)
-	if failure != nil { 
+	if failure != nil {
 		t.Fatalf("First deposit failed: %v", failure)
 	}
 
@@ -381,10 +381,18 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 		t.Fatalf("Second deposit failed: %v", failure)
 	}
 
-	// Generate deanonymization report
-	reportBytes, _, failure := runtime.GenerateDeanonymizationReport(context.Background(), appId, []byte(""), serializedState, wasmBytes)
+	// Generate deanonymization report via ProcessRequest with type "deanonymize"
+	deanonPayload := testPayloadInstructions{
+		Type: "deanonymize",
+	}
+	payload, err := json.Marshal(deanonPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal deanonymize payload: %v", err)
+	}
+
+	_, _, _, reportBytes, _, failure := runtime.ProcessRequest(context.Background(), appId, sender1, payload, serializedState, wasmBytes)
 	if failure != nil {
-		t.Fatalf("GenerateDeanonymizationReport failed: %v", failure)
+		t.Fatalf("Deanonymize ProcessRequest failed: %v", failure)
 	}
 
 	// Parse the report
@@ -400,8 +408,9 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	}
 
 	nonce, ok := report["nonce"].(float64)
-	if !ok || int(nonce) != 2 {
-		t.Errorf("Expected nonce 2, got %v", report["nonce"])
+	// Nonce is 3 because: 2 deposits (nonce incremented to 2) + 1 deanonymize request (nonce incremented to 3)
+	if !ok || int(nonce) != 3 {
+		t.Errorf("Expected nonce 3, got %v", report["nonce"])
 	}
 }
 
