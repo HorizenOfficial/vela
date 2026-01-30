@@ -403,8 +403,8 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 }
 
 // ProcessRequest processes a request and returns the new state, events, withdrawals, and optionally a deanonymization report
-func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
-	r.log.Info("Wasmtime Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
+func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	r.log.Info("Wasmtime Runtime: Processing request for application %d (type: %s, payload size: %d, state size: %d)", appId, requestType, len(payload), len(state))
 
 	wasmAppId, err := ToWasmType(appId)
 	if err != nil {
@@ -454,7 +454,8 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	// Call the process_request function
 	// Wasm supports only int64, so we cast appId to int64
-	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
+	// requestType is passed as int32 to the WASM module
+	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), int32(requestType), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, "failed to call process_request", err)
 	}

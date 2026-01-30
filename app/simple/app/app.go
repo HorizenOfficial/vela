@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/horizen-pes/app/simple/utils"
+	"github.com/horizen-pes/pkg/common"
 )
 
 // --- High-Level Application Logic ---
@@ -89,7 +90,7 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 	return DepositResult{State: newStateBytes, Events: events, Fuel: NewUint256(35)}
 }
 
-func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessResult {
+func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSON string) ProcessResult {
 	// Deserialize current state
 	if senderPtr == nil {
 		return ProcessResult{Error: "Sender address is nil"}
@@ -106,13 +107,26 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 	var events []PlainEvent
 	var withdrawals []Withdrawal
 
-	if payloadJSON != "" {
-		var instructions PayloadInstructions
+	// Determine instruction type: requestType has priority over payload
+	var instructionType string
+	var instructions PayloadInstructions
+
+	// Parse payload if present (for additional options like deanonymize tag)
+	if payloadJSON != "" && payloadJSON != "{}" {
 		if err := json.Unmarshal([]byte(payloadJSON), &instructions); err != nil {
 			return ProcessResult{Error: fmt.Sprintf("Failed to parse payload instructions: %v", err)}
 		}
+	}
 
-		switch instructions.Type {
+	// requestType takes precedence over payload type
+	if requestType == int32(common.Deanonymize) {
+		instructionType = "deanonymize"
+	} else {
+		instructionType = instructions.Type
+	}
+
+	if instructionType != "" {
+		switch instructionType {
 		case "compare_addresses":
 			if instructions.CompareAccounts == nil {
 				return ProcessResult{Error: fmt.Sprintf("Compare instruction is missing in payload: %s", payloadJSON)}
@@ -234,7 +248,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 
 		default:
-			return ProcessResult{Error: fmt.Sprintf("Unsupported instruction type: [%s]", instructions.Type)}
+			return ProcessResult{Error: fmt.Sprintf("Unsupported instruction type: [%s]", instructionType)}
 		}
 	}
 

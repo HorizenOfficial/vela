@@ -592,7 +592,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		appId,
 		RequestID,
 		auditorAddress,
-		[]byte("{}"), // empty payload, no specific info to handle
+		[]byte("{}"), // empty payload - executor will inject type based on RequestType
 		executorPubKey,
 	)
 	require.NoError(t, err)

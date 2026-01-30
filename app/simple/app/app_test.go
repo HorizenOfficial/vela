@@ -135,7 +135,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -161,7 +161,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Insufficient balance")
 	})
@@ -178,7 +178,7 @@ func TestProcessRequest(t *testing.T) {
 		require.NoError(t, err)
 
 		nonexistent, _ := HexToAddress("0xadd0000000000000000000000000000000009999")
-		result := ProcessRequest(&nonexistent, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&nonexistent, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "does not exist")
 	})
@@ -188,7 +188,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Withdraw instruction is missing")
 	})
@@ -205,7 +205,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -232,7 +232,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user2Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user2Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -257,7 +257,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Empty(t, result.Withdrawals)
@@ -278,7 +278,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user2Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user2Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 
@@ -310,7 +310,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), localStateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), localStateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 
@@ -331,7 +331,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&nonexistent, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&nonexistent, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Equal(t, "Account "+nonexistent.Hex()+" does not exist!", result.Error)
 	})
@@ -341,7 +341,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Compare instruction is missing")
 	})
@@ -351,25 +351,25 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Equal(t, "Unsupported instruction type: [invalid_type]", result.Error)
 	})
 
 	t.Run("invalid payload json", func(t *testing.T) {
-		result := ProcessRequest(&user1Address, "{invalid json}", stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), "{invalid json}", stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse payload instructions")
 	})
 
 	t.Run("invalid state json", func(t *testing.T) {
-		result := ProcessRequest(&user1Address, "{}", "{invalid json}")
+		result := ProcessRequest(&user1Address, int32(common.Process), "{}", "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
 
 	t.Run("empty payload", func(t *testing.T) {
-		result := ProcessRequest(&user1Address, "", stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), "", stateJSON)
 		require.Empty(t, result.Error)
 		require.Empty(t, result.Events)
 		require.Empty(t, result.Withdrawals)
@@ -389,7 +389,7 @@ func TestProcessRequest(t *testing.T) {
 func TestDeanonymizationViaProcessRequest(t *testing.T) {
 	stateJSON, state := getPopulatedState(t)
 
-	t.Run("successful report generation via process request", func(t *testing.T) {
+	t.Run("successful report generation via process request with payload", func(t *testing.T) {
 		payload := PayloadInstructions{
 			Type:        "deanonymize",
 			Deanonymize: &DeanonymizeInstruction{IncludeTag: "SIMPLE_REPORT"},
@@ -397,7 +397,7 @@ func TestDeanonymizationViaProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Deanonymize), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.NotNil(t, result.Report)
 
@@ -421,6 +421,23 @@ func TestDeanonymizationViaProcessRequest(t *testing.T) {
 		}
 	})
 
+	t.Run("successful report generation with empty payload and int32(common.Deanonymize)", func(t *testing.T) {
+		// When RequestType is Deanonymize, empty payload should still generate a report
+		result := ProcessRequest(&user1Address, int32(common.Deanonymize), "{}", stateJSON)
+		require.Empty(t, result.Error)
+		require.NotNil(t, result.Report)
+
+		var report DeanonymizationReport
+		err := json.Unmarshal(result.Report, &report)
+		require.NoError(t, err)
+
+		// Tag should be empty since no payload specified it
+		require.Empty(t, report.Tag)
+
+		// Check if the accounts in the report match the expected ones (from state)
+		require.Equal(t, len(state.Accounts), len(report.Accounts))
+	})
+
 	t.Run("report with invalid state", func(t *testing.T) {
 		payload := PayloadInstructions{
 			Type: "deanonymize",
@@ -428,7 +445,7 @@ func TestDeanonymizationViaProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), "{invalid json}")
+		result := ProcessRequest(&user1Address, int32(common.Deanonymize), string(payloadBytes), "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})

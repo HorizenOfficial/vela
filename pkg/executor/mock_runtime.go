@@ -119,8 +119,8 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 }
 
 // ProcessRequest processes a request and returns the new state, events, withdrawals, and optionally a deanonymization report
-func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
-	r.log.Info("Mock Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
+func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	r.log.Info("Mock Runtime: Processing request for application %d (type: %s, payload size: %d, state size: %d)", appId, requestType, len(payload), len(state))
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
@@ -134,13 +134,22 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 	var withdrawals []common.Withdrawal
 	var report []byte
 
+	// Determine the instruction type from payload or request type
+	var typ string
+	var instructions testPayloadInstructions
 	if len(payload) > 0 {
-		var instructions testPayloadInstructions
 		if err := json.Unmarshal(payload, &instructions); err != nil {
 			return nil, nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal payload instructions", err)
 		}
+		typ = instructions.Type
+	}
 
-		typ := instructions.Type
+	// If payload type is empty but request type is Deanonymize, use that
+	if typ == "" && requestType == common.Deanonymize {
+		typ = "deanonymize"
+	}
+
+	if typ != "" {
 		switch typ {
 		case "transfer":
 			transfer := instructions.Transfer
@@ -218,7 +227,10 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			// Generate deanonymization report
 			nonce++
 			currentState.Nonce = nonce
-			tag := instructions.Deanonymize.Tag
+			var tag string
+			if instructions.Deanonymize != nil {
+				tag = instructions.Deanonymize.Tag
+			}
 
 			reportData := map[string]interface{}{
 				"accounts": currentState.Accounts,

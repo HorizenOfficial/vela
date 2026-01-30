@@ -365,7 +365,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
+		newState, reqEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, nil, failure
 		}
