@@ -372,8 +372,19 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		tempState = newState
 		events = reqEvents
 		withdrawals = reqWithdrawals
-		reportData = reqReportData
 		totalFuel = totalFuel.Add(totalFuel, reqFuel)
+
+		// Validate report generation rules:
+		// 1. Reports must only be generated for Deanonymize requests
+		// 2. Deanonymize requests must always generate a report
+		if len(reqReportData) > 0 {
+			if req.RequestType != common.Deanonymize {
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("WASM module generated unexpected report for request type %s", req.RequestType), nil)
+			}
+			reportData = reqReportData
+		} else if req.RequestType == common.Deanonymize {
+			return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "WASM module failed to generate report for Deanonymize request", nil)
+		}
 		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	}
 

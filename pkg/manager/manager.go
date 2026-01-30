@@ -512,6 +512,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// If a deanonymization report was generated, save it to filesystem
+	// Note: The executor already validates that reports are only generated for Deanonymize requests
 	if deanonymizationReport != nil {
 		if err := m.saveDeanonymizationReport(deanonymizationReport, req); err != nil {
 			// Treat as transient: log and retry on next poll instead of failing the request.
