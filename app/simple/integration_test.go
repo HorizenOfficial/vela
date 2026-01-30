@@ -129,7 +129,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	payloadBytes, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	withdrawStateBytes, withdrawEvents, withdrawals, _, fuel, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, depositState2Bytes, wasmBytes)
+	withdrawStateBytes, withdrawEvents, withdrawals, _, fuel, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, depositState2Bytes, wasmBytes)
 	require.Nil(t, err)
 	require.NotNil(t, withdrawStateBytes)
 	require.Len(t, withdrawEvents, 1)
@@ -154,7 +154,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	payloadBytes, err = json.Marshal(deanonPayload)
 	require.NoError(t, err)
 
-	deanonStateBytes, _, _, reportBytes, fuel, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, withdrawStateBytes, wasmBytes)
+	deanonStateBytes, _, _, reportBytes, fuel, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, deanonStateBytes)
 	require.NotNil(t, reportBytes)
@@ -179,7 +179,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	payloadBytes, err = json.Marshal(payload)
 	require.NoError(t, err)
 
-	compareStateBytes, events, withdrawals, _, fuel, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, withdrawStateBytes, wasmBytes)
+	compareStateBytes, events, withdrawals, _, fuel, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.Nil(t, err)
 	require.NotNil(t, compareStateBytes)
 	require.Len(t, events, 1)
@@ -223,7 +223,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 
 	t.Run("null payload json", func(t *testing.T) {
 		nullPayload := []byte{}
-		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), nullPayload, initialStateBytes, wasmBytes)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, nullPayload, initialStateBytes, wasmBytes)
 		require.Nil(t, err)
 	})
 }
@@ -264,7 +264,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Insufficient balance")
 	})
@@ -282,7 +282,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not exist")
 	})
@@ -298,7 +298,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Account "+nonExistentUser.Hex()+" does not exist!")
 	})
@@ -308,7 +308,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Withdraw instruction is missing")
 	})
@@ -318,21 +318,21 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Compare instruction is missing")
 	})
 
 	t.Run("unsupported instruction type", func(t *testing.T) {
 		payload := `{"type":"invalid_instruction"}`
-		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), []byte(payload), populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, []byte(payload), populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Unsupported instruction type")
 	})
 
 	t.Run("invalid payload json", func(t *testing.T) {
 		payload := `{"type":"withdraw","withdraw":{"to":`
-		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), []byte(payload), populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, []byte(payload), populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse payload instructions")
 	})
@@ -368,7 +368,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 		payloadBytes, err := json.Marshal(deanonPayload)
 		require.NoError(t, err)
 
-		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, nil, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, nil, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -403,7 +403,7 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 
 	t.Run("process request with nil wasm", func(t *testing.T) {
 		payload := []byte(`{"type":"withdraw","withdraw":{"to":"some_address","amount":100}}`)
-		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payload, initialStateBytes, nil)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payload, initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
@@ -428,7 +428,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 
 	t.Run("process request with invalid state", func(t *testing.T) {
 		payload := []byte(`{"type":"withdraw","withdraw":{"to":"some_address","amount":100}}`)
-		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payload, invalidState, wasmBytes)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payload, invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -489,7 +489,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
 
 				runtimeMutex.Lock()
-				processStateBytes, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), withdrawPayloadBytes, stateBytes, wasmBytes)
+				processStateBytes, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), common.Process, withdrawPayloadBytes, stateBytes, wasmBytes)
 				require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
 				stateBytes = processStateBytes
 				runtimeMutex.Unlock()
@@ -502,7 +502,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				deanonPayloadBytes, ret := json.Marshal(deanonPayload)
 				require.NoError(t, ret, "failed to marshal deanonymize payload at iteration %d", iterationIndex)
 				runtimeMutex.Lock()
-				deanonStateBytes, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), deanonPayloadBytes, stateBytes, wasmBytes)
+				deanonStateBytes, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), common.Deanonymize, deanonPayloadBytes, stateBytes, wasmBytes)
 				require.Nil(t, err, "Deanonymize ProcessRequest failed at iteration %d", iterationIndex)
 				stateBytes = deanonStateBytes
 				runtimeMutex.Unlock()
