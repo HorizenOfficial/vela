@@ -87,6 +87,16 @@ type Config struct {
 	LogServerConsoleLevel string
 	// LogFileLevel is the level of logging for the console
 	LogServerFileLevel string
+	// LogServerRotationEnabled enables log rotation using lumberjack (only when LogServerLogFile is set)
+	LogServerRotationEnabled bool
+	// LogServerMaxSizeMB is the max size in megabytes before rotation (default: 100)
+	LogServerMaxSizeMB int
+	// LogServerMaxBackups is the max number of old log files to retain (default: 3)
+	LogServerMaxBackups int
+	// LogServerMaxAgeDays is the max days to retain old log files, 0 = no limit (default: 28)
+	LogServerMaxAgeDays int
+	// LogServerCompress enables gzip compression for rotated log files (default: true)
+	LogServerCompress bool
 
 	// CommunicationParams holds parameters for communication between manager and executor
 	CommunicationParams common.CommunicationParams
@@ -177,6 +187,11 @@ func LoadConfig() (*Config, error) {
 		LogServerConsole:          common.GetConfigVarBool("LOG_SERVER_CONSOLE", true, fileProperties),
 		LogServerConsoleLevel:     common.GetConfigVar("LOG_SERVER_CONSOLE_LEVEL", "warn", fileProperties),
 		LogServerFileLevel:        common.GetConfigVar("LOG_SERVER_FILE_LEVEL", "info", fileProperties),
+		LogServerRotationEnabled:  common.GetConfigVarBool("LOG_SERVER_FILE_ROTATION", false, fileProperties),
+		LogServerMaxSizeMB:        int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_SIZE_MB", 100, fileProperties)),
+		LogServerMaxBackups:       int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_BACKUPS", 3, fileProperties)),
+		LogServerMaxAgeDays:       int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_AGE_DAYS", 28, fileProperties)),
+		LogServerCompress:         common.GetConfigVarBool("LOG_SERVER_FILE_COMPRESS", true, fileProperties),
 		CommunicationParams:       communicationParams,
 	}
 

@@ -98,12 +98,17 @@ func main() {
 	err = logserver.StartLogServer(
 		ctx,
 		logserver.LogServerConfig{
-			TCPAddr:        config.LogServerTCPAddress,
-			VSockAddr:      config.LogServerVSockAddress,
-			LogFilePath:    config.LogServerLogFile,
-			ConsoleEnabled: config.LogServerConsole,
-			ConsoleLevel:   config.LogServerConsoleLevel,
-			FileLevel:      config.LogServerFileLevel,
+			TCPAddr:         config.LogServerTCPAddress,
+			VSockAddr:       config.LogServerVSockAddress,
+			LogFilePath:     config.LogServerLogFile,
+			ConsoleEnabled:  config.LogServerConsole,
+			ConsoleLevel:    config.LogServerConsoleLevel,
+			FileLevel:       config.LogServerFileLevel,
+			RotationEnabled: config.LogServerRotationEnabled,
+			MaxSizeMB:       config.LogServerMaxSizeMB,
+			MaxBackups:      config.LogServerMaxBackups,
+			MaxAgeDays:      config.LogServerMaxAgeDays,
+			Compress:        config.LogServerCompress,
 		},
 	)
 	if err != nil {
