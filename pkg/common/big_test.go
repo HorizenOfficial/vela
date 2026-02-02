@@ -41,16 +41,17 @@ func TestToBig_Nil(t *testing.T) {
 	assert.Equal(t, "null", string(result))
 }
 
-// TestNewBig verifies that NewBig creates a Big from an int64 value.
+// TestNewBig verifies that NewBig creates a Big from a uint64 value.
 func TestNewBig(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    int64
+		input    uint64
 		expected string
 	}{
 		{"zero", 0, `"0x0"`},
 		{"positive", 100, `"0x64"`},
 		{"large", 1234567890, `"0x499602d2"`},
+		{"max uint64", 18446744073709551615, `"0xffffffffffffffff"`},
 	}
 
 	for _, tt := range tests {
@@ -69,6 +70,12 @@ func TestBig_String(t *testing.T) {
 	b := ToBig(bi)
 
 	assert.Equal(t, "123456789", b.String())
+}
+
+// TestBig_String_Nil verifies that String on nil receiver returns "<nil>".
+func TestBig_String_Nil(t *testing.T) {
+	var b *Big
+	assert.Equal(t, "<nil>", b.String())
 }
 
 // TestBig_MarshalJSON verifies JSON marshaling produces correct hex strings with 0x prefix.
@@ -311,6 +318,14 @@ func TestBig_MarshalJSON_Negative(t *testing.T) {
 	_, err := b.MarshalJSON()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "negative")
+}
+
+// TestBig_UnmarshalJSON_NilReceiver verifies that UnmarshalJSON on nil receiver returns an error.
+func TestBig_UnmarshalJSON_NilReceiver(t *testing.T) {
+	var b *Big
+	err := b.UnmarshalJSON([]byte(`"0x64"`))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "nil")
 }
 
 // TestBig_UnmarshalJSON_EdgeCases verifies error handling for malformed JSON inputs.
