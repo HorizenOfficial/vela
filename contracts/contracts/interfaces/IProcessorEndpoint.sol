@@ -141,6 +141,15 @@ interface IProcessorEndpoint {
   /// @return requests Array of pending requests.
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory);
 
+  /// @notice Returns a paginated slice of pending requests in order.
+  /// @param offset Number of requests to skip from the head of the queue.
+  /// @param limit Maximum number of requests to return.
+  /// @return requests Array of pending requests.
+  function getPendingRequestsPage(
+    uint256 offset,
+    uint256 limit
+  ) external view returns (Structs.PendingRequest[] memory);
+
   /// @notice Updates the state root, emits events, and finalizes the processed request.
   /// @param applicationId Application identifier.
   /// @param prevStateRoot Previous state root.

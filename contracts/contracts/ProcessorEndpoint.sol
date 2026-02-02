@@ -258,6 +258,38 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
+  function getPendingRequestsPage(
+    uint256 offset,
+    uint256 limit
+  ) external view returns (Structs.PendingRequest[] memory) {
+    uint256 size = getPendingRequestsSize();
+    if (offset >= size || limit == 0) {
+      return new Structs.PendingRequest[](0);
+    }
+
+    uint256 end = offset + limit;
+    if (end > size) {
+      end = size;
+    }
+    uint256 count = end - offset;
+
+    Structs.PendingRequest[] memory res = new Structs.PendingRequest[](count);
+    uint256 i = _head + offset;
+    uint256 stop = _head + end;
+    uint256 j;
+    while (i < stop) {
+      bytes32 requestId = _requestIdByOrder[i];
+      res[j] = requestById[requestId];
+      unchecked {
+        ++i;
+        ++j;
+      }
+    }
+
+    return res;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
   function stateUpdate(
     uint64 applicationId,
     bytes32 prevStateRoot,
@@ -347,7 +379,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
 
     //execute withdrawals (as last operation)
     i = 0;
-    while (i < withdrawalRequests.length) {
+    while (i != withdrawalRequests.length) {
       (bool withdrawn, ) = payable(withdrawalRequests[i].receiver).call{
         value: withdrawalRequests[i].amount
       }('');
