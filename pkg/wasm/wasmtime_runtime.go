@@ -1,14 +1,20 @@
 package wasm
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
+	"os"
+	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/bytecodealliance/wasmtime-go"
 	ethCommon "github.com/ethereum/go-ethereum/common"
@@ -31,6 +37,25 @@ type ApplicationModule struct {
 	instance   *wasmtime.Instance
 	memory     *wasmtime.Memory
 	deallocate *wasmtime.Func
+	cleanupFds func()
+	closeOnce  sync.Once
+}
+
+// Close releases all resources associated with the ApplicationModule.
+// Safe to call multiple times concurrently; cleanup runs exactly once.
+func (m *ApplicationModule) Close() {
+	m.closeOnce.Do(func() {
+		if m.cleanupFds != nil {
+			m.cleanupFds()
+		}
+
+		// Clear references to WASM resources
+		m.instance = nil
+		m.module = nil
+		m.memory = nil
+		m.store = nil
+		m.deallocate = nil
+	})
 }
 
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
@@ -213,7 +238,7 @@ func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.Applicati
 
 // loadModuleUnlocked contains the core logic for loading a module, but without locking.
 // This method should only be called when a lock is already held.
-func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
+func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
 	r.log.Info("Wasmtime Runtime: Loading WASM module for application %d (wasm size: %d bytes)", appId, len(wasm))
 	wasmAppId, err := ToWasmType(appId)
 	if err != nil {
@@ -228,6 +253,17 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 
 	// Create a per-module store
 	store := wasmtime.NewStore(r.engine)
+	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
+	}
+
+	success := false
+	defer func() {
+		if !success && cleanupLogPipes != nil {
+			cleanupLogPipes()
+		}
+	}()
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
@@ -273,19 +309,20 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 	// Get the deallocate function (optional, but recommended for memory management)
 	deallocateFunc := instance.GetFunc(store, "deallocate")
 
+	// Call the load_module function
+	// Wasm supports only int64, so we cast appId to int64
+	result, err := loadModuleFunc.Call(store, wasmAppId)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to call load_module: %w", err)
+	}
+
 	appModule := &ApplicationModule{
 		store:      store,
 		module:     module,
 		instance:   instance,
 		memory:     memory,
 		deallocate: deallocateFunc,
-	}
-
-	// Call the load_module function
-	// Wasm supports only int64, so we cast appId to int64
-	result, err := loadModuleFunc.Call(store, wasmAppId)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to call load_module: %w", err)
+		cleanupFds: cleanupLogPipes,
 	}
 
 	// Extract the result bytes
@@ -304,6 +341,13 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(_ context.Context, appId common.App
 
 	if loadResult.Error != "" {
 		return nil, big.NewInt(0), fmt.Errorf("failed to load module: %s", loadResult.Error)
+	}
+
+	success = true // Disables the deferred cleanup
+
+	// if a module already exists for this appId, clean it up before overwriting
+	if oldModule, exists := r.modules[appId]; exists {
+		r.cleanupModule(appId, oldModule)
 	}
 
 	// Store the module in the runtime registry
@@ -536,71 +580,86 @@ func (r *WasmtimeRuntime) GenerateDeanonymizationReport(ctx context.Context, app
 	return deanonymizationResult.Report, deanonymizationResult.Fuel.ToInt(), nil
 }
 
-// extractResultBytes extracts a pointer returned by the wasm module (single int32 offset)
-// that points to a length-prefixed byte slice: | u32(len) | data... |.
-// It copies the payload into a new Go slice, then frees the guest memory via deallocate.
-func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *ApplicationModule) ([]byte, error) {
+func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *ApplicationModule) (out []byte, err error) {
+	// ---- Panic shield: NEVER let guest crash the host ----
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("panic while extracting wasm result: %v", rec)
+		}
+	}()
+
 	ptr, err := toInt32(result)
 	if err != nil {
 		return nil, fmt.Errorf("wasm module returned unexpected type for result pointer: %w", err)
 	}
 	if ptr == 0 {
-		return nil, fmt.Errorf("wasm module returned null pointer, possibly an allocation failure")
+		return nil, fmt.Errorf("wasm module returned null pointer")
 	}
 
-	if appModule.store == nil {
-		return nil, fmt.Errorf("wasm module has a nil store")
+	if appModule == nil || appModule.store == nil || appModule.memory == nil {
+		return nil, fmt.Errorf("invalid wasm module state")
 	}
 
-	// Read the 4-byte little-endian length prefix
-	memData := appModule.memory.UnsafeData(appModule.store)
+	mem := appModule.memory.UnsafeData(appModule.store)
+	memLen := len(mem)
+
 	start := int(ptr)
-	if start < 0 || start+4 > len(memData) {
+	if start < 0 || start+4 > memLen {
 		return nil, fmt.Errorf("invalid memory access for length prefix")
 	}
-	lengthBytes := memData[start : start+4]
-	dataLen := binary.LittleEndian.Uint32(lengthBytes)
+
+	// ---- Read length prefix ----
+	dataLen := binary.LittleEndian.Uint32(mem[start : start+4])
+
 	if dataLen == 0 {
-		// Still deallocate the 4 bytes used for the prefix
 		if appModule.deallocate != nil {
-			if _, err := appModule.deallocate.Call(appModule.store, ptr, int32(4)); err != nil {
-				// Log the error but don't fail the operation since we have the data
-				r.log.Warn("Wasmtime Runtime: failed to deallocate wasm memory for empty result: %v", err)
-			}
+			_, _ = appModule.deallocate.Call(appModule.store, ptr, int32(4))
 		}
 		return nil, fmt.Errorf("empty result from wasm module")
 	}
 
-	// to be on the safe side, check against overflow. Actually it is necessary for 32-bit platforms only
-	// because on 64-bit platforms 'int' is large enough.
+	// TODO consider using this limit for increasing safety (to be defined as a constant somewhere)
+	/*
+		// ---- Hard limits (DoS protection) ----
+		const maxResultSize = 4 * 1024 * 1024 // 4 MB
+		if dataLen > maxResultSize {
+			return nil, fmt.Errorf("result too large: %d bytes", dataLen)
+		}
+	*/
+
+	// Prevent int overflow
 	if dataLen > uint32(math.MaxInt32-4) {
-		return nil, fmt.Errorf("result too large: length would overflow int")
+		return nil, fmt.Errorf("result length overflows int")
 	}
 
-	// Validate full payload is readable
 	totalLen := int(dataLen) + 4
-	if start+totalLen > len(memData) {
-		return nil, fmt.Errorf("invalid memory access for data payload")
+	if start+totalLen > memLen {
+		return nil, fmt.Errorf("invalid memory access for payload")
 	}
 
-	// Copy the payload into a Go buffer (skip the 4-byte prefix)
-	resultBytes := make([]byte, dataLen)
-	copy(resultBytes, memData[start+4:start+4+int(dataLen)])
+	// ---- Copy payload ----
+	out = make([]byte, dataLen)
+	copy(out, mem[start+4:start+totalLen])
 
-	// Deallocate memory in WASM now that we have copied the data
+	// ---- Deallocate guest memory ----
 	if appModule.deallocate != nil {
-		if _, err := appModule.deallocate.Call(appModule.store, ptr, int32(totalLen)); err != nil {
-			// Log the error but don't fail the operation since we have the data
-			r.log.Warn("Wasmtime Runtime: failed to deallocate wasm memory for result: %v", err)
+		if _, derr := appModule.deallocate.Call(appModule.store, ptr, int32(totalLen)); derr != nil {
+			r.log.Warn("Wasmtime Runtime: failed to deallocate wasm memory for result: %v", derr)
 		}
 	}
 
-	// Check for wasm serialization failure
-	if string(resultBytes) == appCommon.WasmSerializationError {
+	// ---- Detect guest serialization failure sentinel ----
+	if string(out) == appCommon.WasmSerializationError {
 		return nil, fmt.Errorf("wasm module failed to serialize response/error")
 	}
 
-	return resultBytes, nil
+	return out, nil
+}
+
+// cleanupModule releases all resources associated with a single ApplicationModule.
+func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *ApplicationModule) {
+	r.log.Info("Cleaning up module %d", appId)
+	module.Close()
 }
 
 // Close closes the wasmtime runtime and cleans up resources
@@ -611,24 +670,30 @@ func (r *WasmtimeRuntime) Close() error {
 	defer r.moduleLock.Unlock()
 
 	for appId, module := range r.modules {
-		// clear references so GC can reclaim them
-		if module.instance != nil {
-			module.instance = nil
-		}
-		if module.module != nil {
-			module.module = nil
-		}
-		if module.memory != nil {
-			module.memory = nil
-		}
-		if module.store != nil {
-			module.store = nil
-		}
+		r.cleanupModule(appId, module)
 		delete(r.modules, appId)
 	}
 
 	r.engine = nil
 	r.log.Info("Wasmtime Runtime: Wasmtime runtime closed successfully")
+	return nil
+}
+
+// UnloadModule unloads a WASM module and frees its resources (not used so far - TODO use it).
+func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	module, exists := r.modules[appId]
+	if !exists {
+		r.log.Warn("UnloadModule: module %d not found", appId)
+		return nil
+	}
+
+	r.cleanupModule(appId, module)
+	delete(r.modules, appId)
+
+	r.log.Info("Module %d unloaded successfully", appId)
 	return nil
 }
 
@@ -738,4 +803,203 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 	// that is allocated in marshal/unmarshall process, but we can leave with that
 
 	return mem_size, total_bytes, nil
+}
+
+func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.ApplicationIdType, store *wasmtime.Store) (func(), error) {
+	// create a new WASI config
+	wasiConfig := wasmtime.NewWasiConfig()
+
+	// Create a named pipe to capture WASI output
+	r.log.Info("Creating named log pipe")
+	// add a nanosecond timestamp to the path to prevent collisions between concurrent module loads
+	fifoPath := fmt.Sprintf("/tmp/wasm_log_%d_%d", appId, time.Now().UnixNano())
+
+	// should never happen, but ensure no stale file exists otherwise we will hit an error
+	_ = os.Remove(fifoPath)
+
+	// Create the FIFO (Named Pipe)
+	if err := syscall.Mkfifo(fifoPath, 0600); err != nil {
+		r.log.Error("Error creating pipe")
+		return nil, fmt.Errorf("failed to create log pipe: %w", err)
+	}
+
+	// immediate Unlink after creation (The file disappears from /tmp but data flows)
+	// this is especially useful in the enclave environment, where we have a RAMFS file system
+	defer os.Remove(fifoPath)
+
+	// we use this for avoiding that the Reader OpenFile(O_RDONLY) blocks waiting for the WASI writer to connect
+	// this Dummy writer must stay open until cleanup, otherwise will send EOF to the reader below
+	// (reader blocking is potentially dangerous in edge cases on some error path for races, resource dangling and panics)
+	dummyWriter, err := os.OpenFile(fifoPath, os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open dummy fifo writer: %w", err)
+	}
+
+	// Open the reader on main thread - won't block because dummyWriter is already connected
+	readerFile, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
+	if err != nil {
+		dummyWriter.Close()
+		return nil, fmt.Errorf("failed to open fifo reader: %w", err)
+	}
+
+	// Channel to signal goroutine termination
+	doneCh := make(chan struct{})
+
+	// Start the log reader goroutine
+	go func() {
+		defer close(doneCh)
+
+		// Use bufio.Reader.ReadLine() instead of Scanner to handle oversized lines gracefully.
+		// When a line exceeds the buffer, ReadLine() returns isPrefix=true, allowing us to
+		// discard the overflow and continue reading subsequent lines (Scanner would stop entirely).
+		// Buffer size of 64KB should handle most legitimate log lines.
+		const logBufferSize = 64 * 1024 // 64KB
+		reader := bufio.NewReaderSize(readerFile, logBufferSize)
+
+		// Rate limiting to prevent log flooding from malicious/buggy WASM modules.
+		// Uses a simple fixed window: allow up to maxLogsPerWindow logs per time window.
+		// Excess logs are dropped and periodically reported.
+		const (
+			maxLogsPerWindow = 1000             // Max logs allowed per window
+			windowDuration   = 1 * time.Second  // Time window for rate limiting
+			reportInterval   = 10 * time.Second // How often to report dropped logs
+		)
+		var (
+			windowStart    = time.Now()
+			logsInWindow   = 0
+			droppedLogs    = 0
+			lastDropReport = time.Now()
+			totalDropped   = 0
+		)
+
+		r.log.Debug("Starting WASM log pipe reader for app %d", appId)
+
+		for {
+			lineBytes, isPrefix, err := reader.ReadLine()
+			if err != nil {
+				// Don't log if it's due to EOF or file being closed during cleanup
+				if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
+					r.log.Warn("WASM log pipe read error for app %d: %v", appId, err)
+				}
+				break
+			}
+
+			line := string(lineBytes)
+			truncated := isPrefix
+
+			// If line exceeded buffer, discard remaining bytes until end of line
+			for isPrefix {
+				_, isPrefix, err = reader.ReadLine()
+				if err != nil {
+					break
+				}
+			}
+
+			if truncated {
+				line += "... [truncated]"
+			}
+
+			// Rate limiting check
+			now := time.Now()
+			if now.Sub(windowStart) >= windowDuration {
+				// Reset window
+				windowStart = now
+				logsInWindow = 0
+			}
+
+			if logsInWindow >= maxLogsPerWindow {
+				// Drop this log
+				droppedLogs++
+				totalDropped++
+
+				// Periodically report dropped logs
+				if now.Sub(lastDropReport) >= reportInterval {
+					r.log.Warn("WASM log rate limit: dropped %d logs from app %d in last %v (total dropped: %d)",
+						droppedLogs, appId, reportInterval, totalDropped)
+					droppedLogs = 0
+					lastDropReport = now
+				}
+				continue
+			}
+			logsInWindow++
+
+			// Parse guest log level prefix and route to appropriate host log level
+			// Expected format: LVL message (e.g., "INF Processing request")
+			switch {
+			case strings.HasPrefix(line, "ERR "):
+				r.log.Error("Wasm Guest [%d]: %s", appId, line[4:])
+			case strings.HasPrefix(line, "WRN "):
+				r.log.Warn("Wasm Guest [%d]: %s", appId, line[4:])
+			case strings.HasPrefix(line, "INF "):
+				r.log.Info("Wasm Guest [%d]: %s", appId, line[4:])
+			case strings.HasPrefix(line, "DBG "):
+				r.log.Debug("Wasm Guest [%d]: %s", appId, line[4:])
+			case strings.HasPrefix(line, "TRC "):
+				r.log.Trace("Wasm Guest [%d]: %s", appId, line[4:])
+			default:
+				// No recognized prefix - log as info (backwards compatible)
+				r.log.Info("Wasm Guest [%d]: %s", appId, line)
+			}
+		}
+
+		// Report any remaining dropped logs on exit
+		if droppedLogs > 0 {
+			r.log.Warn("WASM log rate limit: dropped %d logs from app %d before exit (total dropped: %d)",
+				droppedLogs, appId, totalDropped)
+		}
+
+		r.log.Debug("WASM log pipe reader exited for app %d", appId)
+	}()
+
+	// This helper cleanup func will be also used when the module is disposed of.
+	// We should call it when we unload a module otherwise we might leak file descriptors.
+	// Note: the closure maintains all necessary state to coordinate cleanup with the background goroutine, regardless of when or where it's invoked
+	// ---
+	// Because the wasmtime map holds the reference to a module, the GC cannot touch the module and all associated resources.
+	//     Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
+	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
+	cleanupFileDescriptors := func() {
+		r.log.Info("Closing log pipe FDs for app %d", appId)
+
+		// We force termination by closing both ends of the pipe immediately.
+		// Closing readerFile is critical: it forces the background goroutine to exit
+		// even if the WASM module (the writer) is still holding its FD or is stuck.
+		// This prevents goroutine leaks and avoids long timeouts during cleanup.
+		if err := dummyWriter.Close(); err != nil {
+			r.log.Warn("Failed to close dummy writer FD: %v", err)
+		}
+		if err := readerFile.Close(); err != nil {
+			r.log.Warn("Failed to close reader FD: %v", err)
+		}
+
+		// Brief wait for goroutine to complete. The loop in the goroutine
+		// handles os.ErrClosed, so this is safe and deterministic.
+		select {
+		case <-doneCh:
+			// Goroutine exited cleanly
+		case <-time.After(200 * time.Millisecond):
+			r.log.Warn("Log pipe goroutine slow to exit for app %d", appId)
+		}
+	}
+
+	r.log.Info("Installing log pipes")
+	// Configure WASI to use the 'write' end of our pipe
+	err = wasiConfig.SetStdoutFile(fifoPath)
+	if err != nil {
+		cleanupFileDescriptors()
+		return nil, fmt.Errorf("failed to install stdout to pipe: %w", err)
+	}
+	r.log.Info("Installed stdout log pipe")
+
+	err = wasiConfig.SetStderrFile(fifoPath)
+	if err != nil {
+		cleanupFileDescriptors()
+		return nil, fmt.Errorf("failed to install stderr to pipe: %w", err)
+	}
+	r.log.Info("Installed stderr log pipe")
+
+	// attach WASI config to the store
+	store.SetWasi(wasiConfig)
+
+	return cleanupFileDescriptors, nil
 }

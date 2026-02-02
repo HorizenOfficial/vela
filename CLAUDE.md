@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Horizen Privacy Preserving Execution System (PES) - A privacy-preserving execution platform using AWS Nitro Enclaves (TEE). The system executes WebAssembly modules securely, with encrypted state management and blockchain-based coordination.
 
-**Stack:** Go 1.24, Solidity 0.8.30, Wasmtime-go (WASM runtime), LevelDB, Hardhat
+**Stack:** Go 1.24, Solidity 0.8.30, Wasmtime-go (WASM runtime), LevelDB, Hardhat, The Graph (subgraphs)
 
 ## Build Commands
 
@@ -35,6 +35,53 @@ go generate ./...
 npm ci
 npm run build
 npm run test
+
+# WASM guest (app/simple)
+cd app/simple && make build            # Development build
+cd app/simple && make production_build # Optimized build
+
+# Subgraph (subgraphs/hcce)
+cd subgraphs/hcce && npm run codegen   # Generate types from schema
+cd subgraphs/hcce && npm run build     # Build subgraph
+cd subgraphs/hcce && npm run test      # Run subgraph tests
+```
+
+## Project Structure
+
+```
+/cmd                        - Main application entrypoints
+  /manager                  - Secure Processor Manager (main Go service)
+  /executor                 - WASM Executor (runs in AWS Nitro Enclave)
+  /authorityservice         - HTTP service for deanonymization reports
+  /keytool                  - Key management utility
+  /key_attestation_cmd      - Key attestation utility
+
+/pkg                        - Shared Go library code
+  /wasm                     - Wasmtime runtime integration
+  /executor                 - WASM execution, state handling, event encryption
+  /manager                  - Manager orchestration, blockchain interaction
+  /blockchain               - Smart contract bindings and interaction layer
+  /communication            - V-Socket & TCP messaging between Manager/Executor
+  /storage                  - LevelDB versioning system and mock implementations
+  /common                   - Shared data models, types, configuration
+  /crypto                   - Key management (AES, P521, secp256k1, X25519)
+  /logger                   - Zerolog wrapper and custom loggers
+  /authorityservice         - Authority HTTP service (API types, endpoints)
+  /subgraph                 - GraphQL subgraph client (queries, types)
+  /testutil                 - Testing utilities and helpers
+
+/app                        - TinyGo WASM guest applications
+  /simple                   - Example WASM application
+
+/contracts                  - Solidity smart contracts (Hardhat project)
+  /contracts                - Solidity source files
+  /test                     - Hardhat tests (TypeScript)
+
+/subgraphs                  - The Graph subgraphs
+  /hcce                     - HCCE indexer subgraph
+
+/tests                      - System integration tests
+/dockerfiles                - Container configuration
 ```
 
 ## Architecture
@@ -62,6 +109,9 @@ npm run test
    - `TeeAuthenticator.sol` - TEE attestation verification
    - `AuthorityRegistry.sol` - Authority management
 
+5. **Subgraphs** (`subgraphs/`) - Blockchain event indexing:
+   - Index on-chain events for efficient GraphQL querying
+
 ### Communication Flow
 
 Manager and Executor use bidirectional messaging (V-Socket for Nitro, TCP fallback):
@@ -87,6 +137,37 @@ Versioned LevelDB with atomic transactions and rollback support:
 - `CHAIN_PROCESSOR_ADDRESS` / `CHAIN_TEEAUTHENTICATOR_ADDRESS`
 
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
+
+## Code Review Guidelines
+
+### Go Code
+- **Error handling**: Check all errors; avoid `_` for error returns unless explicitly justified
+- **Concurrency**: Review goroutine lifecycle, channel usage, and potential race conditions
+- **Context propagation**: Ensure `context.Context` is passed through call chains for cancellation
+- **Resource cleanup**: Verify `defer` for closing resources (files, connections, locks)
+- **Interface design**: Prefer small, focused interfaces; accept interfaces, return structs
+- **Testing**: Look for table-driven tests, proper mocking, and edge case coverage
+- **Logging**: Use structured logging (zerolog); avoid fmt.Print in production code
+
+### TypeScript Code (Contracts/Subgraphs)
+- **Type safety**: Avoid `any`; prefer explicit types and interfaces
+- **Null checks**: Handle nullable values explicitly
+- **BigInt handling**: Use appropriate BigInt libraries for blockchain values
+- **Event handlers** (subgraphs): Ensure entity IDs are unique and deterministic
+- **Contract tests**: Check for edge cases, revert conditions, and gas optimization
+
+### GraphQL (Subgraphs)
+- **Schema design**: Use appropriate scalar types (BigInt, Bytes, ID)
+- **Entity relationships**: Review `@derivedFrom` directives for efficiency
+- **Indexing**: Ensure indexed fields support common query patterns
+
+## Things to Avoid
+
+- Don't assume full Go stdlib availability in TinyGo code
+- Don't put secrets or sensitive logic outside the Nitro enclave boundary
+- Don't use `console.log` in subgraph handlers (use `log.info` from graph-ts)
+- Don't ignore TypeScript strict mode errors in contract tests
+- Be mindful of the trust boundaries between TEE and non-TEE components
 
 ## Tool Requirements
 
