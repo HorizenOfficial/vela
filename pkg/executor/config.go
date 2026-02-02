@@ -3,6 +3,7 @@
 package executor
 
 import (
+	"fmt"
 	"math/big"
 	"time"
 
@@ -21,7 +22,24 @@ type Config struct {
 	AdminChannelParams common.ChannelConnectionParams
 
 	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
+	// Type 0: Unsafe (development only) - masterKey stored in plaintext
+	// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
 	KeySetRecoveryType int
+
+	// KMS Configuration (used when KeySetRecoveryType == 1)
+	// KMSEnabled enables Type 1 KMS-based key management.
+	// When true, KeySetRecoveryType is automatically set to 1.
+	KMSEnabled bool
+	// KMSKeyARN is the ARN of the AWS KMS key used for envelope encryption.
+	// Required when KMSEnabled is true.
+	KMSKeyARN string
+	// KMSRegion is the AWS region where the KMS key is located.
+	// Defaults to "us-east-1" if not specified.
+	KMSRegion string
+	// KMSProxyPort is the vsock port where the KMS proxy listens on the parent EC2.
+	// Inside a Nitro Enclave, KMS requests are forwarded through this proxy.
+	// Defaults to 8000 if not specified.
+	KMSProxyPort uint32
 	// FuelPricePerUnit is the price of fuel per unit
 	FuelPricePerUnit *big.Int
 	// MinFeePerRquest is the minimum fee to be paid for each request
@@ -100,22 +118,52 @@ func LoadConfig() (*Config, error) {
 	
 	
 	
+	// KMS Configuration
+	kmsEnabled := common.GetConfigVarBool("EXECUTOR_KMS_ENABLED", false, fileProperties)
+	kmsKeyARN := common.GetConfigVar("EXECUTOR_KMS_KEY_ARN", "", fileProperties)
+	kmsRegion := common.GetConfigVar("EXECUTOR_KMS_REGION", "us-east-1", fileProperties)
+	kmsProxyPort := uint32(common.GetConfigVarInt64("EXECUTOR_KMS_PROXY_PORT", 8000, fileProperties))
+
+	// Determine KeySetRecoveryType: if KMS is enabled, force Type 1
+	keySetRecoveryType := int(common.GetConfigVarInt64("EXECUTOR_KEYSET_RECOVERY_TYPE", 0, fileProperties))
+	if kmsEnabled {
+		keySetRecoveryType = 1
+	}
+
 	return &Config{
-		ChannelType:        channelType,
-		ChannelParams:      channelServerConnectionParams,
-		AdminChannelParams: adminChannelConnectionParams,
-		KeySetRecoveryType: int(common.GetConfigVarInt64("EXECUTOR_KEYSET_RECOVERY_TYPE", 0, fileProperties)),
-		FuelPricePerUnit:   big.NewInt(common.GetConfigVarInt64("EXECUTOR_FUEL_PRICE_PER_UNIT", 1, fileProperties)),
-		MinFeePerRequest:   big.NewInt(common.GetConfigVarInt64("EXECUTOR_MIN_FEE_PER_REQUEST", 10, fileProperties)),
-		LogKind:            common.GetConfigVar("EXECUTOR_LOG_KIND", "zeronetwork", fileProperties),
-		LogConsole:         common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE", true, fileProperties),
-		LogConsoleLevel:    common.GetConfigVar("EXECUTOR_LOG_CONSOLE_LEVEL", "info", fileProperties),
-		LogConsoleColor:    common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE_COLOR", false, fileProperties),
-		LogFileName:        common.GetConfigVar("EXECUTOR_LOG_FILE_NAME", "", fileProperties),
-		LogFileLevel:       common.GetConfigVar("EXECUTOR_LOG_FILE_LEVEL", "info", fileProperties),
-		LogChannelParams:   logClientConnectionParams,
-		LogNetworkLevel:    common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
-		CommunicationParams: communicationParams,
+		ChannelType:              channelType,
+		ChannelParams:            channelServerConnectionParams,
+		AdminChannelParams:       adminChannelConnectionParams,
+		KeySetRecoveryType:       keySetRecoveryType,
+		KMSEnabled:               kmsEnabled,
+		KMSKeyARN:                kmsKeyARN,
+		KMSRegion:                kmsRegion,
+		KMSProxyPort:             kmsProxyPort,
+		FuelPricePerUnit:         big.NewInt(common.GetConfigVarInt64("EXECUTOR_FUEL_PRICE_PER_UNIT", 1, fileProperties)),
+		MinFeePerRequest:         big.NewInt(common.GetConfigVarInt64("EXECUTOR_MIN_FEE_PER_REQUEST", 10, fileProperties)),
+		LogKind:                  common.GetConfigVar("EXECUTOR_LOG_KIND", "zeronetwork", fileProperties),
+		LogConsole:               common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE", true, fileProperties),
+		LogConsoleLevel:          common.GetConfigVar("EXECUTOR_LOG_CONSOLE_LEVEL", "info", fileProperties),
+		LogConsoleColor:          common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE_COLOR", false, fileProperties),
+		LogFileName:              common.GetConfigVar("EXECUTOR_LOG_FILE_NAME", "", fileProperties),
+		LogFileLevel:             common.GetConfigVar("EXECUTOR_LOG_FILE_LEVEL", "info", fileProperties),
+		LogChannelParams:         logClientConnectionParams,
+		LogNetworkLevel:          common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
+		CommunicationParams:      communicationParams,
 		AdminCommunicationParams: adminCommunicationParams,
 	}, nil
+}
+
+// ValidateKMSConfig validates KMS-related configuration.
+// Returns an error if KMS is enabled but required settings are missing.
+func (c *Config) ValidateKMSConfig() error {
+	if c.KeySetRecoveryType == 1 || c.KMSEnabled {
+		if c.KMSKeyARN == "" {
+			return fmt.Errorf("KMS key ARN is required when KMS is enabled (EXECUTOR_KMS_KEY_ARN)")
+		}
+		if c.KMSRegion == "" {
+			return fmt.Errorf("KMS region is required when KMS is enabled (EXECUTOR_KMS_REGION)")
+		}
+	}
+	return nil
 }
