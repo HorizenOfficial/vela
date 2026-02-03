@@ -35,6 +35,7 @@ contract ProcessorEndpoint is AccessControl {
     event Withdrawal(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
     event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
     event RequestCompleted(bytes32 indexed requestId, uint256 applicationFees, Structs.RequestResult status, Structs.ErrorCode errorCode, string errorMessage);
+    event ReportGenerated(uint64 indexed applicationId, bytes32 indexed requestId);
     event UserEvent(uint64 indexed applicationId, bytes32 indexed requestId, string indexed eventSubType, bytes encryptedData);
     event StateRootUpdate(uint64 indexed applicationId, bytes32 indexed requestId, bytes32 oldStateRoot, bytes32 newStateRoot);
     event QueueThresholdUpdated(uint256 newThreshold);
@@ -272,6 +273,10 @@ contract ProcessorEndpoint is AccessControl {
         while(i < events.length) {
             emit UserEvent(applicationId, processedRequestId, eventSubTypes[i], events[i]);
             unchecked {++i;}
+        }
+
+        if (reportGenerated){
+            emit ReportGenerated(applicationId, processedRequestId);
         }
 
         //update state root and request
