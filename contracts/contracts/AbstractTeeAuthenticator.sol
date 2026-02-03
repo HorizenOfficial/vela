@@ -25,7 +25,6 @@ abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
         Structs.WithdrawalRequest[] memory withdrawalRequests,
         uint256 refundAmount,
         uint256 applicationFee,
-        bool reportGenerated,
         bytes memory signature
     ) external view returns(bool) {
         if(getTeeSigner() == address(0) || getPubSecp521r1().length != PK_LENGTH) revert TeeIsNotSet();
@@ -43,8 +42,7 @@ abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
             eventSubTypesHash,
             withdrawalRequestsHash,
             refundAmount,
-            applicationFee,
-            reportGenerated
+            applicationFee
         ));
 
         address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);

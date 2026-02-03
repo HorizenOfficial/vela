@@ -165,8 +165,6 @@ type UpdatePayload struct {
 	RefundAmount *big.Int `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
 	ApplicationFee *big.Int `json:"applicationFee"`
-	// ReportGenerated indicates if a deanonymization report was generated
-	ReportGenerated bool `json:"reportGenerated"`
 }
 
 // ApplicationState represents the state of an application
@@ -251,7 +249,7 @@ type VSockChannelConnectionParams struct {
 	Port uint32
 }
 
-type CommunicationParams struct {		
+type CommunicationParams struct {
 	RequestTimeoutSec time.Duration
 }
 

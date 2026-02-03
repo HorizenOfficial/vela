@@ -58,10 +58,6 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failure creating bytes32 type: %w", err)
 	}
-	boolType, err := abi.NewType("bool", "", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failure creating bool type: %w", err)
-	}
 	msgArgs := abi.Arguments{
 		{Type: uint64Type},
 		{Type: bytes32Type},
@@ -72,7 +68,6 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 		{Type: bytes32Type},
 		{Type: uint256Type},
 		{Type: uint256Type},
-		{Type: boolType},
 	}
 
 	msgBuilder := &MsgToSignBuilder{msgArgs: msgArgs, eventsArgs: eventsArgs, eventSubTypesArgs: eventSubTypesArgs, withdrawalsArgs: withdrawalsArgs}
@@ -130,7 +125,6 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 		withdrawalArr,
 		updatePayload.RefundAmount,
 		updatePayload.ApplicationFee,
-		updatePayload.ReportGenerated,
 	}
 
 	// Encoding parameters

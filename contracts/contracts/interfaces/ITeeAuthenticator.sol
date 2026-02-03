@@ -13,7 +13,6 @@ interface ITeeAuthenticator {
         Structs.WithdrawalRequest[] memory withdrawalRequests,
         uint256 refundAmount,
         uint256 applicationFee,
-        bool reportGenerated,
         bytes memory signature
     ) external view returns(bool);
 

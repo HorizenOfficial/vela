@@ -13,12 +13,12 @@ import (
 	"github.com/hf/nsm/request"
 	"github.com/hf/nsm/response"
 
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/appdata"
 	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/logger"
 )
@@ -149,9 +149,9 @@ func RestoreEnclaveKeySet(recovery *common.EnclaveKeySetRecovery) (*EnclaveKeySe
 
 // StatelessExecutor implements the Executor interface
 type StatelessExecutor struct {
-	config  *Config
-	runtime Runtime
-	server  communication.ExecutorServer
+	config       *Config
+	runtime      Runtime
+	server       communication.ExecutorServer
 	admCmdServer admin.AdminCommandServer
 	*MsgToSignBuilder
 	keySet *EnclaveKeySet
@@ -169,7 +169,7 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 		config:           config,
 		runtime:          runtime,
 		server:           server,
-		admCmdServer: 	  admCmdServer,
+		admCmdServer:     admCmdServer,
 		MsgToSignBuilder: msgBuilder,
 		log:              log,
 	}
@@ -257,7 +257,7 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 		e.log.Info("Executor: Starting v-socket executor server")
 	}
 
-	if err := e.server.Start(ctx, "Executor"); err != nil {	
+	if err := e.server.Start(ctx, "Executor"); err != nil {
 		return err
 	}
 
@@ -265,9 +265,9 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 	case "tcp":
 		e.log.Info("Executor: Starting TCP admin executor server on %s", e.config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
 	case "vsock":
-		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d", 
-		e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID, 
-		e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
+		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d",
+			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
+			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
 	}
 	return e.admCmdServer.Start(ctx, "Executor")
 }
@@ -276,12 +276,12 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 func (e *StatelessExecutor) Stop() error {
 	e.log.Info("Executor: Stopping stateless executor")
 
-	err :=  e.admCmdServer.Stop();
+	err := e.admCmdServer.Stop()
 	if err != nil {
 		e.log.Warn("Executor: Error stopping admin server: %v", err)
 	}
 
-	err = e.server.Stop();
+	err = e.server.Stop()
 	if err != nil {
 		e.log.Warn("Executor: Error stopping server: %v", err)
 	}
@@ -443,15 +443,14 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
-		ApplicationID:   req.ApplicationID,
-		RequestID:       req.RequestID,
-		PrevStateRoot:   appState.StateRoot,
-		NewStateRoot:    newStateRoot,
-		Events:          encryptedEvents,
-		Withdrawals:     withdrawals,
-		RefundAmount:    refundAmount,
-		ApplicationFee:  applicationFee,
-		ReportGenerated: reportGenerated,
+		ApplicationID:  req.ApplicationID,
+		RequestID:      req.RequestID,
+		PrevStateRoot:  appState.StateRoot,
+		NewStateRoot:   newStateRoot,
+		Events:         encryptedEvents,
+		Withdrawals:    withdrawals,
+		RefundAmount:   refundAmount,
+		ApplicationFee: applicationFee,
 	}
 
 	// Sign the update payload (produce attestation)
@@ -726,8 +725,6 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	e.log.Info("Executor: Successfully decrypted request payload")
 	return decryptedPayload, nil
 }
-
-
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {
 	return e.createKeyAttestationInternal(ctx, func() (NsmSession, error) {
