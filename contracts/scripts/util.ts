@@ -1,4 +1,4 @@
-import { AbiCoder, BigNumberish, ethers } from "ethers"
+import { AbiCoder, BigNumberish, ethers } from 'ethers';
 
 export async function ethSignStateUpdate(
   signer: ethers.Signer,
@@ -10,27 +10,44 @@ export async function ethSignStateUpdate(
   eventSubTypes: string[],
   withdrawalRequests: any[][],
   refund: number | BigNumberish,
-  applicationFees: number | BigNumberish,
+  applicationFees: number | BigNumberish
 ): Promise<string> {
-  const eventsHash = ethers.keccak256(AbiCoder.defaultAbiCoder().encode(["bytes[]"], [events]));
-  const eventSubTypesHash = ethers.keccak256(AbiCoder.defaultAbiCoder().encode(["string[]"], [eventSubTypes]));
-  const withdrawalRequestsHash = ethers.keccak256(AbiCoder.defaultAbiCoder().encode(["tuple(address recipient, uint256 amount)[]"], [withdrawalRequests]));
+  const eventsHash = ethers.keccak256(AbiCoder.defaultAbiCoder().encode(['bytes[]'], [events]));
+  const eventSubTypesHash = ethers.keccak256(
+    AbiCoder.defaultAbiCoder().encode(['string[]'], [eventSubTypes])
+  );
+  const withdrawalRequestsHash = ethers.keccak256(
+    AbiCoder.defaultAbiCoder().encode(
+      ['tuple(address recipient, uint256 amount)[]'],
+      [withdrawalRequests]
+    )
+  );
 
   const encoded = AbiCoder.defaultAbiCoder().encode(
     [
-      "uint64",
-      "bytes32",
-      "bytes32",
-      "bytes32",
-      "bytes32",
-      "bytes32",
-      "bytes32",
-      "uint256",
-      "uint256",
+      'uint64',
+      'bytes32',
+      'bytes32',
+      'bytes32',
+      'bytes32',
+      'bytes32',
+      'bytes32',
+      'uint256',
+      'uint256',
     ],
-    [applicationId, prevStateRoot, newStateRoot, processedRequestId, eventsHash, eventSubTypesHash, withdrawalRequestsHash, refund, applicationFees]
-  )
+    [
+      applicationId,
+      prevStateRoot,
+      newStateRoot,
+      processedRequestId,
+      eventsHash,
+      eventSubTypesHash,
+      withdrawalRequestsHash,
+      refund,
+      applicationFees,
+    ]
+  );
 
-  const messageHash = ethers.keccak256(encoded)
-  return await signer.signMessage(ethers.getBytes(messageHash))
+  const messageHash = ethers.keccak256(encoded);
+  return await signer.signMessage(ethers.getBytes(messageHash));
 }
