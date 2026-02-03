@@ -178,6 +178,25 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ReportGenerated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "bytes32",
         "name": "requestId",
         "type": "bytes32"
@@ -753,29 +772,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "requestId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint256",
-        "name": "refund",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "applicationFees",
-        "type": "uint256"
-      }
-    ],
-    "name": "markRequestCompleted",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

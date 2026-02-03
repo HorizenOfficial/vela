@@ -387,20 +387,10 @@ describe('ProcessorEndpoint Test', function () {
         await submitTx.wait();
     })
 
-    it('should mark request as completed and failed (and refund if failed)', async function () {
+    it('should mark request as failed (and refund)', async function () {
         let initialStateRoot = await processorEndpoint.stateRoot();
-        //insert requests
+        //insert request
         let submitTx = await processorEndpoint.submitRequest(
-            protocolVersion,
-            applicationId,
-            1,
-            "0x01",
-            0,
-            MIN_FEE,
-            { value: MIN_FEE }
-        );
-        await submitTx.wait();
-        submitTx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
             1,
@@ -412,62 +402,12 @@ describe('ProcessorEndpoint Test', function () {
         await submitTx.wait();
 
         let length = await processorEndpoint.getPendingRequestsSize();
-        expect(length).eql(BigInt(2));
-
-        let requestQueue = await processorEndpoint.getPendingRequests();
+        expect(length).eql(BigInt(1));
 
         let [currentPendingRequest, stateRoot, success] =
             await processorEndpoint.getNextPendingRequest();
         expect(success).eql(true);
         expect(stateRoot).eql(initialStateRoot);
-        expect(currentPendingRequest.requestId).eql(requestQueue[0].requestId); //requestId
-
-
-        // Check that only the current request can be marked as completed or failed
-        await expect(
-            processorEndpoint.markRequestCompleted(
-                requestQueue[1].requestId,
-                0,
-                MIN_FEE
-            ) //try to complete the second request
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
-
-        await expect(
-            processorEndpoint.markRequestFailed(
-                requestQueue[1].requestId,
-                1,
-                "Test error message"
-            ) //try to fail the second request
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
-
-        // set as completed and check it is removed from the queue
-        await expect(
-            processorEndpoint.markRequestCompleted(
-                currentPendingRequest.requestId,
-                0,
-                MIN_FEE
-            )
-        )
-            .to.emit(processorEndpoint, "RequestCompleted")
-            .withArgs(
-                currentPendingRequest.requestId,
-                BigInt(5), // applicationFees = MIN_FEE
-                0,
-                0,
-                ""
-            );
-
-        length = await processorEndpoint.getPendingRequestsSize();
-        expect(length).eql(BigInt(1));
-
-        [currentPendingRequest, stateRoot, success] =
-            await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true);
-        expect(stateRoot).eql(initialStateRoot);
-        expect(currentPendingRequest.requestId).eql(requestQueue[1].requestId); //requestId
-
-        requestQueue = await processorEndpoint.getPendingRequests();
-        expect(requestQueue.length).eql(1);
 
         //get balance prior to fail
         let balanceBefore = await ethers.provider.getBalance(
@@ -506,7 +446,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(success).eql(false);
         expect(stateRoot).eql(initialStateRoot);
 
-        // Insert another request to check that the queue works after all were set to complete/fail
+        // Insert another request to check that the queue works after fail
         submitTx = await processorEndpoint.submitRequest(
             protocolVersion,
             applicationId,
@@ -530,70 +470,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(length).eql(BigInt(1));
     });
 
-    it('should not mark request as completed if refund + applicationFees does not match maxFeeValue', async function () {
-        const depositAmount = 0;
-        const maxFeeValue = MIN_FEE;
-
-        const submitTx = await processorEndpoint.submitRequest(
-            protocolVersion,
-            applicationId,
-            1,
-            "0x01",
-            depositAmount,
-            maxFeeValue,
-            { value: maxFeeValue }
-        );
-        await submitTx.wait();
-
-        const [currentPendingRequest, , success] =
-            await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true);
-
-        // refund + applicationFees = MIN_FEE + 1 != maxFeeValue
-        await expect(
-            processorEndpoint.markRequestCompleted(
-                currentPendingRequest.requestId,
-                0,
-                MIN_FEE + 1n
-            )
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
-    });
-
-    it('should not mark request as completed if applicationFees is below minFeePerRequest', async function () {
-        const depositAmount = 0;
-        const maxFeeValue = MIN_FEE;
-
-        const submitTx = await processorEndpoint.submitRequest(
-            protocolVersion,
-            applicationId,
-            1,
-            "0x01",
-            depositAmount,
-            maxFeeValue,
-            { value: maxFeeValue }
-        );
-        await submitTx.wait();
-
-        const [currentPendingRequest, , success] =
-            await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true);
-
-        // refund + applicationFees = maxFeeValue, pero applicationFees < minFeePerRequest
-        const refund = maxFeeValue;  // 5
-        const applicationFees = 0n;  // < MIN_FEE
-
-        await expect(
-            processorEndpoint.markRequestCompleted(
-                currentPendingRequest.requestId,
-                refund,
-                applicationFees
-            )
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidValue");
-    });
-
-
-
-    it('should not complete a request from wrong account', async function () {
+    it('should not fail a request from wrong account', async function () {
         //insert requests
         let submitTx = await processorEndpoint.submitRequest(
             protocolVersion,
@@ -610,17 +487,7 @@ describe('ProcessorEndpoint Test', function () {
             await processorEndpoint.getNextPendingRequest();
         expect(success).eql(true);
 
-        //set as completed (from non-UPDATE_STATUS_ROLE)
-        await expect(
-            processorEndpoint
-                .connect(signers[1])
-                .markRequestCompleted(currentPendingRequest.requestId, 0, MIN_FEE)
-        ).to.be.revertedWithCustomError(
-            processorEndpoint,
-            "AccessControlUnauthorizedAccount"
-        );
-
-        // set failed
+        // set failed (from non-UPDATE_STATUS_ROLE)
         await expect(
             processorEndpoint
                 .connect(signers[1])
@@ -633,41 +500,6 @@ describe('ProcessorEndpoint Test', function () {
             processorEndpoint,
             "AccessControlUnauthorizedAccount"
         );
-    });
-
-    it('should not re-mark as completed an already completed request', async function () {
-        //insert requests
-        let submitTx = await processorEndpoint.submitRequest(
-            protocolVersion,
-            applicationId,
-            1,
-            "0x01",
-            0,
-            MIN_FEE,
-            { value: MIN_FEE }
-        );
-        await submitTx.wait();
-
-        let [currentPendingRequest, _, success] =
-            await processorEndpoint.getNextPendingRequest();
-        expect(success).eql(true);
-
-        //set as completed
-        let completeTx = await processorEndpoint.markRequestCompleted(
-            currentPendingRequest.requestId,
-            0,
-            MIN_FEE
-        );
-        await completeTx.wait();
-
-        //try again to set as completed
-        await expect(
-            processorEndpoint.markRequestCompleted(
-                currentPendingRequest.requestId,
-                0,
-                MIN_FEE
-            )
-        ).to.be.revertedWithCustomError(processorEndpoint, "InvalidRequestId");
     });
 
     it('should not re-mark as failed an already failed request', async function () {

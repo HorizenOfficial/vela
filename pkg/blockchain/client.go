@@ -281,19 +281,6 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 	return nil
 }
 
-func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID common.RequestIdType, refundAmount *big.Int, applicationFees *big.Int) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return fmt.Errorf("client not connected, call Connect first")
-	}
-
-	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(requestID, refundAmount, applicationFees))
-
-}
-
 func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

@@ -145,26 +145,6 @@ contract ProcessorEndpoint is AccessControl {
 
     }
 
-    function markRequestCompleted(bytes32 requestId, uint256 refund, uint256 applicationFees) public onlyRole(UPDATE_STATUS_ROLE) {
-        if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
-
-        //check values
-        Structs.PendingRequest memory requestInfo = requestById[requestId];
-        if(refund + applicationFees != requestInfo.maxFeeValue) revert InvalidValue(); 
-        if(applicationFees < minFeePerRequest) {
-            revert InvalidValue();
-        }
-        if(refund > 0) {
-            (bool refundSent, ) = payable(requestInfo.sender).call{value: refund}("");
-            if (refundSent) {
-                emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
-            }
-        }
-
-        (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}("");
-        _markRequestCompleted(requestId, applicationFees);
-    }
-
     function _markRequestCompleted(bytes32 requestId, uint256 applicationFees) private {
 
        _removeRequest();
