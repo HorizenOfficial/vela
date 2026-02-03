@@ -105,8 +105,6 @@ contract ProcessorEndpoint is AccessControl {
             if (payload.length != 133) revert InvalidPayload();
         } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
 
-            // deanonymization requests MUST have depositAmount = 0
-            if (depositAmount != 0) revert InvalidValue();
 
             // only allowed authorities can request deanonymization
             if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
