@@ -101,25 +101,25 @@ type Request struct {
 	// All payloads except the one for AssociateKey are encrypted
 	Payload []byte `json:"payload"`
 	// Timestamp is the time the request was submitted
-	Timestamp *big.Int `json:"timestamp"`
+	Timestamp *Big `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
 	// DepositAmount is the optional deposit value in WEI
-	DepositAmount *big.Int `json:"depositAmount"`
+	DepositAmount *Big `json:"depositAmount"`
 	// MaxFeeValue is the maximum fee value reserved for fee payment
-	MaxFeeValue *big.Int `json:"maxFeeValue"`
+	MaxFeeValue *Big `json:"maxFeeValue"`
 }
 
 func (r *Request) Validate() error {
-	if err := validateBigInt("timestamp", r.Timestamp, false); err != nil {
+	if err := validateBigInt("timestamp", r.Timestamp.ToInt(), false); err != nil {
 		return err
 	}
 
-	if err := validateBigInt("depositAmount", r.DepositAmount, true); err != nil {
+	if err := validateBigInt("depositAmount", r.DepositAmount.ToInt(), true); err != nil {
 		return err
 	}
 
-	if err := validateBigInt("maxFeeValue", r.MaxFeeValue, true); err != nil {
+	if err := validateBigInt("maxFeeValue", r.MaxFeeValue.ToInt(), true); err != nil {
 		return err
 	}
 	return nil
@@ -142,7 +142,7 @@ type Withdrawal struct {
 	// DestinationAddress is the address to send the funds to
 	DestinationAddress ethCommon.Address `json:"destinationAddress"`
 	// Amount is the amount to withdraw in WEI
-	Amount *big.Int `json:"amount"`
+	Amount *Big `json:"amount"`
 }
 
 // UpdatePayload represents an update to the state
@@ -162,9 +162,9 @@ type UpdatePayload struct {
 	// Signature is the TEE signature
 	Signature []byte `json:"signature"`
 	// RefundAmount is the amount to refund in WEI
-	RefundAmount *big.Int `json:"refundAmount"`
+	RefundAmount *Big `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
-	ApplicationFee *big.Int `json:"applicationFee"`
+	ApplicationFee *Big `json:"applicationFee"`
 }
 
 // ApplicationState represents the state of an application
@@ -195,9 +195,9 @@ type DeanonymizationReport struct {
 	// Authority is the entity requesting the report
 	Authority ethCommon.Address `json:"authority"`
 	// RefundAmount is the amount to refund in WEI
-	RefundAmount *big.Int `json:"refundAmount"`
+	RefundAmount *Big `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
-	ApplicationFee *big.Int `json:"applicationFee"`
+	ApplicationFee *Big `json:"applicationFee"`
 }
 
 // DecryptedReport represents a decrypted deanonymization report
@@ -253,7 +253,7 @@ type VSockChannelConnectionParams struct {
 	Port uint32
 }
 
-type CommunicationParams struct {		
+type CommunicationParams struct {
 	RequestTimeoutSec time.Duration
 }
 

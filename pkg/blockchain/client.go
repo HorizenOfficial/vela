@@ -209,10 +209,10 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			RequestID:       request.RequestId,
 			RequestType:     common.RequestType(request.RequestType),
 			Payload:         request.Payload,
-			Timestamp:       request.Timestamp,
+			Timestamp:       common.ToBig(request.Timestamp),
 			Sender:          request.Sender,
-			DepositAmount:   request.DepositAmount,
-			MaxFeeValue:     request.MaxFeeValue,
+			DepositAmount:   common.ToBig(request.DepositAmount),
+			MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 		}
 
 		output = append(output, req)
@@ -250,10 +250,10 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		RequestID:       common.RequestIdType(request.RequestId),
 		RequestType:     common.RequestType(request.RequestType),
 		Payload:         request.Payload,
-		Timestamp:       request.Timestamp,
+		Timestamp:       common.ToBig(request.Timestamp),
 		Sender:          request.Sender,
-		DepositAmount:   request.DepositAmount,
-		MaxFeeValue:     request.MaxFeeValue,
+		DepositAmount:   common.ToBig(request.DepositAmount),
+		MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 	}
 
 	return req, stateRoot, nil
@@ -359,7 +359,7 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 
 func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
 	// This is the only thing that has to be done on the blockchain for deanonymization reports
-	return c.MarkRequestCompleted(ctx, update.ReportID, update.RefundAmount, update.ApplicationFee)
+	return c.MarkRequestCompleted(ctx, update.ReportID, update.RefundAmount.ToInt(), update.ApplicationFee.ToInt())
 }
 
 func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
@@ -379,7 +379,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
 	for i, withdrawal := range update.Withdrawals {
-		amount := withdrawal.Amount
+		amount := withdrawal.Amount.ToInt()
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
 			Receiver: withdrawal.DestinationAddress,
 			Amount:   amount,
@@ -394,8 +394,8 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		events,
 		eventSubTypes,
 		withdrawals,
-		update.RefundAmount,
-		update.ApplicationFee,
+		update.RefundAmount.ToInt(),
+		update.ApplicationFee.ToInt(),
 		update.Signature,
 	)
 

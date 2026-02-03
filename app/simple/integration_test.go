@@ -144,7 +144,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.Equal(t, diffBalance.String(), withdrawState.Accounts[user1Address.Hex()].Balance.String())
 
 	require.Equal(t, ethCommon.Address(recipient1Address), withdrawals[0].DestinationAddress)
-	require.Equal(t, withdrawAmount, withdrawals[0].Amount)
+	require.Equal(t, withdrawAmount, withdrawals[0].Amount.ToInt())
 
 	// 4. Generate deanonymization report
 	payloadJSON := `{"tag":"my_custom_tag"}`
