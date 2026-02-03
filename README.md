@@ -50,7 +50,7 @@ Environment variables (or `authorityservice.conf`) now require blockchain connec
 - `CHAIN_ID`: expected chain ID for replay protection.
 - `CHAIN_RPC_PROTOCOL` / `CHAIN_RPC_ADDRESS` / `CHAIN_RPC_PORT`: RPC endpoint to the node.
 - `CHAIN_PROCESSOR_ADDRESS`: address of the `ProcessorEndpoint` contract.
-- `AUTHORITY_SERVICE_EVENT_BATCH_SIZE` / `AUTHORITY_SERVICE_EVENT_MAX_BATCHES`: block span per log query and maximum number of batches when searching for `RequestCompleted` events (defaults: 100_000 blocks, 10 batches).
+- `AUTHORITY_SERVICE_SUBGRAPH_URL`: subgraph endpoint used to read `RequestCompleted`/`UserEvent` data.
 - `MANAGER_REPORTS_FOLDER`: shared folder for generated reports (defaults to `/tmp/horizen-pes-data/manager_reports`).
 
 See `pkg/authorityservice/config.go` for defaults and additional logging/TLS settings.

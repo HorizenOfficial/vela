@@ -97,6 +97,7 @@ func (c *MockClient) SetBlockNumber(n uint64) {
 	c.blockNumber = n
 }
 
+// SendRequestToChain stores a request in the mock pending queue.
 func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -110,7 +111,7 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 
 	// Set timestamp if not provided
 	if req.Timestamp == nil {
-		req.Timestamp = new(big.Int).SetInt64(time.Now().Unix())
+		req.Timestamp = common.ToBig(new(big.Int).SetInt64(time.Now().Unix()))
 	}
 
 	// Store the request
@@ -131,8 +132,8 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 		ApplicationID:   applicationId,
 		RequestType:     requestType,
 		Payload:         payload,
-		DepositAmount:   depositAmount,
-		MaxFeeValue:     maxFeeValue,
+		DepositAmount:   common.ToBig(depositAmount),
+		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}
 
 	err := c.SendRequestToChain(ctx, req)
@@ -378,18 +379,6 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID comm
 	}
 
 	return report, nil
-}
-
-func (c *MockClient) GetUserEvents(ctx context.Context, privKey cryptotypes.PrivateKeyP521, applicationId common.ApplicationIdType, fromBlock uint64, toBlock uint64, eventSubType string, filter func([]byte) bool, stopAtFirst bool) ([][]byte, error) {
-	_ = eventSubType
-	return [][]byte{}, nil
-}
-
-func (c *MockClient) GetRequestCompletedEvent(ctx context.Context, requestID common.RequestIdType, fromBlock uint64, toBlock uint64) (*common.RequestResult, error) {
-	if f, ok := c.GetMockedFunc("GetRequestCompletedEvent"); ok {
-		return f.(func(context.Context, common.RequestIdType, uint64, uint64) (*common.RequestResult, error))(ctx, requestID, fromBlock, toBlock)
-	}
-	return nil, nil
 }
 
 func (c *MockClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {

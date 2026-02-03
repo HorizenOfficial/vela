@@ -31,7 +31,7 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
 ## Additional info:
 
 - exposed addresses/ports (see `.env.template` for defaults):
-  - authorityservice: listens on `${AUTHORITY_SERVICE_LISTEN_ADDRESS}` on `${AUTHORITY_SERVICE_IP_ADDRESS}` inside the internal network.
+- authorityservice: listens on `${AUTHORITY_SERVICE_LISTEN_ADDRESS}` on `${AUTHORITY_SERVICE_IP_ADDRESS}` inside the internal network.
 
 - the manager database and chain data are persisted in docker volumes (`horizen-cce-manager-data` for the DB, `horizen-cce-chain-data` for chain data).<br>
   To start from scratch, delete the volumes.
@@ -40,7 +40,8 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
    - rpc url: http://localhost:8545
    - chainid: 31337
 
-Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`, plus `AUTHORITY_SERVICE_EVENT_BATCH_SIZE` and `AUTHORITY_SERVICE_EVENT_MAX_BATCHES` to control batched log queries (default 100k blocks * 10 batches).
+Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.  
+Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
 
 ## Where to go next: 
 

@@ -31,7 +31,7 @@ var cumulative_alloc_size int64
 
 //export allocate
 func allocate(size int32) int32 {
-	println("Calling allocate with size =", size)
+	LogDebug("allocate called with size=%d", size)
 	if size <= 0 {
 		// Return a null pointer for zero or negative size.
 		// The caller should check for zero-length data, but this makes the guest allocator more robust.
@@ -48,38 +48,36 @@ func allocate(size int32) int32 {
 
 	// Store a reference to the slice in our global map to "pin" it and preventing GC from acting
 	allocatedMemory[uptr] = data
-	println("map=", allocatedMemory)
 
 	cumulative_alloc_size += int64(size)
 
 	// Return the pointer address as an int32 to the host.
 	// Go Wasmtime runtime receives the signed int32 bit pattern and casts them to uintptr when accessing memory
-	println("Returning allocate on ptr =", ptr, ", (decimal=", int32(uptr), ") tot allocated=", cumulative_alloc_size)
+	LogDebug("allocate returning ptr=%d (decimal=%d), total_allocated=%d", uptr, int32(uptr), cumulative_alloc_size)
 	return int32(uptr)
 }
 
 //export deallocate
 func deallocate(ptr *byte, size int32) {
-	println("Calling deallocate on ptr =", ptr, ", with size =", size)
+	LogDebug("deallocate called with ptr=%v, size=%d", ptr, size)
 
 	if ptr == nil {
-		println("deallocate called with nil ptr")
+		LogWarn("deallocate called with nil ptr")
 		return
 	}
 
 	if allocatedMemory == nil {
-		println("allocatedMemory map is nil")
+		LogWarn("deallocate: allocatedMemory map is nil")
 		return
 	}
 
 	// Get the uintptr from the pointer.
 	uptr := uintptr(unsafe.Pointer(ptr))
-	println("uptr =", uptr)
 
 	b, ok := allocatedMemory[uptr]
 	if !ok {
 		// we exit even if delete on a map would be a no op, but we also do not decrement the counter
-		println("allocation not in map!")
+		LogWarn("deallocate: allocation not in map, uptr=%d", uptr)
 		return
 	}
 
@@ -88,12 +86,12 @@ func deallocate(ptr *byte, size int32) {
 
 	if int32(len(b)) != size {
 		// do not update the counter, that would be incorrect anyway. We could add more counters for errors and stats in future
-		println("unexpected allocated size!")
+		LogWarn("deallocate: unexpected allocated size, expected=%d, got=%d", size, len(b))
 		return
 	}
 
 	cumulative_alloc_size -= int64(size)
-	println("Returning, tot allocated=", cumulative_alloc_size)
+	LogDebug("deallocate returning, total_allocated=%d", cumulative_alloc_size)
 }
 
 // Note: if we call directly this function from the host, the ABI C interface foresees that
