@@ -271,16 +271,7 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
 	}
-
-	// Attach WASI config to the store
-	wasiConfig := wasmtime.NewWasiConfig()
-	// Make the WASI instance inherit the host stdout/stderr (so println()/fmt.Print from the guest appear here)
-	wasiConfig.InheritStdout()
-	wasiConfig.InheritStderr()
-	// TODO we could open temporary stdout/stderr files instead. Could we also redirect it to a logger? Maybe reading the temporary file etc...
-	// wasiConfig.SetStdoutFile(file)
-	store.SetWasi(wasiConfig)
-
+	
 	// Instantiate the module using the module-specific store
 	instance, err := linker.Instantiate(store, module)
 	if err != nil {
