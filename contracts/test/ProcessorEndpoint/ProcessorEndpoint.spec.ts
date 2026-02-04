@@ -82,7 +82,7 @@ describe('ProcessorEndpoint Test', function () {
       expect(storedSecond.payload).to.equal('0x02');
     });
 
-    it('marks request as completed then failed and handles refunds', async () => {
+    it('completes request via stateUpdate then fails another and handles refunds', async () => {
       const senderA = signers[0];
       const senderB = signers[3];
 
@@ -96,9 +96,18 @@ describe('ProcessorEndpoint Test', function () {
       const refundA = 1n;
       const applicationFeesA = first.maxFeeValue - refundA;
       await expect(
-        processorEndpoint
-          .connect(signers[1])
-          .markRequestCompleted(first.requestId, refundA, applicationFeesA)
+        processorEndpoint.connect(signers[1]).stateUpdate(
+          APPLICATION_ID,
+          BYTES32_ZERO,
+          '0x' + '01'.repeat(32),
+          first.requestId,
+          [],
+          [],
+          [],
+          refundA,
+          applicationFeesA,
+          '0x'
+        )
       ).to.emit(processorEndpoint, 'RequestCompleted');
 
       const senderABalanceAfterComplete = await senderA.provider!.getBalance(
