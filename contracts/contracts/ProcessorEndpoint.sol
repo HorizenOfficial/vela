@@ -343,7 +343,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
     sum += refund + applicationFees;
 
-    if(sum > address(this).balance - _totalDeposits) revert InsufficientBalance();
+    if (sum > address(this).balance - _totalDeposits) revert InsufficientBalance();
 
     //set requests as completed
     _markRequestCompleted(processedRequestId, applicationFees);

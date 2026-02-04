@@ -217,8 +217,7 @@ interface IProcessorEndpoint {
     uint256 idx
   ) external pure returns (bytes32);
 
-/// @notice Withdraws pending payments for a given payee.
-/// @param payee Payee address.
-function withdrawPayments(address payable payee) external;
+  /// @notice Withdraws pending payments for a given payee.
+  /// @param payee Payee address.
+  function withdrawPayments(address payable payee) external;
 }
-

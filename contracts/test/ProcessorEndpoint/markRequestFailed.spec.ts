@@ -124,7 +124,9 @@ describe('ProcessorEndpoint Test', function () {
         const requestId = getRequestIdFromReceipt(receipt);
 
         // With pull pattern, funds are credited to pending deposits
-        const senderPendingAmountAfterSubmit = await processorEndpoint.payments(await sender.getAddress());
+        const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
+          await sender.getAddress()
+        );
 
         const expectedRefund = depositAmount + (maxFeeValue - minFeePerRequest);
 
@@ -136,8 +138,12 @@ describe('ProcessorEndpoint Test', function () {
           .to.emit(processorEndpoint, 'Refund')
           .withArgs(APPLICATION_ID, requestId, await sender.getAddress(), expectedRefund);
 
-        const senderPendingAmountAfterComplete = await processorEndpoint.payments(await sender.getAddress());
-        expect(senderPendingAmountAfterComplete - senderPendingAmountAfterSubmit).to.equal(expectedRefund);
+        const senderPendingAmountAfterComplete = await processorEndpoint.payments(
+          await sender.getAddress()
+        );
+        expect(senderPendingAmountAfterComplete - senderPendingAmountAfterSubmit).to.equal(
+          expectedRefund
+        );
       });
 
       it('refunds sender and emits RequestCompleted FAILED_REFUNDED when fee transfer succeeds', async () => {
@@ -153,7 +159,9 @@ describe('ProcessorEndpoint Test', function () {
         const requestId = getRequestIdFromReceipt(receipt);
 
         // With pull pattern, funds are credited to pending deposits
-        const senderPendingAmountAfterSubmit = await processorEndpoint.payments(await sender.getAddress());
+        const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
+          await sender.getAddress()
+        );
 
         const failTx = await processorEndpoint
           .connect(signers[1])
@@ -163,11 +171,14 @@ describe('ProcessorEndpoint Test', function () {
           .to.emit(processorEndpoint, 'RequestCompleted')
           .withArgs(requestId, minFeePerRequest, 1, 1, 'err');
 
-        const senderPendingAmountAfterFail = await processorEndpoint.payments(await sender.getAddress());
+        const senderPendingAmountAfterFail = await processorEndpoint.payments(
+          await sender.getAddress()
+        );
         const expectedRefund = maxFeeValue - minFeePerRequest;
-        expect(senderPendingAmountAfterFail - senderPendingAmountAfterSubmit).to.equal(expectedRefund);
+        expect(senderPendingAmountAfterFail - senderPendingAmountAfterSubmit).to.equal(
+          expectedRefund
+        );
       });
-
     });
   });
 });

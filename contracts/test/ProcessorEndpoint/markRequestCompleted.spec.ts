@@ -145,15 +145,15 @@ describe('ProcessorEndpoint Test', function () {
         const { requestId } = await submitBasicRequest(signers[0], '0x08');
         // With pull pattern, funds are credited to pending deposits
         const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
-       
 
         await processorEndpoint
           .connect(signers[1])
           .markRequestCompleted(requestId, 0, minFeePerRequest);
 
-        
         const collectorPendingAmountAfter = await processorEndpoint.payments(newCollector);
-        expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(minFeePerRequest);
+        expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(
+          minFeePerRequest
+        );
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
       });
 
@@ -174,8 +174,9 @@ describe('ProcessorEndpoint Test', function () {
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(receipt);
         // With pull pattern, funds are credited to pending deposits
-        const senderPendingAmountAfterSubmit = await processorEndpoint.payments(await sender.getAddress());
-
+        const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
+          await sender.getAddress()
+        );
 
         const completeTx = await processorEndpoint
           .connect(signers[1])
@@ -188,7 +189,9 @@ describe('ProcessorEndpoint Test', function () {
         const senderBalanceAfterComplete = await sender.provider!.getBalance(
           await sender.getAddress()
         );
-        const senderPendingAmountAfterComplete = await processorEndpoint.payments(await sender.getAddress());
+        const senderPendingAmountAfterComplete = await processorEndpoint.payments(
+          await sender.getAddress()
+        );
         expect(senderPendingAmountAfterComplete - senderPendingAmountAfterSubmit).to.equal(refund);
       });
     });

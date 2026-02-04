@@ -398,7 +398,6 @@ describe('ProcessorEndpoint Test', function () {
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientBalance');
       });
-
     });
 
     describe('happy paths', function () {
@@ -608,7 +607,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.stateRoot()).to.equal(newStateRoot);
       });
 
-      it('doesn\'t emit Refund event when refund amount is zero', async () => {
+      it("doesn't emit Refund event when refund amount is zero", async () => {
         const request = await submitRequest(
           processorEndpoint,
           signers[0],
@@ -633,8 +632,7 @@ describe('ProcessorEndpoint Test', function () {
             '0x'
           );
 
-        await expect(tx)
-          .not.to.emit(processorEndpoint, 'Refund');
+        await expect(tx).not.to.emit(processorEndpoint, 'Refund');
       });
     });
   });

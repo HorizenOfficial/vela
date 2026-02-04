@@ -93,7 +93,9 @@ describe('ProcessorEndpoint Test', function () {
       const senderABalanceAfterSubmit = await senderA.provider!.getBalance(
         await senderA.getAddress()
       );
-      const senderAPendingAmountBefore = await processorEndpoint.payments(await senderA.getAddress());
+      const senderAPendingAmountBefore = await processorEndpoint.payments(
+        await senderA.getAddress()
+      );
 
       const refundA = 1n;
       const applicationFeesA = first.maxFeeValue - refundA;
@@ -106,7 +108,9 @@ describe('ProcessorEndpoint Test', function () {
       const senderABalanceAfterComplete = await senderA.provider!.getBalance(
         await senderA.getAddress()
       );
-      const senderAPendingAmountAfter = await processorEndpoint.payments(await senderA.getAddress());
+      const senderAPendingAmountAfter = await processorEndpoint.payments(
+        await senderA.getAddress()
+      );
       expect(senderABalanceAfterComplete - senderABalanceAfterSubmit).to.equal(0n);
       expect(senderAPendingAmountAfter - senderAPendingAmountBefore).to.equal(refundA);
 
@@ -116,7 +120,9 @@ describe('ProcessorEndpoint Test', function () {
       const senderBBalanceAfterSubmit = await senderB.provider!.getBalance(
         await senderB.getAddress()
       );
-      const senderBPendingAmountBefore = await processorEndpoint.payments(await senderB.getAddress());
+      const senderBPendingAmountBefore = await processorEndpoint.payments(
+        await senderB.getAddress()
+      );
       const failTx = await processorEndpoint
         .connect(signers[1])
         .markRequestFailed(second.requestId, 1, 'failed');
@@ -125,7 +131,9 @@ describe('ProcessorEndpoint Test', function () {
       const senderBBalanceAfterFail = await senderB.provider!.getBalance(
         await senderB.getAddress()
       );
-      const senderBPendingAmountAfter = await processorEndpoint.payments(await senderB.getAddress());
+      const senderBPendingAmountAfter = await processorEndpoint.payments(
+        await senderB.getAddress()
+      );
       const expectedRefundB = second.maxFeeValue - minFeePerRequest;
       expect(senderBBalanceAfterFail - senderBBalanceAfterSubmit).to.equal(0n);
       expect(senderBPendingAmountAfter - senderBPendingAmountBefore).to.equal(expectedRefundB);
