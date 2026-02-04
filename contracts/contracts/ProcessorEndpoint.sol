@@ -91,12 +91,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     //check queue size
     if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
-        if (requestType == Structs.RequestType.ASSOCIATEKEY) {
-            //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
-            if (payload.length != 133) revert InvalidPayload();
-        } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
-
-
+    if (requestType == Structs.RequestType.ASSOCIATEKEY) {
+      //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
+      if (payload.length != 133) revert InvalidPayload();
+    } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
       // only allowed authorities can request deanonymization
       if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
         revert AuthorityNotAllowed();
@@ -322,16 +320,18 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     //set requests as completed
     _markRequestCompleted(processedRequestId, applicationFees);
 
-        //emit encrypted event
-        i = 0;
-        while(i < events.length) {
-            emit UserEvent(applicationId, processedRequestId, eventSubTypes[i], events[i]);
-            unchecked {++i;}
-        }
+    //emit encrypted event
+    i = 0;
+    while (i < events.length) {
+      emit UserEvent(applicationId, processedRequestId, eventSubTypes[i], events[i]);
+      unchecked {
+        ++i;
+      }
+    }
 
-        if (true){
-            emit ReportGenerated(applicationId, processedRequestId);
-        }
+    if (true) {
+      emit ReportGenerated(applicationId, processedRequestId);
+    }
 
     //update state root and request
     stateRoot = newStateRoot;

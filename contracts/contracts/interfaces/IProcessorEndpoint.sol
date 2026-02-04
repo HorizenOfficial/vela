@@ -43,10 +43,7 @@ interface IProcessorEndpoint {
   /// @notice Emitted when a reqreport has been generated.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
-  event ReportGenerated(
-    uint64 indexed applicationId,
-    bytes32 indexed requestId
-  );
+  event ReportGenerated(uint64 indexed applicationId, bytes32 indexed requestId);
   /// @notice Emitted for application-specific encrypted events.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
