@@ -298,6 +298,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     //check values
     Structs.PendingRequest storage requestInfo = requestById[processedRequestId];
     uint256 maxFeeValue = requestInfo.maxFeeValue;
+    Structs.RequestType reqType = requestInfo.requestType;
     address payable sender = payable(requestInfo.sender);
     if (refund + applicationFees != maxFeeValue) revert InvalidValue();
     if (applicationFees < minFeePerRequest) {
@@ -329,7 +330,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
       }
     }
 
-    if (true) {
+    if (reqType == Structs.RequestType.DEANONYMIZATION) {
+      //a completed DEANONYMIZATION request must have always generated a report
       emit ReportGenerated(applicationId, processedRequestId);
     }
 
