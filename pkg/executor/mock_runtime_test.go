@@ -123,8 +123,8 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 		t.Fatal("Expected sender account to exist")
 	}
 
-	if state.Accounts[sender].Balance.Cmp(depositAmount) != 0 {
-		t.Errorf("Expected balance %d, got %d", depositAmount, state.Accounts[sender].Balance)
+	if state.Accounts[sender].Balance.ToInt().Cmp(depositAmount) != 0 {
+		t.Errorf("Expected balance %s, got %s", depositAmount, state.Accounts[sender].Balance)
 	}
 
 	if state.Nonce != 1 {
@@ -147,8 +147,8 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
-	transferAmount := big.NewInt(500000000000000000) // 0.5 ETH
+	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
+	transferAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -201,17 +201,17 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedSenderBalance := new(big.Int).Sub(depositAmount, transferAmount)
-	if state.Accounts[sender].Balance.Cmp(expectedSenderBalance) != 0 {
-		t.Errorf("Expected sender balance %d, got %d", expectedSenderBalance, state.Accounts[sender].Balance)
+	expectedSenderBalance := common.ToBig(new(big.Int).Sub(depositAmount, transferAmount.ToInt()))
+	if state.Accounts[sender].Balance.ToInt().Cmp(expectedSenderBalance.ToInt()) != 0 {
+		t.Errorf("Expected sender balance %s, got %s", expectedSenderBalance, state.Accounts[sender].Balance)
 	}
 
 	// Check recipient balance
 	if state.Accounts[recipient] == nil {
 		t.Fatal("Expected recipient account to exist")
 	}
-	if state.Accounts[recipient].Balance.Cmp(transferAmount) != 0 {
-		t.Errorf("Expected recipient balance %d, got %d", transferAmount, state.Accounts[recipient].Balance)
+	if state.Accounts[recipient].Balance.ToInt().Cmp(transferAmount.ToInt()) != 0 {
+		t.Errorf("Expected recipient balance %s, got %s", transferAmount, state.Accounts[recipient].Balance)
 	}
 
 	if state.Nonce != 2 {
@@ -234,8 +234,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	withdrawTo := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
-	withdrawAmount := big.NewInt(500000000000000000) // 0.5 ETH
+	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
+	withdrawAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -285,8 +285,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected withdrawal destination %s, got %s", withdrawTo, withdrawals[0].DestinationAddress)
 	}
 
-	if withdrawals[0].Amount.Cmp(withdrawAmount) != 0 {
-		t.Errorf("Expected withdrawal amount %d, got %d", withdrawAmount, withdrawals[0].Amount)
+	if withdrawals[0].Amount.ToInt().Cmp(withdrawAmount.ToInt()) != 0 {
+		t.Errorf("Expected withdrawal amount %s, got %s", withdrawAmount, withdrawals[0].Amount)
 	}
 
 	// Verify state update
@@ -300,9 +300,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedBalance := new(big.Int).Sub(depositAmount, withdrawAmount)
-	if state.Accounts[sender].Balance.Cmp(expectedBalance) != 0 {
-		t.Errorf("Expected sender balance %d, got %d", expectedBalance, state.Accounts[sender].Balance)
+	expectedBalance := common.ToBig(new(big.Int).Sub(depositAmount, withdrawAmount.ToInt()))
+	if state.Accounts[sender].Balance.ToInt().Cmp(expectedBalance.ToInt()) != 0 {
+		t.Errorf("Expected sender balance %s, got %s", expectedBalance, state.Accounts[sender].Balance)
 	}
 
 	if state.Nonce != 2 {
@@ -325,7 +325,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	transferAmount := big.NewInt(1000000000000000000) // 1 ETH
+	transferAmount := common.NewBig(1000000000000000000) // 1 ETH
 
 	// Try to transfer without any balance
 	transferInstructions := testPayloadInstructions{

@@ -41,10 +41,10 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 			PrevStateRoot:  appState.StateRoot,
 			NewStateRoot:   newStateRoot,
 			Events:         []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-			Withdrawals:    []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
+			Withdrawals:    []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: common.NewBig(100)}},
 			Signature:      []byte("test-signature"),
 			RefundAmount:   req.MaxFeeValue,
-			ApplicationFee: big.NewInt(100),
+			ApplicationFee: common.NewBig(100),
 		},
 		&common.ApplicationState{
 			ApplicationID:  req.ApplicationID,
@@ -67,7 +67,7 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 			NewStateRoot:   newStateRoot,
 			Signature:      []byte("test-signature"),
 			RefundAmount:   req.MaxFeeValue,
-			ApplicationFee: big.NewInt(100),
+			ApplicationFee: common.NewBig(100),
 		},
 		&common.ApplicationState{
 			ApplicationID:  req.ApplicationID,
@@ -140,10 +140,10 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		DepositAmount:   big.NewInt(0),
-		MaxFeeValue:     big.NewInt(100),
+		DepositAmount:   common.NewBig(0),
+		MaxFeeValue:     common.NewBig(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  ApplicationId,
@@ -211,10 +211,10 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			RequestID:       testutil.GenerateRandomRequestID(),
 			RequestType:     common.Process,
 			Payload:         []byte("test-encrypted-action"),
-			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+			Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 			Sender:          senderAddress,
-			DepositAmount:   big.NewInt(0),
-			MaxFeeValue:     big.NewInt(100),
+			DepositAmount:   common.NewBig(0),
+			MaxFeeValue:     common.NewBig(100),
 		}
 		appState := &common.ApplicationState{
 			ApplicationID:  ApplicationId,
@@ -263,10 +263,10 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			RequestID:       testutil.GenerateRandomRequestID(),
 			RequestType:     common.Deploy,
 			Payload:         []byte("test-encrypted-action"),
-			Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+			Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 			Sender:          senderAddress,
-			DepositAmount:   big.NewInt(0),
-			MaxFeeValue:     big.NewInt(100),
+			DepositAmount:   common.NewBig(0),
+			MaxFeeValue:     common.NewBig(100),
 		}
 
 		_, appState, failure := client.SendDeployApp(ctx, req)
@@ -323,10 +323,10 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		DepositAmount:   big.NewInt(0),
-		MaxFeeValue:     big.NewInt(100),
+		DepositAmount:   common.NewBig(0),
+		MaxFeeValue:     common.NewBig(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  ApplicationId,
@@ -424,10 +424,10 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 				PrevStateRoot:  appState.StateRoot,
 				NewStateRoot:   sha256.Sum256([]byte("new-state-root")),
 				Events:         []common.Event{{ApplicationID: req.ApplicationID, EncryptedData: []byte("test-event")}},
-				Withdrawals:    []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: big.NewInt(100)}},
+				Withdrawals:    []common.Withdrawal{{DestinationAddress: destinationAddress, Amount: common.NewBig(100)}},
 				Signature:      []byte("test-signature"),
 				RefundAmount:   req.MaxFeeValue,
-				ApplicationFee: big.NewInt(100),
+				ApplicationFee: common.NewBig(100),
 			}, appState, nil, nil
 		},
 	}
@@ -458,10 +458,10 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         []byte("test-encrypted-action"),
-		Timestamp:       new(big.Int).SetInt64(time.Now().Unix()),
+		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		DepositAmount:   big.NewInt(0),
-		MaxFeeValue:     big.NewInt(100),
+		DepositAmount:   common.NewBig(0),
+		MaxFeeValue:     common.NewBig(100),
 	}
 	appState := &common.ApplicationState{
 		ApplicationID:  1,

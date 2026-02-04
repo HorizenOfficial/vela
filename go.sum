@@ -114,8 +114,6 @@ github.com/graph-gophers/graphql-go v1.3.0 h1:Eb9x/q6MFpCLz7jBCiP/WTxjSDrYLR1QY4
 github.com/graph-gophers/graphql-go v1.3.0/go.mod h1:9CQHMSxwO4MprSdzoIEobiHpoLtHm77vfxsvsIN5Vuc=
 github.com/hashicorp/go-bexpr v0.1.10 h1:9kuI5PFotCboP3dkDYFr/wi0gg0QVbSNz5oFRpxn4uE=
 github.com/hashicorp/go-bexpr v0.1.10/go.mod h1:oxlubA2vC/gFVfX1A6JGp7ls7uCDlfJn732ehYYg+g0=
-github.com/hf/nitrite v0.0.0-20241225144000-c2d5d3c4f303 h1:XBSq4rXFUgD8ic6Mr7dBwJN/47yg87XpZQhiknfr4Cg=
-github.com/hf/nitrite v0.0.0-20241225144000-c2d5d3c4f303/go.mod h1:ycRhVmo6wegyEl6WN+zXOHUTJvB0J2tiuH88q/McTK8=
 github.com/hf/nsm v0.0.0-20220930140112-cd181bd646b9 h1:pU32bJGmZwF4WXb9Yaz0T8vHDtIPVxqDOdmYdwTQPqw=
 github.com/hf/nsm v0.0.0-20220930140112-cd181bd646b9/go.mod h1:MJsac5D0fKcNWfriUERtln6segcGfD6Nu0V5uGBbPf8=
 github.com/holiman/billy v0.0.0-20240216141850-2abb0c79d3c4 h1:X4egAf/gcS1zATw6wn4Ej8vjuVGxeHdan+bRb2ebyv4=

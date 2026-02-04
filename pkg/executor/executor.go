@@ -315,8 +315,8 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
 	var totalFuel *big.Int = big.NewInt(0)
-	if req.DepositAmount.Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount, tempState, wasmModule)
+	if req.DepositAmount.ToInt().Sign() > 0 {
+		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount.ToInt(), tempState, wasmModule)
 		if failure != nil {
 			return nil, nil, nil, failure
 		}
@@ -327,13 +327,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
-	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
 		return nil, nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
@@ -390,13 +390,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	// Check if there is enough ETH to cover the fuel costs
 	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
-	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
 		return nil, nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
@@ -408,7 +408,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	//set the updated state
 	appData.SetAppState(tempState)
@@ -449,8 +449,8 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		NewStateRoot:   newStateRoot,
 		Events:         encryptedEvents,
 		Withdrawals:    withdrawals,
-		RefundAmount:   refundAmount,
-		ApplicationFee: applicationFee,
+		RefundAmount:   common.ToBig(refundAmount),
+		ApplicationFee: common.ToBig(applicationFee),
 	}
 
 	// Sign the update payload (produce attestation)
@@ -512,13 +512,13 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	// Check if there is enough ETH to cover the fuel costs // TODO make a helper function?
 	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
-	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
 		return nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
@@ -530,7 +530,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	initialAppData := appdata.NewAppData(initialAppState)
 
@@ -562,8 +562,8 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 		RequestID:      req.RequestID,
 		PrevStateRoot:  [32]byte{}, // No previous state root for new applications
 		NewStateRoot:   initialAppDataRoot,
-		RefundAmount:   refundAmount,
-		ApplicationFee: applicationFee,
+		RefundAmount:   common.ToBig(refundAmount),
+		ApplicationFee: common.ToBig(applicationFee),
 	}
 
 	// Sign the update payload (produce attestation)

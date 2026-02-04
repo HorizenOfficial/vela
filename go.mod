@@ -9,7 +9,6 @@ require (
 	github.com/elliotchance/orderedmap/v3 v3.1.0
 	github.com/ethereum/go-ethereum v1.16.1
 	github.com/google/go-cmp v0.5.9
-	github.com/hf/nitrite v0.0.0-20241225144000-c2d5d3c4f303
 	github.com/hf/nsm v0.0.0-20220930140112-cd181bd646b9
 	github.com/magiconair/properties v1.8.10
 	github.com/mdlayher/vsock v1.2.1

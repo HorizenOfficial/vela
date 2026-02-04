@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -143,14 +142,14 @@ var (
 func createRequest(requestType common.RequestType, appID common.ApplicationIdType) *common.Request {
 	requestId := testutil.GenerateRandomRequestID()
 
-	request := &common.Request{ProtocolVersion: 1, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, MaxFeeValue: big.NewInt(100)}
+	request := &common.Request{ProtocolVersion: 1, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, MaxFeeValue: common.NewBig(100)}
 	return request
 }
 
 func createRequestWithPayload(requestType common.RequestType, appID common.ApplicationIdType, payload []byte) *common.Request {
 	requestId := testutil.GenerateRandomRequestID()
 
-	request := &common.Request{ProtocolVersion: 1, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, Payload: payload, MaxFeeValue: big.NewInt(100)}
+	request := &common.Request{ProtocolVersion: 1, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, Payload: payload, MaxFeeValue: common.NewBig(100)}
 	return request
 }
 

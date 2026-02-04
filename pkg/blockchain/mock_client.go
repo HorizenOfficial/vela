@@ -111,7 +111,7 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 
 	// Set timestamp if not provided
 	if req.Timestamp == nil {
-		req.Timestamp = new(big.Int).SetInt64(time.Now().Unix())
+		req.Timestamp = common.ToBig(new(big.Int).SetInt64(time.Now().Unix()))
 	}
 
 	// Store the request
@@ -132,8 +132,8 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 		ApplicationID:   applicationId,
 		RequestType:     requestType,
 		Payload:         payload,
-		DepositAmount:   depositAmount,
-		MaxFeeValue:     maxFeeValue,
+		DepositAmount:   common.ToBig(depositAmount),
+		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}
 
 	err := c.SendRequestToChain(ctx, req)

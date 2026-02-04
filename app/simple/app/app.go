@@ -17,29 +17,35 @@ func LoadModule(appId int64) LoadModuleResult {
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
+		utils.LogError("LoadModule: failed to marshal initial state: %v", err)
 		return LoadModuleResult{
 			Error: fmt.Sprintf("failed to marshal initial state: %v", err),
 		}
 	}
+	fuel := NewUint256(5)
+	utils.LogDebug("LoadModule: appId=%d, stateSize=%d, fuel=%v", appId, len(stateJSON), fuel)
 	return LoadModuleResult{
 		State: stateJSON,
-		Fuel:  NewUint256(5),
+		Fuel:  fuel,
 	}
 }
 
 func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositResult {
 	if senderPtr == nil {
+		utils.LogError("DepositFunds: sender address is nil")
 		return DepositResult{Error: "Sender address is nil"}
 	}
 
 	//This should never happens but just in case
 	if value == nil {
+		utils.LogError("DepositFunds: value is nil")
 		return DepositResult{Error: "value is nil"}
 	}
 
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		// we could add the stateJSON to the error, but it is not safe if it is very large
+		utils.LogError("DepositFunds: failed to parse application state: %v", err)
 		return DepositResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
 	}
 
@@ -73,6 +79,7 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 
 	eventDataBytes, err := json.Marshal(eventData)
 	if err != nil {
+		utils.LogError("DepositFunds: failed to serialize event data: %v", err)
 		return DepositResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
 	}
 
@@ -85,14 +92,19 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(&currentState)
 	if err != nil {
+		utils.LogError("DepositFunds: failed to serialize new state: %v", err)
 		return DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
-	return DepositResult{State: newStateBytes, Events: events, Fuel: NewUint256(35)}
+	fuel := NewUint256(35)
+	utils.LogDebug("DepositFunds: sender=%s, value=%v, newBalance=%v, eventsCount=%d, stateSize=%d, fuel=%v",
+		senderHex, value, acc.Balance, len(events), len(newStateBytes), fuel)
+	return DepositResult{State: newStateBytes, Events: events, Fuel: fuel}
 }
 
 func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSON string) ProcessResult {
 	// Deserialize current state
 	if senderPtr == nil {
+		utils.LogError("ProcessRequest: sender address is nil")
 		return ProcessResult{Error: "Sender address is nil"}
 	}
 
@@ -101,6 +113,7 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
+		utils.LogError("ProcessRequest: failed to parse application state: %v", err)
 		return ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
 	}
 
@@ -114,6 +127,7 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 	// Parse payload if present (for additional options like deanonymize tag)
 	if payloadJSON != "" && payloadJSON != "{}" {
 		if err := json.Unmarshal([]byte(payloadJSON), &instructions); err != nil {
+			utils.LogError("ProcessRequest: failed to parse payload instructions: %v", err)
 			return ProcessResult{Error: fmt.Sprintf("Failed to parse payload instructions: %v", err)}
 		}
 	}
@@ -129,6 +143,7 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 		switch instructionType {
 		case "compare_addresses":
 			if instructions.CompareAccounts == nil {
+				utils.LogError("ProcessRequest: compare instruction is missing in payload")
 				return ProcessResult{Error: fmt.Sprintf("Compare instruction is missing in payload: %s", payloadJSON)}
 			}
 			targetAddress := instructions.CompareAccounts.TargetAddress
@@ -136,9 +151,11 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 
 			// Validate accounts to be compared
 			if currentState.Accounts[senderHex] == nil {
+				utils.LogError("ProcessRequest: account %s does not exist", senderHex)
 				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", senderHex)}
 			}
 			if currentState.Accounts[targetAddressHex] == nil {
+				utils.LogError("ProcessRequest: account %s does not exist", targetAddressHex)
 				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", targetAddressHex)}
 			}
 
@@ -165,6 +182,7 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 			}
 			eventDataBytes, err := json.Marshal(eventData)
 			if err != nil {
+				utils.LogError("ProcessRequest: failed to serialize event data: %v", err)
 				return ProcessResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
 			}
 
@@ -176,6 +194,7 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 
 		case "withdraw":
 			if instructions.Withdraw == nil {
+				utils.LogError("ProcessRequest: withdraw instruction is missing in payload")
 				return ProcessResult{Error: fmt.Sprintf("Withdraw instruction is missing in payload: %s", payloadJSON)}
 			}
 			if instructions.Withdraw.Amount == nil {
@@ -184,10 +203,12 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[senderHex] == nil {
+				utils.LogError("ProcessRequest: account %s does not exist", senderHex)
 				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist", senderHex)}
 			}
 
 			if currentState.Accounts[senderHex].Balance.Cmp(*instructions.Withdraw.Amount) < 0 {
+				utils.LogError("ProcessRequest: insufficient balance for account %s", senderHex)
 				return ProcessResult{Error: fmt.Sprintf("Insufficient balance %s for withdrawal %s for account %s",
 					currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount, senderHex)}
 			}
@@ -210,6 +231,7 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 			}
 			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
 			if err != nil {
+				utils.LogError("ProcessRequest: failed to serialize withdraw event data: %v", err)
 				return ProcessResult{Error: fmt.Sprintf("Failed to serialize withdraw event data: %+v, err: %v", withdrawEventData, err)}
 			}
 
@@ -248,6 +270,7 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 			}
 
 		default:
+			utils.LogError("ProcessRequest: unsupported instruction type: %s", instructions.Type)
 			return ProcessResult{Error: fmt.Sprintf("Unsupported instruction type: [%s]", instructionType)}
 		}
 	}
@@ -255,13 +278,17 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(currentState)
 	if err != nil {
+		utils.LogError("ProcessRequest: failed to serialize new state: %v", err)
 		return ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
+	fuel := NewUint256(50)
+	utils.LogDebug("ProcessRequest: sender=%s, eventsCount=%d, withdrawalsCount=%d, stateSize=%d, fuel=%v",
+		senderHex, len(events), len(withdrawals), len(newStateBytes), fuel)
 	return ProcessResult{
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
-		Fuel:        NewUint256(50),
+		Fuel:        fuel,
 	}
 }
 
