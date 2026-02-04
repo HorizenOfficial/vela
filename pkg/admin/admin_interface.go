@@ -13,21 +13,30 @@ type AdminCommandServer interface {
 
 }
 
+// AdminCmdHandler is the interface for handling executor admin commands
 type AdminCmdHandler interface {
 	CreateKeyAttestation(ctx context.Context) ([]byte, error)
+}
+
+// ManagerCmdHandler is the interface for handling manager admin commands
+type ManagerCmdHandler interface {
+	GetVersion(ctx context.Context) (string, error)
 }
 
 // AdminMessageType represents the command being sent
 type AdminMessageType int
 
 const (
-	// KeyAttestationRequestMessage represents a request to generate a key attestation
+	// KeyAttestationRequestMessage represents a request to generate a key attestation (executor)
 	KeyAttestationRequestMessage AdminMessageType = iota
 
-	// AdminResponseMessage represents a successful response 
-	AdminResponseMessage 
+	// AdminResponseMessage represents a successful response
+	AdminResponseMessage
 	// AdminErrorMessage represents an error message
 	AdminErrorMessage
+
+	// GetVersionRequestMessage represents a request to get the version (manager)
+	GetVersionRequestMessage
 )
 
 

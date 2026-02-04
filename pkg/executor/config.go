@@ -99,7 +99,6 @@ func LoadConfig() (*Config, error) {
 	}
 	
 	
-	
 	return &Config{
 		ChannelType:        channelType,
 		ChannelParams:      channelServerConnectionParams,

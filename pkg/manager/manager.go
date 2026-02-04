@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
@@ -19,6 +20,9 @@ import (
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
+
+// Version is the current version of the manager
+const Version = "0.1.0"
 
 // As of now we support only one app having this ID
 var (
@@ -37,6 +41,7 @@ type SecureProcessorManager struct {
 	blockchainClient  blockchain.Client
 	executorClient    communication.ExecutorClient
 	dataLayer         storage.DataLayer
+	adminServer       admin.ManagerAdminCommandServer
 	mu                sync.RWMutex
 	isRunning         bool
 	executorHandShake *ExecutorHandShake
@@ -48,12 +53,13 @@ type SecureProcessorManager struct {
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
-func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.DataLayer, executorClient communication.ExecutorClient, log logger.Logger) *SecureProcessorManager {
+func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.DataLayer, executorClient communication.ExecutorClient, adminServer admin.ManagerAdminCommandServer, log logger.Logger) *SecureProcessorManager {
 	manager := &SecureProcessorManager{
 		config:           config,
 		blockchainClient: blockchainClient,
 		executorClient:   executorClient,
 		dataLayer:        dataLayer,
+		adminServer:      adminServer,
 		stopChan:         make(chan struct{}),
 		executorHandShake: &ExecutorHandShake{
 			isComplete: make(chan struct{}),
@@ -63,6 +69,11 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 	}
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
+
+	// Set up the admin server command handler
+	if adminServer != nil {
+		adminServer.SetCmdHandler(manager)
+	}
 
 	return manager
 }
@@ -149,6 +160,16 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
 
+	// Start the admin command server if configured
+	if m.adminServer != nil {
+		adminParams := m.config.AdminChannelParams.(common.TcpChannelConnectionParams)
+		m.log.Info("Manager: Starting admin command server on %s", adminParams.Url())
+		if err := m.adminServer.Start(ctx, "Manager"); err != nil {
+			m.log.Warn("Manager: Failed to start admin server: %v", err)
+			// Don't fail startup if admin server fails - it's not critical
+		}
+	}
+
 	m.log.Info("Manager: starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
 
 	m.isRunning = true
@@ -174,6 +195,13 @@ func (m *SecureProcessorManager) Stop() error {
 
 	// Wait for the polling loop to stop
 	m.wg.Wait()
+
+	// Stop the admin server
+	if m.adminServer != nil {
+		if err := m.adminServer.Stop(); err != nil {
+			m.log.Warn("Manager: Error stopping admin server: %v", err)
+		}
+	}
 
 	// Close the executor client
 	if err := m.executorClient.Close(); err != nil {
@@ -240,6 +268,13 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 		m.completeExecutorHandshake(nil)
 	}
 	return nil
+}
+
+// GetVersion implements admin.ManagerCmdHandler interface.
+// Returns the current version of the manager.
+func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error) {
+	m.log.Info("Manager: GetVersion command received")
+	return Version, nil
 }
 
 // pollBlockchain polls the blockchain for new requests

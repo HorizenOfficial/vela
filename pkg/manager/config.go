@@ -29,6 +29,11 @@ type Config struct {
 	// ChannelParams are the parameters for the connection with the executor
 	ChannelParams common.ChannelConnectionParams
 
+	// AdminChannelParams are the parameters for the admin command server
+	AdminChannelParams common.ChannelConnectionParams
+	// AdminCommunicationParams holds parameters for communication towards the admin server
+	AdminCommunicationParams common.CommunicationParams
+
 	// Blockchain client parameters
 	// MockBlockChainClient specifies if the mock BlockChainClient should be used. Only for testing and development.
 	MockBlockChainClient bool
@@ -143,9 +148,22 @@ func LoadConfig() (*Config, error) {
 		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
 	}
 
+	// Admin command server configuration
+	adminServerPort := common.GetConfigVarInt64("MANAGER_ADMIN_PORT", 4002, fileProperties)
+	var adminChannelConnectionParams common.ChannelConnectionParams
+	// Admin server always uses TCP for external access
+	adminServerHost := common.GetConfigVar("MANAGER_ADMIN_HOST", "localhost", fileProperties)
+	adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: adminServerHost, Port: uint32(adminServerPort)}
+
+	adminCommunicationParams := common.CommunicationParams{
+		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("MANAGER_ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
+	}
+
 	cfg := &Config{
-		ChannelType:   channelType,
-		ChannelParams: channelConnectionParams,
+		ChannelType:              channelType,
+		ChannelParams:            channelConnectionParams,
+		AdminChannelParams:       adminChannelConnectionParams,
+		AdminCommunicationParams: adminCommunicationParams,
 
 		ReorgTimeout:              common.GetConfigVarInt64("REORG_TIMEOUT", 180, fileProperties), // 3 minutes
 		HandshakeTimeout:          common.GetConfigVarInt64("HANDSHAKE_TIMEOUT", 5, fileProperties),
