@@ -37,7 +37,7 @@ type testWithdrawInstruction struct {
 
 type testDeanonymizeInstruction struct {
 	// A dummy tag for the deanonymization request
-	Tag string `json:"type"`
+	Tag string `json:"tag"`
 }
 
 type testPayloadInstructions struct {
