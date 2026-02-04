@@ -35,11 +35,13 @@ $(OUT): $(SRC)
 	@mkdir -p $(@D)
 	@echo "Building development WASM module..."
 	tinygo build -o $@ -target=wasi .
+	@ls -lh $@ | awk '{print "Binary size: " $$5}'
 
 $(PROD_OUT): $(SRC)
 	@mkdir -p $(@D)
 	@echo "Building production WASM module..."
 	tinygo build -o $@ -opt=s -no-debug -target=wasi .
+	@ls -lh $@ | awk '{print "Binary size: " $$5}'
 
 wat: $(WAT)
 

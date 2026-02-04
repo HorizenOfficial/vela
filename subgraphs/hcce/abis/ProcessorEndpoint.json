@@ -7,7 +7,7 @@
         "type": "address"
       },
       {
-        "internalType": "contract AuthorityRegistry",
+        "internalType": "contract IAuthorityRegistry",
         "name": "_authorityRegistry",
         "type": "address"
       },
@@ -491,7 +491,7 @@
     "name": "authorityRegistry",
     "outputs": [
       {
-        "internalType": "contract AuthorityRegistry",
+        "internalType": "contract IAuthorityRegistry",
         "name": "",
         "type": "address"
       }
@@ -563,19 +563,19 @@
       {
         "components": [
           {
-            "internalType": "uint8",
-            "name": "protocolVersion",
-            "type": "uint8"
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
           },
           {
-            "internalType": "uint64",
-            "name": "applicationId",
-            "type": "uint64"
+            "internalType": "uint256",
+            "name": "depositAmount",
+            "type": "uint256"
           },
           {
-            "internalType": "enum Structs.RequestType",
-            "name": "requestType",
-            "type": "uint8"
+            "internalType": "uint256",
+            "name": "maxFeeValue",
+            "type": "uint256"
           },
           {
             "internalType": "bytes32",
@@ -588,24 +588,24 @@
             "type": "bytes"
           },
           {
-            "internalType": "uint256",
-            "name": "timestamp",
-            "type": "uint256"
-          },
-          {
             "internalType": "address",
             "name": "sender",
             "type": "address"
           },
           {
-            "internalType": "uint256",
-            "name": "depositAmount",
-            "type": "uint256"
+            "internalType": "uint64",
+            "name": "applicationId",
+            "type": "uint64"
           },
           {
-            "internalType": "uint256",
-            "name": "maxFeeValue",
-            "type": "uint256"
+            "internalType": "uint8",
+            "name": "protocolVersion",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum Structs.RequestType",
+            "name": "requestType",
+            "type": "uint8"
           }
         ],
         "internalType": "struct Structs.PendingRequest",
@@ -633,19 +633,19 @@
       {
         "components": [
           {
-            "internalType": "uint8",
-            "name": "protocolVersion",
-            "type": "uint8"
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
           },
           {
-            "internalType": "uint64",
-            "name": "applicationId",
-            "type": "uint64"
+            "internalType": "uint256",
+            "name": "depositAmount",
+            "type": "uint256"
           },
           {
-            "internalType": "enum Structs.RequestType",
-            "name": "requestType",
-            "type": "uint8"
+            "internalType": "uint256",
+            "name": "maxFeeValue",
+            "type": "uint256"
           },
           {
             "internalType": "bytes32",
@@ -658,14 +658,55 @@
             "type": "bytes"
           },
           {
-            "internalType": "uint256",
-            "name": "timestamp",
-            "type": "uint256"
-          },
-          {
             "internalType": "address",
             "name": "sender",
             "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "applicationId",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint8",
+            "name": "protocolVersion",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum Structs.RequestType",
+            "name": "requestType",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct Structs.PendingRequest[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "offset",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "limit",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPendingRequestsPage",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
           },
           {
             "internalType": "uint256",
@@ -676,6 +717,36 @@
             "internalType": "uint256",
             "name": "maxFeeValue",
             "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "requestId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes",
+            "name": "payload",
+            "type": "bytes"
+          },
+          {
+            "internalType": "address",
+            "name": "sender",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "applicationId",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint8",
+            "name": "protocolVersion",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum Structs.RequestType",
+            "name": "requestType",
+            "type": "uint8"
           }
         ],
         "internalType": "struct Structs.PendingRequest[]",
@@ -899,19 +970,19 @@
     "name": "requestById",
     "outputs": [
       {
-        "internalType": "uint8",
-        "name": "protocolVersion",
-        "type": "uint8"
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
       },
       {
-        "internalType": "uint64",
-        "name": "applicationId",
-        "type": "uint64"
+        "internalType": "uint256",
+        "name": "depositAmount",
+        "type": "uint256"
       },
       {
-        "internalType": "enum Structs.RequestType",
-        "name": "requestType",
-        "type": "uint8"
+        "internalType": "uint256",
+        "name": "maxFeeValue",
+        "type": "uint256"
       },
       {
         "internalType": "bytes32",
@@ -924,24 +995,24 @@
         "type": "bytes"
       },
       {
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      },
-      {
         "internalType": "address",
         "name": "sender",
         "type": "address"
       },
       {
-        "internalType": "uint256",
-        "name": "depositAmount",
-        "type": "uint256"
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
       },
       {
-        "internalType": "uint256",
-        "name": "maxFeeValue",
-        "type": "uint256"
+        "internalType": "uint8",
+        "name": "protocolVersion",
+        "type": "uint8"
+      },
+      {
+        "internalType": "enum Structs.RequestType",
+        "name": "requestType",
+        "type": "uint8"
       }
     ],
     "stateMutability": "view",

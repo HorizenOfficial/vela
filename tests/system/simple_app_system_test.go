@@ -26,35 +26,28 @@ import (
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
 
-var testLogger1 logger.Logger
-var testLogger2 logger.Logger
-
-func TestMain(m *testing.M) {
-	// Initialize once
-	//	testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
-	testLogger1 = logger.NewLogger(
-		&logger.Config{
+// getTestLogger creates a new logger instance for every test
+func getTestLogger(t *testing.T, useNetwork bool) logger.Logger {
+	if !useNetwork {
+		return logger.NewLogger(&logger.Config{
 			Kind:         "zerolog",
 			ConsoleLevel: "info",
-			ConsoleColor: false, // colors can print escape chars on tty
 			Console:      true,
-			//FileName:     "qqq.log", //no file here
-			//FileLevel:    "info",
-		},
-	)
+			ConsoleColor: false,
+		})
+	}
 
-	testLogger2 = logger.NewLogger(
-		&logger.Config{
-			Kind:             "zeronetwork",
-			ConsoleLevel:     "trace",
-			RemoteLogNetwork: "tcp",
-			//			RemoteLogAddress: "127.0.0.1:2233",
-			RemoteLogParams: common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 5000},
-			//RemoteLogNetwork: "vsock",
-			//RemoteLogAddress: "5:2233",
-			NetworkLevel: "trace"},
-	)
+	// Network logger config
+	return logger.NewLogger(&logger.Config{
+		Kind:             "zeronetwork",
+		ConsoleLevel:     "trace",
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams:  common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 5000},
+		NetworkLevel:     "trace",
+	})
+}
 
+func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()
 	os.Exit(code)
@@ -95,9 +88,9 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		RequestID:     deployReqID,
 		Payload:       wasmBytecode,
 		Sender:        sender,
-		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		DepositAmount: big.NewInt(0),
-		MaxFeeValue:   big.NewInt(100),
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		DepositAmount: common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -148,7 +141,7 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	err = json.Unmarshal(decryptedDepositData, &depositEventData)
 	require.NoError(t, err)
 	require.Equal(t, "deposit", depositEventData.Type)
-	require.Equal(t, amount, depositEventData.Amount)
+	require.Equal(t, 0, amount.Cmp(depositEventData.Amount.ToInt()))
 
 	// Verify updatePayload signature
 	executorSigningKey, err := suite.GetExecutorSigningKey()
@@ -160,12 +153,14 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 }
 
 func TestExecutorManagerStart(t *testing.T) {
+	log1 := getTestLogger(t, false)
+	log2 := getTestLogger(t, true)
 
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, testLogger2, testLogger2)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, log1, log2)
 	defer suite.Cleanup()
 
 	// 2. Start services
@@ -176,8 +171,9 @@ func TestExecutorManagerStart(t *testing.T) {
 }
 
 func TestDeploySimpleApp(t *testing.T) {
+	log := getTestLogger(t, true)
 	// we use for both mgr and executor the remote network logger
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger2, testLogger2)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -194,7 +190,9 @@ func TestDeploySimpleApp(t *testing.T) {
 
 // this will be modified when we support an app id other that "1"
 func TestDeploySimpleAppNegativeCase(t *testing.T) {
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
+	log1 := getTestLogger(t, false)
+	log2 := getTestLogger(t, true)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log1, log2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -217,9 +215,9 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		RequestID:     reqID,
 		Payload:       wasmBytecode,
 		Sender:        sender,
-		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		DepositAmount: big.NewInt(0),
-		MaxFeeValue:   big.NewInt(100),
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		DepositAmount: common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -249,9 +247,9 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		RequestID:     reqID,
 		Payload:       wasmBytecode,
 		Sender:        sender,
-		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		DepositAmount: big.NewInt(0),
-		MaxFeeValue:   big.NewInt(100),
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		DepositAmount: common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
 
@@ -269,11 +267,13 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 }
 
 func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
+	//	log1 := getTestLogger(t, false)
+	log2 := getTestLogger(t, true)
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log2, log2)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)
@@ -282,6 +282,8 @@ func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
 }
 
 func TestSimpleAppCompareAction(t *testing.T) {
+	log1 := getTestLogger(t, false)
+	log2 := getTestLogger(t, true)
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
@@ -303,7 +305,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// we need to pass the keys for having them in the test suite
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, testLogger1, testLogger2)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, log1, log2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -344,7 +346,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. User1 deposits funds
-	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user1Address, big.NewInt(2000))
+	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user1Address, big.NewInt(2000000000000000000)) // 2 ETH
 
 	// 6. User2 deposits funds
 	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user2Address, big.NewInt(1000))
@@ -504,12 +506,14 @@ func TestSimpleAppCompareAction(t *testing.T) {
 }
 
 func TestSimpleApp_NegativeScenarios(t *testing.T) {
+	log1 := getTestLogger(t, false)
+	log2 := getTestLogger(t, true)
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 	timeout_value := 10 * time.Second
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", testLogger1, testLogger2)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log1, log2)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
