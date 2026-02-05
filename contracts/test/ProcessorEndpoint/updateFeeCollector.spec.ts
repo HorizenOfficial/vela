@@ -67,12 +67,13 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
         const { requestId, maxFeeValue } = await submitBasicRequest('0x01');
-        const collectorBalanceBefore = await signers[3].provider!.getBalance(newCollector);
+        // With pull pattern, funds are credited to pending deposits
+        const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
         await processorEndpoint.connect(signers[1]).markRequestCompleted(requestId, 0, maxFeeValue);
 
-        const collectorBalanceAfter = await signers[3].provider!.getBalance(newCollector);
-        expect(collectorBalanceAfter - collectorBalanceBefore).to.equal(maxFeeValue);
+        const collectorPendingAmountAfter = await processorEndpoint.payments(newCollector);
+        expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(maxFeeValue);
       });
 
       it('routes fees to the new feeCollector for markRequestFailed', async () => {
@@ -80,12 +81,13 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
         const { requestId, maxFeeValue } = await submitBasicRequest('0x02');
-        const collectorBalanceBefore = await signers[4].provider!.getBalance(newCollector);
+        // With pull pattern, funds are credited to pending deposits
+        const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
         await processorEndpoint.connect(signers[1]).markRequestFailed(requestId, 1, 'failed');
 
-        const collectorBalanceAfter = await signers[4].provider!.getBalance(newCollector);
-        expect(collectorBalanceAfter - collectorBalanceBefore).to.equal(maxFeeValue);
+        const collectorPendingAmountAfter = await processorEndpoint.payments(newCollector);
+        expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(maxFeeValue);
       });
 
       it('routes fees to the new feeCollector for stateUpdate', async () => {
@@ -93,7 +95,8 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
         const { requestId, applicationId, maxFeeValue } = await submitBasicRequest('0x03');
-        const collectorBalanceBefore = await signers[5].provider!.getBalance(newCollector);
+        // With pull pattern, funds are credited to pending deposits
+        const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
         await processorEndpoint
           .connect(signers[1])
@@ -110,8 +113,8 @@ describe('ProcessorEndpoint Test', function () {
             '0x'
           );
 
-        const collectorBalanceAfter = await signers[5].provider!.getBalance(newCollector);
-        expect(collectorBalanceAfter - collectorBalanceBefore).to.equal(maxFeeValue);
+        const collectorPendingAmountAfter = await processorEndpoint.payments(newCollector);
+        expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(maxFeeValue);
       });
     });
   });

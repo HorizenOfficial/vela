@@ -143,14 +143,17 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
         const { requestId } = await submitBasicRequest(signers[0], '0x08');
-        const collectorBalanceBefore = await signers[3].provider!.getBalance(newCollector);
+        // With pull pattern, funds are credited to pending deposits
+        const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
         await processorEndpoint
           .connect(signers[1])
           .markRequestCompleted(requestId, 0, minFeePerRequest);
 
-        const collectorBalanceAfter = await signers[3].provider!.getBalance(newCollector);
-        expect(collectorBalanceAfter - collectorBalanceBefore).to.equal(minFeePerRequest);
+        const collectorPendingAmountAfter = await processorEndpoint.payments(newCollector);
+        expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(
+          minFeePerRequest
+        );
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
       });
 
@@ -170,7 +173,8 @@ describe('ProcessorEndpoint Test', function () {
           });
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(receipt);
-        const senderBalanceAfterSubmit = await sender.provider!.getBalance(
+        // With pull pattern, funds are credited to pending deposits
+        const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
           await sender.getAddress()
         );
 
@@ -185,7 +189,10 @@ describe('ProcessorEndpoint Test', function () {
         const senderBalanceAfterComplete = await sender.provider!.getBalance(
           await sender.getAddress()
         );
-        expect(senderBalanceAfterComplete - senderBalanceAfterSubmit).to.equal(refund);
+        const senderPendingAmountAfterComplete = await processorEndpoint.payments(
+          await sender.getAddress()
+        );
+        expect(senderPendingAmountAfterComplete - senderPendingAmountAfterSubmit).to.equal(refund);
       });
     });
   });

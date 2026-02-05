@@ -68,6 +68,10 @@ interface IProcessorEndpoint {
   /// @notice Emitted when the fee collector address is updated.
   /// @param newFeeCollector New fee collector address.
   event FeeCollectorUpdated(address newFeeCollector);
+  /// @notice Emitted when a payment is withdrawn.
+  /// @param payee Address of the payee.
+  /// @param amount Amount withdrawn.
+  event PaymentWithdrawn(address indexed payee, uint256 amount);
 
   /// @notice A zero address was supplied where not allowed.
   error AddressCantBeZero();
@@ -212,4 +216,8 @@ interface IProcessorEndpoint {
     uint256 depositAmount,
     uint256 idx
   ) external pure returns (bytes32);
+
+  /// @notice Withdraws pending payments for a given payee.
+  /// @param payee Payee address.
+  function withdrawPayments(address payable payee) external;
 }
