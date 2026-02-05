@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/binary"
+	"math"
 	"unsafe"
 )
 
@@ -114,15 +115,28 @@ func PtrToString(ptr *byte, length int32) string {
 	return string(unsafe.Slice(ptr, length))
 }
 
+const (
+	// MaxWasmSize is the maximum size allowed for the data portion.
+	// We subtract 4 to leave room for the 32-bit length prefix.
+	MaxWasmDataSize = math.MaxInt32 - 4
+)
+
 // StringToPtr converts a Go byte slice to an allocated memory pointer for WASM.
 func StringToPtr(data []byte) *byte {
 	dataLength := len(data)
 	if dataLength == 0 {
 		return nil
 	}
+	if dataLength > MaxWasmDataSize {
+		println("data len exceeds max int size, dataLength=", dataLength)
+		return nil
+	}
 
 	n := 4 + dataLength // 4 bytes for length + actual data length
 	ptrVal := allocate(int32(n))
+	// note: we do not check for ptrVal == 0 because we already check size to be non negative, and
+	// an OOM would have panicked already in allocate()
+
 	dataBytes := (*byte)(unsafe.Pointer(uintptr(ptrVal)))
 	destination := unsafe.Slice(dataBytes, n)
 

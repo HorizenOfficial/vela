@@ -446,9 +446,9 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		RequestID:     RequestID,
 		Payload:       bytecode,
 		Sender:        userAddress,
-		Timestamp:     new(big.Int).SetInt64(time.Now().Unix()),
-		DepositAmount: big.NewInt(0),
-		MaxFeeValue:   big.NewInt(100),
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		DepositAmount: common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)
@@ -530,7 +530,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	err = json.Unmarshal(decryptedDepositData, &depositEventData)
 	require.NoError(t, err)
 	require.Equal(t, "deposit", depositEventData.Type)
-	require.Equal(t, depositAmount, depositEventData.Amount)
+	require.Equal(t, 0, depositAmount.Cmp(depositEventData.Amount.ToInt()))
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload(RequestID)
@@ -601,7 +601,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		RequestID,
 		userAddress,
 		recipientAddress,
-		withdrawAmount,
+		common.ToBig(withdrawAmount),
 		executorPubKey,
 	)
 	require.NoError(t, err)
@@ -627,14 +627,14 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 	require.Equal(t, "withdrawal", withdrawalEventData.Type)
 	require.Equal(t, recipientAddress, withdrawalEventData.To)
-	require.Equal(t, withdrawAmount, withdrawalEventData.Amount)
+	require.Equal(t, 0, withdrawAmount.Cmp(withdrawalEventData.Amount.ToInt()))
 
 	// Wait for actual withdrawal to be recorded
 	withdrawal, err := suite.WaitForWithdrawal(appId, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawal)
 	require.Equal(t, recipientAddress, withdrawal.DestinationAddress)
-	require.Equal(t, withdrawAmount, withdrawal.Amount)
+	require.Equal(t, 0, withdrawAmount.Cmp(withdrawal.Amount.ToInt()))
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload(RequestID)

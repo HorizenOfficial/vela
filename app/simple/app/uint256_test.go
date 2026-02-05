@@ -2,9 +2,11 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"math/bits"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,66 +136,183 @@ func TestString(t *testing.T) {
 	}
 }
 
+func TestToHex(t *testing.T) {
+	tests := []struct {
+		val      string // decimal
+		expected string // hex with 0x prefix
+	}{
+		{"0", "0x0"},
+		{"1", "0x1"},
+		{"10", "0xa"},
+		{"15", "0xf"},
+		{"16", "0x10"},
+		{"255", "0xff"},
+		{"256", "0x100"},
+		{"100", "0x64"},
+		{"12345", "0x3039"},
+		{"18446744073709551615", "0xffffffffffffffff"}, // Max uint64
+		{"340282366920938463463374607431768211455", "0xffffffffffffffffffffffffffffffff"}, // Max uint128
+		{"115792089237316195423570985008687907853269984665640564039457584007913129639935", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}, // Max uint256
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.val, func(t *testing.T) {
+			b, _ := new(big.Int).SetString(tt.val, 10)
+			u := new(Uint256).SetBytes(b.Bytes())
+			require.Equal(t, tt.expected, u.ToHex())
+		})
+	}
+}
+
 func TestJSON(t *testing.T) {
 	type wrapper struct {
 		Val *Uint256 `json:"val"`
 	}
 
-	tests := []string{
-		"0",
-		"100",
-		"12345678901234567890",
+	tests := []struct {
+		valStr string
+		hexStr string
+	}{
+		{"0", "0x0"},
+		{"100", "0x64"},
+		{"12345678901234567890", "0xab54a98ceb1f0ad2"},
 	}
 
-	for _, s := range tests {
-		t.Run(s, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.valStr, func(t *testing.T) {
 			// Test Marshal
-			b, _ := new(big.Int).SetString(s, 10)
+			b, _ := new(big.Int).SetString(tt.valStr, 10)
 			u := new(Uint256).SetBytes(b.Bytes())
 			w := wrapper{Val: u}
 
 			data, err := json.Marshal(w)
 			require.NoError(t, err)
 
-			// Expect plain number or string depending on implementation
-			// Current implementation marshals as string digits without quotes if called directly,
-			// but wrapper with `json:"val"` and MarshalJSON returning []byte(string) usually results in
-			// the raw characters being inserted into the JSON.
-			// However, our MarshalJSON returns []byte(z.String()), which are just the digits.
-			// If we put that into a JSON object value position, it acts as a JSON Number.
-			// Let's verify what comes out.
-			require.Contains(t, string(data), s)
+			// Expect hex string with 0x prefix
+			// "val": "0x..."
+			expected := fmt.Sprintf(`"val":"%s"`, tt.hexStr)
+			// Remove spaces from data just in case
+			jsonStr := strings.ReplaceAll(string(data), " ", "")
+			require.Contains(t, jsonStr, expected)
 
 			// Test Unmarshal
 			var w2 wrapper
 			err = json.Unmarshal(data, &w2)
 			require.NoError(t, err)
-			require.Equal(t, s, w2.Val.String())
+			require.Equal(t, tt.valStr, w2.Val.String())
 		})
 	}
 
-	// Test unmarshal from string (quoted)
-	t.Run("quoted string", func(t *testing.T) {
-		jsonStr := `{"val": "12345"}`
+	// Test unmarshal from hex string (quoted)
+	t.Run("quoted hex string", func(t *testing.T) {
+		jsonStr := `{"val": "0x3039"}` // 12345
 		var w wrapper
 		err := json.Unmarshal([]byte(jsonStr), &w)
 		require.NoError(t, err)
 		require.Equal(t, "12345", w.Val.String())
 	})
+	
+	t.Run("invalid prefix", func(t *testing.T) {
+		jsonStr := `{"val": "12345"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid Uint256 prefix")
+	})
 
-	t.Run("unquoted string", func(t *testing.T) {
+	t.Run("unquoted decimal number rejected", func(t *testing.T) {
 		jsonStr := `{"val": 12345}`
 		var w wrapper
 		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid Uint256 format")
+	})
+
+	t.Run("leading zeros", func(t *testing.T) {
+		// Leading zeros should be ignored (0x00000064 == 0x64)
+		jsonStr := `{"val": "0x00000064"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
 		require.NoError(t, err)
-		require.Equal(t, "12345", w.Val.String())
+		require.Equal(t, "100", w.Val.String())
+
+		// Compare with non-padded version
+		jsonStr2 := `{"val": "0x64"}`
+		var w2 wrapper
+		err = json.Unmarshal([]byte(jsonStr2), &w2)
+		require.NoError(t, err)
+		require.Equal(t, w.Val.String(), w2.Val.String())
+	})
+
+	t.Run("uppercase hex", func(t *testing.T) {
+		// Uppercase hex digits should work
+		jsonStr := `{"val": "0xFF"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		require.Equal(t, "255", w.Val.String())
+
+		// Compare with lowercase version
+		jsonStr2 := `{"val": "0xff"}`
+		var w2 wrapper
+		err = json.Unmarshal([]byte(jsonStr2), &w2)
+		require.NoError(t, err)
+		require.Equal(t, w.Val.String(), w2.Val.String())
+	})
+
+	t.Run("mixed case hex", func(t *testing.T) {
+		jsonStr := `{"val": "0xAbCdEf"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		require.Equal(t, "11259375", w.Val.String()) // 0xABCDEF = 11259375
+	})
+
+	t.Run("uppercase 0X prefix rejected", func(t *testing.T) {
+		// Uppercase 0X prefix should be rejected for consistency with common.Big
+		jsonStr := `{"val": "0X64"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "only lowercase 0x is accepted")
+	})
+
+	t.Run("empty hex string rejected", func(t *testing.T) {
+		// Empty hex string "0x" should be rejected, use "0x0" for zero
+		jsonStr := `{"val": "0x"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "empty hex string after 0x prefix")
+	})
+
+	t.Run("very long hex string near max", func(t *testing.T) {
+		// Test with 64 hex digits (max uint256)
+		maxHex := "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+		jsonStr := `{"val": "` + maxHex + `"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		max256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+		require.Equal(t, max256.String(), w.Val.String())
+	})
+
+	t.Run("hex string one digit less than max", func(t *testing.T) {
+		// 63 hex digits (just under max)
+		nearMaxHex := "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+		jsonStr := `{"val": "` + nearMaxHex + `"}`
+		var w wrapper
+		err := json.Unmarshal([]byte(jsonStr), &w)
+		require.NoError(t, err)
+		expected, _ := new(big.Int).SetString("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16)
+		require.Equal(t, expected.String(), w.Val.String())
 	})
 }
 
 func TestUnmarshalJSONOverflow(t *testing.T) {
 	// 2^256
-	overMax := "115792089237316195423570985008687907853269984665640564039457584007913129639936"
-	jsonStr := `{"val": "` + overMax + `"}`
+	overMaxHex := "0x10000000000000000000000000000000000000000000000000000000000000000"
+	jsonStr := `{"val": "` + overMaxHex + `"}`
 
 	type wrapper struct {
 		Val *Uint256 `json:"val"`
@@ -283,6 +402,79 @@ func TestAdd64(t *testing.T) {
 	// 2^64
 	expected := new(big.Int).Add(new(big.Int).SetUint64(^uint64(0)), big.NewInt(1))
 	require.Equal(t, expected.String(), u.String())
+}
+
+func TestAdd64Overflow(t *testing.T) {
+	max256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+	tests := []struct {
+		name          string
+		initial       string // decimal
+		add           uint64
+		expectOverflow bool
+	}{
+		{
+			name:          "no overflow small",
+			initial:       "100",
+			add:           50,
+			expectOverflow: false,
+		},
+		{
+			name:          "no overflow max",
+			initial:       max256.String(),
+			add:           0,
+			expectOverflow: false,
+		},
+		{
+			name:          "overflow max plus one",
+			initial:       max256.String(),
+			add:           1,
+			expectOverflow: true,
+		},
+		{
+			name:          "overflow max plus max uint64",
+			initial:       max256.String(),
+			add:           ^uint64(0),
+			expectOverflow: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bInitial, _ := new(big.Int).SetString(tt.initial, 10)
+			u := new(Uint256).SetBytes(bInitial.Bytes())
+
+			sumBig := new(big.Int).Add(bInitial, new(big.Int).SetUint64(tt.add))
+			expectedOverflow := sumBig.BitLen() > 256
+
+			uCopy := *u
+			overflow := (&uCopy).Add64Overflow(tt.add)
+
+			require.Equal(t, expectedOverflow, overflow, "Overflow mismatch for %s + %d", tt.initial, tt.add)
+
+			// Verify result matches Add64 (mod 2^256)
+			uCopy2 := *u
+			(&uCopy2).Add64(tt.add)
+			require.Equal(t, uCopy2.String(), uCopy.String(), "Result mismatch for %s + %d", tt.initial, tt.add)
+		})
+	}
+
+	// Random test for overflow detection
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < 200; i++ {
+		b := new(big.Int).Rand(r, new(big.Int).Lsh(big.NewInt(1), 256))
+		add := r.Uint64()
+
+		u := new(Uint256).SetBytes(b.Bytes())
+
+		sumBig := new(big.Int).Add(b, new(big.Int).SetUint64(add))
+		expectedOverflow := sumBig.BitLen() > 256
+
+		uCopy := *u
+		overflow := (&uCopy).Add64Overflow(add)
+
+		require.Equal(t, expectedOverflow, overflow, "Random overflow test: %v + %d", b, add)
+	}
 }
 
 // This test targets worst-case carry propagation during mul-by-word.

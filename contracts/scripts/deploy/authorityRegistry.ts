@@ -1,6 +1,6 @@
 import { ethers } from 'hardhat';
 
-async function deploy()  {
+async function deploy() {
   const deployer = (await ethers.getSigners())[0];
   const deployerAddress = await deployer.getAddress();
 
@@ -12,7 +12,7 @@ async function deploy()  {
   `);
 
   // 1) Deploy DefaultAuthority
-  const DefaultAuthority = await ethers.getContractFactory("DefaultAuthority");
+  const DefaultAuthority = await ethers.getContractFactory('DefaultAuthority');
   const defaultAuthority = await DefaultAuthority.deploy(owner);
   await defaultAuthority.deploymentTransaction()!.wait();
   const defaultAuthorityAddr = await defaultAuthority.getAddress();
@@ -20,7 +20,7 @@ async function deploy()  {
   console.log(`  contract address: ${defaultAuthorityAddr}`);
 
   // 2) Deploy AuthorityRegistry (proxy) apuntando al default
-  const AuthorityRegistry = await ethers.getContractFactory("AuthorityRegistry");
+  const AuthorityRegistry = await ethers.getContractFactory('AuthorityRegistry');
   const authorityRegistry = await AuthorityRegistry.deploy(owner, defaultAuthorityAddr);
   await authorityRegistry.deploymentTransaction()!.wait();
   const authorityRegistryAddr = await authorityRegistry.getAddress();

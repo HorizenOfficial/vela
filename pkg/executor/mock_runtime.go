@@ -16,7 +16,7 @@ import (
 
 type testAccountState struct {
 	Address ethCommon.Address `json:"address"`
-	Balance *big.Int          `json:"balance"`
+	Balance *common.Big       `json:"balance"`
 }
 
 type testApplicationInternalState struct {
@@ -27,12 +27,12 @@ type testApplicationInternalState struct {
 
 type testTransferInstruction struct {
 	To     ethCommon.Address `json:"to"`
-	Amount *big.Int          `json:"amount"`
+	Amount *common.Big       `json:"amount"`
 }
 
 type testWithdrawInstruction struct {
 	To     ethCommon.Address `json:"to"`
-	Amount *big.Int          `json:"amount"`
+	Amount *common.Big       `json:"amount"`
 }
 
 type testPayloadInstructions struct {
@@ -74,7 +74,7 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationId
 }
 
 func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	r.log.Info("Mock Runtime: Processing deposit for application %d ( value: %d wei for sender: %s )", appId, depositAmount, sender)
+	r.log.Info("Mock Runtime: Processing deposit for application %d ( value: %s wei for sender: %s )", appId, depositAmount.String(), sender)
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
@@ -89,8 +89,8 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 		// Ensure sender account exists
 		acct := ensureAccount(accounts, sender)
 		// Update balance
-		balance := new(big.Int).Add(acct.Balance, depositAmount)
-		acct.Balance = balance
+		balance := new(big.Int).Add(acct.Balance.ToInt(), depositAmount)
+		acct.Balance = common.ToBig(balance)
 		// Increment nonce
 		nonce++
 		currentState.Nonce = nonce
@@ -98,7 +98,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 		depositEvent := common.PlainEvent{
 			UserID:       sender,
 			EventSubType: "deposit",
-			Data:         []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, depositAmount, balance, nonce)),
+			Data:         []byte(fmt.Sprintf(`{"type":"deposit","amount":"0x%s","balance":"0x%s","nonce":%d}`, depositAmount.Text(16), balance.Text(16), nonce)),
 		}
 		events = append(events, depositEvent)
 	}
@@ -148,7 +148,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			if senderAcct == nil {
 				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
-			if senderAcct.Balance.Cmp(amount) < 0 {
+			if senderAcct.Balance.ToInt().Cmp(amount.ToInt()) < 0 {
 				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s has insufficient balance", sender), nil)
 			}
 
@@ -156,8 +156,8 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			recipientAcct := ensureAccount(accounts, to)
 
 			// Execute transfer
-			senderAcct.Balance.Sub(senderAcct.Balance, amount)
-			recipientAcct.Balance.Add(recipientAcct.Balance, amount)
+			senderAcct.Balance = common.ToBig(new(big.Int).Sub(senderAcct.Balance.ToInt(), amount.ToInt()))
+			recipientAcct.Balance = common.ToBig(new(big.Int).Add(recipientAcct.Balance.ToInt(), amount.ToInt()))
 			nonce++
 			currentState.Nonce = nonce
 
@@ -165,14 +165,14 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			senderEvent := common.PlainEvent{
 				UserID:       sender,
 				EventSubType: "transfer_sent",
-				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
-					to, amount, senderAcct.Balance, nonce)),
+				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
+					to, amount.ToInt().Text(16), senderAcct.Balance.ToInt().Text(16), nonce)),
 			}
 			recipientEvent := common.PlainEvent{
 				UserID:       to,
 				EventSubType: "transfer_received",
-				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":%d,"balance":%d,"nonce":%d}`,
-					sender, amount, recipientAcct.Balance, nonce)),
+				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
+					sender, amount.ToInt().Text(16), recipientAcct.Balance.ToInt().Text(16), nonce)),
 			}
 			events = append(events, senderEvent, recipientEvent)
 
@@ -188,12 +188,12 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			if senderAcct == nil {
 				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
-			if senderAcct.Balance.Cmp(amount) < 0 {
+			if senderAcct.Balance.ToInt().Cmp(amount.ToInt()) < 0 {
 				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, "request function execution failed", nil)
 			}
 
 			// Execute withdrawal
-			senderAcct.Balance.Sub(senderAcct.Balance, amount)
+			senderAcct.Balance = common.ToBig(new(big.Int).Sub(senderAcct.Balance.ToInt(), amount.ToInt()))
 			nonce++
 			currentState.Nonce = nonce
 
@@ -202,8 +202,8 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			withdrawEvent := common.PlainEvent{
 				UserID:       sender,
 				EventSubType: "withdrawal",
-				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
-					to, amount, senderAcct.Balance, nonce)),
+				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
+					to, amount.ToInt().Text(16), senderAcct.Balance.ToInt().Text(16), nonce)),
 			}
 			events = append(events, withdrawEvent)
 
@@ -256,7 +256,7 @@ func (r *MockRuntime) Close() error {
 func ensureAccount(accounts map[ethCommon.Address]*testAccountState, addr ethCommon.Address) *testAccountState {
 	acct := accounts[addr]
 	if acct == nil {
-		acct = &testAccountState{Address: addr, Balance: big.NewInt(0)}
+		acct = &testAccountState{Address: addr, Balance: common.NewBig(0)}
 		accounts[addr] = acct
 	}
 	return acct

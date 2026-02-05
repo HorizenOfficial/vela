@@ -100,7 +100,7 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	withdrawals := make([]withdrawalTuple, len(updatePayload.Withdrawals))
 
 	for i, withdrawal := range updatePayload.Withdrawals {
-		amount := withdrawal.Amount
+		amount := withdrawal.Amount.ToInt()
 
 		withdrawals[i] = withdrawalTuple{
 			Receiver: withdrawal.DestinationAddress,
@@ -123,8 +123,8 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 		eventArr,
 		eventSubTypesArr,
 		withdrawalArr,
-		updatePayload.RefundAmount,
-		updatePayload.ApplicationFee,
+		updatePayload.RefundAmount.ToInt(),
+		updatePayload.ApplicationFee.ToInt(),
 	}
 
 	// Encoding parameters
