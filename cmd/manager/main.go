@@ -156,7 +156,7 @@ func main() {
 	// Create the admin command server
 	adminChannelParams := config.AdminChannelParams.(common.TcpChannelConnectionParams)
 	adminFactory := communication.NewTCPConnectionFactory(adminChannelParams.Url())
-	adminServer := admin.NewManagerAdminServer(adminFactory, config.AdminCommunicationParams, log)
+	adminServer := admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
 
 	// Create the manager
 	secureProcessorManager := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient, adminServer, log)

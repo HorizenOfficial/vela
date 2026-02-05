@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// MockManagerCmdHandler is a mock implementation of the ManagerCmdHandler interface.
+// MockManagerCmdHandler is a mock implementation of the AdminCmdHandler interface.
 type MockManagerCmdHandler struct {
 	version   string
 	err       error
@@ -24,10 +24,15 @@ type MockManagerCmdHandler struct {
 	mu        sync.Mutex
 }
 
-func (m *MockManagerCmdHandler) GetVersion(ctx context.Context) (string, error) {
+func (m *MockManagerCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
+
+	if msg.Type != GetVersionRequestMessage {
+		return nil, errors.New("unsupported command type")
+	}
+
 	return m.version, m.err
 }
 
@@ -42,7 +47,7 @@ func TestManagerAdminServer_StartStop(t *testing.T) {
 	defer listener.Close()
 
 	factory := &MockConnectionFactory{listener: listener}
-	server := NewManagerAdminServer(factory, commParams, testLogger)
+	server := NewAdminServer(factory, commParams, testLogger)
 
 	// Test Start
 	err := server.Start(context.Background(), "test")
@@ -69,7 +74,7 @@ func TestManagerAdminServer_StartStop(t *testing.T) {
 }
 
 func TestManagerAdminServer_HandleGetVersionSuccess(t *testing.T) {
-	server := NewManagerAdminServer(nil, commParams, testLogger)
+	server := NewAdminServer(nil, commParams, testLogger)
 	server.clientTimeout = 500 * time.Millisecond
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
@@ -99,7 +104,7 @@ func TestManagerAdminServer_HandleGetVersionSuccess(t *testing.T) {
 }
 
 func TestManagerAdminServer_HandleGetVersionHandlerError(t *testing.T) {
-	server := NewManagerAdminServer(nil, commParams, testLogger)
+	server := NewAdminServer(nil, commParams, testLogger)
 	server.clientTimeout = 500 * time.Millisecond
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
@@ -125,13 +130,13 @@ func TestManagerAdminServer_HandleGetVersionHandlerError(t *testing.T) {
 	dataBytes, _ := json.Marshal(respMsg.Data)
 	json.Unmarshal(dataBytes, &errData)
 
-	assert.Equal(t, "ERROR_GETTING_VERSION", errData.Code)
+	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 	assert.Equal(t, "version error", errData.Message)
 	assert.Equal(t, 1, handler.GetCallCount())
 }
 
 func TestManagerAdminServer_HandleUnknownRequest(t *testing.T) {
-	server := NewManagerAdminServer(nil, commParams, testLogger)
+	server := NewAdminServer(nil, commParams, testLogger)
 	server.clientTimeout = 500 * time.Millisecond
 
 	clientConn, serverConn := net.Pipe()
@@ -158,11 +163,11 @@ func TestManagerAdminServer_HandleUnknownRequest(t *testing.T) {
 	dataBytes, _ := json.Marshal(respMsg.Data)
 	json.Unmarshal(dataBytes, &errData)
 
-	assert.Equal(t, "UNKNOWN_REQUEST", errData.Code)
+	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 }
 
 func TestManagerAdminServer_ServerBusy(t *testing.T) {
-	server := NewManagerAdminServer(nil, common.CommunicationParams{RequestTimeoutSec: 2}, testLogger)
+	server := NewAdminServer(nil, common.CommunicationParams{RequestTimeoutSec: 2}, testLogger)
 
 	handler := &MockManagerCmdHandler{version: "1.0.0"}
 	server.SetCmdHandler(handler)

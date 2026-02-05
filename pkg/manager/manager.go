@@ -41,7 +41,7 @@ type SecureProcessorManager struct {
 	blockchainClient  blockchain.Client
 	executorClient    communication.ExecutorClient
 	dataLayer         storage.DataLayer
-	adminServer       admin.ManagerAdminCommandServer
+	adminServer       admin.AdminCommandServer
 	mu                sync.RWMutex
 	isRunning         bool
 	executorHandShake *ExecutorHandShake
@@ -53,7 +53,7 @@ type SecureProcessorManager struct {
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
-func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.DataLayer, executorClient communication.ExecutorClient, adminServer admin.ManagerAdminCommandServer, log logger.Logger) *SecureProcessorManager {
+func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.DataLayer, executorClient communication.ExecutorClient, adminServer admin.AdminCommandServer, log logger.Logger) *SecureProcessorManager {
 	manager := &SecureProcessorManager{
 		config:           config,
 		blockchainClient: blockchainClient,
@@ -270,8 +270,27 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 	return nil
 }
 
-// GetVersion implements admin.ManagerCmdHandler interface.
-// Returns the current version of the manager.
+// supportedManagerCommands is the list of admin commands supported by the manager
+var supportedManagerCommands = []admin.AdminMessageType{
+	admin.GetVersionRequestMessage,
+}
+
+// ExecuteCommand implements admin.AdminCmdHandler interface.
+// Handles admin commands for the manager, currently only GetVersionRequestMessage.
+func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
+	if !admin.IsSupportedCommand(msg.Type, supportedManagerCommands) {
+		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
+	}
+
+	switch msg.Type {
+	case admin.GetVersionRequestMessage:
+		return m.GetVersion(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
+	}
+}
+
+// GetVersion returns the current version of the manager.
 func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error) {
 	m.log.Info("Manager: GetVersion command received")
 	return Version, nil

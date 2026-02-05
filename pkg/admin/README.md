@@ -10,9 +10,8 @@ This package enables runtime administration of the Manager and Executor componen
 
 The admin package defines:
 - **AdminCommandServer**: Server interface for accepting admin connections
-- **AdminCmdHandler**: Handler interface for Executor admin commands
-- **ManagerCmdHandler**: Handler interface for Manager admin commands
-- **ManagerAdminServer**: Concrete implementation of the Manager admin server
+- **AdminCmdHandler**: Generic handler interface for both Executor and Manager admin commands
+- **AdminServer**: Concrete implementation of the admin server (shared by both Executor and Manager)
 
 ### Communication Protocol
 

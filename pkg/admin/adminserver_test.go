@@ -39,10 +39,15 @@ type MockAdminCmdHandler struct {
 	mu          sync.Mutex
 }
 
-func (m *MockAdminCmdHandler) CreateKeyAttestation(ctx context.Context) ([]byte, error) {
+func (m *MockAdminCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
+
+	if msg.Type != KeyAttestationRequestMessage {
+		return nil, errors.New("unsupported command type")
+	}
+
 	return m.attestation, m.err
 }
 
@@ -162,7 +167,7 @@ func TestAdminServer_HandleRequestsKeyAttestationHandlerError(t *testing.T) {
 	dataBytes, _ := json.Marshal(respMsg.Data)
 	json.Unmarshal(dataBytes, &errData)
 
-	assert.Equal(t, "ERROR_CREATING_ATTESTATION", errData.Code)
+	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 	assert.Equal(t, "handler failed", errData.Message)
 	assert.Equal(t, 1, handler.GetCallCount())
 
@@ -196,7 +201,7 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 	dataBytes, _ := json.Marshal(respMsg.Data)
 	json.Unmarshal(dataBytes, &errData)
 
-	assert.Equal(t, "UNKNOWN_REQUEST", errData.Code)
+	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 
 }
 

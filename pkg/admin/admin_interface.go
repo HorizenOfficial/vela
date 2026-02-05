@@ -8,19 +8,14 @@ import (
 type AdminCommandServer interface {
 	Start(ctx context.Context, identityLogTag string) error
 	Stop() error
-	// SetRequestHandler sets the handler for incoming requests
+	// SetCmdHandler sets the handler for incoming requests
 	SetCmdHandler(handler AdminCmdHandler)
-
 }
 
-// AdminCmdHandler is the interface for handling executor admin commands
+// AdminCmdHandler is the interface for handling admin commands
+// Both executor and manager implement this with their own command handling logic
 type AdminCmdHandler interface {
-	CreateKeyAttestation(ctx context.Context) ([]byte, error)
-}
-
-// ManagerCmdHandler is the interface for handling manager admin commands
-type ManagerCmdHandler interface {
-	GetVersion(ctx context.Context) (string, error)
+	ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error)
 }
 
 // AdminMessageType represents the command being sent
@@ -43,5 +38,16 @@ const (
 // AdminMessage represents an admin command message
 type AdminMessage struct {
 	Type AdminMessageType `json:"type"`
-	Data interface{} `json:"data"`
+	Data interface{}      `json:"data"`
+}
+
+// IsSupportedCommand checks if a message type is in the list of supported commands.
+// This is a generic helper function used by both executor and manager.
+func IsSupportedCommand(msgType AdminMessageType, supportedCommands []AdminMessageType) bool {
+	for _, supportedType := range supportedCommands {
+		if msgType == supportedType {
+			return true
+		}
+	}
+	return false
 }
