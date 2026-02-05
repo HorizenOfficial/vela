@@ -219,7 +219,6 @@ type RequestResultStatus uint8
 const (
 	RequestResultOK RequestResultStatus = iota
 	RequestResultFailed
-	RequestResultFailedNotRefunded
 	RequestResultUnknown
 )
 
