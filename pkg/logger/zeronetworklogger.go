@@ -310,11 +310,17 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	var factory LogConnectionFactory
 	switch cfg.RemoteLogNetwork {
 	case "tcp":
-		factory = NewTCPLogConnectionFactory("tcp", cfg.RemoteLogParams.(common.TcpChannelConnectionParams).Url())
+		params, ok := cfg.RemoteLogParams.(common.TcpChannelConnectionParams)
+		if !ok {
+			panic(fmt.Sprintf("Invalid RemoteLogParams for tcp: %T", cfg.RemoteLogParams))
+		}
+		factory = NewTCPLogConnectionFactory("tcp", params.Url())
 	case "vsock":
-		factory = NewVSockLogConnectionFactory(
-			cfg.RemoteLogParams.(common.VSockChannelConnectionParams).CID,
-			cfg.RemoteLogParams.(common.VSockChannelConnectionParams).Port)
+		params, ok := cfg.RemoteLogParams.(common.VSockChannelConnectionParams)
+		if !ok {
+			panic(fmt.Sprintf("Invalid RemoteLogParams for vsock: %T", cfg.RemoteLogParams))
+		}
+		factory = NewVSockLogConnectionFactory(params.CID, params.Port)
 	default:
 		panic(fmt.Sprintf("Unsupported RemoteLogNetwork: %s", cfg.RemoteLogNetwork))
 	}

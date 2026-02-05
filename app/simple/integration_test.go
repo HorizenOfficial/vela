@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-cce-common-go/wasm/types"
 	"github.com/horizen-pes/app/simple/app"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
@@ -48,9 +49,9 @@ const (
 
 var (
 	appId                = common.NewApplicationId(1)
-	user1Address, _      = app.HexToAddress("0xadd0000000000000000000000000000000000001")
-	user2Address, _      = app.HexToAddress("0xadd0000000000000000000000000000000000002")
-	recipient1Address, _ = app.HexToAddress("0xadd0000000000000000000000000000000000003")
+	user1Address, _      = types.HexToAddress("0xadd0000000000000000000000000000000000001")
+	user2Address, _      = types.HexToAddress("0xadd0000000000000000000000000000000000002")
+	recipient1Address, _ = types.HexToAddress("0xadd0000000000000000000000000000000000003")
 )
 
 // buildAndLoadWasmModule runs `make build` to compile and load the wasm module.
@@ -120,7 +121,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	withdrawAmount := big.NewInt(200)
 	withdrawInstruction := app.WithdrawInstruction{
 		To:     recipient1Address,
-		Amount: new(app.Uint256).SetBytes(withdrawAmount.Bytes()),
+		Amount: new(types.Uint256).SetBytes(withdrawAmount.Bytes()),
 	}
 	payload := app.PayloadInstructions{
 		Type:     "withdraw",
@@ -251,7 +252,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &app.WithdrawInstruction{
 				To:     recipient1Address,
-				Amount: app.NewUint256(2000),
+				Amount: types.NewUint256(2000),
 			},
 		}
 		payloadBytes, err := json.Marshal(payload)
@@ -264,12 +265,12 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {
 		// A user that never deposited tries to withdraw
-		nonExistentUser, _ := app.HexToAddress("0xadd0000000000000000000000000000000000099")
+		nonExistentUser, _ := types.HexToAddress("0xadd0000000000000000000000000000000000099")
 		payload := app.PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &app.WithdrawInstruction{
 				To:     recipient1Address,
-				Amount: app.NewUint256(100),
+				Amount: types.NewUint256(100),
 			},
 		}
 		payloadBytes, err := json.Marshal(payload)
@@ -281,7 +282,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 	})
 
 	t.Run("compare from non-existent account", func(t *testing.T) {
-		nonExistentUser, _ := app.HexToAddress("0xadd0000000000000000000000000000000000099")
+		nonExistentUser, _ := types.HexToAddress("0xadd0000000000000000000000000000000000099")
 		payload := app.PayloadInstructions{
 			Type: "compare_addresses",
 			CompareAccounts: &app.CompareInstructions{
@@ -473,7 +474,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 			for j := 0; j < iterationsPerGoroutine; j++ {
 				iterationIndex := goroutineIndex*iterationsPerGoroutine + j
 				depositAmount := big.NewInt(1)
-				userAddress, err := app.HexToAddress(fmt.Sprintf("0xadd%037d", iterationIndex))
+				userAddress, err := types.HexToAddress(fmt.Sprintf("0xadd%037d", iterationIndex))
 				require.NoError(t, err)
 
 				runtimeMutex.Lock()
@@ -486,7 +487,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				withdrawAmount := big.NewInt(1)
 				withdrawInstruction := app.WithdrawInstruction{
 					To:     recipient1Address,
-					Amount: new(app.Uint256).SetBytes(withdrawAmount.Bytes()),
+					Amount: new(types.Uint256).SetBytes(withdrawAmount.Bytes()),
 				}
 				withdrawPayload := app.PayloadInstructions{
 					Type:     "withdraw",

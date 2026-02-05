@@ -1,8 +1,9 @@
 package main
 
 import (
+	"github.com/horizen-cce-common-go/wasm/types"
+	"github.com/horizen-cce-common-go/wasm/utils"
 	"github.com/horizen-pes/app/simple/app"
-	"github.com/horizen-pes/app/simple/utils"
 )
 
 // --- WASM-Exposed Functions (Bridge to Application Logic) ---
@@ -12,27 +13,27 @@ import (
 //export load_module
 func load_module(appId int64) *byte {
 	result := app.LoadModule(appId)
-	return app.SerializeAndWriteResult(result)
+	return types.SerializeAndWriteResult(result)
 }
 
 //export deposit
 func deposit(appId int64, senderPtr *byte, senderLen int32, valuePtr *byte, valueLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = appId
-	sender := app.PtrToAddress(senderPtr, senderLen)
+	sender := types.PtrToAddress(senderPtr, senderLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
-	value := app.PtrToUint256(valuePtr, valueLen)
+	value := types.PtrToUint256(valuePtr, valueLen)
 	result := app.DepositFunds(sender, value, stateJSON)
-	return app.SerializeAndWriteResult(result)
+	return types.SerializeAndWriteResult(result)
 }
 
 //export process_request
 func process_request(appId int64, senderPtr *byte, senderLen int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = appId
-	sender := app.PtrToAddress(senderPtr, senderLen)
+	sender := types.PtrToAddress(senderPtr, senderLen)
 	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
 	result := app.ProcessRequest(sender, payloadJSON, stateJSON)
-	return app.SerializeAndWriteResult(result)
+	return types.SerializeAndWriteResult(result)
 }
 
 //export generate_deanonymization_report
@@ -40,13 +41,13 @@ func generate_deanonymization_report(payloadPtr *byte, payloadLen int32, statePt
 	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
 	result := app.GenerateDeanonymizationReport(payloadJSON, stateJSON)
-	return app.SerializeAndWriteResult(result)
+	return types.SerializeAndWriteResult(result)
 }
 
 //export get_memory_stats
 func get_memory_stats() *byte {
 	result := app.GetAllocatedMemoryStats()
-	return app.SerializeAndWriteResult(result)
+	return types.SerializeAndWriteResult(result)
 }
 
 // Main function is required but not used in WASM

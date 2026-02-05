@@ -302,10 +302,10 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType st
 		select {
 		case event := <-s.eventChannel:
 			if evt, ok := event.(common.Event); ok && evt.UserID == userID && (eventSubType == "" || evt.EventSubType == eventSubType) {
-				s.log.Info("TESTING: Received event: %+v", event.(common.Event))
+				s.log.Info("TESTING: Received event: %v", evt)
 				return &evt, nil
 			} else {
-				s.log.Info("TESTING: Received unexpected event: %+v", event)
+				s.log.Info("TESTING: Received unexpected event: %v", event)
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for event for user %s", userID)
