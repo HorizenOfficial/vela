@@ -14,7 +14,8 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
-// sendLogMessage sends a JSON log message to the log server via TCP
+// sendLogMessage sends a JSON log message to the log server via TCP.
+// Creates a new connection for each call - use writeLogEntry for bulk writes.
 func sendLogMessage(t *testing.T, addr string, level, message string) {
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
@@ -22,12 +23,21 @@ func sendLogMessage(t *testing.T, addr string, level, message string) {
 	}
 	defer conn.Close()
 
+	writeLogEntry(t, conn, level, message)
+}
+
+// writeLogEntry writes a JSON log entry to an existing connection.
+// Use this for bulk writes to avoid connection overhead.
+func writeLogEntry(t *testing.T, conn net.Conn, level, message string) {
 	logEntry := map[string]string{
 		"level":   level,
 		"time":    time.Now().Format("2006-Jan-02 15:04:05.000"),
 		"message": message,
 	}
-	data, _ := json.Marshal(logEntry)
+	data, err := json.Marshal(logEntry)
+	if err != nil {
+		t.Fatalf("Failed to marshal log entry: %v", err)
+	}
 	data = append(data, '\n')
 
 	_, err = conn.Write(data)
@@ -178,7 +188,7 @@ func TestLogServer_RotationTriggered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	//defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
 
 	logFile := filepath.Join(tmpDir, "test.log")
 
@@ -226,20 +236,11 @@ func TestLogServer_RotationTriggered(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Send many log messages to potentially trigger rotation
-	// Each message is ~150 bytes, so 15000 messages = ~2.2MB
+	// Send many log messages to trigger rotation
+	// Each message is ~150 bytes, so 15000 messages = ~2.2MB (exceeds 1MB threshold twice)
 	largeMessage := strings.Repeat("x", 100)
 	for i := range 15000 {
-		logEntry := map[string]string{
-			"level":   "info",
-			"time":    time.Now().Format("2006-Jan-02 15:04:05.000"),
-			"message": fmt.Sprintf("msg-%d-%s", i, largeMessage),
-		}
-		data, _ := json.Marshal(logEntry)
-		data = append(data, '\n')
-		if _, err := conn.Write(data); err != nil {
-			t.Fatalf("Failed to write on iteration %d: %v", i, err)
-		}
+		writeLogEntry(t, conn, "info", fmt.Sprintf("msg-%d-%s", i, largeMessage))
 	}
 
 	// Give time for writes to complete
@@ -253,20 +254,23 @@ func TestLogServer_RotationTriggered(t *testing.T) {
 
 	// We should have at least the main log file
 	if len(files) == 0 {
-		t.Error("No log files found in temp directory")
+		t.Fatal("No log files found in temp directory")
 	}
 
 	// Log what we found for debugging
 	t.Logf("Found %d file(s) in temp directory:", len(files))
 	for _, f := range files {
-		info, _ := f.Info()
+		info, err := f.Info()
+		if err != nil {
+			t.Errorf("Failed to get info for file %s: %v", f.Name(), err)
+			continue
+		}
 		t.Logf("  - %s (size: %d bytes)", f.Name(), info.Size())
 	}
 
-	// If rotation worked, we should have more than one file
-	// Note: This depends on actually exceeding 1MB
-	if len(files) > 1 {
-		t.Logf("Rotation triggered: found %d files", len(files))
+	// Rotation should have triggered since we wrote ~2.2MB with a 1MB threshold
+	if len(files) < 2 {
+		t.Errorf("Expected rotation to trigger (at least 2 files), but found only %d file(s)", len(files))
 	}
 }
 

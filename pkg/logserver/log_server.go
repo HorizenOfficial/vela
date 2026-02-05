@@ -90,18 +90,20 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 	}
 
 	var logWriter io.WriteCloser
+	// Variables for rotation settings (used in log message later)
+	var maxSize, maxBackups, maxAge int
 	if cfg.LogFilePath != "" {
 		if cfg.RotationEnabled {
 			// Use lumberjack for log rotation
-			maxSize := cfg.MaxSizeMB
+			maxSize = cfg.MaxSizeMB
 			if maxSize <= 0 {
 				maxSize = 100 // default 100MB
 			}
-			maxBackups := cfg.MaxBackups
+			maxBackups = cfg.MaxBackups
 			if maxBackups <= 0 {
 				maxBackups = 3 // default 3 backups
 			}
-			maxAge := cfg.MaxAgeDays
+			maxAge = cfg.MaxAgeDays
 			if maxAge < 0 {
 				maxAge = 28 // default 28 days
 			}
@@ -143,7 +145,7 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 	if logWriter != nil {
 		if cfg.RotationEnabled {
 			logServer.logger.Info("Remote logs will be written to file %s with level [%s] (rotation enabled: maxSize=%dMB, maxBackups=%d, maxAge=%d days, compress=%v)",
-				cfg.LogFilePath, cfg.FileLevel, cfg.MaxSizeMB, cfg.MaxBackups, cfg.MaxAgeDays, cfg.Compress)
+				cfg.LogFilePath, cfg.FileLevel, maxSize, maxBackups, maxAge, cfg.Compress)
 		} else {
 			logServer.logger.Info("Remote logs will be written to file %s with level [%s] (rotation disabled)", cfg.LogFilePath, cfg.FileLevel)
 		}
