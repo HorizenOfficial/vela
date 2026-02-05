@@ -352,3 +352,86 @@ func TestLogServer_LevelFiltering(t *testing.T) {
 		t.Error("Log file does not contain expected error message")
 	}
 }
+
+// TestLogServer_GracefulShutdown verifies that context cancellation properly closes the log writer and flushes all pending data to the file.
+// The test sends 5 messages, cancels the context to trigger shutdown, then verifies all messages are present in the log file and that new connections are refused.
+// It verifies:
+//  1. Data flushing - All log messages written before shutdown are properly flushed to the file
+//  2. Connection rejection - After context cancellation, the server no longer accepts new TCP connections
+func TestLogServer_GracefulShutdown(t *testing.T) {
+	// Create temp directory for log file
+	tmpDir, err := os.MkdirTemp("", "logserver_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	// Find an available port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to find available port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start log server
+	err = StartLogServer(ctx, LogServerConfig{
+		TCPAddr: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(port),
+		},
+		LogFilePath:     logFile,
+		ConsoleEnabled:  false,
+		ConsoleLevel:    "info",
+		FileLevel:       "info",
+		RotationEnabled: false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to start log server: %v", err)
+	}
+
+	// Give server time to start
+	time.Sleep(100 * time.Millisecond)
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	// Send multiple log messages before shutdown
+	for i := range 5 {
+		sendLogMessage(t, addr, "info", fmt.Sprintf("pre-shutdown message %d", i))
+	}
+
+	// Wait for messages to be written
+	waitForFile(t, logFile, 2*time.Second)
+	time.Sleep(100 * time.Millisecond)
+
+	// Trigger graceful shutdown by canceling context
+	cancel()
+
+	// Give shutdown time to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify all messages were flushed to file before shutdown
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+	for i := range 5 {
+		expectedMsg := fmt.Sprintf("pre-shutdown message %d", i)
+		if !strings.Contains(contentStr, expectedMsg) {
+			t.Errorf("Log file missing message: %s", expectedMsg)
+		}
+	}
+
+	// Verify server is no longer accepting connections
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		t.Error("Expected connection to be refused after shutdown, but connection succeeded")
+	}
+}

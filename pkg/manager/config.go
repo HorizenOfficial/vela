@@ -85,7 +85,7 @@ type Config struct {
 	LogServerConsole bool
 	// LogServerConsoleLevel is the level of logging for the console
 	LogServerConsoleLevel string
-	// LogFileLevel is the level of logging for the console
+	// LogServerFileLevel is the level of logging for the file
 	LogServerFileLevel string
 	// LogServerRotationEnabled enables log rotation using lumberjack (only when LogServerLogFile is set)
 	LogServerRotationEnabled bool
