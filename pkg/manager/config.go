@@ -152,7 +152,7 @@ func LoadConfig() (*Config, error) {
 	adminServerPort := common.GetConfigVarInt64("MANAGER_ADMIN_PORT", 4002, fileProperties)
 	var adminChannelConnectionParams common.ChannelConnectionParams
 	// Admin server always uses TCP for external access
-	adminServerHost := common.GetConfigVar("MANAGER_ADMIN_HOST", "localhost", fileProperties)
+	adminServerHost := common.GetConfigVar("MANAGER_IP_HOST", "localhost", fileProperties)
 	adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: adminServerHost, Port: uint32(adminServerPort)}
 
 	adminCommunicationParams := common.CommunicationParams{
