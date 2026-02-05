@@ -32,7 +32,7 @@ type StructsWithdrawalRequest struct {
 
 // ITeeAuthenticatorMetaData contains all meta data concerning the ITeeAuthenticator contract.
 var ITeeAuthenticatorMetaData = bind.MetaData{
-	ABI: "[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"applicationId\",\"type\":\"uint256\"},{\"internalType\":\"bytes32\",\"name\":\"prevStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"newStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"processedRequestId\",\"type\":\"bytes32\"},{\"internalType\":\"bytes[]\",\"name\":\"events\",\"type\":\"bytes[]\"},{\"components\":[{\"internalType\":\"addresspayable\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"internalType\":\"structStructs.WithdrawalRequest[]\",\"name\":\"withdrawalRequests\",\"type\":\"tuple[]\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"}],\"name\":\"checkSignature\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getPubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getTeeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
+	ABI: "[{\"inputs\":[],\"name\":\"TeeIsNotSet\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"applicationId\",\"type\":\"uint64\"},{\"internalType\":\"bytes32\",\"name\":\"prevStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"newStateRoot\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"processedRequestId\",\"type\":\"bytes32\"},{\"internalType\":\"bytes[]\",\"name\":\"events\",\"type\":\"bytes[]\"},{\"internalType\":\"string[]\",\"name\":\"eventSubTypes\",\"type\":\"string[]\"},{\"components\":[{\"internalType\":\"addresspayable\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"internalType\":\"structStructs.WithdrawalRequest[]\",\"name\":\"withdrawalRequests\",\"type\":\"tuple[]\"},{\"internalType\":\"uint256\",\"name\":\"refundAmount\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"applicationFee\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"}],\"name\":\"checkSignature\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getPubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getTeeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
 	ID:  "1f0ecb3d874bbc852bff29c87537425ade",
 }
 
@@ -57,12 +57,12 @@ func (c *ITeeAuthenticator) Instance(backend bind.ContractBackend, addr common.A
 }
 
 // PackCheckSignature is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xf3c29cb0.  This method will panic if any
+// the contract method with ID 0x64c062d1.  This method will panic if any
 // invalid/nil inputs are passed.
 //
-// Solidity: function checkSignature(uint256 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, (address,uint256)[] withdrawalRequests, bytes signature) view returns(bool)
-func (iTeeAuthenticator *ITeeAuthenticator) PackCheckSignature(applicationId *big.Int, prevStateRoot [32]byte, newStateRoot [32]byte, processedRequestId [32]byte, events [][]byte, withdrawalRequests []StructsWithdrawalRequest, signature []byte) []byte {
-	enc, err := iTeeAuthenticator.abi.Pack("checkSignature", applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature)
+// Solidity: function checkSignature(uint64 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, string[] eventSubTypes, (address,uint256)[] withdrawalRequests, uint256 refundAmount, uint256 applicationFee, bytes signature) view returns(bool)
+func (iTeeAuthenticator *ITeeAuthenticator) PackCheckSignature(applicationId uint64, prevStateRoot [32]byte, newStateRoot [32]byte, processedRequestId [32]byte, events [][]byte, eventSubTypes []string, withdrawalRequests []StructsWithdrawalRequest, refundAmount *big.Int, applicationFee *big.Int, signature []byte) []byte {
+	enc, err := iTeeAuthenticator.abi.Pack("checkSignature", applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refundAmount, applicationFee, signature)
 	if err != nil {
 		panic(err)
 	}
@@ -70,18 +70,18 @@ func (iTeeAuthenticator *ITeeAuthenticator) PackCheckSignature(applicationId *bi
 }
 
 // TryPackCheckSignature is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xf3c29cb0.  This method will return an error
+// the contract method with ID 0x64c062d1.  This method will return an error
 // if any inputs are invalid/nil.
 //
-// Solidity: function checkSignature(uint256 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, (address,uint256)[] withdrawalRequests, bytes signature) view returns(bool)
-func (iTeeAuthenticator *ITeeAuthenticator) TryPackCheckSignature(applicationId *big.Int, prevStateRoot [32]byte, newStateRoot [32]byte, processedRequestId [32]byte, events [][]byte, withdrawalRequests []StructsWithdrawalRequest, signature []byte) ([]byte, error) {
-	return iTeeAuthenticator.abi.Pack("checkSignature", applicationId, prevStateRoot, newStateRoot, processedRequestId, events, withdrawalRequests, signature)
+// Solidity: function checkSignature(uint64 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, string[] eventSubTypes, (address,uint256)[] withdrawalRequests, uint256 refundAmount, uint256 applicationFee, bytes signature) view returns(bool)
+func (iTeeAuthenticator *ITeeAuthenticator) TryPackCheckSignature(applicationId uint64, prevStateRoot [32]byte, newStateRoot [32]byte, processedRequestId [32]byte, events [][]byte, eventSubTypes []string, withdrawalRequests []StructsWithdrawalRequest, refundAmount *big.Int, applicationFee *big.Int, signature []byte) ([]byte, error) {
+	return iTeeAuthenticator.abi.Pack("checkSignature", applicationId, prevStateRoot, newStateRoot, processedRequestId, events, eventSubTypes, withdrawalRequests, refundAmount, applicationFee, signature)
 }
 
 // UnpackCheckSignature is the Go binding that unpacks the parameters returned
-// from invoking the contract method with ID 0xf3c29cb0.
+// from invoking the contract method with ID 0x64c062d1.
 //
-// Solidity: function checkSignature(uint256 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, (address,uint256)[] withdrawalRequests, bytes signature) view returns(bool)
+// Solidity: function checkSignature(uint64 applicationId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 processedRequestId, bytes[] events, string[] eventSubTypes, (address,uint256)[] withdrawalRequests, uint256 refundAmount, uint256 applicationFee, bytes signature) view returns(bool)
 func (iTeeAuthenticator *ITeeAuthenticator) UnpackCheckSignature(data []byte) (bool, error) {
 	out, err := iTeeAuthenticator.abi.Unpack("checkSignature", data)
 	if err != nil {
@@ -161,11 +161,43 @@ func (iTeeAuthenticator *ITeeAuthenticator) UnpackGetTeeSigner(data []byte) (com
 	return out0, nil
 }
 
+// UnpackError attempts to decode the provided error data using user-defined
+// error definitions.
+func (iTeeAuthenticator *ITeeAuthenticator) UnpackError(raw []byte) (any, error) {
+	if bytes.Equal(raw[:4], iTeeAuthenticator.abi.Errors["TeeIsNotSet"].ID.Bytes()[:4]) {
+		return iTeeAuthenticator.UnpackTeeIsNotSetError(raw[4:])
+	}
+	return nil, errors.New("Unknown error")
+}
+
+// ITeeAuthenticatorTeeIsNotSet represents a TeeIsNotSet error raised by the ITeeAuthenticator contract.
+type ITeeAuthenticatorTeeIsNotSet struct {
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error TeeIsNotSet()
+func ITeeAuthenticatorTeeIsNotSetErrorID() common.Hash {
+	return common.HexToHash("0xf64b1d7b3df6940d5da676c1cc07a6144e620b0858b161be25b6cd0ef7569425")
+}
+
+// UnpackTeeIsNotSetError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error TeeIsNotSet()
+func (iTeeAuthenticator *ITeeAuthenticator) UnpackTeeIsNotSetError(raw []byte) (*ITeeAuthenticatorTeeIsNotSet, error) {
+	out := new(ITeeAuthenticatorTeeIsNotSet)
+	if err := iTeeAuthenticator.abi.UnpackIntoInterface(out, "TeeIsNotSet", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MockTeeAuthenticatorMetaData contains all meta data concerning the MockTeeAuthenticator contract.
 var MockTeeAuthenticatorMetaData = bind.MetaData{
-	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_teeSigner\",\"type\":\"address\"},{\"internalType\":\"bytes\",\"name\":\"_pubSecp521r1\",\"type\":\"bytes\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"},{\"internalType\":\"bytes[]\",\"name\":\"\",\"type\":\"bytes[]\"},{\"components\":[{\"internalType\":\"addresspayable\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"internalType\":\"structStructs.WithdrawalRequest[]\",\"name\":\"\",\"type\":\"tuple[]\"},{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"name\":\"checkSignature\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getPubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getTeeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"pubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"teeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_teeSigner\",\"type\":\"address\"},{\"internalType\":\"bytes\",\"name\":\"_pubSecp521r1\",\"type\":\"bytes\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"TeeIsNotSet\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"uint64\",\"name\":\"\",\"type\":\"uint64\"},{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"},{\"internalType\":\"bytes[]\",\"name\":\"\",\"type\":\"bytes[]\"},{\"internalType\":\"string[]\",\"name\":\"\",\"type\":\"string[]\"},{\"components\":[{\"internalType\":\"addresspayable\",\"name\":\"receiver\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"internalType\":\"structStructs.WithdrawalRequest[]\",\"name\":\"\",\"type\":\"tuple[]\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"name\":\"checkSignature\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getPubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getTeeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"pubSecp521r1\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"teeSigner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
 	ID:  "21224ad20c4253145139ff6269df243105",
-	Bin: "0x608060405234801561000f575f5ffd5b50604051610eba380380610eba8339818101604052810190610031919061022e565b815f5f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550806001908161007f9190610498565b505050610567565b5f604051905090565b5f5ffd5b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6100c182610098565b9050919050565b6100d1816100b7565b81146100db575f5ffd5b50565b5f815190506100ec816100c8565b92915050565b5f5ffd5b5f5ffd5b5f601f19601f8301169050919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b610140826100fa565b810181811067ffffffffffffffff8211171561015f5761015e61010a565b5b80604052505050565b5f610171610087565b905061017d8282610137565b919050565b5f67ffffffffffffffff82111561019c5761019b61010a565b5b6101a5826100fa565b9050602081019050919050565b8281835e5f83830152505050565b5f6101d26101cd84610182565b610168565b9050828152602081018484840111156101ee576101ed6100f6565b5b6101f98482856101b2565b509392505050565b5f82601f830112610215576102146100f2565b5b81516102258482602086016101c0565b91505092915050565b5f5f6040838503121561024457610243610090565b5b5f610251858286016100de565b925050602083015167ffffffffffffffff81111561027257610271610094565b5b61027e85828601610201565b9150509250929050565b5f81519050919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52602260045260245ffd5b5f60028204905060018216806102d657607f821691505b6020821081036102e9576102e8610292565b5b50919050565b5f819050815f5260205f209050919050565b5f6020601f8301049050919050565b5f82821b905092915050565b5f6008830261034b7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff82610310565b6103558683610310565b95508019841693508086168417925050509392505050565b5f819050919050565b5f819050919050565b5f61039961039461038f8461036d565b610376565b61036d565b9050919050565b5f819050919050565b6103b28361037f565b6103c66103be826103a0565b84845461031c565b825550505050565b5f5f905090565b6103dd6103ce565b6103e88184846103a9565b505050565b5b8181101561040b576104005f826103d5565b6001810190506103ee565b5050565b601f82111561045057610421816102ef565b61042a84610301565b81016020851015610439578190505b61044d61044585610301565b8301826103ed565b50505b505050565b5f82821c905092915050565b5f6104705f1984600802610455565b1980831691505092915050565b5f6104888383610461565b9150826002028217905092915050565b6104a182610288565b67ffffffffffffffff8111156104ba576104b961010a565b5b6104c482546102bf565b6104cf82828561040f565b5f60209050601f831160018114610500575f84156104ee578287015190505b6104f8858261047d565b86555061055f565b601f19841661050e866102ef565b5f5b8281101561053557848901518255600182019150602085019450602081019050610510565b86831015610552578489015161054e601f891682610461565b8355505b6001600288020188555050505b505050505050565b610946806105745f395ff3fe608060405234801561000f575f5ffd5b5060043610610055575f3560e01c8063081bec7e146100595780630dd7ce2f1461007757806343f855c314610095578063f3c29cb0146100b3578063fe4993ca146100e3575b5f5ffd5b610061610101565b60405161006e91906102e9565b60405180910390f35b61007f610191565b60405161008c9190610348565b60405180910390f35b61009d6101b8565b6040516100aa9190610348565b60405180910390f35b6100cd60048036038101906100c8919061078b565b6101dc565b6040516100da919061089a565b60405180910390f35b6100eb6101ed565b6040516100f891906102e9565b60405180910390f35b606060018054610110906108e0565b80601f016020809104026020016040519081016040528092919081815260200182805461013c906108e0565b80156101875780601f1061015e57610100808354040283529160200191610187565b820191905f5260205f20905b81548152906001019060200180831161016a57829003601f168201915b5050505050905090565b5f5f5f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff16905090565b5f5f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b5f6001905098975050505050505050565b600180546101fa906108e0565b80601f0160208091040260200160405190810160405280929190818152602001828054610226906108e0565b80156102715780601f1061024857610100808354040283529160200191610271565b820191905f5260205f20905b81548152906001019060200180831161025457829003601f168201915b505050505081565b5f81519050919050565b5f82825260208201905092915050565b8281835e5f83830152505050565b5f601f19601f8301169050919050565b5f6102bb82610279565b6102c58185610283565b93506102d5818560208601610293565b6102de816102a1565b840191505092915050565b5f6020820190508181035f83015261030181846102b1565b905092915050565b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f61033282610309565b9050919050565b61034281610328565b82525050565b5f60208201905061035b5f830184610339565b92915050565b5f604051905090565b5f5ffd5b5f5ffd5b5f819050919050565b61038481610372565b811461038e575f5ffd5b50565b5f8135905061039f8161037b565b92915050565b5f819050919050565b6103b7816103a5565b81146103c1575f5ffd5b50565b5f813590506103d2816103ae565b92915050565b5f5ffd5b7f4e487b71000000000000000000000000000000000000000000000000000000005f52604160045260245ffd5b610412826102a1565b810181811067ffffffffffffffff82111715610431576104306103dc565b5b80604052505050565b5f610443610361565b905061044f8282610409565b919050565b5f67ffffffffffffffff82111561046e5761046d6103dc565b5b602082029050602081019050919050565b5f5ffd5b5f5ffd5b5f67ffffffffffffffff8211156104a1576104a06103dc565b5b6104aa826102a1565b9050602081019050919050565b828183375f83830152505050565b5f6104d76104d284610487565b61043a565b9050828152602081018484840111156104f3576104f2610483565b5b6104fe8482856104b7565b509392505050565b5f82601f83011261051a576105196103d8565b5b813561052a8482602086016104c5565b91505092915050565b5f61054561054084610454565b61043a565b905080838252602082019050602084028301858111156105685761056761047f565b5b835b818110156105af57803567ffffffffffffffff81111561058d5761058c6103d8565b5b80860161059a8982610506565b8552602085019450505060208101905061056a565b5050509392505050565b5f82601f8301126105cd576105cc6103d8565b5b81356105dd848260208601610533565b91505092915050565b5f67ffffffffffffffff821115610600576105ff6103dc565b5b602082029050602081019050919050565b5f5ffd5b5f61061f82610309565b9050919050565b61062f81610615565b8114610639575f5ffd5b50565b5f8135905061064a81610626565b92915050565b5f6040828403121561066557610664610611565b5b61066f604061043a565b90505f61067e8482850161063c565b5f83015250602061069184828501610391565b60208301525092915050565b5f6106af6106aa846105e6565b61043a565b905080838252602082019050604084028301858111156106d2576106d161047f565b5b835b818110156106fb57806106e78882610650565b8452602084019350506040810190506106d4565b5050509392505050565b5f82601f830112610719576107186103d8565b5b813561072984826020860161069d565b91505092915050565b5f5ffd5b5f5f83601f84011261074b5761074a6103d8565b5b8235905067ffffffffffffffff81111561076857610767610732565b5b6020830191508360018202830111156107845761078361047f565b5b9250929050565b5f5f5f5f5f5f5f5f60e0898b0312156107a7576107a661036a565b5b5f6107b48b828c01610391565b98505060206107c58b828c016103c4565b97505060406107d68b828c016103c4565b96505060606107e78b828c016103c4565b955050608089013567ffffffffffffffff8111156108085761080761036e565b5b6108148b828c016105b9565b94505060a089013567ffffffffffffffff8111156108355761083461036e565b5b6108418b828c01610705565b93505060c089013567ffffffffffffffff8111156108625761086161036e565b5b61086e8b828c01610736565b92509250509295985092959890939650565b5f8115159050919050565b61089481610880565b82525050565b5f6020820190506108ad5f83018461088b565b92915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52602260045260245ffd5b5f60028204905060018216806108f757607f821691505b60208210810361090a576109096108b3565b5b5091905056fea2646970667358221220a3d58035995002e14051ecbddb3d92db29330f7ba038746fe1e25c65d31cd5c364736f6c634300081e0033",
+	Bin: "0x6080604052346100305761001a6100146101ab565b9061049b565b610022610035565b6107896104b3823961078990f35b61003b565b60405190565b5f80fd5b601f801991011690565b634e487b7160e01b5f52604160045260245ffd5b906100679061003f565b810190811060018060401b0382111761007f57604052565b610049565b90610097610090610035565b928361005d565b565b5f80fd5b5f80fd5b60018060a01b031690565b6100b5906100a1565b90565b6100c1816100ac565b036100c857565b5f80fd5b905051906100d9826100b8565b565b5f80fd5b5f80fd5b60018060401b0381116100ff576100fb60209161003f565b0190565b610049565b90825f9392825e0152565b9092919261012461011f826100e3565b610084565b938185526020850190828401116101405761013e92610104565b565b6100df565b9080601f83011215610163578160206101609351910161010f565b90565b6100db565b9190916040818403126101a657610181835f83016100cc565b92602082015160018060401b0381116101a15761019e9201610145565b90565b61009d565b610099565b6101c9610c3c803803806101be81610084565b928339810190610168565b9091565b5f1b90565b906101e360018060a01b03916101cd565b9181191691161790565b90565b6102046101ff610209926100a1565b6101ed565b6100a1565b90565b610215906101f0565b90565b6102219061020c565b90565b90565b9061023c61023761024392610218565b610224565b82546101d2565b9055565b5190565b634e487b7160e01b5f52602260045260245ffd5b906001600283049216801561027f575b602083101461027a57565b61024b565b91607f169161026f565b5f5260205f2090565b601f602091010490565b1b90565b919060086102bb9102916102b55f198461029c565b9261029c565b9181191691161790565b90565b6102dc6102d76102e1926102c5565b6101ed565b6102c5565b90565b90565b91906102fd6102f8610305936102c8565b6102e4565b9083546102a0565b9055565b5f90565b61031f91610319610309565b916102e7565b565b5b81811061032d575050565b8061033a5f60019361030d565b01610322565b9190601f8111610350575b505050565b61035c61038193610289565b90602061036884610292565b83019310610389575b61037a90610292565b0190610321565b5f808061034b565b915061037a81929050610371565b1c90565b906103ab905f1990600802610397565b191690565b816103ba9161039b565b906002021790565b906103cc81610247565b9060018060401b03821161048a576103ee826103e8855461025f565b85610340565b602090601f831160011461042257918091610411935f92610416575b50506103b0565b90555b565b90915001515f8061040a565b601f1983169161043185610289565b925f5b81811061047257509160029391856001969410610458575b50505002019055610414565b610468910151601f84169061039b565b90555f808061044c565b91936020600181928787015181550195019201610434565b610049565b90610499916103c2565b565b906104a96104b0925f610227565b600161048f565b56fe60806040526004361015610013575b6106c9565b61001d5f3561006c565b8063081bec7e146100675780630dd7ce2f1461006257806343f855c31461005d57806364c062d1146100585763fe4993ca0361000e57610694565b6104ca565b6101e0565b610168565b6100fa565b60e01c90565b60405190565b5f80fd5b5f80fd5b5f91031261008a57565b61007c565b5190565b60209181520190565b90825f9392825e0152565b601f801991011690565b6100d06100d96020936100de936100c78161008f565b93848093610093565b9586910161009c565b6100a7565b0190565b6100f79160208201915f8184039101526100b1565b90565b3461012a5761010a366004610080565b6101266101156106de565b61011d610072565b918291826100e2565b0390f35b610078565b60018060a01b031690565b6101439061012f565b90565b61014f9061013a565b9052565b9190610166905f60208501940190610146565b565b3461019857610178366004610080565b61019461018361071e565b61018b610072565b91829182610153565b0390f35b610078565b1c90565b60018060a01b031690565b6101bc9060086101c1930261019d565b6101a1565b90565b906101cf91546101ac565b90565b6101dd5f5f906101c4565b90565b34610210576101f0366004610080565b61020c6101fb6101d2565b610203610072565b91829182610153565b0390f35b610078565b5f80fd5b67ffffffffffffffff1690565b61022f81610219565b0361023657565b5f80fd5b9050359061024782610226565b565b90565b61025581610249565b0361025c57565b5f80fd5b9050359061026d8261024c565b565b5f80fd5b5f80fd5b5f80fd5b909182601f830112156102b55781359167ffffffffffffffff83116102b05760200192602083028401116102ab57565b610277565b610273565b61026f565b909182601f830112156102f45781359167ffffffffffffffff83116102ef5760200192602083028401116102ea57565b610277565b610273565b61026f565b909182601f830112156103335781359167ffffffffffffffff831161032e57602001926040830284011161032957565b610277565b610273565b61026f565b90565b61034481610338565b0361034b57565b5f80fd5b9050359061035c8261033b565b565b909182601f830112156103985781359167ffffffffffffffff831161039357602001926001830284011161038e57565b610277565b610273565b61026f565b91906101408382031261049e576103b6815f850161023a565b926103c48260208301610260565b926103d28360408401610260565b926103e08160608501610260565b92608081013567ffffffffffffffff8111610499578261040191830161027b565b92909360a083013567ffffffffffffffff811161049457826104249185016102ba565b92909360c081013567ffffffffffffffff811161048f57826104479183016102f9565b9290936104578260e0850161034f565b9261046683610100830161034f565b9261012082013567ffffffffffffffff811161048a57610486920161035e565b9091565b610215565b610215565b610215565b610215565b61007c565b151590565b6104b1906104a3565b9052565b91906104c8905f602085019401906104a8565b565b3461050d576105096104f86104e036600461039d565b9c9b909b9a919a999299989398979497969596610737565b610500610072565b918291826104b5565b0390f35b610078565b634e487b7160e01b5f525f60045260245ffd5b634e487b7160e01b5f52602260045260245ffd5b9060016002830492168015610559575b602083101461055457565b610525565b91607f1691610549565b60209181520190565b5f5260205f2090565b905f929180549061058f61058883610539565b8094610563565b916001811690815f146105e657506001146105aa575b505050565b6105b7919293945061056c565b915f925b8184106105ce57505001905f80806105a5565b600181602092959395548486015201910192906105bb565b92949550505060ff19168252151560200201905f80806105a5565b9061060b91610575565b90565b634e487b7160e01b5f52604160045260245ffd5b9061062c906100a7565b810190811067ffffffffffffffff82111761064657604052565b61060e565b9061066b6106649261065b610072565b93848092610601565b0383610622565b565b905f106106805761067d9061064b565b90565b610512565b61069160015f9061066d565b90565b346106c4576106a4366004610080565b6106c06106af610685565b6106b7610072565b918291826100e2565b0390f35b610078565b5f80fd5b606090565b6106db9061064b565b90565b6106e66106cd565b506106f160016106d2565b90565b5f90565b5f1c90565b61070961070e916106f8565b6101a1565b90565b61071b90546106fd565b90565b6107266106f4565b506107305f610711565b90565b5f90565b505050505050505050505050505061074d610733565b5060019056fea2646970667358221220b8fa49fec2c3ffe3100a93a139238f5daac1a2bfa4dcc80f510d1d0da598df0f64736f6c634300081e0033",
 }
 
 // MockTeeAuthenticator is an auto generated Go binding around an Ethereum contract.
@@ -201,12 +233,12 @@ func (mockTeeAuthenticator *MockTeeAuthenticator) PackConstructor(_teeSigner com
 }
 
 // PackCheckSignature is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xf3c29cb0.  This method will panic if any
+// the contract method with ID 0x64c062d1.  This method will panic if any
 // invalid/nil inputs are passed.
 //
-// Solidity: function checkSignature(uint256 , bytes32 , bytes32 , bytes32 , bytes[] , (address,uint256)[] , bytes ) pure returns(bool)
-func (mockTeeAuthenticator *MockTeeAuthenticator) PackCheckSignature(arg0 *big.Int, arg1 [32]byte, arg2 [32]byte, arg3 [32]byte, arg4 [][]byte, arg5 []StructsWithdrawalRequest, arg6 []byte) []byte {
-	enc, err := mockTeeAuthenticator.abi.Pack("checkSignature", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+// Solidity: function checkSignature(uint64 , bytes32 , bytes32 , bytes32 , bytes[] , string[] , (address,uint256)[] , uint256 , uint256 , bytes ) pure returns(bool)
+func (mockTeeAuthenticator *MockTeeAuthenticator) PackCheckSignature(arg0 uint64, arg1 [32]byte, arg2 [32]byte, arg3 [32]byte, arg4 [][]byte, arg5 []string, arg6 []StructsWithdrawalRequest, arg7 *big.Int, arg8 *big.Int, arg9 []byte) []byte {
+	enc, err := mockTeeAuthenticator.abi.Pack("checkSignature", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 	if err != nil {
 		panic(err)
 	}
@@ -214,18 +246,18 @@ func (mockTeeAuthenticator *MockTeeAuthenticator) PackCheckSignature(arg0 *big.I
 }
 
 // TryPackCheckSignature is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xf3c29cb0.  This method will return an error
+// the contract method with ID 0x64c062d1.  This method will return an error
 // if any inputs are invalid/nil.
 //
-// Solidity: function checkSignature(uint256 , bytes32 , bytes32 , bytes32 , bytes[] , (address,uint256)[] , bytes ) pure returns(bool)
-func (mockTeeAuthenticator *MockTeeAuthenticator) TryPackCheckSignature(arg0 *big.Int, arg1 [32]byte, arg2 [32]byte, arg3 [32]byte, arg4 [][]byte, arg5 []StructsWithdrawalRequest, arg6 []byte) ([]byte, error) {
-	return mockTeeAuthenticator.abi.Pack("checkSignature", arg0, arg1, arg2, arg3, arg4, arg5, arg6)
+// Solidity: function checkSignature(uint64 , bytes32 , bytes32 , bytes32 , bytes[] , string[] , (address,uint256)[] , uint256 , uint256 , bytes ) pure returns(bool)
+func (mockTeeAuthenticator *MockTeeAuthenticator) TryPackCheckSignature(arg0 uint64, arg1 [32]byte, arg2 [32]byte, arg3 [32]byte, arg4 [][]byte, arg5 []string, arg6 []StructsWithdrawalRequest, arg7 *big.Int, arg8 *big.Int, arg9 []byte) ([]byte, error) {
+	return mockTeeAuthenticator.abi.Pack("checkSignature", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 }
 
 // UnpackCheckSignature is the Go binding that unpacks the parameters returned
-// from invoking the contract method with ID 0xf3c29cb0.
+// from invoking the contract method with ID 0x64c062d1.
 //
-// Solidity: function checkSignature(uint256 , bytes32 , bytes32 , bytes32 , bytes[] , (address,uint256)[] , bytes ) pure returns(bool)
+// Solidity: function checkSignature(uint64 , bytes32 , bytes32 , bytes32 , bytes[] , string[] , (address,uint256)[] , uint256 , uint256 , bytes ) pure returns(bool)
 func (mockTeeAuthenticator *MockTeeAuthenticator) UnpackCheckSignature(data []byte) (bool, error) {
 	out, err := mockTeeAuthenticator.abi.Unpack("checkSignature", data)
 	if err != nil {
@@ -375,11 +407,43 @@ func (mockTeeAuthenticator *MockTeeAuthenticator) UnpackTeeSigner(data []byte) (
 	return out0, nil
 }
 
+// UnpackError attempts to decode the provided error data using user-defined
+// error definitions.
+func (mockTeeAuthenticator *MockTeeAuthenticator) UnpackError(raw []byte) (any, error) {
+	if bytes.Equal(raw[:4], mockTeeAuthenticator.abi.Errors["TeeIsNotSet"].ID.Bytes()[:4]) {
+		return mockTeeAuthenticator.UnpackTeeIsNotSetError(raw[4:])
+	}
+	return nil, errors.New("Unknown error")
+}
+
+// MockTeeAuthenticatorTeeIsNotSet represents a TeeIsNotSet error raised by the MockTeeAuthenticator contract.
+type MockTeeAuthenticatorTeeIsNotSet struct {
+}
+
+// ErrorID returns the hash of canonical representation of the error's signature.
+//
+// Solidity: error TeeIsNotSet()
+func MockTeeAuthenticatorTeeIsNotSetErrorID() common.Hash {
+	return common.HexToHash("0xf64b1d7b3df6940d5da676c1cc07a6144e620b0858b161be25b6cd0ef7569425")
+}
+
+// UnpackTeeIsNotSetError is the Go binding used to decode the provided
+// error data into the corresponding Go error struct.
+//
+// Solidity: error TeeIsNotSet()
+func (mockTeeAuthenticator *MockTeeAuthenticator) UnpackTeeIsNotSetError(raw []byte) (*MockTeeAuthenticatorTeeIsNotSet, error) {
+	out := new(MockTeeAuthenticatorTeeIsNotSet)
+	if err := mockTeeAuthenticator.abi.UnpackIntoInterface(out, "TeeIsNotSet", raw); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StructsMetaData contains all meta data concerning the Structs contract.
 var StructsMetaData = bind.MetaData{
 	ABI: "[]",
 	ID:  "31c70fec60e1e1f4cc22f993498ea8b973",
-	Bin: "0x6080604052348015600e575f5ffd5b50603e80601a5f395ff3fe60806040525f5ffdfea2646970667358221220aa63d2a507df407d3c7eee0048c5098a87d0555dd2ce815e461da38093ee07b164736f6c634300081e0033",
+	Bin: "0x608060405234601957600e601d565b603e60288239603e90f35b6023565b60405190565b5f80fdfe60806040525f80fdfea264697066735822122025e9a28501b29bc51aa9d53a9fa0e4e93bab7ea79018473599ee9698f3ebe5db64736f6c634300081e0033",
 }
 
 // Structs is an auto generated Go binding around an Ethereum contract.

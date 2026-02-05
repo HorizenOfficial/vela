@@ -10,10 +10,10 @@ import (
 	"github.com/horizen-pes/pkg/common"
 )
 
+const MsgDelimiter = byte('\n')
+
 // MessageType represents the type of message being sent
 type MessageType int
-
-const delimiter = byte('\n')
 
 const (
 	// ProcessRequestMessage represents a request to process an action
@@ -28,6 +28,17 @@ const (
 	DeanonymizationRequestMessage
 	// DeanonymizationResponseMessage represents a response to a deanonymization request
 	DeanonymizationResponseMessage
+	// GetKeysetRecoveryRequestMessage represents a handshake message from executor to manager
+	GetKeysetRecoveryRequestMessage
+	// GetKeysetRecoveryResponseMessage represents a handshake message from manager to executor
+	GetKeysetRecoveryResponseMessage
+	// SetKeysetRecoveryRequestMessage represents a request to set the keyset recovery data from executor to manager
+	SetKeysetRecoveryRequestMessage
+	// SetKeysetRecoveryResponseMessage represents a response to a set keyset recovery request from manager to executor
+	SetKeysetRecoveryResponseMessage
+	// KeysetRecoveryResultMessage represent a confirmation from executor to manager confirming the recovery of keyset
+	KeysetRecoveryResultMessage
+
 	// ErrorMessage represents an error message
 	ErrorMessage
 )
@@ -41,7 +52,7 @@ type Message struct {
 
 // PendingRequest represents a request waiting for response
 type PendingRequest struct {
-	ResponseChan chan *Message
+	ResponseChan chan Message
 	Timeout      time.Time
 }
 
@@ -53,6 +64,22 @@ type ProcessRequestData struct {
 	ApplicationState *common.ApplicationState `json:"applicationState"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
+}
+
+func (prd *ProcessRequestData) Validate() error {
+	if prd.Request == nil {
+		return fmt.Errorf("Request is required")
+	}
+	if err := prd.Request.Validate(); err != nil {
+		return fmt.Errorf("invalid Request: %w", err)
+	}
+	if prd.ApplicationState == nil {
+		return fmt.Errorf("ApplicationState is required")
+	}
+	if len(prd.WasmModule) == 0 {
+		return fmt.Errorf("WasmModule cannot be empty")
+	}
+	return nil
 }
 
 // ProcessResponseData represents data for a process response message
@@ -101,11 +128,43 @@ type ErrorData struct {
 	Message string `json:"message"`
 }
 
+// GetKeysetRecoveryRequestData represents data for a message from executor to manager
+type GetKeysetRecoveryRequestData struct {
+}
+
+// GetKeysetRecoveryResponseData represents data for a message from manager to executor
+type GetKeysetRecoveryResponseData struct {
+	DataFound      bool                          `json:"dataFound"`
+	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
+}
+
+// SetKeysetRecoveryRequestData represents data for a set keyset recovery request message
+type SetKeysetRecoveryRequestData struct {
+	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
+	CommPubKey     string                        `json:"commPubKey"`
+	SigningKeyAddr string                        `json:"signingKeyAddr"`
+}
+
+// SetKeysetRecoveryResponseData represents data for a set keyset recovery response message
+type SetKeysetRecoveryResponseData struct {
+}
+
+// KeysetRecoveryResultData represents data for a keyset recovery success message
+type KeysetRecoveryResultData struct {
+	Error          string `json:"error,omitempty"`
+	CommPubKey     string `json:"commPubKey,omitempty"`
+	SigningKeyAddr string `json:"signingKeyAddr,omitempty"`
+}
+
 // generateID generates a simple unique ID for message correlation
 func generateID() string {
 	bytes := make([]byte, 16)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+type Validatable interface {
+	Validate() error
 }
 
 // extractData extracts request / response message data structs from an interface{}
@@ -119,6 +178,12 @@ func extractData[T any](data interface{}) (*T, error) {
 	var respData T
 	if err := json.Unmarshal(jsonData, &respData); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response data: %w", err)
+	}
+
+	if v, ok := any(&respData).(Validatable); ok {
+		if err := v.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	return &respData, nil

@@ -12,9 +12,10 @@ import (
 )
 
 type MsgToSignBuilder struct {
-	msgArgs         abi.Arguments
-	eventsArgs      abi.Arguments
-	withdrawalsArgs abi.Arguments
+	msgArgs           abi.Arguments
+	eventsArgs        abi.Arguments
+	eventSubTypesArgs abi.Arguments
+	withdrawalsArgs   abi.Arguments
 }
 
 type withdrawalTuple struct {
@@ -30,6 +31,12 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 
 	eventsArgs := abi.Arguments{{Type: bytesArrayType}}
 
+	stringArrayType, err := abi.NewType("string[]", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failure creating string array type: %w", err)
+	}
+	eventSubTypesArgs := abi.Arguments{{Type: stringArrayType}}
+
 	WithdrawalRequestArrayType, err := abi.NewType("tuple[]", "", []abi.ArgumentMarshaling{
 		{Name: "receiver", Type: "address"},
 		{Name: "amount", Type: "uint256"},
@@ -39,37 +46,41 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	}
 	withdrawalsArgs := abi.Arguments{{Type: WithdrawalRequestArrayType}}
 
+	uint64Type, err := abi.NewType("uint64", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failure creating uint64 type: %w", err)
+	}
 	uint256Type, err := abi.NewType("uint256", "", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failure creatinguint256 type: %w", err)
+		return nil, fmt.Errorf("failure creating uint256 type: %w", err)
 	}
 	bytes32Type, err := abi.NewType("bytes32", "", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failure creating bytes32 type: %w", err)
 	}
 	msgArgs := abi.Arguments{
+		{Type: uint64Type},
+		{Type: bytes32Type},
+		{Type: bytes32Type},
+		{Type: bytes32Type},
+		{Type: bytes32Type},
+		{Type: bytes32Type},
+		{Type: bytes32Type},
 		{Type: uint256Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
+		{Type: uint256Type},
 	}
 
-	msgBuilder := &MsgToSignBuilder{msgArgs: msgArgs, eventsArgs: eventsArgs, withdrawalsArgs: withdrawalsArgs}
+	msgBuilder := &MsgToSignBuilder{msgArgs: msgArgs, eventsArgs: eventsArgs, eventSubTypesArgs: eventSubTypesArgs, withdrawalsArgs: withdrawalsArgs}
 	return msgBuilder, nil
 }
 
 func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
 
-	appId, ok := common.StringToBigInt(updatePayload.ApplicationID)
-	if !ok {
-		return nil, fmt.Errorf("invalid application ID: %s", updatePayload.ApplicationID)
-	}
-
 	events := make([][]byte, len(updatePayload.Events))
+	eventSubTypes := make([]string, len(updatePayload.Events))
 	for i, event := range updatePayload.Events {
 		events[i] = event.EncryptedData
+		eventSubTypes[i] = event.EventSubType
 	}
 
 	encodedEvents, err := b.eventsArgs.Pack(events)
@@ -79,13 +90,20 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	eventsHash := ethCrypto.Keccak256(encodedEvents)
 	var eventArr [32]byte = [32]byte(eventsHash)
 
+	encodedEventSubTypes, err := b.eventSubTypesArgs.Pack(eventSubTypes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode event subtypes: %w", err)
+	}
+	eventSubTypesHash := ethCrypto.Keccak256(encodedEventSubTypes)
+	var eventSubTypesArr [32]byte = [32]byte(eventSubTypesHash)
+
 	withdrawals := make([]withdrawalTuple, len(updatePayload.Withdrawals))
 
 	for i, withdrawal := range updatePayload.Withdrawals {
-		amount := new(big.Int).SetUint64(withdrawal.Amount)
+		amount := withdrawal.Amount.ToInt()
 
 		withdrawals[i] = withdrawalTuple{
-			Receiver: ethCommon.HexToAddress(withdrawal.DestinationAddress),
+			Receiver: withdrawal.DestinationAddress,
 			Amount:   amount,
 		}
 	}
@@ -96,18 +114,17 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	}
 	withdrawalHash := ethCrypto.Keccak256(encodedWithdrawal)
 	var withdrawalArr [32]byte = [32]byte(withdrawalHash)
-	requestId, err := common.RequestIdStringTo32Byte(updatePayload.RequestID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid request ID: %s", updatePayload.RequestID)
-	}
 
 	values := []interface{}{
-		appId,
+		updatePayload.ApplicationID,
 		updatePayload.PrevStateRoot,
 		updatePayload.NewStateRoot,
-		requestId,
+		updatePayload.RequestID,
 		eventArr,
+		eventSubTypesArr,
 		withdrawalArr,
+		updatePayload.RefundAmount.ToInt(),
+		updatePayload.ApplicationFee.ToInt(),
 	}
 
 	// Encoding parameters

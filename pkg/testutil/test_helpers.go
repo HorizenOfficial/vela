@@ -5,23 +5,40 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
+	"math/big"
 	"os"
 	"testing"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/executor"
+	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/logserver"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
+	"github.com/horizen-pes/pkg/storage/mockdb"
 	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
 	"github.com/horizen-pes/pkg/wasm"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
+
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
+type MockAdminServer struct {}
+
+func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
+func (*MockAdminServer)	Stop() error { return nil}
+func (*MockAdminServer)	SetCmdHandler(handler admin.AdminCmdHandler)  { }
+
+
+
+
 
 type SystemTestSuite struct {
 	t                  *testing.T
@@ -36,27 +53,64 @@ type SystemTestSuite struct {
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 	dbPath             string
 	reportsPath        string
+	log                logger.Logger
 }
 
-func NewSystemTestSuite(t *testing.T, appType string) *SystemTestSuite {
-	config := manager.ReadConfig()
-	return NewSystemTestSuiteWithMgrConfig(t, appType, config)
+func NewSystemTestSuite(t *testing.T, appType string, mgrLog logger.Logger, excLog logger.Logger) *SystemTestSuite {
+	// log is passed from outside, the log settings in the manager configuration does not affect it.
+	mgrConfig, err := manager.LoadConfig()
+	require.NoError(t, err)
+	execConfig, err := executor.LoadConfig()
+	require.NoError(t, err)
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
+	require.NoError(t, err)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLog, excLog)
 }
 
-func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manager.Config) *SystemTestSuite {
+func NewSystemTestSuiteWithConfigs(
+	t *testing.T,
+	appType string,
+	mgrConfig *manager.Config,
+	execConfig *executor.Config,
+	keySet *executor.EnclaveKeySet,
+	recoveryData *common.EnclaveKeySetRecovery,
+	mgrLog logger.Logger,
+	excLog logger.Logger,
+) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Normalize channel params for tests: default configs may use vsock, but tests run over TCP.
+	var tcpParams common.TcpChannelConnectionParams
+	switch p := execConfig.ChannelParams.(type) {
+	case common.TcpChannelConnectionParams:
+		tcpParams = p
+	case common.VSockChannelConnectionParams:
+		tcpParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
+		execConfig.ChannelParams = tcpParams
+		execConfig.ChannelType = "tcp"
+	default:
+		t.Fatal("unsupported executor channel params type")
+	}
+	switch p := mgrConfig.ChannelParams.(type) {
+	case common.TcpChannelConnectionParams:
+		// keep as is
+	case common.VSockChannelConnectionParams:
+		mgrConfig.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
+		mgrConfig.ChannelType = "tcp"
+	default:
+		t.Fatal("unsupported manager channel params type")
+	}
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	execConfig := executor.DefaultConfig()
-	factory := communication.NewTCPConnectionFactory(execConfig.ServerAddr)
-	executorClient := communication.NewClient(factory)
+	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
+	executorClient := communication.NewClient(factory, commParams,mgrLog)
 
 	// Create manager
 	var err error
 	var reportsPath string = ""
-	if config.DeanonymizationReportPath != "" {
+	if mgrConfig.DeanonymizationReportPath != "" {
 		// Create a temporary directory for reports, we overwrite this optional setting
 		// because this is a test environment
 		reportsPath, err = os.MkdirTemp("", "test-reports")
@@ -69,47 +123,76 @@ func NewSystemTestSuiteWithMgrConfig(t *testing.T, appType string, config *manag
 
 	cfg := versioned_leveldb.VersionedLevelDBConfig{
 		DBPath:         dbPath,
-		VersionsToKeep: config.DataLayerNumOfVersions,
+		VersionsToKeep: mgrConfig.DataLayerNumOfVersions,
 	}
 
-	//dataLayer := mockdb.NewMockDataLayer()
-	dataLayer, err := versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
-	require.NoError(t, err)
+	var dataLayer storage.DataLayer = nil
+	if mgrConfig.DataLayerType == "mockdb" {
+		dataLayer = mockdb.NewMockDataLayer()
+	} else {
+		dataLayer, err = versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
+		require.NoError(t, err)
+	}
 
-	mgr := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient)
+	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, mgrLog)
+
+	logserver.StartLogServer(
+		ctx,
+		logserver.LogServerConfig{
+			TCPAddr:        mgrConfig.LogServerTCPAddress,
+			VSockAddr:      mgrConfig.LogServerVSockAddress,
+			LogFilePath:    mgrConfig.LogServerLogFile,
+			ConsoleEnabled: mgrConfig.LogServerConsole,
+			ConsoleLevel:   mgrConfig.LogServerConsoleLevel,
+			FileLevel:      mgrConfig.LogServerFileLevel,
+		},
+	)
 
 	// Create executor
-	server := communication.NewServer(factory)
+	server := communication.NewServer(factory, commParams, excLog)
 	var runtime executor.Runtime
 	switch appType {
 	case "mock-runtime":
 		t.Log("mock app type: ", appType)
-		runtime = executor.NewMockRuntime()
+		runtime = executor.NewMockRuntime(excLog)
 	default:
 		t.Log("wasm app type: ", appType)
-		runtime = wasm.NewWasmtimeRuntime()
+		runtime = wasm.NewWasmtimeRuntime(excLog)
 	}
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server)
+
+	// Create the executor
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, &MockAdminServer{}, excLog)
 	require.NoError(t, err)
+
+	if keySet != nil && recoveryData != nil {
+		err := dataLayer.StoreEnclaveKeySetRecovery(ctx, recoveryData)
+		require.NoError(t, err)
+	}
 
 	// Create event channel
 	eventChannel := make(chan interface{}, 100)
 	blockchainClient.SubscribeToEvents(ctx, eventChannel)
 
-	return &SystemTestSuite{
-		t:                  t,
-		manager:            mgr,
-		executor:           exec,
-		blockchainClient:   blockchainClient,
-		dataLayer:          dataLayer,
-		eventChannel:       eventChannel,
-		ctx:                ctx,
-		cancel:             cancel,
-		executorCommKey:    execConfig.CommunicationKey, // Store the executor's communication key
-		executorSigningKey: execConfig.SignatureKey,     // Store the executor's signing key
-		dbPath:             dbPath,
-		reportsPath:        reportsPath,
+	suite := &SystemTestSuite{
+		t:                t,
+		manager:          mgr,
+		executor:         exec,
+		blockchainClient: blockchainClient,
+		dataLayer:        dataLayer,
+		eventChannel:     eventChannel,
+		ctx:              ctx,
+		cancel:           cancel,
+		dbPath:           dbPath,
+		reportsPath:      reportsPath,
+		log:              mgrLog,
 	}
+
+	if keySet != nil {
+		suite.executorCommKey = &keySet.CommunicationKey
+		suite.executorSigningKey = &keySet.SigningKey
+	}
+
+	return suite
 }
 
 func (s *SystemTestSuite) StartManager() error {
@@ -124,7 +207,8 @@ func (s *SystemTestSuite) StartManager() error {
 
 	// Wait for a result from the goroutine
 	if err := <-errChan; err != nil {
-		s.t.Fatalf("Manager failed to start: %v", err)
+		s.log.Info("Manager failed to start: %v", err)
+		return err
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -154,7 +238,7 @@ func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {
 	return s.blockchainClient.SendRequestToChain(s.ctx, req) //use test function in mock_client
 }
 
-func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duration) (*common.ApplicationState, error) {
+func (s *SystemTestSuite) WaitForAppStateInDB(appID common.ApplicationIdType, timeout time.Duration) (*common.ApplicationState, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -171,7 +255,7 @@ func (s *SystemTestSuite) WaitForAppStateInDB(appID string, timeout time.Duratio
 			// this will print every tick
 			//s.t.Log("err: ", err.Error())
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for app state %s", appID)
+			return nil, fmt.Errorf("timeout waiting for app state %d", appID)
 
 		}
 	}
@@ -182,7 +266,7 @@ func (s *SystemTestSuite) GetFailedRequest() []*common.Request {
 	return failedReq
 }
 
-func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time.Duration) (*common.ApplicationState, error) {
+func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID common.ApplicationIdType, timeout time.Duration) (*common.ApplicationState, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -196,18 +280,19 @@ func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID string, timeout time
 				return state, nil
 			}
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for app state %s in blockchain", appID)
+			return nil, fmt.Errorf("timeout waiting for app state %d in blockchain", appID)
 
 		}
 	}
 }
 
-func (s *SystemTestSuite) AssertRequestCompleted(requestID string, timeout time.Duration) error {
+func (s *SystemTestSuite) AssertRequestCompleted(requestID common.RequestIdType, timeout time.Duration) error {
 	return s.blockchainClient.WaitForRequestCompletion(requestID, timeout)
 }
 
-// WaitForEvent waits for a specific event to be published for a user
-func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*common.Event, error) {
+// WaitForEvent waits for a specific event to be published for a user.
+// If eventSubType is empty, any subtype is accepted.
+func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType string, timeout time.Duration) (*common.Event, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -216,11 +301,11 @@ func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*c
 	for {
 		select {
 		case event := <-s.eventChannel:
-			if evt, ok := event.(common.Event); ok && evt.UserID == userID {
-				log.Printf("TESTING: Received event: %+v", event.(common.Event))
+			if evt, ok := event.(common.Event); ok && evt.UserID == userID && (eventSubType == "" || evt.EventSubType == eventSubType) {
+				s.log.Info("TESTING: Received event: %+v", event.(common.Event))
 				return &evt, nil
 			} else {
-				log.Printf("TESTING: Received unexpected event: %+v", event)
+				s.log.Info("TESTING: Received unexpected event: %+v", event)
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for event for user %s", userID)
@@ -229,7 +314,7 @@ func (s *SystemTestSuite) WaitForEvent(userID string, timeout time.Duration) (*c
 }
 
 // WaitForDeanonymizationReport waits for a deanonymization report to be generated
-func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID string, timeout time.Duration) (*common.DeanonymizationReport, error) {
+func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestIdType, timeout time.Duration) (*common.DeanonymizationReport, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -250,7 +335,7 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID string, timeout 
 }
 
 // WaitForWithdrawal waits for a withdrawal to be processed
-func (s *SystemTestSuite) WaitForWithdrawal(appID string, timeout time.Duration) (*common.Withdrawal, error) {
+func (s *SystemTestSuite) WaitForWithdrawal(appID common.ApplicationIdType, timeout time.Duration) (*common.Withdrawal, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -265,12 +350,12 @@ func (s *SystemTestSuite) WaitForWithdrawal(appID string, timeout time.Duration)
 				return &(*withdrawals)[0], nil
 			}
 		case <-timeoutCh:
-			return nil, fmt.Errorf("timeout waiting for withdrawal for app %s", appID)
+			return nil, fmt.Errorf("timeout waiting for withdrawal for app %d", appID)
 		}
 	}
 }
 
-func (s *SystemTestSuite) GetRequestUpdatePayload(reqId string) (*common.UpdatePayload, error) {
+func (s *SystemTestSuite) GetRequestUpdatePayload(reqId common.RequestIdType) (*common.UpdatePayload, error) {
 	// Get the update payload for the request
 	return s.blockchainClient.GetRequestUpdatePayload(s.ctx, reqId)
 }
@@ -283,12 +368,15 @@ func (s *SystemTestSuite) GetExecutorCommunicationKey() (*cryptotypes.PublicKeyP
 	return s.executorCommKey.PublicKey(), nil
 }
 
-// GetExecutorSigningKey returns the executor's signing public key for encryption
 func (s *SystemTestSuite) GetExecutorSigningKey() (*cryptotypes.PublicKeySecp256k1, error) {
 	if s.executorSigningKey == nil {
 		return nil, fmt.Errorf("executor signing key not initialized")
 	}
 	return s.executorSigningKey.PublicKey(), nil
+}
+
+func (s *SystemTestSuite) GetDataLayer() storage.DataLayer {
+	return s.dataLayer
 }
 
 func (s *SystemTestSuite) LoadWasmModule(t *testing.T, moduleFilename string) []byte {
@@ -324,12 +412,12 @@ func (s *SystemTestSuite) Cleanup() error {
 }
 
 func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []byte) {
-	const appId = "1"
+	var appId = common.NewApplicationId(1)
 	timeout_value := 100 * time.Second
 
 	// we use an eth address as user and auditor IDs
-	userAddress := fmt.Sprintf("0xadd%037x", 1)
-	auditorAddress := fmt.Sprintf("0xadd%037x", 2)
+	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
+	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 
 	cryptoHelper := NewCryptoHelper()
 
@@ -350,7 +438,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	executorSigningKey, err := suite.GetExecutorSigningKey()
 	require.NoError(t, err)
 
-	RequestID := "2133"
+	RequestID := testutil.GenerateRandomRequestID()
 	// Submit deploy request
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
@@ -358,7 +446,9 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 		RequestID:     RequestID,
 		Payload:       bytecode,
 		Sender:        userAddress,
-		Timestamp:     time.Now().Unix(),
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		DepositAmount: common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
 	}
 	err = suite.SubmitRequest(deployReq)
 	require.NoError(t, err)
@@ -390,7 +480,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	//register key 1
-	RequestID = "2130"
+	RequestID = testutil.GenerateRandomRequestID()
 	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, userAddress, user1Key.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
@@ -399,7 +489,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	//register key 3
-	RequestID = "2132"
+	RequestID = testutil.GenerateRandomRequestID()
 	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appId, RequestID, auditorAddress, auditorKey.PublicKey())
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey2Req)
@@ -409,8 +499,8 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 2: Sending deposit request")
 
-	RequestID = "2134"
-	depositAmount := uint64(2000000000000000000)
+	RequestID = testutil.GenerateRandomRequestID()
+	depositAmount := big.NewInt(2000000000000000000)
 	depositReq, err := cryptoHelper.CreateDepositRequest(
 		appId,
 		RequestID,
@@ -428,7 +518,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for deposit event
-	depositEvent, err := suite.WaitForEvent(userAddress, timeout_value)
+	depositEvent, err := suite.WaitForEvent(userAddress, "deposit", timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, depositEvent)
 
@@ -440,7 +530,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	err = json.Unmarshal(decryptedDepositData, &depositEventData)
 	require.NoError(t, err)
 	require.Equal(t, "deposit", depositEventData.Type)
-	require.Equal(t, depositAmount, depositEventData.Amount)
+	require.Equal(t, 0, depositAmount.Cmp(depositEventData.Amount.ToInt()))
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload(RequestID)
@@ -450,7 +540,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 3: Sending deanonymization request as auditor")
 
-	RequestID = "2136"
+	RequestID = testutil.GenerateRandomRequestID()
 
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
 		appId,
@@ -479,15 +569,21 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct for the report data, but we do assume that
 	// we have an appId, a reportId, and the raw data bytes in a separate field
-	var report map[string]interface{}
+	var report struct {
+		ApplicationId   common.ApplicationIdType `json:"applicationId"`
+		RequestId       common.RequestIdType     `json:"requestId"`
+		ReportDataBytes interface{}              `json:"reportDataBytes"`
+	}
+
 	err = json.Unmarshal(decryptedReport, &report)
 	require.NoError(t, err)
-	require.Equal(t, appId, report["applicationId"])
-	require.Equal(t, RequestID, report["requestId"])
+	require.Equal(t, appId, report.ApplicationId)
+
+	require.Equal(t, RequestID, report.RequestId)
 	t.Log("Deanonymization report:\n", PrettyPrintJSON(report))
 
 	// just check that we have a base64 string representing the raw report data
-	jsonStr, ok := report["reportDataBytes"].(string)
+	jsonStr, ok := report.ReportDataBytes.(string)
 	require.True(t, ok, "reportDataBytes is not a string")
 	_, err = base64.StdEncoding.DecodeString(jsonStr)
 	require.NoError(t, err, "bytes are not base64 encoded")
@@ -496,16 +592,16 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 
 	t.Log("Step 4: Sending withdrawal request as user1")
 
-	recipientAddress := "0x1234567890123456789012345678901234567890"
+	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 
-	RequestID = "2137"
-	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
+	RequestID = testutil.GenerateRandomRequestID()
+	withdrawAmount := big.NewInt(500000000000000000) // 0.5 ETH
 	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(
 		appId,
 		RequestID,
 		userAddress,
 		recipientAddress,
-		withdrawAmount,
+		common.ToBig(withdrawAmount),
 		executorPubKey,
 	)
 	require.NoError(t, err)
@@ -518,7 +614,7 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 
 	// Wait for withdrawal event
-	withdrawalEvent, err := suite.WaitForEvent(userAddress, timeout_value)
+	withdrawalEvent, err := suite.WaitForEvent(userAddress, "withdrawal", timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawalEvent)
 
@@ -531,14 +627,14 @@ func ExecTestAppFullSystemFlow(t *testing.T, suite *SystemTestSuite, bytecode []
 	require.NoError(t, err)
 	require.Equal(t, "withdrawal", withdrawalEventData.Type)
 	require.Equal(t, recipientAddress, withdrawalEventData.To)
-	require.Equal(t, withdrawAmount, withdrawalEventData.Amount)
+	require.Equal(t, 0, withdrawAmount.Cmp(withdrawalEventData.Amount.ToInt()))
 
 	// Wait for actual withdrawal to be recorded
 	withdrawal, err := suite.WaitForWithdrawal(appId, timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, withdrawal)
 	require.Equal(t, recipientAddress, withdrawal.DestinationAddress)
-	require.Equal(t, withdrawAmount, withdrawal.Amount)
+	require.Equal(t, 0, withdrawAmount.Cmp(withdrawal.Amount.ToInt()))
 
 	// Verify updatePayload signature
 	payload, err = suite.GetRequestUpdatePayload(RequestID)

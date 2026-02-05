@@ -1,8 +1,9 @@
-name: CI with Duplicated Jobs
-
+name: Horizen CCE CI
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ main, dev]
+    tags:
+      - 'v*'       # triggers workflow on any tag starting with 'v'
   pull_request:
     branches: [ main, dev ]
 
@@ -32,6 +33,11 @@ jobs:
       - name: Install contract dependencies
         working-directory: contracts
         run: npm ci
+
+      # Format check for contracts
+      - name: Check formatting in contracts
+        working-directory: contracts
+        run: npm run format:check
 
       # Install Go dependencies
       - name: Download Go dependencies
@@ -63,7 +69,7 @@ jobs:
           go generate -v ./... || { echo "go generate failed"; exit 1; }
           echo "Files after generation:"
           git status
-          if [[ -n "$(git status --porcelain | grep "pkg/blockchain/contracts")" ]]; then
+          if [[ -n "$(git status --porcelain | grep -E '^( M|A |\\?\\?) (pkg/blockchain/contracts/|contract_abis/|subgraphs/hcce/abis/)')" ]]; then
             echo "❌ Generated files are out of date. Please run 'go generate ./...' and commit the results."
             git diff
             exit 1
@@ -148,7 +154,7 @@ jobs:
           go generate -v ./... || { echo "go generate failed"; exit 1; }
           echo "Files after generation:"
           git status
-          if [[ -n "$(git status --porcelain | grep "pkg/blockchain/contracts")" ]]; then
+          if [[ -n "$(git status --porcelain | grep -E '^( M|A |\\?\\?) (pkg/blockchain/contracts/|contract_abis/|subgraphs/hcce/abis/)')" ]]; then
             echo "❌ Generated files are out of date. Please run 'go generate ./...' and commit the results."
             git diff
             exit 1
@@ -177,3 +183,103 @@ jobs:
       - name: Test contracts
         working-directory: contracts
         run: npm run test
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [full-test, quick-test]
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+
+      - name: Build attestation binary
+        working-directory: cmd
+        run: make attestation
+
+      - name: Rename attestation binary
+        run: |
+          cd bin
+          mv attestation attestation-linux
+          cd .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            ./bin/attestation-linux
+
+  build-and-push-docker-images:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [full-test, quick-test, release]
+    if: startsWith(github.ref, 'refs/tags/')   #runs this job only when pushing a tag
+
+    env:
+      DOCKER_HUB_ORG: ${{ vars.DOCKER_HUB_ORG }}
+      DOCKER_HUB_USERNAME: ${{ vars.DOCKER_HUB_USERNAME }}
+      DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+      GITHUB_TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_HUB_USERNAME }}
+          password: ${{ env.DOCKER_HUB_TOKEN }}
+
+      - name: Build and push executor image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/executor/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-executor:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-executor:latest
+            
+      - name: Build and push manager image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/manager/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-manager:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-manager:latest
+
+      - name: Build and push authorityservice image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/authorityservice/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-authorityservice:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-authorityservice:latest
+
+      - name: Build and push chain image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/chain/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-chain:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-chain:latest
+   

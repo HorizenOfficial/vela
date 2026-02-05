@@ -21,7 +21,7 @@ func GeneratePrivateKeySecp256k1() (*cryptotypes.PrivateKeySecp256k1, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
-	return &cryptotypes.PrivateKeySecp256k1{key}, nil
+	return &cryptotypes.PrivateKeySecp256k1{PrivateKey: key}, nil
 }
 
 // SavePrivateKeySecp256k1ToFileDER saves a secp256k1 private key to a file in DER format.
@@ -47,7 +47,7 @@ func LoadPrivateKeySecp256k1FromFileDER(filename string) (*cryptotypes.PrivateKe
 		return nil, fmt.Errorf("failed to parse private key: %w", err)
 	}
 
-	return &cryptotypes.PrivateKeySecp256k1{key}, nil
+	return &cryptotypes.PrivateKeySecp256k1{PrivateKey: key}, nil
 }
 
 // SavePrivateKeySecp256k1ToFilePEM saves a secp256k1 private key to a file in PEM format.
@@ -89,7 +89,7 @@ func LoadPrivateKeySecp256k1FromFilePEM(filename string) (*cryptotypes.PrivateKe
 		return nil, fmt.Errorf("failed to parse private key: %w", err)
 	}
 
-	return &cryptotypes.PrivateKeySecp256k1{key}, nil
+	return &cryptotypes.PrivateKeySecp256k1{PrivateKey: key}, nil
 }
 
 // ExportPrivateKeySecp256k1ToHex exports a secp256k1 private key to a 64-character hex string.
@@ -114,7 +114,7 @@ func ImportPrivateKeySecp256k1FromHex(hexKey string) (*cryptotypes.PrivateKeySec
 		return nil, fmt.Errorf("failed to parse private key: %w", err)
 	}
 
-	return &cryptotypes.PrivateKeySecp256k1{key}, nil
+	return &cryptotypes.PrivateKeySecp256k1{PrivateKey: key}, nil
 }
 
 // ImportPublicKeySecp256k1FromHex imports a secp256k1 public key from a hex string.
@@ -129,5 +129,5 @@ func ImportPublicKeySecp256k1FromHex(hexKey string) (*cryptotypes.PublicKeySecp2
 		return nil, fmt.Errorf("failed to unmarshal public key: %w", err)
 	}
 
-	return &cryptotypes.PublicKeySecp256k1{key}, nil
+	return &cryptotypes.PublicKeySecp256k1{PublicKey: key}, nil
 }

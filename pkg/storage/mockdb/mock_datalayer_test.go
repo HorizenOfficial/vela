@@ -41,7 +41,7 @@ func TestApplicationStateStore(t *testing.T) {
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 
 		expectedState := common.ApplicationState{
-			ApplicationID:  "app-test-id-1",
+			ApplicationID:  common.NewApplicationId(1),
 			StateRoot:      sha256.Sum256([]byte("some-test-root-hash-1")),
 			EncryptedState: []byte{0x0A, 0x0B, 0x0C, 0x0D},
 		}
@@ -71,7 +71,7 @@ func TestApplicationStateStore(t *testing.T) {
 	t.Run("GetNonExistentApplicationState", func(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		_, err := store.GetApplicationState(ctx, "non-existent-app-id")
+		_, err := store.GetApplicationState(ctx, 45)
 		require.Error(t, err, "Expected an error when getting a non-existent state")
 		var notFoundErr *storageErrors.Error
 		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
@@ -82,37 +82,8 @@ func TestApplicationStateStore(t *testing.T) {
 	t.Run("GetNonExistentWASMBytecode", func(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		_, err := store.GetWASMBytecode(ctx, "non-existent-wasm-id")
+		_, err := store.GetWASMBytecode(ctx, 653)
 		require.Error(t, err, "Expected an error when getting non-existent WASM bytecode")
-		var notFoundErr *storageErrors.Error
-		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
-			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
-		}
-	})
-
-	t.Run("StoreAndGetDeanonymizationReport", func(t *testing.T) {
-		store := createStore()
-		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		expectedReport := &common.DeanonymizationReport{
-			ApplicationID:   "deanon-1",
-			ReportID:        "report-id-1",
-			EncryptedReport: []byte("some-test-root-hash-1"),
-		}
-		err := store.StoreDeanonymizationReport(ctx, expectedReport)
-		require.NoError(t, err, "StoreDeanonymizationReport should not error")
-		actualReport, err := store.GetDeanonymizationReport(ctx, expectedReport.ReportID)
-		require.NoError(t, err, "GetDeanonymizationReport for existing ID should not error")
-		require.NotNil(t, actualReport, "GetDeanonymizationReport should return a non-nil report")
-		if diff := cmp.Diff(expectedReport, actualReport); diff != "" {
-			t.Errorf("Retrieved DeanonymizationReport mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("GetNonExistentDeanonymizationReport", func(t *testing.T) {
-		store := createStore()
-		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
-		_, err := store.GetDeanonymizationReport(ctx, "non-existent-report-id")
-		require.Error(t, err, "Expected an error when getting non-existent deanonymization report")
 		var notFoundErr *storageErrors.Error
 		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
 			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
@@ -130,25 +101,26 @@ func TestApplicationStateStore(t *testing.T) {
 		require.NoError(t, store.Close(), "Closing the store should not return an error on first close")
 		err := store.Close()
 		assert.NoError(t, err, "Error is not expected when trying to close an already closed store")
+		any_id := common.NewApplicationId(999)
 
 		operations := map[string]func() error{
 			"GetApplicationState": func() error {
-				_, err := store.GetApplicationState(ctx, "any-id")
+				_, err := store.GetApplicationState(ctx, any_id)
 				return err
 			},
 			"Store": func() error {
 				return store.Store(ctx, []byte("version-1"), nil, nil)
 			},
 			"GetWASMBytecode": func() error {
-				_, err := store.GetWASMBytecode(ctx, "any-id")
+				_, err := store.GetWASMBytecode(ctx, any_id)
 				return err
 			},
-			"GetDeanonymizationReport": func() error {
-				_, err := store.GetDeanonymizationReport(ctx, "any-id")
-				return err
+			"StoreEnclaveKeySetRecovery": func() error {
+				return store.StoreEnclaveKeySetRecovery(ctx, &common.EnclaveKeySetRecovery{})
 			},
-			"StoreDeanonymizationReport": func() error {
-				return store.StoreDeanonymizationReport(ctx, &common.DeanonymizationReport{ReportID: "test"})
+			"GetEnclaveKeySetRecovery": func() error {
+				_, err := store.GetEnclaveKeySetRecovery(ctx)
+				return err
 			},
 		}
 
@@ -176,7 +148,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := fmt.Sprintf("concurrent-app-%d", i)
+				appID := common.NewApplicationId(int64(i))
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
@@ -192,7 +164,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := fmt.Sprintf("concurrent-app-%d", i)
+				appID := common.NewApplicationId(int64(i))
 				state, err := store.GetApplicationState(ctx, appID)
 				assert.NoError(t, err)
 				assert.Equal(t, appID, state.ApplicationID)
@@ -202,6 +174,35 @@ func TestApplicationStateStore(t *testing.T) {
 		wg.Wait()
 	})
 
+	t.Run("StoreAndGetEnclaveKeySetRecovery", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+		expectedRecoveryData := &common.EnclaveKeySetRecovery{
+			RecoveryType:       1,
+			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
+			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
+		}
+		err := store.StoreEnclaveKeySetRecovery(ctx, expectedRecoveryData)
+		require.NoError(t, err, "StoreEnclaveKeySetRecovery should not error")
+		actualRecoveryData, err := store.GetEnclaveKeySetRecovery(ctx)
+		require.NoError(t, err, "GetEnclaveKeySetRecovery for existing data should not error")
+		require.NotNil(t, actualRecoveryData, "GetEnclaveKeySetRecovery should return a non-nil data")
+		if diff := cmp.Diff(expectedRecoveryData, actualRecoveryData); diff != "" {
+			t.Errorf("Retrieved EnclaveKeySetRecovery mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("GetNonExistentEnclaveKeySetRecovery", func(t *testing.T) {
+		store := createStore()
+		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
+		_, err := store.GetEnclaveKeySetRecovery(ctx)
+		require.Error(t, err, "Expected an error when getting non-existent recovery data")
+		var notFoundErr *storageErrors.Error
+		if !errors.As(err, &notFoundErr) || notFoundErr.Code != storageErrors.NotFound {
+			t.Errorf("Expected a 'not found' error, got: %T (%v)", err, err)
+		}
+	})
+
 	t.Run("StoreArays", func(t *testing.T) {
 		ctx := context.Background()
 		dataLayer := mockdb.NewMockDataLayer()
@@ -209,12 +210,12 @@ func TestApplicationStateStore(t *testing.T) {
 		// 1. Define non-trivial arrays for states and WASM data
 		stateArray := []*common.ApplicationState{
 			{
-				ApplicationID:  "app1",
+				ApplicationID:  common.NewApplicationId(1),
 				StateRoot:      sha256.Sum256([]byte("root1")),
 				EncryptedState: []byte("state1"),
 			},
 			{
-				ApplicationID:  "app2",
+				ApplicationID:  common.NewApplicationId(2),
 				StateRoot:      sha256.Sum256([]byte("root2")),
 				EncryptedState: []byte("state2"),
 			},
@@ -222,11 +223,11 @@ func TestApplicationStateStore(t *testing.T) {
 
 		wasmArray := []*common.WASMData{
 			{
-				ApplicationID: "app1",
+				ApplicationID: common.NewApplicationId(1),
 				Bytecode:      []byte("wasm1"),
 			},
 			{
-				ApplicationID: "app3", // Use a different app ID to test wasm-only storage
+				ApplicationID: common.NewApplicationId(3), // Use a different app ID to test wasm-only storage
 				Bytecode:      []byte("wasm3"),
 			},
 		}
@@ -252,11 +253,11 @@ func TestApplicationStateStore(t *testing.T) {
 		}
 
 		// 5. Verify that an app with only WASM data has no state
-		_, err = dataLayer.GetApplicationState(ctx, "app3")
+		_, err = dataLayer.GetApplicationState(ctx, 3)
 		assert.Error(t, err, "GetApplicationState for app3 should return an error as it has no state")
 
 		// 6. Verify that an app with only state data has no WASM
-		_, err = dataLayer.GetWASMBytecode(ctx, "app2")
+		_, err = dataLayer.GetWASMBytecode(ctx, 2)
 		assert.Error(t, err, "GetWASMBytecode for app2 should return an error as it has no WASM")
 	})
 }

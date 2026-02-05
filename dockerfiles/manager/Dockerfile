@@ -2,7 +2,13 @@
 FROM debian:bullseye-slim AS builder
 
 # Install base dependencies
-RUN apt-get update && apt-get install -y nodejs npm wget
+RUN apt-get update && apt-get install -y wget ca-certificates gnupg
+
+# Manuallt install Node.js 20 from NodeSource (the one in debian:bullseye-slim is too old)
+RUN mkdir -p /etc/apt/keyrings && \
+    wget -qO- https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && apt-get install -y nodejs
 
 # Manually install a specific version of Go
 ENV GO_VERSION=1.24.0
@@ -55,6 +61,8 @@ ENV MANAGER_DATA_FOLDER="/data"
 ENV MANAGER_REPORTS_FOLDER="/reports"
 #default location for input wasms folder (can be overridden by docker compose or docker run)
 ENV MANAGER_INPUT_WASMS="/input_wasms"
+#default location for logs folder (can be overridden by docker compose or docker run)
+ENV LOG_SERVER_FOLDER="/logs"
 
 # Create a non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -68,6 +76,7 @@ COPY --from=builder /manager /manager
 
 VOLUME ${MANAGER_DATA_FOLDER}
 VOLUME ${MANAGER_REPORTS_FOLDER}
+VOLUME ${LOG_SERVER_FOLDER}
 
 # Set the entrypoint to our script.
 # The user is still root here, so the script can chown.

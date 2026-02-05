@@ -1,5 +1,3 @@
-version: "3"
-
 networks:
   pes_network:
     internal: true
@@ -9,37 +7,74 @@ networks:
   inet:     
 
 volumes:
-  horizen-pes-manager-data:  
-  horizen-pes-manager-reports:
-  horizen-pes-chain-data:
+  horizen-cce-manager-data:  
+  horizen-cce-manager-reports:
+  horizen-cce-chain-data:
+  horizen-cce-logs:
 
 services:
   executor:
-    image: horizen-pes-executor
-    container_name: horizen-pes-executor
+    image: horizen/cce-executor
+    container_name: horizen-cce-executor
     restart: always
+    privileged: true
+    devices:
+      - /dev/vsock:/dev/vsock
     networks:
       pes_network:
-        ipv4_address: ${EXECUTOR_IP_ADDRESS}
+        ipv4_address: ${EXECUTOR_IP_HOST}
     environment:
-      - EXECUTOR_IP_ADDRESS
-      - EXECUTOR_IP_PORT
-      - EXECUTOR_KEY_AES
-      - EXECUTOR_KEY_P521
-      - EXECUTOR_KEY_SECP256
+      - CHANNEL_TYPE
+      - EXECUTOR_IP_HOST
+      - EXECUTOR_PORT
+      - EXECUTOR_ADMIN_POR
+      - LOG_SERVER_IP_HOST
+      - EXECUTOR_KEYSET_RECOVERY_TYPE
+      - EXECUTOR_FUEL_PRICE_PER_UNIT
+      - EXECUTOR_MIN_FEE_PER_REQUEST
+      - EXECUTOR_LOG_KIND
+      - EXECUTOR_LOG_CONSOLE
+      - EXECUTOR_LOG_CONSOLE_LEVEL
+      - EXECUTOR_LOG_CONSOLE_COLOR
+      - EXECUTOR_LOG_FILE_NAME
+      - EXECUTOR_LOG_FILE_LEVEL
+      - EXECUTOR_LOG_PORT
+      - EXECUTOR_LOG_NETWORK_LEVEL
+      - EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
+      - ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
     depends_on:
       - chain
   manager:
-    image: horizen-pes-manager
-    container_name: horizen-pes-manager
-    restart: always 
+    image: horizen/cce-manager
+    container_name: horizen-cce-manager
+    restart: always
+    privileged: true
+    devices:
+      - /dev/vsock:/dev/vsock 
     environment:
-      - EXECUTOR_IP_ADDRESS
-      - EXECUTOR_IP_PORT  
+      - CHANNEL_TYPE
+      - EXECUTOR_IP_HOST
+      - EXECUTOR_VSOCK_CID
+      - EXECUTOR_PORT  
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
+      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
+      - MANAGER_INPUT_WASMS
       # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
-      - MANAGER_REPORTS_FOLDER
+      - MANAGER_LOG_KIND
+      - MANAGER_LOG_CONSOLE
+      - MANAGER_LOG_CONSOLE_LEVEL
+      - MANAGER_LOG_CONSOLE_COLOR
+      - MANAGER_LOG_FILE_NAME
+      - MANAGER_LOG_FILE_LEVEL
+      - MANAGER_VSOCK_CID
+      - LOG_SERVER_IP_HOST
+      - LOG_SERVER_PORT
+      - LOG_SERVER_CONSOLE
+      - LOG_SERVER_CONSOLE_LEVEL
+      - LOG_SERVER_FOLDER=${LOG_SERVER_FOLDER:-/logs}
+      - LOG_SERVER_FILE_NAME
+      - LOG_SERVER_FILE_LEVEL
       - CHAIN_RPC_PROTOCOL
       - CHAIN_RPC_ADDRESS
       - CHAIN_RPC_PORT
@@ -47,23 +82,52 @@ services:
       - CHAIN_TEEAUTHENTICATOR_ADDRESS
       - BLOCKCHAIN_POLLING_INTERVAL
       - REORG_TIMEOUT
+      - HANDSHAKE_TIMEOUT
+      - MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
     networks:
       pes_network:
-        ipv4_address: ${MANAGER_IP_ADDRESS}
+        ipv4_address: ${MANAGER_IP_HOST}
       inet:    
     volumes:
-      - horizen-pes-manager-data:${MANAGER_DATA_FOLDER:-/data}
-      # We must set a default path if .env does not set it, otherwise compose will throw an error
-      # If the optional feature is not enabled, we will simply have an empty volume
-      - horizen-pes-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
+      - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
+      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
       # WASM input folder
       - ./wasms:${MANAGER_INPUT_WASMS:-/input_wasms}
+      - horizen-cce-logs:${LOG_SERVER_FOLDER:-/logs}
     depends_on:
       - executor 
       - chain
+  authorityservice:
+    image: horizen/cce-authorityservice
+    container_name: horizen-cce-authorityservice
+    restart: always
+    environment:
+      - AUTHORITY_SERVICE_LISTEN_ADDRESS
+      - CHAIN_ID
+      - AUTHORITY_SERVICE_NONCE_TTL
+      - CHAIN_RPC_PROTOCOL
+      - CHAIN_RPC_ADDRESS
+      - CHAIN_RPC_PORT
+      - CHAIN_PROCESSOR_ADDRESS
+      - AUTHORITY_SERVICE_SUBGRAPH_URL
+      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
+      - AUTHORITY_SERVICE_LOG_CONSOLE
+      - AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL
+      - AUTHORITY_SERVICE_LOG_CONSOLE_COLOR
+      - AUTHORITY_SERVICE_LOG_FILE_NAME
+      - AUTHORITY_SERVICE_LOG_FILE_LEVEL
+    networks:
+      pes_network:
+        ipv4_address: ${AUTHORITY_SERVICE_IP_ADDRESS}
+      inet:
+    volumes:
+      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
+    depends_on:
+      - chain
+      - manager
   chain:
-    image: horizen-pes-chain
-    container_name: horizen-pes-chain
+    image: horizen/cce-chain
+    container_name: horizen-cce-chain
     restart: always 
     environment:
       - DATA_FOLDER=${CHAIN_DATA_FOLDER:-/data}
@@ -75,5 +139,4 @@ services:
         ipv4_address: ${CHAIN_RPC_ADDRESS}
       inet:    
     volumes:
-      - horizen-pes-chain-data:${CHAIN_DATA_FOLDER:-/data} 
-
+      - horizen-cce-chain-data:${CHAIN_DATA_FOLDER:-/data} 

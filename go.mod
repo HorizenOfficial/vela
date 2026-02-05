@@ -9,11 +9,17 @@ require (
 	github.com/elliotchance/orderedmap/v3 v3.1.0
 	github.com/ethereum/go-ethereum v1.16.1
 	github.com/google/go-cmp v0.5.9
+	github.com/hf/nsm v0.0.0-20220930140112-cd181bd646b9
 	github.com/magiconair/properties v1.8.10
 	github.com/mdlayher/vsock v1.2.1
 	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	golang.org/x/crypto v0.39.0
+)
+
+require (
+	github.com/fxamacker/cbor/v2 v2.2.0 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 )
 
 require (
@@ -83,6 +89,7 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/rs/cors v1.7.0 // indirect
+	github.com/rs/zerolog v1.34.0
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/supranational/blst v0.3.14 // indirect

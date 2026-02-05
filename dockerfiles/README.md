@@ -3,12 +3,14 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
 
 ## Instructions:
 
-1)  To build locally the docker images needed by the docker compose run *from the project root folder* the following commands:
+1)  (Skip this step if you want to use the Docker hub official images)
+    To build locally the docker images needed by the docker compose run *from the project root folder* the following commands:
 
     ```
-    docker build -t horizen-pes-executor -f dockerfiles/executor/Dockerfile . 
-    docker build -t horizen-pes-manager -f dockerfiles/manager/Dockerfile . 
-    docker build -t horizen-pes-chain -f dockerfiles/chain/Dockerfile . 
+    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile . 
+    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile . 
+    docker build -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
+    docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile . 
     ```
 
 2) Switch to "dockerfiles" folder
@@ -28,13 +30,19 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
 
 ## Additional info:
 
-- the manager database and the chain data is persisted in two docker volumes (horizen-pes-manager-data and horizen-pes-chain-data).<br>
+- exposed addresses/ports (see `.env.template` for defaults):
+- authorityservice: listens on `${AUTHORITY_SERVICE_LISTEN_ADDRESS}` on `${AUTHORITY_SERVICE_IP_ADDRESS}` inside the internal network.
+
+- the manager database and chain data are persisted in docker volumes (`horizen-cce-manager-data` for the DB, `horizen-cce-chain-data` for chain data).<br>
   To start from scratch, delete the volumes.
+- deanonymization reports are stored in `horizen-cce-manager-reports`; the authority service shares this reports volume so it can read the same outputs.
 - to connect to the chain from Metamask, use the following parameters:
    - rpc url: http://localhost:8545
    - chainid: 31337
 
+Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.  
+Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
+
 ## Where to go next: 
 
 - The Anvil chain node is created empty: to have a running dev environment you must deploy the contracts using the hardhat scripts in the contracts/ folder. After having deployed them, be sure to update the  CHAIN_PROCESSOR_ADDRESS in the .env file with the address of the ProcessorEndpoint smart contract, and restart the docker compose.
-

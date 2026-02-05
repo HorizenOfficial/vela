@@ -3,52 +3,56 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
+
+	"math/big"
+
+	"github.com/horizen-pes/pkg/logger"
+
+	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/common"
 )
 
-// Local mirror types used in tests to avoid importing wasm-go/app
+var testLogger logger.Logger
 
-type testAccountState struct {
-	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
-}
+func TestMain(m *testing.M) {
+	// Initialize once, by default it writes on stderr
+	//testLogger = logger.NewLogger(&logger.Config{Kind: "printf"})
 
-type testApplicationInternalState struct {
-	AppID    string                       `json:"appId"`
-	Accounts map[string]*testAccountState `json:"accounts"`
-	Nonce    uint64                       `json:"nonce"`
-}
-
-type testTransferInstruction struct {
-	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
-}
-
-type testWithdrawInstruction struct {
-	To     string `json:"to"`
-	Amount uint64 `json:"amount"`
-}
-
-type testPayloadInstructions struct {
-	Type     string                   `json:"type"`
-	Transfer *testTransferInstruction `json:"transfer,omitempty"`
-	Withdraw *testWithdrawInstruction `json:"withdraw,omitempty"`
+	testLogger = logger.NewLogger(
+		&logger.Config{
+			Kind:         "zerolog",
+			ConsoleColor: false, // colors can print escape chars on tty
+			Console:      true,
+			ConsoleLevel: "trace",
+			//FileName:     "qqq.log",
+			//FileLevel:    "info",
+		},
+	)
+	// Run tests
+	code := m.Run()
+	os.Exit(code)
 }
 
 func TestMockRuntime_LoadModule(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := common.NewApplicationId(1)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
-	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, fuel, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
 	if err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 
 	if len(serializedState) == 0 {
 		t.Error("Expected non-empty serialized state")
+	}
+
+	if fuel.Cmp(big.NewInt(10)) != 0 {
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Verify we can deserialize the initial state
@@ -59,7 +63,7 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 	}
 
 	if state.AppID != appId {
-		t.Errorf("Expected AppID %s, got %s", appId, state.AppID)
+		t.Errorf("Expected AppID %d, got %d", appId, state.AppID)
 	}
 
 	if len(state.Accounts) != 0 {
@@ -72,25 +76,31 @@ func TestMockRuntime_LoadModule(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
-	appId := "test-app-123"
-	sender := "0x1234567890123456789012345678901234567890"
-	value := uint64(1000000000000000000)
+	appId := common.NewApplicationId(123)
+	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	depositAmount := big.NewInt(1000000000000000000)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
-	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, fuel, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
 	if err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
+	}
+	if fuel.Cmp(big.NewInt(10)) != 0 {
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Make a deposit
 	ctx := context.Background()
-	newState, events, err := runtime.Deposit(ctx, appId, sender, value, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("ProcessRequest failed: %v", err)
+	newState, events, fuel, failure := runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("ProcessRequest failed: %v", failure)
+	}
+	if fuel.Cmp(big.NewInt(10)) != 0 {
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Verify events
@@ -113,8 +123,8 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 		t.Fatal("Expected sender account to exist")
 	}
 
-	if state.Accounts[sender].Balance != value {
-		t.Errorf("Expected balance %d, got %d", value, state.Accounts[sender].Balance)
+	if state.Accounts[sender].Balance.ToInt().Cmp(depositAmount) != 0 {
+		t.Errorf("Expected balance %s, got %s", depositAmount, state.Accounts[sender].Balance)
 	}
 
 	if state.Nonce != 1 {
@@ -123,28 +133,28 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
-	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, fuel, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
 	if err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 
-	sender := "0x1234567890123456789012345678901234567890"
-	recipient := "0x0987654321098765432109876543210987654321"
-	depositAmount := uint64(2000000000000000000) // 2 ETH
-	transferAmount := uint64(500000000000000000) // 0.5 ETH
+	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
+	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
+	transferAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
-	serializedState, _, err = runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Deposit failed: %v", err)
+	serializedState, _, _, failure := runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Deposit failed: %v", failure)
 	}
 
 	// make a transfer
@@ -161,9 +171,9 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 		t.Fatalf("Failed to marshal transfer instructions: %v", err)
 	}
 
-	newState, events, withdrawals, err := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Transfer failed: %v", err)
+	newState, events, withdrawals, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Transfer failed: %v", failure)
 	}
 
 	// Verify events (should have 2: one for sender, one for recipient)
@@ -174,6 +184,10 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	// Verify no withdrawals
 	if len(withdrawals) != 0 {
 		t.Errorf("Expected 0 withdrawals, got %d", len(withdrawals))
+	}
+
+	if fuel.Cmp(big.NewInt(10)) != 0 {
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
 	}
 
 	// Verify state update
@@ -187,17 +201,17 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedSenderBalance := depositAmount - transferAmount
-	if state.Accounts[sender].Balance != expectedSenderBalance {
-		t.Errorf("Expected sender balance %d, got %d", expectedSenderBalance, state.Accounts[sender].Balance)
+	expectedSenderBalance := common.ToBig(new(big.Int).Sub(depositAmount, transferAmount.ToInt()))
+	if state.Accounts[sender].Balance.ToInt().Cmp(expectedSenderBalance.ToInt()) != 0 {
+		t.Errorf("Expected sender balance %s, got %s", expectedSenderBalance, state.Accounts[sender].Balance)
 	}
 
 	// Check recipient balance
 	if state.Accounts[recipient] == nil {
 		t.Fatal("Expected recipient account to exist")
 	}
-	if state.Accounts[recipient].Balance != transferAmount {
-		t.Errorf("Expected recipient balance %d, got %d", transferAmount, state.Accounts[recipient].Balance)
+	if state.Accounts[recipient].Balance.ToInt().Cmp(transferAmount.ToInt()) != 0 {
+		t.Errorf("Expected recipient balance %s, got %s", transferAmount, state.Accounts[recipient].Balance)
 	}
 
 	if state.Nonce != 2 {
@@ -206,28 +220,28 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
-	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
 	if err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 
-	sender := "0x1234567890123456789012345678901234567890"
-	withdrawTo := "0x0987654321098765432109876543210987654321"
-	depositAmount := uint64(2000000000000000000) // 2 ETH
-	withdrawAmount := uint64(500000000000000000) // 0.5 ETH
+	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	withdrawTo := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
+	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
+	withdrawAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
-	serializedState, _, err = runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Deposit failed: %v", err)
+	serializedState, _, _, failure := runtime.Deposit(ctx, appId, sender, depositAmount, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Deposit failed: %v", failure)
 	}
 
 	// make a withdrawal
@@ -244,9 +258,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Fatalf("Failed to marshal withdraw instructions: %v", err)
 	}
 
-	newState, events, withdrawals, err := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Withdrawal failed: %v", err)
+	newState, events, withdrawals, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Withdrawal failed: %v", failure)
 	}
 
 	// Verify events (should have 1 for sender)
@@ -258,6 +272,10 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected event UserID %s, got %s", sender, events[0].UserID)
 	}
 
+	if fuel.Cmp(big.NewInt(10)) != 0 {
+		t.Errorf("Expected 10 fuel, got %s", fuel.String())
+	}
+
 	// Verify withdrawals
 	if len(withdrawals) != 1 {
 		t.Errorf("Expected 1 withdrawal, got %d", len(withdrawals))
@@ -267,8 +285,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected withdrawal destination %s, got %s", withdrawTo, withdrawals[0].DestinationAddress)
 	}
 
-	if withdrawals[0].Amount != 500000000000000000 {
-		t.Errorf("Expected withdrawal amount 500000000000000000, got %d", withdrawals[0].Amount)
+	if withdrawals[0].Amount.ToInt().Cmp(withdrawAmount.ToInt()) != 0 {
+		t.Errorf("Expected withdrawal amount %s, got %s", withdrawAmount, withdrawals[0].Amount)
 	}
 
 	// Verify state update
@@ -282,9 +300,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedBalance := depositAmount - withdrawAmount
-	if state.Accounts[sender].Balance != expectedBalance {
-		t.Errorf("Expected sender balance %d, got %d", expectedBalance, state.Accounts[sender].Balance)
+	expectedBalance := common.ToBig(new(big.Int).Sub(depositAmount, withdrawAmount.ToInt()))
+	if state.Accounts[sender].Balance.ToInt().Cmp(expectedBalance.ToInt()) != 0 {
+		t.Errorf("Expected sender balance %s, got %s", expectedBalance, state.Accounts[sender].Balance)
 	}
 
 	if state.Nonce != 2 {
@@ -293,21 +311,21 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 }
 
 func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module first
-	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
 	if err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 
-	sender := "0x1234567890123456789012345678901234567890"
-	recipient := "0x0987654321098765432109876543210987654321"
-	transferAmount := uint64(1000000000000000000) // 1 ETH
+	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
+	transferAmount := common.NewBig(1000000000000000000) // 1 ETH
 
 	// Try to transfer without any balance
 	transferInstructions := testPayloadInstructions{
@@ -324,49 +342,49 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, _, _, err = runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
-	if err == nil {
+	_, _, _, _, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	if failure == nil {
 		t.Error("Expected error for insufficient balance, got nil")
 	}
 
-	if err.Error() != "sender account 0x1234567890123456789012345678901234567890 does not exist" {
-		t.Errorf("Expected specific error message, got: %v", err)
+	if failure.Error() != "sender account 0x1234567890123456789012345678901234567890 does not exist" {
+		t.Errorf("Expected specific error message, got: %v", failure)
 	}
 }
 
 func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
-	appId := "test-app-123"
+	appId := common.NewApplicationId(123)
 	wasmBytes := []byte("mock-wasm-bytecode")
-	sender1 := "0x1234567890123456789012345678901234567890"
-	sender2 := "0x0987654321098765432109876543210987654321"
-	value := uint64(1000000000000000000) // 1 ETH
+	sender1 := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	sender2 := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
+	depositAmount := big.NewInt(1000000000000000000) // 1 ETH
 
 	// Load module first
-	serializedState, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
 	if err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
 	}
 
 	// Deposit for sender1
 	ctx := context.Background()
-	serializedState, _, err = runtime.Deposit(ctx, appId, sender1, value, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("First deposit failed: %v", err)
+	serializedState, _, _, failure := runtime.Deposit(ctx, appId, sender1, depositAmount, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("First deposit failed: %v", failure)
 	}
 
 	// Deposit for sender2
-	serializedState, _, err = runtime.Deposit(ctx, appId, sender2, value, serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("Second deposit failed: %v", err)
+	serializedState, _, _, failure = runtime.Deposit(ctx, appId, sender2, depositAmount, serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("Second deposit failed: %v", failure)
 	}
 
 	// Generate deanonymization report
-	reportBytes, err := runtime.GenerateDeanonymizationReport(context.Background(), appId, []byte(""), serializedState, wasmBytes)
-	if err != nil {
-		t.Fatalf("GenerateDeanonymizationReport failed: %v", err)
+	reportBytes, _, failure := runtime.GenerateDeanonymizationReport(context.Background(), appId, []byte(""), serializedState, wasmBytes)
+	if failure != nil {
+		t.Fatalf("GenerateDeanonymizationReport failed: %v", failure)
 	}
 
 	// Parse the report
@@ -388,7 +406,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 }
 
 func TestMockRuntime_Close(t *testing.T) {
-	runtime := NewMockRuntime()
+	runtime := NewMockRuntime(testLogger)
 
 	err := runtime.Close()
 	if err != nil {

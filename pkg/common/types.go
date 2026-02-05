@@ -5,66 +5,134 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
+	"time"
+
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
+
+type ApplicationIdType uint64
+
+func NewApplicationId(id int64) ApplicationIdType {
+	if id < 0 {
+		panic("ApplicationIdType cannot be negative")
+	}
+	return ApplicationIdType(id)
+}
+
+func (aid ApplicationIdType) String() string {
+	return fmt.Sprintf("%d", uint64(aid))
+}
+
+func (aid ApplicationIdType) ToHash() ethCommon.Hash {
+	return ethCommon.BytesToHash(new(big.Int).SetUint64(uint64(aid)).Bytes())
+}
 
 // RequestType represents the type of request being sent to the TEE
-type RequestType string
+type RequestType uint8
 
 const (
-	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
-	AssociateKey RequestType = "associatekey"
 	// Deploy represents a request to deploy a new application
-	Deploy RequestType = "deploy"
+	Deploy RequestType = iota
 	// Process is used for processing a batch of requests
-	Process RequestType = "process"
+	Process
 	// Deanonymize is used for deanonymization requests
-	Deanonymize RequestType = "deanonymize"
+	Deanonymize
+	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
+	AssociateKey
 )
 
-func (rt RequestType) ToUint8() (uint8, error) {
-    switch rt {
-    case Deploy:
-        return 0, nil
-    case Process:
-        return 1, nil
-    case Deanonymize:
-        return 2, nil
-    case AssociateKey:
-        return 3, nil
-    default:
-        return 0, fmt.Errorf("unknown RequestType: %s", rt)
-    }
+func (rt RequestType) String() string {
+	switch rt {
+	case Deploy:
+		return "deploy"
+	case Process:
+		return "process"
+	case Deanonymize:
+		return "deanonymize"
+	case AssociateKey:
+		return "associatekey"
+	default:
+		return "unknown"
+	}
+}
+
+type RequestIdType [32]byte
+
+func (rt RequestIdType) String() string {
+	return hex.EncodeToString(rt[:])
+}
+
+func (rt RequestIdType) MarshalJSON() ([]byte, error) {
+	s := hex.EncodeToString(rt[:])
+	return []byte(`"0x` + s + `"`), nil
+}
+
+func (rt *RequestIdType) UnmarshalJSON(data []byte) error {
+	// data is expected to be a hex string with a "0x" prefix in quotes representing an array of exactly 32 bytes
+	// e.g. "0xab12...a8" (68 chars in total, prefix and start-end quotes included)
+	if len(data) != 68 || data[0] != '"' || data[1] != '0' || data[2] != 'x' || data[len(data)-1] != '"' {
+		return fmt.Errorf("invalid RequestIdType format")
+	}
+
+	b, err := hex.DecodeString(string(data[3 : len(data)-1]))
+	if err != nil {
+		return err
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("invalid RequestIdType length")
+	}
+	copy(rt[:], b)
+	return nil
 }
 
 // Request represents a request to the system
 type Request struct {
 	// ProtocolVersion is the version of the protocol being used
-	ProtocolVersion string `json:"protocolVersion"`
+	ProtocolVersion uint8 `json:"protocolVersion"`
 	// ApplicationID is the ID of the application (empty for Deploy)
-	ApplicationID string `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// RequestID is a unique identifier for the request
-	RequestID string `json:"requestId"`
+	RequestID RequestIdType `json:"requestId"`
 	// RequestType is the type of request
 	RequestType RequestType `json:"requestType"`
 	// Payload is the payload for the request
 	// All payloads except the one for AssociateKey are encrypted
 	Payload []byte `json:"payload"`
 	// Timestamp is the time the request was submitted
-	Timestamp int64 `json:"timestamp"`
+	Timestamp *Big `json:"timestamp"`
 	// Sender is the address of the sender
-	//TODO: change the type to go-ethereum/common/Address
-	Sender string `json:"sender"`
-	// Value is the optional deposit value in WEI
-	Value uint64 `json:"value"`
+	Sender ethCommon.Address `json:"sender"`
+	// DepositAmount is the optional deposit value in WEI
+	DepositAmount *Big `json:"depositAmount"`
+	// MaxFeeValue is the maximum fee value reserved for fee payment
+	MaxFeeValue *Big `json:"maxFeeValue"`
+}
+
+func (r *Request) Validate() error {
+	if err := validateBigInt("timestamp", r.Timestamp.ToInt(), false); err != nil {
+		return err
+	}
+
+	if err := validateBigInt("depositAmount", r.DepositAmount.ToInt(), true); err != nil {
+		return err
+	}
+
+	if err := validateBigInt("maxFeeValue", r.MaxFeeValue.ToInt(), true); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Event represents an event to be emitted
 type Event struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
-	//TODO: change the type to go-ethereum/common/Address
-	UserID string `json:"userId"`
+	UserID ethCommon.Address `json:"userId"`
+	// EventSubType is the optional subtype used for filtering
+	EventSubType string `json:"eventSubType"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`
 }
@@ -72,17 +140,17 @@ type Event struct {
 // Withdrawal represents a withdrawal from the system
 type Withdrawal struct {
 	// DestinationAddress is the address to send the funds to
-	DestinationAddress string `json:"destinationAddress"`
+	DestinationAddress ethCommon.Address `json:"destinationAddress"`
 	// Amount is the amount to withdraw in WEI
-	Amount uint64 `json:"amount"`
+	Amount *Big `json:"amount"`
 }
 
 // UpdatePayload represents an update to the state
 type UpdatePayload struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// RequestID is the ID of the request being processed
-	RequestID string `json:"requestId"`
+	RequestID RequestIdType `json:"requestId"`
 	// PrevStateRoot is the previous state root
 	PrevStateRoot [32]byte `json:"prevStateRoot"`
 	// NewStateRoot is the new state root
@@ -93,12 +161,16 @@ type UpdatePayload struct {
 	Withdrawals []Withdrawal `json:"withdrawals"`
 	// Signature is the TEE signature
 	Signature []byte `json:"signature"`
+	// RefundAmount is the amount to refund in WEI
+	RefundAmount *Big `json:"refundAmount"`
+	// ApplicationFee is the fee charged for the application in WEI
+	ApplicationFee *Big `json:"applicationFee"`
 }
 
 // ApplicationState represents the state of an application
 type ApplicationState struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// StateRoot is the root hash of the state
 	StateRoot [32]byte `json:"stateRoot"`
 	// EncryptedState is the encrypted state data
@@ -107,7 +179,7 @@ type ApplicationState struct {
 
 type WASMData struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// Bytecode is the wasm bytecode
 	Bytecode []byte `json:"bytecode"`
 }
@@ -115,24 +187,32 @@ type WASMData struct {
 // DeanonymizationReport represents a report for deanonymization
 type DeanonymizationReport struct {
 	// ApplicationID is the ID of the application
-	ApplicationID string `json:"applicationId"`
+	ApplicationID ApplicationIdType `json:"applicationId"`
 	// ReportID is a unique identifier for the report
-	ReportID string `json:"reportId"`
+	ReportID RequestIdType `json:"reportId"`
 	// EncryptedReport is the encrypted report data
 	EncryptedReport []byte `json:"encryptedReport"`
+	// Authority is the entity requesting the report
+	Authority ethCommon.Address `json:"authority"`
+	// RefundAmount is the amount to refund in WEI
+	RefundAmount *Big `json:"refundAmount"`
+	// ApplicationFee is the fee charged for the application in WEI
+	ApplicationFee *Big `json:"applicationFee"`
 }
 
 // DecryptedReport represents a decrypted deanonymization report
 type DecryptedReport struct {
-	ApplicationID  string `json:"applicationId"`
-	RequestID       string `json:"requestId"`
-	ReportDataBytes []byte `json:"reportDataBytes"`
+	ApplicationID   ApplicationIdType `json:"applicationId"`
+	RequestID       RequestIdType     `json:"requestId"`
+	ReportDataBytes []byte            `json:"reportDataBytes"`
 }
 
 // PlainEvent represents an emitted event before encryption.
 type PlainEvent struct {
-	// UserID is the ID of the user associated with the event
-	UserID string `json:"userId"`
+	// UserID is the address of the user associated with the event
+	UserID ethCommon.Address `json:"userId"`
+	// EventSubType is the optional subtype used for filtering
+	EventSubType string `json:"eventSubType"`
 	// Data is the encrypted event data
 	Data []byte `json:"data"`
 }
@@ -142,49 +222,94 @@ type RequestResultStatus uint8
 
 const (
 	RequestResultOK RequestResultStatus = iota
-	RequestResultFailed 
+	RequestResultFailed
 	RequestResultFailedNotRefunded
 	RequestResultUnknown
 )
 
-// RequestResult represents the result on chain of a request (eg successful or failed with its error )
+// RequestResult represents the result on chain of a request (eg successful or failed with its error)
 type RequestResult struct {
-	Status RequestResultStatus
-	FailureReason string
+	Status       RequestResultStatus
+	ErrorCode    uint8
+	ErrorMessage string
 }
 
-func UInt8ToRequestResultStatus(i uint8) (RequestResultStatus, error) {
-switch i {
-	case 0:
-		return RequestResultOK, nil
-	case 1:
-		return RequestResultFailed, nil
-	case 2:
-		return RequestResultFailedNotRefunded, nil
-	default:
-		return RequestResultUnknown, fmt.Errorf("unknown request status value %d", i)
+// EnclaveKeySetRecovery contains the data needed to recover the EnclaveKeySet.
+type EnclaveKeySetRecovery struct {
+	// RecoveryType is the type of recovery data.
+	RecoveryType int `json:"recoveryType"`
+	// KeySetCiphertext is the encrypted EnclaveKeySet.
+	KeySetCiphertext []byte `json:"keySetCiphertext"`
+	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.
+	RecoveryCiphertext []byte `json:"recoveryCiphertext"`
+}
+
+type ChannelConnectionParams interface {
+	IsChannelConnectionParams()
+}
+
+type VSockChannelConnectionParams struct {
+	CID  uint32
+	Port uint32
+}
+
+type CommunicationParams struct {
+	RequestTimeoutSec time.Duration
+}
+
+func (VSockChannelConnectionParams) IsChannelConnectionParams() {}
+
+// NewVSockChannelConnectionParams parses "cid:port"
+func NewVSockChannelConnectionParams(s string) (*VSockChannelConnectionParams, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid vsock address %q, expected cid:port", s)
 	}
-}
 
-func StringToBigInt(s string) (*big.Int, bool) {
-	return new(big.Int).SetString(s, 10)
-}
-
-func RequestIdStringTo32Byte(s string) ([32]byte, error) {
-
-	arr, err := hex.DecodeString(s)
+	// Parse CID
+	cid64, err := strconv.ParseUint(parts[0], 10, 32)
 	if err != nil {
-		return [32]byte{}, fmt.Errorf("requestId string is not a valid hex string: %w", err)
-	}	
-	if len(arr) > 32 {
-		return [32]byte{}, fmt.Errorf("requestId string must not be more than 32 bytes long, got %d", len(arr))
+		return nil, fmt.Errorf("invalid CID %q: %w", parts[0], err)
 	}
 
-	var arr32 [32]byte
-	copy(arr32[:], arr)
-	return arr32, nil
+	// Parse port
+	port64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port %q: %w", parts[1], err)
+	}
+
+	return &VSockChannelConnectionParams{
+		CID:  uint32(cid64),
+		Port: uint32(port64),
+	}, nil
 }
 
-func RequestId32ByteToString(b [32]byte) string {
-	return hex.EncodeToString(b[:])
+type TcpChannelConnectionParams struct {
+	Ip   string
+	Port uint32
+}
+
+func (TcpChannelConnectionParams) IsChannelConnectionParams() {}
+
+func (f TcpChannelConnectionParams) Url() string {
+	return fmt.Sprintf("%s:%d", f.Ip, f.Port)
+}
+
+// NewTcpChannelConnectionParams parses "ip:port"
+func NewTcpChannelConnectionParams(addr string) (*TcpChannelConnectionParams, error) {
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid address %q, expected ip:port", addr)
+	}
+
+	// Parse port
+	port64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port %q: %w", parts[1], err)
+	}
+
+	return &TcpChannelConnectionParams{
+		Ip:   parts[0],
+		Port: uint32(port64),
+	}, nil
 }

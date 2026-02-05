@@ -24,7 +24,7 @@ func GeneratePrivateKeyP521() (*cryptotypes.PrivateKeyP521, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
-	return &cryptotypes.PrivateKeyP521{newKey}, nil
+	return &cryptotypes.PrivateKeyP521{PrivateKey: newKey}, nil
 }
 
 // SavePrivateKeyP521ToFileDER saves a P521 private key to a file in PKCS #8, ASN.1 DER format.
@@ -64,7 +64,7 @@ func LoadPrivateKeyP521FromFileDER(filename string) (*cryptotypes.PrivateKeyP521
 		return nil, fmt.Errorf("failed to convert to ECDH key: %w", err)
 	}
 
-	return &cryptotypes.PrivateKeyP521{ecdhKey}, nil
+	return &cryptotypes.PrivateKeyP521{PrivateKey: ecdhKey}, nil
 }
 
 // SavePrivateKeyP521ToFilePEM saves a P521 private key to a file in PEM format.
@@ -120,7 +120,7 @@ func LoadPrivateKeyP521FromFilePEM(filename string) (*cryptotypes.PrivateKeyP521
 		return nil, fmt.Errorf("failed to convert to ECDH key: %w", err)
 	}
 
-	return &cryptotypes.PrivateKeyP521{ecdhKey}, nil
+	return &cryptotypes.PrivateKeyP521{PrivateKey: ecdhKey}, nil
 }
 
 // ExportPrivateKeyP521ToHex exports a P521 private key to a hex string.
@@ -146,7 +146,7 @@ func ImportPrivateKeyP521FromHex(hexKey string) (*cryptotypes.PrivateKeyP521, er
 		return nil, fmt.Errorf("failed to create private key: %w", err)
 	}
 
-	return &cryptotypes.PrivateKeyP521{key}, nil
+	return &cryptotypes.PrivateKeyP521{PrivateKey: key}, nil
 }
 
 // ImportPublicKeyP521FromHex imports a P521 public key from a hex string.
@@ -162,5 +162,5 @@ func ImportPublicKeyP521FromHex(hexKey string) (*cryptotypes.PublicKeyP521, erro
 		return nil, fmt.Errorf("failed to create public key: %w", err)
 	}
 
-	return &cryptotypes.PublicKeyP521{key}, nil
+	return &cryptotypes.PublicKeyP521{PublicKey: key}, nil
 }

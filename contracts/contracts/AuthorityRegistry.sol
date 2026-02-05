@@ -1,34 +1,54 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
-import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract AuthorityRegistry is Ownable {
+import '@openzeppelin/contracts/access/Ownable.sol';
+import './interfaces/IAuthorityChecker.sol';
+import './interfaces/IAuthorityRegistry.sol';
 
-    mapping(uint256 => mapping(address => bool)) allowedAuthorities;
+/// @title AuthorityRegistry
+/// @notice Registry for application-specific authority checkers.
+contract AuthorityRegistry is Ownable, IAuthorityRegistry {
+  // mapping appId -> custom authority contract
+  mapping(uint256 => IAuthorityChecker) public appAuthorityContracts;
 
-    //events
-    event AddedAuthority(uint256 indexed applicationId, address indexed authority);
-    event RemovedAuthority(uint256 indexed applicationId, address indexed authority);
+  // default authority contract (fallback)
+  IAuthorityChecker public defaultAuthorityContract;
 
-    //error
-    error AuthorityNotPresent();
-    error AuthorityAlreadyPresent();
+  /// @param owner Owner address.
+  /// @param defaultAuthority Default authority checker.
+  constructor(address owner, address defaultAuthority) Ownable(owner) {
+    if (defaultAuthority == address(0)) revert AddressCantBeZero();
+    defaultAuthorityContract = IAuthorityChecker(defaultAuthority);
+    emit DefaultAuthorityContractSet(defaultAuthority);
+  }
 
-    constructor(address owner) Ownable(owner) {}
+  /// @inheritdoc IAuthorityRegistry
+  function setAppAuthorityContract(
+    uint256 applicationId,
+    address authorityContract
+  ) external onlyOwner {
+    appAuthorityContracts[applicationId] = IAuthorityChecker(authorityContract);
+    emit AppAuthorityContractSet(applicationId, authorityContract);
+  }
 
-    function addAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
-        if(allowedAuthorities[applicationId][authority]) revert AuthorityAlreadyPresent();
-        allowedAuthorities[applicationId][authority] = true;
-        emit AddedAuthority(applicationId, authority);
+  /// @inheritdoc IAuthorityRegistry
+  function setDefaultAuthorityContract(address authorityContract) external onlyOwner {
+    if (authorityContract == address(0)) revert AddressCantBeZero();
+    defaultAuthorityContract = IAuthorityChecker(authorityContract);
+    emit DefaultAuthorityContractSet(authorityContract);
+  }
+
+  /// @inheritdoc IAuthorityRegistry
+  function checkAuthorityIsAllowed(
+    uint256 applicationId,
+    address authority
+  ) external view returns (bool) {
+    IAuthorityChecker impl = appAuthorityContracts[applicationId];
+
+    if (address(impl) == address(0)) {
+      impl = defaultAuthorityContract;
     }
 
-    function removeAllowedAuthority(uint256 applicationId, address authority) public onlyOwner {
-        if(!allowedAuthorities[applicationId][authority]) revert AuthorityNotPresent();
-        allowedAuthorities[applicationId][authority] = false;
-        emit RemovedAuthority(applicationId, authority);
-    }
-
-    function checkAuthorityIsAllowed(uint256 applicationId, address authority) public view returns(bool) {
-        return allowedAuthorities[applicationId][authority];
-    }
+    return impl.checkAuthorityIsAllowed(applicationId, authority);
+  }
 }

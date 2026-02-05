@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 )
 
 // ExecutorClient defines the interface for communication with the WASM Executor.
@@ -13,15 +14,15 @@ import (
 // and the server can send requests to the client.
 type ExecutorClient interface {
 	// Connect establishes a connection to the executor
-	Connect(ctx context.Context) error
+	Connect(ctx context.Context, identityLogTag string) error
 	// Close closes the connection to the executor
 	Close() error
 	// SendProcessRequest sends a request to the executor and returns the response
-	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
 	// SendDeployApp deploys a new application to the executor
-	SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
+	SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
 	// SendGenerateDeanonymizationReport generates a deanonymization report
-	SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+	SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure)
 	// SetClientRequestHandler sets the handler for incoming requests from server
 	SetClientRequestHandler(handler ClientRequestHandler)
 }
@@ -32,26 +33,42 @@ type ExecutorClient interface {
 // and the server can send requests to the client.
 type ExecutorServer interface {
 	// Start starts the server
-	Start(ctx context.Context) error
+	Start(ctx context.Context, identityLogTag string) error
 	// Stop stops the server
 	Stop() error
 	// SetRequestHandler sets the handler for incoming requests
 	SetRequestHandler(handler RequestHandler)
+	// SetConnectionHandler sets the handler for new client connections.
+	SetConnectionHandler(handler ConnectionHandler)
 }
+
+// ServerConnection defines the interface for a server-side client connection,
+// allowing the server to send requests to the client.
+type ServerConnection interface {
+	GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error)
+	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
+	KeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error
+	Close()
+}
+
+// ConnectionHandler is a function that handles a new client connection.
+type ConnectionHandler func(ctx context.Context, conn ServerConnection)
 
 // ClientRequestHandler defines the interface for handling requests from server (the executor) to client (the manager)
 type ClientRequestHandler interface {
-	//TBD: add here any request needed
+	HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
+	HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
+	HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor
 type RequestHandler interface {
 	// HandleProcessRequest processes a request and returns the response
-	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
 	// HandleDeployApp deploys a new application
-	HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, error)
+	HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
 	// HandleGenerateDeanonymizationReport generates a deanonymization report
-	HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, error)
+	HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure)
 }
 
 type ConnectionFactory interface {

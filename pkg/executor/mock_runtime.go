@@ -4,271 +4,260 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"math/big"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
+	"github.com/horizen-pes/pkg/logger"
 )
+
+// Local mirror types used in tests to avoid importing wasm-go/app
+
+type testAccountState struct {
+	Address ethCommon.Address `json:"address"`
+	Balance *common.Big       `json:"balance"`
+}
+
+type testApplicationInternalState struct {
+	AppID    common.ApplicationIdType                `json:"appId"`
+	Accounts map[ethCommon.Address]*testAccountState `json:"accounts"`
+	Nonce    uint64                                  `json:"nonce"`
+}
+
+type testTransferInstruction struct {
+	To     ethCommon.Address `json:"to"`
+	Amount *common.Big       `json:"amount"`
+}
+
+type testWithdrawInstruction struct {
+	To     ethCommon.Address `json:"to"`
+	Amount *common.Big       `json:"amount"`
+}
+
+type testPayloadInstructions struct {
+	Type     string                   `json:"type"`
+	Transfer *testTransferInstruction `json:"transfer,omitempty"`
+	Withdraw *testWithdrawInstruction `json:"withdraw,omitempty"`
+}
 
 // MockRuntime implements a simple mock runtime that mimics a wasm application
 // It supports deposits, fund transfers, withdrawals, and events with serialized state persistence
-type MockRuntime struct{}
+
+type MockRuntime struct {
+	fuel *big.Int
+	log  logger.Logger
+}
 
 // NewMockRuntime creates a new mock runtime instance
-func NewMockRuntime() *MockRuntime {
-	log.Println("Initializing mock runtime")
-	return &MockRuntime{}
+func NewMockRuntime(log logger.Logger) *MockRuntime {
+	log.Info("Initializing mock runtime")
+	return &MockRuntime{fuel: big.NewInt(10), log: log}
 }
 
 // LoadModule loads a WASM module and returns initial state
-func (r *MockRuntime) LoadModule(ctx context.Context, appId string, wasm []byte) ([]byte, error) {
-	log.Printf("Mock Runtime: Loading mock runtime module for application %s (wasm size: %d bytes)", appId, len(wasm))
+func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
+	r.log.Info("Mock Runtime: Loading mock runtime module for application %d (wasm size: %d bytes)", appId, len(wasm))
 
-	// Create initial application state (generic map-based representation)
-	initialState := map[string]interface{}{
-		"appId":    appId,
-		"accounts": map[string]map[string]interface{}{},
-		"nonce":    uint64(0),
+	initialState := &testApplicationInternalState{
+		AppID:    appId,
+		Accounts: make(map[ethCommon.Address]*testAccountState),
+		Nonce:    0,
 	}
-
 	stateBytes, err := json.Marshal(initialState)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal initial state: %w", err)
+		return nil, r.fuel, fmt.Errorf("failed to marshal initial state: %w", err)
 	}
 
-	log.Printf("Mock Runtime: Successfully loaded mock runtime module for application %s", appId)
-	return stateBytes, nil
+	r.log.Info("Mock Runtime: Successfully loaded mock runtime module for application %d", appId)
+	return stateBytes, r.fuel, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId string, sender string, value uint64, state []byte, wasm []byte) ([]byte, []common.PlainEvent, error) {
-	log.Printf("Mock Runtime: Processing deposit for application %s ( value: %d wei for sender: %s )", appId, value, sender)
+func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+	r.log.Info("Mock Runtime: Processing deposit for application %d ( value: %s wei for sender: %s )", appId, depositAmount.String(), sender)
 
-	var currentState map[string]interface{}
+	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
-		return nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
+		return nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state", err)
 	}
 
-	accounts := ensureAccounts(currentState)
-	nonce := ensureNonce(currentState)
+	accounts := currentState.Accounts
+	nonce := currentState.Nonce
 
 	var events []common.PlainEvent
-	if value > 0 {
+	if depositAmount.Sign() == 1 {
 		// Ensure sender account exists
 		acct := ensureAccount(accounts, sender)
 		// Update balance
-		balance := toUint64(acct["balance"]) + value
-		acct["balance"] = balance
+		balance := new(big.Int).Add(acct.Balance.ToInt(), depositAmount)
+		acct.Balance = common.ToBig(balance)
 		// Increment nonce
 		nonce++
-		currentState["nonce"] = nonce
+		currentState.Nonce = nonce
 
 		depositEvent := common.PlainEvent{
-			UserID: sender,
-			Data:   []byte(fmt.Sprintf(`{"type":"deposit","amount":%d,"balance":%d,"nonce":%d}`, value, balance, nonce)),
+			UserID:       sender,
+			EventSubType: "deposit",
+			Data:         []byte(fmt.Sprintf(`{"type":"deposit","amount":"0x%s","balance":"0x%s","nonce":%d}`, depositAmount.Text(16), balance.Text(16), nonce)),
 		}
 		events = append(events, depositEvent)
 	}
 
 	newSerializedState, err := json.Marshal(currentState)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to serialize new state: %w", err)
+		return nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state", err)
 	}
 
-	log.Printf("Mock Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(events))
-	return newSerializedState, events, nil
+	r.log.Info("Mock Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(events))
+	return newSerializedState, events, r.fuel, nil
 }
 
 // ProcessRequest processes a request and returns the new state, events, and withdrawals
-func (r *MockRuntime) ProcessRequest(ctx context.Context, appId string, sender string, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, error) {
-	log.Printf("Mock Runtime: Processing request for application %s (payload size: %d, state size: %d)", appId, len(payload), len(state))
+func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, *big.Int, *apperrors.RequestFailure) {
+	r.log.Info("Mock Runtime: Processing request for application %d (payload size: %d, state size: %d)", appId, len(payload), len(state))
 
-	var currentState map[string]interface{}
+	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
+		return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state", err)
 	}
 
-	accounts := ensureAccounts(currentState)
-	nonce := ensureNonce(currentState)
+	accounts := currentState.Accounts
+	nonce := currentState.Nonce
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
 
 	if len(payload) > 0 {
-		var instructions map[string]interface{}
+		var instructions testPayloadInstructions
 		if err := json.Unmarshal(payload, &instructions); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to unmarshal payload instructions: %w", err)
+			return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal payload instructions", err)
 		}
 
-		typ := instructions["type"].(string)
+		typ := instructions.Type
 		switch typ {
 		case "transfer":
-			transfer := instructions["transfer"].(map[string]interface{})
+			transfer := instructions.Transfer
 			if transfer == nil {
-				return nil, nil, nil, fmt.Errorf("transfer instruction is nil")
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, "transfer instruction is nil", nil)
 			}
-			to := transfer["to"].(string)
-			amount := toUint64(transfer["amount"])
+			to := transfer.To
+			amount := transfer.Amount
 
 			// Ensure sender exists and has balance
 			senderAcct := accounts[sender]
 			if senderAcct == nil {
-				return nil, nil, nil, fmt.Errorf("sender account %s does not exist", sender)
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
-			if toUint64(senderAcct["balance"]) < amount {
-				return nil, nil, nil, fmt.Errorf("insufficient balance for transfer")
+			if senderAcct.Balance.ToInt().Cmp(amount.ToInt()) < 0 {
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s has insufficient balance", sender), nil)
 			}
 
 			// Ensure recipient account
 			recipientAcct := ensureAccount(accounts, to)
 
 			// Execute transfer
-			senderAcct["balance"] = toUint64(senderAcct["balance"]) - amount
-			recipientAcct["balance"] = toUint64(recipientAcct["balance"]) + amount
+			senderAcct.Balance = common.ToBig(new(big.Int).Sub(senderAcct.Balance.ToInt(), amount.ToInt()))
+			recipientAcct.Balance = common.ToBig(new(big.Int).Add(recipientAcct.Balance.ToInt(), amount.ToInt()))
 			nonce++
-			currentState["nonce"] = nonce
+			currentState.Nonce = nonce
 
 			// Events
 			senderEvent := common.PlainEvent{
-				UserID: sender,
-				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
-					to, amount, toUint64(senderAcct["balance"]), nonce)),
+				UserID:       sender,
+				EventSubType: "transfer_sent",
+				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
+					to, amount.ToInt().Text(16), senderAcct.Balance.ToInt().Text(16), nonce)),
 			}
 			recipientEvent := common.PlainEvent{
-				UserID: to,
-				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":%d,"balance":%d,"nonce":%d}`,
-					sender, amount, toUint64(recipientAcct["balance"]), nonce)),
+				UserID:       to,
+				EventSubType: "transfer_received",
+				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
+					sender, amount.ToInt().Text(16), recipientAcct.Balance.ToInt().Text(16), nonce)),
 			}
 			events = append(events, senderEvent, recipientEvent)
 
 		case "withdraw":
-			withdraw := instructions["withdraw"].(map[string]interface{})
+			withdraw := instructions.Withdraw
 			if withdraw == nil {
-				return nil, nil, nil, fmt.Errorf("withdraw instruction is nil")
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, "withdraw instruction is nil", nil)
 			}
-			to := withdraw["to"].(string)
-			amount := toUint64(withdraw["amount"])
+			to := withdraw.To
+			amount := withdraw.Amount
 
 			senderAcct := accounts[sender]
 			if senderAcct == nil {
-				return nil, nil, nil, fmt.Errorf("sender account %s does not exist", sender)
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("sender account %s does not exist", sender), nil)
 			}
-			if toUint64(senderAcct["balance"]) < amount {
-				return nil, nil, nil, fmt.Errorf("insufficient balance for withdrawal")
+			if senderAcct.Balance.ToInt().Cmp(amount.ToInt()) < 0 {
+				return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, "request function execution failed", nil)
 			}
 
 			// Execute withdrawal
-			senderAcct["balance"] = toUint64(senderAcct["balance"]) - amount
+			senderAcct.Balance = common.ToBig(new(big.Int).Sub(senderAcct.Balance.ToInt(), amount.ToInt()))
 			nonce++
-			currentState["nonce"] = nonce
+			currentState.Nonce = nonce
 
 			withdrawals = append(withdrawals, common.Withdrawal{DestinationAddress: to, Amount: amount})
 
 			withdrawEvent := common.PlainEvent{
-				UserID: sender,
-				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":%d,"balance":%d,"nonce":%d}`,
-					to, amount, toUint64(senderAcct["balance"]), nonce)),
+				UserID:       sender,
+				EventSubType: "withdrawal",
+				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
+					to, amount.ToInt().Text(16), senderAcct.Balance.ToInt().Text(16), nonce)),
 			}
 			events = append(events, withdrawEvent)
 
 		default:
-			return nil, nil, nil, fmt.Errorf("unknown instruction type: %s", typ)
+			return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("unknown instruction type: %s", typ), nil)
 		}
 	}
 
 	newStateBytes, err := json.Marshal(currentState)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to serialize new state: %w", err)
+		return nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state", err)
 	}
 
-	log.Printf("Mock Runtime: Successfully processed request for application %s, generated %d events and %d withdrawals", appId, len(events), len(withdrawals))
-	return newStateBytes, events, withdrawals, nil
+	r.log.Info("Mock Runtime: Successfully processed request for application %d, generated %d events and %d withdrawals", appId, len(events), len(withdrawals))
+	return newStateBytes, events, withdrawals, r.fuel, nil
 }
 
 // GenerateDeanonymizationReport generates a deanonymization report
-func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId string, payload []byte, state []byte, wasm []byte) ([]byte, error) {
-	log.Printf("Mock Runtime: Generating deanonymization report for application %s", appId)
+func (r *MockRuntime) GenerateDeanonymizationReport(ctx context.Context, appId common.ApplicationIdType, payload []byte, state []byte, wasm []byte) ([]byte, *big.Int, *apperrors.RequestFailure) {
+	r.log.Info("Mock Runtime: Generating deanonymization report for application %d", appId)
 
-	var currentState map[string]interface{}
+	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
-		return nil, fmt.Errorf("failed to deserialize state for deanonymization: %w", err)
+		return nil, r.fuel, apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to deserialize state for deanonymization", err)
 	}
 
 	report := map[string]interface{}{
-		"accounts": currentState["accounts"],
-		"nonce":    currentState["nonce"],
+		"accounts": currentState.Accounts,
+		"nonce":    currentState.Nonce,
 	}
 
 	reportBytes, err := json.Marshal(report)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal deanonymization report: %w", err)
+		return nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to marshal deanonymization report", err)
 	}
 
-	log.Printf("Mock Runtime: Successfully generated deanonymization report for application %s", appId)
-	return reportBytes, nil
+	r.log.Info("Mock Runtime: Successfully generated deanonymization report for application %d", appId)
+	return reportBytes, r.fuel, nil
 }
 
 // Close closes the mock runtime and cleans up resources
 func (r *MockRuntime) Close() error {
-	log.Printf("Mock Runtime: Closing mock runtime")
-	log.Printf("Mock Runtime: Mock runtime closed successfully")
+	r.log.Info("Mock Runtime: Closing mock runtime")
+	r.log.Info("Mock Runtime: Mock runtime closed successfully")
 	return nil
 }
 
 // --- helpers ---
 
-func ensureAccounts(state map[string]interface{}) map[string]map[string]interface{} {
-	accAny, ok := state["accounts"]
-	if !ok || accAny == nil {
-		m := map[string]map[string]interface{}{}
-		state["accounts"] = m
-		return m
-	}
-	// try typed map
-	if m, ok := accAny.(map[string]map[string]interface{}); ok {
-		return m
-	}
-	// convert from generic map[string]interface{}
-	res := map[string]map[string]interface{}{}
-	if gm, ok := accAny.(map[string]interface{}); ok {
-		for k, v := range gm {
-			if sub, ok := v.(map[string]interface{}); ok {
-				res[k] = sub
-			}
-		}
-	}
-	state["accounts"] = res
-	return res
-}
-
-func ensureAccount(accounts map[string]map[string]interface{}, addr string) map[string]interface{} {
+func ensureAccount(accounts map[ethCommon.Address]*testAccountState, addr ethCommon.Address) *testAccountState {
 	acct := accounts[addr]
 	if acct == nil {
-		acct = map[string]interface{}{"address": addr, "balance": uint64(0)}
+		acct = &testAccountState{Address: addr, Balance: common.NewBig(0)}
 		accounts[addr] = acct
 	}
 	return acct
-}
-
-func ensureNonce(state map[string]interface{}) uint64 {
-	if n, ok := state["nonce"]; ok {
-		return toUint64(n)
-	}
-	state["nonce"] = uint64(0)
-	return 0
-}
-
-func toUint64(v interface{}) uint64 {
-	switch x := v.(type) {
-	case uint64:
-		return x
-	case uint32:
-		return uint64(x)
-	case int:
-		return uint64(x)
-	case int64:
-		return uint64(x)
-	case float64:
-		return uint64(x)
-	default:
-		return 0
-	}
 }
