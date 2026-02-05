@@ -321,7 +321,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     //emit encrypted event
     i = 0;
-    while (i < events.length) {
+    while (i < eventsLength) {
       emit UserEvent(applicationId, processedRequestId, eventSubTypes[i], events[i]);
       unchecked {
         ++i;
