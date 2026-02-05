@@ -16,6 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// mockManagerSupportedCommands is the list of commands supported by the mock manager handler
+var mockManagerSupportedCommands = []AdminMessageType{
+	GetVersionRequestMessage,
+}
+
 // MockManagerCmdHandler is a mock implementation of the AdminCmdHandler interface.
 type MockManagerCmdHandler struct {
 	version   string
@@ -29,7 +34,7 @@ func (m *MockManagerCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMes
 	defer m.mu.Unlock()
 	m.callCount++
 
-	if msg.Type != GetVersionRequestMessage {
+	if !IsSupportedCommand(msg.Type, mockManagerSupportedCommands) {
 		return nil, errors.New("unsupported command type")
 	}
 
