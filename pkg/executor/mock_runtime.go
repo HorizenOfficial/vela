@@ -225,8 +225,6 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 
 		case "deanonymize":
 			// Generate deanonymization report
-			nonce++
-			currentState.Nonce = nonce
 			var tag string
 			if instructions.Deanonymize != nil {
 				tag = instructions.Deanonymize.Tag
@@ -234,7 +232,6 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 
 			reportData := map[string]interface{}{
 				"accounts": currentState.Accounts,
-				"nonce":    currentState.Nonce,
 				"tag":      tag,
 			}
 			var err error

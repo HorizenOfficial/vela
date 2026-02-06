@@ -147,7 +147,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
+	depositAmount := big.NewInt(2000000000000000000)    // 2 ETH
 	transferAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
@@ -234,7 +234,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	withdrawTo := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
+	depositAmount := big.NewInt(2000000000000000000)    // 2 ETH
 	withdrawAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
@@ -412,12 +412,6 @@ func TestMockRuntime_DeanonymizationViaProcessRequest(t *testing.T) {
 	tag, ok := report["tag"].(string)
 	if !ok || tag != "dummytag" {
 		t.Errorf("Expected tag in the report")
-	}
-
-	nonce, ok := report["nonce"].(float64)
-	// Nonce is 3 because: 2 deposits (nonce incremented to 2) + 1 deanonymize request (nonce incremented to 3)
-	if !ok || int(nonce) != 3 {
-		t.Errorf("Expected nonce 3, got %v", report["nonce"])
 	}
 }
 

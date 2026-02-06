@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/logserver"
@@ -29,16 +30,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
-type MockAdminServer struct {}
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30}
 
-func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
-func (*MockAdminServer)	Stop() error { return nil}
-func (*MockAdminServer)	SetCmdHandler(handler admin.AdminCmdHandler)  { }
+type MockAdminServer struct{}
 
-
-
-
+func (*MockAdminServer) Start(ctx context.Context, identityLogTag string) error { return nil }
+func (*MockAdminServer) Stop() error                                            { return nil }
+func (*MockAdminServer) SetCmdHandler(handler admin.AdminCmdHandler)            {}
 
 type SystemTestSuite struct {
 	t                  *testing.T
@@ -105,7 +103,7 @@ func NewSystemTestSuiteWithConfigs(
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
-	executorClient := communication.NewClient(factory, commParams,mgrLog)
+	executorClient := communication.NewClient(factory, commParams, mgrLog)
 
 	// Create manager
 	var err error
@@ -341,7 +339,7 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestId
 				}
 				// Report filename format: report_<appID>_<requestID>.json
 				// Check if filename contains the requestID
-				if !contains(f.Name(), reportID.String()) {
+				if !(strings.Contains(f.Name(), reportID.String())) {
 					continue
 				}
 				reportPath := s.reportsPath + "/" + f.Name()
@@ -364,20 +362,6 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestId
 // GetReportsPath returns the path where deanonymization reports are saved
 func (s *SystemTestSuite) GetReportsPath() string {
 	return s.reportsPath
-}
-
-// contains checks if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // WaitForWithdrawal waits for a withdrawal to be processed

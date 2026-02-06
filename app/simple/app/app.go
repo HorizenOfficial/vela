@@ -258,13 +258,8 @@ func ProcessRequest(senderPtr *Address, requestType int32, payloadJSON, stateJSO
 				return ProcessResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %v", err)}
 			}
 
-			// Serialize the updated state (state changes due to nonce increment handled by executor)
-			newStateBytes, err := json.Marshal(currentState)
-			if err != nil {
-				return ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
-			}
 			return ProcessResult{
-				State:  newStateBytes,
+				State:  []byte(stateJSON), //we have not modified the state, so returning the old one
 				Report: reportBytes,
 				Fuel:   NewUint256(20),
 			}
