@@ -22,7 +22,7 @@ type MockKMSClient struct {
 	*testutil.MockFunctions
 
 	// SimulatedDataKey is the plaintext key that will be returned.
-	// In real KMS, this would be a freshly generated key.
+	// In real KMS, this would be the decrypted plaintext.
 	SimulatedDataKey cryptotypes.AES256Key
 
 	// SimulatedCiphertext is the "encrypted" form of the data key.
@@ -31,9 +31,9 @@ type MockKMSClient struct {
 
 	// Call tracking for assertions
 	GenerateDataKeyCalled bool
-	DecryptCalled         bool
-	LastKeyARN            string
-	LastAttestation       []byte
+	DecryptCalled   bool
+	LastKeyARN      string
+	LastAttestation []byte
 }
 
 // NewMockKMSClient creates a new mock KMS client with random simulated keys.
@@ -76,7 +76,7 @@ func (m *MockKMSClient) GenerateDataKeyWithAttestation(
 	}
 
 	// Return simulated output
-	// In mock mode, CiphertextForRecipient contains the plaintext key directly
+	// In mock mode, CiphertextForRecipient contains the plaintext directly
 	// (since we don't have real RSA encryption in the mock)
 	return &DataKeyOutput{
 		CiphertextBlob:         m.SimulatedCiphertext,

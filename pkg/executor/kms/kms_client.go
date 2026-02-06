@@ -30,6 +30,7 @@ type NitroKMSClient struct {
 
 // NewNitroKMSClient creates a new NitroKMSClient configured for the specified region.
 // Inside a Nitro Enclave, it uses vsock to communicate with the kms-proxy on the parent EC2.
+// Requests are sent unsigned (anonymous credentials); the proxy signs them with IMDS creds.
 //
 // Parameters:
 //   - ctx: Context for the operation
@@ -44,6 +45,8 @@ func NewNitroKMSClient(ctx context.Context, region, keyARN string, proxyPort uin
 		return nil, fmt.Errorf("KMS key ARN is required")
 	}
 
+	proxyEndpoint := fmt.Sprintf("http://localhost:%d", proxyPort)
+
 	// Create a custom HTTP client that uses vsock to connect to the kms-proxy
 	httpClient := &http.Client{
 		Transport: &http.Transport{
@@ -55,10 +58,20 @@ func NewNitroKMSClient(ctx context.Context, region, keyARN string, proxyPort uin
 	}
 
 	// Load AWS config with the custom HTTP client
-	// Note: IMDS is not available inside enclave, but the SDK handles connection failures gracefully
+	// Note: requests must be unsigned inside the enclave; the proxy will sign them.
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 		config.WithHTTPClient(httpClient),
+		config.WithCredentialsProvider(aws.AnonymousCredentials{}),
+		config.WithEndpointResolverWithOptions(
+			aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{
+					URL:               proxyEndpoint,
+					SigningRegion:     region,
+					HostnameImmutable: true,
+				}, nil
+			}),
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)

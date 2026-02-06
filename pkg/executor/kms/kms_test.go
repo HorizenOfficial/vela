@@ -281,13 +281,13 @@ func TestMockKMSAndEnclave_GenerateAndDecryptFlow(t *testing.T) {
 	assert.True(t, mockKMS.GenerateDataKeyCalled)
 
 	// Step 3: Decrypt the enveloped key
-	masterKey, err := mockEnclave.DecryptKMSEnvelopedKey(dataKeyOutput.CiphertextForRecipient)
+	decryptedKey, err := mockEnclave.DecryptKMSEnvelopedKey(dataKeyOutput.CiphertextForRecipient)
 	require.NoError(t, err)
 	assert.True(t, mockEnclave.DecryptCalled)
 
 	// Verify we got a valid 32-byte key
-	assert.Len(t, masterKey, 32)
-	assert.Equal(t, mockKMS.SimulatedDataKey[:], masterKey)
+	assert.Len(t, decryptedKey, 32)
+	assert.Equal(t, mockKMS.SimulatedDataKey[:], decryptedKey)
 
 	// Step 4: Verify CiphertextBlob is stored (for recovery)
 	assert.NotEmpty(t, dataKeyOutput.CiphertextBlob)

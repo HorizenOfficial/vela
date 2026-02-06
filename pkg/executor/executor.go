@@ -145,14 +145,25 @@ func GenerateEnclaveKeySet(
 			return nil, nil, fmt.Errorf("KMS key ARN is required for Type 1 recovery")
 		}
 
-		// 1. Generate attestation document from NSM
+		// 1. Create a new EnclaveKeySet
+		keySet, err := CreateNewKeySet()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create key set: %w", err)
+		}
+
+		// 2. Serialize the EnclaveKeySet
+		serializedKeySet, err := keySet.Serialize()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// 3. Generate attestation document from NSM
 		attestationDoc, err := enclaveHandle.Attest(nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate attestation: %w", err)
 		}
 
-		// 2. Request KMS to generate a data key with attestation
-		// KMS will validate the attestation (PCR values) before responding
+		// 4. Request KMS to generate a data key with attestation
 		dataKeyOutput, err := kmsClient.GenerateDataKeyWithAttestation(ctx, kmsKeyARN, attestationDoc)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate data key from KMS: %w", err)
@@ -166,7 +177,7 @@ func GenerateEnclaveKeySet(
 			return nil, nil, fmt.Errorf("KMS returned empty CiphertextForRecipient - attestation may have failed")
 		}
 
-		// 3. Decrypt the data key using enclave's private RSA key
+		// 5. Decrypt the data key using enclave's private RSA key
 		// The CiphertextForRecipient is encrypted for the enclave's public key from attestation
 		masterKeyBytes, err := enclaveHandle.DecryptKMSEnvelopedKey(dataKeyOutput.CiphertextForRecipient)
 		if err != nil {
@@ -179,18 +190,6 @@ func GenerateEnclaveKeySet(
 
 		var masterKey cryptotypes.AES256Key
 		copy(masterKey[:], masterKeyBytes)
-
-		// 4. Create a new EnclaveKeySet
-		keySet, err := CreateNewKeySet()
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create key set: %w", err)
-		}
-
-		// 5. Serialize the EnclaveKeySet
-		serializedKeySet, err := keySet.Serialize()
-		if err != nil {
-			return nil, nil, err
-		}
 
 		// 6. Encrypt the serialized EnclaveKeySet with the master key
 		encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
@@ -228,6 +227,10 @@ func RestoreEnclaveKeySet(
 	kmsClient kms.KMSClient,
 	enclaveHandle kms.EnclaveHandle,
 ) (*EnclaveKeySet, error) {
+	if recovery == nil {
+		return nil, fmt.Errorf("recovery is required")
+	}
+
 	switch recovery.RecoveryType {
 	case 0:
 		// Type 0: Unsafe/development mode - masterKey stored in plaintext

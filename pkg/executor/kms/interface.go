@@ -2,16 +2,13 @@
 // with Nitro Enclaves attestation for secure key management.
 package kms
 
-import (
-	"context"
-)
+import "context"
 
 // DataKeyOutput contains the result of a GenerateDataKey operation from KMS.
 type DataKeyOutput struct {
 	// CiphertextBlob is the KMS-encrypted data key.
 	// This can be safely stored and later decrypted using KMS.
 	CiphertextBlob []byte
-
 	// CiphertextForRecipient is the data key encrypted for the enclave's RSA public key.
 	// This can only be decrypted inside the enclave using its private key.
 	CiphertextForRecipient []byte
@@ -24,15 +21,6 @@ type KMSClient interface {
 	// GenerateDataKeyWithAttestation generates a new AES-256 data key using AWS KMS.
 	// The attestation document is attached to the request, allowing KMS to verify
 	// that the request originates from an authorized enclave (by checking PCR values).
-	//
-	// Parameters:
-	//   - ctx: Context for cancellation and timeouts
-	//   - keyARN: The ARN of the KMS key to use for encryption
-	//   - attestationDoc: The Nitro Enclave attestation document
-	//
-	// Returns:
-	//   - DataKeyOutput containing the encrypted data key
-	//   - error if the operation fails (e.g., KMS unavailable, PCR mismatch)
 	GenerateDataKeyWithAttestation(ctx context.Context, keyARN string, attestationDoc []byte) (*DataKeyOutput, error)
 
 	// DecryptWithAttestation decrypts a KMS ciphertext using attestation.
