@@ -24,10 +24,6 @@ const (
 	DeployAppRequestMessage
 	// DeployAppResponseMessage represents a response to a deploy app request
 	DeployAppResponseMessage
-	// DeanonymizationRequestMessage represents a request for deanonymization
-	DeanonymizationRequestMessage
-	// DeanonymizationResponseMessage represents a response to a deanonymization request
-	DeanonymizationResponseMessage
 	// GetKeysetRecoveryRequestMessage represents a handshake message from executor to manager
 	GetKeysetRecoveryRequestMessage
 	// GetKeysetRecoveryResponseMessage represents a handshake message from manager to executor
@@ -88,6 +84,8 @@ type ProcessResponseData struct {
 	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 	// UpdatedApplicationState is the updated application state
 	UpdatedApplicationState *common.ApplicationState `json:"updatedApplicationState"`
+	// DeanonymizationReport is the optional deanonymization report (present if request type was Deanonymize)
+	DeanonymizationReport *common.DeanonymizationReport `json:"deanonymizationReport,omitempty"`
 }
 
 // DeployAppRequestData represents data for a deploy app request message
@@ -102,22 +100,6 @@ type DeployAppResponseData struct {
 	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 	// ApplicationState initialized application state
 	ApplicationState *common.ApplicationState `json:"applicationState"`
-}
-
-// DeanonymizationRequestData represents data for a deanonymization request message
-type DeanonymizationRequestData struct {
-	// Request is the request for deanonymization
-	Request *common.Request `json:"request"`
-	// ApplicationState is the current state of the application
-	ApplicationState *common.ApplicationState `json:"applicationState"`
-	// WasmModule is the WASM module to execute
-	WasmModule []byte `json:"wasmModule"`
-}
-
-// DeanonymizationResponseData represents data for a deanonymization response message
-type DeanonymizationResponseData struct {
-	// Report is the deanonymization report
-	Report *common.DeanonymizationReport `json:"report"`
 }
 
 // ErrorData represents data for an error message

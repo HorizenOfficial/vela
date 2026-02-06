@@ -111,7 +111,7 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 
 	// Set timestamp if not provided
 	if req.Timestamp == nil {
-		req.Timestamp = new(big.Int).SetInt64(time.Now().Unix())
+		req.Timestamp = common.ToBig(new(big.Int).SetInt64(time.Now().Unix()))
 	}
 
 	// Store the request
@@ -132,8 +132,8 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 		ApplicationID:   applicationId,
 		RequestType:     requestType,
 		Payload:         payload,
-		DepositAmount:   depositAmount,
-		MaxFeeValue:     maxFeeValue,
+		DepositAmount:   common.ToBig(depositAmount),
+		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}
 
 	err := c.SendRequestToChain(ctx, req)
@@ -346,26 +346,6 @@ func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID common.Ap
 	}
 
 	return withdrawals, nil
-}
-
-// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
-func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if f, ok := c.GetMockedFunc("SubmitDeanonymizationReport"); ok {
-		return f.(func(context.Context, *common.DeanonymizationReport) error)(ctx, report)
-	}
-
-	// Complete the request if it exists
-	if !c.pendingRequests.Has(report.ReportID) {
-		return fmt.Errorf("request not found: %s", report.ReportID)
-	}
-	c.pendingRequests.Delete(report.ReportID)
-
-	// store the report
-	c.reports[report.ReportID] = report
-
-	return nil
 }
 
 // GetDeanonymizationReport gets a deanonymization report

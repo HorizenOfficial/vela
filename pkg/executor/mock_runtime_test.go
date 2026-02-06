@@ -123,8 +123,8 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 		t.Fatal("Expected sender account to exist")
 	}
 
-	if state.Accounts[sender].Balance.Cmp(depositAmount) != 0 {
-		t.Errorf("Expected balance %d, got %d", depositAmount, state.Accounts[sender].Balance)
+	if state.Accounts[sender].Balance.ToInt().Cmp(depositAmount) != 0 {
+		t.Errorf("Expected balance %s, got %s", depositAmount, state.Accounts[sender].Balance)
 	}
 
 	if state.Nonce != 1 {
@@ -147,8 +147,8 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
-	transferAmount := big.NewInt(500000000000000000) // 0.5 ETH
+	depositAmount := big.NewInt(2000000000000000000)    // 2 ETH
+	transferAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -171,7 +171,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 		t.Fatalf("Failed to marshal transfer instructions: %v", err)
 	}
 
-	newState, events, withdrawals, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	newState, events, withdrawals, _, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, common.Process, payload, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Transfer failed: %v", failure)
 	}
@@ -201,17 +201,17 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedSenderBalance := new(big.Int).Sub(depositAmount, transferAmount)
-	if state.Accounts[sender].Balance.Cmp(expectedSenderBalance) != 0 {
-		t.Errorf("Expected sender balance %d, got %d", expectedSenderBalance, state.Accounts[sender].Balance)
+	expectedSenderBalance := common.ToBig(new(big.Int).Sub(depositAmount, transferAmount.ToInt()))
+	if state.Accounts[sender].Balance.ToInt().Cmp(expectedSenderBalance.ToInt()) != 0 {
+		t.Errorf("Expected sender balance %s, got %s", expectedSenderBalance, state.Accounts[sender].Balance)
 	}
 
 	// Check recipient balance
 	if state.Accounts[recipient] == nil {
 		t.Fatal("Expected recipient account to exist")
 	}
-	if state.Accounts[recipient].Balance.Cmp(transferAmount) != 0 {
-		t.Errorf("Expected recipient balance %d, got %d", transferAmount, state.Accounts[recipient].Balance)
+	if state.Accounts[recipient].Balance.ToInt().Cmp(transferAmount.ToInt()) != 0 {
+		t.Errorf("Expected recipient balance %s, got %s", transferAmount, state.Accounts[recipient].Balance)
 	}
 
 	if state.Nonce != 2 {
@@ -234,8 +234,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	withdrawTo := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := big.NewInt(2000000000000000000) // 2 ETH
-	withdrawAmount := big.NewInt(500000000000000000) // 0.5 ETH
+	depositAmount := big.NewInt(2000000000000000000)    // 2 ETH
+	withdrawAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
 	ctx := context.Background()
@@ -258,7 +258,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Fatalf("Failed to marshal withdraw instructions: %v", err)
 	}
 
-	newState, events, withdrawals, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	newState, events, withdrawals, _, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, common.Process, payload, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Withdrawal failed: %v", failure)
 	}
@@ -285,8 +285,8 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Errorf("Expected withdrawal destination %s, got %s", withdrawTo, withdrawals[0].DestinationAddress)
 	}
 
-	if withdrawals[0].Amount.Cmp(withdrawAmount) != 0 {
-		t.Errorf("Expected withdrawal amount %d, got %d", withdrawAmount, withdrawals[0].Amount)
+	if withdrawals[0].Amount.ToInt().Cmp(withdrawAmount.ToInt()) != 0 {
+		t.Errorf("Expected withdrawal amount %s, got %s", withdrawAmount, withdrawals[0].Amount)
 	}
 
 	// Verify state update
@@ -300,9 +300,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	if state.Accounts[sender] == nil {
 		t.Fatal("Expected sender account to exist")
 	}
-	expectedBalance := new(big.Int).Sub(depositAmount, withdrawAmount)
-	if state.Accounts[sender].Balance.Cmp(expectedBalance) != 0 {
-		t.Errorf("Expected sender balance %d, got %d", expectedBalance, state.Accounts[sender].Balance)
+	expectedBalance := common.ToBig(new(big.Int).Sub(depositAmount, withdrawAmount.ToInt()))
+	if state.Accounts[sender].Balance.ToInt().Cmp(expectedBalance.ToInt()) != 0 {
+		t.Errorf("Expected sender balance %s, got %s", expectedBalance, state.Accounts[sender].Balance)
 	}
 
 	if state.Nonce != 2 {
@@ -325,7 +325,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	transferAmount := big.NewInt(1000000000000000000) // 1 ETH
+	transferAmount := common.NewBig(1000000000000000000) // 1 ETH
 
 	// Try to transfer without any balance
 	transferInstructions := testPayloadInstructions{
@@ -342,7 +342,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, _, _, _, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	_, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, sender, common.Process, payload, serializedState, wasmBytes)
 	if failure == nil {
 		t.Error("Expected error for insufficient balance, got nil")
 	}
@@ -352,7 +352,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	}
 }
 
-func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
+func TestMockRuntime_DeanonymizationViaProcessRequest(t *testing.T) {
 	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
@@ -371,7 +371,7 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	// Deposit for sender1
 	ctx := context.Background()
 	serializedState, _, _, failure := runtime.Deposit(ctx, appId, sender1, depositAmount, serializedState, wasmBytes)
-	if failure != nil { 
+	if failure != nil {
 		t.Fatalf("First deposit failed: %v", failure)
 	}
 
@@ -381,10 +381,21 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 		t.Fatalf("Second deposit failed: %v", failure)
 	}
 
-	// Generate deanonymization report
-	reportBytes, _, failure := runtime.GenerateDeanonymizationReport(context.Background(), appId, []byte(""), serializedState, wasmBytes)
+	// Generate deanonymization report via ProcessRequest with type "deanonymize"
+	deanonPayload := testPayloadInstructions{
+		Type: "deanonymize",
+		Deanonymize: &testDeanonymizeInstruction{
+			Tag: "dummytag",
+		},
+	}
+	payload, err := json.Marshal(deanonPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal deanonymize payload: %v", err)
+	}
+
+	_, _, _, reportBytes, _, failure := runtime.ProcessRequest(context.Background(), appId, sender1, common.Deanonymize, payload, serializedState, wasmBytes)
 	if failure != nil {
-		t.Fatalf("GenerateDeanonymizationReport failed: %v", failure)
+		t.Fatalf("Deanonymize ProcessRequest failed: %v", failure)
 	}
 
 	// Parse the report
@@ -398,10 +409,9 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	if !ok || len(totalAccounts) != 2 {
 		t.Errorf("Expected totalAccounts 2, got %v", report["totalAccounts"])
 	}
-
-	nonce, ok := report["nonce"].(float64)
-	if !ok || int(nonce) != 2 {
-		t.Errorf("Expected nonce 2, got %v", report["nonce"])
+	tag, ok := report["tag"].(string)
+	if !ok || tag != "dummytag" {
+		t.Errorf("Expected tag in the report")
 	}
 }
 

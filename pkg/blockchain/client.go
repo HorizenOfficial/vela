@@ -24,7 +24,9 @@ import (
 //go:generate mkdir -p ./contracts/processorendpoint
 //go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/ProcessorEndpoint.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointAbi --overwrite
 //go:generate sh -c "jq --indent 2 '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].abi' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../subgraphs/hcce/abis/ProcessorEndpoint.json"
-//go:generate abigen --v2 --combined-json ../../contract_abis/ProcessorEndpointAbi/combined.json --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].abi' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].bin' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi --bin ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
 //go:generate mkdir -p ./contracts/tee
 //go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
@@ -209,10 +211,10 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			RequestID:       request.RequestId,
 			RequestType:     common.RequestType(request.RequestType),
 			Payload:         request.Payload,
-			Timestamp:       request.Timestamp,
+			Timestamp:       common.ToBig(request.Timestamp),
 			Sender:          request.Sender,
-			DepositAmount:   request.DepositAmount,
-			MaxFeeValue:     request.MaxFeeValue,
+			DepositAmount:   common.ToBig(request.DepositAmount),
+			MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 		}
 
 		output = append(output, req)
@@ -250,10 +252,10 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		RequestID:       common.RequestIdType(request.RequestId),
 		RequestType:     common.RequestType(request.RequestType),
 		Payload:         request.Payload,
-		Timestamp:       request.Timestamp,
+		Timestamp:       common.ToBig(request.Timestamp),
 		Sender:          request.Sender,
-		DepositAmount:   request.DepositAmount,
-		MaxFeeValue:     request.MaxFeeValue,
+		DepositAmount:   common.ToBig(request.DepositAmount),
+		MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 	}
 
 	return req, stateRoot, nil
@@ -279,19 +281,6 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 		return fmt.Errorf("transaction failed")
 	}
 	return nil
-}
-
-func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID common.RequestIdType, refundAmount *big.Int, applicationFees *big.Int) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return fmt.Errorf("client not connected, call Connect first")
-	}
-
-	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(requestID, refundAmount, applicationFees))
-
 }
 
 func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
@@ -357,11 +346,6 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	return common.RequestIdType{}, 0, fmt.Errorf("requestId not found in logs")
 }
 
-func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
-	// This is the only thing that has to be done on the blockchain for deanonymization reports
-	return c.MarkRequestCompleted(ctx, update.ReportID, update.RefundAmount, update.ApplicationFee)
-}
-
 func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -379,7 +363,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
 	for i, withdrawal := range update.Withdrawals {
-		amount := withdrawal.Amount
+		amount := withdrawal.Amount.ToInt()
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
 			Receiver: withdrawal.DestinationAddress,
 			Amount:   amount,
@@ -394,8 +378,8 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		events,
 		eventSubTypes,
 		withdrawals,
-		update.RefundAmount,
-		update.ApplicationFee,
+		update.RefundAmount.ToInt(),
+		update.ApplicationFee.ToInt(),
 		update.Signature,
 	)
 

@@ -18,11 +18,10 @@ type ExecutorClient interface {
 	// Close closes the connection to the executor
 	Close() error
 	// SendProcessRequest sends a request to the executor and returns the response
-	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	// The response includes an optional deanonymization report if the request type was Deanonymize
+	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
 	// SendDeployApp deploys a new application to the executor
 	SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
-	// SendGenerateDeanonymizationReport generates a deanonymization report
-	SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure)
 	// SetClientRequestHandler sets the handler for incoming requests from server
 	SetClientRequestHandler(handler ClientRequestHandler)
 }
@@ -64,11 +63,10 @@ type ClientRequestHandler interface {
 // RequestHandler defines the interface for handling requests in the WASM Executor
 type RequestHandler interface {
 	// HandleProcessRequest processes a request and returns the response
-	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	// The response includes an optional deanonymization report if the request type was Deanonymize
+	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
 	// HandleDeployApp deploys a new application
 	HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
-	// HandleGenerateDeanonymizationReport generates a deanonymization report
-	HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure)
 }
 
 type ConnectionFactory interface {

@@ -26,20 +26,12 @@ func deposit(appId int64, senderPtr *byte, senderLen int32, valuePtr *byte, valu
 }
 
 //export process_request
-func process_request(appId int64, senderPtr *byte, senderLen int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
+func process_request(appId int64, senderPtr *byte, senderLen int32, requestType int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = appId
 	sender := app.PtrToAddress(senderPtr, senderLen)
 	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
-	result := app.ProcessRequest(sender, payloadJSON, stateJSON)
-	return app.SerializeAndWriteResult(result)
-}
-
-//export generate_deanonymization_report
-func generate_deanonymization_report(payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
-	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
-	stateJSON := utils.PtrToString(statePtr, stateLen)
-	result := app.GenerateDeanonymizationReport(payloadJSON, stateJSON)
+	result := app.ProcessRequest(sender, requestType, payloadJSON, stateJSON)
 	return app.SerializeAndWriteResult(result)
 }
 
