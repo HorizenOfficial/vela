@@ -40,6 +40,10 @@ interface IProcessorEndpoint {
     Structs.ErrorCode errorCode,
     string errorMessage
   );
+  /// @notice Emitted when a reqreport has been generated.
+  /// @param applicationId Application identifier.
+  /// @param requestId Request identifier.
+  event ReportGenerated(uint64 indexed applicationId, bytes32 indexed requestId);
   /// @notice Emitted for application-specific encrypted events.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
@@ -116,16 +120,6 @@ interface IProcessorEndpoint {
     uint256 depositAmount,
     uint256 maxFeeValue
   ) external payable returns (bytes32);
-
-  /// @notice Marks the current pending request as completed and handles fee/refund flows.
-  /// @param requestId Request identifier.
-  /// @param refund Amount refunded to the sender.
-  /// @param applicationFees Fee amount paid to the collector.
-  function markRequestCompleted(
-    bytes32 requestId,
-    uint256 refund,
-    uint256 applicationFees
-  ) external;
 
   /// @notice Marks the current pending request as failed and handles refunds.
   /// @param requestId Request identifier.

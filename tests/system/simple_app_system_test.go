@@ -434,7 +434,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	err = suite.AssertRequestCompleted(RequestID, timeout_value)
 	require.NoError(t, err)
 
-	deanonReqPayload := []byte(`{"type":"deanonymization","query":"full_report","tag":"SIMPLE_TAG"}`)
+	deanonReqPayload := []byte(`{"type":"deanonymize","deanonymize":{"tag":"SIMPLE_TAG"}}`)
 
 	RequestID = commontestutil.GenerateRandomRequestID()
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(
@@ -459,7 +459,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NotNil(t, deanonReport)
 
 	// 4. Read and decrypt the report
-	reportFilePath := filepath.Join(tempDir, common.ReportFilename(appID, RequestID))
+	reportFilePath := filepath.Join(suite.GetReportsPath(), common.ReportFilename(appID, RequestID))
 	encryptedReportBytes, err := os.ReadFile(reportFilePath)
 	require.NoError(t, err, "The report file should be saved to the filesystem")
 

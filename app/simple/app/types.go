@@ -140,17 +140,17 @@ type CompareInstructions struct {
 	TargetAddress Address `json:"targetAddress"`
 }
 
-// PayloadInstructions represents the deserialized payload instructions
-type PayloadInstructions struct {
-	Type            string               `json:"type"`
-	CompareAccounts *CompareInstructions `json:"compare,omitempty"`
-	Withdraw        *WithdrawInstruction `json:"withdraw,omitempty"`
+// DeanonymizeInstruction represents instructions for deanonymization
+type DeanonymizeInstruction struct {
+	IncludeTag string `json:"tag,omitempty"`
 }
 
-// ReportPayloadInstructions represent a specific information on how to generate a report
-// In this simple app its a custom tag to add to the report
-type ReportPayloadInstructions struct {
-	IncludeTag string `json:"tag,omitempty"`
+// PayloadInstructions represents the deserialized payload instructions
+type PayloadInstructions struct {
+	Type            string                  `json:"type"`
+	CompareAccounts *CompareInstructions    `json:"compare,omitempty"`
+	Withdraw        *WithdrawInstruction    `json:"withdraw,omitempty"`
+	Deanonymize     *DeanonymizeInstruction `json:"deanonymize,omitempty"`
 }
 
 // DeanonymizationReport represents the structure of the deanonymization report.
@@ -192,15 +192,9 @@ type ProcessResult struct {
 	State       []byte       `json:"state"`
 	Events      []PlainEvent `json:"events"`
 	Withdrawals []Withdrawal `json:"withdrawals"`
+	Report      []byte       `json:"report,omitempty"` // Optional deanonymization report
 	Fuel        *Uint256     `json:"fuel"`
 	Error       string       `json:"error,omitempty"`
-}
-
-// DeanonymizationResult is a local replacement for wasmCommon.DeanonymizationResult
-type DeanonymizationResult struct {
-	Report []byte   `json:"report"`
-	Fuel   *Uint256 `json:"fuel"`
-	Error  string   `json:"error,omitempty"`
 }
 
 // PlainEvent is a local replacement for common.PlainEvent

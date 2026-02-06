@@ -101,9 +101,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
       if (payload.length != 133) revert InvalidPayload();
     } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
-      // deanonymization requests MUST have depositAmount = 0
-      if (depositAmount != 0) revert InvalidValue();
-
       // only allowed authorities can request deanonymization
       if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
         revert AuthorityNotAllowed();
@@ -148,33 +145,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     unchecked {
       ++_head;
     }
-  }
-
-  /// @inheritdoc IProcessorEndpoint
-  function markRequestCompleted(
-    bytes32 requestId,
-    uint256 refund,
-    uint256 applicationFees
-  ) external onlyRole(UPDATE_STATUS_ROLE) {
-    if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
-
-    //check values
-    Structs.PendingRequest storage requestInfo = requestById[requestId];
-    uint256 maxFeeValue = requestInfo.maxFeeValue;
-
-    if (refund + applicationFees != maxFeeValue) revert InvalidValue();
-    if (applicationFees < minFeePerRequest) {
-      revert InvalidValue();
-    }
-    if (refund > 0) {
-      _asyncTransfer(requestInfo.sender, refund);
-      emit Refund(requestInfo.applicationId, requestId, requestInfo.sender, refund);
-    }
-
-    //credit fee to feeCollector's pending balance
-    _asyncTransfer(feeCollector, applicationFees);
-
-    _markRequestCompleted(requestId, applicationFees);
   }
 
   function _markRequestCompleted(bytes32 requestId, uint256 applicationFees) private {
@@ -324,6 +294,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     //check values
     Structs.PendingRequest storage requestInfo = requestById[processedRequestId];
     uint256 maxFeeValue = requestInfo.maxFeeValue;
+    Structs.RequestType reqType = requestInfo.requestType;
     address payable sender = payable(requestInfo.sender);
 
     if (refund + applicationFees != maxFeeValue) revert InvalidValue();
@@ -355,6 +326,11 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       unchecked {
         ++i;
       }
+    }
+
+    if (reqType == Structs.RequestType.DEANONYMIZATION) {
+      //a completed DEANONYMIZATION request must have always generated a report
+      emit ReportGenerated(applicationId, processedRequestId);
     }
 
     //update state root and request

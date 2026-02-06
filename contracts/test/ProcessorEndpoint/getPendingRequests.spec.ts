@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
+import { BYTES32_ZERO } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -111,7 +112,18 @@ describe('ProcessorEndpoint Test', function () {
 
         await processorEndpoint
           .connect(signers[1])
-          .markRequestCompleted(requestId1, 0, maxFeeValue);
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            '0x' + '01'.repeat(32),
+            requestId1,
+            [],
+            [],
+            [],
+            0,
+            maxFeeValue,
+            '0x'
+          );
 
         let requests = await processorEndpoint.getPendingRequests();
         expect(requests.length).to.equal(1);
@@ -156,7 +168,18 @@ describe('ProcessorEndpoint Test', function () {
 
         await processorEndpoint
           .connect(signers[1])
-          .markRequestCompleted(requestId1, 0, maxFeeValue);
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            '0x' + '01'.repeat(32),
+            requestId1,
+            [],
+            [],
+            [],
+            0,
+            maxFeeValue,
+            '0x'
+          );
         await processorEndpoint.connect(signers[1]).markRequestFailed(requestId2, 1, 'failed');
 
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
