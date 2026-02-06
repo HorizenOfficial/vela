@@ -139,8 +139,7 @@ func TestAdminServer_HandleRequestsKeyAttestationSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, AdminResponseMessage, respMsg.Type)
-	attestation, _ := json.Marshal(respMsg.Data)
-	assert.Equal(t, `"YXR0ZXN0YXRpb25fZGF0YQ=="`, string(attestation)) // base64 encoded
+	assert.Equal(t, `"YXR0ZXN0YXRpb25fZGF0YQ=="`, string(respMsg.Data)) // base64 encoded
 	assert.Equal(t, 1, handler.GetCallCount())
 
 }
@@ -169,8 +168,7 @@ func TestAdminServer_HandleRequestsKeyAttestationHandlerError(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 	assert.Equal(t, "handler failed", errData.Message)
@@ -203,8 +201,7 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 
@@ -239,8 +236,7 @@ func TestAdminServer_ServerBusy(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "INVALID_REQUEST", errData.Code)
 	assert.Equal(t, "server is busy", errData.Message)

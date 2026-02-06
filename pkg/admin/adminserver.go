@@ -9,11 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/logger"
 )
-
 
 type AdminClientConnection struct {
 	conn     net.Conn
@@ -84,21 +83,22 @@ func (s *AdminServer) Stop() error {
 	s.isRunning = false
 	close(s.shutdownChan)
 
-			// Close listener
-			if s.listener != nil {
-				s.listener.Close()
-			}
-	
-			// Forcefully close any active client connection to unblock handlers.
-			s.clientMu.Lock()
-			if s.client != nil {
-				s.client.conn.Close()
-			}
-			s.clientMu.Unlock()
-	
-			return nil}
+	// Close listener
+	if s.listener != nil {
+		s.listener.Close()
+	}
 
-// SetRequestHandler sets the handler for client requests
+	// Forcefully close any active client connection to unblock handlers.
+	s.clientMu.Lock()
+	if s.client != nil {
+		s.client.conn.Close()
+	}
+	s.clientMu.Unlock()
+
+	return nil
+}
+
+// SetCmdHandler sets the handler for client requests
 func (s *AdminServer) SetCmdHandler(handler AdminCmdHandler) {
 	s.handler = handler
 }
@@ -240,9 +240,10 @@ func (c *AdminClientConnection) handleAdminCommand(ctx context.Context, handler 
 	}
 
 	// Send the response
-	response := AdminMessage{
-		Type: AdminResponseMessage,
-		Data: result,
+	response, marshalErr := NewAdminMessage(AdminResponseMessage, result)
+	if marshalErr != nil {
+		c.sendErrorResponse("INTERNAL_ERROR", marshalErr)
+		return
 	}
 
 	if err := c.sendMessage(response); err != nil {
@@ -255,12 +256,13 @@ func (c *AdminClientConnection) handleAdminCommand(ctx context.Context, handler 
 // sendErrorResponse sends an error response
 func (c *AdminClientConnection) sendErrorResponse(code string, err error) {
 	c.log.Info("%s: Sending error response: Code=%s, Error=%v", c.idLogTag, code, err)
-	response := AdminMessage{
-		Type: AdminErrorMessage,
-		Data: communication.ErrorData{
-			Code:    code,
-			Message: err.Error(),
-		},
+	response, marshalErr := NewAdminMessage(AdminErrorMessage, communication.ErrorData{
+		Code:    code,
+		Message: err.Error(),
+	})
+	if marshalErr != nil {
+		c.log.Error("%s: Failed to marshal error response: %v", c.idLogTag, marshalErr)
+		return
 	}
 
 	if sendErr := c.sendMessage(response); sendErr != nil {

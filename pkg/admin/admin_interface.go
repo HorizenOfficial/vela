@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 )
 
 
@@ -38,7 +40,19 @@ const (
 // AdminMessage represents an admin command message
 type AdminMessage struct {
 	Type AdminMessageType `json:"type"`
-	Data interface{}      `json:"data"`
+	Data json.RawMessage  `json:"data"`
+}
+
+// NewAdminMessage creates an AdminMessage by marshaling the provided data into json.RawMessage.
+func NewAdminMessage(msgType AdminMessageType, data interface{}) (AdminMessage, error) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return AdminMessage{}, fmt.Errorf("failed to marshal admin message data: %w", err)
+	}
+	return AdminMessage{
+		Type: msgType,
+		Data: raw,
+	}, nil
 }
 
 // IsSupportedCommand checks if a message type is in the list of supported commands.

@@ -104,7 +104,9 @@ func TestManagerAdminServer_HandleGetVersionSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, AdminResponseMessage, respMsg.Type)
-	assert.Equal(t, "1.2.3", respMsg.Data)
+	var version string
+	json.Unmarshal(respMsg.Data, &version)
+	assert.Equal(t, "1.2.3", version)
 	assert.Equal(t, 1, handler.GetCallCount())
 }
 
@@ -132,8 +134,7 @@ func TestManagerAdminServer_HandleGetVersionHandlerError(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 	assert.Equal(t, "version error", errData.Message)
@@ -165,8 +166,7 @@ func TestManagerAdminServer_HandleUnknownRequest(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 }
@@ -200,8 +200,7 @@ func TestManagerAdminServer_ServerBusy(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "INVALID_REQUEST", errData.Code)
 	assert.Equal(t, "server is busy", errData.Message)
