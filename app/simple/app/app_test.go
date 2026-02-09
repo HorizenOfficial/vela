@@ -634,18 +634,15 @@ func TestHexToAddress_ValidFullLength(t *testing.T) {
 
 func TestHexToAddress_NoPrefix(t *testing.T) {
 	s := "00112233445566778899aabbccddeeff00112233"
-	addr1, err := types.HexToAddress(s)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := types.HexToAddress(s)
+	if err == nil {
+		t.Fatalf("expected error for address without 0x prefix")
 	}
 
-	addr2, err := types.HexToAddress("0x" + s)
+	// With prefix should still work
+	_, err = types.HexToAddress("0x" + s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if addr1 != addr2 {
-		t.Fatalf("addresses differ with/without prefix")
 	}
 }
 

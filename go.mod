@@ -6,6 +6,13 @@ toolchain go1.24.3
 
 require github.com/horizen-cce-common-go/wasm v0.0.0
 
+//replace github.com/horizen-cce-common-go => github.com/HorizenOfficial/horizen-cce-common-go v0.0.0
+
+// Can be useful for local development
+replace github.com/horizen-cce-common-go/wasm => ../horizen-cce-common-go/wasm
+
+replace github.com/horizen-cce-common-go/types => ../horizen-cce-common-go/types
+
 require (
 	github.com/bytecodealliance/wasmtime-go v1.0.0
 	github.com/elliotchance/orderedmap/v3 v3.1.0
@@ -110,8 +117,3 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-//replace github.com/horizen-cce-common-go => github.com/HorizenOfficial/horizen-cce-common-go v0.0.0
-
-// Can be useful for local development
-replace github.com/horizen-cce-common-go/wasm => ../horizen-cce-common-go/wasm

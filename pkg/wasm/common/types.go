@@ -64,7 +64,7 @@ type RecipientEvent struct {
 	Nonce   uint64            `json:"nonce"`
 }
 
-type WithdrawalEvent = SenderEvent
+type WithdrawalEvent SenderEvent
 
 // optional mem statistics
 type MemoryStats struct {
