@@ -198,13 +198,6 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 		EncryptedReport: hex.EncodeToString(report.EncryptedReport),
 	}
 
-	if report.RefundAmount != nil {
-		resp.RefundAmount = report.RefundAmount.String()
-	}
-	if report.ApplicationFee != nil {
-		resp.ApplicationFee = report.ApplicationFee.String()
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.log.Error("Failed to write report response: %v", err)

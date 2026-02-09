@@ -15,16 +15,17 @@ describe('ProcessorEndpoint Test', function () {
     minFeePerRequest = fixture.minFeePerRequest;
   });
 
+  const APPLICATION_ID = 1;
+
   async function submitBasicRequest(payload: string) {
     const protocolVersion = 0;
-    const applicationId = 1;
     const requestType = 1;
     const depositAmount = 0n;
     const maxFeeValue = minFeePerRequest;
 
     const tx = await processorEndpoint.submitRequest(
       protocolVersion,
-      applicationId,
+      APPLICATION_ID,
       requestType,
       payload,
       depositAmount,
@@ -34,7 +35,7 @@ describe('ProcessorEndpoint Test', function () {
     const receipt = await tx.wait();
     return {
       requestId: receipt.logs[0].args.requestId,
-      applicationId,
+      applicationId: APPLICATION_ID,
       maxFeeValue,
     };
   }
@@ -62,15 +63,28 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.feeCollector()).to.equal(newCollector);
       });
 
-      it('routes fees to the new feeCollector for markRequestCompleted', async () => {
+      it('routes fees to the new feeCollector for stateUpdate (completion)', async () => {
         const newCollector = await signers[3].getAddress();
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
-        const { requestId, maxFeeValue } = await submitBasicRequest('0x01');
+        const { requestId, applicationId, maxFeeValue } = await submitBasicRequest('0x01');
         // With pull pattern, funds are credited to pending deposits
         const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
-        await processorEndpoint.connect(signers[1]).markRequestCompleted(requestId, 0, maxFeeValue);
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            '0x' + '01'.repeat(32),
+            requestId,
+            [],
+            [],
+            [],
+            0,
+            maxFeeValue,
+            '0x'
+          );
 
         const collectorPendingAmountAfter = await processorEndpoint.payments(newCollector);
         expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(maxFeeValue);

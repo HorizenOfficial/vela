@@ -22,8 +22,6 @@ type Client interface {
 	MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error
 	// SubmitStateUpdate submits a state update to the blockchain
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
-	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
-	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
 	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
 	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
 	// ChainID returns the connected chain ID.
