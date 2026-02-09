@@ -58,6 +58,337 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) {
 	t.Fatalf("File %s did not appear or remained empty within timeout", path)
 }
 
+// TestLogServer_ValidationErrors verifies that StartLogServer returns appropriate errors
+// for invalid configurations (table-driven).
+func TestLogServer_ValidationErrors(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "logserver_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	tests := []struct {
+		name      string
+		cfg       LogServerConfig
+		wantError string
+	}{
+		{
+			name:      "both addresses empty",
+			cfg:       LogServerConfig{LogFilePath: logFile, FileLevel: "info"},
+			wantError: "TCP and VSOCK addresses are both empty",
+		},
+		{
+			name: "no file path and console disabled",
+			cfg: LogServerConfig{
+				TCPAddr:        common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
+				ConsoleEnabled: false,
+			},
+			wantError: "file path is empty and console output is disabled",
+		},
+		{
+			name: "invalid console log level",
+			cfg: LogServerConfig{
+				TCPAddr:        common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
+				ConsoleEnabled: true,
+				ConsoleLevel:   "bogus",
+				LogFilePath:    logFile,
+				FileLevel:      "info",
+			},
+			wantError: "invalid console log level",
+		},
+		{
+			name: "invalid file log level",
+			cfg: LogServerConfig{
+				TCPAddr:     common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
+				LogFilePath: logFile,
+				FileLevel:   "bogus",
+			},
+			wantError: "invalid file log level",
+		},
+		{
+			name: "MaxSizeMB exceeds upper bound",
+			cfg: LogServerConfig{
+				TCPAddr:         common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
+				LogFilePath:     logFile,
+				FileLevel:       "info",
+				RotationEnabled: true,
+				MaxSizeMB:       2000,
+			},
+			wantError: "MaxSizeMB=2000 exceeds maximum allowed value of 1024",
+		},
+		{
+			name: "MaxBackups exceeds upper bound",
+			cfg: LogServerConfig{
+				TCPAddr:         common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
+				LogFilePath:     logFile,
+				FileLevel:       "info",
+				RotationEnabled: true,
+				MaxSizeMB:       10,
+				MaxBackups:      200,
+			},
+			wantError: "MaxBackups=200 exceeds maximum allowed value of 100",
+		},
+		{
+			name: "MaxAgeDays exceeds upper bound",
+			cfg: LogServerConfig{
+				TCPAddr:         common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
+				LogFilePath:     logFile,
+				FileLevel:       "info",
+				RotationEnabled: true,
+				MaxSizeMB:       10,
+				MaxBackups:      3,
+				MaxAgeDays:      500,
+			},
+			wantError: "MaxAgeDays=500 exceeds maximum allowed value of 365",
+		},
+		{
+			name: "invalid file path with rotation enabled",
+			cfg: LogServerConfig{
+				TCPAddr:         common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
+				LogFilePath:     "/nonexistent/path/test.log",
+				FileLevel:       "info",
+				RotationEnabled: true,
+				MaxSizeMB:       10,
+			},
+			wantError: "failed to open log file",
+		},
+		{
+			name: "invalid file path without rotation",
+			cfg: LogServerConfig{
+				TCPAddr:     common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
+				LogFilePath: "/nonexistent/path/test.log",
+				FileLevel:   "info",
+			},
+			wantError: "failed to open log file",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			err := StartLogServer(ctx, tc.cfg)
+			if err == nil {
+				t.Fatal("Expected error but got nil")
+			}
+			if !strings.Contains(err.Error(), tc.wantError) {
+				t.Errorf("Expected error containing %q, got: %v", tc.wantError, err)
+			}
+		})
+	}
+}
+
+// TestLogServer_OversizedLineSkipped verifies that a log line exceeding the 64KB buffer
+// is skipped without killing the connection, and subsequent normal-sized lines are still processed.
+func TestLogServer_OversizedLineSkipped(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "logserver_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to find available port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err = StartLogServer(ctx, LogServerConfig{
+		TCPAddr: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(port),
+		},
+		LogFilePath:     logFile,
+		ConsoleEnabled:  false,
+		ConsoleLevel:    "info",
+		FileLevel:       "trace",
+		RotationEnabled: false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to start log server: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	// Send a normal message first
+	writeLogEntry(t, conn, "info", "before oversized")
+
+	// Send an oversized line (>64KB without newline, then newline)
+	oversized := `{"level":"info","message":"` + strings.Repeat("x", 70*1024) + `"}` + "\n"
+	_, err = conn.Write([]byte(oversized))
+	if err != nil {
+		t.Fatalf("Failed to write oversized message: %v", err)
+	}
+
+	// Send another normal message after the oversized one
+	writeLogEntry(t, conn, "info", "after oversized")
+
+	// Wait for messages to be processed
+	waitForFile(t, logFile, 2*time.Second)
+	time.Sleep(300 * time.Millisecond)
+
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// The message before the oversized line should be present
+	if !strings.Contains(contentStr, "before oversized") {
+		t.Error("Log file missing 'before oversized' message")
+	}
+
+	// The message after the oversized line should also be present (connection survived)
+	if !strings.Contains(contentStr, "after oversized") {
+		t.Error("Log file missing 'after oversized' message — connection did not survive oversized line")
+	}
+
+	// The oversized line itself should NOT be in the file
+	if strings.Contains(contentStr, strings.Repeat("x", 1000)) {
+		t.Error("Log file contains oversized message that should have been skipped")
+	}
+}
+
+// TestLogServer_UnknownLogLevel verifies that a message with an unrecognized log level
+// is treated as "info" priority and written when file level allows info.
+func TestLogServer_UnknownLogLevel(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "logserver_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to find available port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err = StartLogServer(ctx, LogServerConfig{
+		TCPAddr: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(port),
+		},
+		LogFilePath:     logFile,
+		ConsoleEnabled:  false,
+		ConsoleLevel:    "info",
+		FileLevel:       "info",
+		RotationEnabled: false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to start log server: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	// Send message with unknown level — should be treated as info and written
+	sendLogMessage(t, addr, "banana", "unknown level message")
+
+	waitForFile(t, logFile, 2*time.Second)
+
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	if !strings.Contains(string(content), "unknown level message") {
+		t.Error("Message with unknown log level was not written (should default to info priority)")
+	}
+}
+
+// TestLogServer_InvalidJSON verifies that invalid JSON messages are handled gracefully
+// without crashing the connection, and subsequent valid messages are still processed.
+func TestLogServer_InvalidJSON(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "logserver_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to find available port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err = StartLogServer(ctx, LogServerConfig{
+		TCPAddr: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(port),
+		},
+		LogFilePath:     logFile,
+		ConsoleEnabled:  false,
+		ConsoleLevel:    "info",
+		FileLevel:       "info",
+		RotationEnabled: false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to start log server: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	// Send invalid JSON
+	_, err = conn.Write([]byte("this is not json\n"))
+	if err != nil {
+		t.Fatalf("Failed to write invalid JSON: %v", err)
+	}
+
+	// Send a valid message after the invalid one
+	writeLogEntry(t, conn, "info", "valid after invalid")
+
+	waitForFile(t, logFile, 2*time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	// The valid message after invalid JSON should still be processed
+	if !strings.Contains(string(content), "valid after invalid") {
+		t.Error("Valid message after invalid JSON was not written — connection did not survive")
+	}
+}
+
 // TestLogServer_WritesToFile_NoRotation verifies basic file logging without rotation.
 func TestLogServer_WritesToFile_NoRotation(t *testing.T) {
 	// Create temp directory for log file

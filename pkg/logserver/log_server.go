@@ -96,7 +96,7 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 		if cfg.RotationEnabled {
 			// Use lumberjack for log rotation
 			maxSize = cfg.MaxSizeMB
-			if maxSize <= 0 {
+			if maxSize <= 0 { // <= 0 (not < 0): lumberjack also treats 0 as "use default 100MB", so there's no useful zero-value to preserve
 				maxSize = 100 // default 100MB
 			}
 			maxBackups = cfg.MaxBackups
@@ -314,12 +314,8 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 			break
 		}
 
-		trimmed := bytes.TrimSpace(lineBytes)
-		if len(trimmed) == 0 {
-			continue
-		}
-
-		// If line exceeded buffer, discard remaining bytes until end of line
+		// Check isPrefix before TrimSpace to avoid skipping into the drain loop on a subsequent iteration
+		// (e.g., if the first chunk of an oversized line happened to be all whitespace).
 		if isPrefix {
 			ls.logger.Warn("Oversized log line from %s (>%d bytes), skipping", conn.RemoteAddr(), maxLogLineSize)
 			for isPrefix {
@@ -328,6 +324,11 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 					break
 				}
 			}
+			continue
+		}
+
+		trimmed := bytes.TrimSpace(lineBytes)
+		if len(trimmed) == 0 {
 			continue
 		}
 
