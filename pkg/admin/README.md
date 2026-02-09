@@ -44,7 +44,7 @@ Retrieves the current version of the Manager.
 **Response:**
 ```json
 {
-  "type": 1,
+  "type": 0,
   "data": "0.1.0"
 }
 
@@ -63,7 +63,7 @@ Retrieves the current logging level of the Manager. This is useful for verifying
 **Response:**
 ```json
 {
-  "type": 1,
+  "type": 0,
   "data": "debug"
 }
 ```
@@ -89,7 +89,7 @@ Changes the logging level at runtime without requiring a restart. This is useful
 **Response:**
 ```json
 {
-  "type": 1,
+  "type": 0,
   "data": {
     "success": true,
     "level": "debug"
@@ -126,7 +126,7 @@ If an invalid log level is provided, the command returns an error:
 
 ```json
 {
-  "type": 2,
+  "type": 1,
   "data": {
     "code": "ERROR_SETTING_LOG_LEVEL",
     "message": "invalid log level 'invalid': Unknown Level String: 'invalid', defaulting to NoLevel"
@@ -155,7 +155,7 @@ Generates a key attestation document for the Executor's cryptographic keys.
 **Request:**
 ```json
 {
-  "type": 0,
+  "type": 2,
   "data": null
 }
 ```
@@ -163,7 +163,7 @@ Generates a key attestation document for the Executor's cryptographic keys.
 **Response:**
 ```json
 {
-  "type": 1,
+  "type": 0,
   "data": "<base64-encoded-attestation>"
 }
 ```
@@ -172,9 +172,9 @@ Generates a key attestation document for the Executor's cryptographic keys.
 
 | Type | Name | Description |
 |------|------|-------------|
-| 0 | `KeyAttestationRequestMessage` | Request key attestation (Executor) |
-| 1 | `AdminResponseMessage` | Success response |
-| 2 | `AdminErrorMessage` | Error response |
+| 0 | `AdminResponseMessage` | Success response |
+| 1 | `AdminErrorMessage` | Error response |
+| 2 | `KeyAttestationRequestMessage` | Request key attestation (Executor) |
 | 3 | `GetVersionRequestMessage` | Request version info (Manager) |
 | 4 | `SetLogLevelRequestMessage` | Change log level (Manager) |
 | 5 | `GetLogLevelRequestMessage` | Get current log level (Manager) |
@@ -210,8 +210,9 @@ echo '{"type":3,"data":null}' | nc <manager-host> <admin-port>
 
 ## Server Configuration
 
-The admin server is configured through the Manager's configuration:
-- Connection factory determines TCP or V-Socket transport
+There are two admin servers: one in the Manager and one in the Executor.
+- The Manager admin server always uses TCP
+- The Executor admin server uses a connection factory that determines TCP or V-Socket transport
 - Client timeout controls how long a client connection can remain active
 - Only one client can be connected at a time
 
