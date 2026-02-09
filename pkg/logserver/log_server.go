@@ -25,7 +25,7 @@ type logLevels struct {
 	file    int
 }
 
-// LogServer handles writing log messages from remote clients to a file.
+// LogServer handles writing log messages from remote clients to a file and/or console.
 type LogServer struct {
 	logger         logger.Logger
 	logWriter      io.WriteCloser // can be *os.File or *lumberjack.Logger
@@ -45,9 +45,9 @@ type LogServerConfig struct {
 	// Log rotation settings (only used when LogFilePath is set)
 	RotationEnabled bool // Enable log rotation using lumberjack
 	MaxSizeMB       int  // Max size in megabytes before rotation (default: 100)
-	MaxBackups      int  // Max number of old log files to retain (default: 3)
-	MaxAgeDays      int  // Max days to retain old log files, 0 = no limit (default: 28)
-	Compress        bool // Compress rotated log files with gzip (default: true)
+	MaxBackups      int  // Max number of old log files to retain, 0 = retain all (default if negative: 3)
+	MaxAgeDays      int  // Max days to retain old log files, 0 = no limit (default if negative: 28)
+	Compress        bool // Compress rotated log files with gzip (default: false)
 }
 
 // Static log level priority map
@@ -100,13 +100,29 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 				maxSize = 100 // default 100MB
 			}
 			maxBackups = cfg.MaxBackups
-			if maxBackups <= 0 {
+			if maxBackups < 0 {
 				maxBackups = 3 // default 3 backups
 			}
 			maxAge = cfg.MaxAgeDays
 			if maxAge < 0 {
 				maxAge = 28 // default 28 days
 			}
+			// Validate upper bounds to prevent misconfiguration from exhausting disk space
+			if maxSize > 1024 {
+				return fmt.Errorf("MaxSizeMB=%d exceeds maximum allowed value of 1024 (1GB)", maxSize)
+			}
+			if maxBackups > 100 {
+				return fmt.Errorf("MaxBackups=%d exceeds maximum allowed value of 100", maxBackups)
+			}
+			if maxAge > 365 {
+				return fmt.Errorf("MaxAgeDays=%d exceeds maximum allowed value of 365", maxAge)
+			}
+			// Validate file access before configuring lumberjack (which defers file creation to first Write)
+			f, err := os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return fmt.Errorf("failed to open log file %s: %w", cfg.LogFilePath, err)
+			}
+			f.Close()
 			logWriter = &lumberjack.Logger{
 				Filename:   cfg.LogFilePath,
 				MaxSize:    maxSize,
@@ -279,9 +295,16 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 	}()
 
 	ls.logger.Info("New log connection from %s", conn.RemoteAddr())
-	reader := bufio.NewReader(conn)
+
+	// handle oversized lines gracefully. ReadLine() instead returns
+	// isPrefix=true, allowing us to discard the oversized line and continue reading the next ones.
+	// This is consistent with the approach used in configureWasiLogPipes() for WASM guest log capture.
+	// Buffer size of 64KB is generous for structured zerolog JSON entries (typically 150-300 bytes).
+	const maxLogLineSize = 64 * 1024 // 64KB
+	reader := bufio.NewReaderSize(conn, maxLogLineSize)
+
 	for {
-		message, err := reader.ReadString('\n')
+		lineBytes, isPrefix, err := reader.ReadLine()
 		if err != nil {
 			if err == io.EOF {
 				ls.logger.Info("Log connection from %s closed gracefully", conn.RemoteAddr())
@@ -291,8 +314,20 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 			break
 		}
 
-		trimmed := bytes.TrimSpace([]byte(message))
+		trimmed := bytes.TrimSpace(lineBytes)
 		if len(trimmed) == 0 {
+			continue
+		}
+
+		// If line exceeded buffer, discard remaining bytes until end of line
+		if isPrefix {
+			ls.logger.Warn("Oversized log line from %s (>%d bytes), skipping", conn.RemoteAddr(), maxLogLineSize)
+			for isPrefix {
+				_, isPrefix, err = reader.ReadLine()
+				if err != nil {
+					break
+				}
+			}
 			continue
 		}
 
@@ -305,7 +340,7 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 
 // filterAndWrite routes an incoming JSON log entry to console and/or file depending on configured log levels
 func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
-	// TODO: do something faster than unmarshalling for optimize this
+	// TODO: do something faster than unmarshalling to optimize this
 	var entry struct {
 		Level string `json:"level"`
 	}
@@ -322,6 +357,7 @@ func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
 	levels := ls.levels.Load().(logLevels)
 
 	if ls.consoleEnabled && entryPriority >= levels.console {
+		// Write raw JSON directly to stdout (message is already structured from the remote client)
 		fmt.Println(string(jsonMsg))
 	}
 
