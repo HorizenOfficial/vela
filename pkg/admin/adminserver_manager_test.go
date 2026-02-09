@@ -230,3 +230,95 @@ func TestManagerAdminServer_ServerBusy(t *testing.T) {
 
 	assert.Equal(t, AdminResponseMessage, respMsg.Type)
 }
+
+// MockLogLevelCmdHandler simulates a manager that handles GetLogLevel and SetLogLevel commands.
+type MockLogLevelCmdHandler struct {
+	mu    sync.Mutex
+	level string
+}
+
+func (m *MockLogLevelCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	switch msg.Type {
+	case GetLogLevelRequestMessage:
+		return m.level, nil
+	case SetLogLevelRequestMessage:
+		var req struct {
+			Level string `json:"level"`
+		}
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			return nil, err
+		}
+		m.level = req.Level
+		return struct {
+			Success bool   `json:"success"`
+			Level   string `json:"level"`
+		}{Success: true, Level: req.Level}, nil
+	default:
+		return nil, errors.New("unsupported command type")
+	}
+}
+
+func TestManagerAdminServer_GetAndSetLogLevel(t *testing.T) {
+	handler := &MockLogLevelCmdHandler{level: "info"}
+
+	// Helper: send a command and read the response via a fresh connection
+	sendCommand := func(server *AdminServer, msg AdminMessage) AdminMessage {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+
+		go server.handleNewClient(context.Background(), serverConn, "test")
+
+		reqBytes, err := json.Marshal(msg)
+		require.NoError(t, err)
+		_, err = clientConn.Write(append(reqBytes, communication.MsgDelimiter))
+		require.NoError(t, err)
+
+		respBytes, err := bufio.NewReader(clientConn).ReadBytes(communication.MsgDelimiter)
+		require.NoError(t, err)
+
+		var respMsg AdminMessage
+		err = json.Unmarshal(respBytes, &respMsg)
+		require.NoError(t, err)
+		return respMsg
+	}
+
+	server := NewAdminServer(nil, commParams, testLogger)
+	server.clientTimeout = 500 * time.Millisecond
+	server.SetCmdHandler(handler)
+
+	// 1. GetLogLevel - should return "info"
+	resp := sendCommand(server, AdminMessage{Type: GetLogLevelRequestMessage})
+	assert.Equal(t, AdminResponseMessage, resp.Type)
+	var level string
+	json.Unmarshal(resp.Data, &level)
+	assert.Equal(t, "info", level)
+
+	// Small delay to let the server goroutine complete cleanup (single-client constraint)
+	time.Sleep(50 * time.Millisecond)
+
+	// 2. SetLogLevel - change to "debug"
+	setData, _ := json.Marshal(struct {
+		Level string `json:"level"`
+	}{Level: "debug"})
+	resp = sendCommand(server, AdminMessage{Type: SetLogLevelRequestMessage, Data: setData})
+	assert.Equal(t, AdminResponseMessage, resp.Type)
+	var setResp struct {
+		Success bool   `json:"success"`
+		Level   string `json:"level"`
+	}
+	json.Unmarshal(resp.Data, &setResp)
+	assert.True(t, setResp.Success)
+	assert.Equal(t, "debug", setResp.Level)
+
+	// Small delay to let the server goroutine complete cleanup (single-client constraint)
+	time.Sleep(50 * time.Millisecond)
+
+	// 3. GetLogLevel again - should now return "debug"
+	resp = sendCommand(server, AdminMessage{Type: GetLogLevelRequestMessage})
+	assert.Equal(t, AdminResponseMessage, resp.Type)
+	json.Unmarshal(resp.Data, &level)
+	assert.Equal(t, "debug", level)
+}

@@ -94,6 +94,18 @@ func (z *ZeroLogger) SetLevel(level string) error {
 	return nil
 }
 
+func (z *ZeroLogger) GetLevel() string {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	if z.consoleLogger != nil {
+		return z.consoleLogger.GetLevel().String()
+	}
+	if z.fileLogger != nil {
+		return z.fileLogger.GetLevel().String()
+	}
+	return ""
+}
+
 func (z *ZeroLogger) Trace(msg string, args ...any) {
 	z.mu.RLock()
 	defer z.mu.RUnlock()

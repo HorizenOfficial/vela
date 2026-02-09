@@ -52,6 +52,11 @@ func (p *PrintfLogger) SetLevel(level string) error {
 	return nil
 }
 
+// GetLevel returns empty string for PrintfLogger as it does not support levels.
+func (p *PrintfLogger) GetLevel() string {
+	return ""
+}
+
 // Write implements the io.Writer interface for PrintfLogger. It is used for having a fallback logger
 // for zerolog, which needs this method
 func (p *PrintfLogger) Write(b []byte) (n int, err error) {
