@@ -181,9 +181,9 @@ func TestLogServer_ValidationErrors(t *testing.T) {
 	}
 }
 
-// TestLogServer_OversizedLineSkipped verifies that a log line exceeding the 64KB buffer
-// is skipped without killing the connection, and subsequent normal-sized lines are still processed.
-func TestLogServer_OversizedLineSkipped(t *testing.T) {
+// TestLogServer_OversizedLineTruncated verifies that a log line exceeding the 64KB buffer
+// is truncated (first chunk written) without killing the connection, and subsequent normal-sized lines are still processed.
+func TestLogServer_OversizedLineTruncated(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "logserver_test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -260,9 +260,17 @@ func TestLogServer_OversizedLineSkipped(t *testing.T) {
 		t.Error("Log file missing 'after oversized' message — connection did not survive oversized line")
 	}
 
-	// The oversized line itself should NOT be in the file
-	if strings.Contains(contentStr, strings.Repeat("x", 1000)) {
-		t.Error("Log file contains oversized message that should have been skipped")
+	// The truncated entry should be re-emitted as a valid zerolog warn entry
+	if !strings.Contains(contentStr, `"_truncated":true`) {
+		t.Error("Log file missing _truncated marker for the oversized entry")
+	}
+	if !strings.Contains(contentStr, `"level":"warn"`) {
+		t.Error("Log file missing warn-level truncated entry")
+	}
+	// The full oversized content (70KB of x's) should NOT be in the file —
+	// only the first 64KB chunk is captured in the truncated entry's message.
+	if strings.Contains(contentStr, strings.Repeat("x", 70*1024)) {
+		t.Error("Log file contains the full oversized content that should have been truncated")
 	}
 }
 

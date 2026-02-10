@@ -16,6 +16,7 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/mdlayher/vsock"
+	"github.com/rs/zerolog"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -44,7 +45,7 @@ type LogServerConfig struct {
 	FileLevel      string
 	// Log rotation settings (only used when LogFilePath is set)
 	RotationEnabled bool // Enable log rotation using lumberjack
-	MaxSizeMB       int  // Max size in megabytes before rotation (default: 100)
+	MaxSizeMB       int  // Max size in megabytes before rotation (default if negative or zero: 100)
 	MaxBackups      int  // Max number of old log files to retain, 0 = retain all (default if negative: 3)
 	MaxAgeDays      int  // Max days to retain old log files, 0 = no limit (default if negative: 28)
 	Compress        bool // Compress rotated log files with gzip (default: false)
@@ -296,9 +297,8 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 
 	ls.logger.Info("New log connection from %s", conn.RemoteAddr())
 
-	// handle oversized lines gracefully. ReadLine() instead returns
-	// isPrefix=true, allowing us to discard the oversized line and continue reading the next ones.
-	// This is consistent with the approach used in configureWasiLogPipes() for WASM guest log capture.
+	// handle oversized lines gracefully. ReadLine() returns isPrefix=true when a line
+	// exceeds the buffer, allowing us to truncate it to the first chunk and continue reading.
 	// Buffer size of 64KB is generous for structured zerolog JSON entries (typically 150-300 bytes).
 	const maxLogLineSize = 64 * 1024 // 64KB
 	reader := bufio.NewReaderSize(conn, maxLogLineSize)
@@ -314,17 +314,27 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 			break
 		}
 
-		// Check isPrefix before TrimSpace to avoid skipping into the drain loop on a subsequent iteration
-		// (e.g., if the first chunk of an oversized line happened to be all whitespace).
+		// Check isPrefix before TrimSpace to ensure oversized lines are handled
+		// even if their first chunk is all whitespace (otherwise we'd continue past
+		// the truncation block, leaving the rest of the oversized line in the buffer).
 		if isPrefix {
-			ls.logger.Warn("Oversized log line from %s (>%d bytes), skipping", conn.RemoteAddr(), maxLogLineSize)
+			ls.logger.Warn("Oversized log line from %s (>%d bytes), truncating", conn.RemoteAddr(), maxLogLineSize)
+			// Copy the first chunk before draining — lineBytes references the reader's
+			// internal buffer which gets overwritten by subsequent ReadLine calls.
+			truncated := make([]byte, len(lineBytes))
+			copy(truncated, lineBytes)
+			// Drain remaining chunks of the oversized line
 			for isPrefix {
 				_, isPrefix, err = reader.ReadLine()
 				if err != nil {
 					break
 				}
 			}
-			continue
+			// Re-emit as a valid zerolog entry with the truncated content as the message
+			var buf bytes.Buffer
+			zl := zerolog.New(&buf).With().Timestamp().Logger()
+			zl.Warn().Bool("_truncated", true).Msg(string(truncated))
+			lineBytes = buf.Bytes()
 		}
 
 		trimmed := bytes.TrimSpace(lineBytes)
