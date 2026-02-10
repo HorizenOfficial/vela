@@ -70,5 +70,5 @@ type RecipientEvent struct {
 	Nonce   uint64         `json:"nonce"`
 }
 
-// WithdrawalEvent is a local replacement for wasmCommon.WithdrawalEvent
+// WithdrawalEvent has the same structure as SenderEvent
 type WithdrawalEvent SenderEvent

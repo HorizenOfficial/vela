@@ -14,6 +14,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// host-side event types for JSON compatibility tests (app-specific, not framework types)
+type hostDepositEvent struct {
+	Type    string      `json:"type"`
+	Amount  *common.Big `json:"amount"`
+	Balance *common.Big `json:"balance"`
+	Nonce   uint64      `json:"nonce"`
+}
+
+type hostSenderEvent struct {
+	Type    string            `json:"type"`
+	To      ethCommon.Address `json:"to"`
+	Amount  *common.Big       `json:"amount"`
+	Balance *common.Big       `json:"balance"`
+	Nonce   uint64            `json:"nonce"`
+}
+
+type hostRecipientEvent struct {
+	Type    string            `json:"type"`
+	From    ethCommon.Address `json:"from"`
+	Amount  *common.Big       `json:"amount"`
+	Balance *common.Big       `json:"balance"`
+	Nonce   uint64            `json:"nonce"`
+}
+
 const (
 	testAppId = int64(1)
 )
@@ -550,13 +574,13 @@ func TestJsonCompatibility(t *testing.T) {
 	jsonBytes, err = json.Marshal(guestDepositEvent)
 	require.NoError(t, err)
 
-	var hostDepositEvent wasmCommon.DepositEvent
-	err = json.Unmarshal(jsonBytes, &hostDepositEvent)
+	var hDepositEvent hostDepositEvent
+	err = json.Unmarshal(jsonBytes, &hDepositEvent)
 	require.NoError(t, err)
-	require.Equal(t, guestDepositEvent.Type, hostDepositEvent.Type)
-	require.Equal(t, guestDepositEvent.Amount.String(), hostDepositEvent.Amount.String())
-	require.Equal(t, guestDepositEvent.Balance.String(), hostDepositEvent.Balance.String())
-	require.Equal(t, guestDepositEvent.Nonce, hostDepositEvent.Nonce)
+	require.Equal(t, guestDepositEvent.Type, hDepositEvent.Type)
+	require.Equal(t, guestDepositEvent.Amount.String(), hDepositEvent.Amount.String())
+	require.Equal(t, guestDepositEvent.Balance.String(), hDepositEvent.Balance.String())
+	require.Equal(t, guestDepositEvent.Nonce, hDepositEvent.Nonce)
 
 	// SenderEvent / WithdrawalEvent
 	guestSenderEvent := SenderEvent{
@@ -569,14 +593,14 @@ func TestJsonCompatibility(t *testing.T) {
 	jsonBytes, err = json.Marshal(guestSenderEvent)
 	require.NoError(t, err)
 
-	var hostSenderEvent wasmCommon.SenderEvent
-	err = json.Unmarshal(jsonBytes, &hostSenderEvent)
+	var hSenderEvent hostSenderEvent
+	err = json.Unmarshal(jsonBytes, &hSenderEvent)
 	require.NoError(t, err)
-	require.Equal(t, guestSenderEvent.Type, hostSenderEvent.Type)
-	require.Equal(t, hostAddr, hostSenderEvent.To)
-	require.Equal(t, guestSenderEvent.Amount.String(), hostSenderEvent.Amount.String())
-	require.Equal(t, guestSenderEvent.Balance.String(), hostSenderEvent.Balance.String())
-	require.Equal(t, guestSenderEvent.Nonce, hostSenderEvent.Nonce)
+	require.Equal(t, guestSenderEvent.Type, hSenderEvent.Type)
+	require.Equal(t, hostAddr, hSenderEvent.To)
+	require.Equal(t, guestSenderEvent.Amount.String(), hSenderEvent.Amount.String())
+	require.Equal(t, guestSenderEvent.Balance.String(), hSenderEvent.Balance.String())
+	require.Equal(t, guestSenderEvent.Nonce, hSenderEvent.Nonce)
 
 	// RecipientEvent
 	guestRecipientEvent := RecipientEvent{
@@ -589,14 +613,14 @@ func TestJsonCompatibility(t *testing.T) {
 	jsonBytes, err = json.Marshal(guestRecipientEvent)
 	require.NoError(t, err)
 
-	var hostRecipientEvent wasmCommon.RecipientEvent
-	err = json.Unmarshal(jsonBytes, &hostRecipientEvent)
+	var hRecipientEvent hostRecipientEvent
+	err = json.Unmarshal(jsonBytes, &hRecipientEvent)
 	require.NoError(t, err)
-	require.Equal(t, guestRecipientEvent.Type, hostRecipientEvent.Type)
-	require.Equal(t, hostAddr, hostRecipientEvent.From)
-	require.Equal(t, guestRecipientEvent.Amount.String(), hostRecipientEvent.Amount.String())
-	require.Equal(t, guestRecipientEvent.Balance.String(), hostRecipientEvent.Balance.String())
-	require.Equal(t, guestRecipientEvent.Nonce, hostRecipientEvent.Nonce)
+	require.Equal(t, guestRecipientEvent.Type, hRecipientEvent.Type)
+	require.Equal(t, hostAddr, hRecipientEvent.From)
+	require.Equal(t, guestRecipientEvent.Amount.String(), hRecipientEvent.Amount.String())
+	require.Equal(t, guestRecipientEvent.Balance.String(), hRecipientEvent.Balance.String())
+	require.Equal(t, guestRecipientEvent.Nonce, hRecipientEvent.Nonce)
 
 	// MemoryStats
 	guestMemoryStats := types.MemoryStats{
