@@ -100,79 +100,6 @@ func TestGetPendingRequests(t *testing.T) {
 
 }
 
-func TestMarkRequestCompleted(t *testing.T) {
-
-	testHelper := setupSimTestHelper(t, true, nil)
-	defer testHelper.Close()
-
-	blockchainClient := SetupNewBlockChainClient(testHelper)
-
-	//*****************************************************
-	// submit request
-	transferValue := big.NewInt(0)
-	maxFeeValue := big.NewInt(100)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
-
-	// wait for transaction inclusion
-	testHelper.WaitMined(tx)
-
-	res, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 1, len(res), "There should be one pending request")
-	requestId := res[0].RequestID
-
-	// =========================================================
-	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
-	// =========================================================
-	err = blockchainClient.MarkRequestCompleted(
-		context.Background(),
-		requestId,
-		big.NewInt(50), // refund
-		big.NewInt(20), // fees  => 50 + 20 = 70 != 100
-	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
-
-	// =========================================================
-	// Case 2: applicationFees < minFeePerRequest -> InvalidValue
-	// =========================================================
-	err = blockchainClient.MarkRequestCompleted(
-		context.Background(),
-		requestId,
-		big.NewInt(100), // refund
-		big.NewInt(0),   // fees => 100 + 0 = 100 == maxFeeValue, but fees < minFeePerRequest
-	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
-
-	// =========================================================
-	// Case OK: refund + fees = maxFeeValue, fees >= minFeePerRequest
-	// =========================================================
-	err = blockchainClient.MarkRequestCompleted(
-		context.Background(),
-		requestId,
-		big.NewInt(80),
-		big.NewInt(20),
-	)
-	require.NoError(t, err)
-
-	res, err = blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be zero pending request")
-
-	// Test that completing the same request results in ProcessorEndpointInvalidRequestId
-	err = blockchainClient.MarkRequestCompleted(
-		context.Background(),
-		requestId,
-		big.NewInt(80),
-		big.NewInt(20),
-	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
-	_, isReorgErr := err.(ReorgError)
-	require.True(t, isReorgErr)
-}
-
 func TestMarkRequestFailed(t *testing.T) {
 
 	testHelper := setupSimTestHelper(t, true, nil)
@@ -355,9 +282,6 @@ func TestSubmitRequest(t *testing.T) {
 	if !found {
 		t.Errorf("Submitted request not found in pending requests")
 	}
-
-	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, big.NewInt(80), big.NewInt(20))
-	require.NoError(t, err)
 }
 
 func TestGetTeePublicKey(t *testing.T) {

@@ -98,25 +98,26 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, NewStateRoot: stateRoot}, &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
 }
 
-func (m *MockExecutorClient) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
-	if f, ok := m.GetMockedFunc("SendGenerateDeanonymizationReport"); ok {
-		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure))(ctx, req, appState, wasmModule)
-	}
-	return &common.DeanonymizationReport{
-		ApplicationID: req.ApplicationID,
-		ReportID:      req.RequestID,
-		Authority:     req.Sender,
-	}, nil
-}
-
-func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure) {
 	if f, ok := m.GetMockedFunc("SendProcessRequest"); ok {
-		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure))(ctx, req, appState, wasmModule)
+		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure))(ctx, req, appState, wasmModule)
 	}
 
 	stateRoot := m.generateRandomStateRoot()
+
+	// If this is a deanonymization request, return a deanonymization report
+	var report *common.DeanonymizationReport
+	if req.RequestType == common.Deanonymize {
+		report = &common.DeanonymizationReport{
+			ApplicationID:   req.ApplicationID,
+			ReportID:        req.RequestID,
+			Authority:       req.Sender,
+			EncryptedReport: []byte(`{"accounts":{},"nonce":0}`),
+		}
+	}
+
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, PrevStateRoot: appState.StateRoot, NewStateRoot: stateRoot},
-		&common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
+		&common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, report, nil
 }
 
 func (m *MockExecutorClient) SetClientRequestHandler(handler communication.ClientRequestHandler) {
@@ -711,8 +712,8 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	// Test failure in executor
 	expectedError := "failed to execute app"
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
-		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, expectedError, fmt.Errorf("%s", expectedError))
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure) {
+		return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, expectedError, fmt.Errorf("%s", expectedError))
 	})
 
 	failure = manager.processProcessRequest(context.Background(), request)
@@ -778,7 +779,9 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 }
 
-func TestProcessProcessDeanonymization(t *testing.T) {
+// TestProcessDeanonymizationViaProcessRequest tests the deanonymization flow which is now
+// handled through processProcessRequest with RequestType = Deanonymize
+func TestProcessDeanonymizationViaProcessRequest(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
@@ -790,72 +793,20 @@ func TestProcessProcessDeanonymization(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	request := createRequest(common.Process, ApplicationId)
+	// Create a Deanonymize request (now handled via processProcessRequest)
+	request := createRequest(common.Deanonymize, ApplicationId)
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Failure in GetApplicationState. If the application wasn't already deployed, the request should be marked as failed
-	request.ApplicationID = 5646564
-	err = manager.processDeanonymization(context.Background(), request)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "application state not found")
+	// Process the deanonymization request via processRequestFromChain
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
-
-	//Other failures in GetApplicationState, it may a temp error => the request shouldn't be marked as failed
-	request.ApplicationID = deployRequest.ApplicationID
-
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
-		return nil, fmt.Errorf("error")
-	})
-	failure := manager.processDeanonymization(context.Background(), request)
-	require.Nil(t, failure)
-
-	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
-
-	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
-
-	// Failure in GetWasmCode. In this case any error should be treated as temp error => the request shouldn't be marked as failed
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, common.ApplicationIdType) ([]byte, error) {
-		return nil, fmt.Errorf("wasm bytecode not found for application")
-	})
-	failure = manager.processDeanonymization(context.Background(), request)
-	require.Nil(t, failure)
-
-	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
-
-	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetWASMBytecode")
-
-	// Test failure in executor
-	expectedError := "failed to execute app"
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendGenerateDeanonymizationReport", func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
-		return nil, apperrors.New(apperrors.CodeRequestFuncFailed, expectedError, fmt.Errorf("%s", expectedError))
-	})
-
-	err = manager.processDeanonymization(context.Background(), request)
-	require.ErrorContains(t, err, expectedError)
-
-	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
-
-	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendGenerateDeanonymizationReport")
-
-	// Test data layer failure. In this case, it shouldn't return an error (son MarkFailed is not called) but it shouldn't call stateUpdate on chain either
-	expectedError = "failed to store report"
-	// Test blockchain failures. For deanonymization, any error shouldn't mark the request as failed
-	mockBCClient.AddMockedFunc("SubmitDeanonymizationReport", func(context.Context, *common.DeanonymizationReport) error {
-		return fmt.Errorf("some other error")
-	})
-
-	failure = manager.processDeanonymization(context.Background(), request)
-	require.Nil(t, failure)
-
-	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
-
+	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
+	require.Equal(t, request.RequestID, completedRequests[1].RequestID, "Wrong requestID")
+	require.Equal(t, request.ApplicationID, completedRequests[1].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, common.Deanonymize, completedRequests[1].RequestType, "Wrong RequestType")
 }
 
 func TestProcessRequestFromChainWithReorgs(t *testing.T) {
@@ -1154,8 +1105,8 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 	manager.config.DeanonymizationReportPath = tempDir
-	failure := manager.processDeanonymization(context.Background(), request)
-	require.Nil(t, failure)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 	// Check that the report file exists

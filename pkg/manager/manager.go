@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
@@ -19,6 +20,9 @@ import (
 	"github.com/horizen-pes/pkg/storage"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
+
+// Version is the current version of the manager
+const Version = "0.1.0"
 
 // As of now we support only one app having this ID
 var (
@@ -37,6 +41,7 @@ type SecureProcessorManager struct {
 	blockchainClient  blockchain.Client
 	executorClient    communication.ExecutorClient
 	dataLayer         storage.DataLayer
+	adminServer       admin.AdminCommandServer
 	mu                sync.RWMutex
 	isRunning         bool
 	executorHandShake *ExecutorHandShake
@@ -48,12 +53,13 @@ type SecureProcessorManager struct {
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
-func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.DataLayer, executorClient communication.ExecutorClient, log logger.Logger) *SecureProcessorManager {
+func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Client, dataLayer storage.DataLayer, executorClient communication.ExecutorClient, adminServer admin.AdminCommandServer, log logger.Logger) *SecureProcessorManager {
 	manager := &SecureProcessorManager{
 		config:           config,
 		blockchainClient: blockchainClient,
 		executorClient:   executorClient,
 		dataLayer:        dataLayer,
+		adminServer:      adminServer,
 		stopChan:         make(chan struct{}),
 		executorHandShake: &ExecutorHandShake{
 			isComplete: make(chan struct{}),
@@ -63,6 +69,11 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 	}
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
+
+	// Set up the admin server command handler
+	if adminServer != nil {
+		adminServer.SetCmdHandler(manager)
+	}
 
 	return manager
 }
@@ -149,6 +160,16 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
 
+	// Start the admin command server if configured
+	if m.adminServer != nil {
+		adminParams := m.config.AdminChannelParams.(common.TcpChannelConnectionParams)
+		m.log.Info("Manager: Starting admin command server on %s", adminParams.Url())
+		if err := m.adminServer.Start(ctx, "Manager"); err != nil {
+			m.log.Warn("Manager: Failed to start admin server: %v", err)
+			// Don't fail startup if admin server fails - it's not critical
+		}
+	}
+
 	m.log.Info("Manager: starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
 
 	m.isRunning = true
@@ -174,6 +195,13 @@ func (m *SecureProcessorManager) Stop() error {
 
 	// Wait for the polling loop to stop
 	m.wg.Wait()
+
+	// Stop the admin server
+	if m.adminServer != nil {
+		if err := m.adminServer.Stop(); err != nil {
+			m.log.Warn("Manager: Error stopping admin server: %v", err)
+		}
+	}
 
 	// Close the executor client
 	if err := m.executorClient.Close(); err != nil {
@@ -240,6 +268,32 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 		m.completeExecutorHandshake(nil)
 	}
 	return nil
+}
+
+// supportedManagerCommands is the list of admin commands supported by the manager
+var supportedManagerCommands = []admin.AdminMessageType{
+	admin.GetVersionRequestMessage,
+}
+
+// ExecuteCommand implements admin.AdminCmdHandler interface.
+// Handles admin commands for the manager, currently only GetVersionRequestMessage.
+func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
+	if !admin.IsSupportedCommand(msg.Type, supportedManagerCommands) {
+		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
+	}
+
+	switch msg.Type {
+	case admin.GetVersionRequestMessage:
+		return m.GetVersion(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
+	}
+}
+
+// GetVersion returns the current version of the manager.
+func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error) {
+	m.log.Info("Manager: GetVersion command received")
+	return Version, nil
 }
 
 // pollBlockchain polls the blockchain for new requests
@@ -395,10 +449,8 @@ func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common
 	switch req.RequestType {
 	case common.Deploy:
 		return m.processDeployApp(ctx, req)
-	case common.Process, common.AssociateKey:
+	case common.Process, common.AssociateKey, common.Deanonymize:
 		return m.processProcessRequest(ctx, req)
-	case common.Deanonymize:
-		return m.processDeanonymization(ctx, req)
 	default:
 		return apperrors.New(apperrors.CodeRequestTypeNotPermitted, fmt.Sprintf("unsupported request type: %s", req.RequestType), nil)
 	}
@@ -480,9 +532,9 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 }
 
-// processProcessRequest processes a process request
+// processProcessRequest processes a process request (including deanonymization requests)
 func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
-	m.log.Info("Processing Process app request: %s", req.RequestID)
+	m.log.Info("Processing Process app request: %s (type: %s)", req.RequestID, req.RequestType)
 	if !m.isRunning {
 		m.log.Warn("Manager is not started yet, skipping")
 		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
@@ -508,9 +560,20 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Process the request
-	updatePayload, updatedState, failure := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
+	updatePayload, updatedState, deanonymizationReport, failure := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
 	if failure != nil {
 		return failure
+	}
+
+	// If a deanonymization report was generated, save it to filesystem
+	// Note: The executor already validates that reports are only and always generated for Deanonymize requests
+	if deanonymizationReport != nil {
+		if err := m.saveDeanonymizationReport(deanonymizationReport, req); err != nil {
+			// Treat as transient: log and retry on next poll instead of failing the request.
+			m.log.Error("Failed to save deanonymization report: %v", err)
+			return nil
+		}
+		m.log.Info("Manager: Saved deanonymization report %s for application %d", deanonymizationReport.ReportID, req.ApplicationID)
 	}
 
 	// Store the updated application state
@@ -531,65 +594,21 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	return m.submitStateOnChain(ctx, updatePayload)
 }
 
-// processDeanonymization processes a deanonymization request
-func (m *SecureProcessorManager) processDeanonymization(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
-	if !m.isRunning {
-		m.log.Warn("Manager is not started yet, skipping")
-		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
-	}
-
-	// Get the application state
-	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
-	if err != nil {
-		m.log.Error("GetApplicationState returns an error: %v", err)
-		if strings.Contains(err.Error(), "application state not found") {
-			// This can happen if the deploy transaction was not mined yet, mark request as failed
-			return apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID), err)
-		}
-		// Other errors are likely db errors, retry on next poll
-		return nil
-	}
-
-	// Get the WASM module for the application
-	wasmBytes, err := m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
-	if err != nil {
-		m.log.Error("GetWASMBytecode returns an error: %v", err)
-		return nil
-	}
-
-	// Generate the deanonymization report
-	report, failure := m.executorClient.SendGenerateDeanonymizationReport(ctx, req, appState, wasmBytes)
-	if failure != nil {
-		return failure
-	}
-
-	// Save the deanonymization report to the filesystem (mandatory)
+// saveDeanonymizationReport saves a deanonymization report to the filesystem
+func (m *SecureProcessorManager) saveDeanonymizationReport(report *common.DeanonymizationReport, req *common.Request) error {
 	if err := os.MkdirAll(m.config.DeanonymizationReportPath, 0755); err != nil {
-		m.log.Error("Failed to create directory for deanonymization reports: %v", err)
-		// Treat as transient: log and retry on next poll instead of failing the request.
-		return nil
+		return fmt.Errorf("failed to create directory for deanonymization reports: %w", err)
 	}
+
 	reportJSON, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		m.log.Error("Failed to marshal deanonymization report to JSON: %v", err)
-		// Treat as transient: log and retry on next poll instead of failing the request.
-		return nil
+		return fmt.Errorf("failed to marshal deanonymization report to JSON: %w", err)
 	}
+
 	filePath := filepath.Join(m.config.DeanonymizationReportPath, common.ReportFilename(req.ApplicationID, req.RequestID))
 	if err := os.WriteFile(filePath, reportJSON, 0644); err != nil {
-		m.log.Error("Failed to write deanonymization report to file: %v", err)
-		// Treat as transient: log and retry on next poll instead of failing the request.
-		return nil
+		return fmt.Errorf("failed to write deanonymization report to file: %w", err)
 	}
 
-	// Submit the deanonymization report to the blockchain
-	err = m.blockchainClient.SubmitDeanonymizationReport(ctx, report)
-	if err != nil {
-		// TODO must we return an error?
-		m.log.Error("SubmitDeanonymizationReport returns an error: %v", err)
-		return nil
-	}
-
-	m.log.Info("Manager: Generated deanonymization report %s for application %d", report.ReportID, req.ApplicationID)
 	return nil
 }

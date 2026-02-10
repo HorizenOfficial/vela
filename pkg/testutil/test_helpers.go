@@ -5,15 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/logserver"
@@ -25,16 +26,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
-type MockAdminServer struct {}
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30}
 
-func (*MockAdminServer)	Start(ctx context.Context, identityLogTag string) error { return nil}
-func (*MockAdminServer)	Stop() error { return nil}
-func (*MockAdminServer)	SetCmdHandler(handler admin.AdminCmdHandler)  { }
+type MockAdminServer struct{}
 
-
-
-
+func (*MockAdminServer) Start(ctx context.Context, identityLogTag string) error { return nil }
+func (*MockAdminServer) Stop() error                                            { return nil }
+func (*MockAdminServer) SetCmdHandler(handler admin.AdminCmdHandler)            {}
 
 type SystemTestSuite struct {
 	t                  *testing.T
@@ -101,7 +99,7 @@ func NewSystemTestSuiteWithConfigs(
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
 	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
-	executorClient := communication.NewClient(factory, commParams,mgrLog)
+	executorClient := communication.NewClient(factory, commParams, mgrLog)
 
 	// Create manager
 	var err error
@@ -111,6 +109,7 @@ func NewSystemTestSuiteWithConfigs(
 		// because this is a test environment
 		reportsPath, err = os.MkdirTemp("", "test-reports")
 		require.NoError(t, err)
+		mgrConfig.DeanonymizationReportPath = reportsPath
 	}
 
 	// Create a temporary directory for the database
@@ -130,7 +129,7 @@ func NewSystemTestSuiteWithConfigs(
 		require.NoError(t, err)
 	}
 
-	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, mgrLog)
+	mgr := manager.NewSecureProcessorManager(mgrConfig, blockchainClient, dataLayer, executorClient, nil, mgrLog)
 
 	logserver.StartLogServer(
 		ctx,
@@ -309,8 +308,12 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType st
 	}
 }
 
-// WaitForDeanonymizationReport waits for a deanonymization report to be generated
+// WaitForDeanonymizationReport waits for a deanonymization report to be generated and saved to the filesystem
 func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestIdType, timeout time.Duration) (*common.DeanonymizationReport, error) {
+	if s.reportsPath == "" {
+		return nil, fmt.Errorf("reports path not configured")
+	}
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -319,15 +322,42 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestId
 	for {
 		select {
 		case <-ticker.C:
-			// Check if deanonymization report exists in blockchain
-			report, err := s.blockchainClient.GetDeanonymizationReport(s.ctx, reportID)
-			if err == nil && report != nil {
-				return report, nil
+			// Check if deanonymization report exists in filesystem
+			// We need to find the report file by iterating through possible app IDs
+			// since we don't have the app ID in this function
+			files, err := os.ReadDir(s.reportsPath)
+			if err != nil {
+				continue
+			}
+			for _, f := range files {
+				if f.IsDir() {
+					continue
+				}
+				// Report filename format: report_<appID>_<requestID>.json
+				// Check if filename contains the requestID
+				if !(strings.Contains(f.Name(), reportID.String())) {
+					continue
+				}
+				reportPath := s.reportsPath + "/" + f.Name()
+				data, err := os.ReadFile(reportPath)
+				if err != nil {
+					continue
+				}
+				var report common.DeanonymizationReport
+				if err := json.Unmarshal(data, &report); err != nil {
+					continue
+				}
+				return &report, nil
 			}
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for deanonymization report %s", reportID)
 		}
 	}
+}
+
+// GetReportsPath returns the path where deanonymization reports are saved
+func (s *SystemTestSuite) GetReportsPath() string {
+	return s.reportsPath
 }
 
 // WaitForWithdrawal waits for a withdrawal to be processed
@@ -406,7 +436,6 @@ func (s *SystemTestSuite) Cleanup() error {
 
 	return nil
 }
-
 
 func PrettyPrintJSON(data interface{}) string {
 	prettyJSON, err := json.MarshalIndent(data, "", "  ")

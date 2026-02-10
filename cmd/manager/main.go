@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
@@ -152,8 +153,13 @@ func main() {
 		return
 	}
 
+	// Create the admin command server
+	adminChannelParams := config.AdminChannelParams.(common.TcpChannelConnectionParams)
+	adminFactory := communication.NewTCPConnectionFactory(adminChannelParams.Url())
+	adminServer := admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
+
 	// Create the manager
-	secureProcessorManager := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient, log)
+	secureProcessorManager := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient, adminServer, log)
 	log.Info("Starting manager...")
 	// Start the manager
 	if err := secureProcessorManager.Start(ctx); err != nil {

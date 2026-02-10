@@ -199,10 +199,6 @@ type DeanonymizationReport struct {
 	EncryptedReport []byte `json:"encryptedReport"`
 	// Authority is the entity requesting the report
 	Authority ethCommon.Address `json:"authority"`
-	// RefundAmount is the amount to refund in WEI
-	RefundAmount *Big `json:"refundAmount"`
-	// ApplicationFee is the fee charged for the application in WEI
-	ApplicationFee *Big `json:"applicationFee"`
 }
 
 // DecryptedReport represents a decrypted deanonymization report
@@ -228,7 +224,6 @@ type RequestResultStatus uint8
 const (
 	RequestResultOK RequestResultStatus = iota
 	RequestResultFailed
-	RequestResultFailedNotRefunded
 	RequestResultUnknown
 )
 
