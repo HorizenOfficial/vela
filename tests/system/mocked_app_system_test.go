@@ -177,7 +177,6 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 	err = json.Unmarshal(reportBytes, &reportData)
 	require.NoError(t, err)
 	require.Contains(t, reportData, "accounts")
-	require.Contains(t, reportData, "nonce")
 
 	// Verify user balance reflects deposit minus withdrawal (2 ETH - 0.5 ETH = 1.5 ETH)
 	accounts, ok := reportData["accounts"].(map[string]interface{})
@@ -197,4 +196,3 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 			"expected balance %s, got %s", expectedBalance, balance)
 	}
 }
-

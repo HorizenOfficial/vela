@@ -570,7 +570,7 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	payloadBytes, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	stateBytes, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, stateBytes, wasmBytes)
+	stateBytes, _, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
 	require.Nil(t, failure2)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (withdraw)")
 
@@ -589,12 +589,20 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	payloadBytes2, err := json.Marshal(payload2)
 	require.NoError(t, err)
 
-	stateBytes, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes2, stateBytes, wasmBytes)
+	stateBytes, _, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes2, stateBytes, wasmBytes)
 	require.Nil(t, failure2)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (compare)")
 
-	// GenerateDeanonymizationReport: exercises SerializeAndWriteResult for DeanonymizationResult
-	_, _, failure = runtime.GenerateDeanonymizationReport(ctx, appId, []byte(`{"tag":"mem_test"}`), stateBytes, wasmBytes)
+	// 4. Generate deanonymization report via ProcessRequest with type "deanonymize"
+	deanonPayload := app.PayloadInstructions{
+		Type:        "deanonymize",
+		Deanonymize: &app.DeanonymizeInstruction{IncludeTag: "my_custom_tag"},
+	}
+	payloadBytes, err = json.Marshal(deanonPayload)
+	require.NoError(t, err)
+
+	_, _, _, _, _, failure = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, stateBytes, wasmBytes)
+
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after GenerateDeanonymizationReport")
 }
@@ -628,12 +636,12 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 	payloadBytes, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	_, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, stateBytes, wasmBytes)
+	_, _, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
 	require.NotNil(t, failure2, "expected error for insufficient balance")
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result from ProcessRequest")
 
 	// Trigger error: non-existent account
-	_, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user2Address), payloadBytes, stateBytes, wasmBytes)
+	_, _, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user2Address), common.Process, payloadBytes, stateBytes, wasmBytes)
 	require.NotNil(t, failure2, "expected error for non-existent account")
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for non-existent account")
 
@@ -673,8 +681,16 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, state.Accounts, numAccounts)
 
+	// 4. Generate deanonymization report via ProcessRequest with type "deanonymize"
+	deanonPayload := app.PayloadInstructions{
+		Type:        "deanonymize",
+		Deanonymize: &app.DeanonymizeInstruction{IncludeTag: "my_custom_tag"},
+	}
+	payloadBytes, err := json.Marshal(deanonPayload)
+	require.NoError(t, err)
+
+	_, _, _, reportBytes, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, stateBytes, wasmBytes)
 	// Generate report: SerializeAndWriteResult must handle the large report via BytesToPtr
-	reportBytes, _, failure := runtime.GenerateDeanonymizationReport(ctx, appId, []byte(`{"tag":"large_test"}`), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, reportBytes)
 
@@ -682,7 +698,7 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 	var report app.DeanonymizationReport
 	err = json.Unmarshal(reportBytes, &report)
 	require.NoError(t, err)
-	require.Equal(t, "large_test", report.Tag)
+	require.Equal(t, "my_custom_tag", report.Tag)
 	require.Len(t, report.Accounts, numAccounts)
 
 	// Verify no memory leaked despite the large allocation

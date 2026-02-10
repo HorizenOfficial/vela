@@ -34,13 +34,6 @@ type ProcessResult struct {
 	Error       string              `json:"error,omitempty"`
 }
 
-// DeanonymizationResult represents the result of generating deanonymization report
-type DeanonymizationResult struct {
-	Report []byte      `json:"report"`
-	Fuel   *common.Big `json:"fuel"`
-	Error  string      `json:"error,omitempty"`
-}
-
 // optional mem statistics
 type MemoryStats struct {
 	MapSize              int64 `json:"mapSize"`
