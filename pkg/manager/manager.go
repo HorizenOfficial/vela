@@ -270,21 +270,21 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 	return nil
 }
 
-// supportedManagerCommands is the list of admin commands supported by the manager
-var supportedManagerCommands = []admin.AdminMessageType{
-	admin.GetVersionRequestMessage,
-}
-
 // ExecuteCommand implements admin.AdminCmdHandler interface.
-// Handles admin commands for the manager, currently only GetVersionRequestMessage.
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
-	if !admin.IsSupportedCommand(msg.Type, supportedManagerCommands) {
-		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
-	}
-
 	switch msg.Type {
 	case admin.GetVersionRequestMessage:
 		return m.GetVersion(ctx)
+	case admin.SetLogLevelRequestMessage:
+		var req struct {
+			Level string `json:"level"`
+		}
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			return nil, fmt.Errorf("invalid request data: %w", err)
+		}
+		return m.SetLogLevel(ctx, req.Level)
+	case admin.GetLogLevelRequestMessage:
+		return m.GetLogLevel(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
 	}
@@ -294,6 +294,27 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error) {
 	m.log.Info("Manager: GetVersion command received")
 	return Version, nil
+}
+
+// SetLogLevel changes the manager's log level at runtime.
+func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
+	m.log.Info("Manager: SetLogLevel command received, level=%s", level)
+	if level == "" {
+		return nil, fmt.Errorf("invalid log level: level must not be empty")
+	}
+	if err := m.log.SetLevel(level); err != nil {
+		return nil, fmt.Errorf("invalid log level '%s': %v", level, err)
+	}
+	return struct {
+		Success bool   `json:"success"`
+		Level   string `json:"level"`
+	}{Success: true, Level: level}, nil
+}
+
+// GetLogLevel returns the current log level of the manager.
+func (m *SecureProcessorManager) GetLogLevel(ctx context.Context) (string, error) {
+	m.log.Info("Manager: GetLogLevel command received")
+	return m.log.GetLevel(), nil
 }
 
 // pollBlockchain polls the blockchain for new requests

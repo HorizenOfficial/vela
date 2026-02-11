@@ -11,6 +11,7 @@ type Logger interface {
 	Fatal(msg string, args ...any)
 	Panic(msg string, args ...any)
 	SetLevel(level string) error
+	GetLevel() string
 	Close() error
 }
 

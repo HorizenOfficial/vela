@@ -359,6 +359,12 @@ func (z *ZeroNetworkLogger) SetLevel(level string) error {
 	return nil
 }
 
+func (z *ZeroNetworkLogger) GetLevel() string {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	return z.logger.GetLevel().String()
+}
+
 // Logging methods just pass through to the underlying zerolog instance
 func (z *ZeroNetworkLogger) Trace(msg string, args ...any) {
 	z.mu.RLock()
