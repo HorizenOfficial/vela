@@ -278,7 +278,6 @@ var supportedManagerCommands = []admin.AdminMessageType{
 }
 
 // ExecuteCommand implements admin.AdminCmdHandler interface.
-// Handles admin commands for the manager, currently only GetVersionRequestMessage.
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
 	if !admin.IsSupportedCommand(msg.Type, supportedManagerCommands) {
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
