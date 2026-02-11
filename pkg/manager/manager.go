@@ -311,6 +311,9 @@ func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error)
 // SetLogLevel changes the manager's log level at runtime.
 func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
 	m.log.Info("Manager: SetLogLevel command received, level=%s", level)
+	if level == "" {
+		return nil, fmt.Errorf("invalid log level: level must not be empty")
+	}
 	if err := m.log.SetLevel(level); err != nil {
 		return nil, fmt.Errorf("invalid log level '%s': %v", level, err)
 	}
