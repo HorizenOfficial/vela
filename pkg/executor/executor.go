@@ -726,18 +726,9 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	return decryptedPayload, nil
 }
 
-// supportedExecutorCommands is the list of admin commands supported by the executor
-var supportedExecutorCommands = []admin.AdminMessageType{
-	admin.KeyAttestationRequestMessage,
-}
-
 // ExecuteCommand implements admin.AdminCmdHandler interface.
 // Handles admin commands for the executor, currently only KeyAttestationRequestMessage.
 func (e *StatelessExecutor) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
-	if !admin.IsSupportedCommand(msg.Type, supportedExecutorCommands) {
-		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
-	}
-
 	switch msg.Type {
 	case admin.KeyAttestationRequestMessage:
 		return e.CreateKeyAttestation(ctx)

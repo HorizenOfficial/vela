@@ -36,6 +36,12 @@ const (
 
 	// GetVersionRequestMessage represents a request to get the version (manager)
 	GetVersionRequestMessage
+
+	// SetLogLevelRequestMessage represents a request to change the log level (manager)
+	SetLogLevelRequestMessage
+
+	// GetLogLevelRequestMessage represents a request to get the current log level (manager)
+	GetLogLevelRequestMessage
 )
 
 
