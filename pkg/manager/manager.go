@@ -270,19 +270,8 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 	return nil
 }
 
-// supportedManagerCommands is the list of admin commands supported by the manager
-var supportedManagerCommands = []admin.AdminMessageType{
-	admin.GetVersionRequestMessage,
-	admin.SetLogLevelRequestMessage,
-	admin.GetLogLevelRequestMessage,
-}
-
 // ExecuteCommand implements admin.AdminCmdHandler interface.
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
-	if !admin.IsSupportedCommand(msg.Type, supportedManagerCommands) {
-		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
-	}
-
 	switch msg.Type {
 	case admin.GetVersionRequestMessage:
 		return m.GetVersion(ctx)
