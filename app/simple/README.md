@@ -41,19 +41,24 @@ Integration tests verify the interaction between the Go application logic and th
 
 These tests provide confidence that the application works as a whole, including the WASM compilation and execution steps.
 
-### System Tests (`tests/system/simple_app_system_test.go`)
+### System Tests (`tests/system/`)
 
 System tests cover the end-to-end flow of deploying and interacting with the Simple App in a simulated production environment. These tests involve all the components of the system, including the executor, manager, and the blockchain.
 
-**Key scenarios tested:**
+**Key scenarios tested in `simple_app_system_test.go`:**
 
--   **`TestDeploySimpleApp`:**
-    1.  Builds the WASM module.
-    2.  Starts the executor and manager.
-    3.  Adds user keys to the key registry.
-    4.  Submits a `deploy` request with the WASM bytecode.
-    5.  Waits for the application state to be created in both the local database and the blockchain.
-    6.  Asserts that the deployment request is marked as completed.
+-   **`TestDeploySimpleApp`:** Builds the WASM module, starts the executor and manager, deploys the app, and verifies the application state is created in both the database and blockchain.
 
--   **`TestWasmtimeRuntimeSimpleAppFullSystemFlow`:**
-    -   This test executes a full end-to-end user flow, including deploying the app, depositing funds, and processing requests. It uses a test utility (`ExecTestAppFullSystemFlow`) to run through a standard sequence of interactions.
+-   **`TestDeploySimpleAppNegativeCase`:** Verifies that deploying with an invalid app ID fails, and that redeploying the same app ID is rejected.
+
+-   **`TestSimpleAppDepositAndWithdraw`:** Deploys the app, registers user and auditor keys, deposits funds, withdraws funds, and generates a deanonymization report. Validates deposit and withdrawal event fields, verifies on-chain withdrawal recording, checks update payload signatures, and verifies the deanonymization report (framework envelope, base64-encoded report data, and expected user balance after all operations).
+
+-   **`TestSimpleAppCompareAction`:** Deploys the app, registers two users, deposits funds for both, performs a balance comparison action, and generates a deanonymization report. Validates the encrypted compare event, decrypts and verifies the deanonymization report (including filesystem persistence and base64-encoded report data).
+
+-   **`TestSimpleApp_NegativeScenarios`:** Tests error paths including insufficient balance withdrawal, unsupported instruction types, comparison with non-existent accounts, and missing instruction payloads.
+
+**Key scenarios tested in `mocked_app_system_test.go`:**
+
+-   **`TestDeployApp`:** Deploys an app using the mock runtime to verify the framework's deploy flow without WASM compilation.
+
+-   **`TestMockRuntimeFullFlow`:** Exercises the full framework flow (deploy, deposit, withdrawal, deanonymization report) using the mock runtime. Validates deploy signature, deposit/withdrawal event fields, on-chain withdrawal recording, and deanonymization report (framework envelope, base64-encoded report data, and expected user balance after all operations).

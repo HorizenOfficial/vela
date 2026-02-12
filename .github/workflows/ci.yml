@@ -21,6 +21,12 @@ jobs:
         with:
           go-version: '1.24'
 
+      # Configure Git to use GITHUB_TOKEN for private modules
+      - name: Configure Go for private modules
+        run: |
+          go env -w GOPRIVATE=github.com/HorizenOfficial/*
+          git config --global url."https://${{ secrets.GH_PAT }}:@github.com/".insteadOf "https://github.com/"
+
       # Setup Node.js for contracts
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -110,6 +116,12 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
+
+      # Configure Git to use GITHUB_TOKEN for private modules
+      - name: Configure Go for private modules
+        run: |
+          go env -w GOPRIVATE=github.com/HorizenOfficial/*
+          git config --global url."https://${{ secrets.GH_PAT }}:@github.com/".insteadOf "https://github.com/"
 
       # Setup Node.js for contracts
       - name: Set up Node.js

@@ -1,8 +1,14 @@
 module github.com/horizen-pes
 
-go 1.23.0
+go 1.24.0
 
-toolchain go1.24.0
+toolchain go1.24.3
+
+require github.com/horizen-cce-common-go v0.0.20
+
+replace github.com/horizen-cce-common-go => github.com/HorizenOfficial/horizen-cce-common-go v0.0.20
+
+//replace github.com/horizen-cce-common-go => ../horizen-cce-common-go
 
 require (
 	github.com/bytecodealliance/wasmtime-go v1.0.0
@@ -12,7 +18,7 @@ require (
 	github.com/hf/nsm v0.0.0-20220930140112-cd181bd646b9
 	github.com/magiconair/properties v1.8.10
 	github.com/mdlayher/vsock v1.2.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	golang.org/x/crypto v0.39.0
 )

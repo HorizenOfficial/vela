@@ -368,7 +368,7 @@ func (c *Client) handleKeysetRecoveryResult(ctx context.Context, msg Message) {
 
 	var result error
 	if reqData.Error != "" {
-		result = fmt.Errorf(reqData.Error)
+		result = fmt.Errorf("%s", reqData.Error)
 	}
 
 	err = c.requestHandler.HandleKeysetRecoveryResult(ctx, result, reqData.CommPubKey, reqData.SigningKeyAddr)

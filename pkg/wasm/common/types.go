@@ -1,7 +1,6 @@
 package common
 
 import (
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 )
 
@@ -34,38 +33,6 @@ type ProcessResult struct {
 	Fuel        *common.Big         `json:"fuel"`
 	Error       string              `json:"error,omitempty"`
 }
-
-// DeanonymizationResult represents the result of generating deanonymization report
-type DeanonymizationResult struct {
-	Report []byte      `json:"report"`
-	Fuel   *common.Big `json:"fuel"`
-	Error  string      `json:"error,omitempty"`
-}
-
-type DepositEvent struct {
-	Type    string      `json:"type"`
-	Amount  *common.Big `json:"amount"`
-	Balance *common.Big `json:"balance"`
-	Nonce   uint64      `json:"nonce"`
-}
-
-type SenderEvent struct {
-	Type    string            `json:"type"`
-	To      ethCommon.Address `json:"to"`
-	Amount  *common.Big       `json:"amount"`
-	Balance *common.Big       `json:"balance"`
-	Nonce   uint64            `json:"nonce"`
-}
-
-type RecipientEvent struct {
-	Type    string            `json:"type"`
-	From    ethCommon.Address `json:"from"`
-	Amount  *common.Big       `json:"amount"`
-	Balance *common.Big       `json:"balance"`
-	Nonce   uint64            `json:"nonce"`
-}
-
-type WithdrawalEvent = SenderEvent
 
 // optional mem statistics
 type MemoryStats struct {
