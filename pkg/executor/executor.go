@@ -13,7 +13,6 @@ import (
 	"github.com/hf/nsm/request"
 	"github.com/hf/nsm/response"
 
-	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/appdata"
 	"github.com/horizen-pes/pkg/common/apperrors"
@@ -149,17 +148,16 @@ func RestoreEnclaveKeySet(recovery *common.EnclaveKeySetRecovery) (*EnclaveKeySe
 
 // StatelessExecutor implements the Executor interface
 type StatelessExecutor struct {
-	config       *Config
-	runtime      Runtime
-	server       communication.ExecutorServer
-	admCmdServer admin.AdminCommandServer
+	config  *Config
+	runtime Runtime
+	server  communication.ExecutorServer
 	*MsgToSignBuilder
 	keySet *EnclaveKeySet
 	log    logger.Logger
 }
 
 // NewStatelessExecutor creates a new stateless executor
-func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, admCmdServer admin.AdminCommandServer, log logger.Logger) (*StatelessExecutor, error) {
+func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, log logger.Logger) (*StatelessExecutor, error) {
 	msgBuilder, err := NewMsgToSignBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup msg to sign builder: %w", err)
@@ -169,7 +167,6 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 		config:           config,
 		runtime:          runtime,
 		server:           server,
-		admCmdServer:     admCmdServer,
 		MsgToSignBuilder: msgBuilder,
 		log:              log,
 	}
@@ -177,8 +174,6 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 	executor.server.SetRequestHandler(executor)
 	// Set the connection handler to perform handshake
 	executor.server.SetConnectionHandler(executor.handleNewConnection)
-
-	executor.admCmdServer.SetCmdHandler(executor)
 
 	return executor, nil
 }
@@ -257,31 +252,14 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 		e.log.Info("Executor: Starting v-socket executor server")
 	}
 
-	if err := e.server.Start(ctx, "Executor"); err != nil {
-		return err
-	}
-
-	switch e.config.ChannelType {
-	case "tcp":
-		e.log.Info("Executor: Starting TCP admin executor server on %s", e.config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
-	case "vsock":
-		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d",
-			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
-			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
-	}
-	return e.admCmdServer.Start(ctx, "Executor")
+	return e.server.Start(ctx, "Executor")
 }
 
 // Stop stops the executor servers
 func (e *StatelessExecutor) Stop() error {
 	e.log.Info("Executor: Stopping stateless executor")
 
-	err := e.admCmdServer.Stop()
-	if err != nil {
-		e.log.Warn("Executor: Error stopping admin server: %v", err)
-	}
-
-	err = e.server.Stop()
+	err := e.server.Stop()
 	if err != nil {
 		e.log.Warn("Executor: Error stopping server: %v", err)
 	}
@@ -726,15 +704,10 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	return decryptedPayload, nil
 }
 
-// ExecuteCommand implements admin.AdminCmdHandler interface.
-// Handles admin commands for the executor, currently only KeyAttestationRequestMessage.
-func (e *StatelessExecutor) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
-	switch msg.Type {
-	case admin.KeyAttestationRequestMessage:
-		return e.CreateKeyAttestation(ctx)
-	default:
-		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
-	}
+// HandleKeyAttestationRequest implements communication.RequestHandler.
+// Creates a key attestation document using the executor's keyset and the NSM device.
+func (e *StatelessExecutor) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
+	return e.CreateKeyAttestation(ctx)
 }
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {

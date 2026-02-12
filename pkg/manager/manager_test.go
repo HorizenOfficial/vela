@@ -121,6 +121,13 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 		&common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, report, nil
 }
 
+func (m *MockExecutorClient) SendKeyAttestationRequest(ctx context.Context) ([]byte, error) {
+	if f, ok := m.GetMockedFunc("SendKeyAttestationRequest"); ok {
+		return f.(func(context.Context) ([]byte, error))(ctx)
+	}
+	return []byte("mock-attestation-document"), nil
+}
+
 func (m *MockExecutorClient) SetClientRequestHandler(handler communication.ClientRequestHandler) {
 
 }
@@ -1196,4 +1203,36 @@ func TestGetAndSetLogLevel(t *testing.T) {
 	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
 	_, err = manager.ExecuteCommand(ctx, setMsg)
 	require.NoError(t, err)
+}
+
+func TestKeyAttestationForwarding(t *testing.T) {
+	_, manager := setupTest(t)
+	ctx := context.Background()
+
+	// 1. Success case - executor returns attestation
+	msg := admin.AdminMessage{Type: admin.KeyAttestationRequestMessage}
+	result, err := manager.ExecuteCommand(ctx, msg)
+	require.NoError(t, err)
+	attestation, ok := result.([]byte)
+	require.True(t, ok, "result should be []byte")
+	require.Equal(t, []byte("mock-attestation-document"), attestation)
+
+	// 2. Error case - executor returns error
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendKeyAttestationRequest", func(ctx context.Context) ([]byte, error) {
+		return nil, fmt.Errorf("keyset is empty")
+	})
+
+	result, err = manager.ExecuteCommand(ctx, msg)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Contains(t, err.Error(), "keyset is empty")
+
+	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendKeyAttestationRequest")
+
+	// 3. Verify unsupported command still returns error
+	unknownMsg := admin.AdminMessage{Type: admin.AdminMessageType(999)}
+	result, err = manager.ExecuteCommand(ctx, unknownMsg)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Contains(t, err.Error(), "unsupported command type")
 }

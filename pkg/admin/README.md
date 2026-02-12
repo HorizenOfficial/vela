@@ -4,14 +4,14 @@ The `admin` package provides administrative command interfaces and servers for m
 
 ## Overview
 
-This package enables runtime administration of the Manager and Executor components through a command server interface. Clients can connect to the admin server to execute administrative commands such as checking version information or changing logging levels.
+This package enables runtime administration of the Manager component through a command server interface. Clients can connect to the Manager's admin server to execute administrative commands such as checking version information, changing logging levels, or requesting key attestations.
 
 ## Architecture
 
 The admin package defines:
 - **AdminCommandServer**: Server interface for accepting admin connections
-- **AdminCmdHandler**: Generic handler interface for both Executor and Manager admin commands
-- **AdminServer**: Concrete implementation of the admin server (shared by both Executor and Manager)
+- **AdminCmdHandler**: Generic handler interface for Manager admin commands
+- **AdminServer**: Concrete implementation of the admin server
 
 ### Communication Protocol
 
@@ -146,11 +146,9 @@ The `SetLogLevel` command:
 
 **Location in code:** [manager.go:282-292](../manager/manager.go#L282-L292)
 
-## Executor Commands
-
 ### CreateKeyAttestation
 
-Generates a key attestation document for the Executor's cryptographic keys.
+Requests a key attestation document for the Executor's cryptographic keys. The Manager receives this command and forwards it to the Executor over the manager-executor communication channel. The Executor produces the attestation and sends it back to the Manager, which returns it to the admin client.
 
 **Request:**
 ```json
@@ -174,10 +172,10 @@ Generates a key attestation document for the Executor's cryptographic keys.
 |------|------|-------------|
 | 0 | `AdminResponseMessage` | Success response |
 | 1 | `AdminErrorMessage` | Error response |
-| 2 | `KeyAttestationRequestMessage` | Request key attestation (Executor) |
-| 3 | `GetVersionRequestMessage` | Request version info (Manager) |
-| 4 | `SetLogLevelRequestMessage` | Change log level (Manager) |
-| 5 | `GetLogLevelRequestMessage` | Get current log level (Manager) |
+| 2 | `KeyAttestationRequestMessage` | Request key attestation (forwarded to Executor) |
+| 3 | `GetVersionRequestMessage` | Request version info |
+| 4 | `SetLogLevelRequestMessage` | Change log level |
+| 5 | `GetLogLevelRequestMessage` | Get current log level |
 
 ## Usage Examples
 
@@ -208,19 +206,27 @@ To retrieve the Manager version:
 echo '{"type":3,"data":null}' | nc <manager-host> <admin-port>
 ```
 
+### Request a key attestation
+
+To request a key attestation from the Executor (via the Manager):
+
+```bash
+# Using netcat to send a KeyAttestation command
+echo '{"type":2,"data":null}' | nc <manager-host> <admin-port>
+```
+
 ## Server Configuration
 
-There are two admin servers: one in the Manager and one in the Executor.
-- The Manager admin server always uses TCP
-- The Executor admin server uses a connection factory that determines TCP or V-Socket transport
+The admin server runs on the Manager and uses TCP.
 - Client timeout controls how long a client connection can remain active
 - Only one client can be connected at a time
+- Commands that target the Executor (e.g., KeyAttestation) are forwarded over the manager-executor communication channel
 
 ## Testing
 
 The package includes comprehensive tests:
-- [adminserver_manager_test.go](adminserver_manager_test.go) - Tests for Manager admin server
-- [adminserver_test.go](adminserver_test.go) - Tests for Executor admin server
+- [adminserver_manager_test.go](adminserver_manager_test.go) - Tests for Manager admin commands
+- [adminserver_test.go](adminserver_test.go) - Tests for admin server infrastructure
 
 To run the tests:
 ```bash

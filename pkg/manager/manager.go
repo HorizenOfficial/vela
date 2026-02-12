@@ -273,6 +273,9 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 // ExecuteCommand implements admin.AdminCmdHandler interface.
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
 	switch msg.Type {
+	case admin.KeyAttestationRequestMessage:
+		m.log.Info("Manager: KeyAttestation command received, forwarding to executor")
+		return m.executorClient.SendKeyAttestationRequest(ctx)
 	case admin.GetVersionRequestMessage:
 		return m.GetVersion(ctx)
 	case admin.SetLogLevelRequestMessage:

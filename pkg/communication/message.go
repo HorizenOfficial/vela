@@ -37,6 +37,11 @@ const (
 
 	// ErrorMessage represents an error message
 	ErrorMessage
+
+	// KeyAttestationRequestMessage represents a request from manager to executor to create a key attestation
+	KeyAttestationRequestMessage
+	// KeyAttestationResponseMessage represents the executor's response with the attestation document
+	KeyAttestationResponseMessage
 )
 
 // Message represents a message exchanged between components
@@ -136,6 +141,12 @@ type KeysetRecoveryResultData struct {
 	Error          string `json:"error,omitempty"`
 	CommPubKey     string `json:"commPubKey,omitempty"`
 	SigningKeyAddr string `json:"signingKeyAddr,omitempty"`
+}
+
+// KeyAttestationResponseData represents data for a key attestation response message
+type KeyAttestationResponseData struct {
+	// Attestation is the raw attestation document bytes
+	Attestation []byte `json:"attestation"`
 }
 
 // generateID generates a simple unique ID for message correlation

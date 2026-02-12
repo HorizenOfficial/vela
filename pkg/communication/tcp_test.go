@@ -25,9 +25,10 @@ var (
 
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
-	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
-	DeployAppFunc      func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
-	HelloFunc          func(ctx context.Context, message string) (string, error)
+	ProcessRequestFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
+	DeployAppFunc           func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	KeyAttestationFunc      func(ctx context.Context) ([]byte, error)
+	HelloFunc               func(ctx context.Context, message string) (string, error)
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure) {
@@ -75,6 +76,13 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 			EncryptedState: []byte("test-encrypted-state"),
 		},
 		nil
+}
+
+func (m *MockRequestHandler) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
+	if m.KeyAttestationFunc != nil {
+		return m.KeyAttestationFunc(ctx)
+	}
+	return []byte("mock-attestation-document"), nil
 }
 
 // MockClientRequestHandler is a mock implementation for testing the new client

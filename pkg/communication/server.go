@@ -426,6 +426,8 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg Message,
 		c.handleProcessRequest(ctx, msg, handler)
 	case DeployAppRequestMessage:
 		c.handleDeployAppRequest(ctx, msg, handler)
+	case KeyAttestationRequestMessage:
+		c.handleKeyAttestationRequest(ctx, msg, handler)
 	default:
 		c.sendErrorResponse(msg.ID, "UNKNOWN_REQUEST", fmt.Errorf("unknown request type: %v", msg.Type))
 	}
@@ -502,6 +504,28 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		c.log.Warn("%s: Failed to send HandleDeployApp response: %v", c.idLogTag, err)
 	}
 	c.log.Info("%s: DeployApp handled successfully, ID=%s", c.idLogTag, msg.ID)
+}
+
+// handleKeyAttestationRequest handles KeyAttestationRequest messages
+func (c *ClientConnection) handleKeyAttestationRequest(ctx context.Context, msg Message, handler RequestHandler) {
+	attestation, err := handler.HandleKeyAttestationRequest(ctx)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "ATTESTATION_ERROR", err)
+		return
+	}
+
+	response := Message{
+		ID:   msg.ID,
+		Type: KeyAttestationResponseMessage,
+		Data: KeyAttestationResponseData{
+			Attestation: attestation,
+		},
+	}
+
+	if err := c.sendMessage(response); err != nil {
+		c.log.Warn("%s: Failed to send HandleKeyAttestationRequest response: %v", c.idLogTag, err)
+	}
+	c.log.Info("%s: KeyAttestationRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // sendErrorResponse sends an error response

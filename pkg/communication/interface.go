@@ -22,6 +22,8 @@ type ExecutorClient interface {
 	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
 	// SendDeployApp deploys a new application to the executor
 	SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	// SendKeyAttestationRequest requests a key attestation from the executor
+	SendKeyAttestationRequest(ctx context.Context) ([]byte, error)
 	// SetClientRequestHandler sets the handler for incoming requests from server
 	SetClientRequestHandler(handler ClientRequestHandler)
 }
@@ -67,6 +69,8 @@ type RequestHandler interface {
 	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
 	// HandleDeployApp deploys a new application
 	HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	// HandleKeyAttestationRequest creates a key attestation document
+	HandleKeyAttestationRequest(ctx context.Context) ([]byte, error)
 }
 
 type ConnectionFactory interface {
