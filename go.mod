@@ -4,14 +4,11 @@ go 1.24.0
 
 toolchain go1.24.3
 
-require github.com/horizen-cce-common-go/wasm v0.0.0
+require github.com/horizen-cce-common-go v0.0.20
 
-//replace github.com/horizen-cce-common-go => github.com/HorizenOfficial/horizen-cce-common-go v0.0.0
+replace github.com/horizen-cce-common-go => github.com/HorizenOfficial/horizen-cce-common-go v0.0.20
 
-// Can be useful for local development
-replace github.com/horizen-cce-common-go/wasm => ../horizen-cce-common-go/wasm
-
-replace github.com/horizen-cce-common-go/types => ../horizen-cce-common-go/types
+//replace github.com/horizen-cce-common-go => ../horizen-cce-common-go
 
 require (
 	github.com/bytecodealliance/wasmtime-go v1.0.0
