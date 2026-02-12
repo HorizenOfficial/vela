@@ -11,8 +11,9 @@ require (
 	github.com/bytecodealliance/wasmtime-go v1.0.0
 	github.com/elliotchance/orderedmap/v3 v3.1.0
 	github.com/ethereum/go-ethereum v1.16.1
+	github.com/fxamacker/cbor/v2 v2.2.0
+	github.com/go-asn1-ber/asn1-ber v1.5.4
 	github.com/google/go-cmp v0.5.9
-	github.com/hf/nitrite v0.0.0-20241225144000-c2d5d3c4f303
 	github.com/hf/nsm v0.0.0-20220930140112-cd181bd646b9
 	github.com/magiconair/properties v1.8.10
 	github.com/mdlayher/vsock v1.2.1
@@ -33,7 +34,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.30.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.19 // indirect
 	github.com/aws/smithy-go v1.24.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.2.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 )
 

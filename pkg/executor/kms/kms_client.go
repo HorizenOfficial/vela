@@ -119,6 +119,7 @@ func (c *NitroKMSClient) GenerateDataKeyWithAttestation(
 	if err != nil {
 		return nil, fmt.Errorf("KMS GenerateDataKey failed: %w", err)
 	}
+	fmt.Printf("kms generate data key response: ciphertext_blob_len=%d ciphertext_for_recipient_len=%d\n", len(output.CiphertextBlob), len(output.CiphertextForRecipient))
 
 	// When using Recipient parameter:
 	// - Plaintext is nil (not returned for security)
