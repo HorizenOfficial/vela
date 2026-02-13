@@ -5,6 +5,7 @@ import (
 	"context"
 	"math/big"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -28,6 +29,11 @@ type Client interface {
 	ChainID(ctx context.Context) (*big.Int, error)
 	// LatestBlockNumber returns the latest block number from the chain.
 	LatestBlockNumber(ctx context.Context) (uint64, error)
+
+	// GetPendingPayments returns the pending payment balance for the given address.
+	GetPendingPayments(ctx context.Context, addr ethCommon.Address) (*big.Int, error)
+	// WithdrawPayments calls withdrawPayments on the ProcessorEndpoint contract for the given payee.
+	WithdrawPayments(ctx context.Context, payee ethCommon.Address) error
 
 	// Close closes the blockchain client
 	Close() error
