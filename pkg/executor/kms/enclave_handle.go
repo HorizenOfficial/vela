@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -27,6 +28,18 @@ type NitroEnclaveHandle struct {
 	rsaKey *rsa.PrivateKey
 }
 
+var kmsDebug = strings.EqualFold(os.Getenv("EXECUTOR_KMS_DEBUG"), "true") || os.Getenv("EXECUTOR_KMS_DEBUG") == "1"
+
+func debugf(format string, args ...interface{}) {
+	if !kmsDebug {
+		return
+	}
+	if !strings.HasSuffix(format, "\n") {
+		format += "\n"
+	}
+	fmt.Printf(format, args...)
+}
+
 // NewNitroEnclaveHandle creates a new NitroEnclaveHandle.
 // It generates an ephemeral RSA-2048 key pair for KMS envelope encryption.
 // The public key will be included in attestation documents sent to KMS.
@@ -37,7 +50,7 @@ func NewNitroEnclaveHandle() (*NitroEnclaveHandle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
 	}
-	fmt.Printf("kms attestation rsa key size=%d\n", rsaKey.Size())
+	debugf("kms attestation rsa key size=%d", rsaKey.Size())
 
 	return &NitroEnclaveHandle{
 		rsaKey: rsaKey,
@@ -66,7 +79,7 @@ func (h *NitroEnclaveHandle) Attest(userData []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal RSA public key: %w", err)
 	}
 	publicKeyHash := sha256.Sum256(publicKeyDER)
-	fmt.Printf("kms attestation public key: der_len=%d sha256=%x\n", len(publicKeyDER), publicKeyHash)
+	debugf("kms attestation public key: der_len=%d sha256=%x", len(publicKeyDER), publicKeyHash)
 
 	// Request attestation from NSM
 	// - UserData: optional application-specific data (e.g., nonce)
@@ -101,14 +114,14 @@ func (h *NitroEnclaveHandle) DecryptKMSEnvelopedKey(envelopedKey []byte) ([]byte
 
 	if len(envelopedKey) != h.rsaKey.Size() {
 		if unwrapped, source, ok := unwrapRecipientEncryptedKey(envelopedKey, h.rsaKey.Size()); ok {
-			fmt.Printf("kms enveloped key unwrap: source=%s encrypted_len=%d\n", source, len(unwrapped))
+			debugf("kms enveloped key unwrap: source=%s encrypted_len=%d", source, len(unwrapped))
 			envelopedKey = unwrapped
 		} else {
 			prefixLen := 8
 			if len(envelopedKey) < prefixLen {
 				prefixLen = len(envelopedKey)
 			}
-			fmt.Printf("kms enveloped key unwrap: cms=false ciphertext_len=%d prefix=%x\n", len(envelopedKey), envelopedKey[:prefixLen])
+			debugf("kms enveloped key unwrap: cms=false ciphertext_len=%d prefix=%x", len(envelopedKey), envelopedKey[:prefixLen])
 		}
 	}
 
@@ -138,7 +151,10 @@ func (h *NitroEnclaveHandle) GetPublicKey() ([]byte, error) {
 	return x509.MarshalPKIXPublicKey(&h.rsaKey.PublicKey)
 }
 
-const cmsEnvelopedDataOID = "1.2.840.113549.1.7.3"
+const (
+	cmsEnvelopedDataOID = "1.2.840.113549.1.7.3"
+	rsaesOAEPoid        = "1.2.840.113549.1.1.7"
+)
 
 type keyTransRecipientInfo struct {
 	Version                int
@@ -166,7 +182,7 @@ func unwrapRecipientEncryptedKey(envelopedKey []byte, expectedLen int) ([]byte, 
 
 func unwrapCMSRecipientEncryptedKey(envelopedKey []byte, expectedLen int) ([]byte, bool) {
 	packet, err := ber.DecodePacketErr(envelopedKey)
-	if err != nil || packet == nil || packet.Tag != ber.TagSequence || len(packet.Children) == 0 {
+	if err != nil || packet == nil || packet.Tag != ber.TagSequence || len(packet.Children) < 2 {
 		return nil, false
 	}
 
@@ -178,12 +194,124 @@ func unwrapCMSRecipientEncryptedKey(envelopedKey []byte, expectedLen int) ([]byt
 		return nil, false
 	}
 
-	encryptedKey := findBEROctetStringByLen(packet, expectedLen)
+	content := findCMSContent(packet.Children[1:])
+	enveloped := extractSequence(content)
+	recipientInfos := findRecipientInfos(enveloped)
+	encryptedKey := findEncryptedKeyFromRecipientInfos(recipientInfos, expectedLen)
 	if len(encryptedKey) != expectedLen {
 		return nil, false
 	}
 
 	return encryptedKey, true
+}
+
+func findCMSContent(children []*ber.Packet) *ber.Packet {
+	for _, child := range children {
+		if child.ClassType == ber.ClassContext && child.Tag == 0 {
+			if len(child.Children) == 1 {
+				return child.Children[0]
+			}
+			return child
+		}
+	}
+	return nil
+}
+
+func extractSequence(packet *ber.Packet) *ber.Packet {
+	if packet == nil {
+		return nil
+	}
+	if packet.Tag == ber.TagSequence {
+		return packet
+	}
+	if len(packet.Children) == 1 && packet.Children[0].Tag == ber.TagSequence {
+		return packet.Children[0]
+	}
+	return nil
+}
+
+func findRecipientInfos(enveloped *ber.Packet) *ber.Packet {
+	if enveloped == nil || enveloped.Tag != ber.TagSequence || len(enveloped.Children) < 2 {
+		return nil
+	}
+
+	idx := 0
+	if enveloped.Children[idx].Tag != ber.TagInteger {
+		return nil
+	}
+	idx++
+
+	if idx < len(enveloped.Children) && enveloped.Children[idx].ClassType == ber.ClassContext && enveloped.Children[idx].Tag == 0 {
+		idx++
+	}
+
+	if idx < len(enveloped.Children) {
+		if enveloped.Children[idx].Tag == ber.TagSet || enveloped.Children[idx].Tag == ber.TagSequence {
+			return enveloped.Children[idx]
+		}
+	}
+
+	for _, child := range enveloped.Children {
+		if child.Tag == ber.TagSet {
+			return child
+		}
+	}
+
+	return nil
+}
+
+func findEncryptedKeyFromRecipientInfos(recipientInfos *ber.Packet, expectedLen int) []byte {
+	if recipientInfos == nil {
+		return nil
+	}
+
+	for _, recipient := range recipientInfos.Children {
+		if recipient.Tag != ber.TagSequence {
+			continue
+		}
+
+		algOID := extractKeyEncryptionAlgorithmOID(recipient)
+		if algOID != "" && algOID != rsaesOAEPoid {
+			continue
+		}
+
+		if encryptedKey := extractEncryptedKey(recipient, expectedLen); len(encryptedKey) == expectedLen {
+			return encryptedKey
+		}
+	}
+
+	return nil
+}
+
+func extractKeyEncryptionAlgorithmOID(recipient *ber.Packet) string {
+	if recipient == nil || recipient.Tag != ber.TagSequence || len(recipient.Children) < 3 {
+		return ""
+	}
+
+	algSeq := extractSequence(recipient.Children[2])
+	if algSeq == nil || len(algSeq.Children) == 0 || algSeq.Children[0].Tag != ber.TagObjectIdentifier {
+		return ""
+	}
+
+	oid, err := decodeOID(algSeq.Children[0].ByteValue)
+	if err != nil {
+		return ""
+	}
+
+	return oid
+}
+
+func extractEncryptedKey(recipient *ber.Packet, expectedLen int) []byte {
+	if recipient == nil || recipient.Tag != ber.TagSequence || len(recipient.Children) == 0 {
+		return nil
+	}
+
+	last := recipient.Children[len(recipient.Children)-1]
+	if last.Tag == ber.TagOctetString && len(last.ByteValue) == expectedLen {
+		return last.ByteValue
+	}
+
+	return findBEROctetStringByLen(recipient, expectedLen)
 }
 
 func findBEROctetStringByLen(packet *ber.Packet, expectedLen int) []byte {
@@ -216,7 +344,7 @@ func unwrapKeyTransRecipientInfo(envelopedKey []byte, expectedLen int) ([]byte, 
 	if len(info.KeyEncryptionAlgorithm.FullBytes) > 0 {
 		var alg algorithmIdentifier
 		if _, err := asn1.Unmarshal(info.KeyEncryptionAlgorithm.FullBytes, &alg); err == nil {
-			fmt.Printf("kms enveloped key unwrap: key_alg=%s\n", alg.Algorithm.String())
+			debugf("kms enveloped key unwrap: key_alg=%s", alg.Algorithm.String())
 		}
 	}
 
@@ -255,46 +383,49 @@ func decodeOID(der []byte) (string, error) {
 }
 
 func logAttestationDocPublicKey(attestationDoc, expectedPublicKey []byte) {
+	if !kmsDebug {
+		return
+	}
 	var cose []interface{}
 	if err := cbor.Unmarshal(attestationDoc, &cose); err != nil {
-		fmt.Printf("kms attestation doc decode error: %v\n", err)
+		debugf("kms attestation doc decode error: %v", err)
 		return
 	}
 	if len(cose) < 4 {
-		fmt.Printf("kms attestation doc decode error: unexpected cose length=%d\n", len(cose))
+		debugf("kms attestation doc decode error: unexpected cose length=%d", len(cose))
 		return
 	}
 
 	payload, ok := cose[2].([]byte)
 	if !ok {
-		fmt.Printf("kms attestation doc decode error: payload has type %T\n", cose[2])
+		debugf("kms attestation doc decode error: payload has type %T", cose[2])
 		return
 	}
 
 	var att map[string]interface{}
 	if err := cbor.Unmarshal(payload, &att); err != nil {
-		fmt.Printf("kms attestation doc payload decode error: %v\n", err)
+		debugf("kms attestation doc payload decode error: %v", err)
 		return
 	}
 
 	pkRaw, ok := att["public_key"].([]byte)
 	if !ok {
-		fmt.Printf("kms attestation doc decode error: public_key has type %T\n", att["public_key"])
+		debugf("kms attestation doc decode error: public_key has type %T", att["public_key"])
 		return
 	}
 
 	pkHash := sha256.Sum256(pkRaw)
 	match := bytes.Equal(pkRaw, expectedPublicKey)
-	fmt.Printf("kms attestation doc public key: len=%d sha256=%x match=%t\n", len(pkRaw), pkHash, match)
+	debugf("kms attestation doc public key: len=%d sha256=%x match=%t", len(pkRaw), pkHash, match)
 
 	parsedKey, err := x509.ParsePKIXPublicKey(pkRaw)
 	if err != nil {
-		fmt.Printf("kms attestation doc public key parse error: %v\n", err)
+		debugf("kms attestation doc public key parse error: %v", err)
 		return
 	}
 	if rsaKey, ok := parsedKey.(*rsa.PublicKey); ok {
-		fmt.Printf("kms attestation doc public key parsed: rsa_size=%d\n", rsaKey.Size())
+		debugf("kms attestation doc public key parsed: rsa_size=%d", rsaKey.Size())
 		return
 	}
-	fmt.Printf("kms attestation doc public key parsed: type=%T\n", parsedKey)
+	debugf("kms attestation doc public key parsed: type=%T", parsedKey)
 }
