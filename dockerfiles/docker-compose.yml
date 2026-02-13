@@ -13,6 +13,24 @@ volumes:
   horizen-cce-logs:
 
 services:
+  kms-proxy:
+    build:
+      context: ..
+      dockerfile: dockerfiles/kms_proxy/Dockerfile
+    image: horizen/kms-proxy
+    container_name: horizen-kms-proxy
+    restart: always
+    privileged: true
+    devices:
+      - /dev/vsock:/dev/vsock
+    environment:
+      - KMS_PROXY_DEBUG
+      - KMS_PROXY_PORT
+      - KMS_PROXY_REGION
+      - KMS_PROXY_ALLOWED_ACTIONS
+      - KMS_PROXY_ALLOWED_KEY_ARNS
+    networks:
+      inet:
   executor:
     image: horizen/cce-executor
     container_name: horizen-cce-executor

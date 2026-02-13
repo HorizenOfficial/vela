@@ -17,17 +17,13 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux go build -o /executor ./cmd/executor
+RUN CGO_ENABLED=0 GOOS=linux go build -o /kms-proxy ./cmd/kms_proxy
 
 # --- Runtime Stage ---
 FROM amazonlinux:2
 
-RUN yum install -y aws-nitro-enclaves-nsm ca-certificates shadow-utils  && yum clean all
+RUN yum install -y ca-certificates && yum clean all
 
-COPY --from=builder /executor /executor
-COPY pkg/executor/executor.nitro.conf /executor.conf
+COPY --from=builder /kms-proxy /kms-proxy
 
-RUN useradd -m appuser
-USER appuser
-
-ENTRYPOINT ["/executor"]
+ENTRYPOINT ["/kms-proxy"]

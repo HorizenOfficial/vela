@@ -245,6 +245,10 @@ func loadConfig() (*proxyConfig, error) {
 	}
 
 	allowedKeyARNs := parseCSVSetExact(getEnvString("KMS_PROXY_ALLOWED_KEY_ARNS", ""))
+	allowAllKeys := getEnvBool("KMS_PROXY_ALLOW_ALL_KEYS", false)
+	if len(allowedKeyARNs) == 0 && !allowAllKeys {
+		return nil, fmt.Errorf("KMS_PROXY_ALLOWED_KEY_ARNS is empty; set KMS_PROXY_ALLOW_ALL_KEYS=true to allow all keys")
+	}
 
 	timeoutSec := getEnvInt("KMS_PROXY_UPSTREAM_TIMEOUT_SEC", 15)
 	maxBody := getEnvInt("KMS_PROXY_MAX_BODY_BYTES", defaultMaxBody)
