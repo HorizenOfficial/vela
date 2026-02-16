@@ -31,9 +31,9 @@ type MockKMSClient struct {
 
 	// Call tracking for assertions
 	GenerateDataKeyCalled bool
-	DecryptCalled   bool
-	LastKeyARN      string
-	LastAttestation []byte
+	DecryptCalled         bool
+	LastKeyARN            string
+	LastAttestation       []byte
 }
 
 // NewMockKMSClient creates a new mock KMS client with random simulated keys.
@@ -78,9 +78,11 @@ func (m *MockKMSClient) GenerateDataKeyWithAttestation(
 	// Return simulated output
 	// In mock mode, CiphertextForRecipient contains the plaintext directly
 	// (since we don't have real RSA encryption in the mock)
+	plaintext := make([]byte, len(m.SimulatedDataKey))
+	copy(plaintext, m.SimulatedDataKey[:])
 	return &DataKeyOutput{
 		CiphertextBlob:         m.SimulatedCiphertext,
-		CiphertextForRecipient: m.SimulatedDataKey[:],
+		CiphertextForRecipient: plaintext,
 	}, nil
 }
 
@@ -107,8 +109,10 @@ func (m *MockKMSClient) DecryptWithAttestation(
 		return nil, fmt.Errorf("mock KMS: attestation document is required")
 	}
 
-	// Return the simulated key (already "decrypted" for mock enclave)
-	return m.SimulatedDataKey[:], nil
+	// Return a copy to avoid shared-memory mutation in callers.
+	plaintext := make([]byte, len(m.SimulatedDataKey))
+	copy(plaintext, m.SimulatedDataKey[:])
+	return plaintext, nil
 }
 
 // MockEnclaveHandle implements EnclaveHandle for testing outside of a real enclave.

@@ -19,11 +19,11 @@ func TestGenerateAndRestoreEnclaveKeySet_Type0(t *testing.T) {
 	ctx := context.Background()
 
 	// Test GenerateEnclaveKeySet with Type 0 (no KMS)
-	generatedKeySet, recovery, err := GenerateEnclaveKeySet(ctx, 0, nil, nil, "")
+	generatedKeySet, recovery, err := GenerateEnclaveKeySet(ctx, common.RecoveryTypeUnsafe, nil, nil, "")
 	require.NoError(t, err, "GenerateEnclaveKeySet should not return an error")
 	require.NotNil(t, generatedKeySet, "Generated key set should not be nil")
 	require.NotNil(t, recovery, "Recovery data should not be nil")
-	require.Equal(t, 0, recovery.RecoveryType, "Recovery type should be 0")
+	require.Equal(t, common.RecoveryTypeUnsafe, recovery.RecoveryType, "Recovery type should be 0")
 
 	// Test RestoreEnclaveKeySet with Type 0 (no KMS)
 	restoredKeySet, err := RestoreEnclaveKeySet(ctx, recovery, nil, nil)
@@ -44,7 +44,7 @@ func TestGenerateEnclaveKeySet_UnsupportedType(t *testing.T) {
 	ctx := context.Background()
 
 	// Attempt to generate a keyset with an unsupported recovery type
-	_, _, err := GenerateEnclaveKeySet(ctx, 99, nil, nil, "")
+	_, _, err := GenerateEnclaveKeySet(ctx, common.RecoveryType(99), nil, nil, "")
 
 	// Verify that an error is returned
 	require.Error(t, err, "GenerateEnclaveKeySet should return an error for unsupported recovery types")
@@ -56,7 +56,7 @@ func TestRestoreEnclaveKeySet_UnsupportedType(t *testing.T) {
 
 	// Create a recovery struct with an unsupported type
 	recovery := &common.EnclaveKeySetRecovery{
-		RecoveryType: 99, // Unsupported type
+		RecoveryType: common.RecoveryType(99), // Unsupported type
 	}
 
 	// Attempt to restore the keyset
@@ -148,7 +148,7 @@ func TestGenerateAndRestoreEnclaveKeySet_Type1(t *testing.T) {
 	// Test GenerateEnclaveKeySet with Type 1 (KMS)
 	generatedKeySet, recovery, err := GenerateEnclaveKeySet(
 		ctx,
-		1,
+		common.RecoveryTypeKMS,
 		mockKMS,
 		mockEnclave,
 		"arn:aws:kms:us-east-1:123456789:key/test-key",
@@ -156,7 +156,7 @@ func TestGenerateAndRestoreEnclaveKeySet_Type1(t *testing.T) {
 	require.NoError(t, err, "GenerateEnclaveKeySet should not return an error")
 	require.NotNil(t, generatedKeySet, "Generated key set should not be nil")
 	require.NotNil(t, recovery, "Recovery data should not be nil")
-	require.Equal(t, 1, recovery.RecoveryType, "Recovery type should be 1")
+	require.Equal(t, common.RecoveryTypeKMS, recovery.RecoveryType, "Recovery type should be 1")
 
 	// Verify KMS was called
 	require.True(t, mockKMS.GenerateDataKeyCalled, "KMS GenerateDataKey should have been called")
@@ -196,7 +196,7 @@ func TestGenerateEnclaveKeySet_Type1_MissingKMSClient(t *testing.T) {
 	mockEnclave := kms.NewMockEnclaveHandle()
 
 	// Attempt to generate with nil KMS client
-	_, _, err := GenerateEnclaveKeySet(ctx, 1, nil, mockEnclave, "arn:aws:kms:test")
+	_, _, err := GenerateEnclaveKeySet(ctx, common.RecoveryTypeKMS, nil, mockEnclave, "arn:aws:kms:test")
 
 	require.Error(t, err, "Should return error when KMS client is nil")
 	require.Contains(t, err.Error(), "KMS client is required")
@@ -207,7 +207,7 @@ func TestGenerateEnclaveKeySet_Type1_MissingEnclaveHandle(t *testing.T) {
 	mockKMS := kms.NewMockKMSClient()
 
 	// Attempt to generate with nil enclave handle
-	_, _, err := GenerateEnclaveKeySet(ctx, 1, mockKMS, nil, "arn:aws:kms:test")
+	_, _, err := GenerateEnclaveKeySet(ctx, common.RecoveryTypeKMS, mockKMS, nil, "arn:aws:kms:test")
 
 	require.Error(t, err, "Should return error when enclave handle is nil")
 	require.Contains(t, err.Error(), "enclave handle is required")
@@ -219,7 +219,7 @@ func TestGenerateEnclaveKeySet_Type1_MissingKeyARN(t *testing.T) {
 	mockEnclave := kms.NewMockEnclaveHandle()
 
 	// Attempt to generate with empty key ARN
-	_, _, err := GenerateEnclaveKeySet(ctx, 1, mockKMS, mockEnclave, "")
+	_, _, err := GenerateEnclaveKeySet(ctx, common.RecoveryTypeKMS, mockKMS, mockEnclave, "")
 
 	require.Error(t, err, "Should return error when key ARN is empty")
 	require.Contains(t, err.Error(), "KMS key ARN is required")
@@ -235,7 +235,7 @@ func TestGenerateEnclaveKeySet_Type1_AttestationFailure(t *testing.T) {
 		return nil, errors.New("NSM not available - not running in enclave")
 	})
 
-	_, _, err := GenerateEnclaveKeySet(ctx, 1, mockKMS, mockEnclave, "arn:aws:kms:test")
+	_, _, err := GenerateEnclaveKeySet(ctx, common.RecoveryTypeKMS, mockKMS, mockEnclave, "arn:aws:kms:test")
 
 	require.Error(t, err, "Should return error when attestation fails")
 	require.Contains(t, err.Error(), "failed to generate attestation")
@@ -252,7 +252,7 @@ func TestGenerateEnclaveKeySet_Type1_KMSFailure(t *testing.T) {
 			return nil, errors.New("KMS service unavailable")
 		})
 
-	_, _, err := GenerateEnclaveKeySet(ctx, 1, mockKMS, mockEnclave, "arn:aws:kms:test")
+	_, _, err := GenerateEnclaveKeySet(ctx, common.RecoveryTypeKMS, mockKMS, mockEnclave, "arn:aws:kms:test")
 
 	require.Error(t, err, "Should return error when KMS fails")
 	require.Contains(t, err.Error(), "failed to generate data key from KMS")
@@ -264,7 +264,7 @@ func TestRestoreEnclaveKeySet_Type1_KMSDecryptFailure(t *testing.T) {
 	mockEnclave := kms.NewMockEnclaveHandle()
 
 	// First generate a valid recovery
-	keySet, recovery, err := GenerateEnclaveKeySet(ctx, 1, mockKMS, mockEnclave, "arn:aws:kms:test")
+	keySet, recovery, err := GenerateEnclaveKeySet(ctx, common.RecoveryTypeKMS, mockKMS, mockEnclave, "arn:aws:kms:test")
 	require.NoError(t, err)
 	require.NotNil(t, keySet)
 
@@ -286,7 +286,7 @@ func TestRestoreEnclaveKeySet_Type1_MissingDependencies(t *testing.T) {
 	mockEnclave := kms.NewMockEnclaveHandle()
 
 	// Generate valid Type 1 recovery
-	_, recovery, err := GenerateEnclaveKeySet(ctx, 1, mockKMS, mockEnclave, "arn:aws:kms:test")
+	_, recovery, err := GenerateEnclaveKeySet(ctx, common.RecoveryTypeKMS, mockKMS, mockEnclave, "arn:aws:kms:test")
 	require.NoError(t, err)
 
 	t.Run("missing KMS client", func(t *testing.T) {

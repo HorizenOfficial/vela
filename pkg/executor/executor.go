@@ -91,19 +91,20 @@ func (e *StatelessExecutor) DumpPrivateKeys() {
 //   - kmsKeyARN: AWS KMS key ARN (required for Type 1, can be empty for Type 0)
 func GenerateEnclaveKeySet(
 	ctx context.Context,
-	recoveryType int,
+	recoveryType common.RecoveryType,
 	kmsClient kms.KMSClient,
 	enclaveHandle kms.EnclaveHandle,
 	kmsKeyARN string,
 ) (*EnclaveKeySet, *common.EnclaveKeySetRecovery, error) {
 	switch recoveryType {
-	case 0:
+	case common.RecoveryTypeUnsafe:
 		// Type 0: Unsafe/development mode - masterKey stored in plaintext
 		// 1. Create a new AES master key.
 		masterKey, err := crypto.GenerateAESKey()
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate master key: %w", err)
 		}
+		defer zeroAESKey(&masterKey)
 
 		// 2. Create a new EnclaveKeySet.
 		keySet, err := CreateNewKeySet()
@@ -124,15 +125,17 @@ func GenerateEnclaveKeySet(
 		}
 
 		// 5. Create the recovery structure.
+		recoveryKey := make([]byte, len(masterKey))
+		copy(recoveryKey, masterKey[:])
 		recovery := &common.EnclaveKeySetRecovery{
-			RecoveryType:       0,
+			RecoveryType:       common.RecoveryTypeUnsafe,
 			KeySetCiphertext:   encryptedKeySet,
-			RecoveryCiphertext: masterKey[:],
+			RecoveryCiphertext: recoveryKey,
 		}
 
 		return keySet, recovery, nil
 
-	case 1:
+	case common.RecoveryTypeKMS:
 		// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
 		// Validate required dependencies
 		if kmsClient == nil {
@@ -183,6 +186,7 @@ func GenerateEnclaveKeySet(
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decrypt KMS enveloped key: %w", err)
 		}
+		defer zeroBytes(masterKeyBytes)
 
 		if len(masterKeyBytes) != 32 {
 			return nil, nil, fmt.Errorf("invalid master key length from KMS: got %d, expected 32", len(masterKeyBytes))
@@ -190,6 +194,7 @@ func GenerateEnclaveKeySet(
 
 		var masterKey cryptotypes.AES256Key
 		copy(masterKey[:], masterKeyBytes)
+		defer zeroAESKey(&masterKey)
 
 		// 6. Encrypt the serialized EnclaveKeySet with the master key
 		encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
@@ -201,7 +206,7 @@ func GenerateEnclaveKeySet(
 		// Store the KMS CiphertextBlob
 		// This can only be decrypted by KMS with valid attestation
 		recovery := &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
+			RecoveryType:       common.RecoveryTypeKMS,
 			KeySetCiphertext:   encryptedKeySet,
 			RecoveryCiphertext: dataKeyOutput.CiphertextBlob,
 		}
@@ -232,11 +237,12 @@ func RestoreEnclaveKeySet(
 	}
 
 	switch recovery.RecoveryType {
-	case 0:
+	case common.RecoveryTypeUnsafe:
 		// Type 0: Unsafe/development mode - masterKey stored in plaintext
 		// 1. Use the RecoveryCiphertext as the master key to decrypt the KeySetCiphertext.
 		var masterKey cryptotypes.AES256Key
 		copy(masterKey[:], recovery.RecoveryCiphertext)
+		defer zeroAESKey(&masterKey)
 
 		decryptedKeySet, err := crypto.DecryptWithAES(masterKey, recovery.KeySetCiphertext)
 		if err != nil {
@@ -251,7 +257,7 @@ func RestoreEnclaveKeySet(
 
 		return keySet, nil
 
-	case 1:
+	case common.RecoveryTypeKMS:
 		// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
 		// Validate required dependencies
 		if kmsClient == nil {
@@ -281,6 +287,7 @@ func RestoreEnclaveKeySet(
 		if err != nil {
 			return nil, fmt.Errorf("failed to decrypt KMS enveloped key: %w", err)
 		}
+		defer zeroBytes(masterKeyBytes)
 
 		if len(masterKeyBytes) != 32 {
 			return nil, fmt.Errorf("invalid master key length from KMS: got %d, expected 32", len(masterKeyBytes))
@@ -288,6 +295,7 @@ func RestoreEnclaveKeySet(
 
 		var masterKey cryptotypes.AES256Key
 		copy(masterKey[:], masterKeyBytes)
+		defer zeroAESKey(&masterKey)
 
 		// 4. Decrypt the keyset using the recovered master key
 		decryptedKeySet, err := crypto.DecryptWithAES(masterKey, recovery.KeySetCiphertext)
@@ -305,6 +313,21 @@ func RestoreEnclaveKeySet(
 
 	default:
 		return nil, fmt.Errorf("unsupported recovery type: %d", recovery.RecoveryType)
+	}
+}
+
+func zeroBytes(buf []byte) {
+	for i := range buf {
+		buf[i] = 0
+	}
+}
+
+func zeroAESKey(key *cryptotypes.AES256Key) {
+	if key == nil {
+		return
+	}
+	for i := range key {
+		key[i] = 0
 	}
 }
 
@@ -447,7 +470,7 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 		e.log.Info("Executor: Starting v-socket executor server")
 	}
 
-	if err := e.server.Start(ctx, "Executor"); err != nil {	
+	if err := e.server.Start(ctx, "Executor"); err != nil {
 		return err
 	}
 
@@ -455,9 +478,9 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 	case "tcp":
 		e.log.Info("Executor: Starting TCP admin executor server on %s", e.config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
 	case "vsock":
-		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d", 
-		e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID, 
-		e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
+		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d",
+			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
+			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
 	}
 	return e.admCmdServer.Start(ctx, "Executor")
 }
@@ -466,12 +489,12 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 func (e *StatelessExecutor) Stop() error {
 	e.log.Info("Executor: Stopping stateless executor")
 
-	err :=  e.admCmdServer.Stop();
+	err := e.admCmdServer.Stop()
 	if err != nil {
 		e.log.Warn("Executor: Error stopping admin server: %v", err)
 	}
 
-	err = e.server.Stop();
+	err = e.server.Stop()
 	if err != nil {
 		e.log.Warn("Executor: Error stopping server: %v", err)
 	}
@@ -944,8 +967,6 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	e.log.Info("Executor: Successfully decrypted request payload")
 	return decryptedPayload, nil
 }
-
-
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {
 	return e.createKeyAttestationInternal(ctx, func() (NsmSession, error) {

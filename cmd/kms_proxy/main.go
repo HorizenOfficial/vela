@@ -53,6 +53,7 @@ type proxy struct {
 	client           *http.Client
 	enforceRecipient bool
 	maxBodyBytes     int64
+	maxResponseBytes int64
 	debug            bool
 }
 
@@ -197,9 +198,13 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, p.maxResponseBytes+1))
 	if err != nil {
 		http.Error(w, "failed to read KMS response", http.StatusBadGateway)
+		return
+	}
+	if int64(len(respBody)) > p.maxResponseBytes {
+		http.Error(w, "KMS response too large", http.StatusBadGateway)
 		return
 	}
 
@@ -213,13 +218,14 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type proxyConfig struct {
-	port           uint32
-	region         string
-	allowedActions map[string]struct{}
-	allowedKeyARNs map[string]struct{}
-	upstreamTimeout time.Duration
-	maxBodyBytes   int64
-	debug          bool
+	port             uint32
+	region           string
+	allowedActions   map[string]struct{}
+	allowedKeyARNs   map[string]struct{}
+	upstreamTimeout  time.Duration
+	maxBodyBytes     int64
+	maxResponseBytes int64
+	debug            bool
 }
 
 func loadConfig() (*proxyConfig, error) {
@@ -252,16 +258,18 @@ func loadConfig() (*proxyConfig, error) {
 
 	timeoutSec := getEnvInt("KMS_PROXY_UPSTREAM_TIMEOUT_SEC", 15)
 	maxBody := getEnvInt("KMS_PROXY_MAX_BODY_BYTES", defaultMaxBody)
+	maxResponse := getEnvInt("KMS_PROXY_MAX_RESPONSE_BYTES", maxBody)
 	debug := getEnvBool("KMS_PROXY_DEBUG", false)
 
 	return &proxyConfig{
-		port:            port,
-		region:          region,
-		allowedActions:  allowedActions,
-		allowedKeyARNs:  allowedKeyARNs,
-		upstreamTimeout: time.Duration(timeoutSec) * time.Second,
-		maxBodyBytes:    int64(maxBody),
-		debug:           debug,
+		port:             port,
+		region:           region,
+		allowedActions:   allowedActions,
+		allowedKeyARNs:   allowedKeyARNs,
+		upstreamTimeout:  time.Duration(timeoutSec) * time.Second,
+		maxBodyBytes:     int64(maxBody),
+		maxResponseBytes: int64(maxResponse),
+		debug:            debug,
 	}, nil
 }
 

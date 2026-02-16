@@ -63,22 +63,15 @@ func NewNitroKMSClient(ctx context.Context, region, keyARN string, proxyPort uin
 		config.WithRegion(region),
 		config.WithHTTPClient(httpClient),
 		config.WithCredentialsProvider(aws.AnonymousCredentials{}),
-		config.WithEndpointResolverWithOptions(
-			aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:               proxyEndpoint,
-					SigningRegion:     region,
-					HostnameImmutable: true,
-				}, nil
-			}),
-		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	return &NitroKMSClient{
-		client: kms.NewFromConfig(cfg),
+		client: kms.NewFromConfig(cfg, func(o *kms.Options) {
+			o.BaseEndpoint = aws.String(proxyEndpoint)
+		}),
 		keyARN: keyARN,
 	}, nil
 }

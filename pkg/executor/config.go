@@ -24,11 +24,11 @@ type Config struct {
 	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
 	// Type 0: Unsafe (development only) - masterKey stored in plaintext
 	// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
-	KeySetRecoveryType int
+	KeySetRecoveryType common.RecoveryType
 
-	// KMS Configuration (used when KeySetRecoveryType == 1)
+	// KMS Configuration (used when KeySetRecoveryType == RecoveryTypeKMS)
 	// KMSEnabled enables Type 1 KMS-based key management.
-	// When true, KeySetRecoveryType is automatically set to 1.
+	// When true, KeySetRecoveryType is automatically set to RecoveryTypeKMS.
 	KMSEnabled bool
 	// KMSKeyARN is the ARN of the AWS KMS key used for envelope encryption.
 	// Required when KMSEnabled is true.
@@ -107,27 +107,37 @@ func LoadConfig() (*Config, error) {
 		logClientConnectionParams = common.TcpChannelConnectionParams{Ip: logServerIpHost, Port: uint32(logServerPort)}
 	}
 
-	
 	communicationParams := common.CommunicationParams{
 		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
 	}
-	
+
 	adminCommunicationParams := common.CommunicationParams{
 		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
 	}
-	
-	
-	
+
 	// KMS Configuration
+	rawKMSEnabled := common.GetConfigVar("EXECUTOR_KMS_ENABLED", "", fileProperties)
 	kmsEnabled := common.GetConfigVarBool("EXECUTOR_KMS_ENABLED", false, fileProperties)
 	kmsKeyARN := common.GetConfigVar("EXECUTOR_KMS_KEY_ARN", "", fileProperties)
 	kmsRegion := common.GetConfigVar("EXECUTOR_KMS_REGION", "us-east-1", fileProperties)
 	kmsProxyPort := uint32(common.GetConfigVarInt64("EXECUTOR_KMS_PROXY_PORT", 8000, fileProperties))
 
-	// Determine KeySetRecoveryType: if KMS is enabled, force Type 1
-	keySetRecoveryType := int(common.GetConfigVarInt64("EXECUTOR_KEYSET_RECOVERY_TYPE", 0, fileProperties))
+	rawRecoveryType := common.GetConfigVar("EXECUTOR_KEYSET_RECOVERY_TYPE", "", fileProperties)
+	keySetRecoveryType := common.RecoveryType(common.GetConfigVarInt64("EXECUTOR_KEYSET_RECOVERY_TYPE", 0, fileProperties))
+
+	// If both are explicitly set, require consistency to avoid surprises.
+	if rawKMSEnabled != "" && rawRecoveryType != "" {
+		if kmsEnabled && keySetRecoveryType != common.RecoveryTypeKMS {
+			return nil, fmt.Errorf("conflicting config: EXECUTOR_KMS_ENABLED=true requires EXECUTOR_KEYSET_RECOVERY_TYPE=1")
+		}
+		if !kmsEnabled && keySetRecoveryType == common.RecoveryTypeKMS {
+			return nil, fmt.Errorf("conflicting config: EXECUTOR_KMS_ENABLED=false requires EXECUTOR_KEYSET_RECOVERY_TYPE!=1")
+		}
+	}
+
+	// Determine KeySetRecoveryType: if KMS is enabled, force RecoveryTypeKMS
 	if kmsEnabled {
-		keySetRecoveryType = 1
+		keySetRecoveryType = common.RecoveryTypeKMS
 	}
 
 	return &Config{
@@ -157,7 +167,7 @@ func LoadConfig() (*Config, error) {
 // ValidateKMSConfig validates KMS-related configuration.
 // Returns an error if KMS is enabled but required settings are missing.
 func (c *Config) ValidateKMSConfig() error {
-	if c.KeySetRecoveryType == 1 || c.KMSEnabled {
+	if c.KeySetRecoveryType == common.RecoveryTypeKMS || c.KMSEnabled {
 		if c.KMSKeyARN == "" {
 			return fmt.Errorf("KMS key ARN is required when KMS is enabled (EXECUTOR_KMS_KEY_ARN)")
 		}
