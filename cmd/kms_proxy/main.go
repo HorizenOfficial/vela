@@ -79,6 +79,7 @@ func main() {
 		client:           &http.Client{Timeout: cfg.upstreamTimeout},
 		enforceRecipient: true,
 		maxBodyBytes:     cfg.maxBodyBytes,
+		maxResponseBytes: cfg.maxResponseBytes,
 		debug:            cfg.debug,
 	}
 
@@ -204,6 +205,9 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if int64(len(respBody)) > p.maxResponseBytes {
+		if p.debug {
+			log.Printf("kms proxy response too large: status=%d len=%d max=%d", resp.StatusCode, len(respBody), p.maxResponseBytes)
+		}
 		http.Error(w, "KMS response too large", http.StatusBadGateway)
 		return
 	}
