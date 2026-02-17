@@ -23,7 +23,9 @@ async function deployTeeAuthenticator(deployer: any, deployerAddress: string): P
     const teePubP521 = process.env.TEE_PUB_P521!;
     console.log(`Using NoAttestationTeeAuthenticator (dev mode)`);
 
-    const NoAttestationTeeAuthenticator = await ethers.getContractFactory('NoAttestationTeeAuthenticator');
+    const NoAttestationTeeAuthenticator = await ethers.getContractFactory(
+      'NoAttestationTeeAuthenticator'
+    );
     const teeAuthenticator = await NoAttestationTeeAuthenticator.deploy(
       deployerAddress,
       teeSignerAddress,
@@ -130,7 +132,9 @@ async function deploy() {
     ].join('\n');
     fs.mkdirSync(outputDir, { recursive: true });
     fs.writeFileSync(path.join(outputDir, 'deployed_addresses.env'), envContent);
-    console.log(`\nDeployed addresses written to ${path.join(outputDir, 'deployed_addresses.env')}`);
+    console.log(
+      `\nDeployed addresses written to ${path.join(outputDir, 'deployed_addresses.env')}`
+    );
   }
 }
 
