@@ -122,6 +122,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             maxFeeValue,
+            0,
+            '',
             '0x'
           );
 
@@ -129,7 +131,24 @@ describe('ProcessorEndpoint Test', function () {
         expect(requests.length).to.equal(1);
         expect(requests[0].requestId).to.equal(requestId2);
 
-        await processorEndpoint.connect(signers[1]).markRequestFailed(requestId2, 1, 'failed');
+        // Fail second request via stateUpdate with errorCode
+        const currentStateRoot = await processorEndpoint.stateRoot();
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            currentStateRoot,
+            currentStateRoot,
+            requestId2,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'failed',
+            '0x'
+          );
 
         requests = await processorEndpoint.getPendingRequests();
         expect(requests.length).to.equal(0);
@@ -178,9 +197,29 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             maxFeeValue,
+            0,
+            '',
             '0x'
           );
-        await processorEndpoint.connect(signers[1]).markRequestFailed(requestId2, 1, 'failed');
+
+        // Fail second request via stateUpdate with errorCode
+        const currentStateRoot = await processorEndpoint.stateRoot();
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            currentStateRoot,
+            currentStateRoot,
+            requestId2,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'failed',
+            '0x'
+          );
 
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
 

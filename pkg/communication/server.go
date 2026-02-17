@@ -439,16 +439,9 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		return
 	}
 
-	updatePayload, updatedState, deanonymizationReport, failure := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
-	if failure != nil {
-		errorResponse := Message{
-			ID:   msg.ID,
-			Type: ErrorMessage,
-			Data: failure.ToDTO(),
-		}
-		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Error("Server: Failed to send error response: %v", err)
-		}
+	updatePayload, updatedState, deanonymizationReport, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
 	}
 
@@ -476,16 +469,9 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		return
 	}
 
-	updatePayload, appState, failure := handler.HandleDeployApp(ctx, reqData.Request)
-	if failure != nil {
-		errorResponse := Message{
-			ID:   msg.ID,
-			Type: ErrorMessage,
-			Data: failure.ToDTO(),
-		}
-		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Warn("Server: Failed to send error response: %v", err)
-		}
+	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request, reqData.ApplicationState)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
 	}
 

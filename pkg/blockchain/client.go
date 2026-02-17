@@ -15,7 +15,6 @@ import (
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
 	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
 )
@@ -283,26 +282,6 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 	return nil
 }
 
-func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return fmt.Errorf("client not connected, call Connect first")
-	}
-
-	c.account.Value = nil
-
-	if requestFailure == nil {
-		requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
-	}
-
-	solCode := uint8(requestFailure.Category())
-	msg := requestFailure.ExternalMessage()
-
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(requestID, solCode, msg))
-}
-
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
 func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.RLock()
@@ -380,6 +359,8 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		withdrawals,
 		update.RefundAmount.ToInt(),
 		update.ApplicationFee.ToInt(),
+		update.ErrorCode,
+		update.ErrorMsg,
 		update.Signature,
 	)
 

@@ -19,7 +19,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   uint64 public constant APPLICATION_ID = 1;
 
   //state variables
-  bytes32 public stateRoot;
+  bytes32 public stateRoot = bytes32(0);
 
   mapping(bytes32 => Structs.PendingRequest) public requestById;
   mapping(uint256 => bytes32) private _requestIdByOrder;
@@ -147,50 +147,18 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
   }
 
-  function _markRequestCompleted(bytes32 requestId, uint256 applicationFees) private {
-    _removeRequest();
-
-    emit RequestCompleted(
-      requestId,
-      applicationFees,
-      Structs.RequestResult.COMPLETED,
-      Structs.ErrorCode.NO_ERROR,
-      ''
-    );
-  }
-
-  // We refund the maxValueFee - minFeePerRequest (to be changed in the future)
-  /// @inheritdoc IProcessorEndpoint
-  function markRequestFailed(
+  function _markRequestCompleted(
     bytes32 requestId,
-    Structs.ErrorCode errorCode,
-    string calldata errorMessage
-  ) external onlyRole(UPDATE_STATUS_ROLE) {
-    if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
-
-    Structs.PendingRequest memory requestInfo = requestById[requestId];
-    uint256 minFee = minFeePerRequest;
-
+    uint256 applicationFees,
+    Structs.RequestResult result,
+    Structs.ErrorCode errCode,
+    string memory errorMsg
+  ) private {
     _removeRequest();
 
-    //credit refund to sender's pending balance (pull pattern)
-    uint256 refund = requestInfo.depositAmount + (requestInfo.maxFeeValue - minFee);
-    if (refund > 0) {
-      address payable sender = payable(requestInfo.sender);
-      _asyncTransfer(sender, refund);
-      emit Refund(requestInfo.applicationId, requestId, sender, refund);
-    }
+    emit RequestCompleted(requestId, applicationFees, result, errCode, errorMsg);
 
-    //credit minimum fee to feeCollector's pending balance
-    _asyncTransfer(feeCollector, minFeePerRequest);
-
-    emit RequestCompleted(
-      requestId,
-      minFeePerRequest,
-      Structs.RequestResult.FAILED,
-      errorCode,
-      errorMessage
-    );
+    _asyncTransfer(feeCollector, applicationFees);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -254,48 +222,90 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     return res;
   }
 
+  //update status
   /// @inheritdoc IProcessorEndpoint
   function stateUpdate(
     uint64 applicationId,
     bytes32 prevStateRoot,
     bytes32 newStateRoot,
     bytes32 processedRequestId,
-    bytes[] calldata events,
-    string[] calldata eventSubTypes,
-    Structs.WithdrawalRequest[] calldata withdrawalRequests,
+    bytes[] memory events,
+    string[] memory eventSubTypes,
+    Structs.WithdrawalRequest[] memory withdrawalRequests,
     uint256 refund,
     uint256 applicationFees,
-    bytes calldata signature
-  ) external validApplicationId(applicationId) onlyRole(UPDATE_STATUS_ROLE) {
-    //check prev state root
-    if (stateRoot != bytes32(0) && prevStateRoot != stateRoot) revert InvalidStateRoot();
+    uint8 errorCode,
+    string memory errorMsg,
+    bytes memory signature
+  ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant{
     //check valid request
     if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
-    //check signature
+    // Check application Id
+    Structs.PendingRequest storage requestInfo = requestById[processedRequestId];
+    if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
+
+    //check prev state root
+    if (prevStateRoot != stateRoot) revert InvalidStateRoot();
+
     uint256 eventsLength = events.length;
     uint256 eventSubTypesLength = eventSubTypes.length;
     if (eventsLength != eventSubTypesLength) revert InvalidPayload();
-    if (
-      !teeAuthenticator.checkSignature(
-        applicationId,
-        prevStateRoot,
-        newStateRoot,
-        processedRequestId,
-        events,
-        eventSubTypes,
-        withdrawalRequests,
-        refund,
-        applicationFees,
-        signature
-      )
-    ) revert InvalidSignature();
+
+    //check signature
+    Structs.SignatureParams memory sigParams = Structs.SignatureParams({
+      applicationId: applicationId,
+      prevStateRoot: prevStateRoot,
+      newStateRoot: newStateRoot,
+      processedRequestId: processedRequestId,
+      events: events,
+      eventSubTypes: eventSubTypes,
+      withdrawalRequests: withdrawalRequests,
+      refundAmount: refund,
+      applicationFee: applicationFees,
+      errorCode: errorCode,
+      errorMsg: errorMsg
+    });
+    if (!teeAuthenticator.checkSignature(sigParams, signature)) revert InvalidSignature();
 
     //check values
-    Structs.PendingRequest storage requestInfo = requestById[processedRequestId];
+
     uint256 maxFeeValue = requestInfo.maxFeeValue;
-    Structs.RequestType reqType = requestInfo.requestType;
     address payable sender = payable(requestInfo.sender);
+
+    // Handle error case (signed error payload from TEE)
+    if (errorCode != 0) {
+      // For errors: state unchanged (prevStateRoot == newStateRoot), no events, no withdrawals
+      // Refund user (minus minimum fee) and collect minimum fee
+      if (stateRoot != newStateRoot) revert InvalidStateRoot();
+
+      if (requestInfo.depositAmount + requestInfo.maxFeeValue > _getAvailableBalance())
+        revert InsufficientBalance();
+
+      // Refund includes deposit amount for error cases
+      // For now, we always collect the minimum fee per request in case of an error, in the future
+      // the wasm application may specify different fee handling policies.
+      uint256 totalRefund = requestInfo.depositAmount +
+        (requestInfo.maxFeeValue - minFeePerRequest);
+      if (totalRefund > 0) {
+        _asyncTransfer(sender, totalRefund);
+        emit Refund(applicationId, processedRequestId, sender, totalRefund);
+      }
+
+      _markRequestCompleted(
+        processedRequestId,
+        minFeePerRequest,
+        Structs.RequestResult.FAILED,
+        Structs.ErrorCode(errorCode),
+        errorMsg
+      );
+
+      return;
+    }
+
+    // Handle success case
+    // State cannot remain the same
+    if (stateRoot == newStateRoot) revert InvalidStateRoot();
 
     if (refund + applicationFees != maxFeeValue) revert InvalidValue();
     if (applicationFees < minFeePerRequest) {
@@ -314,10 +324,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
     sum += refund + applicationFees;
 
-    if (sum > address(this).balance - _totalDeposits) revert InsufficientBalance();
-
-    //set requests as completed
-    _markRequestCompleted(processedRequestId, applicationFees);
+    if (sum > _getAvailableBalance()) revert InsufficientBalance();
 
     //emit encrypted event
     i = 0;
@@ -328,6 +335,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       }
     }
 
+    Structs.RequestType reqType = requestInfo.requestType;
     if (reqType == Structs.RequestType.DEANONYMIZATION) {
       //a completed DEANONYMIZATION request must have always generated a report
       emit ReportGenerated(applicationId, processedRequestId);
@@ -343,9 +351,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       emit Refund(applicationId, processedRequestId, sender, refund);
     }
 
-    //credit fee to feeCollector's pending balance
-    _asyncTransfer(feeCollector, applicationFees);
-
     //credit withdrawals to receivers' pending balances
     i = 0;
     while (i < withdrawalRequests.length) {
@@ -360,6 +365,15 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         ++i;
       }
     }
+
+    //set requests as completed
+    _markRequestCompleted(
+      processedRequestId,
+      applicationFees,
+      Structs.RequestResult.COMPLETED,
+      Structs.ErrorCode.NO_ERROR,
+      ''
+    );
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -401,6 +415,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   function _asyncTransfer(address dest, uint256 amount) internal {
     payments[dest] += amount;
     _totalDeposits += amount;
+  }
+
+  function _getAvailableBalance() internal view returns (uint256) {
+    return address(this).balance - _totalDeposits;
   }
 
   /// @inheritdoc IProcessorEndpoint

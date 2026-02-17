@@ -3,12 +3,12 @@ pragma solidity ^0.8.28;
 import '../ProcessorEndpoint.sol';
 
 contract FallbackFailure {
-  // Ricezione diretta di Ether: fallisce sempre
+  // Direct Ether transfer: always fails
   receive() external payable {
     revert('Receive not allowed');
   }
 
-  // Chiamata non corrispondente a funzione: fallisce sempre
+  // If not function matches: always fails
   fallback() external payable {
     revert('Fallback not allowed');
   }

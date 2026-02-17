@@ -147,6 +147,10 @@ type Withdrawal struct {
 
 // UpdatePayload represents an update to the state
 type UpdatePayload struct {
+	// ErrorCode is the error code (0 for success, non-zero for error)
+	ErrorCode uint8 `json:"errorCode"`
+	// ErrorMsg is the error message (empty for success)
+	ErrorMsg string `json:"errorMsg"`
 	// ApplicationID is the ID of the application
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// RequestID is the ID of the request being processed

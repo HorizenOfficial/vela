@@ -92,6 +92,8 @@ type ProcessResponseData struct {
 type DeployAppRequestData struct {
 	// Request is the request to deploy an application
 	Request *common.Request `json:"request"`
+	// ApplicationState is the current state of the application
+	ApplicationState *common.ApplicationState `json:"applicationState"`
 }
 
 // DeployAppResponseData represents data for a deploy app response message

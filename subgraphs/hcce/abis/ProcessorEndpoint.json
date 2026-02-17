@@ -870,29 +870,6 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "requestId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "enum Structs.ErrorCode",
-        "name": "errorCode",
-        "type": "uint8"
-      },
-      {
-        "internalType": "string",
-        "name": "errorMessage",
-        "type": "string"
-      }
-    ],
-    "name": "markRequestFailed",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "maxQueueSize",
     "outputs": [
@@ -1103,6 +1080,16 @@
         "internalType": "uint256",
         "name": "applicationFees",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "errorCode",
+        "type": "uint8"
+      },
+      {
+        "internalType": "string",
+        "name": "errorMsg",
+        "type": "string"
       },
       {
         "internalType": "bytes",

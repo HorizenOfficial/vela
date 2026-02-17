@@ -16,15 +16,17 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         applicationId: 0,
         prevStateRoot: BYTES32_ZERO,
         newStateRoot: NEW_STATE_ROOT,
-        requestId: REQUEST_ID,
+        processedRequestId: REQUEST_ID,
         events: ['0x01'],
         eventSubTypes: ['subtype'],
-        withdrawals: [
+        withdrawalRequests: [
           [addr1, 50],
           [addr2, 50],
         ],
-        refund: 0,
-        applicationFees: 0,
+        refundAmount: 0,
+        applicationFee: 0,
+        errorCode: 0,
+        errorMsg: '',
       };
     }
 
@@ -34,20 +36,10 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           await deployNoAttestationTeeAuthenticatorEmptyFixture();
         const payload = buildPayload(await signers[0].getAddress(), await signers[1].getAddress());
 
-        await expect(
-          teeAuthenticator.checkSignature(
-            payload.applicationId,
-            payload.prevStateRoot,
-            payload.newStateRoot,
-            payload.requestId,
-            payload.events,
-            payload.eventSubTypes,
-            payload.withdrawals,
-            payload.refund,
-            payload.applicationFees,
-            '0x'
-          )
-        ).to.be.revertedWithCustomError(teeAuthenticator, 'TeeIsNotSet');
+        await expect(teeAuthenticator.checkSignature(payload, '0x')).to.be.revertedWithCustomError(
+          teeAuthenticator,
+          'TeeIsNotSet'
+        );
       });
 
       it('reverts with TeeIsNotSet when pubSecp521r1 length is invalid', async () => {
@@ -56,20 +48,10 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         });
         const payload = buildPayload(await signers[0].getAddress(), await signers[1].getAddress());
 
-        await expect(
-          teeAuthenticator.checkSignature(
-            payload.applicationId,
-            payload.prevStateRoot,
-            payload.newStateRoot,
-            payload.requestId,
-            payload.events,
-            payload.eventSubTypes,
-            payload.withdrawals,
-            payload.refund,
-            payload.applicationFees,
-            '0x'
-          )
-        ).to.be.revertedWithCustomError(teeAuthenticator, 'TeeIsNotSet');
+        await expect(teeAuthenticator.checkSignature(payload, '0x')).to.be.revertedWithCustomError(
+          teeAuthenticator,
+          'TeeIsNotSet'
+        );
       });
 
       it('returns false when signature does not match teeSigner', async () => {
@@ -81,26 +63,17 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           payload.applicationId,
           payload.prevStateRoot,
           payload.newStateRoot,
-          payload.requestId,
+          payload.processedRequestId,
           payload.events,
           payload.eventSubTypes,
-          payload.withdrawals,
-          payload.refund,
-          payload.applicationFees
+          payload.withdrawalRequests,
+          payload.refundAmount,
+          payload.applicationFee,
+          payload.errorCode,
+          payload.errorMsg
         );
 
-        const res = await teeAuthenticator.checkSignature(
-          payload.applicationId,
-          payload.prevStateRoot,
-          payload.newStateRoot,
-          payload.requestId,
-          payload.events,
-          payload.eventSubTypes,
-          payload.withdrawals,
-          payload.refund,
-          payload.applicationFees,
-          signature
-        );
+        const res = await teeAuthenticator.checkSignature(payload, signature);
         expect(res).to.equal(false);
       });
     });
@@ -115,26 +88,17 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           payload.applicationId,
           payload.prevStateRoot,
           payload.newStateRoot,
-          payload.requestId,
+          payload.processedRequestId,
           payload.events,
           payload.eventSubTypes,
-          payload.withdrawals,
-          payload.refund,
-          payload.applicationFees
+          payload.withdrawalRequests,
+          payload.refundAmount,
+          payload.applicationFee,
+          payload.errorCode,
+          payload.errorMsg
         );
 
-        const res = await teeAuthenticator.checkSignature(
-          payload.applicationId,
-          payload.prevStateRoot,
-          payload.newStateRoot,
-          payload.requestId,
-          payload.events,
-          payload.eventSubTypes,
-          payload.withdrawals,
-          payload.refund,
-          payload.applicationFees,
-          signature
-        );
+        const res = await teeAuthenticator.checkSignature(payload, signature);
         expect(res).to.equal(true);
       });
     });

@@ -9,7 +9,6 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/blockchain/testutil"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
 	commontestutil "github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/stretchr/testify/require"
@@ -100,37 +99,6 @@ func TestGetPendingRequests(t *testing.T) {
 
 }
 
-func TestMarkRequestFailed(t *testing.T) {
-
-	testHelper := setupSimTestHelper(t, true, nil)
-	defer testHelper.Close()
-
-	blockchainClient := SetupNewBlockChainClient(testHelper)
-
-	transferValue := big.NewInt(1000000)
-	maxFeeValue := big.NewInt(100)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
-
-	// wait for transaction inclusion
-	testHelper.WaitMined(tx)
-
-	res, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-
-	failure := apperrors.New(
-		apperrors.CodeSubmittingStateUpdateFailed,
-		"test failure",
-		nil,
-	)
-
-	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID, failure)
-	require.NoError(t, err)
-
-	res, err = blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be zero pending request")
-}
-
 func TestSubmitStateUpdate(t *testing.T) {
 
 	testHelper := setupSimTestHelper(t, true, nil)
@@ -169,7 +137,28 @@ func TestSubmitStateUpdate(t *testing.T) {
 	}
 
 	// =========================================================
-	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
+	// Case wrong application id
+	// =========================================================
+	payload.ApplicationID = 9999
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg := err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidApplicationId")
+	payload.ApplicationID = res.ApplicationID
+
+	// =========================================================
+	// Case wrong prev state root
+	// =========================================================
+	payload.PrevStateRoot = [32]byte{0x07, 0x08, 0xaa, 0xbb, 0xee}
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
+	payload.PrevStateRoot = oldStateRoot
+
+	// =========================================================
+	// Case refund + applicationFees != maxFeeValue -> InvalidValue
 	// =========================================================
 	payloadWrongSum := *payload // copy value
 	payloadWrongSum.RefundAmount = common.NewBig(80)
@@ -180,7 +169,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
 
 	// =========================================================
-	// Case 2: applicationFees < minFeePerRequest but correct sum -> InvalidValue
+	// Case applicationFees < minFeePerRequest but correct sum -> InvalidValue
 	// =========================================================
 	payloadWrongFee := *payload
 	payloadWrongFee.RefundAmount = common.NewBig(100)
@@ -200,35 +189,21 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(listOfRes), "There should be 0 pending request")
 
-	// Test error - NonceTooLow
+	// =========================================================
+	// Case NonceTooLow
+	// =========================================================
 	blockchainClient.account.Nonce = big.NewInt(0)
 	blockchainClient.account.GasLimit = 100000 //more than enough to avoid out of gas error
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
-	_, isReorg := err.(ReorgError)
+	_, isReorg = err.(ReorgError)
 	require.True(t, isReorg)
 
 	blockchainClient.account.Nonce = nil  //reset nonce to let it be fetched from the network
 	blockchainClient.account.GasLimit = 0 //reset gas limit to let it be estimated
 
-	// Test error - wrong application id
-	payload.ApplicationID = 9999
-	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
-	_, isReorg = err.(ReorgError)
-	require.True(t, isReorg)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidApplicationId")
-
-	// Test error - wrong prev state root
-	payload.ApplicationID = res.ApplicationID
-	payload.PrevStateRoot = [32]byte{0x07, 0x08, 0xaa, 0xbb, 0xee}
-
-	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
-	fmt.Printf("DEBUG update error: %v\n", err)
-
-	_, isReorg = err.(ReorgError)
-	require.True(t, isReorg)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
-
-	// Test error - wrong request id
+	// =========================================================
+	// Case wrong request id
+	// =========================================================
 	payload.PrevStateRoot = payload.NewStateRoot
 	payload.NewStateRoot = [32]byte{0x07, 0x08, 0x09}
 	payload.RequestID = commontestutil.GenerateRandomRequestID()
@@ -237,6 +212,48 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.True(t, isReorg)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
 }
+
+
+func TestSubmitStateUpdateRequestFailed(t *testing.T) {
+
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	transferValue := big.NewInt(1000000)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
+
+	// wait for transaction inclusion
+	testHelper.WaitMined(tx)
+
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID:  res.ApplicationID,
+		RequestID:      res.RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   oldStateRoot, // same as old state root to simulate failed request
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{},
+		Signature:      signature[:],
+		RefundAmount:   common.NewBig(90),
+		ApplicationFee: common.NewBig(10), // 90 + 10 = 100 == maxFeeValue
+		ErrorCode: 1,
+		ErrorMsg: "test error message",
+	}
+	
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+
+	listOfRes, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 0, len(listOfRes), "There should be zero pending request")
+}
+
 
 func TestSubmitRequest(t *testing.T) {
 	// mock private key for the client
