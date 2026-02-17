@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -587,7 +588,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
-		return fmt.Errorf(expectedError)
+		return errors.New(expectedError)
 	})
 
 	err = manager.processDeployApp(context.Background(), request)
@@ -683,7 +684,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	expectedError := "error"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
-		return nil, fmt.Errorf(expectedError)
+		return nil, errors.New(expectedError)
 	})
 	failure = manager.processProcessRequest(context.Background(), request)
 	require.Error(t, failure)
@@ -697,7 +698,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	// Failure in GetWasmCode, stop processing and return the error 
 	expectedError = "wasm bytecode not found for application"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, common.ApplicationIdType) ([]byte, error) {
-		return nil, fmt.Errorf(expectedError)
+		return nil, errors.New(expectedError)
 	})
 	failure = manager.processProcessRequest(context.Background(), request)
 	require.Error(t, failure)
@@ -711,7 +712,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	// Test failure in executor
 	expectedError = "failed to execute app"
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-		return nil, nil, nil, fmt.Errorf(expectedError)
+		return nil, nil, nil, errors.New(expectedError)
 	})
 
 	failure = manager.processProcessRequest(context.Background(), request)
@@ -726,7 +727,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	// Test data layer failure, stop processing and return the error
 	expectedError = "failed to store state"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
-		return fmt.Errorf("%s", expectedError)
+		return errors.New(expectedError)
 	})
 
 	failure = manager.processProcessRequest(context.Background(), request)
@@ -763,7 +764,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
-		return fmt.Errorf(expectedError)
+		return errors.New(expectedError)
 	})
 
 	failure = manager.processProcessRequest(context.Background(), request)
