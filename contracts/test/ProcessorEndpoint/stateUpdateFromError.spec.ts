@@ -172,7 +172,7 @@ describe('ProcessorEndpoint Test', function () {
             .stateUpdate(
               APPLICATION_ID,
               BYTES32_ZERO,
-              '0x' + '33'.repeat(32),
+              BYTES32_ZERO,
               second.requestId,
               [],
               [],
@@ -222,7 +222,7 @@ describe('ProcessorEndpoint Test', function () {
           fixture.signers[4],
           APPLICATION_ID,
           BYTES32_ZERO,
-          '0x' + '66'.repeat(32),
+          BYTES32_ZERO,
           request.requestId,
           [],
           [],
@@ -239,7 +239,7 @@ describe('ProcessorEndpoint Test', function () {
             .stateUpdate(
               APPLICATION_ID,
               BYTES32_ZERO,
-              '0x' + '66'.repeat(32),
+              BYTES32_ZERO,
               request.requestId,
               [],
               [],
@@ -247,7 +247,7 @@ describe('ProcessorEndpoint Test', function () {
               0,
               fixture.minFeePerRequest,
               1,
-              '',
+              'error',
               signature
             )
         ).to.be.revertedWithCustomError(fixture.processorEndpoint, 'InvalidSignature');
