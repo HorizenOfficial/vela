@@ -13,7 +13,7 @@ import (
 
 func LoadModule(appId int64) types.LoadModuleResult {
 	initialState := &ApplicationInternalState{
-		AppID:    appId,
+		AppID:    uint64(appId),
 		Accounts: make(map[string]*AccountState),
 	}
 	stateJSON, err := json.Marshal(initialState)
