@@ -12,6 +12,7 @@ import (
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
@@ -1136,4 +1137,77 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	require.Equal(t, request.RequestID, report.ReportID, "Report ID should match the request ID")
 	require.Equal(t, request.ApplicationID, report.ApplicationID, "Report App ID should match the request App ID")
 	require.Equal(t, sender, report.Authority, "Report authority should match the request sender")
+}
+
+func TestGetAndSetLogLevel(t *testing.T) {
+	_, manager := setupTest(t)
+	ctx := context.Background()
+
+	// 1. GetLogLevel - get current level (should be "trace" as configured in TestMain)
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
+	result, err := manager.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	initialLevel := result.(string)
+	require.Equal(t, "trace", initialLevel, "Initial log level should be trace")
+
+	// 2. SetLogLevel - change it to "error"
+	setData, err := json.Marshal(struct {
+		Level string `json:"level"`
+	}{Level: "error"})
+	require.NoError(t, err)
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
+	require.NoError(t, err)
+	// Verify the set response
+	respBytes, err := json.Marshal(result)
+	require.NoError(t, err)
+	var setResp struct {
+		Success bool   `json:"success"`
+		Level   string `json:"level"`
+	}
+	err = json.Unmarshal(respBytes, &setResp)
+	require.NoError(t, err)
+	require.True(t, setResp.Success)
+	require.Equal(t, "error", setResp.Level)
+
+	// 3. GetLogLevel again - verify it changed to "error"
+	result, err = manager.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	newLevel := result.(string)
+	require.Equal(t, "error", newLevel, "Log level should be error after SetLogLevel")
+
+	// 4. SetLogLevel with empty string - should fail
+	setData, err = json.Marshal(struct {
+		Level string `json:"level"`
+	}{Level: ""})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
+	require.Error(t, err, "Empty log level should return an error")
+	require.Nil(t, result)
+	require.Contains(t, err.Error(), "must not be empty")
+
+	// Verify level is still "error" (unchanged after failed set)
+	result, err = manager.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	require.Equal(t, "error", result.(string), "Log level should remain error after failed SetLogLevel")
+
+	// 5. SetLogLevel with invalid level - should fail
+	setData, err = json.Marshal(struct {
+		Level string `json:"level"`
+	}{Level: "bogus"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
+	require.Error(t, err, "Invalid log level should return an error")
+	require.Nil(t, result)
+
+	// Restore original level for other tests
+	setData, err = json.Marshal(struct {
+		Level string `json:"level"`
+	}{Level: initialLevel})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	_, err = manager.ExecuteCommand(ctx, setMsg)
+	require.NoError(t, err)
 }

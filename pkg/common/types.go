@@ -137,6 +137,11 @@ type Event struct {
 	EncryptedData []byte `json:"encryptedData"`
 }
 
+func (e Event) String() string {
+	return fmt.Sprintf("Event{ApplicationID: %d, UserID: %s, EventSubType: %s, EncryptedData: %s}",
+		e.ApplicationID, e.UserID.Hex(), e.EventSubType, hex.EncodeToString(e.EncryptedData))
+}
+
 // Withdrawal represents a withdrawal from the system
 type Withdrawal struct {
 	// DestinationAddress is the address to send the funds to

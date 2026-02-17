@@ -12,77 +12,42 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-
-var testLogger logger.Logger
-
-func init() {
-	testLogger = logger.NewLogger(
-		&logger.Config{
-			Kind:         "zerolog",
-			ConsoleColor: false, // colors can print escape chars on tty
-			Console:      true,
-			ConsoleLevel: "trace",
-		},
-	)
+// mockManagerSupportedCommands is the list of commands supported by the mock manager handler
+var mockManagerSupportedCommands = []AdminMessageType{
+	GetVersionRequestMessage,
 }
 
-// mockExecutorSupportedCommands is the list of commands supported by the mock executor handler
-var mockExecutorSupportedCommands = []AdminMessageType{
-	KeyAttestationRequestMessage,
+// MockManagerCmdHandler is a mock implementation of the AdminCmdHandler interface.
+type MockManagerCmdHandler struct {
+	version   string
+	err       error
+	callCount int
+	mu        sync.Mutex
 }
 
-// MockAdminCmdHandler is a mock implementation of the AdminCmdHandler interface.
-type MockAdminCmdHandler struct {
-	attestation []byte
-	err         error
-	callCount   int
-	mu          sync.Mutex
-}
-
-func (m *MockAdminCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error) {
+func (m *MockManagerCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
 
-	if !IsSupportedCommand(msg.Type, mockExecutorSupportedCommands) {
+	if !IsSupportedCommand(msg.Type, mockManagerSupportedCommands) {
 		return nil, errors.New("unsupported command type")
 	}
 
-	return m.attestation, m.err
+	return m.version, m.err
 }
 
-func (m *MockAdminCmdHandler) GetCallCount() int {
+func (m *MockManagerCmdHandler) GetCallCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.callCount
 }
 
-// MockConnectionFactory is a mock for ConnectionFactory.
-type MockConnectionFactory struct {
-	listener net.Listener
-	err      error
-}
-
-func (m *MockConnectionFactory) CreateServerListener() (net.Listener, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.listener, nil
-}
-
-func (m *MockConnectionFactory) CreateClientConnection() (net.Conn, error) {
-	// Not used in server tests
-	return nil, nil
-}
-
-
-var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
-func TestAdminServer_StartStop(t *testing.T) {
+func TestManagerAdminServer_StartStop(t *testing.T) {
 	listener, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer listener.Close()
 
@@ -113,19 +78,19 @@ func TestAdminServer_StartStop(t *testing.T) {
 	assert.Error(t, err, "listener should be closed after Stop")
 }
 
-func TestAdminServer_HandleRequestsKeyAttestationSuccess(t *testing.T) {
+func TestManagerAdminServer_HandleGetVersionSuccess(t *testing.T) {
 	server := NewAdminServer(nil, commParams, testLogger)
 	server.clientTimeout = 500 * time.Millisecond
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
 
-	handler := &MockAdminCmdHandler{attestation: []byte("attestation_data")}
+	handler := &MockManagerCmdHandler{version: "1.2.3"}
 	server.SetCmdHandler(handler)
 
 	go server.handleNewClient(context.Background(), serverConn, "test")
 
 	// Send request from client side
-	req := AdminMessage{Type: KeyAttestationRequestMessage}
+	req := AdminMessage{Type: GetVersionRequestMessage}
 	reqBytes, _ := json.Marshal(req)
 	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
@@ -139,23 +104,24 @@ func TestAdminServer_HandleRequestsKeyAttestationSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, AdminResponseMessage, respMsg.Type)
-	assert.Equal(t, `"YXR0ZXN0YXRpb25fZGF0YQ=="`, string(respMsg.Data)) // base64 encoded
+	var version string
+	json.Unmarshal(respMsg.Data, &version)
+	assert.Equal(t, "1.2.3", version)
 	assert.Equal(t, 1, handler.GetCallCount())
-
 }
 
-func TestAdminServer_HandleRequestsKeyAttestationHandlerError(t *testing.T) {
+func TestManagerAdminServer_HandleGetVersionHandlerError(t *testing.T) {
 	server := NewAdminServer(nil, commParams, testLogger)
 	server.clientTimeout = 500 * time.Millisecond
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
 
-	handler := &MockAdminCmdHandler{err: errors.New("handler failed")}
+	handler := &MockManagerCmdHandler{err: errors.New("version error")}
 	server.SetCmdHandler(handler)
 
 	go server.handleNewClient(context.Background(), serverConn, "test")
 
-	req := AdminMessage{Type: KeyAttestationRequestMessage}
+	req := AdminMessage{Type: GetVersionRequestMessage}
 	reqBytes, _ := json.Marshal(req)
 	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
@@ -171,19 +137,18 @@ func TestAdminServer_HandleRequestsKeyAttestationHandlerError(t *testing.T) {
 	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
-	assert.Equal(t, "handler failed", errData.Message)
+	assert.Equal(t, "version error", errData.Message)
 	assert.Equal(t, 1, handler.GetCallCount())
-
 }
 
-func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
-	server := NewAdminServer(nil, commParams,testLogger)
+func TestManagerAdminServer_HandleUnknownRequest(t *testing.T) {
+	server := NewAdminServer(nil, commParams, testLogger)
 	server.clientTimeout = 500 * time.Millisecond
 
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
 
-	handler := &MockAdminCmdHandler{}
+	handler := &MockManagerCmdHandler{version: "1.0.0"}
 	server.SetCmdHandler(handler)
 
 	go server.handleNewClient(context.Background(), serverConn, "test")
@@ -204,13 +169,12 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
-
 }
 
-func TestAdminServer_ServerBusy(t *testing.T) {
-	server := NewAdminServer(nil, common.CommunicationParams{RequestTimeoutSec: 2 }, testLogger)
+func TestManagerAdminServer_ServerBusy(t *testing.T) {
+	server := NewAdminServer(nil, common.CommunicationParams{RequestTimeoutSec: 2}, testLogger)
 
-	handler := &MockAdminCmdHandler{attestation: []byte("another_attestation_data")}
+	handler := &MockManagerCmdHandler{version: "1.0.0"}
 	server.SetCmdHandler(handler)
 
 	// Occupy the server with a "first" client
@@ -241,7 +205,7 @@ func TestAdminServer_ServerBusy(t *testing.T) {
 	assert.Equal(t, "INVALID_REQUEST", errData.Code)
 	assert.Equal(t, "server is busy", errData.Message)
 
-	//  Try again after the first client timed out
+	// Try again after the first client timed out
 	time.Sleep(server.clientTimeout)
 
 	require.NotNil(t, server.client) // client still pending
@@ -252,7 +216,7 @@ func TestAdminServer_ServerBusy(t *testing.T) {
 	go server.handleNewClient(context.Background(), serverConn3, "test_not_busy")
 
 	// Send request from third client side
-	req := AdminMessage{Type: KeyAttestationRequestMessage}
+	req := AdminMessage{Type: GetVersionRequestMessage}
 	reqBytes, _ := json.Marshal(req)
 	_, err = clientConn3.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
@@ -267,13 +231,94 @@ func TestAdminServer_ServerBusy(t *testing.T) {
 	assert.Equal(t, AdminResponseMessage, respMsg.Type)
 }
 
-func TestReadMessageFromSocket_ConnectionClosed(t *testing.T) {
-	client, server := net.Pipe()
+// MockLogLevelCmdHandler simulates a manager that handles GetLogLevel and SetLogLevel commands.
+type MockLogLevelCmdHandler struct {
+	mu    sync.Mutex
+	level string
+}
 
-	go func() {
-		server.Close() // Close the connection immediately
-	}()
+func (m *MockLogLevelCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	_, err := communication.ReadMessageFromSocket(client, bufio.NewReader(client), "test", testLogger)
-	assert.Error(t, err, "Expected an error when connection is closed")
+	switch msg.Type {
+	case GetLogLevelRequestMessage:
+		return m.level, nil
+	case SetLogLevelRequestMessage:
+		var req struct {
+			Level string `json:"level"`
+		}
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			return nil, err
+		}
+		m.level = req.Level
+		return struct {
+			Success bool   `json:"success"`
+			Level   string `json:"level"`
+		}{Success: true, Level: req.Level}, nil
+	default:
+		return nil, errors.New("unsupported command type")
+	}
+}
+
+func TestManagerAdminServer_GetAndSetLogLevel(t *testing.T) {
+	handler := &MockLogLevelCmdHandler{level: "info"}
+
+	// Helper: send a command and read the response via a fresh connection
+	sendCommand := func(server *AdminServer, msg AdminMessage) AdminMessage {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+
+		go server.handleNewClient(context.Background(), serverConn, "test")
+
+		reqBytes, err := json.Marshal(msg)
+		require.NoError(t, err)
+		_, err = clientConn.Write(append(reqBytes, communication.MsgDelimiter))
+		require.NoError(t, err)
+
+		respBytes, err := bufio.NewReader(clientConn).ReadBytes(communication.MsgDelimiter)
+		require.NoError(t, err)
+
+		var respMsg AdminMessage
+		err = json.Unmarshal(respBytes, &respMsg)
+		require.NoError(t, err)
+		return respMsg
+	}
+
+	server := NewAdminServer(nil, commParams, testLogger)
+	server.clientTimeout = 500 * time.Millisecond
+	server.SetCmdHandler(handler)
+
+	// 1. GetLogLevel - should return "info"
+	resp := sendCommand(server, AdminMessage{Type: GetLogLevelRequestMessage})
+	assert.Equal(t, AdminResponseMessage, resp.Type)
+	var level string
+	json.Unmarshal(resp.Data, &level)
+	assert.Equal(t, "info", level)
+
+	// Small delay to let the server goroutine complete cleanup (single-client constraint)
+	time.Sleep(50 * time.Millisecond)
+
+	// 2. SetLogLevel - change to "debug"
+	setData, _ := json.Marshal(struct {
+		Level string `json:"level"`
+	}{Level: "debug"})
+	resp = sendCommand(server, AdminMessage{Type: SetLogLevelRequestMessage, Data: setData})
+	assert.Equal(t, AdminResponseMessage, resp.Type)
+	var setResp struct {
+		Success bool   `json:"success"`
+		Level   string `json:"level"`
+	}
+	json.Unmarshal(resp.Data, &setResp)
+	assert.True(t, setResp.Success)
+	assert.Equal(t, "debug", setResp.Level)
+
+	// Small delay to let the server goroutine complete cleanup (single-client constraint)
+	time.Sleep(50 * time.Millisecond)
+
+	// 3. GetLogLevel again - should now return "debug"
+	resp = sendCommand(server, AdminMessage{Type: GetLogLevelRequestMessage})
+	assert.Equal(t, AdminResponseMessage, resp.Type)
+	json.Unmarshal(resp.Data, &level)
+	assert.Equal(t, "debug", level)
 }

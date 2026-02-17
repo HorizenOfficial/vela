@@ -23,8 +23,23 @@ import (
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/testutil"
-	appCommon "github.com/horizen-pes/pkg/wasm/common"
 )
+
+// host-side event types for test validation (app-specific, not framework types)
+type hostDepositEvent struct {
+	Type    string      `json:"type"`
+	Amount  *common.Big `json:"amount"`
+	Balance *common.Big `json:"balance"`
+	Nonce   uint64      `json:"nonce"`
+}
+
+type hostWithdrawalEvent struct {
+	Type    string            `json:"type"`
+	To      ethCommon.Address `json:"to"`
+	Amount  *common.Big       `json:"amount"`
+	Balance *common.Big       `json:"balance"`
+	Nonce   uint64            `json:"nonce"`
+}
 
 // getTestLogger creates a new logger instance for every test
 func getTestLogger(t *testing.T, useNetwork bool) logger.Logger {
@@ -137,7 +152,7 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	decryptedDepositData, err := cryptoHelper.DecryptEvent(user, depositEvent, executorPubKey)
 	require.NoError(t, err)
 
-	var depositEventData appCommon.DepositEvent
+	var depositEventData hostDepositEvent
 	err = json.Unmarshal(decryptedDepositData, &depositEventData)
 	require.NoError(t, err)
 	require.Equal(t, "deposit", depositEventData.Type)
@@ -150,6 +165,164 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	require.NoError(t, err)
 	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
 	require.NoError(t, err)
+}
+
+// withdrawFromSimpleApp is a helper function to withdraw funds from the simple app.
+func withdrawFromSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, reqID common.RequestIdType, user, recipient ethCommon.Address, amount *big.Int) {
+	t.Helper()
+	timeout := 100 * time.Second
+
+	// Get executor's communication key for encryption
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
+	// Create and submit withdrawal request
+	withdrawalReq, err := cryptoHelper.CreateWithdrawalRequest(
+		appID,
+		reqID,
+		user,
+		recipient,
+		common.ToBig(amount),
+		executorPubKey,
+	)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(withdrawalReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Wait for, decrypt and verify withdrawal event
+	withdrawalEvent, err := suite.WaitForEvent(user, "withdrawal", timeout)
+	require.NoError(t, err)
+	decryptedWithdrawalData, err := cryptoHelper.DecryptEvent(user, withdrawalEvent, executorPubKey)
+	require.NoError(t, err)
+
+	var withdrawalEventData hostWithdrawalEvent
+	err = json.Unmarshal(decryptedWithdrawalData, &withdrawalEventData)
+	require.NoError(t, err)
+	require.Equal(t, "withdrawal", withdrawalEventData.Type)
+	require.Equal(t, recipient, withdrawalEventData.To)
+	require.Equal(t, 0, amount.Cmp(withdrawalEventData.Amount.ToInt()))
+
+	// Verify on-chain withdrawal was recorded
+	withdrawal, err := suite.WaitForWithdrawal(appID, timeout)
+	require.NoError(t, err)
+	require.NotNil(t, withdrawal)
+	require.Equal(t, recipient, withdrawal.DestinationAddress)
+	require.Equal(t, 0, amount.Cmp(withdrawal.Amount.ToInt()))
+
+	// Verify updatePayload signature
+	executorSigningKey, err := suite.GetExecutorSigningKey()
+	require.NoError(t, err)
+	payload, err := suite.GetRequestUpdatePayload(reqID)
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+}
+
+func TestSimpleAppDepositAndWithdraw(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	log := getTestLogger(t, true)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
+	defer suite.Cleanup()
+
+	wasmBytecode := buildAndLoadWasmModule(t)
+
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	appID := common.NewApplicationId(1)
+	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
+	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
+	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	timeout := 100 * time.Second
+
+	cryptoHelper := testutil.NewCryptoHelper()
+
+	// Deploy the application
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, wasmBytecode)
+
+	// Register user key
+	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
+	require.NoError(t, err)
+	reqID := commontestutil.GenerateRandomRequestID()
+	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey())
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(associateKeyReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Register auditor key
+	auditorKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
+	require.NoError(t, err)
+	reqID = commontestutil.GenerateRandomRequestID()
+	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey())
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(associateAuditorReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Deposit 2 ETH and validate event fields
+	depositAmount := big.NewInt(2000000000000000000)
+	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, depositAmount)
+
+	// Withdraw 0.5 ETH and validate event fields
+	withdrawAmount := big.NewInt(500000000000000000)
+	withdrawFromSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, recipientAddress, withdrawAmount)
+
+	// Deanonymization report as auditor — verifies final state after deposit and withdrawal
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
+	reqID = commontestutil.GenerateRandomRequestID()
+	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(appID, reqID, auditorAddress, []byte("{}"), executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(deanonReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	deanonReport, err := suite.WaitForDeanonymizationReport(reqID, timeout)
+	require.NoError(t, err)
+	require.NotNil(t, deanonReport)
+
+	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditorAddress, deanonReport, executorPubKey)
+	require.NoError(t, err)
+
+	var report struct {
+		ApplicationId   common.ApplicationIdType `json:"applicationId"`
+		RequestId       common.RequestIdType     `json:"requestId"`
+		ReportDataBytes interface{}              `json:"reportDataBytes"`
+	}
+	err = json.Unmarshal(decryptedReport, &report)
+	require.NoError(t, err)
+	require.Equal(t, appID, report.ApplicationId)
+	require.Equal(t, reqID, report.RequestId)
+
+	jsonStr, ok := report.ReportDataBytes.(string)
+	require.True(t, ok, "reportDataBytes is not a string")
+	reportBytes, err := base64.StdEncoding.DecodeString(jsonStr)
+	require.NoError(t, err, "reportDataBytes is not base64 encoded")
+
+	var reportData map[string]interface{}
+	err = json.Unmarshal(reportBytes, &reportData)
+	require.NoError(t, err)
+	require.Contains(t, reportData, "accounts")
+
+	// Verify user balance reflects deposit minus withdrawal (2 ETH - 0.5 ETH = 1.5 ETH)
+	accounts, ok := reportData["accounts"].(map[string]interface{})
+	require.True(t, ok, "accounts is not a map")
+	require.Len(t, accounts, 1, "expected exactly one account in report")
+
+	expectedBalance := new(big.Int).Sub(depositAmount, withdrawAmount)
+	for _, acct := range accounts {
+		acctMap, ok := acct.(map[string]interface{})
+		require.True(t, ok, "account entry is not a map")
+		balanceStr, ok := acctMap["balance"].(string)
+		require.True(t, ok, "balance is not a string")
+		require.True(t, len(balanceStr) > 2 && balanceStr[:2] == "0x", "balance is not hex")
+		balance, ok := new(big.Int).SetString(balanceStr[2:], 16)
+		require.True(t, ok, "failed to parse balance hex")
+		require.Equal(t, 0, expectedBalance.Cmp(balance),
+			"expected balance %s, got %s", expectedBalance, balance)
+	}
 }
 
 func TestExecutorManagerStart(t *testing.T) {
@@ -238,20 +411,6 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 
 }
 
-func TestWasmtimeRuntimeSimpleAppFullSystemFlow(t *testing.T) {
-	//	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	if os.Getenv("CI_FLAG") != "" {
-		t.Skip("Skipping long running test in CI environment")
-	}
-
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log2, log2)
-	defer suite.Cleanup()
-
-	wasmBytecode := buildAndLoadWasmModule(t)
-
-	testutil.ExecTestAppFullSystemFlow(t, suite, wasmBytecode)
-}
 
 func TestSimpleAppCompareAction(t *testing.T) {
 	log1 := getTestLogger(t, false)

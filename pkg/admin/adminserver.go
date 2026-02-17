@@ -9,11 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/communication"
+	"github.com/horizen-pes/pkg/logger"
 )
-
 
 type AdminClientConnection struct {
 	conn     net.Conn
@@ -84,21 +83,22 @@ func (s *AdminServer) Stop() error {
 	s.isRunning = false
 	close(s.shutdownChan)
 
-			// Close listener
-			if s.listener != nil {
-				s.listener.Close()
-			}
-	
-			// Forcefully close any active client connection to unblock handlers.
-			s.clientMu.Lock()
-			if s.client != nil {
-				s.client.conn.Close()
-			}
-			s.clientMu.Unlock()
-	
-			return nil}
+	// Close listener
+	if s.listener != nil {
+		s.listener.Close()
+	}
 
-// SetRequestHandler sets the handler for client requests
+	// Forcefully close any active client connection to unblock handlers.
+	s.clientMu.Lock()
+	if s.client != nil {
+		s.client.conn.Close()
+	}
+	s.clientMu.Unlock()
+
+	return nil
+}
+
+// SetCmdHandler sets the handler for client requests
 func (s *AdminServer) SetCmdHandler(handler AdminCmdHandler) {
 	s.handler = handler
 }
@@ -222,7 +222,7 @@ func (c *AdminClientConnection) handleAdminCommand(ctx context.Context, handler 
 		return
 	}
 
-	// Parse and route the complete message
+	// Parse the message
 	var msg AdminMessage
 	if err := json.Unmarshal(msgBytes, &msg); err != nil {
 		c.log.Error("%s: Error parsing message: %v", c.idLogTag, err)
@@ -232,45 +232,37 @@ func (c *AdminClientConnection) handleAdminCommand(ctx context.Context, handler 
 
 	c.log.Info("%s: Received message: Type=%v", c.idLogTag, msg.Type)
 
-	switch msg.Type {
-	case KeyAttestationRequestMessage:
-		c.handleKeyAttestationRequest(ctx, handler)
-
-	default:
-		c.sendErrorResponse("UNKNOWN_REQUEST", fmt.Errorf("unknown request type: %v", msg.Type))
-	}
-}
-
-// handleProcessRequest handles ProcessRequest messages
-func (c *AdminClientConnection) handleKeyAttestationRequest(ctx context.Context, handler AdminCmdHandler) {
-
-	attestation, err := handler.CreateKeyAttestation(ctx)
+	// Execute the command using the handler
+	result, err := handler.ExecuteCommand(ctx, msg)
 	if err != nil {
-		c.sendErrorResponse("ERROR_CREATING_ATTESTATION", err)
+		c.sendErrorResponse("COMMAND_ERROR", err)
 		return
 	}
 
-	response := AdminMessage{
-		Type: AdminResponseMessage,
-		Data: attestation,
+	// Send the response
+	response, marshalErr := NewAdminMessage(AdminResponseMessage, result)
+	if marshalErr != nil {
+		c.sendErrorResponse("INTERNAL_ERROR", marshalErr)
+		return
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		c.log.Warn("%s: Failed to send handleKeyAttestationRequest response: %v", c.idLogTag, err)
+		c.log.Warn("%s: Failed to send response: %v", c.idLogTag, err)
 		return
 	}
-	c.log.Info("%s: CreateKeyAttestation handled successfully", c.idLogTag)
+	c.log.Info("%s: Command handled successfully", c.idLogTag)
 }
 
 // sendErrorResponse sends an error response
 func (c *AdminClientConnection) sendErrorResponse(code string, err error) {
 	c.log.Info("%s: Sending error response: Code=%s, Error=%v", c.idLogTag, code, err)
-	response := AdminMessage{
-		Type: AdminErrorMessage,
-		Data: communication.ErrorData{
-			Code:    code,
-			Message: err.Error(),
-		},
+	response, marshalErr := NewAdminMessage(AdminErrorMessage, communication.ErrorData{
+		Code:    code,
+		Message: err.Error(),
+	})
+	if marshalErr != nil {
+		c.log.Error("%s: Failed to marshal error response: %v", c.idLogTag, marshalErr)
+		return
 	}
 
 	if sendErr := c.sendMessage(response); sendErr != nil {
