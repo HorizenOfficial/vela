@@ -63,9 +63,7 @@ func CreateNewKeySet() (*EnclaveKeySet, error) {
 }
 
 // importFixedKeySet creates an EnclaveKeySet from hex-encoded private keys.
-func (e *StatelessExecutor) importFixedKeySet(signingHex, commHex, stateHex string) (*EnclaveKeySet, error) {
-	e.log.Info("Executor: import fixed key set")
-	e.log.Info("!!! UNSAFE !!! USE ONLY FOR DEV ENVIRONMENT")
+func importFixedKeySet(signingHex, commHex, stateHex string) (*EnclaveKeySet, error) {
 	signingKey, err := crypto.ImportPrivateKeySecp256k1FromHex(signingHex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to import fixed signing key: %w", err)
