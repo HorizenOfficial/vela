@@ -1,5 +1,5 @@
 This folder contains an example docker compose to be used for debug/demo.<br>
-It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overview) and two separate processes with the processor and the manager
+It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview), automatically deploys the smart contracts, and runs the processor manager and authority service.
 
 ## Instructions:
 
@@ -7,10 +7,12 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
     To build locally the docker images needed by the docker compose run *from the project root folder* the following commands:
 
     ```
-    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile . 
-    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile . 
+    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile .
+    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile .
     docker build -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
-    docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile . 
+    docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile .
+    docker build -t horizen/cce-deployer -f dockerfiles/deployer/Dockerfile .
+    docker build -t horizen/cce-subgraph-deployer -f dockerfiles/subgraph-deployer/Dockerfile .
     ```
 
 2) Switch to "dockerfiles" folder
@@ -19,14 +21,27 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
     cd dockerfiles
     ```
 
-3) Create an .env file using .env.template as draft
+3) Create an .env file. For local development you can copy the ready-made dev defaults:
 
+    ```
+    cp .env.dev .env
+    ```
+
+    Or create one from scratch using `.env.template` as a reference.
 
 4) Start the environment with:
 
     ```
-    docker compose up 
+    docker compose up
     ```
+
+    The startup sequence is:
+    1. **chain** (Anvil) starts and becomes available
+    2. **subgraph-postgres**, **subgraph-ipfs** start (Graph Node infrastructure)
+    3. **deployer** connects to the chain, deploys all smart contracts, writes the deployed addresses to a shared volume, and exits
+    4. **subgraph-node** (Graph Node) starts, connects to the chain, and becomes healthy
+    5. **subgraph-deployer** reads the deployed contract addresses, generates a local subgraph manifest, and deploys the subgraph to Graph Node, then exits
+    6. **manager** and **authorityservice** start, reading the deployed contract addresses and querying the subgraph automatically
 
 ## Additional info:
 
@@ -35,14 +50,18 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
 
 - the manager database and chain data are persisted in docker volumes (`horizen-cce-manager-data` for the DB, `horizen-cce-chain-data` for chain data).<br>
   To start from scratch, delete the volumes.
+- deployed contract addresses are stored in the `horizen-cce-deploy-data` volume. The deployer checks this on startup and skips deployment if contracts are already present on the chain.
 - deanonymization reports are stored in `horizen-cce-manager-reports`; the authority service shares this reports volume so it can read the same outputs.
 - to connect to the chain from Metamask, use the following parameters:
    - rpc url: http://localhost:8545
    - chainid: 31337
 
-Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.  
+Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.
 Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
 
-## Where to go next: 
+## Restarting and volume management
 
-- The Anvil chain node is created empty: to have a running dev environment you must deploy the contracts using the hardhat scripts in the contracts/ folder. After having deployed them, be sure to update the  CHAIN_PROCESSOR_ADDRESS in the .env file with the address of the ProcessorEndpoint smart contract, and restart the docker compose.
+- **Restart without deleting volumes**: the deployer detects existing contracts and skips deployment. Fast restart.
+- **Chain data deleted** (`docker volume rm dockerfiles_horizen-cce-chain-data`): the deployer detects contracts are missing from the chain and redeploys.
+- **Deploy data deleted** (`docker volume rm dockerfiles_horizen-cce-deploy-data`): the deployer redeploys (same addresses since Anvil is deterministic with the same nonce).
+- **Contracts modified**: rebuild the deployer image, delete both volumes, and restart.
