@@ -29,8 +29,8 @@ type NsmSession interface {
 	Close() error
 }
 
-// As of now we support only one app having this ID
 var (
+	// As of now we support only one app having this ID
 	admittedAppID = common.NewApplicationId(1)
 	admittedProtocolVersion = uint8(0)
 	emptyStateRoot = [32]byte{}
@@ -311,12 +311,12 @@ func (e *StatelessExecutor) Close() error {
 // Returns UpdatePayload, ApplicationState, optional DeanonymizationReport, and error
 func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
 	e.log.Info("Executor: Processing request %s for application %d", req.RequestID, req.ApplicationID)
-	//TODO ST In order to check that the request was not tampered, we could use the requestId, that is a hash of the request parameters + an index from the ProcessorEndpoint.
-	// The index could be added to the request and then the requestId could be reconstructed here and compared with the one in the request. 
-	// This would ensure that the request parameters were not tampered with, otherwise the hash would not match.
 
-	// Sanity checks that the request has not be tampered. The following are checks that should have been done by the manager or by the contract, so if they fail here
+	// Sanity checks that the request was not tampered. The following are checks that should have been done by the manager or by the contract, so if they fail here
 	// it means that there is a tampering or a bug in the manager. For all these checks we do not set the request as failed because it is not a fault of the request, but rather a fault of the manager or a tampering attempt.
+	//TODO ST As a safer alternative, in order to check that the request was not tampered, we could use the requestId, that is a hash of the request parameters + an index from the ProcessorEndpoint.
+	// The index could be added to the request and then the requestId could be reconstructed here and compared with the one in the request. 
+	// This would ensure that the request parameters were not tampered, otherwise the hash would not match. 
 	if req.ProtocolVersion != admittedProtocolVersion {
 		return nil, nil, nil, fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
 	}
@@ -325,10 +325,6 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		// if there is a bug in the manager. In both cases, it is not a fault of the request and so it is not set as failed.
 		// When the multi app will be implemented, this will be changed accordingly
 		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
-	}
-
-	if len(req.Payload) == 0 {	
-		return nil, nil, nil, fmt.Errorf("request payload is empty")
 	}
 
 	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize {
@@ -573,12 +569,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 // HandleDeployApp implements the RequestHandler interface
 func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
 	e.log.Info("Executor: Deploying application for request %s", req.RequestID)
-	//TODO ST In order to check that the request was not tampered, we could use the requestId, that is a hash of the request parameters + an index from the ProcessorEndpoint.
-	// The index could be added to the request and then the requestId could be reconstructed here and compared with the one in the request. 
-	// This would ensure that the request parameters were not tampered with, otherwise the hash would not match.
 
-	// Sanity checks that the request has not be tampered. The following are checks that should have been done by the manager or by the contract, so if they fail here
-	// it means that there is a tampering or a bug in the manager. For all these checks we do not set the request as failed because it is not a fault of the request, but rather a fault of the manager or a tampering attempt.
+	// Sanity checks that the request was not tampered. The following are checks that should have been done by the manager or by the contract, so if they fail here
+	// it means that there is a tampering or a bug in the manager. For all these checks we do not set the request as failed because it is not a fault of the request, 
+	// but rather a fault of the manager or a tampering attempt.
+	//TODO ST As a safer alternative, in order to check that the request was not tampered, we could use the requestId, that is a hash of the request parameters + an index from the ProcessorEndpoint.
+	// The index could be added to the request and then the requestId could be reconstructed here and compared with the one in the request. 
+	// This would ensure that the request parameters were not tampered, otherwise the hash would not match. 
 	if req.ProtocolVersion != admittedProtocolVersion {
 		return nil, nil, fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
 	}
@@ -592,10 +589,6 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	if req.RequestType != common.Deploy {	
 		return nil, nil, fmt.Errorf("request type %s is not deploy", req.RequestType)
-	}
-
-	if len(req.Payload) == 0 {	
-		return nil, nil, fmt.Errorf("request payload is empty")
 	}
 
 	// This check should be updated the moment the minimum fee can be updated
@@ -629,7 +622,8 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 		return errorPayload, nil, err
 	}
 
-	// Check if there is enough ETH to cover the fuel costs // TODO make a helper function?
+	// Check if there is enough ETH to cover the fuel costs 
+	// TODO make a helper function?
 	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
 
 	// Application fee must be minumum fee at least

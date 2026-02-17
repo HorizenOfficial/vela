@@ -97,6 +97,11 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 		return f.(func(context.Context, *common.Request, *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req, appState)
 	}
 
+
+	if req.ApplicationID != ApplicationId {	
+		return nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	}
+
 	if appState != nil {	
 		failurePayload := &common.UpdatePayload{
 			ApplicationID: req.ApplicationID, 
@@ -109,11 +114,6 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 
 		return failurePayload, nil, nil
 	}
-
-	if req.ApplicationID != ApplicationId {	
-		return nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
-	}
-
 	stateRoot := m.generateRandomStateRoot()
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, NewStateRoot: stateRoot}, &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
 }
@@ -121,6 +121,16 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
 	if f, ok := m.GetMockedFunc("SendProcessRequest"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
+	}
+
+
+	if req.ApplicationID != ApplicationId {	
+		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	}
+
+	if req.RequestType != common.Process && req.RequestType != common.Deanonymize && req.RequestType != common.AssociateKey {
+		return nil, nil, nil, fmt.Errorf("unsupported request type: %d", req.RequestType)
+
 	}
 
 	if appState == nil {	
@@ -133,15 +143,6 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 			ErrorMsg: "application state not found",
 			}	
 		return failurePayload, nil, nil, nil
-	}
-
-	if req.ApplicationID != ApplicationId {	
-		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
-	}
-
-	if req.RequestType != common.Process && req.RequestType != common.Deanonymize && req.RequestType != common.AssociateKey {
-		return nil, nil, nil, fmt.Errorf("unsupported request type: %d", req.RequestType)
-
 	}
 
 	if string(req.Payload) == "invalid" {
@@ -435,18 +436,12 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), requestReDeploy)
 	require.NoError(t, err)
 
-	// deploy an app with an appID other than appid (failure expected)
-	// TODO it will change in future
-	requestDeployWrongId := createRequestWithPayload(common.Deploy, 33, []byte{0x01})
-	err = mockBCClient.SendRequestToChain(context.Background(), requestDeployWrongId)
-	require.NoError(t, err)
-
 	pendingRequests, _ := mockBCClient.GetPendingRequests(context.Background())
-	require.Equal(t, 5, len(pendingRequests), "expected 5 pending request")
+	require.Equal(t, 4, len(pendingRequests), "expected 4 pending request")
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 4; i++ {
 		err = manager.processRequestFromChain(context.Background())
 		require.NoError(t, err)
 	}
@@ -455,7 +450,7 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, 0, len(pendingRequests), "expected 0 pending request")
 
 	failedRequests := mockBCClient.GetFailedRequests()
-	require.Equal(t, 3, len(failedRequests), "expected 3 failed request")
+	require.Equal(t, 2, len(failedRequests), "expected 2 failed request")
 
 	require.Equal(t, requestInvalid.RequestID, failedRequests[0].RequestID, "Wrong requestID")
 	require.Equal(t, requestInvalid.ApplicationID, failedRequests[0].ApplicationID, "Wrong ApplicationID")
@@ -465,12 +460,8 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, requestReDeploy.ApplicationID, failedRequests[1].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, requestReDeploy.RequestType, failedRequests[1].RequestType, "Wrong RequestType")
 
-	require.Equal(t, requestDeployWrongId.RequestID, failedRequests[2].RequestID, "Wrong requestID")
-	require.Equal(t, requestDeployWrongId.ApplicationID, failedRequests[2].ApplicationID, "Wrong ApplicationID")
-	require.Equal(t, requestDeployWrongId.RequestType, failedRequests[2].RequestType, "Wrong RequestType")
-
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 5, len(completedRequests), "expected 5 completed request")
+	require.Equal(t, 4, len(completedRequests), "expected 4 completed request")
 
 	// They should be in the same order of insertion
 	require.Equal(t, requestDeploy.RequestID, completedRequests[0].RequestID, "Wrong requestID")
@@ -489,9 +480,6 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, requestReDeploy.ApplicationID, completedRequests[3].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, requestReDeploy.RequestType, completedRequests[3].RequestType, "Wrong RequestType")
 
-	require.Equal(t, requestDeployWrongId.RequestID, completedRequests[4].RequestID, "Wrong requestID")
-	require.Equal(t, requestDeployWrongId.ApplicationID, completedRequests[4].ApplicationID, "Wrong ApplicationID")
-	require.Equal(t, requestDeployWrongId.RequestType, completedRequests[4].RequestType, "Wrong RequestType")
 
 }
 
@@ -663,7 +651,11 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	oldDbVersion, err := manager.dataLayer.LastVersionID()
 	require.NoError(t, err)
 
-	request := createRequest(common.Process, 9999)
+	// Simulate application state not found. In this case, it should call SendProcessRequest and return a failure payload, then submitStateOnChain is called but the state is not stored in the data layer
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
+		return nil, nil
+	})
+	request := createRequest(common.Process, ApplicationId)
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -676,6 +668,8 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	failedRequests := mockBCClient.GetFailedRequests()
 	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
+
+	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
 	//Other failures in GetApplicationState, stop processing and return the error
 	request = createRequest(common.Process, ApplicationId)

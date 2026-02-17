@@ -503,7 +503,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	if err != nil {
 		if !strings.Contains(err.Error(), "application state not found") {
 			m.log.Warn("Manager: Got error while getting application state: %v", err)
-			// Even if it is not the expected error in case of a deploy, continue for backwards compatibility
+			// Even if it is not the expected error in case of a deploy, continue for backward compatibility
 		}
 	}
 
@@ -561,7 +561,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Get the application state
-	//TODO manager shouldn't be able return a tampered state. Same for wasm
+	//TODO ST manager shouldn't be able return a tampered state. Same for wasm
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
 		m.log.Error("GetApplicationState returns an error: %v", err)
