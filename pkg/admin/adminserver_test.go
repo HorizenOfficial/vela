@@ -31,8 +31,8 @@ func init() {
 	)
 }
 
-// mockExecutorSupportedCommands is the list of commands supported by the mock executor handler
-var mockExecutorSupportedCommands = []AdminMessageType{
+// mockSupportedCommands is the list of commands supported by the mock admin handler
+var mockSupportedCommands = []AdminMessageType{
 	KeyAttestationRequestMessage,
 }
 
@@ -49,7 +49,7 @@ func (m *MockAdminCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessa
 	defer m.mu.Unlock()
 	m.callCount++
 
-	if !IsSupportedCommand(msg.Type, mockExecutorSupportedCommands) {
+	if !IsSupportedCommand(msg.Type, mockSupportedCommands) {
 		return nil, errors.New("unsupported command type")
 	}
 

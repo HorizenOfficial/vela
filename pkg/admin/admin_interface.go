@@ -15,7 +15,7 @@ type AdminCommandServer interface {
 }
 
 // AdminCmdHandler is the interface for handling admin commands
-// Both executor and manager implement this with their own command handling logic
+// The manager implements this to handle admin commands, forwarding executor-specific ones over the communication channel
 type AdminCmdHandler interface {
 	// ExecuteCommand processes an admin command and returns the result.
 	// The returned data must be ready for json.Marshal.
@@ -31,7 +31,7 @@ const (
 	// AdminErrorMessage represents an error message
 	AdminErrorMessage
 
-	// KeyAttestationRequestMessage represents a request to generate a key attestation (executor)
+	// KeyAttestationRequestMessage represents a request to generate a key attestation (forwarded to executor)
 	KeyAttestationRequestMessage
 
 	// GetVersionRequestMessage represents a request to get the version (manager)

@@ -351,6 +351,47 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 }
 
+func TestTCPClientServer_KeyAttestationRequest(t *testing.T) {
+	expectedAttestation := []byte("test-attestation-document-bytes")
+
+	serverHandler := &MockRequestHandler{
+		KeyAttestationFunc: func(ctx context.Context) ([]byte, error) {
+			return expectedAttestation, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	factory := NewTCPConnectionFactory(":8091")
+	server := NewServer(factory, commParams, testLogger)
+	server.SetRequestHandler(serverHandler)
+	err := server.Start(ctx, "Server")
+	require.NoError(t, err)
+	defer server.Stop()
+
+	client := NewClient(factory, commParams, testLogger)
+	err = client.Connect(ctx, "Client")
+	require.NoError(t, err)
+	defer client.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Test success case
+	attestation, err := client.SendKeyAttestationRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, expectedAttestation, attestation)
+
+	// Test error case
+	serverHandler.KeyAttestationFunc = func(ctx context.Context) ([]byte, error) {
+		return nil, assert.AnError
+	}
+
+	attestation, err = client.SendKeyAttestationRequest(ctx)
+	require.Error(t, err)
+	assert.Nil(t, attestation)
+	assert.Contains(t, err.Error(), "key attestation failed")
+}
+
 func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
 	// This test verifies that the server can send a request to the client
 	// and receive a response.
