@@ -19,7 +19,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   uint64 public constant APPLICATION_ID = 1;
 
   //state variables
-  bytes32 public stateRoot = bytes32(0);
+  bytes32 public stateRoot;
 
   mapping(bytes32 => Structs.PendingRequest) public requestById;
   mapping(uint256 => bytes32) private _requestIdByOrder;

@@ -8,7 +8,7 @@ contract FallbackFailure {
     revert('Receive not allowed');
   }
 
-  // If not function matches: always fails
+  // If no function matches: always fails
   fallback() external payable {
     revert('Fallback not allowed');
   }

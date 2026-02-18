@@ -162,7 +162,7 @@ interface IProcessorEndpoint {
     uint256 refund,
     uint256 applicationFees,
     uint8 errorCode,
-    string memory errorMsg,
+    string calldata errorMsg,
     bytes calldata signature
   ) external;
 

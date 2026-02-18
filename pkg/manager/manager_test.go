@@ -495,7 +495,8 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer 
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
-		panic("Store should not be called if the executor returned a failure payload")
+		t.Fatal("Store should not be called if the executor returned a failure payload")
+		return nil
 	})
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
 		return &common.UpdatePayload{ApplicationID: ApplicationId, 
@@ -614,7 +615,8 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer 
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
-		panic("Store should not be called if the executor returned a failure payload")
+		t.Fatal("Store should not be called if the executor returned a failure payload")
+		return nil
 	})
 
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", 
@@ -874,7 +876,8 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 
 	// SubmitStateUpdate should not be called in case of reorg
 	mockedSubmitStateUpdatePanics := func(context.Context, *common.UpdatePayload) error {
-		panic("SubmitStateUpdate should not be called in case of reorg")
+		t.Fatal("SubmitStateUpdate should not be called in case of reorg")
+		return nil
 	}
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", mockedSubmitStateUpdatePanics)
 
@@ -982,7 +985,8 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 
 	// SubmitStateUpdate should not be called in case of reorg
 	mockedSubmitStateUpdatePanics := func(context.Context, *common.UpdatePayload) error {
-		panic("SubmitStateUpdate should not be called in case of reorg")
+		t.Fatal("SubmitStateUpdate should not be called in case of reorg")
+		return nil
 	}
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", mockedSubmitStateUpdatePanics)
 

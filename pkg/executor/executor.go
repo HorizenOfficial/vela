@@ -327,10 +327,6 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
-	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize {
-		return nil, nil, nil, fmt.Errorf("unsupported request type: %d", req.RequestType)
-	}
-	
 	// This check should be updated the moment the minimum fee can be updated
 	if req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
 		return nil, nil, nil, fmt.Errorf("request fee is below minimum fee")
@@ -343,6 +339,12 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return errorPayload, nil, nil, err
 	}
 
+	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize {
+		errorPayload, err := e.processErrorResponse(req, 
+				appState.StateRoot, 
+				apperrors.New(apperrors.CodeRequestTypeNotPermitted, fmt.Sprintf("unsupported request type: %s", req.RequestType)))
+		return errorPayload, nil, nil, err
+	}	
 
 	// Decrypt and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)

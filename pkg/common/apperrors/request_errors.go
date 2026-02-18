@@ -9,6 +9,7 @@ const (
 	categoryUnknown
 	categoryInternal
 	categoryApplicationAlreadyDeployed
+	categoryRequestTypeNotPermitted
 	categoryFunctionNotFound
 	categoryDepositFailed
 	categoryRequestFuncFailed
@@ -31,6 +32,7 @@ var (
 	CategoryUnknownMeta                         = errorCategory{Category: categoryUnknown, Message: "unknown error"}
 	CategoryInternalMeta                        = errorCategory{Category: categoryInternal, Message: "internal error"}
 	CategoryApplicationAlreadyDeployedMeta      = errorCategory{Category: categoryApplicationAlreadyDeployed, Message: "application is already deployed"}
+	CategoryRequestTypeNotPermittedMeta         = errorCategory{Category: categoryRequestTypeNotPermitted, Message: "request type is not permitted"}
 	CategoryFunctionNotFoundMeta                = errorCategory{Category: categoryFunctionNotFound, Message: "requested function not found"}
 	CategoryDepositFailedMeta                   = errorCategory{Category: categoryDepositFailed, Message: "deposit operation failed"}
 	CategoryRequestFuncFailedMeta               = errorCategory{Category: categoryRequestFuncFailed, Message: "request function execution failed"}
@@ -56,6 +58,7 @@ var (
 	CodeInternalFallback             = FailureCode{"INTERNAL_FALLBACK", CategoryInternalMeta}
 	CodeApplicationAlreadyDeployed   = FailureCode{"APPLICATION_ALREADY_DEPLOYED", CategoryApplicationAlreadyDeployedMeta}
 	CodeAppStateNotFound             = FailureCode{"APPLICATION_STATE_NOT_FOUND", CategoryAppNotDeployedMeta}
+	CodeRequestTypeNotPermitted      = FailureCode{"REQUEST_TYPE_NOT_PERMITTED", CategoryRequestTypeNotPermittedMeta}
 	CodeJsonUnmarshalError           = FailureCode{"JSON_UNMARSHAL_ERROR", CategoryInternalMeta}
 	CodeJsonMarshalError             = FailureCode{"JSON_MARSHAL_ERROR", CategoryInternalMeta}
 	CodeParsingKeyError              = FailureCode{"PARSING_KEY_ERROR", CategoryWrongKeySentMeta}
