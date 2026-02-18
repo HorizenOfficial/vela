@@ -84,6 +84,7 @@ Practical how-to for the horizen-pes-nova test app (Private transfer):
     rpcUrl=http://localhost:8545
     ProcessorAddress=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
     TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+    AuthorityServiceURL=http://localhost:8081
     SubgraphURL=http://localhost:8000/subgraphs/name/hcce
     ```
 
