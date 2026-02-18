@@ -188,7 +188,7 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 
 	go server.handleNewClient(context.Background(), serverConn, "test")
 
-	req := AdminMessage{Type: 999} // Unknown type
+	req := AdminMessage{Type: "unknown_type"}
 	reqBytes, _ := json.Marshal(req)
 	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)

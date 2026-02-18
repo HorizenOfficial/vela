@@ -1230,7 +1230,7 @@ func TestKeyAttestationForwarding(t *testing.T) {
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendKeyAttestationRequest")
 
 	// 3. Verify unsupported command still returns error
-	unknownMsg := admin.AdminMessage{Type: admin.AdminMessageType(999)}
+	unknownMsg := admin.AdminMessage{Type: "unknown_type"}
 	result, err = manager.ExecuteCommand(ctx, unknownMsg)
 	require.Error(t, err)
 	require.Nil(t, result)
