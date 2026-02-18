@@ -70,7 +70,7 @@ Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUB
 The system is up and running, but you need to deploy an app inside it.
 
 Currently only  a single-app manual deployment is supported:
-- the app wasm *must* be named *1.wasm* and put manually into the wasm/ folder before launching the deploy app command
+- the app wasm *must* be named *1.wasm* and put manually into the wasms/ folder before launching the deploy app command
 - launch a deploy app command with app id = 1 to initialize it
 
 Practical how-to for the horizen-pes-nova test app (Private transfer):
