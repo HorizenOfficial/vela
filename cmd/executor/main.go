@@ -83,7 +83,7 @@ func main() {
 	var kmsClient kms.KMSClient
 	var enclaveHandle kms.EnclaveHandle
 
-	if config.KeySetRecoveryType == 1 {
+	if config.KeySetRecoveryType == common.RecoveryTypeKMS {
 		// Validate KMS configuration
 		if err := config.ValidateKMSConfig(); err != nil {
 			log.Fatal("Invalid KMS configuration: %v", err)

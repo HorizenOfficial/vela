@@ -167,7 +167,7 @@ func LoadConfig() (*Config, error) {
 // ValidateKMSConfig validates KMS-related configuration.
 // Returns an error if KMS is enabled but required settings are missing.
 func (c *Config) ValidateKMSConfig() error {
-	if c.KeySetRecoveryType == common.RecoveryTypeKMS || c.KMSEnabled {
+	if c.KeySetRecoveryType == common.RecoveryTypeKMS {
 		if c.KMSKeyARN == "" {
 			return fmt.Errorf("KMS key ARN is required when KMS is enabled (EXECUTOR_KMS_KEY_ARN)")
 		}
