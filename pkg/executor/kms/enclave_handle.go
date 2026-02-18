@@ -16,7 +16,7 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/fxamacker/cbor/v2"
 	"github.com/hf/nsm"
-	"github.com/hf/nsm/request"
+	"github.com/horizen-pes/pkg/nsmutil"
 )
 
 // NitroEnclaveHandle implements EnclaveHandle using the Nitro Secure Module (NSM).
@@ -66,13 +66,6 @@ func NewNitroEnclaveHandle() (*NitroEnclaveHandle, error) {
 // This function only works inside a Nitro Enclave. Outside an enclave,
 // it will fail with "NSM not available".
 func (h *NitroEnclaveHandle) Attest(userData []byte) ([]byte, error) {
-	// Open connection to NSM (Nitro Secure Module)
-	session, err := nsm.OpenDefaultSession()
-	if err != nil {
-		return nil, fmt.Errorf("failed to open NSM session (not running in enclave?): %w", err)
-	}
-	defer session.Close()
-
 	// Marshal the RSA public key in DER (PKIX/SPKI) format for inclusion in attestation
 	publicKeyDER, err := x509.MarshalPKIXPublicKey(&h.rsaKey.PublicKey)
 	if err != nil {
@@ -81,25 +74,15 @@ func (h *NitroEnclaveHandle) Attest(userData []byte) ([]byte, error) {
 	publicKeyHash := sha256.Sum256(publicKeyDER)
 	debugf("kms attestation public key: der_len=%d sha256=%x", len(publicKeyDER), publicKeyHash)
 
-	// Request attestation from NSM
-	// - UserData: optional application-specific data (e.g., nonce)
-	// - PublicKey: RSA public key for KMS to encrypt the response
-	// - Nonce: optional additional randomness
-	res, err := session.Send(&request.Attestation{
-		UserData:  userData,
-		PublicKey: publicKeyDER,
-		Nonce:     nil,
-	})
+	doc, err := nsmutil.AttestWithSession(func() (nsmutil.Session, error) {
+		return nsm.OpenDefaultSession()
+	}, publicKeyDER, userData)
 	if err != nil {
-		return nil, fmt.Errorf("NSM attestation request failed: %w", err)
+		return nil, err
 	}
+	logAttestationDocPublicKey(doc, publicKeyDER)
 
-	if res.Attestation == nil || res.Attestation.Document == nil {
-		return nil, fmt.Errorf("NSM returned empty attestation document")
-	}
-	logAttestationDocPublicKey(res.Attestation.Document, publicKeyDER)
-
-	return res.Attestation.Document, nil
+	return doc, nil
 }
 
 // DecryptKMSEnvelopedKey decrypts a KMS CiphertextForRecipient blob.

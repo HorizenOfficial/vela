@@ -10,8 +10,6 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
-	"github.com/hf/nsm/request"
-	"github.com/hf/nsm/response"
 
 	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/common"
@@ -22,13 +20,11 @@ import (
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/executor/kms"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/nsmutil"
 )
 
 // NsmSession is an interface abstracting nsm.Session for testability.
-type NsmSession interface {
-	Send(req request.Request) (response.Response, error)
-	Close() error
-}
+type NsmSession = nsmutil.Session
 
 func CreateNewKeySet() (*EnclaveKeySet, error) {
 	communicationKey, err := crypto.GeneratePrivateKeyP521()
@@ -984,37 +980,17 @@ func (e *StatelessExecutor) createKeyAttestationInternal(ctx context.Context, ns
 		return nil, fmt.Errorf("keyset is empty")
 	}
 
-	session, err := nsmSessionOpener()
-	if err != nil {
-		e.log.Info("Executor: error opening nms session: %v", err)
-		return nil, fmt.Errorf("failed to generate attestation")
-	}
-	defer func() {
-		if err := session.Close(); err != nil {
-			e.log.Warn("Executor: error closing nms session: %v", err)
-		}
-	}()
-
 	signerAddress, err := hex.DecodeString(keySet.SigningKey.PublicKey().Address()[2:]) // remove 0x prefix
 	if err != nil {
 		e.log.Error("Executor: error while decoding signer address: %v", err)
 		return nil, fmt.Errorf("failed to generate attestation")
 	}
 
-	res, err := session.Send(&request.Attestation{PublicKey: keySet.CommunicationKey.PublicKey().Bytes(), UserData: signerAddress})
+	doc, err := nsmutil.AttestWithSession(nsmSessionOpener, keySet.CommunicationKey.PublicKey().Bytes(), signerAddress)
 	if err != nil {
-		e.log.Warn("failed to get attestation: %v", err)
-		return nil, fmt.Errorf("failed to generate attestation")
-	}
-	if res.Error != "" {
-		e.log.Warn("NSM device returned an error: %s", res.Error)
-		return nil, fmt.Errorf("failed to generate attestation")
-	}
-	if res.Attestation == nil || res.Attestation.Document == nil {
-		e.log.Warn("NSM device did not return an attestation")
-		return nil, fmt.Errorf("failed to generate attestation")
+		e.log.Warn("Executor: failed to generate attestation: %v", err)
+		return nil, fmt.Errorf("failed to generate attestation: %w", err)
 	}
 
-	return res.Attestation.Document, nil
-
+	return doc, nil
 }
