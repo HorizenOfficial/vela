@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -214,7 +215,7 @@ func (c *Client) SendKeyAttestationRequest(ctx context.Context) ([]byte, error) 
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode error response: %w", err)
 		}
-		return nil, fmt.Errorf("key attestation failed: %s", errorData.Message)
+		return nil, fmt.Errorf("key attestation failed: %w", errors.New(errorData.Message))
 	}
 
 	if respMsg.Type != KeyAttestationResponseMessage {
