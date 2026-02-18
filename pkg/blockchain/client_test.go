@@ -240,8 +240,8 @@ func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 		Events:         []common.Event{},
 		Withdrawals:    []common.Withdrawal{},
 		Signature:      signature[:],
-		RefundAmount:   common.NewBig(90),
-		ApplicationFee: common.NewBig(10), // 90 + 10 = 100 == maxFeeValue
+		RefundAmount:   common.ToBig(maxFeeValue),
+		ApplicationFee: common.NewBig(0), 
 		ErrorCode: 1,
 		ErrorMsg: "test error message",
 	}

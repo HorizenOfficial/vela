@@ -139,7 +139,10 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to extract server error data: %w", err)
+		}
 		return nil, nil, nil, fmt.Errorf("server error: %s", errorData.Message)
 	}
 
@@ -175,7 +178,10 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to extract server error data: %w", err)
+		}
 		return nil, nil, fmt.Errorf("server error: %s", errorData.Message)
 	}
 

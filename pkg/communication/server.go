@@ -212,7 +212,10 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to extract client error data: %w", err)
+		}
 		return false, nil, fmt.Errorf("client error: %s", errorData.Message)
 	}
 
@@ -272,7 +275,10 @@ func (c *ClientConnection) SetKeysetRecovery(ctx context.Context, recovery *comm
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return fmt.Errorf("failed to extract client error data: %w", err)
+		}
 		return fmt.Errorf("client error: %s", errorData.Message)
 	}
 

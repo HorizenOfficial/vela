@@ -97,9 +97,13 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 		return f.(func(context.Context, *common.Request, *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req, appState)
 	}
 
-
 	if req.ApplicationID != ApplicationId {	
 		return nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	}
+
+	if req.RequestType != common.Deploy  {
+		return nil, nil,fmt.Errorf("wrong request type: %d", req.RequestType)
+
 	}
 
 	if appState != nil {	
@@ -122,7 +126,6 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 	if f, ok := m.GetMockedFunc("SendProcessRequest"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
 	}
-
 
 	if req.ApplicationID != ApplicationId {	
 		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
@@ -632,7 +635,7 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
 	
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
-	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendDeployApp")
+	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
 
 }
 
@@ -653,7 +656,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	// Simulate application state not found. In this case, it should call SendProcessRequest and return a failure payload, then submitStateOnChain is called but the state is not stored in the data layer
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
-		return nil, nil
+		return nil, storageErrors.ErrNotFound("application state not found")
 	})
 	request := createRequest(common.Process, ApplicationId)
 	err = mockBCClient.SendRequestToChain(context.Background(), request)

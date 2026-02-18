@@ -229,15 +229,15 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     bytes32 prevStateRoot,
     bytes32 newStateRoot,
     bytes32 processedRequestId,
-    bytes[] memory events,
-    string[] memory eventSubTypes,
-    Structs.WithdrawalRequest[] memory withdrawalRequests,
+    bytes[] calldata events,
+    string[] calldata eventSubTypes,
+    Structs.WithdrawalRequest[] calldata withdrawalRequests,
     uint256 refund,
     uint256 applicationFees,
     uint8 errorCode,
-    string memory errorMsg,
-    bytes memory signature
-  ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant{
+    string calldata errorMsg,
+    bytes calldata signature
+  ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant {
     //check valid request
     if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 

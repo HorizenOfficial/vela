@@ -803,7 +803,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 		userKey, exists := keyStore[event.UserID]
 
 		if !exists {
-			return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, fmt.Sprintf("no Secp521r1_PubKey found for user %s", event.UserID))
+			return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found")
 		}
 		// Encrypt the event data
 		encryptedData, err := crypto.Encrypt(key, userKey, event.Data)
@@ -832,7 +832,7 @@ func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId common.Ap
 	// retrieve user Secp521r1_PubKey
 	requesterPublicKey, exists := keyStore[requester]
 	if !exists {
-		return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, fmt.Sprintf("no Secp521r1_PubKey found for user %s", requester))
+		return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found")
 	}
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct of the reportData.
@@ -880,7 +880,7 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	// retrieve sender Secp521r1_PubKey
 	userKey, exists := keyStore[sender]
 	if !exists {
-		return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, fmt.Sprintf("no Secp521r1_PubKey found for sender %s", sender))
+		return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found")
 	}
 
 	decryptedPayload, err := crypto.Decrypt(userKey, decryptionKey, payload)
