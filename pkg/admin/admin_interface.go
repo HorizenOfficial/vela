@@ -6,7 +6,6 @@ import (
 	"fmt"
 )
 
-
 type AdminCommandServer interface {
 	Start(ctx context.Context, identityLogTag string) error
 	Stop() error
@@ -53,6 +52,43 @@ const (
 	ExecutorGetLogLevelRequestMessage
 )
 
+// SupportedLogLevels lists all valid log level strings accepted by SetLogLevel.
+const SupportedLogLevels = "trace, debug, info, warn, error, fatal, panic, disabled"
+
+// SetLogLevelRequest is the payload for SetLogLevelRequestMessage.
+type SetLogLevelRequest struct {
+	Level  string `json:"level"`
+	Target string `json:"target,omitempty"`
+}
+
+// GetLogLevelRequest is the payload for GetLogLevelRequestMessage.
+type GetLogLevelRequest struct {
+	Target string `json:"target,omitempty"`
+}
+
+// TargetAll is the target value that means "apply to all components".
+// Currently handled as "apply to self" since proxy is not yet implemented.
+// When the Manager gains proxy capability, target "all" on the Manager will
+// apply the command locally AND forward it to the Executor.
+const TargetAll = "all"
+
+// ValidateTarget checks the target field against the component's own identity.
+// It accepts the component's own name (e.g. "manager" or "executor"), empty, or "all".
+// Returns an error for mismatches or unknown values.
+func ValidateTarget(target, self string) error {
+	switch target {
+	case "", self, TargetAll:
+		return nil
+	case "manager", "executor":
+		other := "manager"
+		if self == "manager" {
+			other = "executor"
+		}
+		return fmt.Errorf("this is the %s admin server, target '%s' is not supported; connect to the %s admin server directly", self, target, other)
+	default:
+		return fmt.Errorf("unknown target '%s'; valid targets: 'manager', 'executor', 'all'", target)
+	}
+}
 
 // AdminMessage represents an admin command message
 type AdminMessage struct {
@@ -72,13 +108,3 @@ func NewAdminMessage(msgType AdminMessageType, data interface{}) (AdminMessage, 
 	}, nil
 }
 
-// IsSupportedCommand checks if a message type is in the list of supported commands.
-// This is a generic helper function used by both executor and manager.
-func IsSupportedCommand(msgType AdminMessageType, supportedCommands []AdminMessageType) bool {
-	for _, supportedType := range supportedCommands {
-		if msgType == supportedType {
-			return true
-		}
-	}
-	return false
-}

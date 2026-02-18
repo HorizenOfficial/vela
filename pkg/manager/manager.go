@@ -133,10 +133,27 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 		return fmt.Errorf("manager is already running")
 	}
 
+	m.log.Info("Manager: startup sequence begin")
+
+	// Start the admin command server early so operators can connect even while
+	// the executor handshake or blockchain connection is still in progress.
+	if m.adminServer != nil {
+		adminParams := m.config.AdminChannelParams.(common.TcpChannelConnectionParams)
+		m.log.Info("Manager: starting admin command server on %s", adminParams.Url())
+		if err := m.adminServer.Start(ctx, "Manager"); err != nil {
+			m.log.Warn("Manager: failed to start admin server: %v", err)
+			// Don't fail startup if admin server fails - it's not critical
+		} else {
+			m.log.Info("Manager: admin command server started")
+		}
+	}
+
 	// Connect to the executor
+	m.log.Info("Manager: connecting to executor...")
 	if err := m.executorClient.Connect(ctx, "Manager"); err != nil {
 		return fmt.Errorf("failed to connect to executor: %w", err)
 	}
+	m.log.Info("Manager: connected to executor")
 
 	// The handshake ensures the executor has a valid keyset before the manager starts
 	// processing any requests from the blockchain, which rely on this keyset for cryptographic operations.
@@ -152,25 +169,18 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 	}
 
 	// Connect to the blockchain
+	m.log.Info("Manager: connecting to blockchain node at %s...", m.config.RpcURL)
 	if err := m.blockchainClient.Connect(ctx); err != nil {
+		m.log.Error("Manager: failed to connect to blockchain node at %s: %v", m.config.RpcURL, err)
 		return fmt.Errorf("failed to connect to blockchain node: %w", err)
 	}
+	m.log.Info("Manager: connected to blockchain node")
 
 	// Start the blockchain polling loop in a goroutine
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
 
-	// Start the admin command server if configured
-	if m.adminServer != nil {
-		adminParams := m.config.AdminChannelParams.(common.TcpChannelConnectionParams)
-		m.log.Info("Manager: Starting admin command server on %s", adminParams.Url())
-		if err := m.adminServer.Start(ctx, "Manager"); err != nil {
-			m.log.Warn("Manager: Failed to start admin server: %v", err)
-			// Don't fail startup if admin server fails - it's not critical
-		}
-	}
-
-	m.log.Info("Manager: starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
+	m.log.Info("Manager: startup sequence complete - Ethereum address: %s", m.config.PrivateKey.PublicKey().Address())
 
 	m.isRunning = true
 	return nil
@@ -270,20 +280,35 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 	return nil
 }
 
-// ExecuteCommand implements admin.AdminCmdHandler interface.
+// ExecuteCommand processes an admin command and returns the result.
+// Supported commands: GetVersion, SetLogLevel, GetLogLevel.
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
 	switch msg.Type {
 	case admin.GetVersionRequestMessage:
 		return m.GetVersion(ctx)
 	case admin.SetLogLevelRequestMessage:
-		var req struct {
-			Level string `json:"level"`
-		}
+		var req admin.SetLogLevelRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, fmt.Errorf("invalid request data: %w", err)
 		}
+		if err := admin.ValidateTarget(req.Target, "manager"); err != nil {
+			return nil, err
+		}
+		// TODO(proxy): when target is "all", also forward SetLogLevel to the Executor
+		// via ExecutorSetLogLevelRequestMessage and aggregate both results.
 		return m.SetLogLevel(ctx, req.Level)
 	case admin.GetLogLevelRequestMessage:
+		var req admin.GetLogLevelRequest
+		if msg.Data != nil && string(msg.Data) != "null" {
+			if err := json.Unmarshal(msg.Data, &req); err != nil {
+				return nil, fmt.Errorf("invalid request data: %w", err)
+			}
+		}
+		if err := admin.ValidateTarget(req.Target, "manager"); err != nil {
+			return nil, err
+		}
+		// TODO(proxy): when target is "all", also forward GetLogLevel to the Executor
+		// via ExecutorGetLogLevelRequestMessage and aggregate both results.
 		return m.GetLogLevel(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
@@ -304,10 +329,10 @@ func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) 
 		return nil, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
 	}
 	if level == "" {
-		return nil, fmt.Errorf("invalid log level: level must not be empty")
+		return nil, fmt.Errorf("invalid log level: level must not be empty; supported levels: %s", admin.SupportedLogLevels)
 	}
 	if err := m.log.SetLevel(level); err != nil {
-		return nil, fmt.Errorf("invalid log level '%s': %v", level, err)
+		return nil, fmt.Errorf("invalid log level '%s'; supported levels: %s", level, admin.SupportedLogLevels)
 	}
 	return struct {
 		Success bool   `json:"success"`
@@ -362,6 +387,14 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		m.log.Warn("Manager is not started yet, skipping")
 		return nil
 	}
+
+	// TEST
+	m.log.Error("Manager: polling blockchain for new requests...")
+	m.log.Warn("Manager: polling blockchain for new requests...")
+	m.log.Info("Manager: polling blockchain for new requests...")
+	m.log.Debug("Manager: polling blockchain for new requests...")
+	m.log.Trace("Manager: polling blockchain for new requests...")
+	// TEST
 
 	// Get next pending request from the blockchain
 	request, stateRoot, err := m.blockchainClient.GetNextPendingRequest(ctx)

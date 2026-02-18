@@ -1137,13 +1137,80 @@ func TestGetAndSetLogLevel_NonZeroNetworkLogger(t *testing.T) {
 	require.Empty(t, result)
 
 	// SetLogLevel should fail with non-ZeroNetworkLogger
-	setData, err := json.Marshal(struct {
-		Level string `json:"level"`
-	}{Level: "error"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "error"})
 	require.NoError(t, err)
 	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
 	require.Nil(t, result)
+}
+
+// TestSetLogLevel_TargetValidation verifies that SetLogLevel and GetLogLevel
+// reject invalid targets on the manager.
+func TestSetLogLevel_TargetValidation(t *testing.T) {
+	_, manager := setupTest(t)
+	ctx := context.Background()
+
+	// SetLogLevel with target "executor" should be rejected
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "executor"})
+	require.NoError(t, err)
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err := manager.ExecuteCommand(ctx, setMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "this is the manager admin server")
+	require.Contains(t, err.Error(), "target 'executor' is not supported")
+	require.Nil(t, result)
+
+	// SetLogLevel with unknown target should be rejected
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "unknown"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown target 'unknown'")
+	require.Nil(t, result)
+
+	// SetLogLevel with target "manager" should be accepted (fails on logger type, not target)
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "manager"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Nil(t, result)
+
+	// GetLogLevel with target "executor" should be rejected
+	getData, err := json.Marshal(admin.GetLogLevelRequest{Target: "executor"})
+	require.NoError(t, err)
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getData}
+	result, err = manager.ExecuteCommand(ctx, getMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "this is the manager admin server")
+	require.Nil(t, result)
+
+	// GetLogLevel with empty target should be accepted (fails on logger type, not target)
+	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
+	result, err = manager.ExecuteCommand(ctx, getMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Empty(t, result)
+
+	// SetLogLevel with target "all" should be accepted (fails on logger type, not target)
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "all"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Nil(t, result)
+
+	// GetLogLevel with target "all" should be accepted (fails on logger type, not target)
+	getData, err = json.Marshal(admin.GetLogLevelRequest{Target: "all"})
+	require.NoError(t, err)
+	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getData}
+	result, err = manager.ExecuteCommand(ctx, getMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Empty(t, result)
 }

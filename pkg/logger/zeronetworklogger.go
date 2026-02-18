@@ -239,6 +239,9 @@ func (w *AsyncWriter) connectWithRetry() error {
 }
 
 // drainBuffer writes any remaining logs in the queue before shutdown.
+// Messages are written to both the network connection and the fallback
+// (console) writer to guarantee visibility even if the log server shuts
+// down before it processes the TCP data.
 func (w *AsyncWriter) drainBuffer() {
 	conn := w.getConn()
 	if conn == nil {
@@ -255,6 +258,10 @@ func (w *AsyncWriter) drainBuffer() {
 				errMsg := fmt.Sprintf("[zeronetwork] failed to write during drain: %v\n", err)
 				w.fallbackWriter.Write([]byte(errMsg))
 			}
+			// Also write to fallback so the message is visible on the
+			// console even if the log server is torn down before it
+			// reads these bytes from the TCP buffer.
+			w.fallbackWriter.Write(msg)
 		default:
 			return // buffer empty
 		}
@@ -276,7 +283,15 @@ func (w *AsyncWriter) Close() error {
 	close(w.stopChan) // Signal worker to stop
 	w.wg.Wait()       // Wait for worker to finish
 	w.drainBuffer()   // Drain remaining logs safely
-	w.closeConn()     // Close active network connection
+
+	// Brief grace period: the worker goroutine may have already written
+	// messages to the TCP socket before stopping. The log server needs a
+	// moment to read those bytes from its receive buffer and write them
+	// to file/console before we close the connection and the caller tears
+	// down the server via context cancellation.
+	time.Sleep(200 * time.Millisecond)
+
+	w.closeConn() // Close active network connection
 	return nil
 }
 

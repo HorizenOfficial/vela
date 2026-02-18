@@ -55,10 +55,12 @@ Retrieves the current logging level of the Manager. Only supported when the Mana
 
 **Request:**
 ```json
-{
-  "type": 5,
-  "data": null
-}
+{"type": 5, "data": null}
+```
+
+Or with an explicit target:
+```json
+{"type": 5, "data": {"target": "manager"}}
 ```
 
 **Response:**
@@ -69,7 +71,7 @@ Retrieves the current logging level of the Manager. Only supported when the Mana
 }
 ```
 
-The response contains a string with the current log level. Possible values are: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`.
+The response contains a string with the current log level. Possible values are: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`, `disabled`.
 
 ### SetLogLevel
 
@@ -77,12 +79,12 @@ Changes the logging level at runtime without requiring a restart. Only supported
 
 **Request:**
 ```json
-{
-  "type": 4,
-  "data": {
-    "level": "debug"
-  }
-}
+{"type": 4, "data": {"level": "debug"}}
+```
+
+Or with an explicit target:
+```json
+{"type": 4, "data": {"level": "debug", "target": "manager"}}
 ```
 
 **Response:**
@@ -96,6 +98,25 @@ Changes the logging level at runtime without requiring a restart. Only supported
 }
 ```
 
+#### Target Field
+
+Both `SetLogLevel` and `GetLogLevel` accept an optional `target` field. Each admin server validates the target matches itself:
+
+| Connected to | `target` value | Result |
+|---|---|---|
+| Manager `:4002` | `"manager"` | Handled |
+| Manager `:4002` | `""` / omitted | Handled (applies to self) |
+| Manager `:4002` | `"all"` | Handled (applies to self; see note below) |
+| Manager `:4002` | `"executor"` | **Rejected** |
+| Manager `:4002` | anything else | **Rejected** (unknown target) |
+| Executor `:4001` | `"executor"` | Handled |
+| Executor `:4001` | `""` / omitted | Handled (applies to self) |
+| Executor `:4001` | `"all"` | Handled (applies to self; see note below) |
+| Executor `:4001` | `"manager"` | **Rejected** |
+| Executor `:4001` | anything else | **Rejected** (unknown target) |
+
+> **Note on `"all"`:** Currently `"all"` is accepted and applies to the receiving component only (same as omitted). When the Manager gains proxy capability, `"all"` on the Manager will apply the command locally **and** forward it to the Executor, returning an aggregated response.
+
 #### Supported Log Levels
 
 The following log levels are supported (based on zerolog):
@@ -107,6 +128,7 @@ The following log levels are supported (based on zerolog):
 - `error` - Error messages for failures that don't stop execution
 - `fatal` - Critical errors that cause the application to exit
 - `panic` - Severe errors that cause a panic
+- `disabled` - Suppresses all log output; useful for silencing a component temporarily
 
 #### Level Hierarchy
 
@@ -118,28 +140,51 @@ Log levels follow a hierarchy where setting a level enables all messages at that
 - `error` → enables error, fatal, panic
 - `fatal` → enables fatal, panic
 - `panic` → enables panic only
+- `disabled` → suppresses all log output
 
 #### Error Handling
 
-If an invalid log level is provided, the command returns an error:
+All command errors are returned with the `COMMAND_ERROR` code.
 
+Wrong target:
 ```json
 {
   "type": 1,
   "data": {
-    "code": "ERROR_SETTING_LOG_LEVEL",
-    "message": "invalid log level 'invalid': Unknown Level String: 'invalid', defaulting to NoLevel"
+    "code": "COMMAND_ERROR",
+    "message": "this is the manager admin server, target 'executor' is not supported; connect to the executor admin server directly"
   }
 }
 ```
 
-If the component is not using ZeroNetworkLogger:
-
+Unknown target:
 ```json
 {
   "type": 1,
   "data": {
-    "code": "ERROR_SETTING_LOG_LEVEL",
+    "code": "COMMAND_ERROR",
+    "message": "unknown target 'foo'; valid targets: 'manager', 'executor', 'all'"
+  }
+}
+```
+
+Invalid log level:
+```json
+{
+  "type": 1,
+  "data": {
+    "code": "COMMAND_ERROR",
+    "message": "invalid log level 'invalid'; supported levels: trace, debug, info, warn, error, fatal, panic, disabled"
+  }
+}
+```
+
+Component not using ZeroNetworkLogger:
+```json
+{
+  "type": 1,
+  "data": {
+    "code": "COMMAND_ERROR",
     "message": "SetLogLevel is only supported with the ZeroNetworkLogger"
   }
 }
@@ -148,10 +193,11 @@ If the component is not using ZeroNetworkLogger:
 #### Implementation Details
 
 The `SetLogLevel` command:
-1. Validates the logger is a ZeroNetworkLogger (returns error otherwise)
-2. Validates the level string is not empty
-3. Calls `logger.SetLevel()` to update the logger configuration
-4. Changes take effect immediately for all subsequent log statements
+1. Validates the `target` field matches the component (or is empty)
+2. Validates the logger is a ZeroNetworkLogger (returns error otherwise)
+3. Validates the level string is not empty
+4. Calls `logger.SetLevel()` to update the logger configuration
+5. Changes take effect immediately for all subsequent log statements
 
 ## Executor Commands
 
@@ -177,11 +223,11 @@ Generates a key attestation document for the Executor's cryptographic keys.
 
 ### GetLogLevel (Executor)
 
-Retrieves the current logging level of the Executor. Same behavior as the Manager command (type 5).
+Retrieves the current logging level of the Executor. Same behavior as the Manager command (type 5), but accepts target `"executor"` instead of `"manager"`.
 
 ### SetLogLevel (Executor)
 
-Changes the Executor's logging level at runtime. Same behavior as the Manager command (type 4).
+Changes the Executor's logging level at runtime. Same behavior as the Manager command (type 4), but accepts target `"executor"` instead of `"manager"`.
 
 ## Message Types
 
@@ -202,19 +248,31 @@ Changes the Executor's logging level at runtime. Same behavior as the Manager co
 ### Change the Manager log level
 
 ```bash
-echo '{"type":4,"data":{"level":"debug"}}' | nc <manager-host> <admin-port>
+echo '{"type":4,"data":{"level":"debug","target":"manager"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the Manager log level
 
 ```bash
-echo '{"type":5,"data":null}' | nc <manager-host> <admin-port>
+echo '{"type":5,"data":{"target":"manager"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the Manager version
 
 ```bash
 echo '{"type":3,"data":null}' | nc <manager-host> <admin-port>
+```
+
+### Change the Executor log level
+
+```bash
+echo '{"type":4,"data":{"level":"debug","target":"executor"}}' | nc <executor-host> <admin-port>
+```
+
+### Disable all logging on the Executor
+
+```bash
+echo '{"type":4,"data":{"level":"disabled","target":"executor"}}' | nc <executor-host> <admin-port>
 ```
 
 ## Server Configuration
@@ -230,6 +288,7 @@ There are two admin servers: one in the Manager and one in the Executor.
 The package includes comprehensive tests:
 - [adminserver_manager_test.go](adminserver_manager_test.go) - Tests for Manager admin server
 - [adminserver_test.go](adminserver_test.go) - Tests for Executor admin server
+- [admin_integration_test.go](admin_integration_test.go) - Integration test with real AdminServer over TCP and ZeroNetworkLogger
 
 To run the tests:
 ```bash

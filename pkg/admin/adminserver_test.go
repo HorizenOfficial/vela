@@ -31,11 +31,6 @@ func init() {
 	)
 }
 
-// mockExecutorSupportedCommands is the list of commands supported by the mock executor handler
-var mockExecutorSupportedCommands = []AdminMessageType{
-	KeyAttestationRequestMessage,
-}
-
 // MockAdminCmdHandler is a mock implementation of the AdminCmdHandler interface.
 type MockAdminCmdHandler struct {
 	attestation []byte
@@ -49,11 +44,12 @@ func (m *MockAdminCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessa
 	defer m.mu.Unlock()
 	m.callCount++
 
-	if !IsSupportedCommand(msg.Type, mockExecutorSupportedCommands) {
+	switch msg.Type {
+	case KeyAttestationRequestMessage:
+		return m.attestation, m.err
+	default:
 		return nil, errors.New("unsupported command type")
 	}
-
-	return m.attestation, m.err
 }
 
 func (m *MockAdminCmdHandler) GetCallCount() int {
@@ -164,11 +160,11 @@ func TestAdminServer_HandleRequestsKeyAttestationHandlerError(t *testing.T) {
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
-	json.Unmarshal(respBytes, &respMsg)
+	require.NoError(t, json.Unmarshal(respBytes, &respMsg))
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	json.Unmarshal(respMsg.Data, &errData)
+	require.NoError(t, json.Unmarshal(respMsg.Data, &errData))
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 	assert.Equal(t, "handler failed", errData.Message)
@@ -197,11 +193,11 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
-	json.Unmarshal(respBytes, &respMsg)
+	require.NoError(t, json.Unmarshal(respBytes, &respMsg))
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	json.Unmarshal(respMsg.Data, &errData)
+	require.NoError(t, json.Unmarshal(respMsg.Data, &errData))
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 
@@ -232,11 +228,11 @@ func TestAdminServer_ServerBusy(t *testing.T) {
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
-	json.Unmarshal(respBytes, &respMsg)
+	require.NoError(t, json.Unmarshal(respBytes, &respMsg))
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	json.Unmarshal(respMsg.Data, &errData)
+	require.NoError(t, json.Unmarshal(respMsg.Data, &errData))
 
 	assert.Equal(t, "INVALID_REQUEST", errData.Code)
 	assert.Equal(t, "server is busy", errData.Message)

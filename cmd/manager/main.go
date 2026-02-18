@@ -68,6 +68,15 @@ func main() {
 		logTmp.Fatal("Failed to load configuration: %v", err)
 	}
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Create context first so defer cancel() is registered before defer log.Close().
+	// Defers run LIFO, so log.Close() will drain the async buffer to the log server
+	// before cancel() shuts the log server down.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
 		Kind:             config.LogKind,
@@ -87,13 +96,6 @@ func main() {
 	}()
 
 	log.Warn("Initializing manager...")
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Create a context that is canceled on SIGINT or SIGTERM
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Start the log server if configured
 	err = logserver.StartLogServer(

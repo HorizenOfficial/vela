@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
@@ -269,6 +270,26 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
 			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
 	}
+
+	// TEST
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				e.log.Error("Executor: heartbeat tick (test)")
+				e.log.Warn("Executor: heartbeat tick (test)")
+				e.log.Warn("Executor: heartbeat tick (test)")
+				e.log.Warn("Executor: heartbeat tick (test)")
+				e.log.Warn("Executor: heartbeat tick (test)")
+
+			}
+		}
+	}()
+	// TEST
 	return e.admCmdServer.Start(ctx, "Executor")
 }
 
@@ -726,20 +747,31 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	return decryptedPayload, nil
 }
 
-// ExecuteCommand implements admin.AdminCmdHandler interface.
+// ExecuteCommand processes an admin command and returns the result.
+// Supported commands: KeyAttestation, SetLogLevel, GetLogLevel.
 func (e *StatelessExecutor) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
 	switch msg.Type {
 	case admin.KeyAttestationRequestMessage:
 		return e.CreateKeyAttestation(ctx)
 	case admin.SetLogLevelRequestMessage:
-		var req struct {
-			Level string `json:"level"`
-		}
+		var req admin.SetLogLevelRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, fmt.Errorf("invalid request data: %w", err)
 		}
+		if err := admin.ValidateTarget(req.Target, "executor"); err != nil {
+			return nil, err
+		}
 		return e.SetLogLevel(ctx, req.Level)
 	case admin.GetLogLevelRequestMessage:
+		var req admin.GetLogLevelRequest
+		if msg.Data != nil && string(msg.Data) != "null" {
+			if err := json.Unmarshal(msg.Data, &req); err != nil {
+				return nil, fmt.Errorf("invalid request data: %w", err)
+			}
+		}
+		if err := admin.ValidateTarget(req.Target, "executor"); err != nil {
+			return nil, err
+		}
 		return e.GetLogLevel(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
@@ -754,10 +786,10 @@ func (e *StatelessExecutor) SetLogLevel(ctx context.Context, level string) (inte
 		return nil, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
 	}
 	if level == "" {
-		return nil, fmt.Errorf("invalid log level: level must not be empty")
+		return nil, fmt.Errorf("invalid log level: level must not be empty; supported levels: %s", admin.SupportedLogLevels)
 	}
 	if err := e.log.SetLevel(level); err != nil {
-		return nil, fmt.Errorf("invalid log level '%s': %v", level, err)
+		return nil, fmt.Errorf("invalid log level '%s'; supported levels: %s", level, admin.SupportedLogLevels)
 	}
 	return struct {
 		Success bool   `json:"success"`

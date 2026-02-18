@@ -21,7 +21,6 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-
 	// Create the executor configuration
 	config, err := executor.LoadConfig()
 	if err != nil {
@@ -29,6 +28,12 @@ func main() {
 		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
 		log.Fatal("Failed to load configuration: %v", err)
 	}
+
+	// Create context first so defer cancel() is registered before defer log.Close().
+	// Defers run LIFO, so log.Close() will drain the async buffer to the log server
+	// before cancel() shuts down context-dependent resources.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
@@ -48,18 +53,16 @@ func main() {
 		}
 	}()
 
-
 	// Create the WASM runtime
 	runtime := wasm.NewWasmtimeRuntime(log)
 
 	// Create the appropriate server based on configuration
-
 	var server communication.ExecutorServer
 	var adminServer admin.AdminCommandServer
 	switch config.ChannelType {
 	case "tcp":
 		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
-		server = communication.NewServer(factory, config.CommunicationParams,log)
+		server = communication.NewServer(factory, config.CommunicationParams, log)
 		adminFactory := communication.NewTCPConnectionFactory(config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
 		adminServer = admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
 	case "vsock":
@@ -78,7 +81,6 @@ func main() {
 		return
 	}
 
-
 	// Create the executor
 	exec, err := executor.NewStatelessExecutor(config, runtime, server, adminServer, log)
 	if err != nil {
@@ -88,10 +90,6 @@ func main() {
 
 	// Start the executor
 	log.Info("Starting executor service...")
-	// Create a context that is canceled on SIGINT or SIGTERM
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	
 	if err := exec.Start(ctx); err != nil {
 		log.Error("Error starting executor: %v", err)
 		return

@@ -195,6 +195,7 @@ func LoadConfig() (*Config, error) {
 		LogConsoleColor:           common.GetConfigVarBool("MANAGER_LOG_CONSOLE_COLOR", false, fileProperties),
 		LogFileName:               common.GetConfigVar("MANAGER_LOG_FILE_NAME", "", fileProperties),
 		LogFileLevel:              common.GetConfigVar("MANAGER_LOG_FILE_LEVEL", "info", fileProperties),
+		LogNetworkLevel:           common.GetConfigVar("MANAGER_LOG_NETWORK_LEVEL", "info", fileProperties),
 		LogServerTCPAddress:       logServerTcpAddress,
 		LogServerVSockAddress:     logServerVsockAddress,
 		LogServerLogFile:          common.GetConfigVar("LOG_SERVER_FILE_NAME", "", fileProperties),

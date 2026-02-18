@@ -16,11 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockManagerSupportedCommands is the list of commands supported by the mock manager handler
-var mockManagerSupportedCommands = []AdminMessageType{
-	GetVersionRequestMessage,
-}
-
 // MockManagerCmdHandler is a mock implementation of the AdminCmdHandler interface.
 type MockManagerCmdHandler struct {
 	version   string
@@ -34,11 +29,12 @@ func (m *MockManagerCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMes
 	defer m.mu.Unlock()
 	m.callCount++
 
-	if !IsSupportedCommand(msg.Type, mockManagerSupportedCommands) {
+	switch msg.Type {
+	case GetVersionRequestMessage:
+		return m.version, m.err
+	default:
 		return nil, errors.New("unsupported command type")
 	}
-
-	return m.version, m.err
 }
 
 func (m *MockManagerCmdHandler) GetCallCount() int {
@@ -105,7 +101,7 @@ func TestManagerAdminServer_HandleGetVersionSuccess(t *testing.T) {
 
 	assert.Equal(t, AdminResponseMessage, respMsg.Type)
 	var version string
-	json.Unmarshal(respMsg.Data, &version)
+	require.NoError(t, json.Unmarshal(respMsg.Data, &version))
 	assert.Equal(t, "1.2.3", version)
 	assert.Equal(t, 1, handler.GetCallCount())
 }
@@ -130,11 +126,11 @@ func TestManagerAdminServer_HandleGetVersionHandlerError(t *testing.T) {
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
-	json.Unmarshal(respBytes, &respMsg)
+	require.NoError(t, json.Unmarshal(respBytes, &respMsg))
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	json.Unmarshal(respMsg.Data, &errData)
+	require.NoError(t, json.Unmarshal(respMsg.Data, &errData))
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 	assert.Equal(t, "version error", errData.Message)
@@ -162,11 +158,11 @@ func TestManagerAdminServer_HandleUnknownRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
-	json.Unmarshal(respBytes, &respMsg)
+	require.NoError(t, json.Unmarshal(respBytes, &respMsg))
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	json.Unmarshal(respMsg.Data, &errData)
+	require.NoError(t, json.Unmarshal(respMsg.Data, &errData))
 
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 }
@@ -196,11 +192,11 @@ func TestManagerAdminServer_ServerBusy(t *testing.T) {
 	require.NoError(t, err)
 
 	var respMsg AdminMessage
-	json.Unmarshal(respBytes, &respMsg)
+	require.NoError(t, json.Unmarshal(respBytes, &respMsg))
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	json.Unmarshal(respMsg.Data, &errData)
+	require.NoError(t, json.Unmarshal(respMsg.Data, &errData))
 
 	assert.Equal(t, "INVALID_REQUEST", errData.Code)
 	assert.Equal(t, "server is busy", errData.Message)
@@ -245,9 +241,7 @@ func (m *MockLogLevelCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMe
 	case GetLogLevelRequestMessage:
 		return m.level, nil
 	case SetLogLevelRequestMessage:
-		var req struct {
-			Level string `json:"level"`
-		}
+		var req SetLogLevelRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, err
 		}
@@ -293,23 +287,21 @@ func TestManagerAdminServer_GetAndSetLogLevel(t *testing.T) {
 	resp := sendCommand(server, AdminMessage{Type: GetLogLevelRequestMessage})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
 	var level string
-	json.Unmarshal(resp.Data, &level)
+	require.NoError(t, json.Unmarshal(resp.Data, &level))
 	assert.Equal(t, "info", level)
 
 	// Small delay to let the server goroutine complete cleanup (single-client constraint)
 	time.Sleep(50 * time.Millisecond)
 
 	// 2. SetLogLevel - change to "debug"
-	setData, _ := json.Marshal(struct {
-		Level string `json:"level"`
-	}{Level: "debug"})
+	setData, _ := json.Marshal(SetLogLevelRequest{Level: "debug"})
 	resp = sendCommand(server, AdminMessage{Type: SetLogLevelRequestMessage, Data: setData})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
 	var setResp struct {
 		Success bool   `json:"success"`
 		Level   string `json:"level"`
 	}
-	json.Unmarshal(resp.Data, &setResp)
+	require.NoError(t, json.Unmarshal(resp.Data, &setResp))
 	assert.True(t, setResp.Success)
 	assert.Equal(t, "debug", setResp.Level)
 
@@ -319,6 +311,6 @@ func TestManagerAdminServer_GetAndSetLogLevel(t *testing.T) {
 	// 3. GetLogLevel again - should now return "debug"
 	resp = sendCommand(server, AdminMessage{Type: GetLogLevelRequestMessage})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
-	json.Unmarshal(resp.Data, &level)
+	require.NoError(t, json.Unmarshal(resp.Data, &level))
 	assert.Equal(t, "debug", level)
 }

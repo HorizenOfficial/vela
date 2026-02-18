@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
@@ -92,8 +93,9 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("already connected")
 	}
 
+	// Use DialContext so that the HTTP transport respects context cancellation.
 	var err error
-	c.client, err = ethclient.Dial(c.rpcURL)
+	c.client, err = ethclient.DialContext(ctx, c.rpcURL)
 	if err != nil {
 		return fmt.Errorf("cannot connect to chain: %w", err)
 	}
@@ -103,7 +105,12 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 		c.teeAuthBoundContract = c.teeAuthEndpoint.Instance(c.client, c.teeAuthAddress)
 	}
 
-	chainID, err := c.client.ChainID(ctx)
+	// Use a timeout so Connect does not hang indefinitely when the RPC
+	// node is unreachable (go-ethereum's HTTP client retries forever
+	// with a no-deadline context).
+	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	chainID, err := c.client.ChainID(connectCtx)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve chain ID: %w", err)
 	}
