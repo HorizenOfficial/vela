@@ -92,48 +92,12 @@ func GenerateEnclaveKeySet(
 	enclaveHandle kms.EnclaveHandle,
 	kmsKeyARN string,
 ) (*EnclaveKeySet, *common.EnclaveKeySetRecovery, error) {
-	switch recoveryType {
-	case common.RecoveryTypeUnsafe:
-		// Type 0: Unsafe/development mode - masterKey stored in plaintext
-		// 1. Create a new AES master key.
-		masterKey, err := crypto.GenerateAESKey()
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to generate master key: %w", err)
-		}
-		defer zeroAESKey(&masterKey)
+	if recoveryType != common.RecoveryTypeUnsafe && recoveryType != common.RecoveryTypeKMS {
+		return nil, nil, fmt.Errorf("unsupported recovery type: %d", recoveryType)
+	}
 
-		// 2. Create a new EnclaveKeySet.
-		keySet, err := CreateNewKeySet()
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create key set: %w", err)
-		}
-
-		// 3. Serialize the EnclaveKeySet.
-		serializedKeySet, err := keySet.Serialize()
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// 4. Encrypt the serialized EnclaveKeySet with the master key.
-		encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to encrypt key set: %w", err)
-		}
-
-		// 5. Create the recovery structure.
-		recoveryKey := make([]byte, len(masterKey))
-		copy(recoveryKey, masterKey[:])
-		recovery := &common.EnclaveKeySetRecovery{
-			RecoveryType:       common.RecoveryTypeUnsafe,
-			KeySetCiphertext:   encryptedKeySet,
-			RecoveryCiphertext: recoveryKey,
-		}
-
-		return keySet, recovery, nil
-
-	case common.RecoveryTypeKMS:
-		// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
-		// Validate required dependencies
+	// Validate required dependencies for Type 1.
+	if recoveryType == common.RecoveryTypeKMS {
 		if kmsClient == nil {
 			return nil, nil, fmt.Errorf("KMS client is required for Type 1 recovery")
 		}
@@ -143,26 +107,54 @@ func GenerateEnclaveKeySet(
 		if kmsKeyARN == "" {
 			return nil, nil, fmt.Errorf("KMS key ARN is required for Type 1 recovery")
 		}
+	}
 
-		// 1. Create a new EnclaveKeySet
-		keySet, err := CreateNewKeySet()
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create key set: %w", err)
+	// 1. Create a new EnclaveKeySet.
+	keySet, err := CreateNewKeySet()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create key set: %w", err)
+	}
+
+	// 2. Serialize the EnclaveKeySet.
+	serializedKeySet, err := keySet.Serialize()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var masterKey cryptotypes.AES256Key
+	var recoveryCiphertext []byte
+	var cleanup func()
+	defer func() {
+		if cleanup != nil {
+			cleanup()
 		}
+	}()
 
-		// 2. Serialize the EnclaveKeySet
-		serializedKeySet, err := keySet.Serialize()
+	switch recoveryType {
+	case common.RecoveryTypeUnsafe:
+		// Type 0: Unsafe/development mode - masterKey stored in plaintext
+		// 3. Create a new AES master key.
+		generatedKey, err := crypto.GenerateAESKey()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("failed to generate master key: %w", err)
 		}
+		masterKey = generatedKey
+		cleanup = func() { zeroAESKey(&masterKey) }
 
-		// 3. Generate attestation document from NSM
+		// Create recovery ciphertext (plaintext master key for Type 0).
+		recoveryKey := make([]byte, len(masterKey))
+		copy(recoveryKey, masterKey[:])
+		recoveryCiphertext = recoveryKey
+
+	case common.RecoveryTypeKMS:
+		// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
+		// 3. Generate attestation document from NSM.
 		attestationDoc, err := enclaveHandle.Attest(nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate attestation: %w", err)
 		}
 
-		// 4. Request KMS to generate a data key with attestation
+		// 4. Request KMS to generate a data key with attestation.
 		dataKeyOutput, err := kmsClient.GenerateDataKeyWithAttestation(ctx, kmsKeyARN, attestationDoc)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate data key from KMS: %w", err)
@@ -176,42 +168,39 @@ func GenerateEnclaveKeySet(
 			return nil, nil, fmt.Errorf("KMS returned empty CiphertextForRecipient - attestation may have failed")
 		}
 
-		// 5. Decrypt the data key using enclave's private RSA key
+		// 5. Decrypt the data key using enclave's private RSA key.
 		// The CiphertextForRecipient is encrypted for the enclave's public key from attestation
 		masterKeyBytes, err := enclaveHandle.DecryptKMSEnvelopedKey(dataKeyOutput.CiphertextForRecipient)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decrypt KMS enveloped key: %w", err)
 		}
-		defer zeroBytes(masterKeyBytes)
+		cleanup = func() {
+			zeroBytes(masterKeyBytes)
+			zeroAESKey(&masterKey)
+		}
 
 		if len(masterKeyBytes) != 32 {
 			return nil, nil, fmt.Errorf("invalid master key length from KMS: got %d, expected 32", len(masterKeyBytes))
 		}
 
-		var masterKey cryptotypes.AES256Key
 		copy(masterKey[:], masterKeyBytes)
-		defer zeroAESKey(&masterKey)
-
-		// 6. Encrypt the serialized EnclaveKeySet with the master key
-		encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to encrypt key set: %w", err)
-		}
-
-		// 7. Create the recovery structure
-		// Store the KMS CiphertextBlob
-		// This can only be decrypted by KMS with valid attestation
-		recovery := &common.EnclaveKeySetRecovery{
-			RecoveryType:       common.RecoveryTypeKMS,
-			KeySetCiphertext:   encryptedKeySet,
-			RecoveryCiphertext: dataKeyOutput.CiphertextBlob,
-		}
-
-		return keySet, recovery, nil
-
-	default:
-		return nil, nil, fmt.Errorf("unsupported recovery type: %d", recoveryType)
+		// Store the KMS CiphertextBlob (decryptable only by KMS with valid attestation).
+		recoveryCiphertext = dataKeyOutput.CiphertextBlob
 	}
+
+	// Encrypt the serialized EnclaveKeySet with the master key.
+	encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to encrypt key set: %w", err)
+	}
+
+	recovery := &common.EnclaveKeySetRecovery{
+		RecoveryType:       recoveryType,
+		KeySetCiphertext:   encryptedKeySet,
+		RecoveryCiphertext: recoveryCiphertext,
+	}
+
+	return keySet, recovery, nil
 }
 
 // RestoreEnclaveKeySet recovers a keyset from a recovery previously stored.
