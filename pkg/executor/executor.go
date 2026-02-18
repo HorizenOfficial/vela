@@ -62,7 +62,8 @@ func CreateNewKeySet() (*EnclaveKeySet, error) {
 	return keySet, nil
 }
 
-// importFixedKeySet creates an EnclaveKeySet from hex-encoded private keys.
+// importFixedKeySet creates an EnclaveKeySet from fixed hex-encoded private keys.
+// !!! UNSAFE !!! use this method only for DEV environment !!!
 func importFixedKeySet(signingHex, commHex, stateHex string) (*EnclaveKeySet, error) {
 	signingKey, err := crypto.ImportPrivateKeySecp256k1FromHex(signingHex)
 	if err != nil {
