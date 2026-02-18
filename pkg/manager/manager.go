@@ -297,8 +297,12 @@ func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error)
 }
 
 // SetLogLevel changes the manager's log level at runtime.
+// Only supported when the manager uses ZeroNetworkLogger.
 func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
 	m.log.Info("Manager: SetLogLevel command received, level=%s", level)
+	if _, ok := m.log.(*logger.ZeroNetworkLogger); !ok {
+		return nil, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
+	}
 	if level == "" {
 		return nil, fmt.Errorf("invalid log level: level must not be empty")
 	}
@@ -312,8 +316,12 @@ func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) 
 }
 
 // GetLogLevel returns the current log level of the manager.
+// Only supported when the manager uses ZeroNetworkLogger.
 func (m *SecureProcessorManager) GetLogLevel(ctx context.Context) (string, error) {
 	m.log.Info("Manager: GetLogLevel command received")
+	if _, ok := m.log.(*logger.ZeroNetworkLogger); !ok {
+		return "", fmt.Errorf("GetLogLevel is only supported with the ZeroNetworkLogger")
+	}
 	return m.log.GetLevel(), nil
 }
 

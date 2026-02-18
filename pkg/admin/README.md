@@ -47,10 +47,11 @@ Retrieves the current version of the Manager.
   "type": 0,
   "data": "0.1.0"
 }
+```
 
 ### GetLogLevel
 
-Retrieves the current logging level of the Manager. This is useful for verifying the active log level or when building administrative tools.
+Retrieves the current logging level of the Manager. Only supported when the Manager uses ZeroNetworkLogger (the production logger).
 
 **Request:**
 ```json
@@ -70,11 +71,9 @@ Retrieves the current logging level of the Manager. This is useful for verifying
 
 The response contains a string with the current log level. Possible values are: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`.
 
-**Location in code:** [manager.go:295-305](../manager/manager.go#L295-L305)
-
 ### SetLogLevel
 
-Changes the logging level at runtime without requiring a restart. This is useful for debugging or reducing verbosity in production.
+Changes the logging level at runtime without requiring a restart. Only supported when the component uses ZeroNetworkLogger (the production logger). This is especially useful for the Executor running inside an AWS Nitro Enclave, where restarts are not acceptable.
 
 **Request:**
 ```json
@@ -134,17 +133,25 @@ If an invalid log level is provided, the command returns an error:
 }
 ```
 
+If the component is not using ZeroNetworkLogger:
+
+```json
+{
+  "type": 1,
+  "data": {
+    "code": "ERROR_SETTING_LOG_LEVEL",
+    "message": "SetLogLevel is only supported with the ZeroNetworkLogger"
+  }
+}
+```
+
 #### Implementation Details
 
 The `SetLogLevel` command:
-1. Validates the level string is not empty
-2. Calls the `ManagerCmdHandler.SetLogLevel()` method
-3. The handler updates the logger configuration using `logger.SetLevel()`
-4. For `ZeroLogger`, both console and file loggers are updated
-5. For `ZeroNetworkLogger`, the network logger level is updated
-6. Changes take effect immediately for all subsequent log statements
-
-**Location in code:** [manager.go:282-292](../manager/manager.go#L282-L292)
+1. Validates the logger is a ZeroNetworkLogger (returns error otherwise)
+2. Validates the level string is not empty
+3. Calls `logger.SetLevel()` to update the logger configuration
+4. Changes take effect immediately for all subsequent log statements
 
 ## Executor Commands
 
@@ -168,6 +175,14 @@ Generates a key attestation document for the Executor's cryptographic keys.
 }
 ```
 
+### GetLogLevel (Executor)
+
+Retrieves the current logging level of the Executor. Same behavior as the Manager command (type 5).
+
+### SetLogLevel (Executor)
+
+Changes the Executor's logging level at runtime. Same behavior as the Manager command (type 4).
+
 ## Message Types
 
 | Type | Name | Description |
@@ -176,35 +191,29 @@ Generates a key attestation document for the Executor's cryptographic keys.
 | 1 | `AdminErrorMessage` | Error response |
 | 2 | `KeyAttestationRequestMessage` | Request key attestation (Executor) |
 | 3 | `GetVersionRequestMessage` | Request version info (Manager) |
-| 4 | `SetLogLevelRequestMessage` | Change log level (Manager) |
-| 5 | `GetLogLevelRequestMessage` | Get current log level (Manager) |
+| 4 | `SetLogLevelRequestMessage` | Change log level (Manager and Executor) |
+| 5 | `GetLogLevelRequestMessage` | Get current log level (Manager and Executor) |
+| 6 | `ExecutorKeyAttestationRequestMessage` | Reserved: proxy key attestation via Manager |
+| 7 | `ExecutorSetLogLevelRequestMessage` | Reserved: proxy SetLogLevel via Manager |
+| 8 | `ExecutorGetLogLevelRequestMessage` | Reserved: proxy GetLogLevel via Manager |
 
 ## Usage Examples
 
-### Change the log level
-
-To connect to a running Manager and change the log level:
+### Change the Manager log level
 
 ```bash
-# Using netcat to send a SetLogLevel command
 echo '{"type":4,"data":{"level":"debug"}}' | nc <manager-host> <admin-port>
 ```
 
-### Get the current log level
-
-To retrieve the current logging level:
+### Get the Manager log level
 
 ```bash
-# Using netcat to send a GetLogLevel command
 echo '{"type":5,"data":null}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the Manager version
 
-To retrieve the Manager version:
-
 ```bash
-# Using netcat to send a GetVersion command
 echo '{"type":3,"data":null}' | nc <manager-host> <admin-port>
 ```
 

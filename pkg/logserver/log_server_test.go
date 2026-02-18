@@ -76,7 +76,7 @@ func TestLogServer_ValidationErrors(t *testing.T) {
 	}{
 		{
 			name:      "both addresses empty",
-			cfg:       LogServerConfig{LogFilePath: logFile, FileLevel: "info"},
+			cfg:       LogServerConfig{LogFilePath: logFile},
 			wantError: "TCP and VSOCK addresses are both empty",
 		},
 		{
@@ -88,31 +88,10 @@ func TestLogServer_ValidationErrors(t *testing.T) {
 			wantError: "file path is empty and console output is disabled",
 		},
 		{
-			name: "invalid console log level",
-			cfg: LogServerConfig{
-				TCPAddr:        common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
-				ConsoleEnabled: true,
-				ConsoleLevel:   "bogus",
-				LogFilePath:    logFile,
-				FileLevel:      "info",
-			},
-			wantError: "invalid console log level",
-		},
-		{
-			name: "invalid file log level",
-			cfg: LogServerConfig{
-				TCPAddr:     common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
-				LogFilePath: logFile,
-				FileLevel:   "bogus",
-			},
-			wantError: "invalid file log level",
-		},
-		{
 			name: "MaxSizeMB exceeds upper bound",
 			cfg: LogServerConfig{
 				TCPAddr:         common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
 				LogFilePath:     logFile,
-				FileLevel:       "info",
 				RotationEnabled: true,
 				MaxSizeMB:       2000,
 			},
@@ -123,7 +102,6 @@ func TestLogServer_ValidationErrors(t *testing.T) {
 			cfg: LogServerConfig{
 				TCPAddr:         common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
 				LogFilePath:     logFile,
-				FileLevel:       "info",
 				RotationEnabled: true,
 				MaxSizeMB:       10,
 				MaxBackups:      200,
@@ -135,7 +113,6 @@ func TestLogServer_ValidationErrors(t *testing.T) {
 			cfg: LogServerConfig{
 				TCPAddr:         common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
 				LogFilePath:     logFile,
-				FileLevel:       "info",
 				RotationEnabled: true,
 				MaxSizeMB:       10,
 				MaxBackups:      3,
@@ -148,7 +125,6 @@ func TestLogServer_ValidationErrors(t *testing.T) {
 			cfg: LogServerConfig{
 				TCPAddr:         common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
 				LogFilePath:     "/nonexistent/path/test.log",
-				FileLevel:       "info",
 				RotationEnabled: true,
 				MaxSizeMB:       10,
 			},
@@ -159,7 +135,6 @@ func TestLogServer_ValidationErrors(t *testing.T) {
 			cfg: LogServerConfig{
 				TCPAddr:     common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 9999},
 				LogFilePath: "/nonexistent/path/test.log",
-				FileLevel:   "info",
 			},
 			wantError: "failed to open log file",
 		},
@@ -209,8 +184,6 @@ func TestLogServer_OversizedLineTruncated(t *testing.T) {
 		},
 		LogFilePath:     logFile,
 		ConsoleEnabled:  false,
-		ConsoleLevel:    "info",
-		FileLevel:       "trace",
 		RotationEnabled: false,
 	})
 	if err != nil {
@@ -275,7 +248,7 @@ func TestLogServer_OversizedLineTruncated(t *testing.T) {
 }
 
 // TestLogServer_UnknownLogLevel verifies that a message with an unrecognized log level
-// is treated as "info" priority and written when file level allows info.
+// is still written to the file (log server is a transparent relay).
 func TestLogServer_UnknownLogLevel(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "logserver_test")
 	if err != nil {
@@ -302,8 +275,6 @@ func TestLogServer_UnknownLogLevel(t *testing.T) {
 		},
 		LogFilePath:     logFile,
 		ConsoleEnabled:  false,
-		ConsoleLevel:    "info",
-		FileLevel:       "info",
 		RotationEnabled: false,
 	})
 	if err != nil {
@@ -357,8 +328,6 @@ func TestLogServer_InvalidJSON(t *testing.T) {
 		},
 		LogFilePath:     logFile,
 		ConsoleEnabled:  false,
-		ConsoleLevel:    "info",
-		FileLevel:       "info",
 		RotationEnabled: false,
 	})
 	if err != nil {
@@ -427,8 +396,6 @@ func TestLogServer_WritesToFile_NoRotation(t *testing.T) {
 		},
 		LogFilePath:     logFile,
 		ConsoleEnabled:  false,
-		ConsoleLevel:    "info",
-		FileLevel:       "info",
 		RotationEnabled: false,
 	})
 	if err != nil {
@@ -486,8 +453,6 @@ func TestLogServer_WritesToFile_WithRotation(t *testing.T) {
 		},
 		LogFilePath:     logFile,
 		ConsoleEnabled:  false,
-		ConsoleLevel:    "info",
-		FileLevel:       "info",
 		RotationEnabled: true,
 		MaxSizeMB:       1, // 1MB for testing
 		MaxBackups:      2,
@@ -551,8 +516,6 @@ func TestLogServer_RotationTriggered(t *testing.T) {
 		},
 		LogFilePath:     logFile,
 		ConsoleEnabled:  false,
-		ConsoleLevel:    "debug",
-		FileLevel:       "debug",
 		RotationEnabled: true,
 		MaxSizeMB:       1, // 1MB minimum
 		MaxBackups:      3,
@@ -613,9 +576,9 @@ func TestLogServer_RotationTriggered(t *testing.T) {
 	}
 }
 
-// TestLogServer_LevelFiltering verifies that log level filtering works correctly
-// (debug/info messages are filtered out, warn/error messages are written).
-func TestLogServer_LevelFiltering(t *testing.T) {
+// TestLogServer_NoLevelFiltering verifies that the log server acts as a transparent relay:
+// messages at ALL levels are written to the file regardless of their level.
+func TestLogServer_NoLevelFiltering(t *testing.T) {
 	// Create temp directory for log file
 	tmpDir, err := os.MkdirTemp("", "logserver_test")
 	if err != nil {
@@ -636,7 +599,6 @@ func TestLogServer_LevelFiltering(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start log server with file level = warn (should filter out info/debug)
 	err = StartLogServer(ctx, LogServerConfig{
 		TCPAddr: common.TcpChannelConnectionParams{
 			Ip:   "127.0.0.1",
@@ -644,8 +606,6 @@ func TestLogServer_LevelFiltering(t *testing.T) {
 		},
 		LogFilePath:     logFile,
 		ConsoleEnabled:  false,
-		ConsoleLevel:    "error",
-		FileLevel:       "warn", // Only warn and above
 		RotationEnabled: false,
 	})
 	if err != nil {
@@ -657,15 +617,16 @@ func TestLogServer_LevelFiltering(t *testing.T) {
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
-	// Send messages at different levels
-	sendLogMessage(t, addr, "debug", "debug message should be filtered")
-	sendLogMessage(t, addr, "info", "info message should be filtered")
+	// Send messages at all levels — ALL should appear in the file (no filtering)
+	sendLogMessage(t, addr, "trace", "trace message should appear")
+	sendLogMessage(t, addr, "debug", "debug message should appear")
+	sendLogMessage(t, addr, "info", "info message should appear")
 	sendLogMessage(t, addr, "warn", "warn message should appear")
 	sendLogMessage(t, addr, "error", "error message should appear")
 
 	// Wait for file to be written and give time for all messages to be processed
 	waitForFile(t, logFile, 2*time.Second)
-	time.Sleep(200 * time.Millisecond) // Allow time for all messages to be written
+	time.Sleep(200 * time.Millisecond)
 
 	// Verify content
 	content, err := os.ReadFile(logFile)
@@ -675,20 +636,17 @@ func TestLogServer_LevelFiltering(t *testing.T) {
 
 	contentStr := string(content)
 
-	// Should NOT contain debug or info
-	if strings.Contains(contentStr, "debug message should be filtered") {
-		t.Error("Log file contains debug message that should have been filtered")
-	}
-	if strings.Contains(contentStr, "info message should be filtered") {
-		t.Error("Log file contains info message that should have been filtered")
-	}
-
-	// Should contain warn and error
-	if !strings.Contains(contentStr, "warn message should appear") {
-		t.Error("Log file does not contain expected warn message")
-	}
-	if !strings.Contains(contentStr, "error message should appear") {
-		t.Error("Log file does not contain expected error message")
+	// ALL messages should be present (no filtering at the log server)
+	for _, expected := range []string{
+		"trace message should appear",
+		"debug message should appear",
+		"info message should appear",
+		"warn message should appear",
+		"error message should appear",
+	} {
+		if !strings.Contains(contentStr, expected) {
+			t.Errorf("Log file missing expected message: %s", expected)
+		}
 	}
 }
 
@@ -725,8 +683,6 @@ func TestLogServer_GracefulShutdown(t *testing.T) {
 		},
 		LogFilePath:     logFile,
 		ConsoleEnabled:  false,
-		ConsoleLevel:    "info",
-		FileLevel:       "info",
 		RotationEnabled: false,
 	})
 	if err != nil {

@@ -103,8 +103,6 @@ func main() {
 			VSockAddr:       config.LogServerVSockAddress,
 			LogFilePath:     config.LogServerLogFile,
 			ConsoleEnabled:  config.LogServerConsole,
-			ConsoleLevel:    config.LogServerConsoleLevel,
-			FileLevel:       config.LogServerFileLevel,
 			RotationEnabled: config.LogServerRotationEnabled,
 			MaxSizeMB:       config.LogServerMaxSizeMB,
 			MaxBackups:      config.LogServerMaxBackups,

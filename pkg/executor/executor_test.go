@@ -2,13 +2,16 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/hf/nsm/request"
 	"github.com/hf/nsm/response"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/logger"
 )
 
@@ -178,4 +181,34 @@ func TestCreateKeyAttestationInternal(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to generate attestation")
 		assert.True(t, mockSession.closeCalled)
 	})
+}
+
+// TestExecuteCommand_SetLogLevel_NonZeroNetworkLogger verifies that SetLogLevel and GetLogLevel
+// return errors when the executor uses a non-ZeroNetworkLogger (e.g., zerolog).
+func TestExecuteCommand_SetLogLevel_NonZeroNetworkLogger(t *testing.T) {
+	log := logger.NewLogger(&logger.Config{
+		Kind:         "zerolog",
+		Console:      true,
+		ConsoleLevel: "trace",
+	})
+	executor := &StatelessExecutor{log: log}
+	ctx := context.Background()
+
+	// SetLogLevel should fail
+	setData, err := json.Marshal(struct {
+		Level string `json:"level"`
+	}{Level: "error"})
+	require.NoError(t, err)
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err := executor.ExecuteCommand(ctx, setMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Nil(t, result)
+
+	// GetLogLevel should fail
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
+	result, err = executor.ExecuteCommand(ctx, getMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Empty(t, result)
 }

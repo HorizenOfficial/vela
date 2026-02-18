@@ -727,14 +727,52 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 }
 
 // ExecuteCommand implements admin.AdminCmdHandler interface.
-// Handles admin commands for the executor, currently only KeyAttestationRequestMessage.
 func (e *StatelessExecutor) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
 	switch msg.Type {
 	case admin.KeyAttestationRequestMessage:
 		return e.CreateKeyAttestation(ctx)
+	case admin.SetLogLevelRequestMessage:
+		var req struct {
+			Level string `json:"level"`
+		}
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			return nil, fmt.Errorf("invalid request data: %w", err)
+		}
+		return e.SetLogLevel(ctx, req.Level)
+	case admin.GetLogLevelRequestMessage:
+		return e.GetLogLevel(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
 	}
+}
+
+// SetLogLevel changes the executor's log level at runtime.
+// Only supported when the executor uses ZeroNetworkLogger.
+func (e *StatelessExecutor) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
+	e.log.Info("Executor: SetLogLevel command received, level=%s", level)
+	if _, ok := e.log.(*logger.ZeroNetworkLogger); !ok {
+		return nil, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
+	}
+	if level == "" {
+		return nil, fmt.Errorf("invalid log level: level must not be empty")
+	}
+	if err := e.log.SetLevel(level); err != nil {
+		return nil, fmt.Errorf("invalid log level '%s': %v", level, err)
+	}
+	return struct {
+		Success bool   `json:"success"`
+		Level   string `json:"level"`
+	}{Success: true, Level: level}, nil
+}
+
+// GetLogLevel returns the current log level of the executor.
+// Only supported when the executor uses ZeroNetworkLogger.
+func (e *StatelessExecutor) GetLogLevel(ctx context.Context) (string, error) {
+	e.log.Info("Executor: GetLogLevel command received")
+	if _, ok := e.log.(*logger.ZeroNetworkLogger); !ok {
+		return "", fmt.Errorf("GetLogLevel is only supported with the ZeroNetworkLogger")
+	}
+	return e.log.GetLevel(), nil
 }
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {

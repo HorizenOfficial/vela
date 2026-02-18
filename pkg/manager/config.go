@@ -88,10 +88,6 @@ type Config struct {
 	LogServerLogFile string
 	// LogServerConsole is true if we want output on console
 	LogServerConsole bool
-	// LogServerConsoleLevel is the level of logging for the console
-	LogServerConsoleLevel string
-	// LogServerFileLevel is the level of logging for the file
-	LogServerFileLevel string
 	// LogServerRotationEnabled enables log rotation using lumberjack (only when LogServerLogFile is set)
 	LogServerRotationEnabled bool
 	// LogServerMaxSizeMB is the max size in megabytes before rotation (default: 100)
@@ -203,8 +199,6 @@ func LoadConfig() (*Config, error) {
 		LogServerVSockAddress:     logServerVsockAddress,
 		LogServerLogFile:          common.GetConfigVar("LOG_SERVER_FILE_NAME", "", fileProperties),
 		LogServerConsole:          common.GetConfigVarBool("LOG_SERVER_CONSOLE", true, fileProperties),
-		LogServerConsoleLevel:     common.GetConfigVar("LOG_SERVER_CONSOLE_LEVEL", "warn", fileProperties),
-		LogServerFileLevel:        common.GetConfigVar("LOG_SERVER_FILE_LEVEL", "info", fileProperties),
 		LogServerRotationEnabled:  common.GetConfigVarBool("LOG_SERVER_FILE_ROTATION", false, fileProperties),
 		LogServerMaxSizeMB:        int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_SIZE_MB", 100, fileProperties)),
 		LogServerMaxBackups:       int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_BACKUPS", 3, fileProperties)),

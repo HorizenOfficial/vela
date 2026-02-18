@@ -37,11 +37,20 @@ const (
 	// GetVersionRequestMessage represents a request to get the version (manager)
 	GetVersionRequestMessage
 
-	// SetLogLevelRequestMessage represents a request to change the log level (manager)
+	// SetLogLevelRequestMessage represents a request to change the log level
 	SetLogLevelRequestMessage
 
-	// GetLogLevelRequestMessage represents a request to get the current log level (manager)
+	// GetLogLevelRequestMessage represents a request to get the current log level
 	GetLogLevelRequestMessage
+
+	// ExecutorKeyAttestationRequestMessage represents a proxy request forwarded by the manager to the executor for key attestation
+	ExecutorKeyAttestationRequestMessage
+
+	// ExecutorSetLogLevelRequestMessage represents a proxy request forwarded by the manager to the executor to change the log level
+	ExecutorSetLogLevelRequestMessage
+
+	// ExecutorGetLogLevelRequestMessage represents a proxy request forwarded by the manager to the executor to get the current log level
+	ExecutorGetLogLevelRequestMessage
 )
 
 
