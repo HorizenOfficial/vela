@@ -9,6 +9,7 @@ It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overvie
     ```
     docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile . 
     docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile . 
+    docker build -t horizen/kms-proxy -f dockerfiles/kms_proxy/Dockerfile .
     docker build -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
     docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile . 
     ```
