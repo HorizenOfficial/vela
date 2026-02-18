@@ -470,18 +470,20 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 	// Submit the state update to the blockchain
 	if err := m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
 		m.log.Error("Failed to submit state update for error: %v", err)
-		m.log.Info("Rollback the application state to previous version")
-		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
-			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
-			// Log and return nil to let REORG detection handle it on the next poll.
-			m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
-			return nil
-		}
+		if updatePayload.ErrorCode == 0 {
+			m.log.Info("Rollback the application state to previous version")
+			if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
+				// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
+				// Log and return nil to let REORG detection handle it on the next poll.
+				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
+				return err
+			}
 
-		if _, ok := err.(blockchain.ReorgError); ok {
-			m.log.Warn("REORG, wait for next poll")
-			return nil
-		}
+			if _, ok := err.(blockchain.ReorgError); ok {
+				m.log.Warn("REORG, wait for next poll")
+				return nil
+			}
+		} 
 		return err
 	}
 

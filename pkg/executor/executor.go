@@ -340,10 +340,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize {
-		errorPayload, err := e.processErrorResponse(req, 
-				appState.StateRoot, 
-				apperrors.New(apperrors.CodeRequestTypeNotPermitted, fmt.Sprintf("unsupported request type: %s", req.RequestType)))
-		return errorPayload, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
 	}	
 
 	// Decrypt and parse the app data
