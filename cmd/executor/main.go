@@ -96,7 +96,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Failed to initialize Nitro Enclave handle: %v. "+
 				"Type 1 recovery requires running inside a Nitro Enclave. "+
-				"For local development, use Type 0 (EXECUTOR_KMS_ENABLED=false).", err)
+				"For local development, use Type 0 (EXECUTOR_KEYSET_RECOVERY_TYPE=0).", err)
 		}
 		enclaveHandle = nitroEnclave
 		log.Info("Nitro Enclave handle initialized successfully")

@@ -25,7 +25,6 @@ FROM amazonlinux:2
 RUN yum install -y aws-nitro-enclaves-nsm ca-certificates shadow-utils  && yum clean all
 
 COPY --from=builder /executor /executor
-COPY pkg/executor/executor.nitro.conf /executor.conf
 
 RUN useradd -m appuser
 USER appuser
