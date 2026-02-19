@@ -124,6 +124,9 @@ func LoadConfig() (*Config, error) {
 
 	rawRecoveryType := common.GetConfigVar("EXECUTOR_KEYSET_RECOVERY_TYPE", "", fileProperties)
 	keySetRecoveryType := common.RecoveryType(common.GetConfigVarInt64("EXECUTOR_KEYSET_RECOVERY_TYPE", 0, fileProperties))
+	if keySetRecoveryType != common.RecoveryTypeUnsafe && keySetRecoveryType != common.RecoveryTypeKMS {
+		return nil, fmt.Errorf("invalid EXECUTOR_KEYSET_RECOVERY_TYPE: %d", keySetRecoveryType)
+	}
 
 	// If both are explicitly set, require consistency to avoid surprises.
 	if rawKMSEnabled != "" && rawRecoveryType != "" {
