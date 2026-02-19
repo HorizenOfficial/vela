@@ -24,7 +24,9 @@ const (
 	RequestResultUnknown = ccecommon.RequestResultUnknown
 )
 
-var NewApplicationId = ccecommon.NewApplicationId
+func NewApplicationId(id uint64) ApplicationIdType {
+	return ccecommon.NewApplicationId(id)
+}
 
 // RequestType represents the type of request being sent to the TEE
 type RequestType uint8
