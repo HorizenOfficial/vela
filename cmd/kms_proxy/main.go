@@ -233,7 +233,7 @@ type proxyConfig struct {
 }
 
 func loadConfig() (*proxyConfig, error) {
-	port, err := getEnvUint32("KMS_PROXY_PORT", getEnvUint32Fallback("EXECUTOR_KMS_PROXY_PORT", defaultPort))
+	port, err := getEnvUint32Strict("KMS_PROXY_PORT", getEnvUint32("EXECUTOR_KMS_PROXY_PORT", defaultPort))
 	if err != nil {
 		return nil, fmt.Errorf("invalid KMS_PROXY_PORT: %w", err)
 	}
@@ -457,7 +457,7 @@ func getEnvInt(key string, fallback int) int {
 	return fallback
 }
 
-func getEnvUint32Fallback(key string, fallback uint32) uint32 {
+func getEnvUint32(key string, fallback uint32) uint32 {
 	if val := strings.TrimSpace(os.Getenv(key)); val != "" {
 		if parsed, err := strconv.ParseUint(val, 10, 32); err == nil {
 			return uint32(parsed)
@@ -466,7 +466,7 @@ func getEnvUint32Fallback(key string, fallback uint32) uint32 {
 	return fallback
 }
 
-func getEnvUint32(key string, fallback uint32) (uint32, error) {
+func getEnvUint32Strict(key string, fallback uint32) (uint32, error) {
 	val := strings.TrimSpace(os.Getenv(key))
 	if val == "" {
 		return fallback, nil
