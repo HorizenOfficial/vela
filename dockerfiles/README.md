@@ -1,5 +1,5 @@
 This folder contains an example docker compose to be used for debug/demo.<br>
-It starts a dev chain using [Foundry Anvill](https://getfoundry.sh/anvil/overview) and two separate processes with the processor and the manager
+It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview) and two separate processes with the processor and the manager
 
 ## Instructions:
 

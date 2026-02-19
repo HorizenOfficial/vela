@@ -67,7 +67,7 @@ func NewNitroEnclaveHandle() (*NitroEnclaveHandle, error) {
 // it will fail with "NSM not available".
 func (h *NitroEnclaveHandle) Attest(userData []byte) ([]byte, error) {
 	// Marshal the RSA public key in DER (PKIX/SPKI) format for inclusion in attestation
-	publicKeyDER, err := x509.MarshalPKIXPublicKey(&h.rsaKey.PublicKey)
+	publicKeyDER, err := h.GetPublicKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal RSA public key: %w", err)
 	}
