@@ -380,7 +380,7 @@ func (c *MockClient) Close() error {
 	return nil
 }
 
-// Close closes the blockchain client
+// Connect connects to the blockchain. The mock always succeeds unless overridden.
 func (c *MockClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -389,6 +389,11 @@ func (c *MockClient) Connect(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// IsConnected returns true. The mock is always considered connected unless Connect is mocked to fail.
+func (c *MockClient) IsConnected() bool {
+	return true
 }
 
 func (c *MockClient) ClearAllData() {

@@ -168,13 +168,14 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 		return fmt.Errorf("Manager: executor handshake failed: %w", err)
 	}
 
-	// Connect to the blockchain
+	// Attempt initial blockchain connection. If it fails, the manager still
+	// starts — the polling loop will retry on every tick until connected.
 	m.log.Info("Manager: connecting to blockchain node at %s...", m.config.RpcURL)
 	if err := m.blockchainClient.Connect(ctx); err != nil {
-		m.log.Error("Manager: failed to connect to blockchain node at %s: %v", m.config.RpcURL, err)
-		return fmt.Errorf("failed to connect to blockchain node: %w", err)
+		m.log.Warn("Manager: initial blockchain connect failed (will retry during polling): %v", err)
+	} else {
+		m.log.Info("Manager: connected to blockchain node")
 	}
-	m.log.Info("Manager: connected to blockchain node")
 
 	// Start the blockchain polling loop in a goroutine
 	m.wg.Add(1)
@@ -395,6 +396,16 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 	m.log.Debug("Manager: polling blockchain for new requests...")
 	m.log.Trace("Manager: polling blockchain for new requests...")
 	// TEST
+
+	// If the blockchain client is not connected yet (e.g. initial connect
+	// failed at startup), attempt to connect before polling.
+	if !m.blockchainClient.IsConnected() {
+		if err := m.blockchainClient.Connect(ctx); err != nil {
+			m.log.Warn("Manager: blockchain not connected, retrying next poll: %v", err)
+			return nil
+		}
+		m.log.Info("Manager: connected to blockchain node at %s", m.config.RpcURL)
+	}
 
 	// Get next pending request from the blockchain
 	request, stateRoot, err := m.blockchainClient.GetNextPendingRequest(ctx)

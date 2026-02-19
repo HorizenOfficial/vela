@@ -184,7 +184,8 @@ func TestStart(t *testing.T) {
 
 	// Reset the executor client
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("Connect")
-	// Start the manager but blockchainClient fails to connect
+	// Start the manager when blockchainClient fails to connect — Start should
+	// succeed anyway (non-fatal). The polling loop retries the connection.
 	bcClient.AddMockedFunc("Connect", func(context.Context) error {
 		return fmt.Errorf("failed to connect blockchain client")
 	})
@@ -195,13 +196,23 @@ func TestStart(t *testing.T) {
 		return nil
 	})
 
-	err = manager.Start(context.Background())
-	require.Error(t, err, "failed to connect to blockchain, should return error")
-	require.False(t, manager.isRunning, "Manager should not be running after failed start")
+	ctx, cancel := context.WithCancel(context.Background())
+	err = manager.Start(ctx)
+	require.NoError(t, err, "Start should succeed even if blockchain connect fails initially")
+	require.True(t, manager.isRunning, "Manager should be running (blockchain will retry during polling)")
+
+	// Stop so we can test a fresh start with successful blockchain connect
+	cancel()
+	manager.wg.Wait()
+	manager.isRunning = false
 
 	// Reset the blockchain client
 	bcClient.RemoveMockedFunc("Connect")
-	ctx, cancel := context.WithCancel(context.Background())
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
+		go manager.completeExecutorHandshake(nil)
+		return nil
+	})
+	ctx, cancel = context.WithCancel(context.Background())
 	err = manager.Start(ctx)
 	require.NoError(t, err, "Failed to start manager")
 

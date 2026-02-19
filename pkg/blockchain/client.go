@@ -85,12 +85,19 @@ func NewReadOnlyBlockChainClient(processor ethCommon.Address, rpcURL string) *Bl
 	}
 }
 
+// IsConnected returns true if the client has successfully connected to the blockchain.
+func (c *BlockChainClient) IsConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connected
+}
+
 func (c *BlockChainClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.connected {
-		return fmt.Errorf("already connected")
+		return nil // already connected, no-op
 	}
 
 	// Use DialContext so that the HTTP transport respects context cancellation.

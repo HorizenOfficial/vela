@@ -31,6 +31,9 @@ type Client interface {
 
 	// Close closes the blockchain client
 	Close() error
-	// Connect connects to the blockchain
+	// Connect connects to the blockchain. It is idempotent: calling it on an
+	// already-connected client returns nil.
 	Connect(ctx context.Context) error
+	// IsConnected returns true if the client has successfully connected.
+	IsConnected() bool
 }
