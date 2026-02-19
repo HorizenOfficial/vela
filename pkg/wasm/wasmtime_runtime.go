@@ -632,12 +632,10 @@ func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
 	return nil
 }
 
-// This method converts the ApplicationIdType to the Wasm type (int64)
+// ToWasmType converts ApplicationIdType (uint64) to the WASM i64 representation
+// (int64). WASM has no unsigned integer types — i64 carries 64 bits regardless of
+// signedness, so the bit pattern passes through unchanged.
 func ToWasmType(aid common.ApplicationIdType) (int64, error) {
-	//This should never happens, but just in case
-	if aid > math.MaxInt64 {
-		return -1, fmt.Errorf("application ID too large: %d", aid)
-	}
 	return int64(aid), nil
 }
 

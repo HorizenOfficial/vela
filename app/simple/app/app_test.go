@@ -39,7 +39,7 @@ type hostRecipientEvent struct {
 }
 
 const (
-	testAppId = int64(1)
+	testAppId = uint64(1)
 )
 
 var (
@@ -74,7 +74,7 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 }
 
 func TestLoadModule(t *testing.T) {
-	result := LoadModule(testAppId)
+	result := LoadModule(int64(testAppId))
 	require.NotNil(t, result.State)
 	require.NotNil(t, result.Fuel)
 

@@ -4,9 +4,9 @@ go 1.24.0
 
 toolchain go1.24.3
 
-require github.com/horizen-cce-common-go v0.0.20
+require github.com/horizen-cce-common-go v0.0.21
 
-replace github.com/horizen-cce-common-go => github.com/HorizenOfficial/horizen-cce-common-go v0.0.20
+replace github.com/horizen-cce-common-go => github.com/HorizenOfficial/horizen-cce-common-go v0.0.21
 
 //replace github.com/horizen-cce-common-go => ../horizen-cce-common-go
 
