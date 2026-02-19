@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
@@ -271,25 +270,6 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
 	}
 
-	// TEST
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				e.log.Error("Executor: heartbeat tick (test)")
-				e.log.Warn("Executor: heartbeat tick (test)")
-				e.log.Warn("Executor: heartbeat tick (test)")
-				e.log.Warn("Executor: heartbeat tick (test)")
-				e.log.Warn("Executor: heartbeat tick (test)")
-
-			}
-		}
-	}()
-	// TEST
 	return e.admCmdServer.Start(ctx, "Executor")
 }
 

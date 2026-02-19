@@ -389,14 +389,6 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		return nil
 	}
 
-	// TEST
-	m.log.Error("Manager: polling blockchain for new requests...")
-	m.log.Warn("Manager: polling blockchain for new requests...")
-	m.log.Info("Manager: polling blockchain for new requests...")
-	m.log.Debug("Manager: polling blockchain for new requests...")
-	m.log.Trace("Manager: polling blockchain for new requests...")
-	// TEST
-
 	// If the blockchain client is not connected yet (e.g. initial connect
 	// failed at startup), attempt to connect before polling.
 	if !m.blockchainClient.IsConnected() {

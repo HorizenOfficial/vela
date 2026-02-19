@@ -391,8 +391,11 @@ func (c *MockClient) Connect(ctx context.Context) error {
 	return nil
 }
 
-// IsConnected returns true. The mock is always considered connected unless Connect is mocked to fail.
+// IsConnected returns true by default. Override via MockFunc("IsConnected", func() bool { ... }).
 func (c *MockClient) IsConnected() bool {
+	if f, ok := c.GetMockedFunc("IsConnected"); ok {
+		return f.(func() bool)()
+	}
 	return true
 }
 

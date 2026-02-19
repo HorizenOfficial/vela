@@ -119,6 +119,10 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	defer cancel()
 	chainID, err := c.client.ChainID(connectCtx)
 	if err != nil {
+		// Clean up so the next Connect() call starts fresh.
+		c.client = nil
+		c.processorBoundContract = nil
+		c.teeAuthBoundContract = nil
 		return fmt.Errorf("failed to retrieve chain ID: %w", err)
 	}
 
