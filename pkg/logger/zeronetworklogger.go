@@ -19,10 +19,11 @@ import (
 // protocol over VSOCK, since VSOCK is stream-oriented and does not support UDP natively.
 
 const (
-	defaultBuffer      = 1000
-	defaultRetryDelay  = 2 * time.Second
-	defaultMaxWait     = 30 * time.Second
-	defaultDialTimeout = 5 * time.Second
+	defaultBuffer         = 1000
+	defaultRetryDelay     = 2 * time.Second
+	defaultMaxWait        = 30 * time.Second
+	defaultDialTimeout    = 5 * time.Second
+	defaultShutdownGrace  = 200 * time.Millisecond
 )
 
 // LogConnectionFactory abstracts the network dialling logic for different protocols.
@@ -289,7 +290,7 @@ func (w *AsyncWriter) Close() error {
 	// moment to read those bytes from its receive buffer and write them
 	// to file/console before we close the connection and the caller tears
 	// down the server via context cancellation.
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(defaultShutdownGrace)
 
 	w.closeConn() // Close active network connection
 	return nil

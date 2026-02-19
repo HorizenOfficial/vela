@@ -22,8 +22,10 @@ type Config struct {
 	// HandshakeTimeout is the max time interval for waiting for the executor handshake to be completed (in seconds)
 	HandshakeTimeout int64
 
-	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests
+	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests (in seconds)
 	BlockchainPollingInterval int64
+	// BlockchainConnectTimeout is the max time to wait for the initial RPC handshake (ChainID) when connecting (in seconds)
+	BlockchainConnectTimeout int64
 	// ChannelType is the type of communication channel between manager and executor
 	ChannelType string
 	// ChannelParams are the parameters for the connection with the executor
@@ -174,6 +176,7 @@ func LoadConfig() (*Config, error) {
 		ReorgTimeout:              common.GetConfigVarInt64("REORG_TIMEOUT", 180, fileProperties), // 3 minutes
 		HandshakeTimeout:          common.GetConfigVarInt64("HANDSHAKE_TIMEOUT", 5, fileProperties),
 		BlockchainPollingInterval: common.GetConfigVarInt64("BLOCKCHAIN_POLLING_INTERVAL", 5, fileProperties),
+		BlockchainConnectTimeout: common.GetConfigVarInt64("BLOCKCHAIN_CONNECT_TIMEOUT", 10, fileProperties),
 
 		RpcURL: common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProperties) + "://" +
 			common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProperties) + ":" +

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1224,4 +1225,71 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
 	require.Empty(t, result)
+}
+
+// TestGetAndSetLogLevel_WithZeroNetworkLogger verifies the positive SetLogLevel/GetLogLevel
+// round-trip when the manager uses a real ZeroNetworkLogger.
+func TestGetAndSetLogLevel_WithZeroNetworkLogger(t *testing.T) {
+	// Start a dummy TCP listener to act as the log sink.
+	logSink, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer logSink.Close()
+	go func() {
+		for {
+			conn, err := logSink.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						c.Close()
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	logSinkAddr := logSink.Addr().(*net.TCPAddr)
+	znl := logger.NewZeroNetworkLogger(&logger.Config{
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(logSinkAddr.Port),
+		},
+		NetworkLevel: "info",
+	})
+	defer znl.Close()
+
+	// Create a manager with the ZeroNetworkLogger.
+	_, mgr := setupTest(t)
+	mgr.log = znl
+	ctx := context.Background()
+
+	// GetLogLevel should return "info" (the initial level).
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
+	result, err := mgr.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	require.Equal(t, "info", result)
+
+	// SetLogLevel to "debug".
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	result, err = mgr.ExecuteCommand(ctx, setMsg)
+	require.NoError(t, err)
+	resp, ok := result.(admin.SetLogLevelResponse)
+	require.True(t, ok)
+	require.True(t, resp.Success)
+	require.Equal(t, "debug", resp.Level)
+
+	// GetLogLevel should now return "debug".
+	result, err = mgr.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	require.Equal(t, "debug", result)
+
+	// The underlying logger should also reflect the change.
+	require.Equal(t, "debug", znl.GetLevel())
 }

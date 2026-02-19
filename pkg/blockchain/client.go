@@ -49,12 +49,16 @@ type ChainClient interface {
 	ethereum.ChainIDReader
 }
 
+// defaultConnectTimeout is used when ConnectTimeout is zero.
+const defaultConnectTimeout = 10 * time.Second
+
 type BlockChainClient struct {
 	mu                     sync.RWMutex
 	connected              bool
 	processorAddress       ethCommon.Address
 	teeAuthAddress         ethCommon.Address
 	rpcURL                 string
+	connectTimeout         time.Duration
 	processorBoundContract *bind.BoundContract
 	processorEndpoint      *processorendpoint.ProcessorEndpoint
 	teeAuthBoundContract   *bind.BoundContract
@@ -83,6 +87,14 @@ func NewReadOnlyBlockChainClient(processor ethCommon.Address, rpcURL string) *Bl
 		rpcURL:            rpcURL,
 		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
 	}
+}
+
+// SetConnectTimeout overrides the default timeout for the initial ChainID
+// RPC call in Connect.
+func (c *BlockChainClient) SetConnectTimeout(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connectTimeout = d
 }
 
 // IsConnected returns true if the client has successfully connected to the blockchain.
@@ -115,7 +127,11 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	// Use a timeout so Connect does not hang indefinitely when the RPC
 	// node is unreachable (go-ethereum's HTTP client retries forever
 	// with a no-deadline context).
-	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	timeout := c.connectTimeout
+	if timeout == 0 {
+		timeout = defaultConnectTimeout
+	}
+	connectCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	chainID, err := c.client.ChainID(connectCtx)
 	if err != nil {

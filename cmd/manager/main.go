@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"os"
 	"os/signal"
@@ -53,6 +54,10 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 		ethCommon.HexToAddress(config.TeeAuthAddress),
 		config.RpcURL,
 		&config.PrivateKey)
+
+	if config.BlockchainConnectTimeout > 0 {
+		bcClient.SetConnectTimeout(time.Duration(config.BlockchainConnectTimeout) * time.Second)
+	}
 
 	return bcClient, nil
 }

@@ -323,32 +323,13 @@ func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error)
 }
 
 // SetLogLevel changes the manager's log level at runtime.
-// Only supported when the manager uses ZeroNetworkLogger.
 func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
-	m.log.Info("Manager: SetLogLevel command received, level=%s", level)
-	if _, ok := m.log.(*logger.ZeroNetworkLogger); !ok {
-		return nil, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
-	}
-	if level == "" {
-		return nil, fmt.Errorf("invalid log level: level must not be empty; supported levels: %s", admin.SupportedLogLevels)
-	}
-	if err := m.log.SetLevel(level); err != nil {
-		return nil, fmt.Errorf("invalid log level '%s'; supported levels: %s", level, admin.SupportedLogLevels)
-	}
-	return struct {
-		Success bool   `json:"success"`
-		Level   string `json:"level"`
-	}{Success: true, Level: level}, nil
+	return admin.HandleSetLogLevel(m.log, "Manager", level)
 }
 
 // GetLogLevel returns the current log level of the manager.
-// Only supported when the manager uses ZeroNetworkLogger.
 func (m *SecureProcessorManager) GetLogLevel(ctx context.Context) (string, error) {
-	m.log.Info("Manager: GetLogLevel command received")
-	if _, ok := m.log.(*logger.ZeroNetworkLogger); !ok {
-		return "", fmt.Errorf("GetLogLevel is only supported with the ZeroNetworkLogger")
-	}
-	return m.log.GetLevel(), nil
+	return admin.HandleGetLogLevel(m.log, "Manager")
 }
 
 // pollBlockchain polls the blockchain for new requests
@@ -381,22 +362,24 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 
 // processRequestFromChain retrieves the next pending request from the blockchain and processes it
 func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if !m.isRunning {
-		m.log.Warn("Manager is not started yet, skipping")
-		return nil
-	}
-
-	// If the blockchain client is not connected yet (e.g. initial connect
-	// failed at startup), attempt to connect before polling.
+	// Attempt blockchain (re)connect before acquiring the manager lock.
+	// Connect has its own internal mutex and may block for up to the
+	// configured connect timeout; holding m.mu.RLock during that period
+	// would delay Stop().
 	if !m.blockchainClient.IsConnected() {
 		if err := m.blockchainClient.Connect(ctx); err != nil {
 			m.log.Warn("Manager: blockchain not connected, retrying next poll: %v", err)
 			return nil
 		}
 		m.log.Info("Manager: connected to blockchain node at %s", m.config.RpcURL)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if !m.isRunning {
+		m.log.Warn("Manager is not started yet, skipping")
+		return nil
 	}
 
 	// Get next pending request from the blockchain

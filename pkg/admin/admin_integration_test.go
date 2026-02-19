@@ -17,7 +17,6 @@ import (
 )
 
 // logLevelHandler implements AdminCmdHandler using a real logger,
-// mirroring the SetLogLevel/GetLogLevel logic from the Manager.
 type logLevelHandler struct {
 	log logger.Logger
 }
@@ -32,20 +31,7 @@ func (h *logLevelHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) 
 		if err := ValidateTarget(req.Target, "manager"); err != nil {
 			return nil, err
 		}
-		znl, ok := h.log.(*logger.ZeroNetworkLogger)
-		if !ok {
-			return nil, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
-		}
-		if req.Level == "" {
-			return nil, fmt.Errorf("invalid log level: level must not be empty; supported levels: %s", SupportedLogLevels)
-		}
-		if err := znl.SetLevel(req.Level); err != nil {
-			return nil, fmt.Errorf("invalid log level '%s'; supported levels: %s", req.Level, SupportedLogLevels)
-		}
-		return struct {
-			Success bool   `json:"success"`
-			Level   string `json:"level"`
-		}{Success: true, Level: req.Level}, nil
+		return HandleSetLogLevel(h.log, "integration-test", req.Level)
 
 	case GetLogLevelRequestMessage:
 		var req GetLogLevelRequest
@@ -57,11 +43,7 @@ func (h *logLevelHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) 
 		if err := ValidateTarget(req.Target, "manager"); err != nil {
 			return nil, err
 		}
-		znl, ok := h.log.(*logger.ZeroNetworkLogger)
-		if !ok {
-			return nil, fmt.Errorf("GetLogLevel is only supported with the ZeroNetworkLogger")
-		}
-		return znl.GetLevel(), nil
+		return HandleGetLogLevel(h.log, "integration-test")
 
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
@@ -125,10 +107,19 @@ func TestIntegration_AdminServer_SetGetLogLevel_RealTCP(t *testing.T) {
 	defer server.Stop()
 
 	// Helper: connect to admin server, send command, read response.
+	// The admin server handles one client at a time, so we retry the
+	// dial until the previous connection is cleaned up.
 	sendAdminCommand := func(msg AdminMessage) AdminMessage {
 		t.Helper()
-		conn, err := net.DialTimeout("tcp", adminAddr, 2*time.Second)
-		require.NoError(t, err)
+		var conn net.Conn
+		require.Eventually(t, func() bool {
+			c, dialErr := net.DialTimeout("tcp", adminAddr, 200*time.Millisecond)
+			if dialErr != nil {
+				return false
+			}
+			conn = c
+			return true
+		}, 2*time.Second, 20*time.Millisecond, "admin server did not become ready")
 		defer conn.Close()
 
 		reqBytes, err := json.Marshal(msg)
@@ -151,9 +142,6 @@ func TestIntegration_AdminServer_SetGetLogLevel_RealTCP(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Data, &level))
 	assert.Equal(t, "info", level)
 
-	// Allow single-client cleanup
-	time.Sleep(100 * time.Millisecond)
-
 	// 5. SetLogLevel to "debug".
 	setData, err := json.Marshal(SetLogLevelRequest{Level: "debug", Target: "manager"})
 	require.NoError(t, err)
@@ -167,9 +155,6 @@ func TestIntegration_AdminServer_SetGetLogLevel_RealTCP(t *testing.T) {
 	assert.True(t, setResp.Success)
 	assert.Equal(t, "debug", setResp.Level)
 
-	// Allow single-client cleanup
-	time.Sleep(100 * time.Millisecond)
-
 	// 6. GetLogLevel again - should now return "debug".
 	resp = sendAdminCommand(AdminMessage{Type: GetLogLevelRequestMessage})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
@@ -178,9 +163,6 @@ func TestIntegration_AdminServer_SetGetLogLevel_RealTCP(t *testing.T) {
 
 	// 7. Verify the logger itself reflects the change.
 	assert.Equal(t, "debug", znl.GetLevel())
-
-	// Allow single-client cleanup
-	time.Sleep(100 * time.Millisecond)
 
 	// 8. SetLogLevel with wrong target should be rejected.
 	setData, err = json.Marshal(SetLogLevelRequest{Level: "warn", Target: "executor"})

@@ -759,32 +759,13 @@ func (e *StatelessExecutor) ExecuteCommand(ctx context.Context, msg admin.AdminM
 }
 
 // SetLogLevel changes the executor's log level at runtime.
-// Only supported when the executor uses ZeroNetworkLogger.
 func (e *StatelessExecutor) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
-	e.log.Info("Executor: SetLogLevel command received, level=%s", level)
-	if _, ok := e.log.(*logger.ZeroNetworkLogger); !ok {
-		return nil, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
-	}
-	if level == "" {
-		return nil, fmt.Errorf("invalid log level: level must not be empty; supported levels: %s", admin.SupportedLogLevels)
-	}
-	if err := e.log.SetLevel(level); err != nil {
-		return nil, fmt.Errorf("invalid log level '%s'; supported levels: %s", level, admin.SupportedLogLevels)
-	}
-	return struct {
-		Success bool   `json:"success"`
-		Level   string `json:"level"`
-	}{Success: true, Level: level}, nil
+	return admin.HandleSetLogLevel(e.log, "Executor", level)
 }
 
 // GetLogLevel returns the current log level of the executor.
-// Only supported when the executor uses ZeroNetworkLogger.
 func (e *StatelessExecutor) GetLogLevel(ctx context.Context) (string, error) {
-	e.log.Info("Executor: GetLogLevel command received")
-	if _, ok := e.log.(*logger.ZeroNetworkLogger); !ok {
-		return "", fmt.Errorf("GetLogLevel is only supported with the ZeroNetworkLogger")
-	}
-	return e.log.GetLevel(), nil
+	return admin.HandleGetLogLevel(e.log, "Executor")
 }
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {
