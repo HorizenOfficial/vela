@@ -2,7 +2,7 @@
 FROM debian:bullseye-slim AS builder
 
 # Install base dependencies
-RUN apt-get update && apt-get install -y wget
+RUN apt-get update && apt-get install -y wget git
 
 # Manually install a specific version of Go
 ENV GO_VERSION=1.24.0
