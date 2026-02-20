@@ -1,7 +1,7 @@
 github.com/DataDog/zstd v1.4.5 h1:EndNeuB0l9syBZhut0wns3gV1hL8zX8LIu6ZiVHWLIQ=
 github.com/DataDog/zstd v1.4.5/go.mod h1:1jcaCB/ufaK+sKp1NBhlGmpz41jOoPQ35bpF36t7BBo=
-github.com/HorizenOfficial/horizen-cce-common-go v0.0.21 h1:WxDra0W2Ooh+l21Q9ZaZoO5ZXetb0f+vSPf50+f3F8Y=
-github.com/HorizenOfficial/horizen-cce-common-go v0.0.21/go.mod h1:055dfesMKfEjkwj+d21aXeYw+R2jVO6RtY3rCZb8IAs=
+github.com/HorizenOfficial/horizen-cce-common-go v0.0.22 h1:PdFfU51BarEOKmhycaXVwbuCLuoDN6iU29j71J7DRYA=
+github.com/HorizenOfficial/horizen-cce-common-go v0.0.22/go.mod h1:055dfesMKfEjkwj+d21aXeYw+R2jVO6RtY3rCZb8IAs=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/StackExchange/wmi v1.2.1 h1:VIkavFPXSjcnS+O8yTq7NI32k0R5Aj+v39y29VYDOSA=
