@@ -1,7 +1,7 @@
 # --- Build Stage ---
 FROM amazonlinux:2 AS builder
 
-RUN yum install -y gcc tar gzip wget
+RUN yum install -y gcc tar gzip wget git
 
 # Install Go
 ENV GO_VERSION=1.24.0
