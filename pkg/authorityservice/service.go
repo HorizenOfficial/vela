@@ -19,7 +19,7 @@ import (
 	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/subgraph"
+	"github.com/horizen-cce-common-go/subgraph"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.

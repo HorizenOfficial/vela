@@ -2,7 +2,7 @@
 FROM debian:bullseye-slim AS builder
 
 # Install base dependencies
-RUN apt-get update && apt-get install -y wget ca-certificates gnupg
+RUN apt-get update && apt-get install -y wget ca-certificates gnupg git
 
 # Manuallt install Node.js 20 from NodeSource (the one in debian:bullseye-slim is too old)
 RUN mkdir -p /etc/apt/keyrings && \
@@ -39,9 +39,14 @@ WORKDIR /app/contracts
 RUN npm ci
 WORKDIR /app
 
+ENV GOPRIVATE=github.com/HorizenOfficial/*
+
 # Copy go.mod and go.sum to download Go dependencies
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=secret,id=gh_token \
+    git config --global url."https://$(cat /run/secrets/gh_token):@github.com/".insteadOf "https://github.com/" && \
+    go mod download && \
+    rm -f /root/.gitconfig
 
 # Copy the rest of the source code
 COPY . .

@@ -1,6 +1,6 @@
 {
   "name": "hcce",
-  "license": "UNLICENSED",
+  "license": "BUSL-1.1",
   "scripts": {
     "codegen": "graph codegen",
     "build": "graph build",

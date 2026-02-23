@@ -1,0 +1,235 @@
+Horizen Confidential Compute Environment (CCE)
+Copyright (c) 2025 The Horizen Foundation
+
+This product is licensed under the Business Source License 1.1.
+See the LICENSE file for the full license text.
+
+This product includes software developed by third parties. Below is a list of
+those third-party components, their licenses, and links to their source code.
+Users may obtain, modify, and relink any of these components under the terms
+of their respective licenses.
+
+Build instructions for relinking dependencies are provided in CLAUDE.md and
+the go.mod / go.sum files included with this distribution.
+
+================================================================================
+WEAK COPYLEFT DEPENDENCIES
+================================================================================
+
+The following dependency is licensed under a weak copyleft license. Pursuant
+to its license terms, users retain the right to modify and relink this library.
+Source code and build configuration (go.mod, go.sum) are provided to enable
+this.
+
+go-ethereum
+  Version:    v1.16.1
+  License:    GNU Lesser General Public License v3.0 (LGPL-3.0) (library code)
+              GNU General Public License v3.0 (GPL-3.0) (cmd/ binaries only)
+  Source:     https://github.com/ethereum/go-ethereum
+  Usage:      Imported as a library for contract bindings, ABI encoding,
+              cryptographic utilities, and blockchain interaction.
+              Only the LGPL-3.0 applies to this usage.
+  Notice:     Copyright 2013-2024 The go-ethereum Authors.
+              The full text of the LGPL-3.0 and GPL-3.0 licenses can be
+              obtained at:
+                https://www.gnu.org/licenses/lgpl-3.0.txt
+                https://www.gnu.org/licenses/gpl-3.0.txt
+
+================================================================================
+PERMISSIVE DEPENDENCIES - Go (Direct)
+================================================================================
+
+wasmtime-go
+  Version:    v1.0.0
+  License:    Apache-2.0 WITH LLVM-exception
+  Source:     https://github.com/bytecodealliance/wasmtime-go
+  Notice:     Copyright The Bytecode Alliance contributors.
+
+orderedmap
+  Version:    v3.1.0
+  License:    MIT
+  Source:     https://github.com/elliotchance/orderedmap
+  Notice:     Copyright (c) 2020 Elliot Chance.
+
+go-cmp
+  Version:    v0.5.9
+  License:    BSD-3-Clause
+  Source:     https://github.com/google/go-cmp
+  Notice:     Copyright (c) 2017 The Go Authors.
+
+nsm (AWS Nitro Secure Module)
+  Version:    v0.0.0-20220930140112-cd181bd646b9
+  License:    MIT
+  Source:     https://github.com/hf/nsm
+  Notice:     Copyright (c) 2020 Stojan Dimitrovski.
+
+properties
+  Version:    v1.8.10
+  License:    BSD-2-Clause
+  Source:     https://github.com/magiconair/properties
+  Notice:     Copyright (c) 2013-2020 Frank Schroeder.
+
+vsock
+  Version:    v1.2.1
+  License:    MIT
+  Source:     https://github.com/mdlayher/vsock
+  Notice:     Copyright (c) 2017-2022 Matt Layher.
+
+testify
+  Version:    v1.10.0
+  License:    MIT
+  Source:     https://github.com/stretchr/testify
+  Notice:     Copyright (c) 2012-2020 Mat Ryer, Tyler Bunnell, and contributors.
+
+goleveldb
+  Version:    v1.0.1-0.20210819022825-2ae1ddf74ef7
+  License:    BSD-2-Clause
+  Source:     https://github.com/syndtr/goleveldb
+  Notice:     Copyright 2012 Suryandaru Triandana.
+
+zerolog
+  Version:    v1.34.0
+  License:    MIT
+  Source:     https://github.com/rs/zerolog
+  Notice:     Copyright (c) 2017 Olivier Poitrey.
+
+golang.org/x/crypto
+  Version:    v0.39.0
+  License:    BSD-3-Clause
+  Source:     https://github.com/golang/crypto
+  Notice:     Copyright 2009 The Go Authors.
+
+================================================================================
+PERMISSIVE DEPENDENCIES - Go (Indirect, notable)
+================================================================================
+
+pebble
+  Version:    v1.1.5
+  License:    BSD-3-Clause
+  Source:     https://github.com/cockroachdb/pebble
+  Notice:     Copyright 2011 The LevelDB-Go Authors.
+
+blst
+  Version:    v0.3.14
+  License:    Apache-2.0
+  Source:     https://github.com/supranational/blst
+  Notice:     Copyright (c) 2022 Supranational LLC.
+
+gnark-crypto
+  Version:    v0.18.0
+  License:    Apache-2.0
+  Source:     https://github.com/consensys/gnark-crypto
+  Notice:     Copyright (c) 2020 ConsenSys Software Inc.
+
+go-eth-kzg
+  Version:    v1.3.0
+  License:    Apache-2.0
+  Source:     https://github.com/crate-crypto/go-eth-kzg
+  Notice:     Copyright (c) 2023 Crate Crypto.
+
+c-kzg-4844
+  Version:    v2.1.0
+  License:    Apache-2.0
+  Source:     https://github.com/ethereum/c-kzg-4844
+  Notice:     Copyright (c) 2023 The Ethereum Foundation.
+
+DataDog/zstd
+  Version:    v1.4.5
+  License:    BSD-2-Clause
+  Source:     https://github.com/DataDog/zstd
+  Notice:     Copyright (c) 2016 Datadog.
+
+gogo/protobuf
+  Version:    v1.3.2
+  License:    BSD-3-Clause
+  Source:     https://github.com/gogo/protobuf
+  Notice:     Copyright (c) 2013 The GoGo Authors. Copyright 2010 The Go Authors.
+
+cbor
+  Version:    v2.2.0
+  License:    MIT
+  Source:     https://github.com/fxamacker/cbor
+  Notice:     Copyright (c) 2019-2023 Faye Amacker.
+
+golang/protobuf
+  Version:    v1.5.4
+  License:    BSD-3-Clause
+  Source:     https://github.com/golang/protobuf
+  Notice:     Copyright 2010 The Go Authors.
+
+google.golang.org/protobuf
+  Version:    v1.34.2
+  License:    BSD-3-Clause
+  Source:     https://github.com/protocolbuffers/protobuf-go
+  Notice:     Copyright 2018 The Go Authors.
+
+golang/snappy
+  Version:    v0.0.5-0.20220116011046-fa5810519dcb
+  License:    BSD-3-Clause
+  Source:     https://github.com/golang/snappy
+  Notice:     Copyright 2011 The Snappy-Go Authors.
+
+================================================================================
+PERMISSIVE DEPENDENCIES - npm (contracts/)
+================================================================================
+
+@openzeppelin/contracts
+  Version:    ^5.3.0
+  License:    MIT
+  Source:     https://github.com/OpenZeppelin/openzeppelin-contracts
+  Notice:     Copyright (c) 2016-2024 zOS Global Limited and contributors.
+
+dotenv
+  Version:    ^17.0.0
+  License:    BSD-2-Clause
+  Source:     https://github.com/motdotla/dotenv
+  Notice:     Copyright (c) 2015 Scott Motte.
+
+hardhat (dev dependency)
+  Version:    ^2.25.0
+  License:    MIT
+  Source:     https://github.com/NomicFoundation/hardhat
+  Notice:     Copyright (c) 2019 Nomic Labs LLC.
+
+@nomicfoundation/hardhat-toolbox (dev dependency)
+  Version:    ^6.0.0
+  License:    MIT
+  Source:     https://github.com/NomicFoundation/hardhat
+  Notice:     Copyright (c) 2022 Nomic Foundation.
+
+================================================================================
+PERMISSIVE DEPENDENCIES - npm (subgraphs/hcce/)
+================================================================================
+
+@graphprotocol/graph-cli
+  Version:    0.98.1
+  License:    Apache-2.0 OR MIT (dual license)
+  Source:     https://github.com/graphprotocol/graph-tooling
+  Notice:     Copyright (c) The Graph Foundation.
+
+@graphprotocol/graph-ts
+  Version:    0.37.0
+  License:    Apache-2.0 OR MIT (dual license)
+  Source:     https://github.com/graphprotocol/graph-tooling
+  Notice:     Copyright (c) The Graph Foundation.
+
+matchstick-as (dev dependency)
+  Version:    0.6.0
+  License:    MIT
+  Source:     https://github.com/LimeChain/matchstick-as
+  Notice:     Copyright (c) LimeChain.
+
+================================================================================
+RELINKING INSTRUCTIONS
+================================================================================
+
+This software statically links go-ethereum, which is licensed under LGPL-3.0.
+To rebuild this software with a modified version of go-ethereum:
+
+1. Clone this repository.
+2. Edit go.mod to point to your modified go-ethereum (using a replace directive
+   or by changing the module version).
+3. Run: go mod tidy
+4. Build the project: go build ./cmd/manager && go build ./cmd/executor
+
+Full build instructions are available in CLAUDE.md.

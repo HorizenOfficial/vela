@@ -668,7 +668,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := common.NewApplicationId(int64(i))
+				appID := common.NewApplicationId(uint64(i))
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
@@ -705,7 +705,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 		// Verify all data is present
 		for i := range numGoroutines {
-			appID := common.NewApplicationId(int64(i))
+			appID := common.NewApplicationId(uint64(i))
 			_, err := store.GetApplicationState(ctx, appID)
 			assert.NoError(t, err, "should be able to get state for %s", appID)
 		}
@@ -847,7 +847,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := common.NewApplicationId(int64(i))
+				appID := common.NewApplicationId(uint64(i))
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
