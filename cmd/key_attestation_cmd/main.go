@@ -101,11 +101,10 @@ func run() error {
 	case admin.AdminErrorMessage:
 		fmt.Println("Type: AdminErrorMessage")
 		var errData communication.ErrorData
-		dataBytes, _ := json.Marshal(respMsg.Data)
-		if err := json.Unmarshal(dataBytes, &errData); err == nil {
+		if err := json.Unmarshal(respMsg.Data, &errData); err == nil {
 			return errors.New(errData.Message)
 		} else {
-			return fmt.Errorf("received error response with unparsable data: %v", respMsg.Data)
+			return fmt.Errorf("received error response with unparsable data: %s", respMsg.Data)
 		}
 
 	default:

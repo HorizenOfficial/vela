@@ -105,20 +105,6 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
       });
 
-      it('reverts with InvalidValue when DEANONYMIZATION depositAmount != 0', async () => {
-        await expect(
-          processorEndpoint.submitRequest(
-            0,
-            1,
-            REQUEST_TYPE_DEANONYMIZATION,
-            '0x01',
-            1,
-            minFeePerRequest,
-            { value: 1n + minFeePerRequest }
-          )
-        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
-      });
-
       it('reverts with AuthorityNotAllowed when DEANONYMIZATION sender is not allowed', async () => {
         await expect(
           processorEndpoint.submitRequest(

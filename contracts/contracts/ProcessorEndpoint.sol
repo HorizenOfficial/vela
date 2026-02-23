@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import '@openzeppelin/contracts/access/AccessControl.sol';
+import '@openzeppelin/contracts/utils/ReentrancyGuard.sol';
 
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
@@ -10,7 +11,7 @@ import './Structs.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
+contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard {
   //constants
   bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
   bytes32 public constant ADMIN = keccak256('ADMIN');
@@ -28,6 +29,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
 
   ITeeAuthenticator public teeAuthenticator;
   IAuthorityRegistry public authorityRegistry;
+
+  // Pull payment pattern state
+  mapping(address => uint256) public payments;
+  uint256 private _totalDeposits;
 
   uint256 public minFeePerRequest;
   address payable public feeCollector;
@@ -82,6 +87,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     payable
     validProtocolVersion(protocolVersion)
     validApplicationId(applicationId)
+    nonReentrant
     returns (bytes32)
   {
     //check values
@@ -95,9 +101,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
       //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
       if (payload.length != 133) revert InvalidPayload();
     } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
-      // deanonymization requests MUST have depositAmount = 0
-      if (depositAmount != 0) revert InvalidValue();
-
       // only allowed authorities can request deanonymization
       if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
         revert AuthorityNotAllowed();
@@ -144,34 +147,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     }
   }
 
-  /// @inheritdoc IProcessorEndpoint
-  function markRequestCompleted(
-    bytes32 requestId,
-    uint256 refund,
-    uint256 applicationFees
-  ) external onlyRole(UPDATE_STATUS_ROLE) {
-    if (!isCurrentPendingRequest(requestId)) revert InvalidRequestId();
-
-    //check values
-    Structs.PendingRequest storage requestInfo = requestById[requestId];
-    uint256 maxFeeValue = requestInfo.maxFeeValue;
-    address payable sender = payable(requestInfo.sender);
-    uint64 requestApplicationId = requestInfo.applicationId;
-    if (refund + applicationFees != maxFeeValue) revert InvalidValue();
-    if (applicationFees < minFeePerRequest) {
-      revert InvalidValue();
-    }
-    if (refund > 0) {
-      (bool refundSent, ) = sender.call{value: refund}('');
-      if (refundSent) {
-        emit Refund(requestApplicationId, requestId, sender, refund);
-      }
-    }
-
-    (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}('');
-    _markRequestCompleted(requestId, applicationFees);
-  }
-
   function _markRequestCompleted(bytes32 requestId, uint256 applicationFees) private {
     _removeRequest();
 
@@ -184,7 +159,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     );
   }
 
-  // We return the maxValueFee - minFeePerRequest (to be changed in the future)
+  // We refund the maxValueFee - minFeePerRequest (to be changed in the future)
   /// @inheritdoc IProcessorEndpoint
   function markRequestFailed(
     bytes32 requestId,
@@ -197,35 +172,25 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     uint256 minFee = minFeePerRequest;
 
     _removeRequest();
-    //refunds
+
+    //credit refund to sender's pending balance (pull pattern)
     uint256 refund = requestInfo.depositAmount + (requestInfo.maxFeeValue - minFee);
     if (refund > 0) {
       address payable sender = payable(requestInfo.sender);
-      (bool refundSent, ) = sender.call{value: refund}('');
-      if (refundSent) {
-        emit Refund(requestInfo.applicationId, requestId, sender, refund);
-      }
+      _asyncTransfer(sender, refund);
+      emit Refund(requestInfo.applicationId, requestId, sender, refund);
     }
 
-    //minimum fee is collected
-    (bool feeSent, ) = payable(feeCollector).call{value: minFee}('');
-    if (feeSent) {
-      emit RequestCompleted(
-        requestId,
-        minFee,
-        Structs.RequestResult.FAILED_REFUNDED,
-        errorCode,
-        errorMessage
-      );
-    } else {
-      emit RequestCompleted(
-        requestId,
-        minFee,
-        Structs.RequestResult.FAILED_NOT_REFUNDED,
-        errorCode,
-        errorMessage
-      );
-    }
+    //credit minimum fee to feeCollector's pending balance
+    _asyncTransfer(feeCollector, minFeePerRequest);
+
+    emit RequestCompleted(
+      requestId,
+      minFeePerRequest,
+      Structs.RequestResult.FAILED,
+      errorCode,
+      errorMessage
+    );
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -329,13 +294,15 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
     //check values
     Structs.PendingRequest storage requestInfo = requestById[processedRequestId];
     uint256 maxFeeValue = requestInfo.maxFeeValue;
+    Structs.RequestType reqType = requestInfo.requestType;
     address payable sender = payable(requestInfo.sender);
+
     if (refund + applicationFees != maxFeeValue) revert InvalidValue();
     if (applicationFees < minFeePerRequest) {
       revert InvalidValue();
     }
 
-    //check withdrawal sums
+    //check withdrawal sums (account for already committed pending deposits)
     uint256 i;
     uint256 sum;
     uint256 withdrawalsLength = withdrawalRequests.length;
@@ -346,7 +313,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
       }
     }
     sum += refund + applicationFees;
-    if (sum > address(this).balance) revert InsufficientBalance();
+
+    if (sum > address(this).balance - _totalDeposits) revert InsufficientBalance();
 
     //set requests as completed
     _markRequestCompleted(processedRequestId, applicationFees);
@@ -360,32 +328,28 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
       }
     }
 
+    if (reqType == Structs.RequestType.DEANONYMIZATION) {
+      //a completed DEANONYMIZATION request must have always generated a report
+      emit ReportGenerated(applicationId, processedRequestId);
+    }
+
     //update state root and request
     stateRoot = newStateRoot;
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
+    //credit refund to sender's pending balance (pull pattern)
     if (refund > 0) {
-      (bool refundSent, ) = sender.call{value: refund}('');
-      if (!refundSent) {
-        revert TransferFailed();
-      }
-    }
-    emit Refund(applicationId, processedRequestId, sender, refund);
-
-    (bool feeSent, ) = payable(feeCollector).call{value: applicationFees}('');
-    if (!feeSent) {
-      revert TransferFailed();
+      _asyncTransfer(sender, refund);
+      emit Refund(applicationId, processedRequestId, sender, refund);
     }
 
-    //execute withdrawals (as last operation)
+    //credit fee to feeCollector's pending balance
+    _asyncTransfer(feeCollector, applicationFees);
+
+    //credit withdrawals to receivers' pending balances
     i = 0;
-    while (i != withdrawalRequests.length) {
-      (bool withdrawn, ) = payable(withdrawalRequests[i].receiver).call{
-        value: withdrawalRequests[i].amount
-      }('');
-      if (!withdrawn) {
-        revert TransferFailed();
-      }
+    while (i < withdrawalRequests.length) {
+      _asyncTransfer(withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
       emit Withdrawal(
         applicationId,
         processedRequestId,
@@ -431,6 +395,26 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint {
   /// @inheritdoc IProcessorEndpoint
   function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
     return getPendingRequestsSize() > 0 && _requestIdByOrder[_head] == requestId;
+  }
+
+  // Pull payment pattern functions
+  function _asyncTransfer(address dest, uint256 amount) internal {
+    payments[dest] += amount;
+    _totalDeposits += amount;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function withdrawPayments(address payable payee) public nonReentrant {
+    uint256 payment = payments[payee];
+    if (payment == 0) return;
+
+    payments[payee] = 0;
+    _totalDeposits -= payment;
+
+    emit PaymentWithdrawn(payee, payment);
+
+    (bool success, ) = payee.call{value: payment}('');
+    if (!success) revert TransferFailed();
   }
 
   /// @inheritdoc IProcessorEndpoint

@@ -122,7 +122,8 @@ func (c *Client) SetClientRequestHandler(handler ClientRequestHandler) {
 }
 
 // SendProcessRequest sends a process request and waits for response
-func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+// Returns UpdatePayload, ApplicationState, optional DeanonymizationReport, and error
+func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure) {
 	msg := Message{
 		ID:   generateID(),
 		Type: ProcessRequestMessage,
@@ -135,27 +136,27 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
-		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to send process request", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to send process request", err)
 	}
 
 	if respMsg.Type == ErrorMessage {
 		errorDTO, err := extractData[apperrors.RequestFailureDTO](respMsg.Data)
 		if err != nil {
-			return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to decode error response", err)
+			return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to decode error response", err)
 		}
-		return nil, nil, errorDTO.ToFailure()
+		return nil, nil, nil, errorDTO.ToFailure()
 	}
 
 	if respMsg.Type != ProcessResponseMessage {
-		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("unexpected response type: %v", respMsg.Type), nil)
+		return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("unexpected response type: %v", respMsg.Type), nil)
 	}
 
 	respData, err := extractData[ProcessResponseData](respMsg.Data)
 	if err != nil {
-		return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to extract response data", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "failed to extract response data", err)
 	}
 
-	return respData.UpdatePayload, respData.UpdatedApplicationState, nil
+	return respData.UpdatePayload, respData.UpdatedApplicationState, respData.DeanonymizationReport, nil
 }
 
 // SendDeployApp sends a deploy app request and waits for response
@@ -194,43 +195,6 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*commo
 	}
 
 	return respData.UpdatePayload, respData.ApplicationState, nil
-}
-
-// SendGenerateDeanonymizationReport sends a deanonymization request and waits for response
-func (c *Client) SendGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
-	msg := Message{
-		ID:   generateID(),
-		Type: DeanonymizationRequestMessage,
-		Data: DeanonymizationRequestData{
-			Request:          req,
-			ApplicationState: appState,
-			WasmModule:       wasmModule,
-		},
-	}
-
-	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
-	if err != nil {
-		return nil, apperrors.New(apperrors.CodeInternalFallback, "failed to send process request", err)
-	}
-
-	if respMsg.Type == ErrorMessage {
-		errorDTO, err := extractData[apperrors.RequestFailureDTO](respMsg.Data)
-		if err != nil {
-			return nil, apperrors.New(apperrors.CodeInternalFallback, "failed to decode error response", err)
-		}
-		return nil, errorDTO.ToFailure()
-	}
-
-	if respMsg.Type != DeanonymizationResponseMessage {
-		return nil, apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("unexpected response type: %v", respMsg.Type), nil)
-	}
-
-	respData, err := extractData[DeanonymizationResponseData](respMsg.Data)
-	if err != nil {
-		return nil, apperrors.New(apperrors.CodeInternalFallback, "failed to extract response data", err)
-	}
-
-	return respData.Report, nil
 }
 
 // sendRequestAndWaitForResponse sends a request and waits for the response
@@ -404,7 +368,7 @@ func (c *Client) handleKeysetRecoveryResult(ctx context.Context, msg Message) {
 
 	var result error
 	if reqData.Error != "" {
-		result = fmt.Errorf(reqData.Error)
+		result = fmt.Errorf("%s", reqData.Error)
 	}
 
 	err = c.requestHandler.HandleKeysetRecoveryResult(ctx, result, reqData.CommPubKey, reqData.SigningKeyAddr)

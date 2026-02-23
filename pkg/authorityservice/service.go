@@ -19,7 +19,7 @@ import (
 	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/subgraph"
+	"github.com/horizen-cce-common-go/subgraph"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.
@@ -196,13 +196,6 @@ func (s *AuthorityService) handleGetReport(w http.ResponseWriter, r *http.Reques
 		ReportID:        report.ReportID.String(),
 		Authority:       report.Authority.Hex(),
 		EncryptedReport: hex.EncodeToString(report.EncryptedReport),
-	}
-
-	if report.RefundAmount != nil {
-		resp.RefundAmount = report.RefundAmount.String()
-	}
-	if report.ApplicationFee != nil {
-		resp.ApplicationFee = report.ApplicationFee.String()
 	}
 
 	w.Header().Set("Content-Type", "application/json")

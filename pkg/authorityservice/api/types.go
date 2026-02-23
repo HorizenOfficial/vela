@@ -24,6 +24,4 @@ type GetReportResponse struct {
 	ReportID        string `json:"reportId"`
 	Authority       string `json:"authority"`
 	EncryptedReport string `json:"encryptedReport"`
-	RefundAmount    string `json:"refundAmount,omitempty"`
-	ApplicationFee  string `json:"applicationFee,omitempty"`
 }

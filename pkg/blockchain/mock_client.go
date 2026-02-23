@@ -348,26 +348,6 @@ func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID common.Ap
 	return withdrawals, nil
 }
 
-// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
-func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if f, ok := c.GetMockedFunc("SubmitDeanonymizationReport"); ok {
-		return f.(func(context.Context, *common.DeanonymizationReport) error)(ctx, report)
-	}
-
-	// Complete the request if it exists
-	if !c.pendingRequests.Has(report.ReportID) {
-		return fmt.Errorf("request not found: %s", report.ReportID)
-	}
-	c.pendingRequests.Delete(report.ReportID)
-
-	// store the report
-	c.reports[report.ReportID] = report
-
-	return nil
-}
-
 // GetDeanonymizationReport gets a deanonymization report
 func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
 	c.mu.RLock()

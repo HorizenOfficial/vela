@@ -283,19 +283,6 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 	return nil
 }
 
-func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID common.RequestIdType, refundAmount *big.Int, applicationFees *big.Int) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return fmt.Errorf("client not connected, call Connect first")
-	}
-
-	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(requestID, refundAmount, applicationFees))
-
-}
-
 func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -357,11 +344,6 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	}
 
 	return common.RequestIdType{}, 0, fmt.Errorf("requestId not found in logs")
-}
-
-func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
-	// This is the only thing that has to be done on the blockchain for deanonymization reports
-	return c.MarkRequestCompleted(ctx, update.ReportID, update.RefundAmount.ToInt(), update.ApplicationFee.ToInt())
 }
 
 func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {

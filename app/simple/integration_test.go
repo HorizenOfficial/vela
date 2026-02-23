@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-cce-common-go/wasm/types"
 	"github.com/horizen-pes/app/simple/app"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
@@ -48,9 +49,9 @@ const (
 
 var (
 	appId                = common.NewApplicationId(1)
-	user1Address, _      = app.HexToAddress("0xadd0000000000000000000000000000000000001")
-	user2Address, _      = app.HexToAddress("0xadd0000000000000000000000000000000000002")
-	recipient1Address, _ = app.HexToAddress("0xadd0000000000000000000000000000000000003")
+	user1Address, _      = types.HexToAddress("0xadd0000000000000000000000000000000000001")
+	user2Address, _      = types.HexToAddress("0xadd0000000000000000000000000000000000002")
+	recipient1Address, _ = types.HexToAddress("0xadd0000000000000000000000000000000000003")
 )
 
 // buildAndLoadWasmModule runs `make build` to compile and load the wasm module.
@@ -120,7 +121,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	withdrawAmount := big.NewInt(200)
 	withdrawInstruction := app.WithdrawInstruction{
 		To:     recipient1Address,
-		Amount: new(app.Uint256).SetBytes(withdrawAmount.Bytes()),
+		Amount: new(types.Uint256).SetBytes(withdrawAmount.Bytes()),
 	}
 	payload := app.PayloadInstructions{
 		Type:     "withdraw",
@@ -129,7 +130,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	payloadBytes, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	withdrawStateBytes, withdrawEvents, withdrawals, fuel, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, depositState2Bytes, wasmBytes)
+	withdrawStateBytes, withdrawEvents, withdrawals, _, fuel, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, depositState2Bytes, wasmBytes)
 	require.Nil(t, err)
 	require.NotNil(t, withdrawStateBytes)
 	require.Len(t, withdrawEvents, 1)
@@ -146,11 +147,17 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.Equal(t, ethCommon.Address(recipient1Address), withdrawals[0].DestinationAddress)
 	require.Equal(t, withdrawAmount, withdrawals[0].Amount.ToInt())
 
-	// 4. Generate deanonymization report
-	payloadJSON := `{"tag":"my_custom_tag"}`
-	payloadBytes = []byte(payloadJSON)
-	reportBytes, fuel, failure := runtime.GenerateDeanonymizationReport(ctx, appId, payloadBytes, withdrawStateBytes, wasmBytes)
+	// 4. Generate deanonymization report via ProcessRequest with type "deanonymize"
+	deanonPayload := app.PayloadInstructions{
+		Type:        "deanonymize",
+		Deanonymize: &app.DeanonymizeInstruction{IncludeTag: "my_custom_tag"},
+	}
+	payloadBytes, err = json.Marshal(deanonPayload)
+	require.NoError(t, err)
+
+	deanonStateBytes, _, _, reportBytes, fuel, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.Nil(t, failure)
+	require.NotNil(t, deanonStateBytes)
 	require.NotNil(t, reportBytes)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(20)))
 
@@ -159,6 +166,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "my_custom_tag", report["tag"])
 	t.Log(" Report:\n", testutil.PrettyPrintJSON(report))
+	withdrawStateBytes = deanonStateBytes // Update state for next test
 
 	// 5. Compare addresses
 	compareInstructions := app.CompareInstructions{
@@ -172,7 +180,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	payloadBytes, err = json.Marshal(payload)
 	require.NoError(t, err)
 
-	compareStateBytes, events, withdrawals, fuel, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, withdrawStateBytes, wasmBytes)
+	compareStateBytes, events, withdrawals, _, fuel, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, withdrawStateBytes, wasmBytes)
 	require.Nil(t, err)
 	require.NotNil(t, compareStateBytes)
 	require.Len(t, events, 1)
@@ -216,7 +224,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 
 	t.Run("null payload json", func(t *testing.T) {
 		nullPayload := []byte{}
-		_, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), nullPayload, initialStateBytes, wasmBytes)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, nullPayload, initialStateBytes, wasmBytes)
 		require.Nil(t, err)
 	})
 }
@@ -251,37 +259,37 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &app.WithdrawInstruction{
 				To:     recipient1Address,
-				Amount: app.NewUint256(2000),
+				Amount: types.NewUint256(2000),
 			},
 		}
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Insufficient balance")
 	})
 
 	t.Run("withdraw from non-existent account", func(t *testing.T) {
 		// A user that never deposited tries to withdraw
-		nonExistentUser, _ := app.HexToAddress("0xadd0000000000000000000000000000000000099")
+		nonExistentUser, _ := types.HexToAddress("0xadd0000000000000000000000000000000000099")
 		payload := app.PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &app.WithdrawInstruction{
 				To:     recipient1Address,
-				Amount: app.NewUint256(100),
+				Amount: types.NewUint256(100),
 			},
 		}
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not exist")
 	})
 
 	t.Run("compare from non-existent account", func(t *testing.T) {
-		nonExistentUser, _ := app.HexToAddress("0xadd0000000000000000000000000000000000099")
+		nonExistentUser, _ := types.HexToAddress("0xadd0000000000000000000000000000000000099")
 		payload := app.PayloadInstructions{
 			Type: "compare_addresses",
 			CompareAccounts: &app.CompareInstructions{
@@ -291,7 +299,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(nonExistentUser), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Account "+nonExistentUser.Hex()+" does not exist!")
 	})
@@ -301,7 +309,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Withdraw instruction is missing")
 	})
@@ -311,21 +319,21 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		_, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payloadBytes, populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Compare instruction is missing")
 	})
 
 	t.Run("unsupported instruction type", func(t *testing.T) {
 		payload := `{"type":"invalid_instruction"}`
-		_, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), []byte(payload), populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, []byte(payload), populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Unsupported instruction type")
 	})
 
 	t.Run("invalid payload json", func(t *testing.T) {
 		payload := `{"type":"withdraw","withdraw":{"to":`
-		_, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), []byte(payload), populatedStateBytes, wasmBytes)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, []byte(payload), populatedStateBytes, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse payload instructions")
 	})
@@ -341,8 +349,8 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Load the module to get an initial state for some tests
-	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	// Load the module to verify it works (state used in later tests is created separately)
+	_, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
 
 	t.Run("deposit with nil state", func(t *testing.T) {
@@ -353,17 +361,15 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
 
-	t.Run("generate report with nil payload", func(t *testing.T) {
-		// The simple_app expects a JSON object for the payload. Passing nil results in an
-		// empty string, which is invalid JSON, causing an error inside wasm.
-		_, _, err := runtime.GenerateDeanonymizationReport(ctx, appId, nil, initialStateBytes, wasmBytes)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "Failed to parse payload")
-	})
+	t.Run("deanonymize with nil state", func(t *testing.T) {
+		// The deanonymize instruction via ProcessRequest should fail with nil state
+		deanonPayload := app.PayloadInstructions{
+			Type: "deanonymize",
+		}
+		payloadBytes, err := json.Marshal(deanonPayload)
+		require.NoError(t, err)
 
-	t.Run("generate report with nil state", func(t *testing.T) {
-		// This should fail inside the wasm module because a nil state is not valid JSON.
-		_, _, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), nil, wasmBytes)
+		_, _, _, _, _, err = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, nil, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -398,13 +404,7 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 
 	t.Run("process request with nil wasm", func(t *testing.T) {
 		payload := []byte(`{"type":"withdraw","withdraw":{"to":"some_address","amount":100}}`)
-		_, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payload, initialStateBytes, nil)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to load module")
-	})
-
-	t.Run("generate report with nil wasm", func(t *testing.T) {
-		_, _, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), initialStateBytes, nil)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payload, initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
@@ -429,13 +429,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 
 	t.Run("process request with invalid state", func(t *testing.T) {
 		payload := []byte(`{"type":"withdraw","withdraw":{"to":"some_address","amount":100}}`)
-		_, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), payload, invalidState, wasmBytes)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "Failed to parse application state")
-	})
-
-	t.Run("generate report with invalid state", func(t *testing.T) {
-		_, _, err := runtime.GenerateDeanonymizationReport(ctx, appId, []byte("{}"), invalidState, wasmBytes)
+		_, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payload, invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -473,7 +467,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 			for j := 0; j < iterationsPerGoroutine; j++ {
 				iterationIndex := goroutineIndex*iterationsPerGoroutine + j
 				depositAmount := big.NewInt(1)
-				userAddress, err := app.HexToAddress(fmt.Sprintf("0xadd%037d", iterationIndex))
+				userAddress, err := types.HexToAddress(fmt.Sprintf("0xadd%037d", iterationIndex))
 				require.NoError(t, err)
 
 				runtimeMutex.Lock()
@@ -486,7 +480,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				withdrawAmount := big.NewInt(1)
 				withdrawInstruction := app.WithdrawInstruction{
 					To:     recipient1Address,
-					Amount: new(app.Uint256).SetBytes(withdrawAmount.Bytes()),
+					Amount: new(types.Uint256).SetBytes(withdrawAmount.Bytes()),
 				}
 				withdrawPayload := app.PayloadInstructions{
 					Type:     "withdraw",
@@ -496,17 +490,22 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
 
 				runtimeMutex.Lock()
-				processStateBytes, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), withdrawPayloadBytes, stateBytes, wasmBytes)
+				processStateBytes, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), common.Process, withdrawPayloadBytes, stateBytes, wasmBytes)
 				require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
 				stateBytes = processStateBytes
 				runtimeMutex.Unlock()
 
-				// Generate deanonymization report
-				reportPayloadJSON := fmt.Sprintf(`{"tag":"memory_stress_report_%d"}`, iterationIndex)
-				reportPayloadBytes := []byte(reportPayloadJSON)
+				// Generate deanonymization report via ProcessRequest with type "deanonymize"
+				deanonPayload := app.PayloadInstructions{
+					Type:        "deanonymize",
+					Deanonymize: &app.DeanonymizeInstruction{IncludeTag: fmt.Sprintf("memory_stress_report_%d", iterationIndex)},
+				}
+				deanonPayloadBytes, ret := json.Marshal(deanonPayload)
+				require.NoError(t, ret, "failed to marshal deanonymize payload at iteration %d", iterationIndex)
 				runtimeMutex.Lock()
-				_, _, err = runtime.GenerateDeanonymizationReport(ctx, appId, reportPayloadBytes, stateBytes, wasmBytes)
-				require.Nil(t, err, "GenerateDeanonymizationReport failed at iteration %d", iterationIndex)
+				deanonStateBytes, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), common.Deanonymize, deanonPayloadBytes, stateBytes, wasmBytes)
+				require.Nil(t, err, "Deanonymize ProcessRequest failed at iteration %d", iterationIndex)
+				stateBytes = deanonStateBytes
 				runtimeMutex.Unlock()
 			}
 		}(i)
@@ -527,4 +526,181 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 	// not the wasmtime.Instance.
 	// 2. Instantiate on demand. The Deposit, ProcessRequest, and other execution functions should get the shared wasmtime.Module
 	// from the cache, and then create a brand new wasmtime.Instance for the duration of that specific function call
+}
+
+// requireMemoryClean is a helper that checks guest memory is fully deallocated.
+func requireMemoryClean(t *testing.T, runtime *pes_wasm.WasmtimeRuntime, wasmBytes []byte, errMsg string) {
+	t.Helper()
+	ctx := context.Background()
+	mapEntries, totalBytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), mapEntries, errMsg)
+	require.Equal(t, int64(0), totalBytes, errMsg)
+}
+
+// TestSimpleAppIntegration_MemoryCleanBetweenOps verifies that BytesToPtr allocations
+// (created by SerializeAndWriteResult inside the WASM guest) are fully deallocated after
+// each host call. This exercises the allocate -> BytesToPtr -> extractResultBytes -> deallocate
+// round-trip that cannot be unit-tested in native 64-bit Go.
+func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	defer runtime.Close()
+
+	ctx := context.Background()
+
+	// LoadModule: exercises SerializeAndWriteResult for LoadModuleResult
+	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after LoadModule")
+
+	// Deposit: exercises SerializeAndWriteResult for DepositResult (with events)
+	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(5000), stateBytes, wasmBytes)
+	require.Nil(t, failure)
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after Deposit")
+
+	// ProcessRequest (withdraw): exercises SerializeAndWriteResult for ProcessResult (with events + withdrawals)
+	payload := app.PayloadInstructions{
+		Type: "withdraw",
+		Withdraw: &app.WithdrawInstruction{
+			To:     recipient1Address,
+			Amount: types.NewUint256(100),
+		},
+	}
+	payloadBytes, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	stateBytes, _, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
+	require.Nil(t, failure2)
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (withdraw)")
+
+	// Deposit a second user so we can compare
+	stateBytes, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), big.NewInt(3000), stateBytes, wasmBytes)
+	require.Nil(t, failure)
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after second Deposit")
+
+	// ProcessRequest (compare): different result shape
+	payload2 := app.PayloadInstructions{
+		Type: "compare_addresses",
+		CompareAccounts: &app.CompareInstructions{
+			TargetAddress: user2Address,
+		},
+	}
+	payloadBytes2, err := json.Marshal(payload2)
+	require.NoError(t, err)
+
+	stateBytes, _, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes2, stateBytes, wasmBytes)
+	require.Nil(t, failure2)
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (compare)")
+
+	// 4. Generate deanonymization report via ProcessRequest with type "deanonymize"
+	deanonPayload := app.PayloadInstructions{
+		Type:        "deanonymize",
+		Deanonymize: &app.DeanonymizeInstruction{IncludeTag: "my_custom_tag"},
+	}
+	payloadBytes, err = json.Marshal(deanonPayload)
+	require.NoError(t, err)
+
+	_, _, _, _, _, failure = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, stateBytes, wasmBytes)
+
+	require.Nil(t, failure)
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after GenerateDeanonymizationReport")
+}
+
+// TestSimpleAppIntegration_ErrorPathMemory verifies that error results returned by the guest
+// (which still use SerializeAndWriteResult -> BytesToPtr) do not leak memory.
+func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	defer runtime.Close()
+
+	ctx := context.Background()
+
+	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	// Deposit so user1 has a balance
+	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(100), stateBytes, wasmBytes)
+	require.Nil(t, failure)
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after initial deposit")
+
+	// Trigger error: withdraw more than balance.
+	// The guest returns an error result via SerializeAndWriteResult -> BytesToPtr.
+	payload := app.PayloadInstructions{
+		Type: "withdraw",
+		Withdraw: &app.WithdrawInstruction{
+			To:     recipient1Address,
+			Amount: types.NewUint256(9999),
+		},
+	}
+	payloadBytes, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	_, _, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
+	require.NotNil(t, failure2, "expected error for insufficient balance")
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result from ProcessRequest")
+
+	// Trigger error: non-existent account
+	_, _, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user2Address), common.Process, payloadBytes, stateBytes, wasmBytes)
+	require.NotNil(t, failure2, "expected error for non-existent account")
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for non-existent account")
+
+	// Trigger error: invalid state
+	_, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(100), []byte("{bad-json}"), wasmBytes)
+	require.NotNil(t, failure, "expected error for invalid state")
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for invalid state")
+}
+
+// TestSimpleAppIntegration_LargeResultRoundTrip exercises BytesToPtr with a large JSON payload.
+// By depositing to many accounts and then generating a report, the guest serializes a large
+// result that stresses the allocate -> BytesToPtr -> extractResultBytes -> deallocate pipeline.
+func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	defer runtime.Close()
+
+	ctx := context.Background()
+
+	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	// Create 100 accounts with deposits to build a large state
+	const numAccounts = 100
+	for i := range numAccounts {
+		addr, err := types.HexToAddress(fmt.Sprintf("0xadd%037d", i))
+		require.NoError(t, err)
+
+		newState, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(addr), big.NewInt(int64(1000+i)), stateBytes, wasmBytes)
+		require.Nil(t, failure, "deposit failed for account %d", i)
+		stateBytes = newState
+	}
+
+	// Verify large state can be deserialized
+	var state app.ApplicationInternalState
+	err = json.Unmarshal(stateBytes, &state)
+	require.NoError(t, err)
+	require.Len(t, state.Accounts, numAccounts)
+
+	// 4. Generate deanonymization report via ProcessRequest with type "deanonymize"
+	deanonPayload := app.PayloadInstructions{
+		Type:        "deanonymize",
+		Deanonymize: &app.DeanonymizeInstruction{IncludeTag: "my_custom_tag"},
+	}
+	payloadBytes, err := json.Marshal(deanonPayload)
+	require.NoError(t, err)
+
+	_, _, _, reportBytes, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, stateBytes, wasmBytes)
+	// Generate report: SerializeAndWriteResult must handle the large report via BytesToPtr
+	require.Nil(t, failure)
+	require.NotNil(t, reportBytes)
+
+	// Verify report contains all accounts
+	var report app.DeanonymizationReport
+	err = json.Unmarshal(reportBytes, &report)
+	require.NoError(t, err)
+	require.Equal(t, "my_custom_tag", report.Tag)
+	require.Len(t, report.Accounts, numAccounts)
+
+	// Verify no memory leaked despite the large allocation
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after large result round-trip")
 }

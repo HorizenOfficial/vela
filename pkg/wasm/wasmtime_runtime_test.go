@@ -2,12 +2,15 @@ package wasm
 
 import (
 	"encoding/binary"
+	"math"
 	"os"
 	"testing"
 
 	"github.com/bytecodealliance/wasmtime-go"
+	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
 	appCommon "github.com/horizen-pes/pkg/wasm/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -170,6 +173,57 @@ func TestExtractResultBytes(t *testing.T) {
 		require.Error(t, err)
 		require.Equal(t, "wasm module failed to serialize response/error", err.Error())
 	})
+}
+
+// TestToWasmType_SmallValue verifies that a normal application ID is correctly
+// converted to int64.
+func TestToWasmType_SmallValue(t *testing.T) {
+	aid := common.NewApplicationId(42)
+	result, err := ToWasmType(aid)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), result)
+}
+
+// TestToWasmType_MaxInt64 verifies that the maximum int64 value is accepted
+// and the bit pattern is preserved.
+func TestToWasmType_MaxInt64(t *testing.T) {
+	aid := common.NewApplicationId(math.MaxInt64)
+	result, err := ToWasmType(aid)
+	require.NoError(t, err)
+	assert.Equal(t, int64(math.MaxInt64), result)
+}
+
+// TestToWasmType_AboveMaxInt64 verifies that a uint64 value exceeding MaxInt64
+// survives the round-trip through WASM's i64 (int64). WASM i64 has no signedness,
+// so the bit pattern is preserved: uint64 → int64 → uint64 yields the original value.
+func TestToWasmType_AboveMaxInt64(t *testing.T) {
+	original := uint64(math.MaxInt64 + 1) // 0x8000000000000000
+	aid := common.NewApplicationId(original)
+
+	wasmVal, err := ToWasmType(aid)
+	require.NoError(t, err)
+
+	// The int64 value is negative, but the bit pattern is preserved
+	assert.True(t, wasmVal < 0, "int64 reinterpretation should be negative")
+
+	// Simulate what the guest does: reinterpret int64 back to uint64
+	restored := uint64(wasmVal)
+	assert.Equal(t, original, restored)
+}
+
+// TestToWasmType_MaxUint64 verifies that the maximum uint64 value survives the
+// round-trip: MaxUint64 → int64(-1) → uint64(MaxUint64).
+func TestToWasmType_MaxUint64(t *testing.T) {
+	original := uint64(math.MaxUint64) // 0xFFFFFFFFFFFFFFFF
+	aid := common.NewApplicationId(original)
+
+	wasmVal, err := ToWasmType(aid)
+	require.NoError(t, err)
+	assert.Equal(t, int64(-1), wasmVal)
+
+	// Simulate what the guest does: reinterpret int64 back to uint64
+	restored := uint64(wasmVal)
+	assert.Equal(t, original, restored)
 }
 
 func TestClose(t *testing.T) {

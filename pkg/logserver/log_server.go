@@ -16,6 +16,8 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/mdlayher/vsock"
+	"github.com/rs/zerolog"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // Struct to hold console and file log levels atomically
@@ -24,10 +26,10 @@ type logLevels struct {
 	file    int
 }
 
-// LogServer handles writing log messages from remote clients to a file.
+// LogServer handles writing log messages from remote clients to a file and/or console.
 type LogServer struct {
 	logger         logger.Logger
-	logFile        *os.File
+	logWriter      io.WriteCloser // can be *os.File or *lumberjack.Logger
 	fileMutex      sync.Mutex
 	consoleEnabled bool
 	levels         atomic.Value // stores logLevels
@@ -41,6 +43,12 @@ type LogServerConfig struct {
 	ConsoleEnabled bool
 	ConsoleLevel   string
 	FileLevel      string
+	// Log rotation settings (only used when LogFilePath is set)
+	RotationEnabled bool // Enable log rotation using lumberjack
+	MaxSizeMB       int  // Max size in megabytes before rotation (default if negative or zero: 100)
+	MaxBackups      int  // Max number of old log files to retain, 0 = retain all (default if negative: 3)
+	MaxAgeDays      int  // Max days to retain old log files, 0 = no limit (default if negative: 28)
+	Compress        bool // Compress rotated log files with gzip (default: false)
 }
 
 // Static log level priority map
@@ -82,12 +90,54 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 		}
 	}
 
-	var logFile *os.File
-	var err error
+	var logWriter io.WriteCloser
+	// Variables for rotation settings (used in log message later)
+	var maxSize, maxBackups, maxAge int
 	if cfg.LogFilePath != "" {
-		logFile, err = os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			return fmt.Errorf("failed to open log file %s: %w", cfg.LogFilePath, err)
+		if cfg.RotationEnabled {
+			// Use lumberjack for log rotation
+			maxSize = cfg.MaxSizeMB
+			if maxSize <= 0 { // <= 0 (not < 0): lumberjack also treats 0 as "use default 100MB", so there's no useful zero-value to preserve
+				maxSize = 100 // default 100MB
+			}
+			maxBackups = cfg.MaxBackups
+			if maxBackups < 0 {
+				maxBackups = 3 // default 3 backups
+			}
+			maxAge = cfg.MaxAgeDays
+			if maxAge < 0 {
+				maxAge = 28 // default 28 days
+			}
+			// Validate upper bounds to prevent misconfiguration from exhausting disk space
+			if maxSize > 1024 {
+				return fmt.Errorf("MaxSizeMB=%d exceeds maximum allowed value of 1024 (1GB)", maxSize)
+			}
+			if maxBackups > 100 {
+				return fmt.Errorf("MaxBackups=%d exceeds maximum allowed value of 100", maxBackups)
+			}
+			if maxAge > 365 {
+				return fmt.Errorf("MaxAgeDays=%d exceeds maximum allowed value of 365", maxAge)
+			}
+			// Validate file access before configuring lumberjack (which defers file creation to first Write)
+			f, err := os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return fmt.Errorf("failed to open log file %s: %w", cfg.LogFilePath, err)
+			}
+			f.Close()
+			logWriter = &lumberjack.Logger{
+				Filename:   cfg.LogFilePath,
+				MaxSize:    maxSize,
+				MaxBackups: maxBackups,
+				MaxAge:     maxAge,
+				Compress:   cfg.Compress,
+			}
+		} else {
+			// Use plain file without rotation
+			var err error
+			logWriter, err = os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return fmt.Errorf("failed to open log file %s: %w", cfg.LogFilePath, err)
+			}
 		}
 	}
 
@@ -99,7 +149,7 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 
 	logServer := &LogServer{
 		logger:         logServerLogger,
-		logFile:        logFile,
+		logWriter:      logWriter,
 		consoleEnabled: cfg.ConsoleEnabled,
 	}
 
@@ -109,11 +159,16 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 		file:    levelPriority[strings.ToLower(cfg.FileLevel)],
 	})
 
-	if logFile != nil {
-		logServer.logger.Info("Remote logs will be written to file %s with level [%s]", cfg.LogFilePath, cfg.FileLevel)
+	if logWriter != nil {
+		if cfg.RotationEnabled {
+			logServer.logger.Info("Remote logs will be written to file %s with level [%s] (rotation enabled: maxSize=%dMB, maxBackups=%d, maxAge=%d days, compress=%v)",
+				cfg.LogFilePath, cfg.FileLevel, maxSize, maxBackups, maxAge, cfg.Compress)
+		} else {
+			logServer.logger.Info("Remote logs will be written to file %s with level [%s] (rotation disabled)", cfg.LogFilePath, cfg.FileLevel)
+		}
 	}
 	if cfg.ConsoleEnabled {
-		if logFile == nil {
+		if logWriter == nil {
 			logServer.logger.Warn("No log file configured, logs will only be written to console")
 		}
 		logServer.logger.Info("Remote logs will be written to console with level [%s]", cfg.ConsoleLevel)
@@ -195,11 +250,11 @@ func (ls *LogServer) run(ctx context.Context, tcpAddrStr string, vsockAddr commo
 		ls.fileMutex.Lock()
 		defer ls.fileMutex.Unlock()
 
-		if ls.logFile != nil {
-			if err := ls.logFile.Close(); err != nil {
-				ls.logger.Error("Error closing log file: %v", err)
+		if ls.logWriter != nil {
+			if err := ls.logWriter.Close(); err != nil {
+				ls.logger.Error("Error closing log writer: %v", err)
 			}
-			ls.logFile = nil
+			ls.logWriter = nil
 		}
 	}()
 
@@ -241,9 +296,15 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 	}()
 
 	ls.logger.Info("New log connection from %s", conn.RemoteAddr())
-	reader := bufio.NewReader(conn)
+
+	// handle oversized lines gracefully. ReadLine() returns isPrefix=true when a line
+	// exceeds the buffer, allowing us to truncate it to the first chunk and continue reading.
+	// Buffer size of 64KB is generous for structured zerolog JSON entries (typically 150-300 bytes).
+	const maxLogLineSize = 64 * 1024 // 64KB
+	reader := bufio.NewReaderSize(conn, maxLogLineSize)
+
 	for {
-		message, err := reader.ReadString('\n')
+		lineBytes, isPrefix, err := reader.ReadLine()
 		if err != nil {
 			if err == io.EOF {
 				ls.logger.Info("Log connection from %s closed gracefully", conn.RemoteAddr())
@@ -253,7 +314,30 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 			break
 		}
 
-		trimmed := bytes.TrimSpace([]byte(message))
+		// Check isPrefix before TrimSpace to ensure oversized lines are handled
+		// even if their first chunk is all whitespace (otherwise we'd continue past
+		// the truncation block, leaving the rest of the oversized line in the buffer).
+		if isPrefix {
+			ls.logger.Warn("Oversized log line from %s (>%d bytes), truncating", conn.RemoteAddr(), maxLogLineSize)
+			// Copy the first chunk before draining — lineBytes references the reader's
+			// internal buffer which gets overwritten by subsequent ReadLine calls.
+			truncated := make([]byte, len(lineBytes))
+			copy(truncated, lineBytes)
+			// Drain remaining chunks of the oversized line
+			for isPrefix {
+				_, isPrefix, err = reader.ReadLine()
+				if err != nil {
+					break
+				}
+			}
+			// Re-emit as a valid zerolog entry with the truncated content as the message
+			var buf bytes.Buffer
+			zl := zerolog.New(&buf).With().Timestamp().Logger()
+			zl.Warn().Bool("_truncated", true).Msg(string(truncated))
+			lineBytes = buf.Bytes()
+		}
+
+		trimmed := bytes.TrimSpace(lineBytes)
 		if len(trimmed) == 0 {
 			continue
 		}
@@ -267,7 +351,7 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 
 // filterAndWrite routes an incoming JSON log entry to console and/or file depending on configured log levels
 func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
-	// TODO: do something faster than unmarshalling for optimize this
+	// TODO: do something faster than unmarshalling to optimize this
 	var entry struct {
 		Level string `json:"level"`
 	}
@@ -284,14 +368,15 @@ func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
 	levels := ls.levels.Load().(logLevels)
 
 	if ls.consoleEnabled && entryPriority >= levels.console {
+		// Write raw JSON directly to stdout (message is already structured from the remote client)
 		fmt.Println(string(jsonMsg))
 	}
 
 	ls.fileMutex.Lock()
 	defer ls.fileMutex.Unlock()
 
-	if ls.logFile != nil && entryPriority >= levels.file {
-		if _, err := ls.logFile.Write(append(jsonMsg, '\n')); err != nil {
+	if ls.logWriter != nil && entryPriority >= levels.file {
+		if _, err := ls.logWriter.Write(append(jsonMsg, '\n')); err != nil {
 			return fmt.Errorf("failed to write to file: %w", err)
 		}
 	}

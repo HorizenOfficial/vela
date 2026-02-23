@@ -12,8 +12,7 @@ contract Structs {
   }
   enum RequestResult {
     COMPLETED,
-    FAILED_REFUNDED,
-    FAILED_NOT_REFUNDED
+    FAILED
   }
   enum ErrorCode {
     NO_ERROR,
