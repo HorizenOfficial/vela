@@ -300,4 +300,26 @@ jobs:
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-chain:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-chain:latest
+
+
+      - name: Build and push deployer image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/deployer/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-deployer:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-deployer:latest
+
+      - name: Build and push subgraph-deployer image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/subgraph-deployer/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-subgraph-deployer:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-subgraph-deployer:latest
+
    

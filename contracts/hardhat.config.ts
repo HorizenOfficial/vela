@@ -42,7 +42,7 @@ const config: HardhatUserConfig = {
       accounts,
     },
     local: {
-      url: 'http://127.0.0.1:8545/',
+      url: process.env.CHAIN_RPC_URL || 'http://127.0.0.1:8545/',
       accounts,
     },
   },
