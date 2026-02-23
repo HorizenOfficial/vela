@@ -15,7 +15,7 @@ import (
 	"github.com/horizen-pes/pkg/common/testutil"
 )
 
-func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, _ ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
+func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
 	blockchainClient := NewCoreBlockChainClient(ProcessorContractAddress, "", nil)
 	blockchainClient.client = client
 

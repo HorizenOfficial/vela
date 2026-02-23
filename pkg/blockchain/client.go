@@ -243,6 +243,9 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID comm
 	if !c.connected {
 		return fmt.Errorf("client not connected, call Connect first")
 	}
+	if c.account == nil {
+		return fmt.Errorf("client not configured for signing transactions")
+	}
 
 	c.account.Value = nil
 
@@ -262,6 +265,9 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 
 	if !c.connected {
 		return fmt.Errorf("client not connected, call Connect first")
+	}
+	if c.account == nil {
+		return fmt.Errorf("client not configured for signing transactions")
 	}
 
 	events := make([][]byte, len(update.Events))

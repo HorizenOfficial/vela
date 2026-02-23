@@ -29,7 +29,7 @@ var (
 )
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
-	return SetupNewBlockChainClientConnected(testHelper.Client(), testHelper.ProcessorContractAddress, testHelper.TeeSignerAddress, testHelper.ManagerAccount)
+	return SetupNewBlockChainClientConnected(testHelper.Client(), testHelper.ProcessorContractAddress, testHelper.ManagerAccount)
 
 }
 
