@@ -137,8 +137,9 @@ func (c *BlockChainClient) UnpackProcessorEndpointErrorAndCheckForReorg(chainErr
 
 }
 
-// GetPendingRequests gets pending requests from the blockchain
-func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Request, error) {
+// getPendingRequests gets pending requests from the blockchain.
+// It is intentionally kept unexported because core flow uses GetNextPendingRequest.
+func (c *BlockChainClient) getPendingRequests(ctx context.Context) ([]*common.Request, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 

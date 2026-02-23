@@ -44,7 +44,7 @@ func TestGetPendingRequests(t *testing.T) {
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
 
-	res, err := blockchainClient.GetPendingRequests(context.Background())
+	res, err := blockchainClient.getPendingRequests(context.Background())
 	require.NoError(t, err)
 
 	require.Equal(t, 0, len(res), "There should be zero pending request")
@@ -68,7 +68,7 @@ func TestGetPendingRequests(t *testing.T) {
 	testHelper.WaitMined(tx)
 	fmt.Println("Request was successfully included")
 
-	res, err = blockchainClient.GetPendingRequests(context.Background())
+	res, err = blockchainClient.getPendingRequests(context.Background())
 
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res), "There should be one pending request")
@@ -113,7 +113,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
 
-	res, err := blockchainClient.GetPendingRequests(context.Background())
+	res, err := blockchainClient.getPendingRequests(context.Background())
 	require.NoError(t, err)
 
 	failure := apperrors.New(
@@ -125,7 +125,7 @@ func TestMarkRequestFailed(t *testing.T) {
 	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID, failure)
 	require.NoError(t, err)
 
-	res, err = blockchainClient.GetPendingRequests(context.Background())
+	res, err = blockchainClient.getPendingRequests(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 }
@@ -195,7 +195,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
-	listOfRes, err := blockchainClient.GetPendingRequests(context.Background())
+	listOfRes, err := blockchainClient.getPendingRequests(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(listOfRes), "There should be 0 pending request")
 

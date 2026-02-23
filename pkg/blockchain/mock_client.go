@@ -12,9 +12,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/crypto"
 )
 
 func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, _ ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
@@ -41,8 +39,6 @@ type MockClient struct {
 	updatePayloads   map[common.RequestIdType]*common.UpdatePayload
 	eventSubscribers []chan<- interface{}
 	stateRoot        [32]byte
-	chainID          *big.Int
-	blockNumber      uint64
 	*testutil.MockFunctions
 }
 
@@ -58,42 +54,6 @@ func NewMockClient() *MockClient {
 		updatePayloads:  make(map[common.RequestIdType]*common.UpdatePayload),
 		MockFunctions:   testutil.NewMockFunctions(),
 	}
-}
-
-func (c *MockClient) ChainID(_ context.Context) (*big.Int, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.chainID == nil {
-		return big.NewInt(0), nil
-	}
-	return new(big.Int).Set(c.chainID), nil
-}
-
-// SetChainID sets the mock chain ID returned by ChainID.
-func (c *MockClient) SetChainID(id *big.Int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if id == nil {
-		c.chainID = nil
-		return
-	}
-	c.chainID = new(big.Int).Set(id)
-}
-
-// LatestBlockNumber returns the configured mock block number (default 0).
-func (c *MockClient) LatestBlockNumber(_ context.Context) (uint64, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.blockNumber, nil
-}
-
-// SetBlockNumber sets the mock block number returned by LatestBlockNumber.
-func (c *MockClient) SetBlockNumber(n uint64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.blockNumber = n
 }
 
 // SendRequestToChain stores a request in the mock pending queue.
@@ -118,29 +78,6 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 	c.pendingRequests.Set(req.RequestID, req)
 
 	return nil
-}
-
-// SubmitRequest submits a request to the blockchain according to the official interface
-func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	//prepare request
-	req := &common.Request{
-		ProtocolVersion: protocolVersion,
-		ApplicationID:   applicationId,
-		RequestType:     requestType,
-		Payload:         payload,
-		DepositAmount:   common.ToBig(depositAmount),
-		MaxFeeValue:     common.ToBig(maxFeeValue),
-	}
-
-	err := c.SendRequestToChain(ctx, req)
-	if err != nil {
-		return common.RequestIdType{}, 0, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	return req.RequestID, 0, nil
 }
 
 // GetPendingRequests gets pending requests from the blockchain
@@ -358,11 +295,6 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID comm
 	}
 
 	return report, nil
-}
-
-func (c *MockClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
-	key, err := crypto.GeneratePrivateKeyP521()
-	return key.PublicKey(), err
 }
 
 // Close closes the blockchain client

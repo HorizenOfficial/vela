@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -27,6 +28,14 @@ import (
 )
 
 var commParams = common.CommunicationParams{RequestTimeoutSec: 30}
+
+func reserveTCPPort(t *testing.T) uint32 {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer l.Close()
+	return uint32(l.Addr().(*net.TCPAddr).Port)
+}
 
 type MockAdminServer struct{}
 
@@ -73,27 +82,22 @@ func NewSystemTestSuiteWithConfigs(
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Normalize channel params for tests: default configs may use vsock, but tests run over TCP.
-	var tcpParams common.TcpChannelConnectionParams
-	switch p := execConfig.ChannelParams.(type) {
-	case common.TcpChannelConnectionParams:
-		tcpParams = p
-	case common.VSockChannelConnectionParams:
-		tcpParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
-		execConfig.ChannelParams = tcpParams
-		execConfig.ChannelType = "tcp"
-	default:
-		t.Fatal("unsupported executor channel params type")
-	}
-	switch p := mgrConfig.ChannelParams.(type) {
-	case common.TcpChannelConnectionParams:
-		// keep as is
-	case common.VSockChannelConnectionParams:
-		mgrConfig.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
-		mgrConfig.ChannelType = "tcp"
-	default:
-		t.Fatal("unsupported manager channel params type")
-	}
+	// Use dedicated ephemeral ports per suite to avoid collisions with other tests/packages.
+	channelPort := reserveTCPPort(t)
+	execAdminPort := reserveTCPPort(t)
+	mgrAdminPort := reserveTCPPort(t)
+	logPort := reserveTCPPort(t)
+
+	tcpParams := common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: channelPort}
+	execConfig.ChannelType = "tcp"
+	execConfig.ChannelParams = tcpParams
+	mgrConfig.ChannelType = "tcp"
+	mgrConfig.ChannelParams = tcpParams
+
+	execConfig.AdminChannelParams = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: execAdminPort}
+	mgrConfig.AdminChannelParams = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: mgrAdminPort}
+	mgrConfig.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: logPort}
+	execConfig.LogChannelParams = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: logPort}
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
