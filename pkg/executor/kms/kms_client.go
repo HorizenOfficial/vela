@@ -34,12 +34,12 @@ type NitroKMSClient struct {
 //
 // Parameters:
 //   - ctx: Context for the operation
-//   - region: AWS region (defaults to "us-east-1")
+	//   - region: AWS region (defaults to "eu-west-1")
 //   - keyARN: ARN of the KMS key to use
 //   - proxyPort: vsock port where the kms-proxy listens on the parent EC2 (typically 8000)
 func NewNitroKMSClient(ctx context.Context, region, keyARN string, proxyPort uint32) (*NitroKMSClient, error) {
 	if region == "" {
-		region = "us-east-1"
+		region = "eu-west-1"
 	}
 	if keyARN == "" {
 		return nil, fmt.Errorf("KMS key ARN is required")

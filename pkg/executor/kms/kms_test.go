@@ -30,14 +30,14 @@ func TestMockKMSClient_GenerateDataKey_Success(t *testing.T) {
 
 	output, err := mock.GenerateDataKeyWithAttestation(
 		ctx,
-		"arn:aws:kms:us-east-1:123456789:key/test-key",
+		"arn:aws:kms:eu-west-1:123456789:key/test-key",
 		[]byte("mock-attestation-document"),
 	)
 
 	require.NoError(t, err)
 	require.NotNil(t, output)
 	assert.True(t, mock.GenerateDataKeyCalled)
-	assert.Equal(t, "arn:aws:kms:us-east-1:123456789:key/test-key", mock.LastKeyARN)
+	assert.Equal(t, "arn:aws:kms:eu-west-1:123456789:key/test-key", mock.LastKeyARN)
 	assert.Equal(t, []byte("mock-attestation-document"), mock.LastAttestation)
 	assert.Equal(t, mock.SimulatedCiphertext, output.CiphertextBlob)
 	assert.Equal(t, mock.SimulatedDataKey[:], output.CiphertextForRecipient)
@@ -274,7 +274,7 @@ func TestMockKMSAndEnclave_GenerateAndDecryptFlow(t *testing.T) {
 	// Step 2: Generate data key with attestation
 	dataKeyOutput, err := mockKMS.GenerateDataKeyWithAttestation(
 		ctx,
-		"arn:aws:kms:us-east-1:123456789:key/my-key",
+		"arn:aws:kms:eu-west-1:123456789:key/my-key",
 		attestationDoc,
 	)
 	require.NoError(t, err)

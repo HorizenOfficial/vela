@@ -26,7 +26,7 @@ import (
 
 const (
 	defaultPort       = uint32(8000)
-	defaultRegion     = "us-east-1"
+	defaultRegion     = "eu-west-1"
 	defaultMaxBody    = 1024 * 1024
 	defaultReadHeader = 5 * time.Second
 	defaultRead       = 15 * time.Second

@@ -151,7 +151,7 @@ func TestGenerateAndRestoreEnclaveKeySet_Type1(t *testing.T) {
 		common.RecoveryTypeKMS,
 		mockKMS,
 		mockEnclave,
-		"arn:aws:kms:us-east-1:123456789:key/test-key",
+		"arn:aws:kms:eu-west-1:123456789:key/test-key",
 	)
 	require.NoError(t, err, "GenerateEnclaveKeySet should not return an error")
 	require.NotNil(t, generatedKeySet, "Generated key set should not be nil")

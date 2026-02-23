@@ -31,7 +31,7 @@ type Config struct {
 	// Required when KeySetRecoveryType is RecoveryTypeKMS.
 	KMSKeyARN string
 	// KMSRegion is the AWS region where the KMS key is located.
-	// Defaults to "us-west-1" if not specified.
+	// Defaults to "eu-west-1" if not specified.
 	KMSRegion string
 	// KMSProxyPort is the vsock port where the KMS proxy listens on the parent EC2.
 	// Inside a Nitro Enclave, KMS requests are forwarded through this proxy.
