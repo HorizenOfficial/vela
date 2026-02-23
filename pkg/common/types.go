@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	ccecommon "github.com/horizen-cce-common-go/common"
+	ccecommon "github.com/horizen-cce-common-go/wallet/common"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )

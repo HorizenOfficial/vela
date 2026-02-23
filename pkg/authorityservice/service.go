@@ -16,10 +16,10 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/horizen-cce-common-go/wallet/subgraph"
 	"github.com/horizen-pes/pkg/authorityservice/api"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-cce-common-go/subgraph"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.

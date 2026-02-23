@@ -134,7 +134,7 @@ Versioned LevelDB with atomic transactions and rollback support:
 **Configuration:** Environment variables with `.conf` file fallbacks. Key configs:
 - `CHANNEL_TYPE` - `tcp` or `vsock`
 - `MANAGER_DATA_FOLDER` / `MANAGER_REPORTS_FOLDER`
-- `CHAIN_PROCESSOR_ADDRESS` / `CHAIN_TEEAUTHENTICATOR_ADDRESS`
+- `CHAIN_PROCESSOR_ADDRESS` (manager no longer requires `CHAIN_TEEAUTHENTICATOR_ADDRESS`)
 
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
 

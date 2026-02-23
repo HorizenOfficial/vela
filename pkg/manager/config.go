@@ -44,8 +44,6 @@ type Config struct {
 
 	// Address of the ProcessorEndpoint contract
 	ProcessorAddress string
-	// Address of the TeeAuthenticator contract
-	TeeAuthAddress string
 
 	// DataLayerType specifies the database implementation to use. Supported values: "versioned_leveldb", "mockdb".
 	DataLayerType string
@@ -185,7 +183,6 @@ func LoadConfig() (*Config, error) {
 
 		PrivateKey:           *privateKey,
 		ProcessorAddress:     common.GetConfigVar("CHAIN_PROCESSOR_ADDRESS", "", fileProperties),
-		TeeAuthAddress:       common.GetConfigVar("CHAIN_TEEAUTHENTICATOR_ADDRESS", "", fileProperties),
 		MockBlockChainClient: false,
 		// Data layer configuration
 		DataLayerType:             "versioned_leveldb",

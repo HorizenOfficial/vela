@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/horizen-cce-common-go/wallet/subgraph"
 	"github.com/horizen-pes/pkg/authorityservice"
 	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-cce-common-go/subgraph"
 )
 
 func main() {

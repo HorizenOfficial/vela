@@ -17,12 +17,11 @@ import (
 	"github.com/horizen-pes/pkg/crypto"
 )
 
-func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, TeeSignerAddress ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
-	blockchainClient := NewBlockChainClient(ProcessorContractAddress, TeeSignerAddress, "", nil)
+func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, _ ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
+	blockchainClient := NewCoreBlockChainClient(ProcessorContractAddress, "", nil)
 	blockchainClient.client = client
 
 	blockchainClient.processorBoundContract = blockchainClient.processorEndpoint.Instance(blockchainClient.client, ProcessorContractAddress)
-	blockchainClient.teeAuthBoundContract = blockchainClient.teeAuthEndpoint.Instance(blockchainClient.client, TeeSignerAddress)
 
 	blockchainClient.account = ManagerAccount
 	blockchainClient.connected = true

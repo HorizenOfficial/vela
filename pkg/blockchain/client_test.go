@@ -11,7 +11,6 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
 	commontestutil "github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -236,67 +235,4 @@ func TestSubmitStateUpdate(t *testing.T) {
 	_, isReorg = err.(ReorgError)
 	require.True(t, isReorg)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
-}
-
-func TestSubmitRequest(t *testing.T) {
-	// mock private key for the client
-	testHelper := setupSimTestHelper(t, true, nil)
-	defer testHelper.Close()
-
-	blockchainClient := SetupNewBlockChainClient(testHelper)
-
-	// Prepare a request
-	protocolVersion := uint8(0)
-	applicationId := common.NewApplicationId(1)
-	requestType := common.Deploy
-	payload := []byte("test-payload")
-	depositAmount := big.NewInt(1)
-	maxFeeValue := big.NewInt(100)
-
-	// Submit the request
-	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, depositAmount, maxFeeValue)
-	require.NoError(t, err)
-	// Get pending requests
-	pending, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-
-	//check block number > 0
-	require.True(t, blockNumber > 0, "Returned block number shouldn't be 0")
-	// Check that the submitted request is present and matches
-	found := false
-	// Convert types for comparison
-
-	for _, r := range pending {
-		if r.RequestID == requestId {
-			found = true
-
-			if r.ProtocolVersion != protocolVersion || r.ApplicationID != applicationId || r.RequestType != requestType || string(r.Payload) != string(payload) || r.DepositAmount.ToInt().Cmp(depositAmount) != 0 {
-				t.Errorf(
-					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
-					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.DepositAmount,
-					protocolVersion, applicationId, requestType, string(payload), depositAmount,
-				)
-			}
-		}
-	}
-	if !found {
-		t.Errorf("Submitted request not found in pending requests")
-	}
-}
-
-func TestGetTeePublicKey(t *testing.T) {
-	//generate key
-	key, err := crypto.GeneratePrivateKeyP521()
-	require.NoError(t, err)
-	// create test with the key
-	testHelper := setupSimTestHelper(t, true, key.PublicKey().Bytes())
-	defer testHelper.Close()
-
-	blockchainClient := SetupNewBlockChainClient(testHelper)
-
-	// Get the Public Key
-	publicKey, err := blockchainClient.GetTeePublicKey(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, publicKey, "Public key should not be nil")
-	require.Equal(t, key.PublicKey().Bytes(), publicKey.Bytes(), "Public key not equal to the given one")
 }

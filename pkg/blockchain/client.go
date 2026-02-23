@@ -2,9 +2,7 @@ package blockchain
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
-	"math/big"
 	"strings"
 	"sync"
 
@@ -13,11 +11,9 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
-	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/crypto"
 )
 
 //go:generate mkdir -p ../../contract_abis
@@ -27,9 +23,6 @@ import (
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].abi' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi"
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].bin' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin"
 //go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi --bin ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
-//go:generate mkdir -p ./contracts/tee
-//go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
-//go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
 
 type ChainClient interface {
 	ethereum.BlockNumberReader
@@ -52,25 +45,19 @@ type BlockChainClient struct {
 	mu                     sync.RWMutex
 	connected              bool
 	processorAddress       ethCommon.Address
-	teeAuthAddress         ethCommon.Address
 	rpcURL                 string
 	processorBoundContract *bind.BoundContract
 	processorEndpoint      *processorendpoint.ProcessorEndpoint
-	teeAuthBoundContract   *bind.BoundContract
-	teeAuthEndpoint        *tee.TeeAuthenticator
 	client                 ChainClient
 	privKey                *cryptotypes.PrivateKeySecp256k1
 	account                *bind.TransactOpts
-	chainID                *big.Int
 }
 
-func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
+func NewCoreBlockChainClient(processor ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
 	return &BlockChainClient{
 		processorAddress:  processor,
-		teeAuthAddress:    teeAuthenticator,
 		rpcURL:            rpcURL,
 		processorEndpoint: processorendpoint.NewProcessorEndpoint(),
-		teeAuthEndpoint:   tee.NewTeeAuthenticator(),
 		privKey:           key,
 	}
 }
@@ -99,9 +86,6 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	}
 
 	c.processorBoundContract = c.processorEndpoint.Instance(c.client, c.processorAddress)
-	if c.teeAuthEndpoint != nil && c.teeAuthAddress != (ethCommon.Address{}) {
-		c.teeAuthBoundContract = c.teeAuthEndpoint.Instance(c.client, c.teeAuthAddress)
-	}
 
 	chainID, err := c.client.ChainID(ctx)
 	if err != nil {
@@ -111,41 +95,9 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	if c.privKey != nil {
 		c.account = bind.NewKeyedTransactor(c.privKey.PrivateKey, chainID)
 	}
-	c.chainID = chainID
 
 	c.connected = true
 	return nil
-}
-
-// ChainID returns the connected chain ID.
-func (c *BlockChainClient) ChainID(ctx context.Context) (*big.Int, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return nil, fmt.Errorf("client not connected, call Connect first")
-	}
-
-	if c.chainID != nil {
-		return new(big.Int).Set(c.chainID), nil
-	}
-
-	chainID, err := c.client.ChainID(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve chain ID: %w", err)
-	}
-	return chainID, nil
-}
-
-// LatestBlockNumber returns the latest block number from the chain.
-func (c *BlockChainClient) LatestBlockNumber(ctx context.Context) (uint64, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return 0, fmt.Errorf("client not connected, call Connect first")
-	}
-	return c.client.BlockNumber(ctx)
 }
 
 func (c *BlockChainClient) UnpackProcessorEndpointError(chainErr error) error {
@@ -303,49 +255,6 @@ func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID comm
 	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(requestID, solCode, msg))
 }
 
-// SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
-func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return common.RequestIdType{}, 0, fmt.Errorf("client not connected, call Connect first")
-	}
-
-	reqType := uint8(requestType)
-
-	// Pack the transaction data using the generated binding
-	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount, maxFeeValue)
-	// Set the value for the transaction (msg.value)
-	c.account.Value = new(big.Int).Add(depositAmount, maxFeeValue)
-
-	// Send the transaction
-	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
-	c.account.Value = nil
-	if err != nil {
-		return common.RequestIdType{}, 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
-	}
-
-	// Wait for transaction to be mined
-	receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
-	if err != nil {
-		return common.RequestIdType{}, 0, fmt.Errorf("error waiting for tx inclusion: %w", err)
-	}
-	if receipt.Status != 1 {
-		return common.RequestIdType{}, 0, fmt.Errorf("transaction failed")
-	}
-
-	// Parse the returned requestId from the transaction receipt logs
-	for _, vLog := range receipt.Logs {
-		event, err := c.processorEndpoint.UnpackRequestSubmittedEvent(vLog)
-		if err == nil {
-			return event.RequestId, receipt.BlockNumber.Uint64(), nil
-		}
-	}
-
-	return common.RequestIdType{}, 0, fmt.Errorf("requestId not found in logs")
-}
-
 func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -396,27 +305,6 @@ func (c *BlockChainClient) Close() error {
 	c.client = nil
 	c.processorBoundContract = nil
 	c.account = nil
-
 	c.connected = false
 	return nil
-}
-
-func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if !c.connected {
-		return nil, fmt.Errorf("client not connected, call Connect first")
-	}
-	if c.teeAuthBoundContract == nil || c.teeAuthEndpoint == nil {
-		return nil, fmt.Errorf("tee authenticator contract not configured")
-	}
-
-	pubSecp521r1, err := bind.Call(c.teeAuthBoundContract,
-		&bind.CallOpts{Pending: false},
-		c.teeAuthEndpoint.PackGetPubSecp521r1(),
-		c.teeAuthEndpoint.UnpackGetPubSecp521r1)
-	if err != nil {
-		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
-	}
-	return crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
 }
