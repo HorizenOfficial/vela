@@ -13,7 +13,7 @@ import (
 
 	"github.com/horizen-pes/pkg/authorityservice"
 	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/subgraph"
+	"github.com/horizen-cce-common-go/subgraph"
 )
 
 func main() {
@@ -54,7 +54,7 @@ func main() {
 		return
 	}
 
-	sg := subgraph.NewClientWithLogger(cfg.SubgraphURL, log)
+	sg := subgraph.NewClient(cfg.SubgraphURL)
 	healthCtx, healthCancel := context.WithTimeout(ctx, 5*time.Second)
 	if err := sg.HealthCheck(healthCtx); err != nil {
 		healthCancel()

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
@@ -37,6 +38,16 @@ var (
 )
 
 func CreateNewKeySet() (*EnclaveKeySet, error) {
+	// If all three fixed key env vars are set, import from hex instead of generating.
+	// This allows using deterministic keys in dev/test environments.
+	fixedSigningKey := os.Getenv("EXECUTOR_FIXED_SIGNING_KEY")
+	fixedCommKey := os.Getenv("EXECUTOR_FIXED_COMMUNICATION_KEY")
+	fixedStateKey := os.Getenv("EXECUTOR_FIXED_STATE_KEY")
+
+	if fixedSigningKey != "" && fixedCommKey != "" && fixedStateKey != "" {
+		return importFixedKeySet(fixedSigningKey, fixedCommKey, fixedStateKey)
+	}
+
 	communicationKey, err := crypto.GeneratePrivateKeyP521()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate communication key: %w", err)
@@ -56,6 +67,28 @@ func CreateNewKeySet() (*EnclaveKeySet, error) {
 	}
 
 	return keySet, nil
+}
+
+// importFixedKeySet creates an EnclaveKeySet from fixed hex-encoded private keys.
+// !!! UNSAFE !!! use this method only for DEV environment !!!
+func importFixedKeySet(signingHex, commHex, stateHex string) (*EnclaveKeySet, error) {
+	signingKey, err := crypto.ImportPrivateKeySecp256k1FromHex(signingHex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import fixed signing key: %w", err)
+	}
+	communicationKey, err := crypto.ImportPrivateKeyP521FromHex(commHex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import fixed communication key: %w", err)
+	}
+	stateKey, err := crypto.ImportKeyAESFromHex(stateHex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import fixed state key: %w", err)
+	}
+	return &EnclaveKeySet{
+		CommunicationKey: *communicationKey,
+		SigningKey:       *signingKey,
+		StateKey:         *stateKey,
+	}, nil
 }
 
 func (e *StatelessExecutor) DumpPublicKeys() {

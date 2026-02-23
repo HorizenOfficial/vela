@@ -148,7 +148,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := common.NewApplicationId(int64(i))
+				appID := common.NewApplicationId(uint64(i))
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
@@ -164,7 +164,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := common.NewApplicationId(int64(i))
+				appID := common.NewApplicationId(uint64(i))
 				state, err := store.GetApplicationState(ctx, appID)
 				assert.NoError(t, err)
 				assert.Equal(t, appID, state.ApplicationID)
