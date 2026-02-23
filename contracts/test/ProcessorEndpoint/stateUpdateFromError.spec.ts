@@ -253,6 +253,78 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(fixture.processorEndpoint, 'InvalidSignature');
       });
 
+      it('reverts with InvalidPayload when events array is non-empty on error', async () => {
+        const { requestId } = await submitBasicRequest(signers[0], '0x08');
+        const currentStateRoot = await processorEndpoint.stateRoot();
+
+        await expect(
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              currentStateRoot,
+              currentStateRoot,
+              requestId,
+              ['0xdeadbeef'],
+              ['subtype'],
+              [],
+              0,
+              0,
+              1,
+              'err',
+              '0x'
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
+      });
+
+      it('reverts with InvalidPayload when withdrawalRequests array is non-empty on error', async () => {
+        const { requestId } = await submitBasicRequest(signers[0], '0x09');
+        const currentStateRoot = await processorEndpoint.stateRoot();
+
+        await expect(
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              currentStateRoot,
+              currentStateRoot,
+              requestId,
+              [],
+              [],
+              [{ receiver: await signers[2].getAddress(), amount: 1 }],
+              0,
+              0,
+              1,
+              'err',
+              '0x'
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
+      });
+
+      it('reverts with InvalidPayload when both events and withdrawalRequests are non-empty on error', async () => {
+        const { requestId } = await submitBasicRequest(signers[0], '0x0a');
+        const currentStateRoot = await processorEndpoint.stateRoot();
+
+        await expect(
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              currentStateRoot,
+              currentStateRoot,
+              requestId,
+              ['0xdeadbeef'],
+              ['subtype'],
+              [{ receiver: await signers[2].getAddress(), amount: 1 }],
+              0,
+              0,
+              1,
+              'err',
+              '0x'
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
+      });
+
       it('reverts with InvalidRequestId when there are no pending requests', async () => {
         await expect(failRequest('0x' + '00'.repeat(32), 1, 'err')).to.be.revertedWithCustomError(
           processorEndpoint,
@@ -261,6 +333,7 @@ describe('ProcessorEndpoint Test', function () {
       });
     });
 
+    
     describe('happy paths', function () {
       it('does not revert when refund transfer fails', async () => {
         const FallbackFailure = await ethers.getContractFactory('FallbackFailure');

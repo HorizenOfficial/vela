@@ -161,7 +161,7 @@ interface IProcessorEndpoint {
     Structs.WithdrawalRequest[] calldata withdrawalRequests,
     uint256 refund,
     uint256 applicationFees,
-    uint8 errorCode,
+    Structs.ErrorCode errorCode,
     string calldata errorMsg,
     bytes calldata signature
   ) external;

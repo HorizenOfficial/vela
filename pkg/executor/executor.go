@@ -307,30 +307,41 @@ func (e *StatelessExecutor) Close() error {
 	return nil
 }
 
+// validateRequest performs common sanity checks on request fields.
+// These checks should have been done by the manager or by the contract, so if they fail here
+// it means that there is a tampering or a bug in the manager. For all these checks we do not
+// set the request as failed because it is not a fault of the request, but rather a fault of
+// the manager or a tampering attempt.
+//
+//TODO ST As a safer alternative, in order to check that the request was not tampered, we could use the requestId,
+// that is a hash of the request parameters + an index from the ProcessorEndpoint.
+// The index could be added to the request and then the requestId could be reconstructed here and compared with the
+// one in the request. This would ensure that the request parameters were not tampered, otherwise the hash would not match.
+func (e *StatelessExecutor) validateRequest(req *common.Request) error {
+	if req.ProtocolVersion != admittedProtocolVersion {
+		return fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
+	}
+	if req.ApplicationID != admittedAppID {
+		return fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	}
+	if req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
+		return fmt.Errorf("request fee is below minimum fee")
+	}
+	return nil
+}
+
 // HandleProcessRequest is the main workflow: decrypt state -> invoke WASM -> encrypt new state -> sign -> respond
 // Returns UpdatePayload, ApplicationState, optional DeanonymizationReport, and error
 func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
 	e.log.Info("Executor: Processing request %s for application %d", req.RequestID, req.ApplicationID)
 
-	// Sanity checks that the request was not tampered. The following are checks that should have been done by the manager or by the contract, so if they fail here
-	// it means that there is a tampering or a bug in the manager. For all these checks we do not set the request as failed because it is not a fault of the request, but rather a fault of the manager or a tampering attempt.
-	//TODO ST As a safer alternative, in order to check that the request was not tampered, we could use the requestId, that is a hash of the request parameters + an index from the ProcessorEndpoint.
-	// The index could be added to the request and then the requestId could be reconstructed here and compared with the one in the request. 
-	// This would ensure that the request parameters were not tampered, otherwise the hash would not match. 
-	if req.ProtocolVersion != admittedProtocolVersion {
-		return nil, nil, nil, fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
-	}
-	if req.ApplicationID != admittedAppID {
-		// This won't set the request as failed because the contract doesn't accept requests with other application id, so the only way there is a wrong appId is if the request was tampered or 
-		// if there is a bug in the manager. In both cases, it is not a fault of the request and so it is not set as failed.
-		// When the multi app will be implemented, this will be changed accordingly
-		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	if err := e.validateRequest(req); err != nil {
+		return nil, nil, nil, err
 	}
 
-	// This check should be updated the moment the minimum fee can be updated
-	if req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
-		return nil, nil, nil, fmt.Errorf("request fee is below minimum fee")
-	}
+	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize {
+		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
+	}	
 
 	if appState == nil {
 		errorPayload, err := e.processErrorResponse(req, 
@@ -338,10 +349,6 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 				apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID)))
 		return errorPayload, nil, nil, err
 	}
-
-	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize {
-		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
-	}	
 
 	// Decrypt and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
@@ -391,6 +398,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload)
 		if err != nil {
+			e.log.Error("Executor: failed to parse keyP521 in request payload: %v", err)
 			errorPayload, err := e.processErrorResponse(req, 
 				appState.StateRoot, 
 				apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload"))
@@ -450,7 +458,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 
 
-	// Application fee must be minumum fee at least
+	// Application fee must be minimum fee at least
 	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
 		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
 	}
@@ -569,32 +577,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
 	e.log.Info("Executor: Deploying application for request %s", req.RequestID)
 
-	// Sanity checks that the request was not tampered. The following are checks that should have been done by the manager or by the contract, so if they fail here
-	// it means that there is a tampering or a bug in the manager. For all these checks we do not set the request as failed because it is not a fault of the request, 
-	// but rather a fault of the manager or a tampering attempt.
-	//TODO ST As a safer alternative, in order to check that the request was not tampered, we could use the requestId, that is a hash of the request parameters + an index from the ProcessorEndpoint.
-	// The index could be added to the request and then the requestId could be reconstructed here and compared with the one in the request. 
-	// This would ensure that the request parameters were not tampered, otherwise the hash would not match. 
-	if req.ProtocolVersion != admittedProtocolVersion {
-		return nil, nil, fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
-	}
-
-	if req.ApplicationID != admittedAppID {
-		// This won't set the request as failed because the contract doesn't accept requests with other application id, so the only way there is a wrong appId is if the request was tampered or 
-		// if there is a bug in the manager. In both cases, it is not a fault of the request and so it is not set as failed.
-		// When the multi app will be implemented, this will be changed accordingly
-		return nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
+	if err := e.validateRequest(req); err != nil {
+		return nil, nil, err
 	}
 
 	if req.RequestType != common.Deploy {	
 		return nil, nil, fmt.Errorf("request type %s is not deploy", req.RequestType)
 	}
-
-	// This check should be updated the moment the minimum fee can be updated
-	if req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
-		return nil, nil, fmt.Errorf("request fee is below minimum fee")
-	}
-
 
 	if appState != nil {
 		// This means that the application was already deployed. This is the request fault, so we set the request as failed with the appropriate error code and message.
@@ -625,7 +614,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// TODO make a helper function?
 	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
 
-	// Application fee must be minumum fee at least
+	// Application fee must be minimum fee at least
 	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
 		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
 	}

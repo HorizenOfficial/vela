@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -474,7 +473,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 			m.log.Info("Rollback the application state to previous version")
 			if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
 				// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
-				// Log and return nil to let REORG detection handle it on the next poll.
+				// Log and return err to let REORG detection handle it on the next poll.
 				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
 				return err
 			}
@@ -503,9 +502,9 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	// Manager retrieves the state of admittedAppID instead of req.ApplicationID because in case of a wrong applicatioID the executor needs the real stateRoot for submitting the error on chain
 	state, err := m.dataLayer.GetApplicationState(ctx, admittedAppID)
 	if err != nil {
-		if !strings.Contains(err.Error(), "application state not found") {
+		if !storageErrors.IsNotFound(err) {
 			m.log.Warn("Manager: Got error while getting application state: %v", err)
-			// Even if it is not the expected error in case of a deploy, continue for backward compatibility
+			// Even if it is not the expected error in case of a deploy, continue for backwards compatibility
 		}
 	}
 
@@ -567,7 +566,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
 		m.log.Error("GetApplicationState returns an error: %v", err)
-		if !strings.Contains(err.Error(), "application state not found") {
+		if !storageErrors.IsNotFound(err) {
 			// Other errors are likely db errors, retry on next poll
 			return err
 		}

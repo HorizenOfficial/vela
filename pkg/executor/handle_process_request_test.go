@@ -436,6 +436,57 @@ func TestHandleProcessRequest_AssociateKey_Success(t *testing.T) {
 	require.Len(t, payload.Signature, 65)
 }
 
+func TestHandleProcessRequest_Deanonymize_Success(t *testing.T) {
+	runtime := NewMockRuntime(testLogger)
+	exec := newTestExecutor(t, runtime)
+
+	sender := ethCommon.HexToAddress("0x4444444444444444444444444444444444444444")
+	userKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+
+	appState := buildEncryptedAppState(t, exec, &sender, userKey.PublicKey())
+
+	// Build a deanonymize payload and encrypt it
+	deanonPayload, err := json.Marshal(testPayloadInstructions{
+		Type:        "deanonymize",
+		Deanonymize: &testDeanonymizeInstruction{Tag: "test-tag"},
+	})
+	require.NoError(t, err)
+	encrypted := encryptPayload(t, userKey, exec.keySet.CommunicationKey.PublicKey(), deanonPayload)
+
+	req := newProcessRequest()
+	req.RequestType = common.Deanonymize
+	req.Payload = encrypted
+	req.Sender = sender
+
+	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
+	require.NoError(t, err)
+	require.NotNil(t, payload)
+	require.NotNil(t, newAppState)
+	require.NotNil(t, report, "deanonymization report should be returned")
+
+	// Verify update payload
+	require.Equal(t, uint8(0), payload.ErrorCode)
+	require.Empty(t, payload.ErrorMsg)
+	require.Equal(t, appState.StateRoot, payload.PrevStateRoot)
+	require.NotEqual(t, [32]byte{}, payload.NewStateRoot)
+	require.Equal(t, payload.NewStateRoot, newAppState.StateRoot)
+	require.Len(t, payload.Signature, 65)
+	require.NotEmpty(t, newAppState.EncryptedState)
+
+	// RefundAmount + ApplicationFee == MaxFeeValue
+	refund := payload.RefundAmount.ToInt()
+	fee := payload.ApplicationFee.ToInt()
+	total := new(big.Int).Add(refund, fee)
+	require.Equal(t, 0, req.MaxFeeValue.ToInt().Cmp(total), "refund + fee should equal MaxFeeValue")
+
+	// Verify deanonymization report fields
+	require.Equal(t, req.ApplicationID, report.ApplicationID)
+	require.Equal(t, req.RequestID, report.ReportID)
+	require.Equal(t, sender, report.Authority)
+	require.NotEmpty(t, report.EncryptedReport)
+}
+
 func TestHandleProcessRequest_Process_Success(t *testing.T) {
 	runtime := NewMockRuntime(testLogger)
 	exec := newTestExecutor(t, runtime)

@@ -57,7 +57,7 @@ contract Structs {
     WithdrawalRequest[] withdrawalRequests;
     uint256 refundAmount;
     uint256 applicationFee;
-    uint8 errorCode;
+    Structs.ErrorCode errorCode;
     string errorMsg;
   }
 }

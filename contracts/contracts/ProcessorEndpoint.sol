@@ -234,7 +234,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     Structs.WithdrawalRequest[] calldata withdrawalRequests,
     uint256 refund,
     uint256 applicationFees,
-    uint8 errorCode,
+    Structs.ErrorCode errorCode,
     string calldata errorMsg,
     bytes calldata signature
   ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant {
@@ -274,9 +274,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     address payable sender = payable(requestInfo.sender);
 
     // Handle error case (signed error payload from TEE)
-    if (errorCode != 0) {
+    if (errorCode != Structs.ErrorCode.NO_ERROR) {
       // For errors: state unchanged (prevStateRoot == newStateRoot), no events, no withdrawals
       // Refund user (minus minimum fee) and collect minimum fee
+      if (eventsLength != 0 || withdrawalRequests.length != 0) revert InvalidPayload();
       if (stateRoot != newStateRoot) revert InvalidStateRoot();
 
       if (requestInfo.depositAmount + requestInfo.maxFeeValue > _getAvailableBalance())

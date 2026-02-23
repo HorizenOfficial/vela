@@ -778,6 +778,29 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 
+	// Same test but with an error payload for the SubmitStateUpdate
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", 
+	func(_ context.Context, req *common.Request, _ *common.ApplicationState,_ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+		return &common.UpdatePayload{ApplicationID: ApplicationId, 
+			RequestID: req.RequestID, 
+			ErrorCode: 1, 
+			ErrorMsg: "error"}, nil, nil, nil	})
+
+	failure = manager.processProcessRequest(context.Background(), request)
+	require.Error(t, failure)
+	require.Contains(t, failure.Error(), expectedError)
+
+	// Check that the local db has been reverted to the initial state
+	newDbVersion, err = manager.dataLayer.LastVersionID()
+	require.NoError(t, err)
+	require.Equal(t, oldDbVersion, newDbVersion)
+
+	completedRequests = mockBCClient.GetCompletedRequests()
+	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+
+	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
+	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
+
 }
 
 // TestProcessDeanonymizationViaProcessRequest tests the deanonymization flow which is now
