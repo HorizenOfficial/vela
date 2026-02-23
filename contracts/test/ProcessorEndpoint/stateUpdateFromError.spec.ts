@@ -333,7 +333,6 @@ describe('ProcessorEndpoint Test', function () {
       });
     });
 
-    
     describe('happy paths', function () {
       it('does not revert when refund transfer fails', async () => {
         const FallbackFailure = await ethers.getContractFactory('FallbackFailure');
