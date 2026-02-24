@@ -11,8 +11,6 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
-	"github.com/hf/nsm/request"
-	"github.com/hf/nsm/response"
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/appdata"
@@ -20,14 +18,13 @@ import (
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
+	"github.com/horizen-pes/pkg/executor/kms"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/nsmutil"
 )
 
 // NsmSession is an interface abstracting nsm.Session for testability.
-type NsmSession interface {
-	Send(req request.Request) (response.Response, error)
-	Close() error
-}
+type NsmSession = nsmutil.Session
 
 var (
 	// As of now we support only one app having this ID
@@ -120,54 +117,156 @@ func (e *StatelessExecutor) DumpPrivateKeys() {
 // GenerateEnclaveKeySet creates a new keyset from scratch.
 // It will be used at the first initialization.
 // It returns the new keyset and the recovery structure.
-func GenerateEnclaveKeySet(recoveryType int) (*EnclaveKeySet, *common.EnclaveKeySetRecovery, error) {
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts
+//   - recoveryType: 0 for unsafe/dev mode, 1 for AWS KMS
+//   - kmsClient: KMS client (required for Type 1, can be nil for Type 0)
+//   - enclaveHandle: Enclave handle for attestation (required for Type 1, can be nil for Type 0)
+//   - kmsKeyARN: AWS KMS key ARN (required for Type 1, can be empty for Type 0)
+func GenerateEnclaveKeySet(
+	ctx context.Context,
+	recoveryType common.RecoveryType,
+	kmsClient kms.KMSClient,
+	enclaveHandle kms.EnclaveHandle,
+	kmsKeyARN string,
+) (*EnclaveKeySet, *common.EnclaveKeySetRecovery, error) {
+	if recoveryType != common.RecoveryTypeUnsafe && recoveryType != common.RecoveryTypeKMS {
+		return nil, nil, fmt.Errorf("unsupported recovery type: %d", recoveryType)
+	}
+
+	// Validate required dependencies for Type 1.
+	if recoveryType == common.RecoveryTypeKMS {
+		if kmsClient == nil {
+			return nil, nil, fmt.Errorf("KMS client is required for Type 1 recovery")
+		}
+		if enclaveHandle == nil {
+			return nil, nil, fmt.Errorf("enclave handle is required for Type 1 recovery")
+		}
+		if kmsKeyARN == "" {
+			return nil, nil, fmt.Errorf("KMS key ARN is required for Type 1 recovery")
+		}
+	}
+
+	// 1. Create a new EnclaveKeySet.
+	keySet, err := CreateNewKeySet()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create key set: %w", err)
+	}
+
+	// 2. Serialize the EnclaveKeySet.
+	serializedKeySet, err := keySet.Serialize()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var masterKey cryptotypes.AES256Key
+	var recoveryCiphertext []byte
+	var cleanup func()
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
+
 	switch recoveryType {
-	case 0:
-		// 1. Create a new AES master key.
-		masterKey, err := crypto.GenerateAESKey()
+	case common.RecoveryTypeUnsafe:
+		// Type 0: Unsafe/development mode - masterKey stored in plaintext
+		// 3. Create a new AES master key.
+		generatedKey, err := crypto.GenerateAESKey()
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate master key: %w", err)
 		}
+		masterKey = generatedKey
+		cleanup = func() { zeroAESKey(&masterKey) }
 
-		// 2. Create a new EnclaveKeySet.
-		keySet, err := CreateNewKeySet()
+		// Create recovery ciphertext (plaintext master key for Type 0).
+		recoveryKey := make([]byte, len(masterKey))
+		copy(recoveryKey, masterKey[:])
+		recoveryCiphertext = recoveryKey
+
+	case common.RecoveryTypeKMS:
+		// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
+		// 3. Generate attestation document from NSM.
+		attestationDoc, err := enclaveHandle.Attest(nil)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create key set: %w", err)
+			return nil, nil, fmt.Errorf("failed to generate attestation: %w", err)
 		}
 
-		// 3. Serialize the EnclaveKeySet.
-		serializedKeySet, err := keySet.Serialize()
+		// 4. Request KMS to generate a data key with attestation.
+		dataKeyOutput, err := kmsClient.GenerateDataKeyWithAttestation(ctx, kmsKeyARN, attestationDoc)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("failed to generate data key from KMS: %w", err)
 		}
 
-		// 4. Encrypt the serialized EnclaveKeySet with the master key.
-		encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
+		// Validate KMS response contains required data for recovery
+		if len(dataKeyOutput.CiphertextBlob) == 0 {
+			return nil, nil, fmt.Errorf("KMS returned empty CiphertextBlob - cannot create recoverable keyset")
+		}
+		if len(dataKeyOutput.CiphertextForRecipient) == 0 {
+			return nil, nil, fmt.Errorf("KMS returned empty CiphertextForRecipient - attestation may have failed")
+		}
+
+		// 5. Decrypt the data key using enclave's private RSA key.
+		// The CiphertextForRecipient is encrypted for the enclave's public key from attestation
+		masterKeyBytes, err := enclaveHandle.DecryptKMSEnvelopedKey(dataKeyOutput.CiphertextForRecipient)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to encrypt key set: %w", err)
+			return nil, nil, fmt.Errorf("failed to decrypt KMS enveloped key: %w", err)
+		}
+		cleanup = func() {
+			zeroBytes(masterKeyBytes)
+			zeroAESKey(&masterKey)
 		}
 
-		// 5. Create the recovery structure.
-		recovery := &common.EnclaveKeySetRecovery{
-			RecoveryType:       0,
-			KeySetCiphertext:   encryptedKeySet,
-			RecoveryCiphertext: masterKey[:],
+		if len(masterKeyBytes) != 32 {
+			return nil, nil, fmt.Errorf("invalid master key length from KMS: got %d, expected 32", len(masterKeyBytes))
 		}
 
-		return keySet, recovery, nil
-	default:
-		return nil, nil, fmt.Errorf("unsupported recovery type: %d", recoveryType)
+		copy(masterKey[:], masterKeyBytes)
+		// Store the KMS CiphertextBlob (decryptable only by KMS with valid attestation).
+		recoveryCiphertext = dataKeyOutput.CiphertextBlob
 	}
+
+	// Encrypt the serialized EnclaveKeySet with the master key.
+	encryptedKeySet, err := crypto.EncryptWithAES(masterKey, serializedKeySet)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to encrypt key set: %w", err)
+	}
+
+	recovery := &common.EnclaveKeySetRecovery{
+		RecoveryType:       recoveryType,
+		KeySetCiphertext:   encryptedKeySet,
+		RecoveryCiphertext: recoveryCiphertext,
+	}
+
+	return keySet, recovery, nil
 }
 
 // RestoreEnclaveKeySet recovers a keyset from a recovery previously stored.
 // It will be used when starting the executors after the first init.
-func RestoreEnclaveKeySet(recovery *common.EnclaveKeySetRecovery) (*EnclaveKeySet, error) {
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts
+//   - recovery: The recovery structure containing encrypted keyset data
+//   - kmsClient: KMS client (required for Type 1, can be nil for Type 0)
+//   - enclaveHandle: Enclave handle for attestation (required for Type 1, can be nil for Type 0)
+func RestoreEnclaveKeySet(
+	ctx context.Context,
+	recovery *common.EnclaveKeySetRecovery,
+	kmsClient kms.KMSClient,
+	enclaveHandle kms.EnclaveHandle,
+) (*EnclaveKeySet, error) {
+	if recovery == nil {
+		return nil, fmt.Errorf("recovery is required")
+	}
+
 	switch recovery.RecoveryType {
-	case 0:
+	case common.RecoveryTypeUnsafe:
+		// Type 0: Unsafe/development mode - masterKey stored in plaintext
 		// 1. Use the RecoveryCiphertext as the master key to decrypt the KeySetCiphertext.
 		var masterKey cryptotypes.AES256Key
 		copy(masterKey[:], recovery.RecoveryCiphertext)
+		defer zeroAESKey(&masterKey)
 
 		decryptedKeySet, err := crypto.DecryptWithAES(masterKey, recovery.KeySetCiphertext)
 		if err != nil {
@@ -181,8 +280,78 @@ func RestoreEnclaveKeySet(recovery *common.EnclaveKeySetRecovery) (*EnclaveKeySe
 		}
 
 		return keySet, nil
+
+	case common.RecoveryTypeKMS:
+		// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
+		// Validate required dependencies
+		if kmsClient == nil {
+			return nil, fmt.Errorf("KMS client is required for Type 1 recovery")
+		}
+		if enclaveHandle == nil {
+			return nil, fmt.Errorf("enclave handle is required for Type 1 recovery")
+		}
+
+		// 1. Generate fresh attestation document
+		// A new enclave instance needs to prove its identity to KMS
+		attestationDoc, err := enclaveHandle.Attest(nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate attestation: %w", err)
+		}
+
+		// 2. Decrypt the master key using KMS with attestation
+		// RecoveryCiphertext contains the KMS CiphertextBlob from generation
+		// KMS will validate the attestation (PCR values) before decrypting
+		ciphertextForRecipient, err := kmsClient.DecryptWithAttestation(ctx, recovery.RecoveryCiphertext, attestationDoc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt master key from KMS: %w", err)
+		}
+
+		// 3. Decrypt the enveloped key using enclave's private RSA key
+		masterKeyBytes, err := enclaveHandle.DecryptKMSEnvelopedKey(ciphertextForRecipient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt KMS enveloped key: %w", err)
+		}
+		defer zeroBytes(masterKeyBytes)
+
+		if len(masterKeyBytes) != 32 {
+			return nil, fmt.Errorf("invalid master key length from KMS: got %d, expected 32", len(masterKeyBytes))
+		}
+
+		var masterKey cryptotypes.AES256Key
+		copy(masterKey[:], masterKeyBytes)
+		defer zeroAESKey(&masterKey)
+
+		// 4. Decrypt the keyset using the recovered master key
+		decryptedKeySet, err := crypto.DecryptWithAES(masterKey, recovery.KeySetCiphertext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt key set: %w", err)
+		}
+
+		// 5. Deserialize the decrypted data into an EnclaveKeySet
+		keySet, err := DeserializeEnclaveKeySet(decryptedKeySet)
+		if err != nil {
+			return nil, err
+		}
+
+		return keySet, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported recovery type: %d", recovery.RecoveryType)
+	}
+}
+
+func zeroBytes(buf []byte) {
+	for i := range buf {
+		buf[i] = 0
+	}
+}
+
+func zeroAESKey(key *cryptotypes.AES256Key) {
+	if key == nil {
+		return
+	}
+	for i := range key {
+		key[i] = 0
 	}
 }
 
@@ -194,10 +363,29 @@ type StatelessExecutor struct {
 	*MsgToSignBuilder
 	keySet *EnclaveKeySet
 	log    logger.Logger
+
+	// KMS dependencies (nil for Type 0, required for Type 1)
+	kmsClient     kms.KMSClient
+	enclaveHandle kms.EnclaveHandle
 }
 
-// NewStatelessExecutor creates a new stateless executor
-func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, log logger.Logger) (*StatelessExecutor, error) {
+// NewStatelessExecutor creates a new stateless executor.
+//
+// Parameters:
+//   - config: Executor configuration
+//   - runtime: WASM runtime for executing modules
+//   - server: Communication server for manager connections
+//   - log: Logger instance
+//   - kmsClient: KMS client for Type 1 recovery (can be nil for Type 0)
+//   - enclaveHandle: Enclave handle for attestation (can be nil for Type 0)
+func NewStatelessExecutor(
+	config *Config,
+	runtime Runtime,
+	server communication.ExecutorServer,
+	log logger.Logger,
+	kmsClient kms.KMSClient,
+	enclaveHandle kms.EnclaveHandle,
+) (*StatelessExecutor, error) {
 	msgBuilder, err := NewMsgToSignBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup msg to sign builder: %w", err)
@@ -209,6 +397,8 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 		server:           server,
 		MsgToSignBuilder: msgBuilder,
 		log:              log,
+		kmsClient:        kmsClient,
+		enclaveHandle:    enclaveHandle,
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
@@ -231,7 +421,7 @@ func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn commun
 }
 
 func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communication.ServerConnection) (*EnclaveKeySet, error) {
-	e.log.Info("Executor: Performing key recovery handshake")
+	e.log.Info("Executor: Performing key recovery handshake (Type %d)", e.config.KeySetRecoveryType)
 
 	found, recoveryData, err := conn.GetKeysetRecovery(ctx)
 	if err != nil {
@@ -240,8 +430,8 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 
 	var keySet *EnclaveKeySet
 	if found {
-		e.log.Info("Executor: Keyset recovery data found, restoring keyset...")
-		keySet, err = RestoreEnclaveKeySet(recoveryData)
+		e.log.Info("Executor: Keyset recovery data found (Type %d), restoring keyset...", recoveryData.RecoveryType)
+		keySet, err = RestoreEnclaveKeySet(ctx, recoveryData, e.kmsClient, e.enclaveHandle)
 		if err != nil {
 			// Notify manager of failure
 			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
@@ -259,9 +449,15 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
 		}
 	} else {
-		e.log.Info("Executor: Keyset recovery data not found, generating new keyset...")
+		e.log.Info("Executor: Keyset recovery data not found, generating new keyset (Type %d)...", e.config.KeySetRecoveryType)
 		var newRecoveryData *common.EnclaveKeySetRecovery
-		keySet, newRecoveryData, err = GenerateEnclaveKeySet(e.config.KeySetRecoveryType)
+		keySet, newRecoveryData, err = GenerateEnclaveKeySet(
+			ctx,
+			e.config.KeySetRecoveryType,
+			e.kmsClient,
+			e.enclaveHandle,
+			e.config.KMSKeyARN,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate enclave keyset: %w", err)
 		}
@@ -913,37 +1109,18 @@ func (e *StatelessExecutor) createKeyAttestationInternal(ctx context.Context, ns
 		return nil, fmt.Errorf("keyset is empty")
 	}
 
-	session, err := nsmSessionOpener()
-	if err != nil {
-		e.log.Info("Executor: error opening nms session: %v", err)
-		return nil, fmt.Errorf("failed to generate attestation")
-	}
-	defer func() {
-		if err := session.Close(); err != nil {
-			e.log.Warn("Executor: error closing nms session: %v", err)
-		}
-	}()
-
 	signerAddress, err := hex.DecodeString(keySet.SigningKey.PublicKey().Address()[2:]) // remove 0x prefix
 	if err != nil {
 		e.log.Error("Executor: error while decoding signer address: %v", err)
 		return nil, fmt.Errorf("failed to generate attestation")
 	}
 
-	res, err := session.Send(&request.Attestation{PublicKey: keySet.CommunicationKey.PublicKey().Bytes(), UserData: signerAddress})
+	doc, err := nsmutil.AttestWithSession(nsmSessionOpener, keySet.CommunicationKey.PublicKey().Bytes(), signerAddress)
 	if err != nil {
-		e.log.Warn("failed to get attestation: %v", err)
-		return nil, fmt.Errorf("failed to generate attestation")
-	}
-	if res.Error != "" {
-		e.log.Warn("NSM device returned an error: %s", res.Error)
-		return nil, fmt.Errorf("failed to generate attestation")
-	}
-	if res.Attestation == nil || res.Attestation.Document == nil {
-		e.log.Warn("NSM device did not return an attestation")
-		return nil, fmt.Errorf("failed to generate attestation")
+		e.log.Warn("Executor: failed to generate attestation: %v", err)
+		return nil, fmt.Errorf("failed to generate attestation: %w", err)
 	}
 
-	return res.Attestation.Document, nil
+	return doc, nil
 
 }

@@ -7,8 +7,9 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
     To build locally the docker images needed by the docker compose run *from the project root folder* the following commands:
 
     ```
-    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile .
-    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile .
+    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile . 
+    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile . 
+    docker build -t horizen/kms-proxy -f dockerfiles/kms_proxy/Dockerfile .
     docker build -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
     docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile .
     docker build -t horizen/cce-deployer -f dockerfiles/deployer/Dockerfile .

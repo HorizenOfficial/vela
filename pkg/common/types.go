@@ -200,10 +200,18 @@ type RequestResult struct {
 	ErrorMessage string
 }
 
+// RecoveryType represents the keyset recovery mechanism.
+type RecoveryType int
+
+const (
+	RecoveryTypeUnsafe RecoveryType = 0
+	RecoveryTypeKMS    RecoveryType = 1
+)
+
 // EnclaveKeySetRecovery contains the data needed to recover the EnclaveKeySet.
 type EnclaveKeySetRecovery struct {
 	// RecoveryType is the type of recovery data.
-	RecoveryType int `json:"recoveryType"`
+	RecoveryType RecoveryType `json:"recoveryType"`
 	// KeySetCiphertext is the encrypted EnclaveKeySet.
 	KeySetCiphertext []byte `json:"keySetCiphertext"`
 	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.

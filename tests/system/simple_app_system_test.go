@@ -2,6 +2,7 @@ package system
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -434,7 +435,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	mgrConfig.DeanonymizationReportPath = tempDir
 
 	// we need to pass the keys for having them in the test suite
-	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
+	// For tests, always use Type 0 (no KMS dependencies needed)
+	ctx := context.Background()
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
 	require.NoError(t, err)
 	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, log1, log2)
 	defer suite.Cleanup()

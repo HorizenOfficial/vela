@@ -242,6 +242,16 @@ jobs:
             ${{ env.DOCKER_HUB_ORG }}/cce-manager:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-manager:latest
 
+      - name: Build and push kms-proxy image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/kms_proxy/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/kms-proxy:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/kms-proxy:latest
+
       - name: Build and push authorityservice image
         uses: docker/build-push-action@v5
         with:
