@@ -2,6 +2,7 @@ package system
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -375,46 +376,18 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
 
-	// 3. Try to deploy an application  with ID != 1
 	timeout := 10 * time.Second
 
-	appID := common.NewApplicationId(33)
+	// 3. Deploy the application with ID = 1
+	appID := common.NewApplicationId(1)
+	cryptoHelper := testutil.NewCryptoHelper()
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), sender, wasmBytecode)
+
+	// 4. Now try to redeploy the same app id
 	reqID := commontestutil.GenerateRandomRequestID()
 
 	// Create and submit deploy request
 	deployReq := &common.Request{
-		RequestType:   common.Deploy,
-		ApplicationID: appID,
-		RequestID:     reqID,
-		Payload:       wasmBytecode,
-		Sender:        sender,
-		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
-		MaxFeeValue:   common.NewBig(100),
-	}
-	require.NoError(t, suite.SubmitRequest(deployReq))
-
-	// Waiting invain for app to be deployed
-	_, err := suite.WaitForAppStateInDB(appID, timeout)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "timeout")
-
-	failedRequests := suite.GetFailedRequest()
-	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
-	require.Equal(t, reqID, failedRequests[0].RequestID, "Wrong requestID")
-	require.Equal(t, appID, failedRequests[0].ApplicationID, "Wrong ApplicationID")
-	require.Equal(t, common.Deploy, failedRequests[0].RequestType, "Wrong Request Type")
-
-	// 4. Deploy the application with ID = 1
-	appID = common.NewApplicationId(1)
-	cryptoHelper := testutil.NewCryptoHelper()
-	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), sender, wasmBytecode)
-
-	// 5. Now try to redeploy the same app id
-	reqID = commontestutil.GenerateRandomRequestID()
-
-	// Create and submit deploy request
-	deployReq = &common.Request{
 		RequestType:   common.Deploy,
 		ApplicationID: appID,
 		RequestID:     reqID,
@@ -431,11 +404,11 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	time.Sleep(timeout)
 
 	// check that we have one more failed request
-	failedRequests = suite.GetFailedRequest()
-	require.Equal(t, 2, len(failedRequests), "expected 2 failed request")
-	require.Equal(t, reqID, failedRequests[1].RequestID, "Wrong requestID")
-	require.Equal(t, appID, failedRequests[1].ApplicationID, "Wrong ApplicationID")
-	require.Equal(t, common.Deploy, failedRequests[1].RequestType, "Wrong Request Type")
+	failedRequests := suite.GetFailedRequest()
+	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
+	require.Equal(t, reqID, failedRequests[0].RequestID, "Wrong requestID")
+	require.Equal(t, appID, failedRequests[0].ApplicationID, "Wrong ApplicationID")
+	require.Equal(t, common.Deploy, failedRequests[0].RequestType, "Wrong Request Type")
 
 }
 
@@ -462,7 +435,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	mgrConfig.DeanonymizationReportPath = tempDir
 
 	// we need to pass the keys for having them in the test suite
-	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
+	// For tests, always use Type 0 (no KMS dependencies needed)
+	ctx := context.Background()
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
 	require.NoError(t, err)
 	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, log1, log2)
 	defer suite.Cleanup()

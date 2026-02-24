@@ -11,7 +11,7 @@ import (
 func TestProcessRequestDataValidate(t *testing.T) {
 	// A valid request for testing
 	validRequest := &common.Request{
-		ProtocolVersion: 1,
+		ProtocolVersion: 0,
 		ApplicationID:   common.NewApplicationId(1),
 		RequestID:       common.RequestIdType([32]byte{1}),
 		RequestType:     common.Process,
@@ -75,7 +75,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 			name: "invalid Request - negative Timestamp",
 			data: ProcessRequestData{
 				Request: &common.Request{
-					ProtocolVersion: 1,
+					ProtocolVersion: 0,
 					ApplicationID:   common.NewApplicationId(1),
 					RequestID:       common.RequestIdType([32]byte{1}),
 					RequestType:     common.Process,
@@ -94,7 +94,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 			name: "Valid Request - zero DepositAmount",
 			data: ProcessRequestData{
 				Request: &common.Request{
-					ProtocolVersion: 1,
+					ProtocolVersion: 0,
 					ApplicationID:   common.NewApplicationId(1),
 					RequestID:       common.RequestIdType([32]byte{1}),
 					RequestType:     common.Process,
@@ -113,7 +113,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 			name: "Valid Request - zero MaxFeeValue",
 			data: ProcessRequestData{
 				Request: &common.Request{
-					ProtocolVersion: 1,
+					ProtocolVersion: 0,
 					ApplicationID:   common.NewApplicationId(1),
 					RequestID:       common.RequestIdType([32]byte{1}),
 					RequestType:     common.Process,

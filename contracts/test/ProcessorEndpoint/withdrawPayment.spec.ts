@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { BigNumberish, Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture } from './fixture';
+import { BYTES32_ZERO } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -40,18 +41,31 @@ describe('ProcessorEndpoint Test', function () {
 
         let [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
 
-        // Mark request as failed - this should NOT revert even though FallbackFailure rejects ETH
+        // Mark request as failed via stateUpdate with errorCode
         // With pull pattern, we just credit to pending, don't transfer
         await processorEndpoint
           .connect(signers[1])
-          .markRequestFailed(currentPendingRequest.requestId, 1, 'Test');
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            BYTES32_ZERO,
+            currentPendingRequest.requestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'Test',
+            '0x'
+          );
 
         // Verify funds are in pending deposits
         let pendingAmount = await processorEndpoint.payments(await fallbackFailure.getAddress());
         expect(pendingAmount).eql(100n);
 
         // When someone tries to withdraw for FallbackFailure, it will fail
-        // but the contract operation (markRequestFailed) succeeded
+        // but the contract operation (stateUpdate with error) succeeded
         await expect(
           processorEndpoint.withdrawPayments(await fallbackFailure.getAddress())
         ).to.be.revertedWithCustomError(processorEndpoint, 'TransferFailed');
@@ -112,6 +126,8 @@ describe('ProcessorEndpoint Test', function () {
             [[fallbackAddr, 50]],
             0,
             minFeePerRequest,
+            0,
+            '',
             signature
           );
         await updateTx.wait();
@@ -137,10 +153,23 @@ describe('ProcessorEndpoint Test', function () {
 
         let [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
 
-        // Fail the request to credit refund to signer[2]
+        // Fail the request via stateUpdate with errorCode to credit refund to signer[2]
         await processorEndpoint
           .connect(signers[1])
-          .markRequestFailed(currentPendingRequest.requestId, 1, 'Test');
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            BYTES32_ZERO,
+            currentPendingRequest.requestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'Test',
+            '0x'
+          );
 
         // Check pending amount for signer[2]
         let pendingAmount = await processorEndpoint.payments(await signers[2].getAddress());
@@ -181,12 +210,42 @@ describe('ProcessorEndpoint Test', function () {
           });
         await submitTx.wait();
 
-        // Fail both requests
+        // Fail both requests via stateUpdate with errorCode
         let [req1] = await processorEndpoint.getNextPendingRequest();
-        await processorEndpoint.connect(signers[1]).markRequestFailed(req1.requestId, 1, 'Test');
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            BYTES32_ZERO,
+            req1.requestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'Test',
+            '0x'
+          );
 
         let [req2] = await processorEndpoint.getNextPendingRequest();
-        await processorEndpoint.connect(signers[1]).markRequestFailed(req2.requestId, 1, 'Test');
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            BYTES32_ZERO,
+            req2.requestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'Test',
+            '0x'
+          );
 
         // Check accumulated pending: 50 + 60 = 110
         let pendingAmount = await processorEndpoint.payments(await signers[2].getAddress());

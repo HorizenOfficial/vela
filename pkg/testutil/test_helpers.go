@@ -49,7 +49,9 @@ func NewSystemTestSuite(t *testing.T, appType string, mgrLog logger.Logger, excL
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
-	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(execConfig.KeySetRecoveryType)
+	// For tests, always use Type 0 (no KMS dependencies needed)
+	ctx := context.Background()
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
 	require.NoError(t, err)
 	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLog, excLog)
 }
@@ -146,8 +148,8 @@ func NewSystemTestSuiteWithConfigs(
 		runtime = wasm.NewWasmtimeRuntime(excLog)
 	}
 
-	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, excLog)
+	// Create the executor (nil KMS dependencies for Type 0 testing)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, excLog, nil, nil)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {

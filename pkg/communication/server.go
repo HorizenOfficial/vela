@@ -212,7 +212,10 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to extract client error data: %w", err)
+		}
 		return false, nil, fmt.Errorf("client error: %s", errorData.Message)
 	}
 
@@ -272,7 +275,10 @@ func (c *ClientConnection) SetKeysetRecovery(ctx context.Context, recovery *comm
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return fmt.Errorf("failed to extract client error data: %w", err)
+		}
 		return fmt.Errorf("client error: %s", errorData.Message)
 	}
 
@@ -441,16 +447,9 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		return
 	}
 
-	updatePayload, updatedState, deanonymizationReport, failure := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
-	if failure != nil {
-		errorResponse := Message{
-			ID:   msg.ID,
-			Type: ErrorMessage,
-			Data: failure.ToDTO(),
-		}
-		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Error("%s: Failed to send error response: %v", c.idLogTag, err)
-		}
+	updatePayload, updatedState, deanonymizationReport, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
 	}
 
@@ -478,16 +477,9 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		return
 	}
 
-	updatePayload, appState, failure := handler.HandleDeployApp(ctx, reqData.Request)
-	if failure != nil {
-		errorResponse := Message{
-			ID:   msg.ID,
-			Type: ErrorMessage,
-			Data: failure.ToDTO(),
-		}
-		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Warn("%s: Failed to send error response: %v", c.idLogTag, err)
-		}
+	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request, reqData.ApplicationState)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
 	}
 
