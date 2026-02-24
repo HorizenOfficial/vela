@@ -6,7 +6,6 @@ import (
 	"fmt"
 )
 
-
 type AdminCommandServer interface {
 	Start(ctx context.Context, identityLogTag string) error
 	Stop() error
@@ -44,39 +43,6 @@ const (
 	GetLogLevelRequestMessage AdminMessageType = "get_log_level"
 )
 
-// legacyNumericTypes maps old numeric type values to string constants for backward compatibility.
-var legacyNumericTypes = map[float64]AdminMessageType{
-	0: AdminResponseMessage,
-	1: AdminErrorMessage,
-	2: KeyAttestationRequestMessage,
-	3: GetVersionRequestMessage,
-	4: SetLogLevelRequestMessage,
-	5: GetLogLevelRequestMessage,
-}
-
-// UnmarshalJSON implements custom unmarshaling that accepts both string and numeric (legacy) type values.
-func (t *AdminMessageType) UnmarshalJSON(data []byte) error {
-	// Try string first
-	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
-		*t = AdminMessageType(s)
-		return nil
-	}
-
-	// Try number (backward compatibility)
-	var n float64
-	if err := json.Unmarshal(data, &n); err == nil {
-		if mt, ok := legacyNumericTypes[n]; ok {
-			*t = mt
-			return nil
-		}
-		return fmt.Errorf("unknown numeric admin message type: %v", n)
-	}
-
-	return fmt.Errorf("invalid admin message type: %s", string(data))
-}
-
-
 // AdminMessage represents an admin command message
 type AdminMessage struct {
 	Type AdminMessageType `json:"type"`
@@ -93,15 +59,4 @@ func NewAdminMessage(msgType AdminMessageType, data interface{}) (AdminMessage, 
 		Type: msgType,
 		Data: raw,
 	}, nil
-}
-
-// IsSupportedCommand checks if a message type is in the list of supported commands.
-// This is a generic helper function used by both executor and manager.
-func IsSupportedCommand(msgType AdminMessageType, supportedCommands []AdminMessageType) bool {
-	for _, supportedType := range supportedCommands {
-		if msgType == supportedType {
-			return true
-		}
-	}
-	return false
 }

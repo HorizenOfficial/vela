@@ -27,8 +27,6 @@ Admin commands use a JSON-based protocol over TCP or V-Socket connections:
 
 Messages are newline-delimited JSON (`\n`).
 
-> **Backward compatibility:** The server also accepts legacy numeric type values (e.g., `2` instead of `"key_attestation"`). Responses always use string type values.
-
 ## Manager Commands
 
 ### GetVersion
@@ -178,8 +176,6 @@ Requests a key attestation document for the Executor's cryptographic keys. The M
 | `"get_version"` | `GetVersionRequestMessage` | Request version info |
 | `"set_log_level"` | `SetLogLevelRequestMessage` | Change log level |
 | `"get_log_level"` | `GetLogLevelRequestMessage` | Get current log level |
-
-> **Legacy numeric values** are still accepted for backward compatibility: 0=response, 1=error, 2=key_attestation, 3=get_version, 4=set_log_level, 5=get_log_level.
 
 ## Usage Examples
 

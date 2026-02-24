@@ -16,6 +16,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// IsSupportedCommand checks if a message type is in the list of supported commands.
+// This is a generic helper function used by manager.
+func IsSupportedCommand(msgType AdminMessageType, supportedCommands []AdminMessageType) bool {
+	for _, supportedType := range supportedCommands {
+		if msgType == supportedType {
+			return true
+		}
+	}
+	return false
+}
+
 // mockManagerSupportedCommands is the list of commands supported by the mock manager handler
 var mockManagerSupportedCommands = []AdminMessageType{
 	GetVersionRequestMessage,
