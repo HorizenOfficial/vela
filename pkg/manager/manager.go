@@ -4,17 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/storage"
@@ -416,18 +415,14 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		m.endReorgTime = time.Time{}
 	}
 
-	if request == nil {
+	if request == nil { //No request in queue, nothing to process
 		return nil
 	}
 
 	m.log.Info("Manager: processing request %s", request.RequestID)
 
-	if rf := m.processRequest(ctx, request); rf != nil {
-		// Log the error and mark the request as failed
-		m.log.Error("Manager: Failed to process request %s: %v", request.RequestID, rf)
-		if err = m.blockchainClient.MarkRequestFailed(ctx, request.RequestID, rf); err != nil {
-			m.log.Error("Manager: Failed to mark request %s as failed: %v", request.RequestID, err)
-		}
+	if err := m.processRequest(ctx, request); err != nil {
+		m.log.Error("Manager: Failed to process request %s: %v", request.RequestID, err)
 	} else {
 		m.log.Info("Manager: Processed request %s", request.RequestID)
 	}
@@ -459,44 +454,39 @@ func (m *SecureProcessorManager) checkIfReorg(stateRoot [32]byte) (bool, error) 
 }
 
 // processRequest processes a request
-func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
+func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) error {
 	if !m.isRunning {
 		m.log.Warn("Manager is not started yet, skipping")
-		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not running", nil)
-	}
-
-	// check admitted appID. TODO: This check will be removed in future
-	if req.ApplicationID != admittedAppID {
-		return apperrors.New(apperrors.CodeAppNotAdmitted, fmt.Sprintf("application id %s is not admitted", req.ApplicationID), nil)
+		return errors.New("manager is not running")
 	}
 
 	switch req.RequestType {
 	case common.Deploy:
 		return m.processDeployApp(ctx, req)
-	case common.Process, common.AssociateKey, common.Deanonymize:
+	default: //Now it is the executor that has to check if a requestType is correct
 		return m.processProcessRequest(ctx, req)
-	default:
-		return apperrors.New(apperrors.CodeRequestTypeNotPermitted, fmt.Sprintf("unsupported request type: %s", req.RequestType), nil)
 	}
 }
 
-func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updatePayload *common.UpdatePayload) *apperrors.RequestFailure {
+func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updatePayload *common.UpdatePayload) error {
 	// Submit the state update to the blockchain
 	if err := m.blockchainClient.SubmitStateUpdate(ctx, updatePayload); err != nil {
 		m.log.Error("Failed to submit state update for error: %v", err)
-		m.log.Info("Rollback the application state to previous version")
-		if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
-			// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
-			// Log and return nil to let REORG detection handle it on the next poll.
-			m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
-			return nil
-		}
+		if updatePayload.ErrorCode == 0 {
+			m.log.Info("Rollback the application state to previous version")
+			if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
+				// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
+				// Log and return err to let REORG detection handle it on the next poll.
+				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
+				return err
+			}
 
-		if _, ok := err.(blockchain.ReorgError); ok {
-			m.log.Warn("REORG, do not call MarkFailed, wait for next poll")
-			return nil
-		}
-		return apperrors.New(apperrors.CodeSubmittingStateUpdateFailed, fmt.Sprintf("failed to submit state update: %v", err), err)
+			if _, ok := err.(blockchain.ReorgError); ok {
+				m.log.Warn("REORG, wait for next poll")
+				return nil
+			}
+		} 
+		return err
 	}
 
 	m.log.Info("Manager: Processed request %s for application %d", updatePayload.RequestID, updatePayload.ApplicationID)
@@ -504,38 +494,48 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 }
 
 // processDeployApp processes a deploy app request
-func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
+func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *common.Request) error {
 	m.log.Info("Processing deploy app request: %s", req.RequestID)
 	if !m.isRunning {
 		m.log.Warn("Manager is not started yet, skipping")
-		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
+		return errors.New("manager is not running")
 	}
 
 	// check if app was already deployed
-	_, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
-	if err == nil {
-		return apperrors.New(apperrors.CodeApplicationAlreadyDeployed, fmt.Sprintf("application %s was already deployed", req.ApplicationID), err)
+	// Manager retrieves the state of admittedAppID instead of req.ApplicationID because in case of a wrong applicatioID the executor needs the real stateRoot for submitting the error on chain
+	state, err := m.dataLayer.GetApplicationState(ctx, admittedAppID)
+	if err != nil {
+		if !storageErrors.IsNotFound(err) {
+			m.log.Warn("Manager: Got error while getting application state: %v", err)
+			// Even if it is not the expected error in case of a deploy, continue for backwards compatibility
+		}
 	}
 
-	//if the payload is empty, try to retrieve the wasm locally
+	//if the payload is empty, try to retrieve the wasm locally. In case of error, try again hoping someone fixes the problem
 	if len(req.Payload) == 0 {
 		m.log.Info("Empty payload received - trying to retrieve wasm locally")
 		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID.String()+".wasm")
 		if !common.FileExists(wasmFilePath) {
-			return apperrors.New(apperrors.CodeWasmNotFound, fmt.Sprintf("failed to deploy application - wasm not found in both payload or local path: %v", wasmFilePath), err)
+			return fmt.Errorf("failed to deploy application - wasm %v not found in both payload or local path", wasmFilePath)
 		}
 		wasmBytesFromFile, err := os.ReadFile(wasmFilePath)
 		if err != nil {
-			return apperrors.New(apperrors.CodeErrorReadingWasm, fmt.Sprintf("failed to deploy application - Error reading wasm file: %v", err), err)
-
+			return fmt.Errorf("failed to deploy application - Error reading wasm file: %w", err)
 		}
 		req.Payload = wasmBytesFromFile
 	}
 
 	// Deploy the application
-	updatePayload, appState, failure := m.executorClient.SendDeployApp(ctx, req)
-	if failure != nil {
-		return failure
+	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req, state)
+	if err != nil {
+		return err
+	}
+
+	// Check if this is a signed error payload
+	if updatePayload.ErrorCode != 0 {
+		m.log.Info("Manager: Received signed error payload for deploy request %s (error code: %d)", req.RequestID, updatePayload.ErrorCode)
+		// Submit the signed error payload to the blockchain (no state to store)
+		return m.submitStateOnChain(ctx, updatePayload)
 	}
 
 	// Store the application state and WASM bytecode
@@ -548,7 +548,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
-		return nil
+		return err
 	}
 
 	m.log.Info("Deployed application, submit the state update to the blockchain")
@@ -557,36 +557,47 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 }
 
 // processProcessRequest processes a process request (including deanonymization requests)
-func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) *apperrors.RequestFailure {
+func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
 	m.log.Info("Processing Process app request: %s (type: %s)", req.RequestID, req.RequestType)
 	if !m.isRunning {
 		m.log.Warn("Manager is not started yet, skipping")
-		return apperrors.New(apperrors.CodeManagerNotRunning, "manager is not started yet", nil)
+		return errors.New("manager is not running")
 	}
 
 	// Get the application state
+	//TODO ST manager shouldn't be able return a tampered state. Same for wasm
 	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
 		m.log.Error("GetApplicationState returns an error: %v", err)
-		if strings.Contains(err.Error(), "application state not found") {
-			// This can happen if the deploy transaction was not mined yet, mark request as failed
-			return apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID), err)
+		if !storageErrors.IsNotFound(err) {
+			// Other errors are likely db errors, retry on next poll
+			return err
 		}
-		// Other errors are likely db errors, retry on next poll
-		return nil
+		// if application state not found, pass a nil state to the executor to let it handle the error
+		appState = nil
 	}
 
 	// Get the WASM module for the application
-	wasmBytes, err := m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
+	var wasmBytes []byte
+	if appState != nil {
+		wasmBytes, err = m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
+		if err != nil {
+			m.log.Error("GetWASMBytecode returns an error: %v", err)
+			return err
+		}
+	}
+	// Process the request
+	updatePayload, updatedState, deanonymizationReport, err := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
 	if err != nil {
-		m.log.Error("GetWASMBytecode returns an error: %v", err)
-		return nil
+		// Fallback case: executor couldn't create signed payload. Retry on next poll, no state to store
+		return err
 	}
 
-	// Process the request
-	updatePayload, updatedState, deanonymizationReport, failure := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
-	if failure != nil {
-		return failure
+	// Check if this is a signed error payload
+	if updatePayload.ErrorCode != 0 {
+		m.log.Info("Manager: Received signed error payload for request %s (error code: %d)", req.RequestID, updatePayload.ErrorCode)
+		// Submit the signed error payload to the blockchain (no state to store)
+		return m.submitStateOnChain(ctx, updatePayload)
 	}
 
 	// If a deanonymization report was generated, save it to filesystem
@@ -595,7 +606,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		if err := m.saveDeanonymizationReport(deanonymizationReport, req); err != nil {
 			// Treat as transient: log and retry on next poll instead of failing the request.
 			m.log.Error("Failed to save deanonymization report: %v", err)
-			return nil
+			return err
 		}
 		m.log.Info("Manager: Saved deanonymization report %s for application %d", deanonymizationReport.ReportID, req.ApplicationID)
 	}
@@ -612,7 +623,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
-		return nil
+		return err
 	}
 
 	return m.submitStateOnChain(ctx, updatePayload)

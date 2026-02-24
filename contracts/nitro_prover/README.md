@@ -1,0 +1,1 @@
+NitroProver ABI code generated from the https://github.com/HorizenOfficial/NitroProver/ repository (fork of https://github.com/marlinprotocol/NitroProver)

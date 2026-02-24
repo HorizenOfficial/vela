@@ -83,6 +83,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             maxFeeValue,
+            0,
+            '',
             '0x'
           );
 
@@ -90,18 +92,36 @@ describe('ProcessorEndpoint Test', function () {
         expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(maxFeeValue);
       });
 
-      it('routes fees to the new feeCollector for markRequestFailed', async () => {
+      it('routes fees to the new feeCollector for failed requests', async () => {
         const newCollector = await signers[4].getAddress();
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
-        const { requestId, maxFeeValue } = await submitBasicRequest('0x02');
+        const { requestId, applicationId, maxFeeValue } = await submitBasicRequest('0x02');
         // With pull pattern, funds are credited to pending deposits
         const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
-        await processorEndpoint.connect(signers[1]).markRequestFailed(requestId, 1, 'failed');
+        // Fail request via stateUpdate with errorCode
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            BYTES32_ZERO,
+            BYTES32_ZERO,
+            requestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'failed',
+            '0x'
+          );
 
         const collectorPendingAmountAfter = await processorEndpoint.payments(newCollector);
-        expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(maxFeeValue);
+        expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(
+          minFeePerRequest
+        );
       });
 
       it('routes fees to the new feeCollector for stateUpdate', async () => {
@@ -124,6 +144,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             maxFeeValue,
+            0,
+            '',
             '0x'
           );
 

@@ -8,6 +8,13 @@ Horizen Privacy Preserving Execution System (PES) - A privacy-preserving executi
 
 **Stack:** Go 1.24, Solidity 0.8.30, Wasmtime-go (WASM runtime), LevelDB, Hardhat, The Graph (subgraphs)
 
+## Language Stack
+
+- **Primary languages:** Go, TypeScript, Solidity
+- This is a blockchain/TEE/WASM project. Be aware of smart contract security patterns (reentrancy, pull payments) and WASM memory management concerns.
+- **Solidity:** Check reentrancy, access control, gas optimization.
+- **Go:** Check error handling, goroutine leaks, resource cleanup.
+
 ## Build Commands
 
 ```bash

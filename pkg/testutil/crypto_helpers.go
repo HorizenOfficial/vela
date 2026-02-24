@@ -93,45 +93,6 @@ func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requ
 	}, nil
 }
 
-// CreateTransferRequest creates an encrypted transfer request
-func (c *CryptoHelper) CreateTransferRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, recipient ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	senderKey, err := c.GetUserKey(sender)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create transfer instruction
-	transferInstruction := map[string]interface{}{
-		"type": "transfer",
-		"transfer": map[string]interface{}{
-			"to":     recipient,
-			"amount": amount,
-		},
-	}
-
-	payload, err := json.Marshal(transferInstruction)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal transfer instruction: %w", err)
-	}
-
-	// Encrypt payload
-	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt transfer payload: %w", err)
-	}
-
-	return &common.Request{
-		ApplicationID: appID,
-		RequestID:     requestID,
-		RequestType:   common.Process,
-		Payload:       encryptedPayload,
-		Sender:        sender,
-		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0), // No deposit for transfer
-		MaxFeeValue:   common.NewBig(100),
-	}, nil
-}
-
 // CreateWithdrawalRequest creates an encrypted withdrawal request
 func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)

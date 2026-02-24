@@ -121,16 +121,6 @@ interface IProcessorEndpoint {
     uint256 maxFeeValue
   ) external payable returns (bytes32);
 
-  /// @notice Marks the current pending request as failed and handles refunds.
-  /// @param requestId Request identifier.
-  /// @param errorCode Failure reason code.
-  /// @param errorMessage Failure reason message.
-  function markRequestFailed(
-    bytes32 requestId,
-    Structs.ErrorCode errorCode,
-    string calldata errorMessage
-  ) external;
-
   /// @notice Returns the number of pending requests in the queue.
   /// @return size Current pending request count.
   function getPendingRequestsSize() external view returns (uint256);
@@ -158,6 +148,8 @@ interface IProcessorEndpoint {
   /// @param withdrawalRequests Withdrawal requests to execute.
   /// @param refund Refund amount to the request sender.
   /// @param applicationFees Fee amount to the collector.
+  /// @param errorCode Error code for the update.
+  /// @param errorMsg Error message for the update.
   /// @param signature Signature over the update data.
   function stateUpdate(
     uint64 applicationId,
@@ -169,6 +161,8 @@ interface IProcessorEndpoint {
     Structs.WithdrawalRequest[] calldata withdrawalRequests,
     uint256 refund,
     uint256 applicationFees,
+    Structs.ErrorCode errorCode,
+    string calldata errorMsg,
     bytes calldata signature
   ) external;
 

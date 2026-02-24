@@ -12,16 +12,8 @@ contract MockTeeAuthenticator is ITeeAuthenticator {
   }
 
   function checkSignature(
-    uint64 /*applicationId*/,
-    bytes32 /*prevStateRoot*/,
-    bytes32 /*newStateRoot*/,
-    bytes32 /*processedRequestId*/,
-    bytes[] calldata /*events*/,
-    string[] calldata /*eventSubTypes*/,
-    Structs.WithdrawalRequest[] calldata /*withdrawalRequests*/,
-    uint256 /*refundAmount*/,
-    uint256 /*applicationFees*/,
-    bytes calldata /*signature*/
+    Structs.SignatureParams memory /*params*/,
+    bytes memory /*signature*/
   ) external pure override returns (bool) {
     return true; // Always return true for mock
   }

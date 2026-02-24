@@ -6,7 +6,6 @@ import (
 	"math/big"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 )
 
@@ -18,8 +17,6 @@ type Client interface {
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
 	// GetNextPendingRequest gets next pending request and current state root from the blockchain
 	GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error)
-	// MarkRequestFailed marks a request as failed
-	MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error
 	// SubmitStateUpdate submits a state update to the blockchain
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
 	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads

@@ -2,6 +2,12 @@
 # Set strict error handling
 set -e
 
+# Source deployed contract addresses if available (written by deployer container)
+if [ -f /deploy-data/deployed_addresses.env ]; then
+    . /deploy-data/deployed_addresses.env
+    export CHAIN_PROCESSOR_ADDRESS CHAIN_TEEAUTHENTICATOR_ADDRESS
+fi
+
 # Take ownership of the data directory.
 # The '-R' flag makes it recursive.
 chown -R appuser:appgroup ${MANAGER_DATA_FOLDER}

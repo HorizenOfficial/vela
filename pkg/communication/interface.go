@@ -5,7 +5,6 @@ import (
 	"net"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
 )
 
 // ExecutorClient defines the interface for communication with the WASM Executor.
@@ -19,9 +18,9 @@ type ExecutorClient interface {
 	Close() error
 	// SendProcessRequest sends a request to the executor and returns the response
 	// The response includes an optional deanonymization report if the request type was Deanonymize
-	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
+	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	// SendDeployApp deploys a new application to the executor
-	SendDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
 	// SendKeyAttestationRequest requests a key attestation from the executor
 	SendKeyAttestationRequest(ctx context.Context) ([]byte, error)
 	// SetClientRequestHandler sets the handler for incoming requests from server
@@ -66,9 +65,9 @@ type ClientRequestHandler interface {
 type RequestHandler interface {
 	// HandleProcessRequest processes a request and returns the response
 	// The response includes an optional deanonymization report if the request type was Deanonymize
-	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
+	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	// HandleDeployApp deploys a new application
-	HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
 	// HandleKeyAttestationRequest creates a key attestation document
 	HandleKeyAttestationRequest(ctx context.Context) ([]byte, error)
 }

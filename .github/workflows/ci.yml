@@ -21,6 +21,12 @@ jobs:
         with:
           go-version: '1.24'
 
+      # Configure Git to use GITHUB_TOKEN for private modules
+      - name: Configure Go for private modules
+        run: |
+          go env -w GOPRIVATE=github.com/HorizenOfficial/*
+          git config --global url."https://${{ secrets.GH_PAT }}:@github.com/".insteadOf "https://github.com/"
+
       # Setup Node.js for contracts
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -110,6 +116,12 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
+
+      # Configure Git to use GITHUB_TOKEN for private modules
+      - name: Configure Go for private modules
+        run: |
+          go env -w GOPRIVATE=github.com/HorizenOfficial/*
+          git config --global url."https://${{ secrets.GH_PAT }}:@github.com/".insteadOf "https://github.com/"
 
       # Setup Node.js for contracts
       - name: Set up Node.js
@@ -212,6 +224,8 @@ jobs:
           context: .
           file: ./dockerfiles/executor/Dockerfile
           push: true
+          secrets: |
+            gh_token=${{ secrets.GH_PAT }}
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-executor:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-executor:latest
@@ -222,6 +236,8 @@ jobs:
           context: .
           file: ./dockerfiles/manager/Dockerfile
           push: true
+          secrets: |
+            gh_token=${{ secrets.GH_PAT }}
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-manager:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-manager:latest
@@ -232,6 +248,8 @@ jobs:
           context: .
           file: ./dockerfiles/authorityservice/Dockerfile
           push: true
+          secrets: |
+            gh_token=${{ secrets.GH_PAT }}
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-authorityservice:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-authorityservice:latest
@@ -245,4 +263,26 @@ jobs:
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-chain:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-chain:latest
+
+
+      - name: Build and push deployer image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/deployer/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-deployer:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-deployer:latest
+
+      - name: Build and push subgraph-deployer image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dockerfiles/subgraph-deployer/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_ORG }}/cce-subgraph-deployer:${{ env.GITHUB_TAG }}
+            ${{ env.DOCKER_HUB_ORG }}/cce-subgraph-deployer:latest
+
    

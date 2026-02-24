@@ -360,32 +360,32 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	r.log.Info("Wasmtime Runtime: Processing deposit for application %d (value: %v wei for sender: %v)", appId, depositAmount, sender)
 
 	if depositAmount == nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be nil", nil)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be nil")
 	}
 	if depositAmount.Sign() < 0 {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be negative", nil)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be negative")
 	}
 
 	wasmAppId, err := ToWasmType(appId)
 	if err != nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "invalid application id", err)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("invalid application id: %v", err))
 	}
 
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "failed to get or load module", err)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("failed to get or load module: %v", err))
 	}
 
 	// Get the deposit function
 	depositFunc := appModule.instance.GetFunc(appModule.store, "deposit")
 	if depositFunc == nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFunctionNotFound, "deposit function not found in WASM module", nil)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFunctionNotFound, "deposit function not found in WASM module")
 	}
 
 	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, "failed to write sender to memory", err)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write sender to memory: %v", err))
 	}
 	if appModule.deallocate != nil && senderPtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, senderPtr, int32(len(senderBytes))) }()
@@ -393,7 +393,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, "failed to write state to memory", err)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, statePtr, int32(len(state))) }()
@@ -402,7 +402,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	valueBytes := depositAmount.Bytes()
 	valuePtr, err := r.writeToMemory(appModule, valueBytes)
 	if err != nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, "failed to write value to memory", err)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write value to memory: %v", err))
 	}
 	if appModule.deallocate != nil && valuePtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, valuePtr, int32(len(valueBytes))) }()
@@ -411,13 +411,13 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	// Wasm supports only int64, so we cast appId to int64
 	result, err := depositFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
 	if err != nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, "failed to call deposit", err) // TODO some standard way of getting errors here?
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, fmt.Sprintf("failed to call deposit: %v", err)) // TODO some standard way of getting errors here?
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, "failed to extract wasm module result bytes", err)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
 	}
 
 	r.log.Info("Wasmtime Runtime: Raw deposit result from WASM: %s", string(resultBytes))
@@ -425,11 +425,11 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	// Deserialize the result
 	var depositResult appCommon.DepositResult
 	if err := json.Unmarshal(resultBytes, &depositResult); err != nil {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal deposit result", err)
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal deposit result: %v", err))
 	}
 
 	if depositResult.Error != "" {
-		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, "failed to process deposit", errors.New(depositResult.Error))
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, fmt.Sprintf("failed to process deposit: %s", depositResult.Error))
 	}
 
 	r.log.Info("Wasmtime Runtime: Successfully processed deposit for sender %s, generated %d events", sender, len(depositResult.Events))
@@ -443,7 +443,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	wasmAppId, err := ToWasmType(appId)
 	if err != nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "invalid application id", err)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("invalid application id: %v", err))
 	}
 
 	if len(payload) == 0 {
@@ -453,19 +453,19 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, "failed to get or load module", err)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, fmt.Sprintf("failed to get or load module: %v", err))
 	}
 
 	// Get the process_request function
 	processRequestFunc := appModule.instance.GetFunc(appModule.store, "process_request")
 	if processRequestFunc == nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFunctionNotFound, "process_request function not found in WASM module", nil)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFunctionNotFound, "process_request function not found in WASM module")
 	}
 
 	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, "failed to write sender to memory", err)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write sender to memory: %v", err))
 	}
 	if appModule.deallocate != nil && senderPtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, senderPtr, int32(len(senderBytes))) }()
@@ -473,7 +473,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	payloadPtr, err := r.writeToMemory(appModule, payload)
 	if err != nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, "failed to write payload to memory", err)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write payload to memory: %v", err))
 	}
 	if appModule.deallocate != nil && payloadPtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, payloadPtr, int32(len(payload))) }()
@@ -481,7 +481,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, "failed to write state to memory", err)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, statePtr, int32(len(state))) }()
@@ -492,23 +492,23 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	// requestType is passed as int32 to the WASM module
 	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), int32(requestType), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, "failed to call process_request", err)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call process_request: %v", err))
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, "failed to extract wasm module result bytes", err)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
 	}
 
 	// Deserialize the result
 	var processResult appCommon.ProcessResult
 	if err := json.Unmarshal(resultBytes, &processResult); err != nil {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, "failed to unmarshal process result", err)
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal process result: %v", err))
 	}
 
 	if processResult.Error != "" {
-		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, "failed to process request", errors.New(processResult.Error))
+		return nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to process request: %s", processResult.Error))
 	}
 
 	r.log.Info("Wasmtime Runtime: Successfully processed request for application %d, generated %d events and %d withdrawals", appId, len(processResult.Events), len(processResult.Withdrawals))
@@ -632,12 +632,10 @@ func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
 	return nil
 }
 
-// This method converts the ApplicationIdType to the Wasm type (int64)
+// ToWasmType converts ApplicationIdType (uint64) to the WASM i64 representation
+// (int64). WASM has no unsigned integer types — i64 carries 64 bits regardless of
+// signedness, so the bit pattern passes through unchanged.
 func ToWasmType(aid common.ApplicationIdType) (int64, error) {
-	//This should never happens, but just in case
-	if aid > math.MaxInt64 {
-		return -1, fmt.Errorf("application ID too large: %d", aid)
-	}
 	return int64(aid), nil
 }
 

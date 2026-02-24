@@ -52,18 +52,21 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 		}
 	}
 
-	params := s.teeContract.PackCheckSignature(
-		processorendpoint.ApplicationIdToBindingType(payload.ApplicationID),
-		payload.PrevStateRoot,
-		payload.NewStateRoot,
-		payload.RequestID,
-		events,
-		eventSubTypes,
-		withdrawals,
-		payload.RefundAmount.ToInt(),
-		payload.ApplicationFee.ToInt(),
-		payload.Signature,
-	)
+	sigParams := tee.StructsSignatureParams{
+		ApplicationId:      processorendpoint.ApplicationIdToBindingType(payload.ApplicationID),
+		PrevStateRoot:      payload.PrevStateRoot,
+		NewStateRoot:       payload.NewStateRoot,
+		ProcessedRequestId: payload.RequestID,
+		Events:             events,
+		EventSubTypes:      eventSubTypes,
+		WithdrawalRequests: withdrawals,
+		RefundAmount:       payload.RefundAmount.ToInt(),
+		ApplicationFee:     payload.ApplicationFee.ToInt(),
+		ErrorCode:          payload.ErrorCode,
+		ErrorMsg:           payload.ErrorMsg,
+	}
+
+	params := s.teeContract.PackCheckSignature(sigParams, payload.Signature)
 
 	result, err := bind.Call(s.teeContractInstance,
 		&bind.CallOpts{Pending: false},
