@@ -996,6 +996,6 @@ func (e *StatelessExecutor) createKeyAttestationInternal(ctx context.Context, ns
 		return nil, fmt.Errorf("failed to generate attestation: %w", err)
 	}
 
-	return res.Attestation.Document, nil
+	return doc, nil
 
 }

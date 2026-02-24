@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"errors"
-	"math/big"
 	"testing"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
