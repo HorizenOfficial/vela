@@ -140,6 +140,11 @@ type UpdatePayload struct {
 	RefundAmount *Big `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
 	ApplicationFee *Big `json:"applicationFee"`
+	// ErrorCode is the error code (0 for success, non-zero for error)
+	ErrorCode uint8 `json:"errorCode"`
+	// ErrorMsg is the error message (empty for success)
+	ErrorMsg string `json:"errorMsg"`
+
 }
 
 // ApplicationState represents the state of an application
@@ -195,10 +200,18 @@ type RequestResult struct {
 	ErrorMessage string
 }
 
+// RecoveryType represents the keyset recovery mechanism.
+type RecoveryType int
+
+const (
+	RecoveryTypeUnsafe RecoveryType = 0
+	RecoveryTypeKMS    RecoveryType = 1
+)
+
 // EnclaveKeySetRecovery contains the data needed to recover the EnclaveKeySet.
 type EnclaveKeySetRecovery struct {
 	// RecoveryType is the type of recovery data.
-	RecoveryType int `json:"recoveryType"`
+	RecoveryType RecoveryType `json:"recoveryType"`
 	// KeySetCiphertext is the encrypted EnclaveKeySet.
 	KeySetCiphertext []byte `json:"keySetCiphertext"`
 	// RecoveryCiphertext is the cryptographic data needed to recover the EnclaveKeySet.

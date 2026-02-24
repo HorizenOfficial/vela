@@ -29,9 +29,9 @@ FROM amazonlinux:2
 
 RUN yum install -y aws-nitro-enclaves-nsm ca-certificates shadow-utils  && yum clean all
 
+COPY --from=builder /executor /executor
+
 RUN useradd -m appuser
 USER appuser
-
-COPY --from=builder /executor /executor
 
 ENTRYPOINT ["/executor"]

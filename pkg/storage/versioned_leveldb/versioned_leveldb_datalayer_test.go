@@ -798,7 +798,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		defer os.RemoveAll(tempDir)
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		expectedRecoveryData := &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
+			RecoveryType:       common.RecoveryTypeKMS,
 			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
 			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
 		}

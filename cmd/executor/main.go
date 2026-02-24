@@ -10,6 +10,7 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
+	"github.com/horizen-pes/pkg/executor/kms"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/wasm"
 )
@@ -71,8 +72,46 @@ func main() {
 		return
 	}
 
+
+	// Initialize KMS dependencies if Type 1 is configured
+	var kmsClient kms.KMSClient
+	var enclaveHandle kms.EnclaveHandle
+
+	if config.KeySetRecoveryType == common.RecoveryTypeKMS {
+		// Validate KMS configuration
+		if err := config.ValidateKMSConfig(); err != nil {
+			log.Fatal("Invalid KMS configuration: %v", err)
+		}
+
+		log.Info("Initializing Type 1 (KMS) key recovery with Nitro Enclave attestation...")
+
+		// Initialize enclave handle first - this will fail if not running in a Nitro Enclave
+		nitroEnclave, err := kms.NewNitroEnclaveHandle()
+		if err != nil {
+			log.Fatal("Failed to initialize Nitro Enclave handle: %v. "+
+				"Type 1 recovery requires running inside a Nitro Enclave. "+
+				"For local development, use Type 0 (EXECUTOR_KEYSET_RECOVERY_TYPE=0).", err)
+		}
+		enclaveHandle = nitroEnclave
+		log.Info("Nitro Enclave handle initialized successfully")
+
+		// Initialize KMS client with vsock proxy
+		nitroKMS, err := kms.NewNitroKMSClient(
+			context.Background(),
+			config.KMSRegion,
+			config.KMSKeyARN,
+			config.KMSProxyPort,
+		)
+		if err != nil {
+			log.Fatal("Failed to initialize Nitro KMS client: %v", err)
+		}
+		kmsClient = nitroKMS
+		log.Info("Nitro KMS client initialized (region=%s, proxy_port=%d)", config.KMSRegion, config.KMSProxyPort)
+	}
+	// For Type 0, kmsClient and enclaveHandle remain nil (which is valid)
+
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(config, runtime, server, log)
+	exec, err := executor.NewStatelessExecutor(config, runtime, server, log, kmsClient, enclaveHandle)
 	if err != nil {
 		log.Error("Error creating executor: %v", err)
 		return

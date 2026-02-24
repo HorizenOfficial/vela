@@ -23,12 +23,12 @@ type mockCommRequestHandler struct {
 	log logger.Logger
 }
 
-func (h *mockCommRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure) {
-	return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "not implemented", nil)
+func (h *mockCommRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+	return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "not implemented")
 }
 
-func (h *mockCommRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
-	return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "not implemented", nil)
+func (h *mockCommRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+	return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "not implemented")
 }
 
 func (h *mockCommRequestHandler) HandleAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
