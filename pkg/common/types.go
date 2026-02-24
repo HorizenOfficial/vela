@@ -4,29 +4,28 @@ package common
 import (
 	"encoding/hex"
 	"fmt"
-	"math/big"
 	"strconv"
 	"strings"
 	"time"
 
+	ccecommon "github.com/horizen-cce-common-go/common"
+
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
-type ApplicationIdType uint64
+// Type aliases for types that moved to horizen-cce-common-go/common.
+type ApplicationIdType = ccecommon.ApplicationIdType
+type RequestIdType = ccecommon.RequestIdType
+type RequestResultStatus = ccecommon.RequestResultStatus
 
-func NewApplicationId(id int64) ApplicationIdType {
-	if id < 0 {
-		panic("ApplicationIdType cannot be negative")
-	}
-	return ApplicationIdType(id)
-}
+const (
+	RequestResultOK      = ccecommon.RequestResultOK
+	RequestResultFailed  = ccecommon.RequestResultFailed
+	RequestResultUnknown = ccecommon.RequestResultUnknown
+)
 
-func (aid ApplicationIdType) String() string {
-	return fmt.Sprintf("%d", uint64(aid))
-}
-
-func (aid ApplicationIdType) ToHash() ethCommon.Hash {
-	return ethCommon.BytesToHash(new(big.Int).SetUint64(uint64(aid)).Bytes())
+func NewApplicationId(id uint64) ApplicationIdType {
+	return ccecommon.NewApplicationId(id)
 }
 
 // RequestType represents the type of request being sent to the TEE
@@ -58,35 +57,6 @@ func (rt RequestType) String() string {
 	}
 }
 
-type RequestIdType [32]byte
-
-func (rt RequestIdType) String() string {
-	return hex.EncodeToString(rt[:])
-}
-
-func (rt RequestIdType) MarshalJSON() ([]byte, error) {
-	s := hex.EncodeToString(rt[:])
-	return []byte(`"0x` + s + `"`), nil
-}
-
-func (rt *RequestIdType) UnmarshalJSON(data []byte) error {
-	// data is expected to be a hex string with a "0x" prefix in quotes representing an array of exactly 32 bytes
-	// e.g. "0xab12...a8" (68 chars in total, prefix and start-end quotes included)
-	if len(data) != 68 || data[0] != '"' || data[1] != '0' || data[2] != 'x' || data[len(data)-1] != '"' {
-		return fmt.Errorf("invalid RequestIdType format")
-	}
-
-	b, err := hex.DecodeString(string(data[3 : len(data)-1]))
-	if err != nil {
-		return err
-	}
-	if len(b) != 32 {
-		return fmt.Errorf("invalid RequestIdType length")
-	}
-	copy(rt[:], b)
-	return nil
-}
-
 // Request represents a request to the system
 type Request struct {
 	// ProtocolVersion is the version of the protocol being used
@@ -101,25 +71,25 @@ type Request struct {
 	// All payloads except the one for AssociateKey are encrypted
 	Payload []byte `json:"payload"`
 	// Timestamp is the time the request was submitted
-	Timestamp *big.Int `json:"timestamp"`
+	Timestamp *Big `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
 	// DepositAmount is the optional deposit value in WEI
-	DepositAmount *big.Int `json:"depositAmount"`
+	DepositAmount *Big `json:"depositAmount"`
 	// MaxFeeValue is the maximum fee value reserved for fee payment
-	MaxFeeValue *big.Int `json:"maxFeeValue"`
+	MaxFeeValue *Big `json:"maxFeeValue"`
 }
 
 func (r *Request) Validate() error {
-	if err := validateBigInt("timestamp", r.Timestamp, false); err != nil {
+	if err := validateBigInt("timestamp", r.Timestamp.ToInt(), false); err != nil {
 		return err
 	}
 
-	if err := validateBigInt("depositAmount", r.DepositAmount, true); err != nil {
+	if err := validateBigInt("depositAmount", r.DepositAmount.ToInt(), true); err != nil {
 		return err
 	}
 
-	if err := validateBigInt("maxFeeValue", r.MaxFeeValue, true); err != nil {
+	if err := validateBigInt("maxFeeValue", r.MaxFeeValue.ToInt(), true); err != nil {
 		return err
 	}
 	return nil
@@ -137,12 +107,17 @@ type Event struct {
 	EncryptedData []byte `json:"encryptedData"`
 }
 
+func (e Event) String() string {
+	return fmt.Sprintf("Event{ApplicationID: %d, UserID: %s, EventSubType: %s, EncryptedData: %s}",
+		e.ApplicationID, e.UserID.Hex(), e.EventSubType, hex.EncodeToString(e.EncryptedData))
+}
+
 // Withdrawal represents a withdrawal from the system
 type Withdrawal struct {
 	// DestinationAddress is the address to send the funds to
 	DestinationAddress ethCommon.Address `json:"destinationAddress"`
 	// Amount is the amount to withdraw in WEI
-	Amount *big.Int `json:"amount"`
+	Amount *Big `json:"amount"`
 }
 
 // UpdatePayload represents an update to the state
@@ -162,9 +137,9 @@ type UpdatePayload struct {
 	// Signature is the TEE signature
 	Signature []byte `json:"signature"`
 	// RefundAmount is the amount to refund in WEI
-	RefundAmount *big.Int `json:"refundAmount"`
+	RefundAmount *Big `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
-	ApplicationFee *big.Int `json:"applicationFee"`
+	ApplicationFee *Big `json:"applicationFee"`
 }
 
 // ApplicationState represents the state of an application
@@ -194,10 +169,6 @@ type DeanonymizationReport struct {
 	EncryptedReport []byte `json:"encryptedReport"`
 	// Authority is the entity requesting the report
 	Authority ethCommon.Address `json:"authority"`
-	// RefundAmount is the amount to refund in WEI
-	RefundAmount *big.Int `json:"refundAmount"`
-	// ApplicationFee is the fee charged for the application in WEI
-	ApplicationFee *big.Int `json:"applicationFee"`
 }
 
 // DecryptedReport represents a decrypted deanonymization report
@@ -216,16 +187,6 @@ type PlainEvent struct {
 	// Data is the encrypted event data
 	Data []byte `json:"data"`
 }
-
-// RequestResultStatus represents the final status of a request after the execution
-type RequestResultStatus uint8
-
-const (
-	RequestResultOK RequestResultStatus = iota
-	RequestResultFailed
-	RequestResultFailedNotRefunded
-	RequestResultUnknown
-)
 
 // RequestResult represents the result on chain of a request (eg successful or failed with its error)
 type RequestResult struct {

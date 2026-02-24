@@ -39,8 +39,13 @@ yarn global add @graphprotocol/graph-cli
 ```
 
 ## Generate and build the subgraph
+Edit the file: <br/>
+subgraphs/hcce/subgraph.yaml <br/>
+(replace <contract_address> in *dataSources.source.address* with the address of the deployed **ProcessorEndpoint** contract)<br/>
+
 From this directory:
 ```bash
+npm i
 graph codegen
 graph build
 ```

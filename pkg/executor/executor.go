@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
@@ -27,6 +28,16 @@ import (
 type NsmSession = nsmutil.Session
 
 func CreateNewKeySet() (*EnclaveKeySet, error) {
+	// If all three fixed key env vars are set, import from hex instead of generating.
+	// This allows using deterministic keys in dev/test environments.
+	fixedSigningKey := os.Getenv("EXECUTOR_FIXED_SIGNING_KEY")
+	fixedCommKey := os.Getenv("EXECUTOR_FIXED_COMMUNICATION_KEY")
+	fixedStateKey := os.Getenv("EXECUTOR_FIXED_STATE_KEY")
+
+	if fixedSigningKey != "" && fixedCommKey != "" && fixedStateKey != "" {
+		return importFixedKeySet(fixedSigningKey, fixedCommKey, fixedStateKey)
+	}
+
 	communicationKey, err := crypto.GeneratePrivateKeyP521()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate communication key: %w", err)
@@ -46,6 +57,28 @@ func CreateNewKeySet() (*EnclaveKeySet, error) {
 	}
 
 	return keySet, nil
+}
+
+// importFixedKeySet creates an EnclaveKeySet from fixed hex-encoded private keys.
+// !!! UNSAFE !!! use this method only for DEV environment !!!
+func importFixedKeySet(signingHex, commHex, stateHex string) (*EnclaveKeySet, error) {
+	signingKey, err := crypto.ImportPrivateKeySecp256k1FromHex(signingHex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import fixed signing key: %w", err)
+	}
+	communicationKey, err := crypto.ImportPrivateKeyP521FromHex(commHex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import fixed communication key: %w", err)
+	}
+	stateKey, err := crypto.ImportKeyAESFromHex(stateHex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import fixed state key: %w", err)
+	}
+	return &EnclaveKeySet{
+		CommunicationKey: *communicationKey,
+		SigningKey:       *signingKey,
+		StateKey:         *stateKey,
+	}, nil
 }
 
 func (e *StatelessExecutor) DumpPublicKeys() {
@@ -499,23 +532,24 @@ func (e *StatelessExecutor) Close() error {
 }
 
 // HandleProcessRequest is the main workflow: decrypt state -> invoke WASM -> encrypt new state -> sign -> respond
-func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+// Returns UpdatePayload, ApplicationState, optional DeanonymizationReport, and error
+func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure) {
 	e.log.Info("Executor: Processing request %s for application %d", req.RequestID, req.ApplicationID)
 
 	// Decrypte and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
 	if err != nil {
-		return nil, nil, apperrors.New(apperrors.CodeEncryptedToAppDataFailure, "failed to decrypt data", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeEncryptedToAppDataFailure, "failed to decrypt data", err)
 	}
 
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
 	var totalFuel *big.Int = big.NewInt(0)
-	if req.DepositAmount.Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount, tempState, wasmModule)
+	if req.DepositAmount.ToInt().Sign() > 0 {
+		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount.ToInt(), tempState, wasmModule)
 		if failure != nil {
-			return nil, nil, failure
+			return nil, nil, nil, failure
 		}
 		tempState = newState
 		depositEvents = depEvents
@@ -524,13 +558,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
-	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
-		return nil, nil, apperrors.New(
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
+		return nil, nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
@@ -538,6 +572,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	var events []common.PlainEvent
 	var withdrawals []common.Withdrawal
+	var reportData []byte
 
 	if req.RequestType == common.AssociateKey {
 		//request  of type associate key: the payload is not encrypted and contains the new key
@@ -545,7 +580,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload)
 		if err != nil {
-			return nil, nil, apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload", err)
+			return nil, nil, nil, apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload", err)
 		}
 
 		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
@@ -557,30 +592,42 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		// Decrypt the request payload
 		decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
 		if failure != nil {
-			return nil, nil, failure
+			return nil, nil, nil, failure
 		}
 
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqWithdrawals, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, decryptedPayload, tempState, wasmModule)
+		newState, reqEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
 		if failure != nil {
-			return nil, nil, failure
+			return nil, nil, nil, failure
 		}
 		tempState = newState
 		events = reqEvents
 		withdrawals = reqWithdrawals
 		totalFuel = totalFuel.Add(totalFuel, reqFuel)
+
+		// Validate report generation rules:
+		// 1. Reports must only be generated for Deanonymize requests
+		// 2. Deanonymize requests must always generate a report
+		if len(reqReportData) > 0 {
+			if req.RequestType != common.Deanonymize {
+				return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("WASM module generated unexpected report for request type %s", req.RequestType), nil)
+			}
+			reportData = reqReportData
+		} else if req.RequestType == common.Deanonymize {
+			return nil, nil, nil, apperrors.New(apperrors.CodeRequestFuncFailed, "WASM module failed to generate report for Deanonymize request", nil)
+		}
 		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	}
 
 	// Check if there is enough ETH to cover the fuel costs
 	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
-	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
-		return nil, nil, apperrors.New(
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
+		return nil, nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
@@ -592,7 +639,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	//set the updated state
 	appData.SetAppState(tempState)
@@ -603,24 +650,27 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	//serialize the new app data
 	newAppData, err := appData.Serialize()
 	if err != nil {
-		return nil, nil, apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new appData", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new appData", err)
 	}
 
 	// Encrypt the new app data and events
 	encryptedNewAppData, err := crypto.EncryptWithAES(e.keySet.StateKey, newAppData)
 	if err != nil {
-		return nil, nil, apperrors.New(apperrors.CodeAppDataEncryptionFailure, "failed to encrypt new appData", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodeAppDataEncryptionFailure, "failed to encrypt new appData", err)
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
 	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore())
 	if failure != nil {
-		return nil, nil, failure
+		return nil, nil, nil, failure
 	}
 	e.log.Info("Executor: Successfully encrypted new application data")
 
 	// Create appdata root hash
 	newStateRoot := sha256.Sum256(newAppData)
+
+	// Determine if a report was generated
+	reportGenerated := len(reportData) > 0
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
@@ -630,14 +680,14 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		NewStateRoot:   newStateRoot,
 		Events:         encryptedEvents,
 		Withdrawals:    withdrawals,
-		RefundAmount:   refundAmount,
-		ApplicationFee: applicationFee,
+		RefundAmount:   common.ToBig(refundAmount),
+		ApplicationFee: common.ToBig(applicationFee),
 	}
 
 	// Sign the update payload (produce attestation)
 	signature, err := e.signUpdatePayload(updatePayload)
 	if err != nil {
-		return nil, nil, apperrors.New(apperrors.CodePayloadUpdateSigningFailure, "failed to sign update payload", err)
+		return nil, nil, nil, apperrors.New(apperrors.CodePayloadUpdateSigningFailure, "failed to sign update payload", err)
 	}
 	updatePayload.Signature = signature
 
@@ -648,8 +698,33 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		EncryptedState: encryptedNewAppData,
 	}
 
+	// If a report was generated, encrypt it and create the DeanonymizationReport
+	var deanonymizationReport *common.DeanonymizationReport
+	if reportGenerated {
+		encryptedReport, failure := e.encryptDeanonymizationReport(
+			req.ApplicationID,
+			req.RequestID,
+			&e.keySet.CommunicationKey,
+			req.Sender,
+			reportData,
+			appData.GetKeyStore(),
+		)
+		if failure != nil {
+			return nil, nil, nil, failure
+		}
+		e.log.Info("Executor: Successfully encrypted deanonymization report")
+
+		deanonymizationReport = &common.DeanonymizationReport{
+			ApplicationID:   req.ApplicationID,
+			ReportID:        req.RequestID,
+			EncryptedReport: encryptedReport,
+			Authority:       req.Sender,
+		}
+		e.log.Info("Executor: Successfully generated deanonymization report %s", req.RequestID)
+	}
+
 	e.log.Info("Executor: Successfully processed request %s", req.RequestID)
-	return updatePayload, newApplicationState, nil
+	return updatePayload, newApplicationState, deanonymizationReport, nil
 }
 
 // HandleDeployApp implements the RequestHandler interface
@@ -668,13 +743,13 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	// Check if there is enough ETH to cover the fuel costs // TODO make a helper function?
 	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
-	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
+	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
 		return nil, nil, apperrors.New(
 			apperrors.CodeInsufficientFuel,
 			fmt.Sprintf(
 				"insufficient fuel: required %s wei, provided %s wei",
 				applicationFee.String(),
-				req.MaxFeeValue.String(),
+				req.MaxFeeValue.ToInt().String(),
 			),
 			nil,
 		)
@@ -686,7 +761,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
+	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	initialAppData := appdata.NewAppData(initialAppState)
 
@@ -718,8 +793,8 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 		RequestID:      req.RequestID,
 		PrevStateRoot:  [32]byte{}, // No previous state root for new applications
 		NewStateRoot:   initialAppDataRoot,
-		RefundAmount:   refundAmount,
-		ApplicationFee: applicationFee,
+		RefundAmount:   common.ToBig(refundAmount),
+		ApplicationFee: common.ToBig(applicationFee),
 	}
 
 	// Sign the update payload (produce attestation)
@@ -731,77 +806,6 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	e.log.Info("Executor: Successfully deployed application %d", req.ApplicationID)
 	return updatePayload, appState, nil
-}
-
-// HandleGenerateDeanonymizationReport implements the RequestHandler interface
-func (e *StatelessExecutor) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
-	e.log.Info("Executor: Generating deanonymization report for request %s", req.RequestID)
-
-	// Decrypte and parse the app data
-	appData, err := e.fromEncryptedStateToAppData(appState)
-	if err != nil {
-		return nil, apperrors.New(apperrors.CodeEncryptedToAppDataFailure, "failed to decrypt data", err)
-	}
-
-	// Decrypt the request payload
-	decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
-	if failure != nil {
-		return nil, failure
-	}
-
-	// Generate the report using the runtime
-	reportData, fuel, failure := e.runtime.GenerateDeanonymizationReport(ctx, req.ApplicationID, decryptedPayload, appData.GetAppState(), wasmModule)
-	if failure != nil {
-		return nil, failure
-	}
-
-	// Check if there is enough ETH to cover the fuel costs
-	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
-	if req.MaxFeeValue.Cmp(applicationFee) < 0 {
-		return nil, apperrors.New(
-			apperrors.CodeInsufficientFuel,
-			fmt.Sprintf(
-				"insufficient fuel: required %s wei, provided %s wei",
-				applicationFee.String(),
-				req.MaxFeeValue.String(),
-			),
-			nil,
-		)
-	}
-
-	// Application fee must be minumum fee at least
-	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
-		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
-	}
-
-	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue, applicationFee)
-
-	// Encrypt the report
-	encryptedReport, failure := e.encryptDeanonymizationReport(
-		req.ApplicationID,
-		req.RequestID,
-		&e.keySet.CommunicationKey,
-		req.Sender,
-		reportData,
-		appData.GetKeyStore(),
-	)
-	if failure != nil {
-		return nil, failure
-	}
-	e.log.Info("Executor: Successfully encrypted deanonymization report")
-
-	report := &common.DeanonymizationReport{
-		ApplicationID:   req.ApplicationID,
-		ReportID:        req.RequestID,
-		EncryptedReport: encryptedReport,
-		Authority:       req.Sender,
-		RefundAmount:    refundAmount,
-		ApplicationFee:  applicationFee,
-	}
-
-	e.log.Info("Executor: Successfully generated deanonymization report %s", req.RequestID)
-	return report, nil
 }
 
 func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.ApplicationState) (*appdata.AppData, error) {
@@ -953,6 +957,17 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	return decryptedPayload, nil
 }
 
+// ExecuteCommand implements admin.AdminCmdHandler interface.
+// Handles admin commands for the executor, currently only KeyAttestationRequestMessage.
+func (e *StatelessExecutor) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
+	switch msg.Type {
+	case admin.KeyAttestationRequestMessage:
+		return e.CreateKeyAttestation(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
+	}
+}
+
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {
 	return e.createKeyAttestationInternal(ctx, func() (NsmSession, error) {
 		s, err := nsm.OpenDefaultSession()
@@ -981,5 +996,6 @@ func (e *StatelessExecutor) createKeyAttestationInternal(ctx context.Context, ns
 		return nil, fmt.Errorf("failed to generate attestation: %w", err)
 	}
 
-	return doc, nil
+	return res.Attestation.Document, nil
+
 }

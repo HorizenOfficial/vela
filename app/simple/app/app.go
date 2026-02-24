@@ -4,42 +4,50 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/horizen-pes/app/simple/utils"
+	"github.com/horizen-cce-common-go/wasm/types"
+	"github.com/horizen-cce-common-go/wasm/utils"
+	"github.com/horizen-pes/pkg/common"
 )
 
 // --- High-Level Application Logic ---
 
-func LoadModule(appId int64) LoadModuleResult {
+func LoadModule(appId int64) types.LoadModuleResult {
 	initialState := &ApplicationInternalState{
-		AppID:    appId,
+		AppID:    uint64(appId),
 		Accounts: make(map[string]*AccountState),
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
-		return LoadModuleResult{
+		utils.LogError("LoadModule: failed to marshal initial state: %v", err)
+		return types.LoadModuleResult{
 			Error: fmt.Sprintf("failed to marshal initial state: %v", err),
 		}
 	}
-	return LoadModuleResult{
+	fuel := types.NewUint256(5)
+	utils.LogDebug("LoadModule: appId=%d, stateSize=%d, fuel=%v", appId, len(stateJSON), fuel)
+	return types.LoadModuleResult{
 		State: stateJSON,
-		Fuel:  NewUint256(5),
+		Fuel:  fuel,
 	}
 }
 
-func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositResult {
+func DepositFunds(senderPtr *types.Address, value *types.Uint256, stateJSON string) types.DepositResult {
 	if senderPtr == nil {
-		return DepositResult{Error: "Sender address is nil"}
+		utils.LogError("DepositFunds: sender address is nil")
+		return types.DepositResult{Error: "Sender address is nil"}
 	}
 
 	//This should never happens but just in case
 	if value == nil {
-		return DepositResult{Error: "value is nil"}
+		utils.LogError("DepositFunds: value is nil")
+		return types.DepositResult{Error: "value is nil"}
 	}
 
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		// we could add the stateJSON to the error, but it is not safe if it is very large
-		return DepositResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
+		utils.LogError("DepositFunds: failed to parse application state: %v", err)
+		return types.DepositResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
 	}
 
 	senderHex := senderPtr.Hex()
@@ -49,20 +57,20 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 	if !exists {
 		acc = &AccountState{
 			Address: *senderPtr,
-			Balance: NewUint256(0),
+			Balance: types.NewUint256(0),
 		}
 		currentState.Accounts[senderHex] = acc
 	}
 
 	// Update balance in-place
 	if acc.Balance.AddOverflow(*acc.Balance, *value) {
-		return DepositResult{Error: fmt.Sprintf("Overflow while adding amount %s to balance: %s", value, acc.Balance)}
+		return types.DepositResult{Error: fmt.Sprintf("Overflow while adding amount %s to balance: %s", value, acc.Balance)}
 	}
 
 	// Create deposit event
 	type Event struct {
-		Type   string   `json:"type"`
-		Amount *Uint256 `json:"amount"`
+		Type   string         `json:"type"`
+		Amount *types.Uint256 `json:"amount"`
 	}
 
 	eventData := Event{
@@ -72,10 +80,11 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 
 	eventDataBytes, err := json.Marshal(eventData)
 	if err != nil {
-		return DepositResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
+		utils.LogError("DepositFunds: failed to serialize event data: %v", err)
+		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
 	}
 
-	events := []PlainEvent{{
+	events := []types.PlainEvent{{
 		UserID:       *senderPtr,
 		EventSubType: "deposit",
 		Data:         eventDataBytes,
@@ -84,15 +93,20 @@ func DepositFunds(senderPtr *Address, value *Uint256, stateJSON string) DepositR
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(&currentState)
 	if err != nil {
-		return DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
+		utils.LogError("DepositFunds: failed to serialize new state: %v", err)
+		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
-	return DepositResult{State: newStateBytes, Events: events, Fuel: NewUint256(35)}
+	fuel := types.NewUint256(35)
+	utils.LogDebug("DepositFunds: sender=%s, value=%v, newBalance=%v, eventsCount=%d, stateSize=%d, fuel=%v",
+		senderHex, value, acc.Balance, len(events), len(newStateBytes), fuel)
+	return types.DepositResult{State: newStateBytes, Events: events, Fuel: fuel}
 }
 
-func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessResult {
+func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, stateJSON string) types.ProcessResult {
 	// Deserialize current state
 	if senderPtr == nil {
-		return ProcessResult{Error: "Sender address is nil"}
+		utils.LogError("ProcessRequest: sender address is nil")
+		return types.ProcessResult{Error: "Sender address is nil"}
 	}
 
 	sender := *senderPtr
@@ -100,32 +114,50 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
+		utils.LogError("ProcessRequest: failed to parse application state: %v", err)
+		return types.ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
 	}
 
-	var events []PlainEvent
-	var withdrawals []Withdrawal
+	var events []types.PlainEvent
+	var withdrawals []types.Withdrawal
 
-	if payloadJSON != "" {
-		var instructions PayloadInstructions
+	// Determine instruction type: requestType has priority over payload
+	var instructionType string
+	var instructions PayloadInstructions
+
+	// Parse payload if present (for additional options like deanonymize tag)
+	if payloadJSON != "" && payloadJSON != "{}" {
 		if err := json.Unmarshal([]byte(payloadJSON), &instructions); err != nil {
-			return ProcessResult{Error: fmt.Sprintf("Failed to parse payload instructions: %v", err)}
+			utils.LogError("ProcessRequest: failed to parse payload instructions: %v", err)
+			return types.ProcessResult{Error: fmt.Sprintf("Failed to parse payload instructions: %v", err)}
 		}
+	}
 
-		switch instructions.Type {
+	// requestType takes precedence over payload type
+	if requestType == int32(common.Deanonymize) {
+		instructionType = "deanonymize"
+	} else {
+		instructionType = instructions.Type
+	}
+
+	if instructionType != "" {
+		switch instructionType {
 		case "compare_addresses":
 			if instructions.CompareAccounts == nil {
-				return ProcessResult{Error: fmt.Sprintf("Compare instruction is missing in payload: %s", payloadJSON)}
+				utils.LogError("ProcessRequest: compare instruction is missing in payload")
+				return types.ProcessResult{Error: fmt.Sprintf("Compare instruction is missing in payload: %s", payloadJSON)}
 			}
 			targetAddress := instructions.CompareAccounts.TargetAddress
 			targetAddressHex := targetAddress.Hex()
 
 			// Validate accounts to be compared
 			if currentState.Accounts[senderHex] == nil {
-				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", senderHex)}
+				utils.LogError("ProcessRequest: account %s does not exist", senderHex)
+				return types.ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", senderHex)}
 			}
 			if currentState.Accounts[targetAddressHex] == nil {
-				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", targetAddressHex)}
+				utils.LogError("ProcessRequest: account %s does not exist", targetAddressHex)
+				return types.ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", targetAddressHex)}
 			}
 
 			targetBalance := currentState.Accounts[targetAddressHex].Balance
@@ -151,10 +183,11 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 			eventDataBytes, err := json.Marshal(eventData)
 			if err != nil {
-				return ProcessResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
+				utils.LogError("ProcessRequest: failed to serialize event data: %v", err)
+				return types.ProcessResult{Error: fmt.Sprintf("Failed to serialize event data: %+v, err: %v", eventData, err)}
 			}
 
-			events = append(events, PlainEvent{
+			events = append(events, types.PlainEvent{
 				UserID:       sender,
 				EventSubType: "compare_accounts",
 				Data:         eventDataBytes,
@@ -162,19 +195,22 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 
 		case "withdraw":
 			if instructions.Withdraw == nil {
-				return ProcessResult{Error: fmt.Sprintf("Withdraw instruction is missing in payload: %s", payloadJSON)}
+				utils.LogError("ProcessRequest: withdraw instruction is missing in payload")
+				return types.ProcessResult{Error: fmt.Sprintf("Withdraw instruction is missing in payload: %s", payloadJSON)}
 			}
 			if instructions.Withdraw.Amount == nil {
-				return ProcessResult{Error: "Withdraw amount is nil"}
+				return types.ProcessResult{Error: "Withdraw amount is nil"}
 			}
 
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[senderHex] == nil {
-				return ProcessResult{Error: fmt.Sprintf("Account %s does not exist", senderHex)}
+				utils.LogError("ProcessRequest: account %s does not exist", senderHex)
+				return types.ProcessResult{Error: fmt.Sprintf("Account %s does not exist", senderHex)}
 			}
 
 			if currentState.Accounts[senderHex].Balance.Cmp(*instructions.Withdraw.Amount) < 0 {
-				return ProcessResult{Error: fmt.Sprintf("Insufficient balance %s for withdrawal %s for account %s",
+				utils.LogError("ProcessRequest: insufficient balance for account %s", senderHex)
+				return types.ProcessResult{Error: fmt.Sprintf("Insufficient balance %s for withdrawal %s for account %s",
 					currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount, senderHex)}
 			}
 
@@ -182,7 +218,7 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			currentState.Accounts[senderHex].Balance.Sub(*currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount)
 
 			// Create withdrawal
-			withdrawals = append(withdrawals, Withdrawal{
+			withdrawals = append(withdrawals, types.Withdrawal{
 				DestinationAddress: instructions.Withdraw.To,
 				Amount:             instructions.Withdraw.Amount,
 			})
@@ -196,67 +232,65 @@ func ProcessRequest(senderPtr *Address, payloadJSON, stateJSON string) ProcessRe
 			}
 			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
 			if err != nil {
-				return ProcessResult{Error: fmt.Sprintf("Failed to serialize withdraw event data: %+v, err: %v", withdrawEventData, err)}
+				utils.LogError("ProcessRequest: failed to serialize withdraw event data: %v", err)
+				return types.ProcessResult{Error: fmt.Sprintf("Failed to serialize withdraw event data: %+v, err: %v", withdrawEventData, err)}
 			}
 
-			events = append(events, PlainEvent{
+			events = append(events, types.PlainEvent{
 				UserID:       sender,
 				EventSubType: "withdrawal",
 				Data:         withdrawEventDataBytes,
 			})
 
+		case "deanonymize":
+			// Generate deanonymization report
+			report := DeanonymizationReport{
+				Accounts: currentState.Accounts,
+			}
+
+			// Add optional tag from payload
+			if instructions.Deanonymize != nil && instructions.Deanonymize.IncludeTag != "" {
+				report.Tag = instructions.Deanonymize.IncludeTag
+			}
+
+			// Serialize the report
+			reportBytes, err := json.Marshal(report)
+			if err != nil {
+				return types.ProcessResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %v", err)}
+			}
+
+			return types.ProcessResult{
+				State:  []byte(stateJSON), //we have not modified the state, so returning the old one
+				Report: reportBytes,
+				Fuel:   types.NewUint256(20),
+			}
+
 		default:
-			return ProcessResult{Error: fmt.Sprintf("Unsupported instruction type: [%s]", instructions.Type)}
+			utils.LogError("ProcessRequest: unsupported instruction type: %s", instructions.Type)
+			return types.ProcessResult{Error: fmt.Sprintf("Unsupported instruction type: [%s]", instructionType)}
 		}
 	}
 
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(currentState)
 	if err != nil {
-		return ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
+		utils.LogError("ProcessRequest: failed to serialize new state: %v", err)
+		return types.ProcessResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
-	return ProcessResult{
+	fuel := types.NewUint256(50)
+	utils.LogDebug("ProcessRequest: sender=%s, eventsCount=%d, withdrawalsCount=%d, stateSize=%d, fuel=%v",
+		senderHex, len(events), len(withdrawals), len(newStateBytes), fuel)
+	return types.ProcessResult{
 		State:       newStateBytes,
 		Events:      events,
 		Withdrawals: withdrawals,
-		Fuel:        NewUint256(50),
+		Fuel:        fuel,
 	}
 }
 
-func GenerateDeanonymizationReport(payloadJSON, stateJSON string) DeanonymizationResult {
-	// Deserialize payload
-	var payload ReportPayloadInstructions
-	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to parse payload: %s, err: %v", payloadJSON, err)}
-	}
-
-	// Deserialize current state
-	var currentState ApplicationInternalState
-	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
-	}
-
-	// Create deanonymization report
-	report := DeanonymizationReport{
-		Accounts: currentState.Accounts,
-	}
-
-	// read contents of the payload and decide how to build the report. In this simple case just add a tag if any
-	if payload.IncludeTag != "" {
-		report.Tag = payload.IncludeTag
-	}
-
-	// Serialize the report
-	reportBytes, err := json.Marshal(report)
-	if err != nil {
-		return DeanonymizationResult{Error: fmt.Sprintf("Failed to serialize deanonymization report: %v", err)}
-	}
-	return DeanonymizationResult{Report: reportBytes, Fuel: NewUint256(20)}
-}
-
-func GetAllocatedMemoryStats() MemoryStats {
+func GetAllocatedMemoryStats() types.MemoryStats {
 	map_size, total_bytes := utils.GetAllocatedMemoryStats()
-	return MemoryStats{
+	return types.MemoryStats{
 		MapSize:              map_size,
 		CumulativeMemorySize: total_bytes,
 	}

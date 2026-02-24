@@ -4,16 +4,36 @@
   "main": "index.js",
   "scripts": {
     "build": "npx hardhat compile",
-    "test": "npx hardhat test"
+    "test": "npx hardhat test",
+    "format": "npx prettier --ignore-path ../.gitignore --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"hardhat.config.ts\"",
+    "format:check": "npx prettier --ignore-path ../.gitignore --check \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"hardhat.config.ts\"",
+    "prepare": "cd .. && npx --prefix contracts husky install contracts/.husky"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "BUSL-1.1",
   "description": "",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^6.0.0",
     "hardhat": "^2.25.0",
-    "hardhat-abi-exporter": "^2.11.0"
+    "hardhat-abi-exporter": "^2.11.0",
+    "husky": "^9.0.11",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.8.1",
+    "prettier-plugin-solidity": "^2.2.1"
+  },
+  "lint-staged": {
+    "*.{ts,sol}": "prettier --write"
+  },
+  "prettier": {
+    "printWidth": 100,
+    "singleQuote": true,
+    "semi": true,
+    "tabWidth": 2,
+    "trailingComma": "es5",
+    "plugins": [
+      "prettier-plugin-solidity"
+    ]
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.3.0",

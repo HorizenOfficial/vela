@@ -20,7 +20,7 @@ import (
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/subgraph"
+	"github.com/horizen-cce-common-go/subgraph"
 	"github.com/stretchr/testify/require"
 )
 

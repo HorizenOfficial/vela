@@ -8,19 +8,44 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/horizen-cce-common-go/wasm/types"
 	"github.com/horizen-pes/pkg/common"
 	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
 
+// host-side event types for JSON compatibility tests (app-specific, not framework types)
+type hostDepositEvent struct {
+	Type    string      `json:"type"`
+	Amount  *common.Big `json:"amount"`
+	Balance *common.Big `json:"balance"`
+	Nonce   uint64      `json:"nonce"`
+}
+
+type hostSenderEvent struct {
+	Type    string            `json:"type"`
+	To      ethCommon.Address `json:"to"`
+	Amount  *common.Big       `json:"amount"`
+	Balance *common.Big       `json:"balance"`
+	Nonce   uint64            `json:"nonce"`
+}
+
+type hostRecipientEvent struct {
+	Type    string            `json:"type"`
+	From    ethCommon.Address `json:"from"`
+	Amount  *common.Big       `json:"amount"`
+	Balance *common.Big       `json:"balance"`
+	Nonce   uint64            `json:"nonce"`
+}
+
 const (
-	testAppId = int64(1)
+	testAppId = uint64(1)
 )
 
 var (
-	user1Address, _ = HexToAddress("0xadd0000000000000000000000000000000000001")
-	user2Address, _ = HexToAddress("0xadd0000000000000000000000000000000000002")
-	user3Address, _ = HexToAddress("0xadd0000000000000000000000000000000000003")
+	user1Address, _ = types.HexToAddress("0xadd0000000000000000000000000000000000001")
+	user2Address, _ = types.HexToAddress("0xadd0000000000000000000000000000000000002")
+	user3Address, _ = types.HexToAddress("0xadd0000000000000000000000000000000000003")
 )
 
 func getInitialState(t *testing.T) (string, ApplicationInternalState) {
@@ -39,8 +64,8 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 	state := ApplicationInternalState{
 		AppID: testAppId,
 		Accounts: map[string]*AccountState{
-			user1Address.Hex(): {Address: user1Address, Balance: NewUint256(1000)},
-			user2Address.Hex(): {Address: user2Address, Balance: NewUint256(500)},
+			user1Address.Hex(): {Address: user1Address, Balance: types.NewUint256(1000)},
+			user2Address.Hex(): {Address: user2Address, Balance: types.NewUint256(500)},
 		},
 	}
 	stateBytes, err := json.Marshal(state)
@@ -49,7 +74,7 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 }
 
 func TestLoadModule(t *testing.T) {
-	result := LoadModule(testAppId)
+	result := LoadModule(int64(testAppId))
 	require.NotNil(t, result.State)
 	require.NotNil(t, result.Fuel)
 
@@ -64,7 +89,7 @@ func TestLoadModule(t *testing.T) {
 func TestDepositFunds(t *testing.T) {
 	t.Run("deposit to new account", func(t *testing.T) {
 		stateJSON, _ := getInitialState(t)
-		depositAmount := NewUint256(100)
+		depositAmount := types.NewUint256(100)
 
 		result := DepositFunds(&user1Address, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
@@ -82,8 +107,8 @@ func TestDepositFunds(t *testing.T) {
 		event := result.Events[0]
 		require.Equal(t, user1Address, event.UserID)
 		var eventData struct {
-			Type   string   `json:"type"`
-			Amount *Uint256 `json:"amount"`
+			Type   string         `json:"type"`
+			Amount *types.Uint256 `json:"amount"`
 		}
 		err = json.Unmarshal(event.Data, &eventData)
 		require.NoError(t, err)
@@ -94,14 +119,14 @@ func TestDepositFunds(t *testing.T) {
 
 	t.Run("deposit to existing account", func(t *testing.T) {
 		_, state := getInitialState(t)
-		initialBalance := NewUint256(50)
+		initialBalance := types.NewUint256(50)
 		state.Accounts[user1Address.Hex()] = &AccountState{Address: user1Address, Balance: initialBalance}
 
 		stateBytes, err := json.Marshal(state)
 		require.NoError(t, err)
 		stateJSON := string(stateBytes)
 
-		depositAmount := NewUint256(100)
+		depositAmount := types.NewUint256(100)
 		result := DepositFunds(&user1Address, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
 
@@ -109,12 +134,12 @@ func TestDepositFunds(t *testing.T) {
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
 
-		sum := NewUint256(0).Add(*initialBalance, *depositAmount)
+		sum := types.NewUint256(0).Add(*initialBalance, *depositAmount)
 		require.Equal(t, sum, newState.Accounts[user1Address.Hex()].Balance)
 	})
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		result := DepositFunds(&user1Address, NewUint256(100), "{invalid json}")
+		result := DepositFunds(&user1Address, types.NewUint256(100), "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
@@ -124,7 +149,7 @@ func TestProcessRequest(t *testing.T) {
 	stateJSON, _ := getPopulatedState(t)
 
 	t.Run("withdraw success", func(t *testing.T) {
-		withdrawAmount := NewUint256(200)
+		withdrawAmount := types.NewUint256(200)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -135,7 +160,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -143,7 +168,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, NewUint256(800), newState.Accounts[user1Address.Hex()].Balance)
+		require.Equal(t, types.NewUint256(800), newState.Accounts[user1Address.Hex()].Balance)
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -155,13 +180,13 @@ func TestProcessRequest(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
 				To:     user3Address,
-				Amount: NewUint256(2000),
+				Amount: types.NewUint256(2000),
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Insufficient balance")
 	})
@@ -171,14 +196,14 @@ func TestProcessRequest(t *testing.T) {
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
 				To:     user1Address,
-				Amount: NewUint256(100),
+				Amount: types.NewUint256(100),
 			},
 		}
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		nonexistent, _ := HexToAddress("0xadd0000000000000000000000000000000009999")
-		result := ProcessRequest(&nonexistent, string(payloadBytes), stateJSON)
+		nonexistent, _ := types.HexToAddress("0xadd0000000000000000000000000000000009999")
+		result := ProcessRequest(&nonexistent, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "does not exist")
 	})
@@ -188,13 +213,13 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Withdraw instruction is missing")
 	})
 
 	t.Run("withdraw zero amount", func(t *testing.T) {
-		withdrawAmount := NewUint256(0)
+		withdrawAmount := types.NewUint256(0)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -205,7 +230,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -213,7 +238,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, NewUint256(1000), newState.Accounts[user1Address.Hex()].Balance) // balance should not change
+		require.Equal(t, types.NewUint256(1000), newState.Accounts[user1Address.Hex()].Balance) // balance should not change
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -221,7 +246,7 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("withdraw exact balance", func(t *testing.T) {
-		withdrawAmount := NewUint256(500)
+		withdrawAmount := types.NewUint256(500)
 		instruction := PayloadInstructions{
 			Type: "withdraw",
 			Withdraw: &WithdrawInstruction{
@@ -232,7 +257,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user2Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user2Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Len(t, result.Withdrawals, 1)
@@ -240,7 +265,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, NewUint256(0), newState.Accounts[user2Address.Hex()].Balance)
+		require.Equal(t, types.NewUint256(0), newState.Accounts[user2Address.Hex()].Balance)
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -257,7 +282,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 		require.Empty(t, result.Withdrawals)
@@ -278,7 +303,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user2Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user2Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 
@@ -293,8 +318,8 @@ func TestProcessRequest(t *testing.T) {
 		state := ApplicationInternalState{
 			AppID: testAppId,
 			Accounts: map[string]*AccountState{
-				user1Address.Hex(): {Address: user1Address, Balance: NewUint256(1000)},
-				user2Address.Hex(): {Address: user2Address, Balance: NewUint256(1000)},
+				user1Address.Hex(): {Address: user1Address, Balance: types.NewUint256(1000)},
+				user2Address.Hex(): {Address: user2Address, Balance: types.NewUint256(1000)},
 			},
 		}
 		stateBytes, err := json.Marshal(state)
@@ -310,7 +335,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), localStateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), localStateJSON)
 		require.Empty(t, result.Error)
 		require.Len(t, result.Events, 1)
 
@@ -321,7 +346,7 @@ func TestProcessRequest(t *testing.T) {
 	})
 
 	t.Run("compare with non-existent account", func(t *testing.T) {
-		nonexistent, _ := HexToAddress("0xadd0000000000000000000000000000000009999")
+		nonexistent, _ := types.HexToAddress("0xadd0000000000000000000000000000000009999")
 		instruction := PayloadInstructions{
 			Type: "compare_addresses",
 			CompareAccounts: &CompareInstructions{
@@ -331,7 +356,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&nonexistent, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&nonexistent, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Equal(t, "Account "+nonexistent.Hex()+" does not exist!", result.Error)
 	})
@@ -341,7 +366,7 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Compare instruction is missing")
 	})
@@ -351,25 +376,25 @@ func TestProcessRequest(t *testing.T) {
 		payloadBytes, err := json.Marshal(instruction)
 		require.NoError(t, err)
 
-		result := ProcessRequest(&user1Address, string(payloadBytes), stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), string(payloadBytes), stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Equal(t, "Unsupported instruction type: [invalid_type]", result.Error)
 	})
 
 	t.Run("invalid payload json", func(t *testing.T) {
-		result := ProcessRequest(&user1Address, "{invalid json}", stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), "{invalid json}", stateJSON)
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse payload instructions")
 	})
 
 	t.Run("invalid state json", func(t *testing.T) {
-		result := ProcessRequest(&user1Address, "{}", "{invalid json}")
+		result := ProcessRequest(&user1Address, int32(common.Process), "{}", "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
 
 	t.Run("empty payload", func(t *testing.T) {
-		result := ProcessRequest(&user1Address, "", stateJSON)
+		result := ProcessRequest(&user1Address, int32(common.Process), "", stateJSON)
 		require.Empty(t, result.Error)
 		require.Empty(t, result.Events)
 		require.Empty(t, result.Withdrawals)
@@ -386,17 +411,23 @@ func TestProcessRequest(t *testing.T) {
 	})
 }
 
-func TestGenerateDeanonymizationReport(t *testing.T) {
+func TestDeanonymizationViaProcessRequest(t *testing.T) {
 	stateJSON, state := getPopulatedState(t)
-	payloadJSON := `{"tag":"SIMPLE_REPORT"}`
 
-	t.Run("successful report generation", func(t *testing.T) {
-		result := GenerateDeanonymizationReport(payloadJSON, stateJSON)
+	t.Run("successful report generation via process request with payload", func(t *testing.T) {
+		payload := PayloadInstructions{
+			Type:        "deanonymize",
+			Deanonymize: &DeanonymizeInstruction{IncludeTag: "SIMPLE_REPORT"},
+		}
+		payloadBytes, err := json.Marshal(payload)
+		require.NoError(t, err)
+
+		result := ProcessRequest(&user1Address, int32(common.Deanonymize), string(payloadBytes), stateJSON)
 		require.Empty(t, result.Error)
 		require.NotNil(t, result.Report)
 
 		var report DeanonymizationReport
-		err := json.Unmarshal(result.Report, &report)
+		err = json.Unmarshal(result.Report, &report)
 		require.NoError(t, err)
 
 		require.Equal(t, "SIMPLE_REPORT", report.Tag)
@@ -415,16 +446,33 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 		}
 	})
 
-	t.Run("report with invalid state", func(t *testing.T) {
-		result := GenerateDeanonymizationReport("{}", "{invalid json}")
-		require.NotEmpty(t, result.Error)
-		require.Contains(t, result.Error, "Failed to parse application state")
+	t.Run("successful report generation with empty payload and int32(common.Deanonymize)", func(t *testing.T) {
+		// When RequestType is Deanonymize, empty payload should still generate a report
+		result := ProcessRequest(&user1Address, int32(common.Deanonymize), "{}", stateJSON)
+		require.Empty(t, result.Error)
+		require.NotNil(t, result.Report)
+
+		var report DeanonymizationReport
+		err := json.Unmarshal(result.Report, &report)
+		require.NoError(t, err)
+
+		// Tag should be empty since no payload specified it
+		require.Empty(t, report.Tag)
+
+		// Check if the accounts in the report match the expected ones (from state)
+		require.Equal(t, len(state.Accounts), len(report.Accounts))
 	})
 
-	t.Run("report with invalid payload", func(t *testing.T) {
-		result := GenerateDeanonymizationReport("{invalid json}", "{}")
+	t.Run("report with invalid state", func(t *testing.T) {
+		payload := PayloadInstructions{
+			Type: "deanonymize",
+		}
+		payloadBytes, err := json.Marshal(payload)
+		require.NoError(t, err)
+
+		result := ProcessRequest(&user1Address, int32(common.Deanonymize), string(payloadBytes), "{invalid json}")
 		require.NotEmpty(t, result.Error)
-		require.Contains(t, result.Error, "Failed to parse payload")
+		require.Contains(t, result.Error, "Failed to parse application state")
 	})
 }
 
@@ -434,12 +482,12 @@ func TestGenerateDeanonymizationReport(t *testing.T) {
 func TestJsonCompatibility(t *testing.T) {
 	// Address compatibility
 	addrStr := "0x1234567890123456789012345678901234567890"
-	guestAddr, err := HexToAddress(addrStr)
+	guestAddr, err := types.HexToAddress(addrStr)
 	require.NoError(t, err)
 	hostAddr := ethCommon.HexToAddress(addrStr)
 
 	// PlainEvent
-	guestPlainEvent := PlainEvent{
+	guestPlainEvent := types.PlainEvent{
 		UserID: guestAddr,
 		Data:   []byte("test data"),
 	}
@@ -453,9 +501,9 @@ func TestJsonCompatibility(t *testing.T) {
 	require.Equal(t, guestPlainEvent.Data, hostPlainEvent.Data)
 
 	// Withdrawal
-	guestWithdrawal := Withdrawal{
+	guestWithdrawal := types.Withdrawal{
 		DestinationAddress: guestAddr,
-		Amount:             NewUint256(100),
+		Amount:             types.NewUint256(100),
 	}
 	jsonBytes, err = json.Marshal(guestWithdrawal)
 	require.NoError(t, err)
@@ -467,9 +515,9 @@ func TestJsonCompatibility(t *testing.T) {
 	require.Equal(t, guestWithdrawal.Amount.String(), hostWithdrawal.Amount.String())
 
 	// LoadModuleResult
-	guestLoadModuleResult := LoadModuleResult{
+	guestLoadModuleResult := types.LoadModuleResult{
 		State: []byte("state"),
-		Fuel:  NewUint256(10),
+		Fuel:  types.NewUint256(10),
 		Error: "load error",
 	}
 	jsonBytes, err = json.Marshal(guestLoadModuleResult)
@@ -483,10 +531,10 @@ func TestJsonCompatibility(t *testing.T) {
 	require.Equal(t, guestLoadModuleResult.Error, hostLoadModuleResult.Error)
 
 	// DepositResult
-	guestDepositResult := DepositResult{
+	guestDepositResult := types.DepositResult{
 		State:  []byte("new state"),
-		Events: []PlainEvent{guestPlainEvent},
-		Fuel:   NewUint256(20),
+		Events: []types.PlainEvent{guestPlainEvent},
+		Fuel:   types.NewUint256(20),
 		Error:  "deposit error",
 	}
 	jsonBytes, err = json.Marshal(guestDepositResult)
@@ -502,11 +550,11 @@ func TestJsonCompatibility(t *testing.T) {
 	require.Equal(t, guestDepositResult.Error, hostDepositResult.Error)
 
 	// ProcessResult
-	guestProcessResult := ProcessResult{
+	guestProcessResult := types.ProcessResult{
 		State:       []byte("state"),
-		Events:      []PlainEvent{guestPlainEvent},
-		Withdrawals: []Withdrawal{guestWithdrawal},
-		Fuel:        NewUint256(50),
+		Events:      []types.PlainEvent{guestPlainEvent},
+		Withdrawals: []types.Withdrawal{guestWithdrawal},
+		Fuel:        types.NewUint256(50),
 		Error:       "error",
 	}
 	jsonBytes, err = json.Marshal(guestProcessResult)
@@ -523,82 +571,66 @@ func TestJsonCompatibility(t *testing.T) {
 	require.Equal(t, guestProcessResult.Fuel.String(), hostProcessResult.Fuel.String())
 	require.Equal(t, guestProcessResult.Error, hostProcessResult.Error)
 
-	// DeanonymizationResult
-	guestDeResult := DeanonymizationResult{
-		Report: []byte("report"),
-		Fuel:   NewUint256(30),
-		Error:  "de error",
-	}
-	jsonBytes, err = json.Marshal(guestDeResult)
-	require.NoError(t, err)
-
-	var hostDeResult wasmCommon.DeanonymizationResult
-	err = json.Unmarshal(jsonBytes, &hostDeResult)
-	require.NoError(t, err)
-	require.Equal(t, guestDeResult.Report, hostDeResult.Report)
-	require.Equal(t, guestDeResult.Fuel.String(), hostDeResult.Fuel.String())
-	require.Equal(t, guestDeResult.Error, hostDeResult.Error)
-
 	// DepositEvent
 	guestDepositEvent := DepositEvent{
 		Type:    "deposit",
-		Amount:  NewUint256(100),
-		Balance: NewUint256(1100),
+		Amount:  types.NewUint256(100),
+		Balance: types.NewUint256(1100),
 		Nonce:   5,
 	}
 	jsonBytes, err = json.Marshal(guestDepositEvent)
 	require.NoError(t, err)
 
-	var hostDepositEvent wasmCommon.DepositEvent
-	err = json.Unmarshal(jsonBytes, &hostDepositEvent)
+	var hDepositEvent hostDepositEvent
+	err = json.Unmarshal(jsonBytes, &hDepositEvent)
 	require.NoError(t, err)
-	require.Equal(t, guestDepositEvent.Type, hostDepositEvent.Type)
-	require.Equal(t, guestDepositEvent.Amount.String(), hostDepositEvent.Amount.String())
-	require.Equal(t, guestDepositEvent.Balance.String(), hostDepositEvent.Balance.String())
-	require.Equal(t, guestDepositEvent.Nonce, hostDepositEvent.Nonce)
+	require.Equal(t, guestDepositEvent.Type, hDepositEvent.Type)
+	require.Equal(t, guestDepositEvent.Amount.String(), hDepositEvent.Amount.String())
+	require.Equal(t, guestDepositEvent.Balance.String(), hDepositEvent.Balance.String())
+	require.Equal(t, guestDepositEvent.Nonce, hDepositEvent.Nonce)
 
 	// SenderEvent / WithdrawalEvent
 	guestSenderEvent := SenderEvent{
 		Type:    "sender",
 		To:      guestAddr,
-		Amount:  NewUint256(200),
-		Balance: NewUint256(800),
+		Amount:  types.NewUint256(200),
+		Balance: types.NewUint256(800),
 		Nonce:   6,
 	}
 	jsonBytes, err = json.Marshal(guestSenderEvent)
 	require.NoError(t, err)
 
-	var hostSenderEvent wasmCommon.SenderEvent
-	err = json.Unmarshal(jsonBytes, &hostSenderEvent)
+	var hSenderEvent hostSenderEvent
+	err = json.Unmarshal(jsonBytes, &hSenderEvent)
 	require.NoError(t, err)
-	require.Equal(t, guestSenderEvent.Type, hostSenderEvent.Type)
-	require.Equal(t, hostAddr, hostSenderEvent.To)
-	require.Equal(t, guestSenderEvent.Amount.String(), hostSenderEvent.Amount.String())
-	require.Equal(t, guestSenderEvent.Balance.String(), hostSenderEvent.Balance.String())
-	require.Equal(t, guestSenderEvent.Nonce, hostSenderEvent.Nonce)
+	require.Equal(t, guestSenderEvent.Type, hSenderEvent.Type)
+	require.Equal(t, hostAddr, hSenderEvent.To)
+	require.Equal(t, guestSenderEvent.Amount.String(), hSenderEvent.Amount.String())
+	require.Equal(t, guestSenderEvent.Balance.String(), hSenderEvent.Balance.String())
+	require.Equal(t, guestSenderEvent.Nonce, hSenderEvent.Nonce)
 
 	// RecipientEvent
 	guestRecipientEvent := RecipientEvent{
 		Type:    "recipient",
 		From:    guestAddr,
-		Amount:  NewUint256(200),
-		Balance: NewUint256(1200),
+		Amount:  types.NewUint256(200),
+		Balance: types.NewUint256(1200),
 		Nonce:   7,
 	}
 	jsonBytes, err = json.Marshal(guestRecipientEvent)
 	require.NoError(t, err)
 
-	var hostRecipientEvent wasmCommon.RecipientEvent
-	err = json.Unmarshal(jsonBytes, &hostRecipientEvent)
+	var hRecipientEvent hostRecipientEvent
+	err = json.Unmarshal(jsonBytes, &hRecipientEvent)
 	require.NoError(t, err)
-	require.Equal(t, guestRecipientEvent.Type, hostRecipientEvent.Type)
-	require.Equal(t, hostAddr, hostRecipientEvent.From)
-	require.Equal(t, guestRecipientEvent.Amount.String(), hostRecipientEvent.Amount.String())
-	require.Equal(t, guestRecipientEvent.Balance.String(), hostRecipientEvent.Balance.String())
-	require.Equal(t, guestRecipientEvent.Nonce, hostRecipientEvent.Nonce)
+	require.Equal(t, guestRecipientEvent.Type, hRecipientEvent.Type)
+	require.Equal(t, hostAddr, hRecipientEvent.From)
+	require.Equal(t, guestRecipientEvent.Amount.String(), hRecipientEvent.Amount.String())
+	require.Equal(t, guestRecipientEvent.Balance.String(), hRecipientEvent.Balance.String())
+	require.Equal(t, guestRecipientEvent.Nonce, hRecipientEvent.Nonce)
 
 	// MemoryStats
-	guestMemoryStats := MemoryStats{
+	guestMemoryStats := types.MemoryStats{
 		MapSize:              10,
 		CumulativeMemorySize: 100,
 	}
@@ -614,7 +646,7 @@ func TestJsonCompatibility(t *testing.T) {
 
 func TestHexToAddress_ValidFullLength(t *testing.T) {
 	s := "0x00112233445566778899aabbccddeeff00112233"
-	addr, err := HexToAddress(s)
+	addr, err := types.HexToAddress(s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -633,49 +665,46 @@ func TestHexToAddress_ValidFullLength(t *testing.T) {
 
 func TestHexToAddress_NoPrefix(t *testing.T) {
 	s := "00112233445566778899aabbccddeeff00112233"
-	addr1, err := HexToAddress(s)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := types.HexToAddress(s)
+	if err == nil {
+		t.Fatalf("expected error for address without 0x prefix")
 	}
 
-	addr2, err := HexToAddress("0x" + s)
+	// With prefix should still work
+	_, err = types.HexToAddress("0x" + s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if addr1 != addr2 {
-		t.Fatalf("addresses differ with/without prefix")
 	}
 }
 
 func TestHexToAddress_InvalidLength(t *testing.T) {
-	_, err := HexToAddress("0x1234")
+	_, err := types.HexToAddress("0x1234")
 	if err == nil {
 		t.Fatalf("expected error for short address")
 	}
 
-	_, err = HexToAddress("0x" + strings.Repeat("11", 21))
+	_, err = types.HexToAddress("0x" + strings.Repeat("11", 21))
 	if err == nil {
 		t.Fatalf("expected error for long address")
 	}
 }
 
 func TestHexToAddress_OddLengthRejected(t *testing.T) {
-	_, err := HexToAddress("abc")
+	_, err := types.HexToAddress("abc")
 	if err == nil {
 		t.Fatalf("expected error for odd-length input")
 	}
 }
 
 func TestHexToAddress_InvalidHex(t *testing.T) {
-	_, err := HexToAddress("0xzz1122")
+	_, err := types.HexToAddress("0xzz1122")
 	if err == nil {
 		t.Fatalf("expected error for invalid hex, got nil")
 	}
 }
 
 func TestHexToAddress_Empty(t *testing.T) {
-	_, err := HexToAddress("")
+	_, err := types.HexToAddress("")
 	if err == nil {
 		t.Fatalf("expected error for empty string, got nil")
 	}
@@ -686,11 +715,11 @@ func TestBigIntUint256JSONRoundTrip(t *testing.T) {
 	orig := new(big.Int)
 	orig.SetString("115792089237316195423570985008687907853269984665640564039457584007913129639935", 10) // 2^256-1
 
-	// Step 2: marshal big.Int into JSON
+	// Step 2: marshal *common.Big into JSON
 	type HostStruct struct {
-		Amount *big.Int `json:"amount"`
+		Amount *common.Big `json:"amount"`
 	}
-	hostObj := HostStruct{Amount: orig}
+	hostObj := HostStruct{Amount: common.ToBig(orig)}
 
 	jsonData, err := json.Marshal(hostObj)
 	if err != nil {
@@ -700,7 +729,7 @@ func TestBigIntUint256JSONRoundTrip(t *testing.T) {
 
 	// Step 3: unmarshal JSON into Uint256 (like WASM side)
 	type WASMStruct struct {
-		Amount Uint256 `json:"amount"`
+		Amount types.Uint256 `json:"amount"`
 	}
 	var wasmObj WASMStruct
 	if err := json.Unmarshal(jsonData, &wasmObj); err != nil {
@@ -721,9 +750,130 @@ func TestBigIntUint256JSONRoundTrip(t *testing.T) {
 	}
 
 	// Step 6: compare
-	if orig.Cmp(hostObj2.Amount) != 0 {
+	if orig.Cmp(hostObj2.Amount.ToInt()) != 0 {
 		t.Errorf("round-trip mismatch:\noriginal: %s\nfinal:    %s", orig.String(), hostObj2.Amount.String())
 	} else {
 		t.Logf("Round-trip successful: value preserved exactly")
 	}
+}
+
+// TestUint256BigJSONCompatibility verifies that Uint256 and common.Big produce
+// identical JSON representations and can be unmarshaled interchangeably.
+func TestUint256BigJSONCompatibility(t *testing.T) {
+	// Test values covering edge cases
+	testValues := []struct {
+		name    string
+		decimal string
+		hex     string
+	}{
+		{"zero", "0", "0x0"},
+		{"one", "1", "0x1"},
+		{"small", "255", "0xff"},
+		{"medium", "12345", "0x3039"},
+		{"large", "12345678901234567890", "0xab54a98ceb1f0ad2"},
+		{"max_uint64", "18446744073709551615", "0xffffffffffffffff"},
+		{"max_uint128", "340282366920938463463374607431768211455", "0xffffffffffffffffffffffffffffffff"},
+		{"max_uint256", "115792089237316195423570985008687907853269984665640564039457584007913129639935", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+	}
+
+	for _, tt := range testValues {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create big.Int from decimal
+			bi, ok := new(big.Int).SetString(tt.decimal, 10)
+			require.True(t, ok, "Failed to parse decimal: %s", tt.decimal)
+
+			// Create common.Big and Uint256 from the same value
+			bigVal := common.ToBig(bi)
+			uint256Val := new(types.Uint256).SetBytes(bi.Bytes())
+
+			// Marshal both to JSON
+			bigJSON, err := json.Marshal(bigVal)
+			require.NoError(t, err, "Failed to marshal common.Big")
+
+			uint256JSON, err := json.Marshal(uint256Val)
+			require.NoError(t, err, "Failed to marshal Uint256")
+
+			// Verify JSON is byte-for-byte identical
+			require.Equal(t, string(bigJSON), string(uint256JSON),
+				"JSON mismatch for %s:\n  common.Big: %s\n  Uint256:    %s",
+				tt.name, string(bigJSON), string(uint256JSON))
+
+			// Verify JSON matches expected hex format
+			expectedJSON := `"` + tt.hex + `"`
+			require.Equal(t, expectedJSON, string(bigJSON),
+				"Unexpected JSON format for %s", tt.name)
+
+			// Test cross-type unmarshal: Big JSON → Uint256
+			var u256FromBig types.Uint256
+			err = json.Unmarshal(bigJSON, &u256FromBig)
+			require.NoError(t, err, "Failed to unmarshal Big JSON into Uint256")
+			require.Equal(t, tt.decimal, u256FromBig.String(),
+				"Value mismatch after Big→Uint256 unmarshal")
+
+			// Test cross-type unmarshal: Uint256 JSON → Big
+			var bigFromU256 common.Big
+			err = json.Unmarshal(uint256JSON, &bigFromU256)
+			require.NoError(t, err, "Failed to unmarshal Uint256 JSON into Big")
+			require.Equal(t, tt.decimal, bigFromU256.String(),
+				"Value mismatch after Uint256→Big unmarshal")
+		})
+	}
+}
+
+// TestUint256BigStructCompatibility verifies that structs containing Uint256
+// and common.Big fields produce compatible JSON.
+func TestUint256BigStructCompatibility(t *testing.T) {
+	// Simulate host-side struct (uses common.Big)
+	type HostStruct struct {
+		Amount  *common.Big `json:"amount"`
+		Fee     *common.Big `json:"fee"`
+		Balance *common.Big `json:"balance"`
+	}
+
+	// Simulate WASM-side struct (uses Uint256)
+	type WASMStruct struct {
+		Amount  types.Uint256 `json:"amount"`
+		Fee     types.Uint256 `json:"fee"`
+		Balance types.Uint256 `json:"balance"`
+	}
+
+	// Create host struct with test values
+	hostStruct := HostStruct{
+		Amount:  common.NewBig(1000000),
+		Fee:     common.NewBig(100),
+		Balance: common.NewBig(999900),
+	}
+
+	// Marshal host struct
+	hostJSON, err := json.Marshal(hostStruct)
+	require.NoError(t, err)
+	t.Logf("Host JSON: %s", string(hostJSON))
+
+	// Unmarshal into WASM struct
+	var wasmStruct WASMStruct
+	err = json.Unmarshal(hostJSON, &wasmStruct)
+	require.NoError(t, err)
+
+	// Verify values match
+	require.Equal(t, "1000000", wasmStruct.Amount.String())
+	require.Equal(t, "100", wasmStruct.Fee.String())
+	require.Equal(t, "999900", wasmStruct.Balance.String())
+
+	// Marshal WASM struct back
+	wasmJSON, err := json.Marshal(wasmStruct)
+	require.NoError(t, err)
+	t.Logf("WASM JSON: %s", string(wasmJSON))
+
+	// JSON should be identical
+	require.JSONEq(t, string(hostJSON), string(wasmJSON))
+
+	// Unmarshal back into host struct
+	var hostStruct2 HostStruct
+	err = json.Unmarshal(wasmJSON, &hostStruct2)
+	require.NoError(t, err)
+
+	// Final values should match original
+	require.Equal(t, 0, hostStruct.Amount.ToInt().Cmp(hostStruct2.Amount.ToInt()))
+	require.Equal(t, 0, hostStruct.Fee.ToInt().Cmp(hostStruct2.Fee.ToInt()))
+	require.Equal(t, 0, hostStruct.Balance.ToInt().Cmp(hostStruct2.Balance.ToInt()))
 }
