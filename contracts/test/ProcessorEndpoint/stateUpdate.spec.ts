@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture } from './fixture';
-import { BYTES32_ZERO } from '../util';
+import { BYTES32_ZERO, getRequestIdFromReceipt } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
 describe('ProcessorEndpoint Test', function () {
@@ -20,20 +20,6 @@ describe('ProcessorEndpoint Test', function () {
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
   });
-
-  function getRequestIdFromReceipt(processorEndpointInstance: any, receipt: any) {
-    for (const log of receipt.logs) {
-      try {
-        const parsed = processorEndpointInstance.interface.parseLog(log);
-        if (parsed.name === 'RequestSubmitted') {
-          return parsed.args.requestId;
-        }
-      } catch {
-        continue;
-      }
-    }
-    throw new Error('RequestSubmitted not found');
-  }
 
   function getUserEvents(processorEndpointInstance: any, receipt: any) {
     return receipt.logs
@@ -99,6 +85,14 @@ describe('ProcessorEndpoint Test', function () {
   describe('stateUpdate', function () {
     describe('unhappy paths', function () {
       it('reverts with InvalidApplicationId when applicationId is invalid', async () => {
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x00',
+          0n,
+          minFeePerRequest
+        );
+
         await expect(
           processorEndpoint
             .connect(signers[1])
@@ -106,12 +100,14 @@ describe('ProcessorEndpoint Test', function () {
               2,
               BYTES32_ZERO,
               '0x' + '11'.repeat(32),
-              '0x' + '00'.repeat(32),
+              request.requestId,
               [],
               [],
               [],
               0,
               minFeePerRequest,
+              0,
+              '',
               '0x'
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidApplicationId');
@@ -131,9 +127,44 @@ describe('ProcessorEndpoint Test', function () {
               [],
               0,
               minFeePerRequest,
+              0,
+              '',
               '0x'
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'AccessControlUnauthorizedAccount');
+      });
+
+      it('reverts with InvalidStateRoot when stateRoot is zero and prevStateRoot is non-zero', async () => {
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x13',
+          0n,
+          minFeePerRequest
+        );
+        const prevStateRoot = '0x' + '13'.repeat(32);
+        const newStateRoot = '0x' + '14'.repeat(32);
+
+        await expect(
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              APPLICATION_ID,
+              prevStateRoot,
+              newStateRoot,
+              request.requestId,
+              [],
+              [],
+              [],
+              0,
+              minFeePerRequest,
+              0,
+              '',
+              '0x'
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidStateRoot');
+
+        expect(await processorEndpoint.stateRoot()).to.equal(BYTES32_ZERO);
       });
 
       it('reverts with InvalidStateRoot when prevStateRoot does not match current stateRoot', async () => {
@@ -156,6 +187,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             minFeePerRequest,
+            0,
+            '',
             '0x'
           );
 
@@ -180,6 +213,8 @@ describe('ProcessorEndpoint Test', function () {
               [],
               0,
               minFeePerRequest,
+              0,
+              '',
               '0x'
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidStateRoot');
@@ -208,6 +243,8 @@ describe('ProcessorEndpoint Test', function () {
               [],
               0,
               minFeePerRequest,
+              0,
+              '',
               '0x'
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestId');
@@ -235,6 +272,8 @@ describe('ProcessorEndpoint Test', function () {
               [],
               0,
               minFeePerRequest,
+              0,
+              '',
               '0x'
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
@@ -276,6 +315,8 @@ describe('ProcessorEndpoint Test', function () {
               [],
               0,
               fixture.minFeePerRequest,
+              0,
+              '',
               signature
             )
         ).to.be.revertedWithCustomError(fixture.processorEndpoint, 'InvalidSignature');
@@ -318,6 +359,8 @@ describe('ProcessorEndpoint Test', function () {
               [],
               0,
               fixture.minFeePerRequest,
+              0,
+              '',
               signature
             )
         ).to.be.revertedWithCustomError(fixture.processorEndpoint, 'InvalidSignature');
@@ -345,6 +388,8 @@ describe('ProcessorEndpoint Test', function () {
               [],
               1,
               minFeePerRequest,
+              0,
+              '',
               '0x'
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
@@ -367,6 +412,8 @@ describe('ProcessorEndpoint Test', function () {
               [],
               maxFeeValue - (minFeePerRequest - 1n),
               minFeePerRequest - 1n,
+              0,
+              '',
               '0x'
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
@@ -394,6 +441,8 @@ describe('ProcessorEndpoint Test', function () {
               [[await signers[2].getAddress(), 1]],
               0,
               minFeePerRequest,
+              0,
+              '',
               '0x'
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientBalance');
@@ -437,6 +486,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             fixture.minFeePerRequest,
+            0,
+            '',
             signature
           );
 
@@ -480,6 +531,8 @@ describe('ProcessorEndpoint Test', function () {
           ],
           refund,
           applicationFees,
+          0,
+          '',
           '0x'
         );
 
@@ -535,6 +588,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             minFeePerRequest,
+            0,
+            '',
             '0x'
           );
 
@@ -572,35 +627,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             minFeePerRequest,
-            '0x'
-          );
-
-        expect(await processorEndpoint.stateRoot()).to.equal(newStateRoot);
-      });
-
-      it('allows update when stateRoot is zero and prevStateRoot is non-zero', async () => {
-        const request = await submitRequest(
-          processorEndpoint,
-          signers[0],
-          '0x13',
-          0n,
-          minFeePerRequest
-        );
-        const prevStateRoot = '0x' + '13'.repeat(32);
-        const newStateRoot = '0x' + '14'.repeat(32);
-
-        await processorEndpoint
-          .connect(signers[1])
-          .stateUpdate(
-            APPLICATION_ID,
-            prevStateRoot,
-            newStateRoot,
-            request.requestId,
-            [],
-            [],
-            [],
             0,
-            minFeePerRequest,
+            '',
             '0x'
           );
 
@@ -629,6 +657,8 @@ describe('ProcessorEndpoint Test', function () {
             [],
             0,
             minFeePerRequest,
+            0,
+            '',
             '0x'
           );
 

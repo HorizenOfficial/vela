@@ -140,6 +140,11 @@ type UpdatePayload struct {
 	RefundAmount *Big `json:"refundAmount"`
 	// ApplicationFee is the fee charged for the application in WEI
 	ApplicationFee *Big `json:"applicationFee"`
+	// ErrorCode is the error code (0 for success, non-zero for error)
+	ErrorCode uint8 `json:"errorCode"`
+	// ErrorMsg is the error message (empty for success)
+	ErrorMsg string `json:"errorMsg"`
+
 }
 
 // ApplicationState represents the state of an application

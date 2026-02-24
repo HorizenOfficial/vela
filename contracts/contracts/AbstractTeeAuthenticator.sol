@@ -18,34 +18,28 @@ abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
 
   /// @inheritdoc ITeeAuthenticator
   function checkSignature(
-    uint64 applicationId,
-    bytes32 prevStateRoot,
-    bytes32 newStateRoot,
-    bytes32 processedRequestId,
-    bytes[] calldata events,
-    string[] calldata eventSubTypes,
-    Structs.WithdrawalRequest[] calldata withdrawalRequests,
-    uint256 refundAmount,
-    uint256 applicationFee,
-    bytes calldata signature
+    Structs.SignatureParams memory params,
+    bytes memory signature
   ) external view returns (bool) {
     if (getTeeSigner() == address(0) || getPubSecp521r1().length != PK_LENGTH) revert TeeIsNotSet();
 
-    bytes32 eventsHash = keccak256(abi.encode(events));
-    bytes32 eventSubTypesHash = keccak256(abi.encode(eventSubTypes));
-    bytes32 withdrawalRequestsHash = keccak256(abi.encode(withdrawalRequests));
+    bytes32 eventsHash = keccak256(abi.encode(params.events));
+    bytes32 eventSubTypesHash = keccak256(abi.encode(params.eventSubTypes));
+    bytes32 withdrawalRequestsHash = keccak256(abi.encode(params.withdrawalRequests));
 
     bytes32 messageHash = keccak256(
       abi.encode(
-        applicationId,
-        prevStateRoot,
-        newStateRoot,
-        processedRequestId,
+        params.applicationId,
+        params.prevStateRoot,
+        params.newStateRoot,
+        params.processedRequestId,
         eventsHash,
         eventSubTypesHash,
         withdrawalRequestsHash,
-        refundAmount,
-        applicationFee
+        params.refundAmount,
+        params.applicationFee,
+        params.errorCode,
+        params.errorMsg
       )
     );
 
