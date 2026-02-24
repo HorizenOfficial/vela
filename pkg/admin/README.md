@@ -31,23 +31,38 @@ Messages are newline-delimited JSON (`\n`).
 
 ### GetVersion
 
-Retrieves the current version of the Manager.
+Retrieves the version of the Manager and/or Executor. The version is the git tag injected at build time via `-ldflags`. Falls back to `"dev"` when built without `-ldflags`.
 
 **Request:**
 ```json
-{
-  "type": 3,
-  "data": null
-}
+{"type": 3, "data": null}
 ```
 
-**Response:**
+Or with an explicit target:
+```json
+{"type": 3, "data": {"target": "manager"}}
+```
+
+**Response (single target):**
 ```json
 {
   "type": 0,
-  "data": "0.1.0"
+  "data": "v1.2.3"
 }
 ```
+
+**Response (target="all"):**
+```json
+{
+  "type": 0,
+  "data": {
+    "manager": "v1.2.3",
+    "executor": "v1.2.3"
+  }
+}
+```
+
+The `target` field works the same as for [SetLogLevel](#target-field): `"manager"`, `"executor"`, `"all"`, or omitted (defaults to `"all"`).
 
 ### GetLogLevel
 
@@ -114,7 +129,9 @@ Both `SetLogLevel` and `GetLogLevel` accept an optional `target` field. The Mana
 
 #### Partial Failure Semantics (target="all")
 
-When `target` is `"all"`, the Manager applies the command locally first, then forwards it to the Executor. This is **not atomic** — if the Executor fails (e.g. communication timeout), the Manager's change is still applied. The error message reports the partial success:
+When `target` is `"all"`, the Manager applies the command locally first, then forwards it to the Executor. The failure behaviour depends on the command:
+
+**Mutating commands (`SetLogLevel`):** The local change is applied first. If the Executor then fails (e.g. communication timeout), the Manager's change is **still applied** and the error reports the partial success:
 
 ```json
 {
@@ -126,7 +143,9 @@ When `target` is `"all"`, the Manager applies the command locally first, then fo
 }
 ```
 
-To recover from a partial failure, send a follow-up command with `target: "executor"` to retry on the Executor alone.
+To recover, send a follow-up command with `target: "executor"` to retry on the Executor alone.
+
+**Read-only commands (`GetVersion`, `GetLogLevel`):** If the Executor fails, the entire request returns an error. No partial result is returned.
 
 #### Supported Log Levels
 
@@ -262,7 +281,13 @@ echo '{"type":5,"data":{"target":"manager"}}' | nc <manager-host> <admin-port>
 ### Get the Manager version
 
 ```bash
-echo '{"type":3,"data":null}' | nc <manager-host> <admin-port>
+echo '{"type":3,"data":{"target":"manager"}}' | nc <manager-host> <admin-port>
+```
+
+### Get the version of both Manager and Executor
+
+```bash
+echo '{"type":3,"data":{"target":"all"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Change the Executor log level
@@ -322,7 +347,7 @@ No additional configuration is needed — the proxy uses the same communication 
 ### Communication Channel Protocol
 
 Admin commands are forwarded using `AdminCommandRequestMessage` (type 10) and `AdminCommandResponseMessage` (type 11) in the communication layer. Each request contains:
-- `commandType`: A string identifier (e.g., `"set_log_level"`, `"get_log_level"`)
+- `commandType`: A string identifier (e.g., `"get_version"`, `"set_log_level"`, `"get_log_level"`)
 - `data`: Command-specific payload as `json.RawMessage`
 
 ### Proxy Flow
@@ -330,6 +355,7 @@ Admin commands are forwarded using `AdminCommandRequestMessage` (type 10) and `A
 ```
 Admin Client ──> Manager Admin Server ──> Manager ExecuteCommand
                                               │
+                                              ├── type 3 (target="all") ──> local + ForwardAdminCommand ──> aggregated response
                                               ├── type 4 (target="all") ──> local + ForwardAdminCommand ──> aggregated response
                                               └── type 5 (target="all") ──> local + ForwardAdminCommand ──> aggregated response
                                                                                      │

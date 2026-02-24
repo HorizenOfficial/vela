@@ -11,6 +11,7 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/version"
 	"github.com/horizen-pes/pkg/wasm"
 )
 
@@ -77,6 +78,8 @@ func main() {
 		log.Error("Error creating executor: %v", err)
 		return
 	}
+
+	log.Info("Executor version: %s", version.Version)
 
 	// Start the executor
 	log.Info("Starting executor service...")

@@ -21,6 +21,7 @@ import (
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/logger"
+	"github.com/horizen-pes/pkg/version"
 )
 
 // NsmSession is an interface abstracting nsm.Session for testability.
@@ -745,6 +746,13 @@ func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType stri
 		resp, err := json.Marshal(level)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdGetVersion:
+		resp, err := json.Marshal(version.Version)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal version: %w", err)
 		}
 		return resp, nil
 

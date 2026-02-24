@@ -449,7 +449,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 			Data: failure.ToDTO(),
 		}
 		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Error("Server: Failed to send error response: %v", err)
+			c.log.Error("%s: Failed to send error response: %v", c.idLogTag, err)
 		}
 		return
 	}
@@ -486,7 +486,7 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 			Data: failure.ToDTO(),
 		}
 		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Warn("Server: Failed to send error response: %v", err)
+			c.log.Warn("%s: Failed to send error response: %v", c.idLogTag, err)
 		}
 		return
 	}

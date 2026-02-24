@@ -230,3 +230,67 @@ func TestPrintfLogger_SetLevel(t *testing.T) {
 	require.NoError(t, err)
 	logger.Close()
 }
+
+// TestZeroNetworkLogger_ConcurrentSetLevelAndLog verifies that concurrent
+// SetLevel and logging calls do not race. Run with: go test -race ./pkg/logger/
+func TestZeroNetworkLogger_ConcurrentSetLevelAndLog(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	_, portStr, err := net.SplitHostPort(ln.Addr().String())
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	// Drain accepted connections
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						c.Close()
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	cfg := &Config{
+		Kind:             "zeronetwork",
+		Console:          false,
+		NetworkLevel:     "info",
+		RemoteLogParams:  common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: uint32(port)},
+		RemoteLogNetwork: "tcp",
+	}
+
+	znl := NewLogger(cfg)
+	defer znl.Close()
+
+	time.Sleep(100 * time.Millisecond) // let async writer connect
+
+	levels := []string{"trace", "debug", "info", "warn", "error"}
+	done := make(chan struct{})
+
+	// Concurrent SetLevel goroutine
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			_ = znl.SetLevel(levels[i%len(levels)])
+		}
+	}()
+
+	// Concurrent logging goroutine
+	for i := 0; i < 200; i++ {
+		znl.Info("concurrent log message %d", i)
+		znl.Debug("concurrent debug message %d", i)
+	}
+
+	<-done
+}

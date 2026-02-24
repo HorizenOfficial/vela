@@ -90,11 +90,15 @@ func NewReadOnlyBlockChainClient(processor ethCommon.Address, rpcURL string) *Bl
 }
 
 // SetConnectTimeout overrides the default timeout for the initial ChainID
-// RPC call in Connect.
-func (c *BlockChainClient) SetConnectTimeout(d time.Duration) {
+// RPC call in Connect. The value must be positive and no larger than 5 minutes.
+func (c *BlockChainClient) SetConnectTimeout(d time.Duration) error {
+	if d <= 0 || d > 5*time.Minute {
+		return fmt.Errorf("invalid connect timeout %v: must be between 0 and 5m", d)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.connectTimeout = d
+	return nil
 }
 
 // IsConnected returns true if the client has successfully connected to the blockchain.

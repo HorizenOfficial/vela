@@ -24,6 +24,7 @@ import (
 	"github.com/horizen-pes/pkg/logserver"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
+	"github.com/horizen-pes/pkg/version"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1528,4 +1529,103 @@ func TestExecuteCommand_KeyAttestation_ForwardError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "executor unreachable")
 	require.Nil(t, result)
+}
+
+func TestExecuteCommand_GetVersion_TargetManager(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	getData, err := json.Marshal(admin.GetVersionRequest{Target: "manager"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Data: getData}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+	require.Equal(t, version.Version, result)
+}
+
+func TestExecuteCommand_GetVersion_TargetExecutor(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v1.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	getData, err := json.Marshal(admin.GetVersionRequest{Target: "executor"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Data: getData}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+	require.Equal(t, "v1.0.0-executor", result)
+}
+
+func TestExecuteCommand_GetVersion_TargetAll(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v2.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	getData, err := json.Marshal(admin.GetVersionRequest{Target: "all"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Data: getData}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Equal(t, "v2.0.0-executor", aggResp.Executor)
+}
+
+func TestExecuteCommand_GetVersion_DefaultTarget(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v3.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	// No data (null) — should default to target="all"
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Equal(t, "v3.0.0-executor", aggResp.Executor)
+}
+
+func TestExecuteCommand_GetVersion_TargetAll_ExecutorFails(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	)
+
+	getData, err := json.Marshal(admin.GetVersionRequest{Target: "all"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Data: getData}
+
+	_, err = mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "manager version is")
+	require.Contains(t, err.Error(), "failed to get executor version")
+	require.Contains(t, err.Error(), "connection refused")
 }

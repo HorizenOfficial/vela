@@ -22,7 +22,10 @@ RUN --mount=type=secret,id=gh_token \
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux go build -o /executor ./cmd/executor
+ARG GIT_VERSION=dev
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -ldflags "-X github.com/horizen-pes/pkg/version.Version=${GIT_VERSION}" \
+    -o /executor ./cmd/executor
 
 # --- Runtime Stage ---
 FROM amazonlinux:2

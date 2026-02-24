@@ -22,6 +22,13 @@ type AggregatedSetLogLevelResponse struct {
 	Executor SetLogLevelResponse `json:"executor"`
 }
 
+// AggregatedGetVersionResponse is returned when target="all" for GetVersion,
+// containing the version of both the Manager and the Executor.
+type AggregatedGetVersionResponse struct {
+	Manager  string `json:"manager"`
+	Executor string `json:"executor"`
+}
+
 type AdminCommandServer interface {
 	Start(ctx context.Context, identityLogTag string) error
 	Stop() error
@@ -49,7 +56,7 @@ const (
 	// KeyAttestationRequestMessage represents a request to generate a key attestation (executor)
 	KeyAttestationRequestMessage
 
-	// GetVersionRequestMessage represents a request to get the version (manager)
+	// GetVersionRequestMessage represents a request to get the version
 	GetVersionRequestMessage
 
 	// SetLogLevelRequestMessage represents a request to change the log level
@@ -64,6 +71,7 @@ const (
 // Executor (handler).
 const (
 	AdminCmdKeyAttestation = "key_attestation"
+	AdminCmdGetVersion     = "get_version"
 	AdminCmdSetLogLevel    = "set_log_level"
 	AdminCmdGetLogLevel    = "get_log_level"
 )
@@ -79,6 +87,11 @@ type SetLogLevelRequest struct {
 
 // GetLogLevelRequest is the payload for GetLogLevelRequestMessage.
 type GetLogLevelRequest struct {
+	Target string `json:"target,omitempty"`
+}
+
+// GetVersionRequest is the payload for GetVersionRequestMessage.
+type GetVersionRequest struct {
 	Target string `json:"target,omitempty"`
 }
 
