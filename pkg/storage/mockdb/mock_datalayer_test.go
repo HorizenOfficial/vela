@@ -178,7 +178,7 @@ func TestApplicationStateStore(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 		expectedRecoveryData := &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
+			RecoveryType:       common.RecoveryTypeKMS,
 			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
 			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
 		}

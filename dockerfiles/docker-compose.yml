@@ -16,6 +16,25 @@ volumes:
   horizen-cce-subgraph-ipfs:
 
 services:
+  kms-proxy:
+    image: horizen/kms-proxy
+    container_name: horizen-kms-proxy
+    restart: always
+    privileged: true
+    devices:
+      - /dev/vsock:/dev/vsock
+    environment:
+      - KMS_PROXY_DEBUG
+      - KMS_PROXY_PORT
+      - KMS_PROXY_REGION
+      - KMS_PROXY_ALLOWED_ACTIONS
+      - KMS_PROXY_ALLOWED_KEY_ARNS
+      - KMS_PROXY_ALLOW_ALL_KEYS
+      - KMS_PROXY_UPSTREAM_TIMEOUT_SEC
+      - KMS_PROXY_MAX_BODY_BYTES
+      - KMS_PROXY_MAX_RESPONSE_BYTES
+    networks:
+      inet:
   executor:
     image: horizen/cce-executor
     container_name: horizen-cce-executor
@@ -31,8 +50,11 @@ services:
       - EXECUTOR_IP_HOST
       - EXECUTOR_PORT
       - EXECUTOR_ADMIN_PORT
-      - LOG_SERVER_IP_HOST
+      - EXECUTOR_KMS_KEY_ARN
+      - EXECUTOR_KMS_REGION
+      - EXECUTOR_KMS_PROXY_PORT
       - EXECUTOR_KEYSET_RECOVERY_TYPE
+      - LOG_SERVER_IP_HOST
       - EXECUTOR_FUEL_PRICE_PER_UNIT
       - EXECUTOR_MIN_FEE_PER_REQUEST
       - EXECUTOR_LOG_KIND

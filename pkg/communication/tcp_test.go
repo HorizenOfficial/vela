@@ -103,7 +103,7 @@ func (m *MockClientRequestHandler) HandleGetKeysetRecoveryRequest(ctx context.Co
 		return m.GetKeysetRecoveryFunc(ctx)
 	}
 	recv := &common.EnclaveKeySetRecovery{
-		RecoveryType:       1,
+		RecoveryType:       common.RecoveryTypeKMS,
 		KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
 		RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
 	}
