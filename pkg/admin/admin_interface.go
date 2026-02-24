@@ -8,6 +8,20 @@ import (
 	"github.com/horizen-pes/pkg/logger"
 )
 
+// AggregatedGetLogLevelResponse is returned when target="all" for GetLogLevel,
+// containing the log level of both the Manager and the Executor.
+type AggregatedGetLogLevelResponse struct {
+	Manager  string `json:"manager"`
+	Executor string `json:"executor"`
+}
+
+// AggregatedSetLogLevelResponse is returned when target="all" for SetLogLevel,
+// containing the result from both the Manager and the Executor.
+type AggregatedSetLogLevelResponse struct {
+	Manager  SetLogLevelResponse `json:"manager"`
+	Executor SetLogLevelResponse `json:"executor"`
+}
+
 type AdminCommandServer interface {
 	Start(ctx context.Context, identityLogTag string) error
 	Stop() error
@@ -43,15 +57,15 @@ const (
 
 	// GetLogLevelRequestMessage represents a request to get the current log level
 	GetLogLevelRequestMessage
+)
 
-	// ExecutorKeyAttestationRequestMessage represents a proxy request forwarded by the manager to the executor for key attestation
-	ExecutorKeyAttestationRequestMessage
-
-	// ExecutorSetLogLevelRequestMessage represents a proxy request forwarded by the manager to the executor to change the log level
-	ExecutorSetLogLevelRequestMessage
-
-	// ExecutorGetLogLevelRequestMessage represents a proxy request forwarded by the manager to the executor to get the current log level
-	ExecutorGetLogLevelRequestMessage
+// Admin command type constants for ForwardAdminCommand dispatching through the
+// communication channel. These are used by both the Manager (sender) and
+// Executor (handler).
+const (
+	AdminCmdKeyAttestation = "key_attestation"
+	AdminCmdSetLogLevel    = "set_log_level"
+	AdminCmdGetLogLevel    = "get_log_level"
 )
 
 // SupportedLogLevels lists all valid log level strings accepted by SetLogLevel.
@@ -68,27 +82,23 @@ type GetLogLevelRequest struct {
 	Target string `json:"target,omitempty"`
 }
 
-// TargetAll is the target value that means "apply to all components".
-// Currently handled as "apply to self" since proxy is not yet implemented.
-// When the Manager gains proxy capability, target "all" on the Manager will
-// apply the command locally AND forward it to the Executor.
-const TargetAll = "all"
+// Target constants for admin commands. The Manager admin server is the single
+// entry point; these values control which component(s) a command applies to.
+const (
+	TargetManager  = "manager"  // Apply to Manager only
+	TargetExecutor = "executor" // Forward to Executor only
+	TargetAll      = "all"      // Apply to Manager locally AND forward to Executor
+)
 
-// ValidateTarget checks the target field against the component's own identity.
-// It accepts the component's own name (e.g. "manager" or "executor"), empty, or "all".
-// Returns an error for mismatches or unknown values.
-func ValidateTarget(target, self string) error {
+// ValidateTarget checks the target field for admin commands received by the
+// Manager admin server. Accepted values: "manager", "executor", "all", or ""
+// (empty defaults to "all" at the call-site). Returns an error for unknown values.
+func ValidateTarget(target string) error {
 	switch target {
-	case "", self, TargetAll:
+	case "", TargetManager, TargetExecutor, TargetAll:
 		return nil
-	case "manager", "executor":
-		other := "manager"
-		if self == "manager" {
-			other = "executor"
-		}
-		return fmt.Errorf("this is the %s admin server, target '%s' is not supported; connect to the %s admin server directly", self, target, other)
 	default:
-		return fmt.Errorf("unknown target '%s'; valid targets: 'manager', 'executor', 'all'", target)
+		return fmt.Errorf("unknown target '%s'; valid targets: '%s', '%s', '%s'", target, TargetManager, TargetExecutor, TargetAll)
 	}
 }
 

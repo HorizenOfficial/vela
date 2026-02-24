@@ -136,6 +136,10 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 	chainID, err := c.client.ChainID(connectCtx)
 	if err != nil {
 		// Clean up so the next Connect() call starts fresh.
+		// Close the underlying client if it supports it (ethclient.Client does).
+		if closer, ok := c.client.(interface{ Close() }); ok {
+			closer.Close()
+		}
 		c.client = nil
 		c.processorBoundContract = nil
 		c.teeAuthBoundContract = nil

@@ -17,9 +17,6 @@ type Config struct {
 	// ChannelParams are the parameters for the connection server
 	ChannelParams common.ChannelConnectionParams
 
-	// AdminChannelParams are the parameters for the admin server
-	AdminChannelParams common.ChannelConnectionParams
-
 	// KeySetRecoveryType is the type of recovery mechanism to use for the keyset
 	KeySetRecoveryType int
 	// FuelPricePerUnit is the price of fuel per unit
@@ -48,9 +45,6 @@ type Config struct {
 
 	// CommunicationParams holds parameters for communication between manager and executor
 	CommunicationParams common.CommunicationParams
-
-	// AdminCommunicationParams holds parameters for communication towards the admin server
-	AdminCommunicationParams common.CommunicationParams
 }
 
 const confFileName = "executor.conf"
@@ -71,38 +65,27 @@ func LoadConfig() (*Config, error) {
 	executorServerPort := common.GetConfigVarInt64("EXECUTOR_PORT", 4000, fileProperties)
 	var logClientConnectionParams common.ChannelConnectionParams
 	logServerPort := common.GetConfigVarInt64("LOG_SERVER_PORT", 5000, fileProperties)
-	var adminChannelConnectionParams common.ChannelConnectionParams
-	adminServerPort := common.GetConfigVarInt64("EXECUTOR_ADMIN_PORT", 4001, fileProperties)
 	if channelType == "vsock" {
 		// CID 3 is reserved for the parent EC2 instance (where manager runs), CID >= 16 are available for enclaves (where executor runs)
 		// CID is not used actually when creating a listening server
 		channelServerConnectionParams = common.VSockChannelConnectionParams{Port: uint32(executorServerPort)}
-		adminChannelConnectionParams = common.VSockChannelConnectionParams{Port: uint32(adminServerPort)}
 		// CID and port are both used when connecting to a server
 		managerCid := common.GetConfigVarInt64("MANAGER_VSOCK_CID", 3, fileProperties)
 		logClientConnectionParams = common.VSockChannelConnectionParams{CID: uint32(managerCid), Port: uint32(logServerPort)}
 	} else {
 		executorIpHost := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
 		channelServerConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(executorServerPort)}
-		adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(adminServerPort)}
 		logServerIpHost := common.GetConfigVar("LOG_SERVER_IP_HOST", "localhost", fileProperties)
 		logClientConnectionParams = common.TcpChannelConnectionParams{Ip: logServerIpHost, Port: uint32(logServerPort)}
 	}
 
-	
 	communicationParams := common.CommunicationParams{
 		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
 	}
-	
-	adminCommunicationParams := common.CommunicationParams{
-		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
-	}
-	
-	
+
 	return &Config{
-		ChannelType:        channelType,
-		ChannelParams:      channelServerConnectionParams,
-		AdminChannelParams: adminChannelConnectionParams,
+		ChannelType:   channelType,
+		ChannelParams: channelServerConnectionParams,
 		KeySetRecoveryType: int(common.GetConfigVarInt64("EXECUTOR_KEYSET_RECOVERY_TYPE", 0, fileProperties)),
 		FuelPricePerUnit:   big.NewInt(common.GetConfigVarInt64("EXECUTOR_FUEL_PRICE_PER_UNIT", 1, fileProperties)),
 		MinFeePerRequest:   big.NewInt(common.GetConfigVarInt64("EXECUTOR_MIN_FEE_PER_REQUEST", 10, fileProperties)),
@@ -115,6 +98,5 @@ func LoadConfig() (*Config, error) {
 		LogChannelParams:   logClientConnectionParams,
 		LogNetworkLevel:    common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
 		CommunicationParams: communicationParams,
-		AdminCommunicationParams: adminCommunicationParams,
 	}, nil
 }

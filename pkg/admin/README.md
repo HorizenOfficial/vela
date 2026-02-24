@@ -100,22 +100,33 @@ Or with an explicit target:
 
 #### Target Field
 
-Both `SetLogLevel` and `GetLogLevel` accept an optional `target` field. Each admin server validates the target matches itself:
+Both `SetLogLevel` and `GetLogLevel` accept an optional `target` field. The Manager admin server (the single admin entry point) validates the target and routes the command accordingly:
 
-| Connected to | `target` value | Result |
-|---|---|---|
-| Manager `:4002` | `"manager"` | Handled |
-| Manager `:4002` | `""` / omitted | Handled (applies to self) |
-| Manager `:4002` | `"all"` | Handled (applies to self; see note below) |
-| Manager `:4002` | `"executor"` | **Rejected** |
-| Manager `:4002` | anything else | **Rejected** (unknown target) |
-| Executor `:4001` | `"executor"` | Handled |
-| Executor `:4001` | `""` / omitted | Handled (applies to self) |
-| Executor `:4001` | `"all"` | Handled (applies to self; see note below) |
-| Executor `:4001` | `"manager"` | **Rejected** |
-| Executor `:4001` | anything else | **Rejected** (unknown target) |
+| `target` value | Result |
+|---|---|
+| `"manager"` | Applied to Manager only |
+| `"executor"` | Forwarded to Executor only (Manager is not affected) |
+| `"all"` | Applied to Manager locally **and** forwarded to Executor; returns an aggregated response |
+| `""` / omitted | Defaults to `"all"` (a warning is logged); see `"all"` above |
+| anything else | **Rejected** (unknown target) |
 
-> **Note on `"all"`:** Currently `"all"` is accepted and applies to the receiving component only (same as omitted). When the Manager gains proxy capability, `"all"` on the Manager will apply the command locally **and** forward it to the Executor, returning an aggregated response.
+> **Note:** The Executor does not have its own admin server. Admin commands reach the Executor exclusively through the Manager's proxy forwarding via the communication channel (`ForwardAdminCommand`). When `target` is omitted, the command defaults to `"all"` so that both components are affected.
+
+#### Partial Failure Semantics (target="all")
+
+When `target` is `"all"`, the Manager applies the command locally first, then forwards it to the Executor. This is **not atomic** — if the Executor fails (e.g. communication timeout), the Manager's change is still applied. The error message reports the partial success:
+
+```json
+{
+  "type": 1,
+  "data": {
+    "code": "COMMAND_ERROR",
+    "message": "manager level set to 'debug' successfully, but executor failed: <error details>"
+  }
+}
+```
+
+To recover from a partial failure, send a follow-up command with `target: "executor"` to retry on the Executor alone.
 
 #### Supported Log Levels
 
@@ -145,17 +156,6 @@ Log levels follow a hierarchy where setting a level enables all messages at that
 #### Error Handling
 
 All command errors are returned with the `COMMAND_ERROR` code.
-
-Wrong target:
-```json
-{
-  "type": 1,
-  "data": {
-    "code": "COMMAND_ERROR",
-    "message": "this is the manager admin server, target 'executor' is not supported; connect to the executor admin server directly"
-  }
-}
-```
 
 Unknown target:
 ```json
@@ -199,11 +199,13 @@ The `SetLogLevel` command:
 4. Calls `logger.SetLevel()` to update the logger configuration
 5. Changes take effect immediately for all subsequent log statements
 
-## Executor Commands
+## Executor Commands (Forwarded via Manager)
+
+All Executor commands are sent to the Manager admin server and forwarded to the Executor through the communication channel. The Executor does not have its own admin server.
 
 ### CreateKeyAttestation
 
-Generates a key attestation document for the Executor's cryptographic keys.
+Generates a key attestation document for the Executor's cryptographic keys. Always forwarded to the Executor.
 
 **Request:**
 ```json
@@ -223,11 +225,11 @@ Generates a key attestation document for the Executor's cryptographic keys.
 
 ### GetLogLevel (Executor)
 
-Retrieves the current logging level of the Executor. Same behavior as the Manager command (type 5), but accepts target `"executor"` instead of `"manager"`.
+Retrieves the current logging level of the Executor. Use `target: "executor"` to get only the Executor's level, or `target: "all"` to get both.
 
 ### SetLogLevel (Executor)
 
-Changes the Executor's logging level at runtime. Same behavior as the Manager command (type 4), but accepts target `"executor"` instead of `"manager"`.
+Changes the Executor's logging level at runtime. Use `target: "executor"` to change only the Executor's level, or `target: "all"` to change both.
 
 ## Message Types
 
@@ -239,9 +241,9 @@ Changes the Executor's logging level at runtime. Same behavior as the Manager co
 | 3 | `GetVersionRequestMessage` | Request version info (Manager) |
 | 4 | `SetLogLevelRequestMessage` | Change log level (Manager and Executor) |
 | 5 | `GetLogLevelRequestMessage` | Get current log level (Manager and Executor) |
-| 6 | `ExecutorKeyAttestationRequestMessage` | Reserved: proxy key attestation via Manager |
-| 7 | `ExecutorSetLogLevelRequestMessage` | Reserved: proxy SetLogLevel via Manager |
-| 8 | `ExecutorGetLogLevelRequestMessage` | Reserved: proxy GetLogLevel via Manager |
+
+
+> **Note:** Proxy forwarding (Manager → Executor) uses the existing communication channel via `ForwardAdminCommand`, not separate admin message types. See the "Admin Proxy Forwarding" section below.
 
 ## Usage Examples
 
@@ -266,20 +268,84 @@ echo '{"type":3,"data":null}' | nc <manager-host> <admin-port>
 ### Change the Executor log level
 
 ```bash
-echo '{"type":4,"data":{"level":"debug","target":"executor"}}' | nc <executor-host> <admin-port>
+echo '{"type":4,"data":{"level":"debug","target":"executor"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Disable all logging on the Executor
 
 ```bash
-echo '{"type":4,"data":{"level":"disabled","target":"executor"}}' | nc <executor-host> <admin-port>
+echo '{"type":4,"data":{"level":"disabled","target":"executor"}}' | nc <manager-host> <admin-port>
+```
+
+### Set log level on both Manager and Executor
+
+Use `target: "all"` to apply to both components at once. The Manager applies locally first, then forwards to the Executor:
+
+```bash
+echo '{"type":4,"data":{"level":"debug","target":"all"}}' | nc <manager-host> <admin-port>
+```
+
+**Aggregated response:**
+```json
+{
+  "type": 0,
+  "data": {
+    "manager": {"success": true, "level": "debug"},
+    "executor": {"success": true, "level": "debug"}
+  }
+}
+```
+
+### Get log level from both Manager and Executor
+
+```bash
+echo '{"type":5,"data":{"target":"all"}}' | nc <manager-host> <admin-port>
+```
+
+**Aggregated response:**
+```json
+{
+  "type": 0,
+  "data": {
+    "manager": "info",
+    "executor": "debug"
+  }
+}
+```
+
+## Admin Proxy Forwarding (Manager → Executor)
+
+In production (AWS Nitro Enclave), the Executor is not directly accessible — only the Manager is. The Manager can forward admin commands to the Executor through the existing bidirectional communication channel (TCP/V-Socket) using `ForwardAdminCommand`.
+
+No additional configuration is needed — the proxy uses the same communication channel that carries `ProcessRequest` and `DeployApp` messages.
+
+### Communication Channel Protocol
+
+Admin commands are forwarded using `AdminCommandRequestMessage` (type 10) and `AdminCommandResponseMessage` (type 11) in the communication layer. Each request contains:
+- `commandType`: A string identifier (e.g., `"set_log_level"`, `"get_log_level"`)
+- `data`: Command-specific payload as `json.RawMessage`
+
+### Proxy Flow
+
+```
+Admin Client ──> Manager Admin Server ──> Manager ExecuteCommand
+                                              │
+                                              ├── type 4 (target="all") ──> local + ForwardAdminCommand ──> aggregated response
+                                              └── type 5 (target="all") ──> local + ForwardAdminCommand ──> aggregated response
+                                                                                     │
+                                                                        communication.Client.ForwardAdminCommand
+                                                                                     │
+                                                                                     ▼
+                                                                        communication.Server (Executor)
+                                                                                     │
+                                                                        executor.HandleAdminCommand
 ```
 
 ## Server Configuration
 
-There are two admin servers: one in the Manager and one in the Executor.
-- The Manager admin server always uses TCP
-- The Executor admin server uses a connection factory that determines TCP or V-Socket transport
+There is one admin server, running in the Manager. The Executor does not have a standalone admin server — admin commands are forwarded to it through the communication channel.
+
+- The Manager admin server uses TCP (configured via `MANAGER_ADMIN_PORT`)
 - Client timeout controls how long a client connection can remain active
 - Only one client can be connected at a time
 
@@ -287,8 +353,8 @@ There are two admin servers: one in the Manager and one in the Executor.
 
 The package includes comprehensive tests:
 - [adminserver_manager_test.go](adminserver_manager_test.go) - Tests for Manager admin server
-- [adminserver_test.go](adminserver_test.go) - Tests for Executor admin server
-- [admin_integration_test.go](admin_integration_test.go) - Integration test with real AdminServer over TCP and ZeroNetworkLogger
+- [adminserver_test.go](adminserver_test.go) - Tests for admin server core (shared infrastructure)
+- [admin_integration_test.go](admin_integration_test.go) - Integration tests with real AdminServer over TCP, ZeroNetworkLogger, and admin command forwarding through the communication channel
 
 To run the tests:
 ```bash

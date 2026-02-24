@@ -10,11 +10,59 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// mockCommRequestHandler implements communication.RequestHandler for integration testing.
+// It handles admin commands (set/get log level) using a real logger.
+type mockCommRequestHandler struct {
+	log logger.Logger
+}
+
+func (h *mockCommRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure) {
+	return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "not implemented", nil)
+}
+
+func (h *mockCommRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+	return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "not implemented", nil)
+}
+
+func (h *mockCommRequestHandler) HandleAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	switch cmdType {
+	case AdminCmdSetLogLevel:
+		var req SetLogLevelRequest
+		if data != nil && string(data) != "null" {
+			if err := json.Unmarshal(data, &req); err != nil {
+				return nil, fmt.Errorf("invalid request data: %w", err)
+			}
+		}
+		result, err := HandleSetLogLevel(h.log, "integration-test", req.Level)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+	case AdminCmdGetLogLevel:
+		level, err := HandleGetLogLevel(h.log, "integration-test")
+		if err != nil {
+			return nil, err
+		}
+		resp, err := json.Marshal(level)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+	default:
+		return nil, fmt.Errorf("unsupported admin command type: %s", cmdType)
+	}
+}
 
 // logLevelHandler implements AdminCmdHandler using a real logger,
 type logLevelHandler struct {
@@ -28,7 +76,7 @@ func (h *logLevelHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) 
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, fmt.Errorf("invalid request data: %w", err)
 		}
-		if err := ValidateTarget(req.Target, "manager"); err != nil {
+		if err := ValidateTarget(req.Target); err != nil {
 			return nil, err
 		}
 		return HandleSetLogLevel(h.log, "integration-test", req.Level)
@@ -40,7 +88,7 @@ func (h *logLevelHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) 
 				return nil, fmt.Errorf("invalid request data: %w", err)
 			}
 		}
-		if err := ValidateTarget(req.Target, "manager"); err != nil {
+		if err := ValidateTarget(req.Target); err != nil {
 			return nil, err
 		}
 		return HandleGetLogLevel(h.log, "integration-test")
@@ -164,16 +212,110 @@ func TestIntegration_AdminServer_SetGetLogLevel_RealTCP(t *testing.T) {
 	// 7. Verify the logger itself reflects the change.
 	assert.Equal(t, "debug", znl.GetLevel())
 
-	// 8. SetLogLevel with wrong target should be rejected.
-	setData, err = json.Marshal(SetLogLevelRequest{Level: "warn", Target: "executor"})
+	// 8. SetLogLevel with unknown target should be rejected.
+	setData, err = json.Marshal(SetLogLevelRequest{Level: "warn", Target: "foobar"})
 	require.NoError(t, err)
 	resp = sendAdminCommand(AdminMessage{Type: SetLogLevelRequestMessage, Data: setData})
 	assert.Equal(t, AdminErrorMessage, resp.Type)
 	var errData communication.ErrorData
 	require.NoError(t, json.Unmarshal(resp.Data, &errData))
 	assert.Equal(t, "COMMAND_ERROR", errData.Code)
-	assert.Contains(t, errData.Message, "this is the manager admin server")
+	assert.Contains(t, errData.Message, "unknown target 'foobar'")
 
 	// Verify level was NOT changed by the rejected command.
+	assert.Equal(t, "debug", znl.GetLevel())
+}
+
+// TestIntegration_AdminForwarding_RealTCP verifies that admin commands can be
+// forwarded through the communication channel (Manager→Executor) using a real
+// TCP communication.Server and communication.Client pair.
+func TestIntegration_AdminForwarding_RealTCP(t *testing.T) {
+	// 1. Start a dummy TCP listener to act as the log server (sink for ZeroNetworkLogger).
+	logSink, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer logSink.Close()
+	go func() {
+		for {
+			conn, err := logSink.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						c.Close()
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	logSinkAddr := logSink.Addr().(*net.TCPAddr)
+
+	// 2. Create a real ZeroNetworkLogger (simulating the executor's logger).
+	znl := logger.NewZeroNetworkLogger(&logger.Config{
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(logSinkAddr.Port),
+		},
+		NetworkLevel: "info",
+	})
+	defer znl.Close()
+
+	// 3. Create a mock RequestHandler that handles admin commands using the real logger.
+	handler := &mockCommRequestHandler{log: znl}
+
+	// 4. Start a real communication.Server + Client on a random TCP port.
+	commListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	commAddr := commListener.Addr().String()
+	commListener.Close() // free the port so the factory can rebind it
+	commFactory := communication.NewTCPConnectionFactory(commAddr)
+	commParams := common.CommunicationParams{RequestTimeoutSec: 5}
+
+	server := communication.NewServer(commFactory, commParams, testLogger)
+	server.SetRequestHandler(handler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err = server.Start(ctx, "IntegrationServer")
+	require.NoError(t, err)
+	defer server.Stop()
+
+	client := communication.NewClient(commFactory, commParams, testLogger)
+	err = client.Connect(ctx, "IntegrationClient")
+	require.NoError(t, err)
+	defer client.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// 5. GetLogLevel via ForwardAdminCommand — should return "info".
+	respData, err := client.ForwardAdminCommand(ctx, AdminCmdGetLogLevel, nil)
+	require.NoError(t, err)
+	var level string
+	require.NoError(t, json.Unmarshal(respData, &level))
+	assert.Equal(t, "info", level)
+
+	// 6. SetLogLevel to "debug" via ForwardAdminCommand.
+	setReqData, err := json.Marshal(SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	respData, err = client.ForwardAdminCommand(ctx, AdminCmdSetLogLevel, setReqData)
+	require.NoError(t, err)
+	var setResp SetLogLevelResponse
+	require.NoError(t, json.Unmarshal(respData, &setResp))
+	assert.True(t, setResp.Success)
+	assert.Equal(t, "debug", setResp.Level)
+
+	// 7. GetLogLevel again — should now return "debug".
+	respData, err = client.ForwardAdminCommand(ctx, AdminCmdGetLogLevel, nil)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(respData, &level))
+	assert.Equal(t, "debug", level)
+
+	// 8. Verify the underlying logger actually changed.
 	assert.Equal(t, "debug", znl.GetLevel())
 }

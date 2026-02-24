@@ -9,8 +9,6 @@ import (
 
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/admin"
-
 	"github.com/horizen-pes/pkg/executor"
 	"github.com/horizen-pes/pkg/logger"
 	"github.com/horizen-pes/pkg/wasm"
@@ -58,31 +56,23 @@ func main() {
 
 	// Create the appropriate server based on configuration
 	var server communication.ExecutorServer
-	var adminServer admin.AdminCommandServer
 	switch config.ChannelType {
 	case "tcp":
 		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
 		server = communication.NewServer(factory, config.CommunicationParams, log)
-		adminFactory := communication.NewTCPConnectionFactory(config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
-		adminServer = admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
 	case "vsock":
 		factory := communication.NewVSockConnectionFactory(
 			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
 			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
 		)
 		server = communication.NewServer(factory, config.CommunicationParams, log)
-		adminFactory := communication.NewVSockConnectionFactory(
-			config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
-			config.AdminChannelParams.(common.VSockChannelConnectionParams).Port,
-		)
-		adminServer = admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
 	default:
 		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(config, runtime, server, adminServer, log)
+	exec, err := executor.NewStatelessExecutor(config, runtime, server, log)
 	if err != nil {
 		log.Error("Error creating executor: %v", err)
 		return

@@ -281,23 +281,105 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 	return nil
 }
 
+// forwardToExecutor sends an admin command to the executor via the existing
+// communication channel (ForwardAdminCommand) and returns the response data.
+func (m *SecureProcessorManager) forwardToExecutor(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	return m.executorClient.ForwardAdminCommand(ctx, cmdType, data)
+}
+
+// forwardSetLogLevel forwards a SetLogLevel command to the executor only.
+func (m *SecureProcessorManager) forwardSetLogLevel(ctx context.Context, level string) (*admin.SetLogLevelResponse, error) {
+	fwdData, err := json.Marshal(admin.SetLogLevelRequest{Level: level})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build executor request: %v", err)
+	}
+	execData, execErr := m.forwardToExecutor(ctx, admin.AdminCmdSetLogLevel, fwdData)
+	if execErr != nil {
+		return nil, execErr
+	}
+	var execResp admin.SetLogLevelResponse
+	if err := json.Unmarshal(execData, &execResp); err != nil {
+		return nil, fmt.Errorf("failed to parse executor response: %v", err)
+	}
+	return &execResp, nil
+}
+
+// forwardGetLogLevel forwards a GetLogLevel command to the executor only.
+func (m *SecureProcessorManager) forwardGetLogLevel(ctx context.Context) (string, error) {
+	execData, execErr := m.forwardToExecutor(ctx, admin.AdminCmdGetLogLevel, nil)
+	if execErr != nil {
+		return "", execErr
+	}
+	var execLevel string
+	if err := json.Unmarshal(execData, &execLevel); err != nil {
+		return "", fmt.Errorf("failed to parse executor log level: %v", err)
+	}
+	return execLevel, nil
+}
+
 // ExecuteCommand processes an admin command and returns the result.
-// Supported commands: GetVersion, SetLogLevel, GetLogLevel.
+// Supported commands: KeyAttestation, GetVersion, SetLogLevel, GetLogLevel.
+// KeyAttestation is always forwarded to the Executor.
+// For SetLogLevel/GetLogLevel, target controls routing:
+//   - "manager": applied locally only
+//   - "executor": forwarded to Executor only
+//   - "all" or "": applied locally AND forwarded to Executor (aggregated response)
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
 	switch msg.Type {
+	case admin.KeyAttestationRequestMessage:
+		m.log.Info("Manager: KeyAttestation command received, forwarding to executor")
+		respData, err := m.forwardToExecutor(ctx, admin.AdminCmdKeyAttestation, msg.Data)
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(respData), nil
+
 	case admin.GetVersionRequestMessage:
 		return m.GetVersion(ctx)
+
 	case admin.SetLogLevelRequestMessage:
 		var req admin.SetLogLevelRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, fmt.Errorf("invalid request data: %w", err)
 		}
-		if err := admin.ValidateTarget(req.Target, "manager"); err != nil {
+		if err := admin.ValidateTarget(req.Target); err != nil {
 			return nil, err
 		}
-		// TODO(proxy): when target is "all", also forward SetLogLevel to the Executor
-		// via ExecutorSetLogLevelRequestMessage and aggregate both results.
+
+		if req.Target == "" {
+			m.log.Warn("Manager: SetLogLevel received without target, defaulting to 'all' (applies to both manager and executor)")
+			req.Target = admin.TargetAll
+		}
+
+		if req.Target == admin.TargetExecutor {
+			return m.forwardSetLogLevel(ctx, req.Level)
+		}
+
+		if req.Target == admin.TargetAll {
+			// Apply locally first.
+			mgrResult, mgrErr := m.SetLogLevel(ctx, req.Level)
+			if mgrErr != nil {
+				return nil, mgrErr
+			}
+			mgrResp, ok := mgrResult.(admin.SetLogLevelResponse)
+			if !ok {
+				return nil, fmt.Errorf("unexpected response type from local SetLogLevel")
+			}
+
+			// Forward to executor via communication channel.
+			execResp, execErr := m.forwardSetLogLevel(ctx, req.Level)
+			if execErr != nil {
+				return nil, fmt.Errorf("manager level set to '%s' successfully, but executor failed: %v", req.Level, execErr)
+			}
+
+			return admin.AggregatedSetLogLevelResponse{
+				Manager:  mgrResp,
+				Executor: *execResp,
+			}, nil
+		}
+
 		return m.SetLogLevel(ctx, req.Level)
+
 	case admin.GetLogLevelRequestMessage:
 		var req admin.GetLogLevelRequest
 		if msg.Data != nil && string(msg.Data) != "null" {
@@ -305,12 +387,42 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 				return nil, fmt.Errorf("invalid request data: %w", err)
 			}
 		}
-		if err := admin.ValidateTarget(req.Target, "manager"); err != nil {
+		if err := admin.ValidateTarget(req.Target); err != nil {
 			return nil, err
 		}
-		// TODO(proxy): when target is "all", also forward GetLogLevel to the Executor
-		// via ExecutorGetLogLevelRequestMessage and aggregate both results.
+
+		if req.Target == "" {
+			m.log.Warn("Manager: GetLogLevel received without target, defaulting to 'all' (applies to both manager and executor)")
+			req.Target = admin.TargetAll
+		}
+
+		if req.Target == admin.TargetExecutor {
+			execLevel, err := m.forwardGetLogLevel(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return execLevel, nil
+		}
+
+		if req.Target == admin.TargetAll {
+			mgrLevel, mgrErr := m.GetLogLevel(ctx)
+			if mgrErr != nil {
+				return nil, mgrErr
+			}
+
+			execLevel, execErr := m.forwardGetLogLevel(ctx)
+			if execErr != nil {
+				return nil, fmt.Errorf("failed to get executor log level: %v", execErr)
+			}
+
+			return admin.AggregatedGetLogLevelResponse{
+				Manager:  mgrLevel,
+				Executor: execLevel,
+			}, nil
+		}
+
 		return m.GetLogLevel(ctx)
+
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
 	}
@@ -318,7 +430,7 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 
 // GetVersion returns the current version of the manager.
 func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error) {
-	m.log.Info("Manager: GetVersion command received")
+	m.log.Info("Manager: GetVersion command received, returning version %s", Version)
 	return Version, nil
 }
 

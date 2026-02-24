@@ -35,6 +35,14 @@ const (
 	// KeysetRecoveryResultMessage represent a confirmation from executor to manager confirming the recovery of keyset
 	KeysetRecoveryResultMessage
 
+	// AdminCommandRequestMessage represents a request to execute an admin command on the executor.
+	// Sent from manager (client) to executor (server) through the existing communication channel.
+	AdminCommandRequestMessage
+
+	// AdminCommandResponseMessage represents a response to an admin command request.
+	// Sent from executor (server) to manager (client) through the existing communication channel.
+	AdminCommandResponseMessage
+	
 	// ErrorMessage represents an error message
 	ErrorMessage
 )
@@ -143,6 +151,21 @@ func generateID() string {
 	bytes := make([]byte, 16)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+// AdminCommandRequestData represents data for an admin command request forwarded
+// from the manager to the executor through the communication channel.
+type AdminCommandRequestData struct {
+	// CommandType identifies the admin command (e.g. "set_log_level", "get_log_level").
+	CommandType string `json:"commandType"`
+	// Data is the command-specific payload, opaque to the communication layer.
+	Data json.RawMessage `json:"data"`
+}
+
+// AdminCommandResponseData represents data for an admin command response.
+type AdminCommandResponseData struct {
+	// Data is the command-specific response payload.
+	Data json.RawMessage `json:"data"`
 }
 
 type Validatable interface {

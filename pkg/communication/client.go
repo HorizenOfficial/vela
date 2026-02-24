@@ -197,6 +197,43 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request) (*commo
 	return respData.UpdatePayload, respData.ApplicationState, nil
 }
 
+// ForwardAdminCommand forwards an admin command to the executor through the
+// existing communication channel.
+func (c *Client) ForwardAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	msg := Message{
+		ID:   generateID(),
+		Type: AdminCommandRequestMessage,
+		Data: AdminCommandRequestData{
+			CommandType: cmdType,
+			Data:        data,
+		},
+	}
+
+	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send admin command: %w", err)
+	}
+
+	if respMsg.Type == ErrorMessage {
+		errData, _ := extractData[ErrorData](respMsg.Data)
+		if errData != nil {
+			return nil, fmt.Errorf("executor admin command error [%s]: %s", errData.Code, errData.Message)
+		}
+		return nil, fmt.Errorf("executor returned an error response")
+	}
+
+	if respMsg.Type != AdminCommandResponseMessage {
+		return nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	}
+
+	respData, err := extractData[AdminCommandResponseData](respMsg.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract admin command response: %w", err)
+	}
+
+	return respData.Data, nil
+}
+
 // sendRequestAndWaitForResponse sends a request and waits for the response
 func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message) (Message, error) {
 	// Create response channel

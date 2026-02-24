@@ -149,17 +149,16 @@ func RestoreEnclaveKeySet(recovery *common.EnclaveKeySetRecovery) (*EnclaveKeySe
 
 // StatelessExecutor implements the Executor interface
 type StatelessExecutor struct {
-	config       *Config
-	runtime      Runtime
-	server       communication.ExecutorServer
-	admCmdServer admin.AdminCommandServer
+	config  *Config
+	runtime Runtime
+	server  communication.ExecutorServer
 	*MsgToSignBuilder
 	keySet *EnclaveKeySet
 	log    logger.Logger
 }
 
 // NewStatelessExecutor creates a new stateless executor
-func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, admCmdServer admin.AdminCommandServer, log logger.Logger) (*StatelessExecutor, error) {
+func NewStatelessExecutor(config *Config, runtime Runtime, server communication.ExecutorServer, log logger.Logger) (*StatelessExecutor, error) {
 	msgBuilder, err := NewMsgToSignBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup msg to sign builder: %w", err)
@@ -169,7 +168,6 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 		config:           config,
 		runtime:          runtime,
 		server:           server,
-		admCmdServer:     admCmdServer,
 		MsgToSignBuilder: msgBuilder,
 		log:              log,
 	}
@@ -177,8 +175,6 @@ func NewStatelessExecutor(config *Config, runtime Runtime, server communication.
 	executor.server.SetRequestHandler(executor)
 	// Set the connection handler to perform handshake
 	executor.server.SetConnectionHandler(executor.handleNewConnection)
-
-	executor.admCmdServer.SetCmdHandler(executor)
 
 	return executor, nil
 }
@@ -257,32 +253,14 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 		e.log.Info("Executor: Starting v-socket executor server")
 	}
 
-	if err := e.server.Start(ctx, "Executor"); err != nil {
-		return err
-	}
-
-	switch e.config.ChannelType {
-	case "tcp":
-		e.log.Info("Executor: Starting TCP admin executor server on %s", e.config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
-	case "vsock":
-		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d",
-			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
-			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
-	}
-
-	return e.admCmdServer.Start(ctx, "Executor")
+	return e.server.Start(ctx, "Executor")
 }
 
-// Stop stops the executor servers
+// Stop stops the executor server
 func (e *StatelessExecutor) Stop() error {
 	e.log.Info("Executor: Stopping stateless executor")
 
-	err := e.admCmdServer.Stop()
-	if err != nil {
-		e.log.Warn("Executor: Error stopping admin server: %v", err)
-	}
-
-	err = e.server.Stop()
+	err := e.server.Stop()
 	if err != nil {
 		e.log.Warn("Executor: Error stopping server: %v", err)
 	}
@@ -727,45 +705,52 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	return decryptedPayload, nil
 }
 
-// ExecuteCommand processes an admin command and returns the result.
-// Supported commands: KeyAttestation, SetLogLevel, GetLogLevel.
-func (e *StatelessExecutor) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
-	switch msg.Type {
-	case admin.KeyAttestationRequestMessage:
-		return e.CreateKeyAttestation(ctx)
-	case admin.SetLogLevelRequestMessage:
-		var req admin.SetLogLevelRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid request data: %w", err)
-		}
-		if err := admin.ValidateTarget(req.Target, "executor"); err != nil {
+// HandleAdminCommand handles admin commands forwarded from the manager through
+// the communication channel. It dispatches on cmdType to the appropriate handler.
+func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	switch cmdType {
+	case admin.AdminCmdKeyAttestation:
+		attestation, err := e.CreateKeyAttestation(ctx)
+		if err != nil {
 			return nil, err
 		}
-		return e.SetLogLevel(ctx, req.Level)
-	case admin.GetLogLevelRequestMessage:
-		var req admin.GetLogLevelRequest
-		if msg.Data != nil && string(msg.Data) != "null" {
-			if err := json.Unmarshal(msg.Data, &req); err != nil {
+		resp, err := json.Marshal(attestation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal attestation response: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdSetLogLevel:
+		var req admin.SetLogLevelRequest
+		if data != nil && string(data) != "null" {
+			if err := json.Unmarshal(data, &req); err != nil {
 				return nil, fmt.Errorf("invalid request data: %w", err)
 			}
 		}
-		if err := admin.ValidateTarget(req.Target, "executor"); err != nil {
+		result, err := admin.HandleSetLogLevel(e.log, "Executor", req.Level)
+		if err != nil {
 			return nil, err
 		}
-		return e.GetLogLevel(ctx)
+		resp, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdGetLogLevel:
+		level, err := admin.HandleGetLogLevel(e.log, "Executor")
+		if err != nil {
+			return nil, err
+		}
+		resp, err := json.Marshal(level)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+
 	default:
-		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
+		return nil, fmt.Errorf("unsupported admin command type: %s", cmdType)
 	}
-}
-
-// SetLogLevel changes the executor's log level at runtime.
-func (e *StatelessExecutor) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
-	return admin.HandleSetLogLevel(e.log, "Executor", level)
-}
-
-// GetLogLevel returns the current log level of the executor.
-func (e *StatelessExecutor) GetLogLevel(ctx context.Context) (string, error) {
-	return admin.HandleGetLogLevel(e.log, "Executor")
 }
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {

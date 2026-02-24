@@ -3,6 +3,8 @@ package communication
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"sync"
@@ -25,9 +27,10 @@ var (
 
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
-	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
-	DeployAppFunc      func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
-	HelloFunc          func(ctx context.Context, message string) (string, error)
+	ProcessRequestFunc  func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure)
+	DeployAppFunc       func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
+	HelloFunc           func(ctx context.Context, message string) (string, error)
+	AdminCommandFunc    func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, *apperrors.RequestFailure) {
@@ -53,6 +56,13 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 		},
 		nil,
 		nil
+}
+
+func (m *MockRequestHandler) HandleAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	if m.AdminCommandFunc != nil {
+		return m.AdminCommandFunc(ctx, cmdType, data)
+	}
+	return nil, fmt.Errorf("admin command not supported in mock")
 }
 
 func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {

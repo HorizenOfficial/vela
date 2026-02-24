@@ -10,7 +10,6 @@ import (
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/blockchain"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
@@ -27,12 +26,6 @@ import (
 )
 
 var commParams = common.CommunicationParams{RequestTimeoutSec: 30}
-
-type MockAdminServer struct{}
-
-func (*MockAdminServer) Start(ctx context.Context, identityLogTag string) error { return nil }
-func (*MockAdminServer) Stop() error                                            { return nil }
-func (*MockAdminServer) SetCmdHandler(handler admin.AdminCmdHandler)            {}
 
 type SystemTestSuite struct {
 	t                  *testing.T
@@ -154,7 +147,7 @@ func NewSystemTestSuiteWithConfigs(
 	}
 
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, &MockAdminServer{}, excLog)
+	exec, err := executor.NewStatelessExecutor(execConfig, runtime, server, excLog)
 	require.NoError(t, err)
 
 	if keySet != nil && recoveryData != nil {
