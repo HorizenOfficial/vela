@@ -61,7 +61,7 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
   /executor                 - WASM Executor (runs in AWS Nitro Enclave)
   /authorityservice         - HTTP service for deanonymization reports
   /keytool                  - Key management utility
-  /key_attestation_cmd      - Key attestation utility
+  /admincli                 - Interactive admin CLI (log levels, attestation, version)
 
 /pkg                        - Shared Go library code
   /wasm                     - Wasmtime runtime integration

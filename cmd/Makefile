@@ -10,11 +10,11 @@ EXECUTOR_CONF_DEST := $(BIN_DIR)/executor.conf
 # Automatically discover all Go source files for proper dependency tracking
 MANAGER_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./manager)
 EXECUTOR_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./executor)
-ATTESTATION_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./key_attestation_cmd)
+ADMINCLI_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./admincli)
 
-.PHONY: all manager executor attestation check-conf clean list-deps clean-flag print-nothing
+.PHONY: all manager executor admincli check-conf clean list-deps clean-flag print-nothing
 
-all: clean-flag manager executor attestation check-conf print-nothing
+all: clean-flag manager executor admincli check-conf print-nothing
 
 # Ensure binary directory exists
 $(BIN_DIR):
@@ -43,14 +43,14 @@ $(BIN_DIR)/executor: $(BIN_DIR) ../go.mod ../go.sum $(EXECUTOR_SRC_FILES)
 	@touch $(FLAG_FILE)
 
 # ----------------------
-# Attestation command
+# Admin CLI
 # ----------------------
-attestation: $(BIN_DIR)/attestation
+admincli: $(BIN_DIR)/admincli
 
-$(BIN_DIR)/attestation: $(BIN_DIR) ../go.mod ../go.sum $(ATTESTATION_SRC_FILES)
-	@echo "Building attestation tool..."
-	@go build -o $(BIN_DIR)/attestation ./key_attestation_cmd
-	@echo "Attestation binary built"
+$(BIN_DIR)/admincli: $(BIN_DIR) ../go.mod ../go.sum $(ADMINCLI_SRC_FILES)
+	@echo "Building admincli..."
+	@go build -o $(BIN_DIR)/admincli ./admincli
+	@echo "Admin CLI binary built"
 	@touch $(FLAG_FILE)
 
 # ----------------------
@@ -88,13 +88,13 @@ list-deps:
 	@echo $(MANAGER_SRC_FILES) | tr ' ' '\n'
 	@echo "\nExecutor Source Dependencies:"
 	@echo $(EXECUTOR_SRC_FILES) | tr ' ' '\n'
-	@echo "\nAttestation Source Dependencies:"
-	@echo $(ATTESTATION_SRC_FILES) | tr ' ' '\n'
+	@echo "\nAdmin CLI Source Dependencies:"
+	@echo $(ADMINCLI_SRC_FILES) | tr ' ' '\n'
 
 # ----------------------
 # Clean
 # ----------------------
 clean:
 	@echo "Cleaning up..."
-	@rm -f $(BIN_DIR)/manager $(BIN_DIR)/executor $(BIN_DIR)/attestation
+	@rm -f $(BIN_DIR)/manager $(BIN_DIR)/executor $(BIN_DIR)/admincli
 	@rm -f $(MANAGER_CONF_DEST) $(EXECUTOR_CONF_DEST)
