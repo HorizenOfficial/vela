@@ -318,13 +318,27 @@ func TestGetPendingPaymentsAndWithdraw(t *testing.T) {
 	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, depositAmount, maxFeeValue)
 	testHelper.WaitMined(tx)
 
-	res, err := blockchainClient.GetPendingRequests(context.Background())
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, 1, len(res))
+	require.NotNil(t, res)
 
-	// Mark the request as failed — this credits deposit + (maxFeeValue - minFee) to the submitter
-	failure := apperrors.New(apperrors.CodeSubmittingStateUpdateFailed, "test failure", nil)
-	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID, failure)
+	// Submit a failed state update — this credits deposit + (maxFeeValue - minFee) to the submitter
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID:  res.ApplicationID,
+		RequestID:      res.RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   oldStateRoot,
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{},
+		Signature:      signature[:],
+		RefundAmount:   common.ToBig(maxFeeValue),
+		ApplicationFee: common.NewBig(0),
+		ErrorCode:      1,
+		ErrorMsg:       "test failure",
+	}
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
 	// Now the submitter should have a positive pending payment balance
