@@ -42,7 +42,7 @@ const (
 	// AdminCommandResponseMessage represents a response to an admin command request.
 	// Sent from executor (server) to manager (client) through the existing communication channel.
 	AdminCommandResponseMessage
-	
+
 	// ErrorMessage represents an error message
 	ErrorMessage
 )
