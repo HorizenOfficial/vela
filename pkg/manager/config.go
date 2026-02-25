@@ -3,6 +3,7 @@ package manager
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -216,4 +217,151 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// Validate checks the manager configuration for resource collisions that would
+// cause silent failures, data corruption, or cryptic errors at runtime.
+// It is scoped to resources owned by the manager process only.
+func (c *Config) Validate() error {
+	var errs []string
+
+	// --- Channel type ---
+	// Only "tcp" and "vsock" are supported. An invalid value falls through to
+	// the default branch in cmd/manager/main.go and cmd/executor/main.go switch
+	// statements, which log an error and return — but by that point the process
+	// has already started the log server, created the blockchain client, and done
+	// significant work. Failing fast here avoids wasted startup effort.
+	if c.ChannelType != "tcp" && c.ChannelType != "vsock" {
+		errs = append(errs, fmt.Sprintf(
+			"CHANNEL_TYPE must be \"tcp\" or \"vsock\", got %q", c.ChannelType))
+	}
+
+	// --- TCP port uniqueness ---
+	// The admin server (MANAGER_ADMIN_PORT) and the log server (LOG_SERVER_PORT)
+	// both create TCP listeners on the manager host. If they bind the same
+	// address, the second net.Listen call gets "address already in use".
+	// Depending on startup order, either the admin CLI becomes unreachable or the
+	// executor loses its log sink — with only a warning in the logs that is easy
+	// to miss.
+	adminAddr, adminOk := c.AdminChannelParams.(common.TcpChannelConnectionParams)
+	logServerAddr := c.LogServerTCPAddress
+	if adminOk && adminAddr.Url() == logServerAddr.Url() {
+		errs = append(errs, fmt.Sprintf(
+			"MANAGER_ADMIN_PORT and LOG_SERVER_PORT resolve to the same address (%s); they must be different",
+			adminAddr.Url()))
+	}
+
+	// --- Timeout values ---
+	// HandshakeTimeout feeds time.After(Duration * time.Second). A zero value
+	// fires the timer immediately, so the executor handshake always times out
+	// before it can complete. A negative value wraps to a huge positive duration
+	// on some platforms, causing an indefinite hang.
+	if c.HandshakeTimeout <= 0 {
+		errs = append(errs, fmt.Sprintf(
+			"HANDSHAKE_TIMEOUT must be > 0 (seconds), got %d", c.HandshakeTimeout))
+	}
+
+	// BlockchainPollingInterval feeds time.NewTicker(Duration * time.Second).
+	// A zero or negative value panics the Go runtime ("non-positive interval
+	// for NewTicker"), crashing the process.
+	if c.BlockchainPollingInterval <= 0 {
+		errs = append(errs, fmt.Sprintf(
+			"BLOCKCHAIN_POLLING_INTERVAL must be > 0 (seconds), got %d", c.BlockchainPollingInterval))
+	}
+
+	// ReorgTimeout feeds time.Now().Add(Duration * time.Second). A zero value
+	// means the reorg tolerance window expires instantly — any chain
+	// reorganization triggers an immediate failure instead of waiting for
+	// resolution. A negative value has the same effect.
+	if c.ReorgTimeout <= 0 {
+		errs = append(errs, fmt.Sprintf(
+			"REORG_TIMEOUT must be > 0 (seconds), got %d", c.ReorgTimeout))
+	}
+
+	// BlockchainConnectTimeout == 0 is legal: the blockchain client falls back
+	// to its own defaultConnectTimeout (10s). However, a negative value converts
+	// to a negative time.Duration, producing a context that is already expired
+	// the moment it is created — the ChainID RPC call always fails.
+	if c.BlockchainConnectTimeout < 0 {
+		errs = append(errs, fmt.Sprintf(
+			"BLOCKCHAIN_CONNECT_TIMEOUT must be >= 0 (seconds, 0 = default 10s), got %d", c.BlockchainConnectTimeout))
+	}
+
+	// RequestTimeoutSec feeds time.Now().Add(Duration * time.Second) for pending
+	// request deadlines. A zero value means every request's deadline is already
+	// in the past at creation time — the response-routing loop evicts it
+	// immediately, so every request fails with a timeout error.
+	if c.CommunicationParams.RequestTimeoutSec <= 0 {
+		errs = append(errs, fmt.Sprintf(
+			"MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC must be > 0 (seconds), got %d",
+			c.CommunicationParams.RequestTimeoutSec))
+	}
+	if c.AdminCommunicationParams.RequestTimeoutSec <= 0 {
+		errs = append(errs, fmt.Sprintf(
+			"MANAGER_ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC must be > 0 (seconds), got %d",
+			c.AdminCommunicationParams.RequestTimeoutSec))
+	}
+
+	// --- Directory uniqueness ---
+
+	// LevelDB (MANAGER_DATA_FOLDER) manages its directory exclusively, creating
+	// MANIFEST, *.ldb, and LOCK files. Deanonymization reports (MANAGER_REPORTS_FOLDER)
+	// are written as .json files. If both point to the same directory, cleanup scripts
+	// or backup tooling targeting one set of files can destroy the other — for example,
+	// wiping the "reports folder" would delete the LevelDB database.
+	if c.DataLayerDBPath != "" && c.DeanonymizationReportPath != "" {
+		dbAbs, _ := filepath.Abs(c.DataLayerDBPath)
+		reportsAbs, _ := filepath.Abs(c.DeanonymizationReportPath)
+		if dbAbs == reportsAbs {
+			errs = append(errs, fmt.Sprintf(
+				"MANAGER_DATA_FOLDER and MANAGER_REPORTS_FOLDER resolve to the same path (%s); "+
+					"LevelDB files and report JSON files must not share a directory", dbAbs))
+		}
+	}
+
+	// WASM bytecode files (MANAGER_INPUT_WASMS) mixed with LevelDB files carry a
+	// similar risk: any directory-level operation (rm, rsync, backup) on one becomes
+	// hazardous to the other.
+	if c.DataLayerDBPath != "" && c.InputWasmPath != "" {
+		dbAbs, _ := filepath.Abs(c.DataLayerDBPath)
+		wasmAbs, _ := filepath.Abs(c.InputWasmPath)
+		if dbAbs == wasmAbs {
+			errs = append(errs, fmt.Sprintf(
+				"MANAGER_DATA_FOLDER and MANAGER_INPUT_WASMS resolve to the same path (%s); "+
+					"LevelDB files and WASM bytecode files must not share a directory", dbAbs))
+		}
+	}
+
+	// --- Log file uniqueness ---
+	// The manager log (MANAGER_LOG_FILE_NAME) and the log server
+	// (LOG_SERVER_FILE_NAME) use two independent writers — zerolog and the log
+	// server's writer (optionally with lumberjack rotation). If both open the same
+	// file, each does independent buffered writes and flushes, producing interleaved
+	// bytes and corrupted output. When rotation is enabled, lumberjack
+	// renames/truncates the file while zerolog still holds an open fd, causing
+	// further data loss.
+	if c.LogFileName != "" && c.LogServerLogFile != "" {
+		logAbs, _ := filepath.Abs(c.LogFileName)
+		logServerAbs, _ := filepath.Abs(c.LogServerLogFile)
+		if logAbs == logServerAbs {
+			errs = append(errs, fmt.Sprintf(
+				"MANAGER_LOG_FILE_NAME and LOG_SERVER_FILE_NAME resolve to the same file (%s); "+
+					"concurrent writers will corrupt output", logAbs))
+		}
+	}
+
+	// --- Log rotation without log file ---
+	// If LOG_SERVER_FILE_ROTATION is enabled but LOG_SERVER_FILE_NAME is empty,
+	// the rotation settings are silently ignored — the log server skips file
+	// creation entirely. This likely indicates the operator intended to write
+	// rotated logs but forgot to set the file path.
+	if c.LogServerRotationEnabled && c.LogServerLogFile == "" {
+		errs = append(errs, "LOG_SERVER_FILE_ROTATION is enabled but LOG_SERVER_FILE_NAME is empty; "+
+			"rotation has no effect without a log file path")
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("configuration conflicts:\n  - %s", strings.Join(errs, "\n  - "))
+	}
+	return nil
 }

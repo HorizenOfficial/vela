@@ -77,12 +77,11 @@ func main() {
 	var kmsClient kms.KMSClient
 	var enclaveHandle kms.EnclaveHandle
 
-	if config.KeySetRecoveryType == common.RecoveryTypeKMS {
-		// Validate KMS configuration
-		if err := config.ValidateKMSConfig(); err != nil {
-			log.Fatal("Invalid KMS configuration: %v", err)
-		}
+	if err := config.Validate(); err != nil {
+		log.Fatal("Invalid configuration: %v", err)
+	}
 
+	if config.KeySetRecoveryType == common.RecoveryTypeKMS {
 		log.Info("Initializing Type 1 (KMS) key recovery with Nitro Enclave attestation...")
 
 		// Initialize enclave handle first - this will fail if not running in a Nitro Enclave

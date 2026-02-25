@@ -73,6 +73,10 @@ func main() {
 		logTmp.Fatal("Failed to load configuration: %v", err)
 	}
 
+	if err := config.Validate(); err != nil {
+		logTmp.Fatal("Invalid configuration: %v", err)
+	}
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
