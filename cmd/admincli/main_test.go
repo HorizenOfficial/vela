@@ -15,19 +15,19 @@ import (
 func TestMessageTypeConstants(t *testing.T) {
 	checks := []struct {
 		name     string
-		local    int
-		upstream int
+		local    string
+		upstream string
 	}{
-		{"AdminResponseMessage", adminResponseMessage, int(admin.AdminResponseMessage)},
-		{"AdminErrorMessage", adminErrorMessage, int(admin.AdminErrorMessage)},
-		{"KeyAttestationRequestMessage", keyAttestationRequest, int(admin.KeyAttestationRequestMessage)},
-		{"GetVersionRequestMessage", getVersionRequest, int(admin.GetVersionRequestMessage)},
-		{"SetLogLevelRequestMessage", setLogLevelRequest, int(admin.SetLogLevelRequestMessage)},
-		{"GetLogLevelRequestMessage", getLogLevelRequest, int(admin.GetLogLevelRequestMessage)},
+		{"AdminResponseMessage", adminResponseMessage, string(admin.AdminResponseMessage)},
+		{"AdminErrorMessage", adminErrorMessage, string(admin.AdminErrorMessage)},
+		{"KeyAttestationRequestMessage", keyAttestationRequest, string(admin.KeyAttestationRequestMessage)},
+		{"GetVersionRequestMessage", getVersionRequest, string(admin.GetVersionRequestMessage)},
+		{"SetLogLevelRequestMessage", setLogLevelRequest, string(admin.SetLogLevelRequestMessage)},
+		{"GetLogLevelRequestMessage", getLogLevelRequest, string(admin.GetLogLevelRequestMessage)},
 	}
 	for _, c := range checks {
 		if c.local != c.upstream {
-			t.Errorf("%s: admincli has %d, pkg/admin has %d", c.name, c.local, c.upstream)
+			t.Errorf("%s: admincli has %q, pkg/admin has %q", c.name, c.local, c.upstream)
 		}
 	}
 }

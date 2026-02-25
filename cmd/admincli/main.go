@@ -16,12 +16,12 @@ import (
 // We duplicate them here so the CLI has zero internal dependencies and can be
 // built as a standalone tool.
 const (
-	adminResponseMessage       = 0
-	adminErrorMessage          = 1
-	keyAttestationRequest      = 2
-	getVersionRequest          = 3
-	setLogLevelRequest         = 4
-	getLogLevelRequest         = 5
+	adminResponseMessage  = "response"
+	adminErrorMessage     = "error"
+	keyAttestationRequest = "key_attestation"
+	getVersionRequest     = "get_version"
+	setLogLevelRequest    = "set_log_level"
+	getLogLevelRequest    = "get_log_level"
 )
 
 var validLogLevels = []string{
@@ -31,7 +31,7 @@ var validLogLevels = []string{
 var validTargets = []string{"manager", "executor", "all"}
 
 type adminMessage struct {
-	Type int              `json:"type"`
+	Type string           `json:"type"`
 	Data json.RawMessage  `json:"data,omitempty"`
 }
 
@@ -228,7 +228,7 @@ func sendAndPrint(addr string, msg *adminMessage) {
 	case adminErrorMessage:
 		printError(resp.Data)
 	default:
-		fmt.Printf("\n%sUnexpected response type: %d\nRaw: %s%s\n", color(ansiRed), resp.Type, string(resp.Data), color(ansiReset))
+		fmt.Printf("\n%sUnexpected response type: %s\nRaw: %s%s\n", color(ansiRed), resp.Type, string(resp.Data), color(ansiReset))
 	}
 }
 
