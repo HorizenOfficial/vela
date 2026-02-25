@@ -1568,3 +1568,13 @@ func TestExecuteCommand_KeyAttestation_ForwardError(t *testing.T) {
 	require.Contains(t, err.Error(), "executor unreachable")
 	require.Nil(t, result)
 }
+
+func TestExecuteCommand_UnsupportedCommand(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	unknownMsg := admin.AdminMessage{Type: "unknown_type"}
+	result, err := mgr.ExecuteCommand(context.Background(), unknownMsg)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Contains(t, err.Error(), "unsupported command type")
+}

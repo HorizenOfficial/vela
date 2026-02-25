@@ -348,6 +348,14 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID comm
 	return report, nil
 }
 
+func (c *MockClient) GetPendingPayments(_ context.Context, _ ethCommon.Address) (*big.Int, error) {
+	return big.NewInt(0), nil
+}
+
+func (c *MockClient) WithdrawPayments(_ context.Context, _ ethCommon.Address) error {
+	return nil
+}
+
 func (c *MockClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
 	key, err := crypto.GeneratePrivateKeyP521()
 	return key.PublicKey(), err
