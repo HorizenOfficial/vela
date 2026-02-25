@@ -4,14 +4,14 @@ The `admin` package provides administrative command interfaces and servers for m
 
 ## Overview
 
-This package enables runtime administration of the Manager and Executor components through a command server interface. Clients can connect to the admin server to execute administrative commands such as checking version information or changing logging levels.
+This package enables runtime administration of the Manager component through a command server interface. Clients can connect to the Manager's admin server to execute administrative commands such as checking version information, changing logging levels, or requesting key attestations.
 
 ## Architecture
 
 The admin package defines:
 - **AdminCommandServer**: Server interface for accepting admin connections
-- **AdminCmdHandler**: Generic handler interface for both Executor and Manager admin commands
-- **AdminServer**: Concrete implementation of the admin server (shared by both Executor and Manager)
+- **AdminCmdHandler**: Generic handler interface for Manager admin commands
+- **AdminServer**: Concrete implementation of the admin server
 
 ### Communication Protocol
 
@@ -19,11 +19,11 @@ Admin commands use a JSON-based protocol over TCP or V-Socket connections:
 
 1. Client connects to the admin server
 2. Client sends an `AdminMessage` with:
-   - `Type`: The command type (e.g., `SetLogLevelRequestMessage`)
+   - `Type`: The command type (e.g., `"set_log_level"`)
    - `Data`: Command-specific payload
 3. Server processes the command and responds with:
-   - `AdminResponseMessage`: Success response with data
-   - `AdminErrorMessage`: Error response with code and message
+   - `"response"`: Success response with data
+   - `"error"`: Error response with code and message
 
 Messages are newline-delimited JSON (`\n`).
 
@@ -35,7 +35,10 @@ Retrieves the version of the Manager and/or Executor. The version is the git tag
 
 **Request:**
 ```json
-{"type": 3, "data": null}
+{
+  "type": "get_version",
+  "data": null
+}
 ```
 
 Or with an explicit target:
@@ -46,7 +49,7 @@ Or with an explicit target:
 **Response (single target):**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": "v1.2.3"
 }
 ```
@@ -70,18 +73,18 @@ Retrieves the current logging level of the Manager. Only supported when the Mana
 
 **Request:**
 ```json
-{"type": 5, "data": null}
+{"type": "get_log_level", "data": null}
 ```
 
 Or with an explicit target:
 ```json
-{"type": 5, "data": {"target": "manager"}}
+{"type": "get_log_level", "data": {"target": "manager"}}
 ```
 
 **Response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": "debug"
 }
 ```
@@ -94,18 +97,18 @@ Changes the logging level at runtime without requiring a restart. Only supported
 
 **Request:**
 ```json
-{"type": 4, "data": {"level": "debug"}}
+{"type": "set_log_level", "data": {"level": "debug"}}
 ```
 
 Or with an explicit target:
 ```json
-{"type": 4, "data": {"level": "debug", "target": "manager"}}
+{"type": "set_log_level", "data": {"level": "debug", "target": "manager"}}
 ```
 
 **Response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": {
     "success": true,
     "level": "debug"
@@ -135,7 +138,7 @@ When `target` is `"all"`, the Manager applies the command locally first, then fo
 
 ```json
 {
-  "type": 1,
+  "type": "error",
   "data": {
     "code": "COMMAND_ERROR",
     "message": "manager level set to 'debug' successfully, but executor failed: <error details>"
@@ -179,7 +182,7 @@ All command errors are returned with the `COMMAND_ERROR` code.
 Unknown target:
 ```json
 {
-  "type": 1,
+  "type": "error",
   "data": {
     "code": "COMMAND_ERROR",
     "message": "unknown target 'foo'; valid targets: 'manager', 'executor', 'all'"
@@ -190,7 +193,7 @@ Unknown target:
 Invalid log level:
 ```json
 {
-  "type": 1,
+  "type": "error",
   "data": {
     "code": "COMMAND_ERROR",
     "message": "invalid log level 'invalid'; supported levels: trace, debug, info, warn, error, fatal, panic, disabled"
@@ -201,7 +204,7 @@ Invalid log level:
 Component not using ZeroNetworkLogger:
 ```json
 {
-  "type": 1,
+  "type": "error",
   "data": {
     "code": "COMMAND_ERROR",
     "message": "SetLogLevel is only supported with the ZeroNetworkLogger"
@@ -229,7 +232,7 @@ Generates a key attestation document for the Executor's cryptographic keys. Alwa
 **Request:**
 ```json
 {
-  "type": 2,
+  "type": "key_attestation",
   "data": null
 }
 ```
@@ -237,7 +240,7 @@ Generates a key attestation document for the Executor's cryptographic keys. Alwa
 **Response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": "<base64-encoded-attestation>"
 }
 ```
@@ -254,13 +257,12 @@ Changes the Executor's logging level at runtime. Use `target: "executor"` to cha
 
 | Type | Name | Description |
 |------|------|-------------|
-| 0 | `AdminResponseMessage` | Success response |
-| 1 | `AdminErrorMessage` | Error response |
-| 2 | `KeyAttestationRequestMessage` | Request key attestation (Executor) |
-| 3 | `GetVersionRequestMessage` | Request version info (Manager) |
-| 4 | `SetLogLevelRequestMessage` | Change log level (Manager and Executor) |
-| 5 | `GetLogLevelRequestMessage` | Get current log level (Manager and Executor) |
-
+| `"response"` | `AdminResponseMessage` | Success response |
+| `"error"` | `AdminErrorMessage` | Error response |
+| `"key_attestation"` | `KeyAttestationRequestMessage` | Request key attestation (forwarded to Executor) |
+| `"get_version"` | `GetVersionRequestMessage` | Request version info |
+| `"set_log_level"` | `SetLogLevelRequestMessage` | Change log level (Manager and Executor) |
+| `"get_log_level"` | `GetLogLevelRequestMessage` | Get current log level (Manager and Executor) |
 
 > **Note:** Proxy forwarding (Manager → Executor) uses the existing communication channel via `ForwardAdminCommand`, not separate admin message types. See the "Admin Proxy Forwarding" section below.
 
@@ -269,37 +271,31 @@ Changes the Executor's logging level at runtime. Use `target: "executor"` to cha
 ### Change the Manager log level
 
 ```bash
-echo '{"type":4,"data":{"level":"debug","target":"manager"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","data":{"level":"debug","target":"manager"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the Manager log level
 
 ```bash
-echo '{"type":5,"data":{"target":"manager"}}' | nc <manager-host> <admin-port>
-```
-
-### Get the Manager version
-
-```bash
-echo '{"type":3,"data":{"target":"manager"}}' | nc <manager-host> <admin-port>
+echo '{"type":"get_log_level","data":{"target":"manager"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the version of both Manager and Executor
 
 ```bash
-echo '{"type":3,"data":{"target":"all"}}' | nc <manager-host> <admin-port>
+echo '{"type":"get_version","data":null}' | nc <manager-host> <admin-port>
 ```
 
 ### Change the Executor log level
 
 ```bash
-echo '{"type":4,"data":{"level":"debug","target":"executor"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","data":{"level":"debug","target":"executor"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Disable all logging on the Executor
 
 ```bash
-echo '{"type":4,"data":{"level":"disabled","target":"executor"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","data":{"level":"disabled","target":"executor"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Set log level on both Manager and Executor
@@ -307,13 +303,13 @@ echo '{"type":4,"data":{"level":"disabled","target":"executor"}}' | nc <manager-
 Use `target: "all"` to apply to both components at once. The Manager applies locally first, then forwards to the Executor:
 
 ```bash
-echo '{"type":4,"data":{"level":"debug","target":"all"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","data":{"level":"debug","target":"all"}}' | nc <manager-host> <admin-port>
 ```
 
 **Aggregated response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": {
     "manager": {"success": true, "level": "debug"},
     "executor": {"success": true, "level": "debug"}
@@ -324,18 +320,24 @@ echo '{"type":4,"data":{"level":"debug","target":"all"}}' | nc <manager-host> <a
 ### Get log level from both Manager and Executor
 
 ```bash
-echo '{"type":5,"data":{"target":"all"}}' | nc <manager-host> <admin-port>
+echo '{"type":"get_log_level","data":{"target":"all"}}' | nc <manager-host> <admin-port>
 ```
 
 **Aggregated response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": {
     "manager": "info",
     "executor": "debug"
   }
 }
+```
+
+### Request a key attestation
+
+```bash
+echo '{"type":"key_attestation","data":null}' | nc <manager-host> <admin-port>
 ```
 
 ## Admin Proxy Forwarding (Manager → Executor)
@@ -346,8 +348,8 @@ No additional configuration is needed — the proxy uses the same communication 
 
 ### Communication Channel Protocol
 
-Admin commands are forwarded using `AdminCommandRequestMessage` (type 10) and `AdminCommandResponseMessage` (type 11) in the communication layer. Each request contains:
-- `commandType`: A string identifier (e.g., `"get_version"`, `"set_log_level"`, `"get_log_level"`)
+Admin commands are forwarded using `AdminCommandRequestMessage` and `AdminCommandResponseMessage` in the communication layer. Each request contains:
+- `commandType`: A string identifier (e.g., `"get_version"`, `"set_log_level"`, `"get_log_level"`, `"key_attestation"`)
 - `data`: Command-specific payload as `json.RawMessage`
 
 ### Proxy Flow
@@ -355,15 +357,16 @@ Admin commands are forwarded using `AdminCommandRequestMessage` (type 10) and `A
 ```
 Admin Client ──> Manager Admin Server ──> Manager ExecuteCommand
                                               │
-                                              ├── type 3 (target="all") ──> local + ForwardAdminCommand ──> aggregated response
-                                              ├── type 4 (target="all") ──> local + ForwardAdminCommand ──> aggregated response
-                                              └── type 5 (target="all") ──> local + ForwardAdminCommand ──> aggregated response
+                                              ├── get_version (target="all") ──> local + ForwardAdminCommand ──> aggregated response
+                                              ├── set_log_level (target="all") ──> local + ForwardAdminCommand ──> aggregated response
+                                              └── get_log_level (target="all") ──> local + ForwardAdminCommand ──> aggregated response
                                                                                      │
                                                                         communication.Client.ForwardAdminCommand
                                                                                      │
                                                                                      ▼
                                                                         communication.Server (Executor)
                                                                                      │
+                                                                                     ▼
                                                                         executor.HandleAdminCommand
 ```
 
@@ -374,6 +377,7 @@ There is one admin server, running in the Manager. The Executor does not have a 
 - The Manager admin server uses TCP (configured via `MANAGER_ADMIN_PORT`)
 - Client timeout controls how long a client connection can remain active
 - Only one client can be connected at a time
+- Commands that target the Executor (e.g., KeyAttestation) are forwarded over the manager-executor communication channel
 
 ## Testing
 

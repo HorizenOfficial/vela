@@ -301,6 +301,65 @@ func TestSubmitRequest(t *testing.T) {
 	}
 }
 
+func TestGetPendingPaymentsAndWithdraw(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Initially the submitter should have no pending payments
+	pending, err := blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
+	require.NoError(t, err)
+	require.Equal(t, 0, pending.Sign(), "Pending payments should be zero initially")
+
+	// Submit a request so there's something to refund
+	depositAmount := big.NewInt(1000000)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, depositAmount, maxFeeValue)
+	testHelper.WaitMined(tx)
+
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	// Submit a failed state update — this credits deposit + (maxFeeValue - minFee) to the submitter
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID:  res.ApplicationID,
+		RequestID:      res.RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   oldStateRoot,
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{},
+		Signature:      signature[:],
+		RefundAmount:   common.ToBig(maxFeeValue),
+		ApplicationFee: common.NewBig(0),
+		ErrorCode:      1,
+		ErrorMsg:       "test failure",
+	}
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+
+	// Now the submitter should have a positive pending payment balance
+	pending, err = blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
+	require.NoError(t, err)
+	require.Equal(t, 1, pending.Sign(), "Pending payments should be positive after failed request refund")
+
+	// minFeePerRequest is 5 (set in sim_test_helper.go), so refund = depositAmount + (maxFeeValue - 5)
+	expectedRefund := new(big.Int).Add(depositAmount, new(big.Int).Sub(maxFeeValue, big.NewInt(5)))
+	require.Equal(t, 0, pending.Cmp(expectedRefund), "Pending payments should equal deposit + (maxFee - minFee)")
+
+	// Withdraw payments for the submitter
+	err = blockchainClient.WithdrawPayments(context.Background(), testHelper.Submitter.From)
+	require.NoError(t, err)
+
+	// After withdrawal, pending payments should be zero
+	pending, err = blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
+	require.NoError(t, err)
+	require.Equal(t, 0, pending.Sign(), "Pending payments should be zero after withdrawal")
+}
+
 func TestGetTeePublicKey(t *testing.T) {
 	//generate key
 	key, err := crypto.GeneratePrivateKeyP521()

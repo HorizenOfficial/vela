@@ -12,11 +12,11 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
 
-	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/appdata"
 	"github.com/horizen-pes/pkg/common/apperrors"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/communication"
 	"github.com/horizen-pes/pkg/crypto"
 	"github.com/horizen-pes/pkg/executor/kms"

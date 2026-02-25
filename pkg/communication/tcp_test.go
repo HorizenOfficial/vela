@@ -29,8 +29,7 @@ var (
 type MockRequestHandler struct {
 	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
-	HelloFunc          func(ctx context.Context, message string) (string, error)
-	AdminCommandFunc   func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
+	AdminCommandFunc func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
@@ -351,6 +350,48 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	require.NotNil(t, failure, "Client request should return failure")
 	assert.Contains(t, failure.Error(), "handler error", "Failure should indicate handler error")
 
+}
+
+func TestTCPClientServer_AdminCommandRequest(t *testing.T) {
+	expectedResponse := json.RawMessage(`"test-attestation-document-bytes"`)
+
+	serverHandler := &MockRequestHandler{
+		AdminCommandFunc: func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			assert.Equal(t, "key_attestation", cmdType)
+			return expectedResponse, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	factory := NewTCPConnectionFactory(":8091")
+	server := NewServer(factory, commParams, testLogger)
+	server.SetRequestHandler(serverHandler)
+	err := server.Start(ctx, "Server")
+	require.NoError(t, err)
+	defer server.Stop()
+
+	client := NewClient(factory, commParams, testLogger)
+	err = client.Connect(ctx, "Client")
+	require.NoError(t, err)
+	defer client.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Test success case
+	result, err := client.ForwardAdminCommand(ctx, "key_attestation", nil)
+	require.NoError(t, err)
+	assert.Equal(t, expectedResponse, result)
+
+	// Test error case
+	serverHandler.AdminCommandFunc = func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+		return nil, assert.AnError
+	}
+
+	result, err = client.ForwardAdminCommand(ctx, "key_attestation", nil)
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "COMMAND_ERROR")
 }
 
 func TestTCPClientServer_ServerToClientRequest(t *testing.T) {

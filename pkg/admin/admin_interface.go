@@ -37,7 +37,7 @@ type AdminCommandServer interface {
 }
 
 // AdminCmdHandler is the interface for handling admin commands
-// Both executor and manager implement this with their own command handling logic
+// The manager implements this to handle admin commands, forwarding executor-specific ones over the communication channel
 type AdminCmdHandler interface {
 	// ExecuteCommand processes an admin command and returns the result.
 	// The returned data must be ready for json.Marshal.
@@ -45,25 +45,25 @@ type AdminCmdHandler interface {
 }
 
 // AdminMessageType represents the command being sent
-type AdminMessageType int
+type AdminMessageType string
 
 const (
 	// AdminResponseMessage represents a successful response
-	AdminResponseMessage AdminMessageType = iota
+	AdminResponseMessage AdminMessageType = "response"
 	// AdminErrorMessage represents an error message
-	AdminErrorMessage
+	AdminErrorMessage AdminMessageType = "error"
 
-	// KeyAttestationRequestMessage represents a request to generate a key attestation (executor)
-	KeyAttestationRequestMessage
+	// KeyAttestationRequestMessage represents a request to generate a key attestation (forwarded to executor)
+	KeyAttestationRequestMessage AdminMessageType = "key_attestation"
 
 	// GetVersionRequestMessage represents a request to get the version
-	GetVersionRequestMessage
+	GetVersionRequestMessage AdminMessageType = "get_version"
 
 	// SetLogLevelRequestMessage represents a request to change the log level
-	SetLogLevelRequestMessage
+	SetLogLevelRequestMessage AdminMessageType = "set_log_level"
 
 	// GetLogLevelRequestMessage represents a request to get the current log level
-	GetLogLevelRequestMessage
+	GetLogLevelRequestMessage AdminMessageType = "get_log_level"
 )
 
 // Admin command type constants for ForwardAdminCommand dispatching through the
@@ -164,4 +164,3 @@ func NewAdminMessage(msgType AdminMessageType, data interface{}) (AdminMessage, 
 		Data: raw,
 	}, nil
 }
-

@@ -424,6 +424,38 @@ func (c *BlockChainClient) Close() error {
 	return nil
 }
 
+// GetPendingPayments returns the pending payment balance for the given address.
+func (c *BlockChainClient) GetPendingPayments(ctx context.Context, addr ethCommon.Address) (*big.Int, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	amount, err := bind.Call(c.processorBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.processorEndpoint.PackPayments(addr),
+		c.processorEndpoint.UnpackPayments)
+	if err != nil {
+		return nil, fmt.Errorf("cannot retrieve pending payments: %w", err)
+	}
+	return amount, nil
+}
+
+// WithdrawPayments calls withdrawPayments on the ProcessorEndpoint contract for the given payee.
+func (c *BlockChainClient) WithdrawPayments(ctx context.Context, payee ethCommon.Address) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return fmt.Errorf("client not connected, call Connect first")
+	}
+
+	c.account.Value = nil
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackWithdrawPayments(payee))
+}
+
 func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
