@@ -197,6 +197,38 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 	return respData.UpdatePayload, respData.ApplicationState, nil
 }
 
+// SendKeyAttestationRequest sends a key attestation request to the executor and waits for the response
+func (c *Client) SendKeyAttestationRequest(ctx context.Context) ([]byte, error) {
+	msg := Message{
+		ID:   generateID(),
+		Type: KeyAttestationRequestMessage,
+	}
+
+	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send key attestation request: %w", err)
+	}
+
+	if respMsg.Type == ErrorMessage {
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode error response: %w", err)
+		}
+		return nil, fmt.Errorf("key attestation failed [%s]: %s", errorData.Code, errorData.Message)
+	}
+
+	if respMsg.Type != KeyAttestationResponseMessage {
+		return nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	}
+
+	respData, err := extractData[KeyAttestationResponseData](respMsg.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract response data: %w", err)
+	}
+
+	return respData.Attestation, nil
+}
+
 // sendRequestAndWaitForResponse sends a request and waits for the response
 func (c *Client) sendRequestAndWaitForResponse(ctx context.Context, msg Message) (Message, error) {
 	// Create response channel

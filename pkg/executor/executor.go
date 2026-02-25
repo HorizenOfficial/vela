@@ -12,7 +12,6 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
 
-	"github.com/horizen-pes/pkg/admin"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/appdata"
 	"github.com/horizen-pes/pkg/common/apperrors"
@@ -358,10 +357,9 @@ func zeroAESKey(key *cryptotypes.AES256Key) {
 
 // StatelessExecutor implements the Executor interface
 type StatelessExecutor struct {
-	config       *Config
-	runtime      Runtime
-	server       communication.ExecutorServer
-	admCmdServer admin.AdminCommandServer
+	config  *Config
+	runtime Runtime
+	server  communication.ExecutorServer
 	*MsgToSignBuilder
 	keySet *EnclaveKeySet
 	log    logger.Logger
@@ -377,7 +375,6 @@ type StatelessExecutor struct {
 //   - config: Executor configuration
 //   - runtime: WASM runtime for executing modules
 //   - server: Communication server for manager connections
-//   - admCmdServer: Admin command server
 //   - log: Logger instance
 //   - kmsClient: KMS client for Type 1 recovery (can be nil for Type 0)
 //   - enclaveHandle: Enclave handle for attestation (can be nil for Type 0)
@@ -385,7 +382,6 @@ func NewStatelessExecutor(
 	config *Config,
 	runtime Runtime,
 	server communication.ExecutorServer,
-	admCmdServer admin.AdminCommandServer,
 	log logger.Logger,
 	kmsClient kms.KMSClient,
 	enclaveHandle kms.EnclaveHandle,
@@ -399,7 +395,6 @@ func NewStatelessExecutor(
 		config:           config,
 		runtime:          runtime,
 		server:           server,
-		admCmdServer:     admCmdServer,
 		MsgToSignBuilder: msgBuilder,
 		log:              log,
 		kmsClient:        kmsClient,
@@ -409,8 +404,6 @@ func NewStatelessExecutor(
 	executor.server.SetRequestHandler(executor)
 	// Set the connection handler to perform handshake
 	executor.server.SetConnectionHandler(executor.handleNewConnection)
-
-	executor.admCmdServer.SetCmdHandler(executor)
 
 	return executor, nil
 }
@@ -495,31 +488,14 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 		e.log.Info("Executor: Starting v-socket executor server")
 	}
 
-	if err := e.server.Start(ctx, "Executor"); err != nil {
-		return err
-	}
-
-	switch e.config.ChannelType {
-	case "tcp":
-		e.log.Info("Executor: Starting TCP admin executor server on %s", e.config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
-	case "vsock":
-		e.log.Info("Executor: Starting v-socket admin executor server on CID %d, Port %d",
-			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
-			e.config.AdminChannelParams.(common.VSockChannelConnectionParams).Port)
-	}
-	return e.admCmdServer.Start(ctx, "Executor")
+	return e.server.Start(ctx, "Executor")
 }
 
 // Stop stops the executor servers
 func (e *StatelessExecutor) Stop() error {
 	e.log.Info("Executor: Stopping stateless executor")
 
-	err := e.admCmdServer.Stop()
-	if err != nil {
-		e.log.Warn("Executor: Error stopping admin server: %v", err)
-	}
-
-	err = e.server.Stop()
+	err := e.server.Stop()
 	if err != nil {
 		e.log.Warn("Executor: Error stopping server: %v", err)
 	}
@@ -1111,15 +1087,10 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	return decryptedPayload, nil
 }
 
-// ExecuteCommand implements admin.AdminCmdHandler interface.
-// Handles admin commands for the executor, currently only KeyAttestationRequestMessage.
-func (e *StatelessExecutor) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
-	switch msg.Type {
-	case admin.KeyAttestationRequestMessage:
-		return e.CreateKeyAttestation(ctx)
-	default:
-		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
-	}
+// HandleKeyAttestationRequest implements communication.RequestHandler.
+// Creates a key attestation document using the executor's keyset and the NSM device.
+func (e *StatelessExecutor) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
+	return e.CreateKeyAttestation(ctx)
 }
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {

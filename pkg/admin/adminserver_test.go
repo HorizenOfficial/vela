@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 var testLogger logger.Logger
 
 func init() {
@@ -31,8 +30,8 @@ func init() {
 	)
 }
 
-// mockExecutorSupportedCommands is the list of commands supported by the mock executor handler
-var mockExecutorSupportedCommands = []AdminMessageType{
+// mockSupportedCommands is the list of commands supported by the mock admin handler
+var mockSupportedCommands = []AdminMessageType{
 	KeyAttestationRequestMessage,
 }
 
@@ -49,7 +48,7 @@ func (m *MockAdminCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessa
 	defer m.mu.Unlock()
 	m.callCount++
 
-	if !IsSupportedCommand(msg.Type, mockExecutorSupportedCommands) {
+	if !IsSupportedCommand(msg.Type, mockSupportedCommands) {
 		return nil, errors.New("unsupported command type")
 	}
 
@@ -80,8 +79,8 @@ func (m *MockConnectionFactory) CreateClientConnection() (net.Conn, error) {
 	return nil, nil
 }
 
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30}
 
-var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
 func TestAdminServer_StartStop(t *testing.T) {
 	listener, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer listener.Close()
@@ -177,7 +176,7 @@ func TestAdminServer_HandleRequestsKeyAttestationHandlerError(t *testing.T) {
 }
 
 func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
-	server := NewAdminServer(nil, commParams,testLogger)
+	server := NewAdminServer(nil, commParams, testLogger)
 	server.clientTimeout = 500 * time.Millisecond
 
 	clientConn, serverConn := net.Pipe()
@@ -188,7 +187,7 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 
 	go server.handleNewClient(context.Background(), serverConn, "test")
 
-	req := AdminMessage{Type: 999} // Unknown type
+	req := AdminMessage{Type: "unknown_type"}
 	reqBytes, _ := json.Marshal(req)
 	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
@@ -208,7 +207,7 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 }
 
 func TestAdminServer_ServerBusy(t *testing.T) {
-	server := NewAdminServer(nil, common.CommunicationParams{RequestTimeoutSec: 2 }, testLogger)
+	server := NewAdminServer(nil, common.CommunicationParams{RequestTimeoutSec: 2}, testLogger)
 
 	handler := &MockAdminCmdHandler{attestation: []byte("another_attestation_data")}
 	server.SetCmdHandler(handler)

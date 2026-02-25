@@ -27,6 +27,7 @@ var (
 type MockRequestHandler struct {
 	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
+	KeyAttestationFunc func(ctx context.Context) ([]byte, error)
 	HelloFunc          func(ctx context.Context, message string) (string, error)
 }
 
@@ -75,6 +76,13 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 			EncryptedState: []byte("test-encrypted-state"),
 		},
 		nil
+}
+
+func (m *MockRequestHandler) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
+	if m.KeyAttestationFunc != nil {
+		return m.KeyAttestationFunc(ctx)
+	}
+	return []byte("mock-attestation-document"), nil
 }
 
 // MockClientRequestHandler is a mock implementation for testing the new client
@@ -341,6 +349,47 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	require.NotNil(t, failure, "Client request should return failure")
 	assert.Contains(t, failure.Error(), "handler error", "Failure should indicate handler error")
 
+}
+
+func TestTCPClientServer_KeyAttestationRequest(t *testing.T) {
+	expectedAttestation := []byte("test-attestation-document-bytes")
+
+	serverHandler := &MockRequestHandler{
+		KeyAttestationFunc: func(ctx context.Context) ([]byte, error) {
+			return expectedAttestation, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	factory := NewTCPConnectionFactory(":8091")
+	server := NewServer(factory, commParams, testLogger)
+	server.SetRequestHandler(serverHandler)
+	err := server.Start(ctx, "Server")
+	require.NoError(t, err)
+	defer server.Stop()
+
+	client := NewClient(factory, commParams, testLogger)
+	err = client.Connect(ctx, "Client")
+	require.NoError(t, err)
+	defer client.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Test success case
+	attestation, err := client.SendKeyAttestationRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, expectedAttestation, attestation)
+
+	// Test error case
+	serverHandler.KeyAttestationFunc = func(ctx context.Context) ([]byte, error) {
+		return nil, assert.AnError
+	}
+
+	attestation, err = client.SendKeyAttestationRequest(ctx)
+	require.Error(t, err)
+	assert.Nil(t, attestation)
+	assert.Contains(t, err.Error(), "key attestation failed")
 }
 
 func TestTCPClientServer_ServerToClientRequest(t *testing.T) {

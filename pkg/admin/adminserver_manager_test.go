@@ -16,6 +16,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// IsSupportedCommand checks if a message type is in the list of supported commands.
+// This is a generic helper function used by manager.
+func IsSupportedCommand(msgType AdminMessageType, supportedCommands []AdminMessageType) bool {
+	for _, supportedType := range supportedCommands {
+		if msgType == supportedType {
+			return true
+		}
+	}
+	return false
+}
+
 // mockManagerSupportedCommands is the list of commands supported by the mock manager handler
 var mockManagerSupportedCommands = []AdminMessageType{
 	GetVersionRequestMessage,
@@ -153,7 +164,7 @@ func TestManagerAdminServer_HandleUnknownRequest(t *testing.T) {
 
 	go server.handleNewClient(context.Background(), serverConn, "test")
 
-	req := AdminMessage{Type: 999} // Unknown type
+	req := AdminMessage{Type: "unknown_type"}
 	reqBytes, _ := json.Marshal(req)
 	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)

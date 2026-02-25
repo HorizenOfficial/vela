@@ -4,14 +4,14 @@ The `admin` package provides administrative command interfaces and servers for m
 
 ## Overview
 
-This package enables runtime administration of the Manager and Executor components through a command server interface. Clients can connect to the admin server to execute administrative commands such as checking version information or changing logging levels.
+This package enables runtime administration of the Manager component through a command server interface. Clients can connect to the Manager's admin server to execute administrative commands such as checking version information, changing logging levels, or requesting key attestations.
 
 ## Architecture
 
 The admin package defines:
 - **AdminCommandServer**: Server interface for accepting admin connections
-- **AdminCmdHandler**: Generic handler interface for both Executor and Manager admin commands
-- **AdminServer**: Concrete implementation of the admin server (shared by both Executor and Manager)
+- **AdminCmdHandler**: Generic handler interface for Manager admin commands
+- **AdminServer**: Concrete implementation of the admin server
 
 ### Communication Protocol
 
@@ -19,11 +19,11 @@ Admin commands use a JSON-based protocol over TCP or V-Socket connections:
 
 1. Client connects to the admin server
 2. Client sends an `AdminMessage` with:
-   - `Type`: The command type (e.g., `SetLogLevelRequestMessage`)
+   - `Type`: The command type (e.g., `"set_log_level"`)
    - `Data`: Command-specific payload
 3. Server processes the command and responds with:
-   - `AdminResponseMessage`: Success response with data
-   - `AdminErrorMessage`: Error response with code and message
+   - `"response"`: Success response with data
+   - `"error"`: Error response with code and message
 
 Messages are newline-delimited JSON (`\n`).
 
@@ -36,7 +36,7 @@ Retrieves the current version of the Manager.
 **Request:**
 ```json
 {
-  "type": 3,
+  "type": "get_version",
   "data": null
 }
 ```
@@ -44,7 +44,7 @@ Retrieves the current version of the Manager.
 **Response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": "0.1.0"
 }
 
@@ -55,7 +55,7 @@ Retrieves the current logging level of the Manager. This is useful for verifying
 **Request:**
 ```json
 {
-  "type": 5,
+  "type": "get_log_level",
   "data": null
 }
 ```
@@ -63,7 +63,7 @@ Retrieves the current logging level of the Manager. This is useful for verifying
 **Response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": "debug"
 }
 ```
@@ -79,7 +79,7 @@ Changes the logging level at runtime without requiring a restart. This is useful
 **Request:**
 ```json
 {
-  "type": 4,
+  "type": "set_log_level",
   "data": {
     "level": "debug"
   }
@@ -89,7 +89,7 @@ Changes the logging level at runtime without requiring a restart. This is useful
 **Response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": {
     "success": true,
     "level": "debug"
@@ -126,7 +126,7 @@ If an invalid log level is provided, the command returns an error:
 
 ```json
 {
-  "type": 1,
+  "type": "error",
   "data": {
     "code": "ERROR_SETTING_LOG_LEVEL",
     "message": "invalid log level 'invalid': Unknown Level String: 'invalid', defaulting to NoLevel"
@@ -146,16 +146,14 @@ The `SetLogLevel` command:
 
 **Location in code:** [manager.go:282-292](../manager/manager.go#L282-L292)
 
-## Executor Commands
-
 ### CreateKeyAttestation
 
-Generates a key attestation document for the Executor's cryptographic keys.
+Requests a key attestation document for the Executor's cryptographic keys. The Manager receives this command and forwards it to the Executor over the manager-executor communication channel. The Executor produces the attestation and sends it back to the Manager, which returns it to the admin client.
 
 **Request:**
 ```json
 {
-  "type": 2,
+  "type": "key_attestation",
   "data": null
 }
 ```
@@ -163,7 +161,7 @@ Generates a key attestation document for the Executor's cryptographic keys.
 **Response:**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": "<base64-encoded-attestation>"
 }
 ```
@@ -172,12 +170,12 @@ Generates a key attestation document for the Executor's cryptographic keys.
 
 | Type | Name | Description |
 |------|------|-------------|
-| 0 | `AdminResponseMessage` | Success response |
-| 1 | `AdminErrorMessage` | Error response |
-| 2 | `KeyAttestationRequestMessage` | Request key attestation (Executor) |
-| 3 | `GetVersionRequestMessage` | Request version info (Manager) |
-| 4 | `SetLogLevelRequestMessage` | Change log level (Manager) |
-| 5 | `GetLogLevelRequestMessage` | Get current log level (Manager) |
+| `"response"` | `AdminResponseMessage` | Success response |
+| `"error"` | `AdminErrorMessage` | Error response |
+| `"key_attestation"` | `KeyAttestationRequestMessage` | Request key attestation (forwarded to Executor) |
+| `"get_version"` | `GetVersionRequestMessage` | Request version info |
+| `"set_log_level"` | `SetLogLevelRequestMessage` | Change log level |
+| `"get_log_level"` | `GetLogLevelRequestMessage` | Get current log level |
 
 ## Usage Examples
 
@@ -187,7 +185,7 @@ To connect to a running Manager and change the log level:
 
 ```bash
 # Using netcat to send a SetLogLevel command
-echo '{"type":4,"data":{"level":"debug"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","data":{"level":"debug"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the current log level
@@ -196,7 +194,7 @@ To retrieve the current logging level:
 
 ```bash
 # Using netcat to send a GetLogLevel command
-echo '{"type":5,"data":null}' | nc <manager-host> <admin-port>
+echo '{"type":"get_log_level","data":null}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the Manager version
@@ -205,22 +203,30 @@ To retrieve the Manager version:
 
 ```bash
 # Using netcat to send a GetVersion command
-echo '{"type":3,"data":null}' | nc <manager-host> <admin-port>
+echo '{"type":"get_version","data":null}' | nc <manager-host> <admin-port>
+```
+
+### Request a key attestation
+
+To request a key attestation from the Executor (via the Manager):
+
+```bash
+# Using netcat to send a KeyAttestation command
+echo '{"type":"key_attestation","data":null}' | nc <manager-host> <admin-port>
 ```
 
 ## Server Configuration
 
-There are two admin servers: one in the Manager and one in the Executor.
-- The Manager admin server always uses TCP
-- The Executor admin server uses a connection factory that determines TCP or V-Socket transport
+The admin server runs on the Manager and uses TCP.
 - Client timeout controls how long a client connection can remain active
 - Only one client can be connected at a time
+- Commands that target the Executor (e.g., KeyAttestation) are forwarded over the manager-executor communication channel
 
 ## Testing
 
 The package includes comprehensive tests:
-- [adminserver_manager_test.go](adminserver_manager_test.go) - Tests for Manager admin server
-- [adminserver_test.go](adminserver_test.go) - Tests for Executor admin server
+- [adminserver_manager_test.go](adminserver_manager_test.go) - Tests for Manager admin commands
+- [adminserver_test.go](adminserver_test.go) - Tests for admin server infrastructure
 
 To run the tests:
 ```bash
