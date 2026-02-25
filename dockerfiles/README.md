@@ -4,13 +4,21 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 ## Instructions:
 
 1)  (Skip this step if you want to use the Docker hub official images)
-    To build locally the docker images needed by the docker compose run *from the project root folder* the following commands:
+    To build locally the docker images needed by the docker compose run *from the project root folder* the following commands.
+
+    **Prerequisites:** Some images (executor, manager, kms-proxy, authorityservice) pull dependencies from private GitHub repositories. You need a [GitHub Personal Access Token (PAT)](https://github.com/settings/tokens) with `read:packages` and `repo` scopes. Export it before building:
 
     ```
-    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile . 
-    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile . 
-    docker build -t horizen/kms-proxy -f dockerfiles/kms_proxy/Dockerfile .
-    docker build -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
+    export GITHUB_TOKEN=ghp_your_token_here
+    ```
+
+    Then build the images:
+
+    ```
+    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-executor -f dockerfiles/executor/Dockerfile .
+    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-manager -f dockerfiles/manager/Dockerfile .
+    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/kms-proxy -f dockerfiles/kms_proxy/Dockerfile .
+    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
     docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile .
     docker build -t horizen/cce-deployer -f dockerfiles/deployer/Dockerfile .
     docker build -t horizen/cce-subgraph-deployer -f dockerfiles/subgraph-deployer/Dockerfile .
