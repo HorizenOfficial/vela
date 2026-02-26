@@ -24,7 +24,7 @@ type Config struct {
 
 	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests (in seconds)
 	BlockchainPollingInterval int64
-	// BlockchainConnectTimeout is the max time to wait for the initial RPC handshake (ChainID) when connecting (in seconds)
+	// BlockchainConnectTimeout is the max time to wait for the dial and initial RPC handshake (ChainID) when connecting (in seconds)
 	BlockchainConnectTimeout int64
 	// ChannelType is the type of communication channel between manager and executor
 	ChannelType string
