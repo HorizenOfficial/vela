@@ -1,6 +1,6 @@
-# Horizen Privacy Preserving Execution System
+# Horizen Vela
 
-This repository contains the implementation of the Horizen Privacy Preserving Execution System, which consists of two main components:
+This repository contains the implementation of the Horizen Vela confidential compute environment, which consists of two main components:
 
 1. **Secure Processor Manager**: Interacts with smart contracts and executes requested actions by orchestrating services and the TEE.
 2. **WASM Executor**: Executes WASM modules within a secure environment (AWS Nitro Enclave) and handles private data.
