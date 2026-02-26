@@ -92,7 +92,7 @@ func NewReadOnlyBlockChainClient(processor ethCommon.Address, rpcURL string) *Bl
 // ChainID RPC call in Connect.
 func (c *BlockChainClient) SetConnectTimeout(d time.Duration) error {
 	if d <= 0 || d > 5*time.Minute {
-		return fmt.Errorf("invalid connect timeout %v: must be between 0 and 5m", d)
+		return fmt.Errorf("invalid connect timeout %v: must be greater than 0 and at most 5m", d)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

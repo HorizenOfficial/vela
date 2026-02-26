@@ -362,7 +362,10 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			return m.forwardGetVersion(ctx)
 		}
 		if req.Target == admin.TargetAll {
-			mgrVersion, _ := m.GetVersion(ctx)
+			mgrVersion, err := m.GetVersion(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get manager version: %v", err)
+		}
 			execVersion, err := m.forwardGetVersion(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("manager version is '%s', but failed to get executor version: %v", mgrVersion, err)
