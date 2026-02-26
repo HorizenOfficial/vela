@@ -88,8 +88,8 @@ func NewReadOnlyBlockChainClient(processor ethCommon.Address, rpcURL string) *Bl
 	}
 }
 
-// SetConnectTimeout overrides the default timeout for the initial ChainID
-// RPC call in Connect. The value must be positive and no larger than 5 minutes.
+// SetConnectTimeout overrides the default timeout for the dial and initial
+// ChainID RPC call in Connect.
 func (c *BlockChainClient) SetConnectTimeout(d time.Duration) error {
 	if d <= 0 || d > 5*time.Minute {
 		return fmt.Errorf("invalid connect timeout %v: must be between 0 and 5m", d)
@@ -115,9 +115,20 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 		return nil // already connected, no-op
 	}
 
+	// Use a timeout so Connect does not hang indefinitely when the RPC
+	// node is unreachable (go-ethereum's HTTP client retries forever
+	// with a no-deadline context). The timeout covers both the dial and
+	// the initial ChainID RPC call.
+	timeout := c.connectTimeout
+	if timeout == 0 {
+		timeout = defaultConnectTimeout
+	}
+	connectCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	// Use DialContext so that the HTTP transport respects context cancellation.
 	var err error
-	c.client, err = ethclient.DialContext(ctx, c.rpcURL)
+	c.client, err = ethclient.DialContext(connectCtx, c.rpcURL)
 	if err != nil {
 		return fmt.Errorf("cannot connect to chain: %w", err)
 	}
@@ -127,15 +138,6 @@ func (c *BlockChainClient) Connect(ctx context.Context) error {
 		c.teeAuthBoundContract = c.teeAuthEndpoint.Instance(c.client, c.teeAuthAddress)
 	}
 
-	// Use a timeout so Connect does not hang indefinitely when the RPC
-	// node is unreachable (go-ethereum's HTTP client retries forever
-	// with a no-deadline context).
-	timeout := c.connectTimeout
-	if timeout == 0 {
-		timeout = defaultConnectTimeout
-	}
-	connectCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	chainID, err := c.client.ChainID(connectCtx)
 	if err != nil {
 		// Clean up so the next Connect() call starts fresh.
