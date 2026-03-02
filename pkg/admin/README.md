@@ -20,6 +20,7 @@ Admin commands use a JSON-based protocol over TCP or V-Socket connections:
 1. Client connects to the admin server
 2. Client sends an `AdminMessage` with:
    - `Type`: The command type (e.g., `"set_log_level"`)
+   - `Target`: Routing target (`"manager"`, `"executor"`, `"all"`, or omitted for default `"all"`)
    - `Data`: Command-specific payload
 3. Server processes the command and responds with:
    - `"response"`: Success response with data
@@ -43,7 +44,7 @@ Retrieves the version of the Manager and/or Executor. The version is the git tag
 
 Or with an explicit target:
 ```json
-{"type": 3, "data": {"target": "manager"}}
+{"type": "get_version", "target": "manager", "data": null}
 ```
 
 **Response (single target):**
@@ -57,7 +58,7 @@ Or with an explicit target:
 **Response (target="all"):**
 ```json
 {
-  "type": 0,
+  "type": "response",
   "data": {
     "manager": "v1.2.3",
     "executor": "v1.2.3"
@@ -65,7 +66,7 @@ Or with an explicit target:
 }
 ```
 
-The `target` field works the same as for [SetLogLevel](#target-field): `"manager"`, `"executor"`, `"all"`, or omitted (defaults to `"all"`).
+The `target` field is set on the `AdminMessage` (not in `data`). Valid values: `"manager"`, `"executor"`, `"all"`, or omitted (defaults to `"all"`).
 
 ### GetLogLevel
 
@@ -78,7 +79,7 @@ Retrieves the current logging level of the Manager. Only supported when the Mana
 
 Or with an explicit target:
 ```json
-{"type": "get_log_level", "data": {"target": "manager"}}
+{"type": "get_log_level", "target": "manager", "data": null}
 ```
 
 **Response:**
@@ -102,7 +103,7 @@ Changes the logging level at runtime without requiring a restart. Only supported
 
 Or with an explicit target:
 ```json
-{"type": "set_log_level", "data": {"level": "debug", "target": "manager"}}
+{"type": "set_log_level", "target": "manager", "data": {"level": "debug"}}
 ```
 
 **Response:**
@@ -118,7 +119,7 @@ Or with an explicit target:
 
 #### Target Field
 
-Both `SetLogLevel` and `GetLogLevel` accept an optional `target` field. The Manager admin server (the single admin entry point) validates the target and routes the command accordingly:
+All admin commands accept an optional `target` field on the `AdminMessage` envelope (not inside `data`). The Manager admin server (the single admin entry point) validates the target and routes the command accordingly:
 
 | `target` value | Result |
 |---|---|
@@ -132,23 +133,24 @@ Both `SetLogLevel` and `GetLogLevel` accept an optional `target` field. The Mana
 
 #### Partial Failure Semantics (target="all")
 
-When `target` is `"all"`, the Manager applies the command locally first, then forwards it to the Executor. The failure behaviour depends on the command:
+When `target` is `"all"`, the Manager always attempts both the local operation and the Executor forward, regardless of whether one fails. The response includes error fields for any component that failed:
 
-**Mutating commands (`SetLogLevel`):** The local change is applied first. If the Executor then fails (e.g. communication timeout), the Manager's change is **still applied** and the error reports the partial success:
+- **One fails:** The response is still a success (`"type": "response"`). The successful component's result is returned normally; the failed component's error is in `managerError` or `executorError`.
+- **Both fail:** The entire request returns an error (`"type": "error"`).
+
+Example — SetLogLevel succeeds on Manager but Executor is unreachable:
 
 ```json
 {
-  "type": "error",
+  "type": "response",
   "data": {
-    "code": "COMMAND_ERROR",
-    "message": "manager level set to 'debug' successfully, but executor failed: <error details>"
+    "manager": {"success": true, "level": "debug"},
+    "executorError": "connection refused"
   }
 }
 ```
 
-To recover, send a follow-up command with `target: "executor"` to retry on the Executor alone.
-
-**Read-only commands (`GetVersion`, `GetLogLevel`):** If the Executor fails, the entire request returns an error. No partial result is returned.
+To retry the failed component, send a follow-up command with `target: "executor"`.
 
 #### Supported Log Levels
 
@@ -271,31 +273,31 @@ Changes the Executor's logging level at runtime. Use `target: "executor"` to cha
 ### Change the Manager log level
 
 ```bash
-echo '{"type":"set_log_level","data":{"level":"debug","target":"manager"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","target":"manager","data":{"level":"debug"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the Manager log level
 
 ```bash
-echo '{"type":"get_log_level","data":{"target":"manager"}}' | nc <manager-host> <admin-port>
+echo '{"type":"get_log_level","target":"manager"}' | nc <manager-host> <admin-port>
 ```
 
 ### Get the version of both Manager and Executor
 
 ```bash
-echo '{"type":"get_version","data":null}' | nc <manager-host> <admin-port>
+echo '{"type":"get_version"}' | nc <manager-host> <admin-port>
 ```
 
 ### Change the Executor log level
 
 ```bash
-echo '{"type":"set_log_level","data":{"level":"debug","target":"executor"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","target":"executor","data":{"level":"debug"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Disable all logging on the Executor
 
 ```bash
-echo '{"type":"set_log_level","data":{"level":"disabled","target":"executor"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","target":"executor","data":{"level":"disabled"}}' | nc <manager-host> <admin-port>
 ```
 
 ### Set log level on both Manager and Executor
@@ -303,7 +305,7 @@ echo '{"type":"set_log_level","data":{"level":"disabled","target":"executor"}}' 
 Use `target: "all"` to apply to both components at once. The Manager applies locally first, then forwards to the Executor:
 
 ```bash
-echo '{"type":"set_log_level","data":{"level":"debug","target":"all"}}' | nc <manager-host> <admin-port>
+echo '{"type":"set_log_level","target":"all","data":{"level":"debug"}}' | nc <manager-host> <admin-port>
 ```
 
 **Aggregated response:**
@@ -320,7 +322,7 @@ echo '{"type":"set_log_level","data":{"level":"debug","target":"all"}}' | nc <ma
 ### Get log level from both Manager and Executor
 
 ```bash
-echo '{"type":"get_log_level","data":{"target":"all"}}' | nc <manager-host> <admin-port>
+echo '{"type":"get_log_level","target":"all"}' | nc <manager-host> <admin-port>
 ```
 
 **Aggregated response:**

@@ -72,23 +72,17 @@ type logLevelHandler struct {
 func (h *logLevelHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error) {
 	switch msg.Type {
 	case SetLogLevelRequestMessage:
+		if err := ValidateTarget(msg.Target); err != nil {
+			return nil, err
+		}
 		var req SetLogLevelRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, fmt.Errorf("invalid request data: %w", err)
 		}
-		if err := ValidateTarget(req.Target); err != nil {
-			return nil, err
-		}
 		return HandleSetLogLevel(h.log, "integration-test", req.Level)
 
 	case GetLogLevelRequestMessage:
-		var req GetLogLevelRequest
-		if msg.Data != nil && string(msg.Data) != "null" {
-			if err := json.Unmarshal(msg.Data, &req); err != nil {
-				return nil, fmt.Errorf("invalid request data: %w", err)
-			}
-		}
-		if err := ValidateTarget(req.Target); err != nil {
+		if err := ValidateTarget(msg.Target); err != nil {
 			return nil, err
 		}
 		return HandleGetLogLevel(h.log, "integration-test")
@@ -191,9 +185,9 @@ func TestIntegration_AdminServer_SetGetLogLevel_RealTCP(t *testing.T) {
 	assert.Equal(t, "info", level)
 
 	// 5. SetLogLevel to "debug".
-	setData, err := json.Marshal(SetLogLevelRequest{Level: "debug", Target: "manager"})
+	setData, err := json.Marshal(SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	resp = sendAdminCommand(AdminMessage{Type: SetLogLevelRequestMessage, Data: setData})
+	resp = sendAdminCommand(AdminMessage{Type: SetLogLevelRequestMessage, Target: "manager", Data: setData})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
 	var setResp struct {
 		Success bool   `json:"success"`
@@ -213,9 +207,9 @@ func TestIntegration_AdminServer_SetGetLogLevel_RealTCP(t *testing.T) {
 	assert.Equal(t, "debug", znl.GetLevel())
 
 	// 8. SetLogLevel with unknown target should be rejected.
-	setData, err = json.Marshal(SetLogLevelRequest{Level: "warn", Target: "foobar"})
+	setData, err = json.Marshal(SetLogLevelRequest{Level: "warn"})
 	require.NoError(t, err)
-	resp = sendAdminCommand(AdminMessage{Type: SetLogLevelRequestMessage, Data: setData})
+	resp = sendAdminCommand(AdminMessage{Type: SetLogLevelRequestMessage, Target: "foobar", Data: setData})
 	assert.Equal(t, AdminErrorMessage, resp.Type)
 	var errData communication.ErrorData
 	require.NoError(t, json.Unmarshal(resp.Data, &errData))

@@ -330,11 +330,21 @@ func (m *SecureProcessorManager) forwardGetVersion(ctx context.Context) (string,
 // ExecuteCommand processes an admin command and returns the result.
 // Supported commands: KeyAttestation, GetVersion, SetLogLevel, GetLogLevel.
 // KeyAttestation is always forwarded to the Executor.
-// For GetVersion/SetLogLevel/GetLogLevel, target controls routing:
+// For GetVersion/SetLogLevel/GetLogLevel, msg.Target controls routing:
 //   - "manager": applied locally only
 //   - "executor": forwarded to Executor only
 //   - "all" or "": applied locally AND forwarded to Executor (aggregated response)
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
+	// Validate and default the target once, before dispatching.
+	if err := admin.ValidateTarget(msg.Target); err != nil {
+		return nil, err
+	}
+	target := msg.Target
+	if target == "" {
+		m.log.Warn("Manager: %s received without target, defaulting to 'all' (applies to both manager and executor)", msg.Type)
+		target = admin.TargetAll
+	}
+
 	switch msg.Type {
 	case admin.KeyAttestationRequestMessage:
 		m.log.Info("Manager: KeyAttestation command received, forwarding to executor")
@@ -345,100 +355,71 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 		return json.RawMessage(respData), nil
 
 	case admin.GetVersionRequestMessage:
-		var req admin.GetVersionRequest
-		if msg.Data != nil && string(msg.Data) != "null" {
-			if err := json.Unmarshal(msg.Data, &req); err != nil {
-				return nil, fmt.Errorf("invalid request data: %w", err)
-			}
-		}
-		if err := admin.ValidateTarget(req.Target); err != nil {
-			return nil, err
-		}
-		if req.Target == "" {
-			m.log.Warn("Manager: GetVersion received without target, defaulting to 'all' (applies to both manager and executor)")
-			req.Target = admin.TargetAll
-		}
-		if req.Target == admin.TargetExecutor {
+		if target == admin.TargetExecutor {
 			return m.forwardGetVersion(ctx)
 		}
-		if req.Target == admin.TargetAll {
-			mgrVersion, err := m.GetVersion(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get manager version: %v", err)
-		}
-			execVersion, err := m.forwardGetVersion(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("manager version is '%s', but failed to get executor version: %v", mgrVersion, err)
+		if target == admin.TargetAll {
+			resp := admin.AggregatedGetVersionResponse{}
+			mgrVersion, mgrErr := m.GetVersion(ctx)
+			if mgrErr != nil {
+				resp.ManagerError = mgrErr.Error()
+			} else {
+				resp.Manager = mgrVersion
 			}
-			return admin.AggregatedGetVersionResponse{
-				Manager:  mgrVersion,
-				Executor: execVersion,
-			}, nil
+			execVersion, execErr := m.forwardGetVersion(ctx)
+			if execErr != nil {
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = execVersion
+			}
+			if mgrErr != nil && execErr != nil {
+				return nil, fmt.Errorf("both failed: manager: %v; executor: %v", mgrErr, execErr)
+			}
+			return resp, nil
 		}
 		return m.GetVersion(ctx)
 
 	case admin.SetLogLevelRequestMessage:
+		if msg.Data == nil || string(msg.Data) == "null" {
+			return nil, fmt.Errorf("missing request data for set_log_level")
+		}
 		var req admin.SetLogLevelRequest
-		if msg.Data != nil && string(msg.Data) != "null" {
-			if err := json.Unmarshal(msg.Data, &req); err != nil {
-				return nil, fmt.Errorf("invalid request data: %w", err)
-			}
-		}
-		if err := admin.ValidateTarget(req.Target); err != nil {
-			return nil, err
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			return nil, fmt.Errorf("invalid request data: %w", err)
 		}
 
-		if req.Target == "" {
-			m.log.Warn("Manager: SetLogLevel received without target, defaulting to 'all' (applies to both manager and executor)")
-			req.Target = admin.TargetAll
-		}
-
-		if req.Target == admin.TargetExecutor {
+		if target == admin.TargetExecutor {
 			return m.forwardSetLogLevel(ctx, req.Level)
 		}
 
-		if req.Target == admin.TargetAll {
-			// Apply locally first.
+		if target == admin.TargetAll {
+			resp := admin.AggregatedSetLogLevelResponse{}
 			mgrResult, mgrErr := m.SetLogLevel(ctx, req.Level)
 			if mgrErr != nil {
-				return nil, mgrErr
-			}
-			mgrResp, ok := mgrResult.(admin.SetLogLevelResponse)
-			if !ok {
-				return nil, fmt.Errorf("unexpected response type from local SetLogLevel")
+				resp.ManagerError = mgrErr.Error()
+			} else if mgrResp, ok := mgrResult.(admin.SetLogLevelResponse); ok {
+				resp.Manager = mgrResp
+			} else {
+				resp.ManagerError = "unexpected response type from local SetLogLevel"
 			}
 
-			// Forward to executor via communication channel.
 			execResp, execErr := m.forwardSetLogLevel(ctx, req.Level)
 			if execErr != nil {
-				return nil, fmt.Errorf("manager level set to '%s' successfully, but executor failed: %v", req.Level, execErr)
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = *execResp
 			}
 
-			return admin.AggregatedSetLogLevelResponse{
-				Manager:  mgrResp,
-				Executor: *execResp,
-			}, nil
+			if mgrErr != nil && execErr != nil {
+				return nil, fmt.Errorf("both failed: manager: %v; executor: %v", mgrErr, execErr)
+			}
+			return resp, nil
 		}
 
 		return m.SetLogLevel(ctx, req.Level)
 
 	case admin.GetLogLevelRequestMessage:
-		var req admin.GetLogLevelRequest
-		if msg.Data != nil && string(msg.Data) != "null" {
-			if err := json.Unmarshal(msg.Data, &req); err != nil {
-				return nil, fmt.Errorf("invalid request data: %w", err)
-			}
-		}
-		if err := admin.ValidateTarget(req.Target); err != nil {
-			return nil, err
-		}
-
-		if req.Target == "" {
-			m.log.Warn("Manager: GetLogLevel received without target, defaulting to 'all' (applies to both manager and executor)")
-			req.Target = admin.TargetAll
-		}
-
-		if req.Target == admin.TargetExecutor {
+		if target == admin.TargetExecutor {
 			execLevel, err := m.forwardGetLogLevel(ctx)
 			if err != nil {
 				return nil, err
@@ -446,21 +427,26 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			return execLevel, nil
 		}
 
-		if req.Target == admin.TargetAll {
+		if target == admin.TargetAll {
+			resp := admin.AggregatedGetLogLevelResponse{}
 			mgrLevel, mgrErr := m.GetLogLevel(ctx)
 			if mgrErr != nil {
-				return nil, mgrErr
+				resp.ManagerError = mgrErr.Error()
+			} else {
+				resp.Manager = mgrLevel
 			}
 
 			execLevel, execErr := m.forwardGetLogLevel(ctx)
 			if execErr != nil {
-				return nil, fmt.Errorf("failed to get executor log level: %v", execErr)
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = execLevel
 			}
 
-			return admin.AggregatedGetLogLevelResponse{
-				Manager:  mgrLevel,
-				Executor: execLevel,
-			}, nil
+			if mgrErr != nil && execErr != nil {
+				return nil, fmt.Errorf("both failed: manager: %v; executor: %v", mgrErr, execErr)
+			}
+			return resp, nil
 		}
 
 		return m.GetLogLevel(ctx)

@@ -1205,6 +1205,24 @@ func TestGetAndSetLogLevel_NonZeroNetworkLogger(t *testing.T) {
 	require.Nil(t, result)
 }
 
+func TestExecuteCommand_SetLogLevel_NilData(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	// No Data at all
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager"}
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing request data for set_log_level")
+	require.Nil(t, result)
+
+	// Explicit null Data
+	msg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: json.RawMessage("null")}
+	result, err = mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing request data for set_log_level")
+	require.Nil(t, result)
+}
+
 // TestSetLogLevel_TargetValidation verifies that SetLogLevel and GetLogLevel
 // reject invalid targets on the manager.
 func TestSetLogLevel_TargetValidation(t *testing.T) {
@@ -1219,9 +1237,9 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 			return resp, nil
 		},
 	)
-	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "executor"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "executor", Data: setData}
 	result, err := manager.ExecuteCommand(ctx, setMsg)
 	require.NoError(t, err)
 	execResp, ok := result.(*admin.SetLogLevelResponse)
@@ -1230,18 +1248,18 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 	require.Equal(t, "debug", execResp.Level)
 
 	// SetLogLevel with unknown target should be rejected
-	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "unknown"})
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "unknown", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown target 'unknown'")
 	require.Nil(t, result)
 
 	// SetLogLevel with target "manager" should be accepted (fails on logger type, not target)
-	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "manager"})
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
@@ -1255,37 +1273,53 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 			return resp, nil
 		},
 	)
-	getData, err := json.Marshal(admin.GetLogLevelRequest{Target: "executor"})
-	require.NoError(t, err)
-	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getData}
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "executor"}
 	result, err = manager.ExecuteCommand(ctx, getMsg)
 	require.NoError(t, err)
 	require.Equal(t, "debug", result)
 
-	// GetLogLevel with empty target defaults to "all" (fails on logger type, not target)
+	// GetLogLevel with empty target defaults to "all".
+	// Manager fails (non-ZeroNetworkLogger), executor mock still active → partial success.
 	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
 	result, err = manager.ExecuteCommand(ctx, getMsg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
-	require.Empty(t, result)
-
-	// SetLogLevel with target "all" should be accepted (fails on logger type, not target)
-	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "all"})
 	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	aggGetResp, ok := result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggGetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Equal(t, "debug", aggGetResp.Executor)
+
+	// SetLogLevel with target "all": manager fails (non-ZeroNetworkLogger),
+	// executor mock returns success → partial success.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Success: true, Level: "debug"})
+			return resp, nil
+		},
+	)
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
-	require.Nil(t, result)
-
-	// GetLogLevel with target "all" should be accepted (fails on logger type, not target)
-	getData, err = json.Marshal(admin.GetLogLevelRequest{Target: "all"})
 	require.NoError(t, err)
-	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getData}
+	aggSetResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggSetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.True(t, aggSetResp.Executor.Success)
+
+	// GetLogLevel with target "all": manager fails, executor mock still active → partial success.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			resp, _ := json.Marshal("debug")
+			return resp, nil
+		},
+	)
+	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
 	result, err = manager.ExecuteCommand(ctx, getMsg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
-	require.Empty(t, result)
+	require.NoError(t, err)
+	aggGetResp, ok = result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggGetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Equal(t, "debug", aggGetResp.Executor)
 }
 
 // TestGetAndSetLogLevel_WithZeroNetworkLogger verifies the positive SetLogLevel/GetLogLevel
@@ -1330,17 +1364,15 @@ func TestGetAndSetLogLevel_WithZeroNetworkLogger(t *testing.T) {
 	ctx := context.Background()
 
 	// GetLogLevel with explicit target "manager" should return "info" (the initial level).
-	getReqData, err := json.Marshal(admin.GetLogLevelRequest{Target: "manager"})
-	require.NoError(t, err)
-	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getReqData}
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "manager"}
 	result, err := mgr.ExecuteCommand(ctx, getMsg)
 	require.NoError(t, err)
 	require.Equal(t, "info", result)
 
 	// SetLogLevel to "debug" with explicit target "manager".
-	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "manager"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
 	result, err = mgr.ExecuteCommand(ctx, setMsg)
 	require.NoError(t, err)
 	resp, ok := result.(admin.SetLogLevelResponse)
@@ -1405,9 +1437,9 @@ func TestExecuteCommand_SetLogLevel_TargetAll(t *testing.T) {
 		},
 	)
 
-	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "all"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
 
 	result, err := mgr.ExecuteCommand(context.Background(), msg)
 	require.NoError(t, err)
@@ -1468,9 +1500,7 @@ func TestExecuteCommand_GetLogLevel_TargetAll(t *testing.T) {
 		},
 	)
 
-	getData, err := json.Marshal(admin.GetLogLevelRequest{Target: "all"})
-	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getData}
+	msg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
 
 	result, err := mgr.ExecuteCommand(context.Background(), msg)
 	require.NoError(t, err)
@@ -1524,14 +1554,19 @@ func TestExecuteCommand_SetLogLevel_TargetAll_ExecutorFails(t *testing.T) {
 		},
 	)
 
-	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "warn", Target: "all"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "warn"})
 	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
 
-	_, err = mgr.ExecuteCommand(context.Background(), msg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "manager level set to 'warn' successfully")
-	require.Contains(t, err.Error(), "executor failed")
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // partial success is not an error
+
+	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.True(t, aggResp.Manager.Success)
+	require.Equal(t, "warn", aggResp.Manager.Level)
+	require.Empty(t, aggResp.ManagerError)
+	require.Contains(t, aggResp.ExecutorError, "connection refused")
 
 	// Verify the manager's log level WAS changed (even though executor failed)
 	require.Equal(t, "warn", znl.GetLevel())
@@ -1573,9 +1608,7 @@ func TestExecuteCommand_KeyAttestation_ForwardError(t *testing.T) {
 func TestExecuteCommand_GetVersion_TargetManager(t *testing.T) {
 	_, mgr := setupTest(t)
 
-	getData, err := json.Marshal(admin.GetVersionRequest{Target: "manager"})
-	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Data: getData}
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "manager"}
 
 	result, err := mgr.ExecuteCommand(context.Background(), msg)
 	require.NoError(t, err)
@@ -1593,9 +1626,7 @@ func TestExecuteCommand_GetVersion_TargetExecutor(t *testing.T) {
 		},
 	)
 
-	getData, err := json.Marshal(admin.GetVersionRequest{Target: "executor"})
-	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Data: getData}
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "executor"}
 
 	result, err := mgr.ExecuteCommand(context.Background(), msg)
 	require.NoError(t, err)
@@ -1613,9 +1644,7 @@ func TestExecuteCommand_GetVersion_TargetAll(t *testing.T) {
 		},
 	)
 
-	getData, err := json.Marshal(admin.GetVersionRequest{Target: "all"})
-	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Data: getData}
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "all"}
 
 	result, err := mgr.ExecuteCommand(context.Background(), msg)
 	require.NoError(t, err)
@@ -1658,15 +1687,17 @@ func TestExecuteCommand_GetVersion_TargetAll_ExecutorFails(t *testing.T) {
 		},
 	)
 
-	getData, err := json.Marshal(admin.GetVersionRequest{Target: "all"})
-	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Data: getData}
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "all"}
 
-	_, err = mgr.ExecuteCommand(context.Background(), msg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "manager version is")
-	require.Contains(t, err.Error(), "failed to get executor version")
-	require.Contains(t, err.Error(), "connection refused")
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // partial success is not an error
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Empty(t, aggResp.ManagerError)
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "connection refused")
 }
 
 func TestExecuteCommand_UnsupportedCommand(t *testing.T) {

@@ -85,14 +85,12 @@ jobs:
             echo "✅ Generated files are up-to-date."
           fi
 
-      # Build a Go project
+      # Build Go project
       - name: Build Go project
         run: |
-          GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-          LDFLAGS="-X github.com/horizen-pes/pkg/version.Version=${GIT_VERSION}"
           go build ./...
-          go build -ldflags "${LDFLAGS}" ./cmd/executor
-          go build -ldflags "${LDFLAGS}" ./cmd/manager
+          # Makefile handles git-based versioning via ldflags (see cmd/Makefile)
+          make -C cmd manager executor
 
       # Run Go tests
       - name: Run Go tests quick
@@ -180,14 +178,12 @@ jobs:
             echo "✅ Generated files are up-to-date."
           fi
 
-      # Build a Go project
+      # Build Go project
       - name: Build Go project
         run: |
-          GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-          LDFLAGS="-X github.com/horizen-pes/pkg/version.Version=${GIT_VERSION}"
           go build ./...
-          go build -ldflags "${LDFLAGS}" ./cmd/executor
-          go build -ldflags "${LDFLAGS}" ./cmd/manager
+          # Makefile handles git-based versioning via ldflags (see cmd/Makefile)
+          make -C cmd manager executor
 
       # Run ALL Go tests (including long-running ones)
       - name: Run Go tests (full suite)
