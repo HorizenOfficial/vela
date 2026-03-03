@@ -38,7 +38,7 @@ func NewClient(factory ConnectionFactory, communicationParams common.Communicati
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
 		reqTimeout:      communicationParams.RequestTimeoutSec * time.Second,
-		log: log,
+		log:             log,
 	}
 }
 
@@ -167,7 +167,7 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
-			Request: req,
+			Request:          req,
 			ApplicationState: appState,
 		},
 	}
@@ -215,9 +215,9 @@ func (c *Client) ForwardAdminCommand(ctx context.Context, cmdType string, data j
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errData, extractErr := extractData[ErrorData](respMsg.Data)
-		if extractErr != nil {
-			return nil, fmt.Errorf("executor error (failed to decode details: %v)", extractErr)
+		errData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, fmt.Errorf("executor error (failed to decode details: %v)", err)
 		}
 		return nil, fmt.Errorf("executor admin command error [%s]: %s", errData.Code, errData.Message)
 	}
