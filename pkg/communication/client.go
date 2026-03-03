@@ -215,11 +215,11 @@ func (c *Client) ForwardAdminCommand(ctx context.Context, cmdType string, data j
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errData, _ := extractData[ErrorData](respMsg.Data)
-		if errData != nil {
-			return nil, fmt.Errorf("executor admin command error [%s]: %s", errData.Code, errData.Message)
+		errData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract server error data: %w", err)
 		}
-		return nil, fmt.Errorf("executor returned an error response")
+		return nil, fmt.Errorf("executor admin command error [%s]: %s", errData.Code, errData.Message)
 	}
 
 	if respMsg.Type != AdminCommandResponseMessage {
