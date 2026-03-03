@@ -1188,17 +1188,17 @@ func TestGetAndSetLogLevel_NonZeroNetworkLogger(t *testing.T) {
 	_, manager := setupTest(t)
 	ctx := context.Background()
 
-	// GetLogLevel should fail with non-ZeroNetworkLogger
-	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
+	// With target "manager", GetLogLevel should fail directly.
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "manager"}
 	result, err := manager.ExecuteCommand(ctx, getMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
 	require.Empty(t, result)
 
-	// SetLogLevel should fail with non-ZeroNetworkLogger
+	// With target "manager", SetLogLevel should fail directly.
 	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "error"})
 	require.NoError(t, err)
-	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
@@ -1233,7 +1233,7 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
 		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
 			require.Equal(t, admin.AdminCmdSetLogLevel, cmdType)
-			resp, _ := json.Marshal(admin.SetLogLevelResponse{Success: true, Level: "debug"})
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
 			return resp, nil
 		},
 	)
@@ -1244,7 +1244,6 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 	require.NoError(t, err)
 	execResp, ok := result.(*admin.SetLogLevelResponse)
 	require.True(t, ok)
-	require.True(t, execResp.Success)
 	require.Equal(t, "debug", execResp.Level)
 
 	// SetLogLevel with unknown target should be rejected
@@ -1292,7 +1291,7 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 	// executor mock returns success → partial success.
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
 		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
-			resp, _ := json.Marshal(admin.SetLogLevelResponse{Success: true, Level: "debug"})
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
 			return resp, nil
 		},
 	)
@@ -1304,7 +1303,7 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 	aggSetResp, ok := result.(admin.AggregatedSetLogLevelResponse)
 	require.True(t, ok)
 	require.Contains(t, aggSetResp.ManagerError, "only supported with the ZeroNetworkLogger")
-	require.True(t, aggSetResp.Executor.Success)
+	require.Equal(t, "debug", aggSetResp.Executor)
 
 	// GetLogLevel with target "all": manager fails, executor mock still active → partial success.
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
@@ -1377,7 +1376,6 @@ func TestGetAndSetLogLevel_WithZeroNetworkLogger(t *testing.T) {
 	require.NoError(t, err)
 	resp, ok := result.(admin.SetLogLevelResponse)
 	require.True(t, ok)
-	require.True(t, resp.Success)
 	require.Equal(t, "debug", resp.Level)
 
 	// GetLogLevel should now return "debug".
@@ -1432,7 +1430,7 @@ func TestExecuteCommand_SetLogLevel_TargetAll(t *testing.T) {
 	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
 		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
 			require.Equal(t, admin.AdminCmdSetLogLevel, cmdType)
-			resp, _ := json.Marshal(admin.SetLogLevelResponse{Success: true, Level: "debug"})
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
 			return resp, nil
 		},
 	)
@@ -1446,10 +1444,8 @@ func TestExecuteCommand_SetLogLevel_TargetAll(t *testing.T) {
 
 	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
 	require.True(t, ok)
-	require.True(t, aggResp.Manager.Success)
-	require.Equal(t, "debug", aggResp.Manager.Level)
-	require.True(t, aggResp.Executor.Success)
-	require.Equal(t, "debug", aggResp.Executor.Level)
+	require.Equal(t, "debug", aggResp.Manager)
+	require.Equal(t, "debug", aggResp.Executor)
 
 	// Verify the manager's logger was actually updated
 	require.Equal(t, "debug", znl.GetLevel())
@@ -1563,8 +1559,7 @@ func TestExecuteCommand_SetLogLevel_TargetAll_ExecutorFails(t *testing.T) {
 
 	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
 	require.True(t, ok)
-	require.True(t, aggResp.Manager.Success)
-	require.Equal(t, "warn", aggResp.Manager.Level)
+	require.Equal(t, "warn", aggResp.Manager)
 	require.Empty(t, aggResp.ManagerError)
 	require.Contains(t, aggResp.ExecutorError, "connection refused")
 
@@ -1698,6 +1693,56 @@ func TestExecuteCommand_GetVersion_TargetAll_ExecutorFails(t *testing.T) {
 	require.Empty(t, aggResp.ManagerError)
 	require.Empty(t, aggResp.Executor)
 	require.Contains(t, aggResp.ExecutorError, "connection refused")
+}
+
+func TestExecuteCommand_SetLogLevel_TargetAll_BothFail(t *testing.T) {
+	// Manager uses the default test logger (not ZeroNetworkLogger), so local
+	// SetLogLevel will fail. The executor mock also returns an error.
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("executor unreachable")
+		},
+	)
+
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // target="all" always returns aggregated response, never an error
+
+	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Empty(t, aggResp.Manager)
+	require.Contains(t, aggResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "executor unreachable")
+}
+
+func TestExecuteCommand_GetLogLevel_TargetAll_BothFail(t *testing.T) {
+	// Manager uses the default test logger (not ZeroNetworkLogger), so local
+	// GetLogLevel will fail. The executor mock also returns an error.
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("executor unreachable")
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // target="all" always returns aggregated response, never an error
+
+	aggResp, ok := result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Empty(t, aggResp.Manager)
+	require.Contains(t, aggResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "executor unreachable")
 }
 
 func TestExecuteCommand_UnsupportedCommand(t *testing.T) {

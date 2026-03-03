@@ -190,11 +190,9 @@ func TestIntegration_AdminServer_SetGetLogLevel_RealTCP(t *testing.T) {
 	resp = sendAdminCommand(AdminMessage{Type: SetLogLevelRequestMessage, Target: "manager", Data: setData})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
 	var setResp struct {
-		Success bool   `json:"success"`
-		Level   string `json:"level"`
+		Level string `json:"level"`
 	}
 	require.NoError(t, json.Unmarshal(resp.Data, &setResp))
-	assert.True(t, setResp.Success)
 	assert.Equal(t, "debug", setResp.Level)
 
 	// 6. GetLogLevel again - should now return "debug".
@@ -301,7 +299,6 @@ func TestIntegration_AdminForwarding_RealTCP(t *testing.T) {
 	require.NoError(t, err)
 	var setResp SetLogLevelResponse
 	require.NoError(t, json.Unmarshal(respData, &setResp))
-	assert.True(t, setResp.Success)
 	assert.Equal(t, "debug", setResp.Level)
 
 	// 7. GetLogLevel again — should now return "debug".

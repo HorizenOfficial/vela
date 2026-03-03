@@ -22,10 +22,10 @@ type AggregatedGetLogLevelResponse struct {
 // containing the result from both the Manager and the Executor.
 // If one component fails, its error field is populated and the other result is still returned.
 type AggregatedSetLogLevelResponse struct {
-	Manager       SetLogLevelResponse `json:"manager"`
-	ManagerError  string              `json:"managerError,omitempty"`
-	Executor      SetLogLevelResponse `json:"executor"`
-	ExecutorError string              `json:"executorError,omitempty"`
+	Manager       string `json:"manager,omitempty"`
+	ManagerError  string `json:"managerError,omitempty"`
+	Executor      string `json:"executor,omitempty"`
+	ExecutorError string `json:"executorError,omitempty"`
 }
 
 // AggregatedGetVersionResponse is returned when target="all" for GetVersion,
@@ -123,8 +123,7 @@ func ValidateTarget(target string) error {
 
 // SetLogLevelResponse is the successful response payload for SetLogLevel.
 type SetLogLevelResponse struct {
-	Success bool   `json:"success"`
-	Level   string `json:"level"`
+	Level string `json:"level"`
 }
 
 // HandleSetLogLevel validates and applies a log level change.
@@ -140,7 +139,7 @@ func HandleSetLogLevel(log logger.Logger, componentName, level string) (interfac
 	if err := log.SetLevel(level); err != nil {
 		return nil, fmt.Errorf("invalid log level '%s'; supported levels: %s", level, SupportedLogLevels)
 	}
-	return SetLogLevelResponse{Success: true, Level: level}, nil
+	return SetLogLevelResponse{Level: level}, nil
 }
 
 // HandleGetLogLevel returns the current log level.

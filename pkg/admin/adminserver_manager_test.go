@@ -307,11 +307,9 @@ func TestManagerAdminServer_GetAndSetLogLevel(t *testing.T) {
 	resp = sendCommand(server, AdminMessage{Type: SetLogLevelRequestMessage, Data: setData})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
 	var setResp struct {
-		Success bool   `json:"success"`
-		Level   string `json:"level"`
+		Level string `json:"level"`
 	}
 	require.NoError(t, json.Unmarshal(resp.Data, &setResp))
-	assert.True(t, setResp.Success)
 	assert.Equal(t, "debug", setResp.Level)
 
 	waitClientCleared()

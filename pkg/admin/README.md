@@ -111,7 +111,6 @@ Or with an explicit target:
 {
   "type": "response",
   "data": {
-    "success": true,
     "level": "debug"
   }
 }
@@ -133,10 +132,10 @@ All admin commands accept an optional `target` field on the `AdminMessage` envel
 
 #### Partial Failure Semantics (target="all")
 
-When `target` is `"all"`, the Manager always attempts both the local operation and the Executor forward, regardless of whether one fails. The response includes error fields for any component that failed:
+When `target` is `"all"`, the Manager always attempts both the local operation and the Executor forward, regardless of whether one fails. The response is always an aggregated `"type": "response"` with per-component result and error fields:
 
-- **One fails:** The response is still a success (`"type": "response"`). The successful component's result is returned normally; the failed component's error is in `managerError` or `executorError`.
-- **Both fail:** The entire request returns an error (`"type": "error"`).
+- **One fails:** The successful component's result is returned normally; the failed component's error is in `managerError` or `executorError`.
+- **Both fail:** Both `managerError` and `executorError` are populated; the result fields are empty.
 
 Example — SetLogLevel succeeds on Manager but Executor is unreachable:
 
@@ -144,7 +143,7 @@ Example — SetLogLevel succeeds on Manager but Executor is unreachable:
 {
   "type": "response",
   "data": {
-    "manager": {"success": true, "level": "debug"},
+    "manager": "debug",
     "executorError": "connection refused"
   }
 }
@@ -313,8 +312,8 @@ echo '{"type":"set_log_level","target":"all","data":{"level":"debug"}}' | nc <ma
 {
   "type": "response",
   "data": {
-    "manager": {"success": true, "level": "debug"},
-    "executor": {"success": true, "level": "debug"}
+    "manager": "debug",
+    "executor": "debug"
   }
 }
 ```

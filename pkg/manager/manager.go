@@ -295,8 +295,8 @@ func (m *SecureProcessorManager) forwardSetLogLevel(ctx context.Context, level s
 		return nil, execErr
 	}
 	var execResp admin.SetLogLevelResponse
-	if err := json.Unmarshal(execData, &execResp); err != nil {
-		return nil, fmt.Errorf("failed to parse executor response: %v", err)
+	if unmarshalErr := json.Unmarshal(execData, &execResp); unmarshalErr != nil {
+		return nil, fmt.Errorf("failed to parse executor response: %v", unmarshalErr)
 	}
 	return &execResp, nil
 }
@@ -372,9 +372,6 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			} else {
 				resp.Executor = execVersion
 			}
-			if mgrErr != nil && execErr != nil {
-				return nil, fmt.Errorf("both failed: manager: %v; executor: %v", mgrErr, execErr)
-			}
 			return resp, nil
 		}
 		return m.GetVersion(ctx)
@@ -398,7 +395,7 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			if mgrErr != nil {
 				resp.ManagerError = mgrErr.Error()
 			} else if mgrResp, ok := mgrResult.(admin.SetLogLevelResponse); ok {
-				resp.Manager = mgrResp
+				resp.Manager = mgrResp.Level
 			} else {
 				resp.ManagerError = "unexpected response type from local SetLogLevel"
 			}
@@ -407,12 +404,9 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			if execErr != nil {
 				resp.ExecutorError = execErr.Error()
 			} else {
-				resp.Executor = *execResp
+				resp.Executor = execResp.Level
 			}
 
-			if mgrErr != nil && execErr != nil {
-				return nil, fmt.Errorf("both failed: manager: %v; executor: %v", mgrErr, execErr)
-			}
 			return resp, nil
 		}
 
@@ -443,9 +437,6 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 				resp.Executor = execLevel
 			}
 
-			if mgrErr != nil && execErr != nil {
-				return nil, fmt.Errorf("both failed: manager: %v; executor: %v", mgrErr, execErr)
-			}
 			return resp, nil
 		}
 
