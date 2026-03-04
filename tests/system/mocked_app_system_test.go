@@ -17,10 +17,6 @@ import (
 	"github.com/horizen-pes/pkg/testutil"
 )
 
-var (
-	sender = ethCommon.HexToAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
-)
-
 func TestDeployApp(t *testing.T) {
 	log1 := getTestLogger(t, false)
 	log2 := getTestLogger(t, true)
@@ -43,8 +39,8 @@ func TestDeployApp(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: ApplicationId,
 		RequestID:     RequestID,
-		Payload:       []byte("deploy-payload"),
-		Sender:        sender,
+		Payload:       stageArtifactAndBuildDescriptorPayload(t, suite, ApplicationId, []byte("deploy-payload")),
+		Sender:        suite.GetManagerAllowedDeployer(),
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
@@ -94,8 +90,8 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: appID,
 		RequestID:     deployReqID,
-		Payload:       []byte("mock-runtime-app-bytecode"),
-		Sender:        userAddress,
+		Payload:       stageArtifactAndBuildDescriptorPayload(t, suite, appID, []byte("mock-runtime-app-bytecode")),
+		Sender:        suite.GetManagerAllowedDeployer(),
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),

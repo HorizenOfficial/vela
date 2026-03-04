@@ -93,17 +93,18 @@ func buildAndLoadWasmModule(t *testing.T) []byte {
 }
 
 // deploySimpleApp is a helper function to deploy the simple app wasm module.
-func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, sender ethCommon.Address, wasmBytecode []byte) {
+func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, wasmBytecode []byte) {
 	t.Helper()
 	timeout := 20 * time.Second
+	deployPayload := stageArtifactAndBuildDescriptorPayload(t, suite, appID, wasmBytecode)
 
 	// Create and submit deploy request
 	deployReq := &common.Request{
 		RequestType:   common.Deploy,
 		ApplicationID: appID,
 		RequestID:     deployReqID,
-		Payload:       wasmBytecode,
-		Sender:        sender,
+		Payload:       deployPayload,
+		Sender:        suite.GetManagerAllowedDeployer(),
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
@@ -242,7 +243,7 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	cryptoHelper := testutil.NewCryptoHelper()
 
 	// Deploy the application
-	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
 	// Register user key
 	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
@@ -359,7 +360,7 @@ func TestDeploySimpleApp(t *testing.T) {
 
 	// 3. Deploy the application
 	cryptoHelper := testutil.NewCryptoHelper()
-	deploySimpleApp(t, suite, cryptoHelper, 1, commontestutil.GenerateRandomRequestID(), sender, wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, 1, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 }
 
 // this will be modified when we support an app id other that "1"
@@ -381,7 +382,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	// 3. Deploy the application with ID = 1
 	appID := common.NewApplicationId(1)
 	cryptoHelper := testutil.NewCryptoHelper()
-	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), sender, wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
 	// 4. Now try to redeploy the same app id
 	reqID := commontestutil.GenerateRandomRequestID()
@@ -391,8 +392,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: appID,
 		RequestID:     reqID,
-		Payload:       wasmBytecode,
-		Sender:        sender,
+		Payload:       stageArtifactAndBuildDescriptorPayload(t, suite, appID, wasmBytecode),
+		Sender:        suite.GetManagerAllowedDeployer(),
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
@@ -411,7 +412,6 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	require.Equal(t, common.Deploy, failedRequests[0].RequestType, "Wrong Request Type")
 
 }
-
 
 func TestSimpleAppCompareAction(t *testing.T) {
 	log1 := getTestLogger(t, false)
@@ -459,7 +459,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// 4. Deploy the application
 	appID := common.NewApplicationId(1)
 	RequestID := commontestutil.GenerateRandomRequestID()
-	deploySimpleApp(t, suite, cryptoHelper, appID, RequestID, user1Address, wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, appID, RequestID, wasmBytecode)
 
 	//register key 1
 	RequestID = commontestutil.GenerateRandomRequestID()
@@ -664,7 +664,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 
 	// 4. Deploy the application
 	appID := common.NewApplicationId(1)
-	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, wasmBytecode)
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
 	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)

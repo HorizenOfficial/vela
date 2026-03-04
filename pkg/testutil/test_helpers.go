@@ -40,6 +40,8 @@ type SystemTestSuite struct {
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 	dbPath             string
 	reportsPath        string
+	artifactsPath      string
+	allowedDeployer    ethCommon.Address
 	log                logger.Logger
 }
 
@@ -111,6 +113,11 @@ func NewSystemTestSuiteWithConfigs(
 	dbPath, err := os.MkdirTemp("", "horizen-pes-test-db")
 	require.NoError(t, err)
 
+	// Create a temporary directory for deploy artifacts and force manager to use it.
+	artifactsPath, err := os.MkdirTemp("", "horizen-pes-test-artifacts")
+	require.NoError(t, err)
+	mgrConfig.ArtifactsPath = artifactsPath
+
 	cfg := versioned_leveldb.VersionedLevelDBConfig{
 		DBPath:         dbPath,
 		VersionsToKeep: mgrConfig.DataLayerNumOfVersions,
@@ -174,6 +181,8 @@ func NewSystemTestSuiteWithConfigs(
 		cancel:           cancel,
 		dbPath:           dbPath,
 		reportsPath:      reportsPath,
+		artifactsPath:    artifactsPath,
+		allowedDeployer:  mgrConfig.AllowedDeployer,
 		log:              mgrLog,
 	}
 
@@ -355,6 +364,14 @@ func (s *SystemTestSuite) GetReportsPath() string {
 	return s.reportsPath
 }
 
+func (s *SystemTestSuite) GetArtifactsPath() string {
+	return s.artifactsPath
+}
+
+func (s *SystemTestSuite) GetManagerAllowedDeployer() ethCommon.Address {
+	return s.allowedDeployer
+}
+
 // WaitForWithdrawal waits for a withdrawal to be processed
 func (s *SystemTestSuite) WaitForWithdrawal(appID common.ApplicationIdType, timeout time.Duration) (*common.Withdrawal, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -427,6 +444,9 @@ func (s *SystemTestSuite) Cleanup() error {
 	// Remove the temporary reports directory
 	if s.reportsPath != "" {
 		os.RemoveAll(s.reportsPath)
+	}
+	if s.artifactsPath != "" {
+		os.RemoveAll(s.artifactsPath)
 	}
 
 	return nil
