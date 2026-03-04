@@ -12,7 +12,7 @@ The system is implemented in Go and uses Wasmtime-go as the runtime for WASM Mod
 ### Structure
 
 ```
-horizen-pes/
+vela/
     │
     ├── cmd/                            # Main applications entrypoints for this project.
     │   ├── manager/                    # Secure Processor Manager application
@@ -51,7 +51,7 @@ Environment variables (or `authorityservice.conf`) now require blockchain connec
 - `CHAIN_RPC_PROTOCOL` / `CHAIN_RPC_ADDRESS` / `CHAIN_RPC_PORT`: RPC endpoint to the node.
 - `CHAIN_PROCESSOR_ADDRESS`: address of the `ProcessorEndpoint` contract.
 - `AUTHORITY_SERVICE_SUBGRAPH_URL`: subgraph endpoint used to read `RequestCompleted`/`UserEvent` data.
-- `MANAGER_REPORTS_FOLDER`: shared folder for generated reports (defaults to `/tmp/horizen-pes-data/manager_reports`).
+- `MANAGER_REPORTS_FOLDER`: shared folder for generated reports (defaults to `/tmp/vela-data/manager_reports`).
 
 See `pkg/authorityservice/config.go` for defaults and additional logging/TLS settings.
 

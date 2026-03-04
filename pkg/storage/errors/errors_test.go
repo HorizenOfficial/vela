@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/horizen-pes/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/storage/errors"
 )
 
 // TestError verifies that the error constructors create errors with the correct code and message.

@@ -7,9 +7,9 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
-	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tee"
+	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/stretchr/testify/require"
 )
 

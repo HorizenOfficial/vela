@@ -10,15 +10,15 @@ import (
 	"syscall"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/admin"
-	"github.com/horizen-pes/pkg/blockchain"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/logserver"
-	"github.com/horizen-pes/pkg/manager"
-	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/factory"
+	"github.com/HorizenOfficial/vela/pkg/admin"
+	"github.com/HorizenOfficial/vela/pkg/blockchain"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/logserver"
+	"github.com/HorizenOfficial/vela/pkg/manager"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	"github.com/HorizenOfficial/vela/pkg/storage/factory"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {

@@ -1,7 +1,7 @@
 package authorityservice
 
 import (
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/magiconair/properties"
 )
 
@@ -62,7 +62,7 @@ func LoadConfig() (*Config, error) {
 	nonceTTL := common.GetConfigVarInt64("AUTHORITY_SERVICE_NONCE_TTL", 300, fileProps)
 
 	// We reuse MANAGER_REPORTS_FOLDER so manager and authority service point to the same folder by default
-	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProps)
+	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/vela-data/manager_reports", fileProps)
 
 	rpcURL := common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProps) + "://" +
 		common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProps) + ":" +

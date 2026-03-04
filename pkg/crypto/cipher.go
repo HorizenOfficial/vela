@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	"golang.org/x/crypto/hkdf"
 )
 

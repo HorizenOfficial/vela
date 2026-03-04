@@ -1,14 +1,12 @@
-module github.com/horizen-pes
+module github.com/HorizenOfficial/vela
 
 go 1.24.0
 
 toolchain go1.24.3
 
-require github.com/horizen-cce-common-go v0.0.22
+require github.com/HorizenOfficial/vela-common-go v0.0.25
 
-replace github.com/horizen-cce-common-go => github.com/HorizenOfficial/horizen-cce-common-go v0.0.22
-
-//replace github.com/horizen-cce-common-go => ../horizen-cce-common-go
+//replace github.com/HorizenOfficial/vela-common-go => ../vela-common-go
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/horizen-pes/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common/crypto"
 )
 
 // EnclaveKeySet contains all the keys used by the executor.
