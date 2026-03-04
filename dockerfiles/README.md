@@ -67,6 +67,10 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 
 Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.
 Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
+For WASM deploy v1, ensure these are configured consistently in `.env`:
+- `MANAGER_ALLOWED_DEPLOYER`: deploy sender allowed by manager.
+- `MANAGER_ARTIFACTS_PATH` and `DEPLOY_ARTIFACTS_PATH`: must refer to the same shared artifacts volume/path.
+- `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: optional upload limit (`0` means unlimited).
 
 ## Restarting and volume management
 
@@ -76,27 +80,28 @@ Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUB
 - **Contracts modified**: rebuild the deployer image, delete both volumes, and restart.
 
 ## Where to go next
-The system is up and running, but you need to deploy an app inside it.
+The system is up and running, and you can deploy the app with the v1 descriptor flow (no manual `1.wasm` copy).
 
-Currently only  a single-app manual deployment is supported:
-- the app wasm *must* be named *1.wasm* and put manually into the wasms/ folder before launching the deploy app command
-- launch a deploy app command with app id = 1 to initialize it
-
-Practical how-to for the horizen-pes-nova test app (Private transfer):
+Practical how-to for the `horizen-pes-nova` test app (Private transfer):
 - go to https://github.com/HorizenOfficial/horizen-pes-nova/releases/tag/v0.0.18
-- use payment_app.wasm (remember to rename to 1.wasm)
-- use the nova-linux wallet executable to launch the deploy command and interact with the app.
+- use `payment_app.wasm` directly (no rename needed)
+- run deploy from wallet:
 
-    Use wallet.conf.template as wallet config file, with the following properties set to connect to this dev environment:
-    
     ```
-    rpcUrl=http://localhost:8545
-    ProcessorAddress=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
-    TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
-    AuthorityServiceURL=http://localhost:8081
-    SubgraphURL=http://localhost:8000/subgraphs/name/hcce
+    novaw deployapp --wasm /absolute/path/to/payment_app.wasm --max-value-fee "100 wei"
     ```
 
+Use `wallet.conf.template` as wallet config file, with the following properties set to connect to this dev environment:
+
+```
+rpcUrl=http://localhost:8545
+ProcessorAddress=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+AuthorityServiceURL=http://localhost:8081
+SubgraphURL=http://localhost:8000/subgraphs/name/hcce
+```
+
+Current v1 limitation: deploy still targets `applicationId=1`.
 
 
 
