@@ -16,25 +16,27 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/horizen-cce-common-go/subgraph"
 	"github.com/horizen-pes/pkg/authorityservice/api"
+	"github.com/horizen-pes/pkg/authorityservice/deployartifact"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-cce-common-go/subgraph"
 )
 
 // AuthorityService exposes HTTP endpoints for authorities to fetch reports.
 type AuthorityService struct {
-	secret         []byte
-	nonceTTL       time.Duration
-	chainID        uint64
-	reportPath     string
-	subgraphClient subgraph.Client
-	clock          func() time.Time
-	log            logger.Logger
+	secret          []byte
+	nonceTTL        time.Duration
+	chainID         uint64
+	reportPath      string
+	subgraphClient  subgraph.Client
+	deployUploadAPI *deployartifact.API
+	clock           func() time.Time
+	log             logger.Logger
 }
 
 // NewAuthorityService builds a new service instance.
-func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, sg subgraph.Client, log logger.Logger) (*AuthorityService, error) {
+func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath string, deployArtifactsPath string, deployArtifactsMaxSizeMB int64, sg subgraph.Client, log logger.Logger) (*AuthorityService, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("failed to generate HMAC secret: %w", err)
@@ -43,15 +45,20 @@ func NewAuthorityService(chainID uint64, nonceTTL time.Duration, reportPath stri
 	if sg == nil {
 		return nil, fmt.Errorf("subgraph client is required")
 	}
+	artifactStore, err := deployartifact.NewStore(deployArtifactsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize deploy artifact store: %w", err)
+	}
 
 	return &AuthorityService{
-		secret:         secret,
-		nonceTTL:       nonceTTL,
-		chainID:        chainID,
-		reportPath:     reportPath,
-		subgraphClient: sg,
-		clock:          time.Now,
-		log:            log,
+		secret:          secret,
+		nonceTTL:        nonceTTL,
+		chainID:         chainID,
+		reportPath:      reportPath,
+		subgraphClient:  sg,
+		deployUploadAPI: deployartifact.NewAPI(artifactStore, deployArtifactsMaxSizeMB, log),
+		clock:           time.Now,
+		log:             log,
 	}, nil
 }
 
@@ -60,6 +67,7 @@ func (s *AuthorityService) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/nonce", s.handleNonce)
 	mux.HandleFunc("/getreport", s.handleGetReport)
+	mux.HandleFunc("/deploy/upload", s.deployUploadAPI.HandleUpload)
 	return mux
 }
 

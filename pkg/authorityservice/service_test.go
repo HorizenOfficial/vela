@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,11 +17,12 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/horizen-cce-common-go/subgraph"
 	"github.com/horizen-pes/pkg/authorityservice/api"
+	"github.com/horizen-pes/pkg/authorityservice/deployartifact"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/testutil"
 	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-cce-common-go/subgraph"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,6 +52,7 @@ func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdTyp
 func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time, eventFn func(context.Context, common.RequestIdType) (*subgraph.RequestCompleted, error)) *AuthorityService {
 	t.Helper()
 	dir := t.TempDir()
+	artifactsDir := t.TempDir()
 	testLogger := logger.NewLogger(
 		&logger.Config{
 			Kind:         "zerolog",
@@ -62,7 +65,7 @@ func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fi
 	)
 	var sgClient subgraph.Client = stubSubgraphClient{getRequestCompleted: eventFn}
 
-	svc, err := NewAuthorityService(chainID, ttl, dir, sgClient, testLogger)
+	svc, err := NewAuthorityService(chainID, ttl, dir, artifactsDir, 0, sgClient, testLogger)
 	require.NoError(t, err)
 	svc.secret = bytes.Repeat([]byte{0x01}, 32)
 	svc.clock = func() time.Time { return fixedTime }
@@ -136,6 +139,32 @@ func TestHandleGetReportSuccess(t *testing.T) {
 	require.Equal(t, reportID.String(), resp.ReportID)
 	require.Equal(t, appID.String(), resp.ApplicationID)
 	require.Equal(t, hex.EncodeToString(report.EncryptedReport), resp.EncryptedReport)
+}
+
+func TestHandleDeployUploadSuccess(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	svc := newTestService(t, 42, time.Minute, now)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	fileWriter, err := writer.CreateFormFile("wasm", "app.wasm")
+	require.NoError(t, err)
+	_, err = fileWriter.Write([]byte("wasm-content"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/deploy/upload", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	svc.Handler().ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var resp deployartifact.UploadResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.ArtifactID)
+	require.NotEmpty(t, resp.WasmSHA256)
+	require.NotZero(t, resp.WasmSize)
 }
 
 func TestHandleGetReportUnexpectedChainID(t *testing.T) {

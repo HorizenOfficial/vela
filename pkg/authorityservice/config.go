@@ -23,6 +23,10 @@ type Config struct {
 
 	// ReportsPath is the filesystem path where deanonymization reports are stored.
 	ReportsPath string
+	// DeployArtifactsPath is the filesystem path where uploaded WASM artifacts are stored.
+	DeployArtifactsPath string
+	// DeployArtifactsMaxSizeMB optionally limits upload body size (0 means unlimited).
+	DeployArtifactsMaxSizeMB int64
 
 	// RpcURL is the RPC URL used to connect to the blockchain node.
 	RpcURL string
@@ -63,6 +67,8 @@ func LoadConfig() (*Config, error) {
 
 	// We reuse MANAGER_REPORTS_FOLDER so manager and authority service point to the same folder by default
 	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProps)
+	deployArtifactsPath := common.GetConfigVar("DEPLOY_ARTIFACTS_PATH", "/tmp/horizen-pes-data/deploy_artifacts", fileProps)
+	deployArtifactsMaxSizeMB := common.GetConfigVarInt64("DEPLOY_ARTIFACTS_MAX_SIZE_MB", 0, fileProps)
 
 	rpcURL := common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProps) + "://" +
 		common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProps) + ":" +
@@ -78,19 +84,21 @@ func LoadConfig() (*Config, error) {
 	logFileLevel := common.GetConfigVar("AUTHORITY_SERVICE_LOG_FILE_LEVEL", "info", fileProps)
 
 	return &Config{
-		ListenAddress:    listenAddr,
-		TLSCertFile:      tlsCert,
-		TLSKeyFile:       tlsKey,
-		ChainID:          chainID,
-		NonceTTLSeconds:  nonceTTL,
-		ReportsPath:      reportsPath,
-		RpcURL:           rpcURL,
-		ProcessorAddress: processorAddress,
-		SubgraphURL:      subgraphURL,
-		LogConsole:       logConsole,
-		LogConsoleLevel:  logConsoleLevel,
-		LogConsoleColor:  logConsoleColor,
-		LogFileName:      logFileName,
-		LogFileLevel:     logFileLevel,
+		ListenAddress:            listenAddr,
+		TLSCertFile:              tlsCert,
+		TLSKeyFile:               tlsKey,
+		ChainID:                  chainID,
+		NonceTTLSeconds:          nonceTTL,
+		ReportsPath:              reportsPath,
+		DeployArtifactsPath:      deployArtifactsPath,
+		DeployArtifactsMaxSizeMB: deployArtifactsMaxSizeMB,
+		RpcURL:                   rpcURL,
+		ProcessorAddress:         processorAddress,
+		SubgraphURL:              subgraphURL,
+		LogConsole:               logConsole,
+		LogConsoleLevel:          logConsoleLevel,
+		LogConsoleColor:          logConsoleColor,
+		LogFileName:              logFileName,
+		LogFileLevel:             logFileLevel,
 	}, nil
 }
