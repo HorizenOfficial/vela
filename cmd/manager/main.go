@@ -20,6 +20,7 @@ import (
 	"github.com/horizen-pes/pkg/manager"
 	"github.com/horizen-pes/pkg/storage"
 	"github.com/horizen-pes/pkg/storage/factory"
+	"github.com/horizen-pes/pkg/version"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
@@ -56,7 +57,9 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 		&config.PrivateKey)
 
 	if config.BlockchainConnectTimeout > 0 {
-		bcClient.SetConnectTimeout(time.Duration(config.BlockchainConnectTimeout) * time.Second)
+		if err := bcClient.SetConnectTimeout(time.Duration(config.BlockchainConnectTimeout) * time.Second); err != nil {
+			return nil, fmt.Errorf("invalid blockchain connect timeout: %w", err)
+		}
 	}
 
 	return bcClient, nil
@@ -100,6 +103,7 @@ func main() {
 		}
 	}()
 
+	log.Info("Manager version: %s", version.Version)
 	log.Warn("Initializing manager...")
 
 	// Start the log server if configured

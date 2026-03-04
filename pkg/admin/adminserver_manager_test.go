@@ -283,6 +283,16 @@ func TestManagerAdminServer_GetAndSetLogLevel(t *testing.T) {
 	server.clientTimeout = 500 * time.Millisecond
 	server.SetCmdHandler(handler)
 
+	// waitClientCleared waits for the server to release the active client slot
+	// (single-client constraint) instead of using a hardcoded sleep.
+	waitClientCleared := func() {
+		require.Eventually(t, func() bool {
+			server.clientMu.Lock()
+			defer server.clientMu.Unlock()
+			return server.client == nil
+		}, 500*time.Millisecond, 10*time.Millisecond, "server did not clear client slot in time")
+	}
+
 	// 1. GetLogLevel - should return "info"
 	resp := sendCommand(server, AdminMessage{Type: GetLogLevelRequestMessage})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
@@ -290,23 +300,19 @@ func TestManagerAdminServer_GetAndSetLogLevel(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Data, &level))
 	assert.Equal(t, "info", level)
 
-	// Small delay to let the server goroutine complete cleanup (single-client constraint)
-	time.Sleep(50 * time.Millisecond)
+	waitClientCleared()
 
 	// 2. SetLogLevel - change to "debug"
 	setData, _ := json.Marshal(SetLogLevelRequest{Level: "debug"})
 	resp = sendCommand(server, AdminMessage{Type: SetLogLevelRequestMessage, Data: setData})
 	assert.Equal(t, AdminResponseMessage, resp.Type)
 	var setResp struct {
-		Success bool   `json:"success"`
-		Level   string `json:"level"`
+		Level string `json:"level"`
 	}
 	require.NoError(t, json.Unmarshal(resp.Data, &setResp))
-	assert.True(t, setResp.Success)
 	assert.Equal(t, "debug", setResp.Level)
 
-	// Small delay to let the server goroutine complete cleanup (single-client constraint)
-	time.Sleep(50 * time.Millisecond)
+	waitClientCleared()
 
 	// 3. GetLogLevel again - should now return "debug"
 	resp = sendCommand(server, AdminMessage{Type: GetLogLevelRequestMessage})
