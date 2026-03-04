@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/horizen-cce-common-go/wasm/types"
+	"github.com/HorizenOfficial/vela-common-go/wasm/types"
 )
 
 // ----- module internal types

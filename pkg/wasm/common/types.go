@@ -1,7 +1,7 @@
 package common
 
 import (
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 // WasmSerializationError is a generic error for failed WASM serialization.

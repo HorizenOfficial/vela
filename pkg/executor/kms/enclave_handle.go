@@ -16,7 +16,7 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/fxamacker/cbor/v2"
 	"github.com/hf/nsm"
-	"github.com/horizen-pes/pkg/nsmutil"
+	"github.com/HorizenOfficial/vela/pkg/nsmutil"
 )
 
 // NitroEnclaveHandle implements EnclaveHandle using the Nitro Secure Module (NSM).

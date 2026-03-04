@@ -12,15 +12,15 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/appdata"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/crypto"
-	"github.com/horizen-pes/pkg/executor/kms"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/nsmutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common/appdata"
+	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/executor/kms"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/nsmutil"
 )
 
 // NsmSession is an interface abstracting nsm.Session for testability.

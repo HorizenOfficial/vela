@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/admin"
-	"github.com/horizen-pes/pkg/blockchain"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/storage"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/admin"
+	"github.com/HorizenOfficial/vela/pkg/blockchain"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
 )
 
 // Version is the current version of the manager

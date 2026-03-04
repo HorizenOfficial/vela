@@ -1,6 +1,6 @@
 package logger
 
-import "github.com/horizen-pes/pkg/common"
+import "github.com/HorizenOfficial/vela/pkg/common"
 
 type Logger interface {
 	Trace(msg string, args ...any)

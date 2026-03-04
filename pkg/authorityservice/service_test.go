@@ -16,11 +16,11 @@ import (
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
-	"github.com/horizen-pes/pkg/authorityservice/api"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-cce-common-go/subgraph"
+	"github.com/HorizenOfficial/vela/pkg/authorityservice/api"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela-common-go/subgraph"
 	"github.com/stretchr/testify/require"
 )
 

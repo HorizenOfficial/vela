@@ -39,14 +39,9 @@ WORKDIR /app/contracts
 RUN npm ci
 WORKDIR /app
 
-ENV GOPRIVATE=github.com/HorizenOfficial/*
-
 # Copy go.mod and go.sum to download Go dependencies
 COPY go.mod go.sum ./
-RUN --mount=type=secret,id=gh_token \
-    git config --global url."https://$(cat /run/secrets/gh_token):@github.com/".insteadOf "https://github.com/" && \
-    go mod download && \
-    rm -f /root/.gitconfig
+RUN go mod download
 
 # Copy the rest of the source code
 COPY . .

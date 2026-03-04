@@ -12,11 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
-	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tee"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 )
 
 //go:generate mkdir -p ../../contract_abis

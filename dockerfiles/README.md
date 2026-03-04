@@ -6,19 +6,13 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 1)  (Skip this step if you want to use the Docker hub official images)
     To build locally the docker images needed by the docker compose run *from the project root folder* the following commands.
 
-    **Prerequisites:** Some images (executor, manager, kms-proxy, authorityservice) pull dependencies from private GitHub repositories. You need a [GitHub Personal Access Token (PAT)](https://github.com/settings/tokens) with `read:packages` and `repo` scopes. Export it before building:
+    Build the images:
 
     ```
-    export GITHUB_TOKEN=ghp_your_token_here
-    ```
-
-    Then build the images:
-
-    ```
-    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-executor -f dockerfiles/executor/Dockerfile .
-    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-manager -f dockerfiles/manager/Dockerfile .
-    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/kms-proxy -f dockerfiles/kms_proxy/Dockerfile .
-    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
+    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile .
+    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile .
+    docker build -t horizen/kms-proxy -f dockerfiles/kms_proxy/Dockerfile .
+    docker build -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
     docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile .
     docker build -t horizen/cce-deployer -f dockerfiles/deployer/Dockerfile .
     docker build -t horizen/cce-subgraph-deployer -f dockerfiles/subgraph-deployer/Dockerfile .
@@ -82,8 +76,8 @@ Currently only  a single-app manual deployment is supported:
 - the app wasm *must* be named *1.wasm* and put manually into the wasms/ folder before launching the deploy app command
 - launch a deploy app command with app id = 1 to initialize it
 
-Practical how-to for the horizen-pes-nova test app (Private transfer):
-- go to https://github.com/HorizenOfficial/horizen-pes-nova/releases/tag/v0.0.18
+Practical how-to for the vela-nova test app (Private transfer):
+- go to https://github.com/HorizenOfficial/vela-nova/releases/tag/v0.0.25
 - use payment_app.wasm (remember to rename to 1.wasm)
 - use the nova-linux wallet executable to launch the deploy command and interact with the app.
 

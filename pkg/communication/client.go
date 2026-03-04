@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
 )
 
 // Client is a unified client implementation of the ExecutorClient interface

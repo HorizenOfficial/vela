@@ -4,7 +4,7 @@ import (
 	"context"
 	"net"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 // ExecutorClient defines the interface for communication with the WASM Executor.

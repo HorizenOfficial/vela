@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 )
 
 // ClientConnection represents a connection to a client

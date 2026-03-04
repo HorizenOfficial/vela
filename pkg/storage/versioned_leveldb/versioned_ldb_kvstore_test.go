@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/syndtr/goleveldb/leveldb"
 
-	"github.com/horizen-pes/pkg/storage"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
-	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
 )
 
 // createKVStore is a helper function that sets up a new VersionedLDBKVStore

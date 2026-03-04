@@ -13,8 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/mdlayher/vsock"
 	"github.com/rs/zerolog"
 	"gopkg.in/natefinch/lumberjack.v2"

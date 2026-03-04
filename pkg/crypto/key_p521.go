@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"os"
 
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 )
 
 /*

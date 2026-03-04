@@ -10,9 +10,9 @@ import (
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	apperrors "github.com/horizen-pes/pkg/common/apperrors"
-	"github.com/horizen-pes/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	apperrors "github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

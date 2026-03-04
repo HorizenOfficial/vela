@@ -9,7 +9,7 @@ import (
 	"github.com/hf/nsm/response"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 )
 
 
