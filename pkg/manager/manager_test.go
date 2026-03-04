@@ -25,6 +25,7 @@ import (
 	"github.com/horizen-pes/pkg/logserver"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 	"github.com/horizen-pes/pkg/storage/mockdb"
+	"github.com/horizen-pes/pkg/version"
 	"github.com/stretchr/testify/require"
 )
 
@@ -98,24 +99,24 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 		return f.(func(context.Context, *common.Request, *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req, appState)
 	}
 
-	if req.ApplicationID != ApplicationId {	
+	if req.ApplicationID != ApplicationId {
 		return nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
-	if req.RequestType != common.Deploy  {
-		return nil, nil,fmt.Errorf("wrong request type: %d", req.RequestType)
+	if req.RequestType != common.Deploy {
+		return nil, nil, fmt.Errorf("wrong request type: %d", req.RequestType)
 
 	}
 
-	if appState != nil {	
+	if appState != nil {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: appState.StateRoot, 
-			NewStateRoot: appState.StateRoot,
-			ErrorCode: uint8(apperrors.CodeApplicationAlreadyDeployed.Category.Category),
-			ErrorMsg: fmt.Sprintf("application %s was already deployed", req.ApplicationID),
-		}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: appState.StateRoot,
+			NewStateRoot:  appState.StateRoot,
+			ErrorCode:     uint8(apperrors.CodeApplicationAlreadyDeployed.Category.Category),
+			ErrorMsg:      fmt.Sprintf("application %s was already deployed", req.ApplicationID),
+		}
 
 		return failurePayload, nil, nil
 	}
@@ -128,7 +129,7 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
 	}
 
-	if req.ApplicationID != ApplicationId {	
+	if req.ApplicationID != ApplicationId {
 		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
@@ -137,27 +138,27 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 
 	}
 
-	if appState == nil {	
+	if appState == nil {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: [32]byte{}, 
-			NewStateRoot: [32]byte{},
-			ErrorCode: uint8(apperrors.CodeAppStateNotFound.Category.Category),
-			ErrorMsg: "application state not found",
-			}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: [32]byte{},
+			NewStateRoot:  [32]byte{},
+			ErrorCode:     uint8(apperrors.CodeAppStateNotFound.Category.Category),
+			ErrorMsg:      "application state not found",
+		}
 		return failurePayload, nil, nil, nil
 	}
 
 	if string(req.Payload) == "invalid" {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: [32]byte{}, 
-			NewStateRoot: [32]byte{},
-			ErrorCode: uint8(apperrors.CategoryInternalMeta.Category),
-			ErrorMsg: "invalid request",
-			}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: [32]byte{},
+			NewStateRoot:  [32]byte{},
+			ErrorCode:     uint8(apperrors.CategoryInternalMeta.Category),
+			ErrorMsg:      "invalid request",
+		}
 		return failurePayload, nil, nil, nil
 	}
 
@@ -445,7 +446,7 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	err := mockBCClient.SendRequestToChain(context.Background(), requestDeploy)
 	require.NoError(t, err)
 
-	requestInvalid :=  createRequestWithPayload(common.Process, ApplicationId, []byte("invalid"))
+	requestInvalid := createRequestWithPayload(common.Process, ApplicationId, []byte("invalid"))
 	err = mockBCClient.SendRequestToChain(context.Background(), requestInvalid)
 	require.NoError(t, err)
 
@@ -502,7 +503,6 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, requestReDeploy.ApplicationID, completedRequests[3].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, requestReDeploy.RequestType, completedRequests[3].RequestType, "Wrong RequestType")
 
-
 }
 
 func TestProcessDeployAppWithFailure(t *testing.T) {
@@ -512,16 +512,16 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer 
+	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil
+		return &common.UpdatePayload{ApplicationID: ApplicationId,
+			RequestID: req.RequestID,
+			ErrorCode: 1,
+			ErrorMsg:  "error"}, nil, nil
 	})
 
 	err = manager.processDeployApp(context.Background(), request)
@@ -532,7 +532,7 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 	failedRequests := mockBCClient.GetFailedRequests()
 	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
-	
+
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendDeployApp")
 
@@ -558,7 +558,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendDeployApp")
 
-	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error  
+	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error
 	expectedError = "failed to store state"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		return fmt.Errorf("%s", expectedError)
@@ -573,7 +573,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 
-	// Test blockchain failure for errors that can be due to reorgs. 
+	// Test blockchain failure for errors that can be due to reorgs.
 	// The errors that can be due to reorgs are:
 	// - InvalidRequestId
 	// - InvalidStateRoot
@@ -595,7 +595,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
-	// Test blockchain failure for any other errors but reorgs. 
+	// Test blockchain failure for any other errors but reorgs.
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
@@ -632,19 +632,19 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer 
+	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
 
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", 
-	func(_ context.Context, req *common.Request, _ *common.ApplicationState,_ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil, nil	})
-
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
+		func(_ context.Context, req *common.Request, _ *common.ApplicationState, _ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+			return &common.UpdatePayload{ApplicationID: ApplicationId,
+				RequestID: req.RequestID,
+				ErrorCode: 1,
+				ErrorMsg:  "error"}, nil, nil, nil
+		})
 
 	err = manager.processProcessRequest(context.Background(), request)
 	require.NoError(t, err)
@@ -654,7 +654,7 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	failedRequests := mockBCClient.GetFailedRequests()
 	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
-	
+
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
 
@@ -713,7 +713,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
-	// Failure in GetWasmCode, stop processing and return the error 
+	// Failure in GetWasmCode, stop processing and return the error
 	expectedError = "wasm bytecode not found for application"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, common.ApplicationIdType) ([]byte, error) {
 		return nil, errors.New(expectedError)
@@ -757,7 +757,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 
-	// Test blockchain failure for errors that can be due to reorgs. 
+	// Test blockchain failure for errors that can be due to reorgs.
 	// The errors that can be due to reorgs are:
 	// - InvalidRequestId
 	// - InvalidStateRoot
@@ -778,7 +778,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
 
-	// Test blockchain failure for any other errors but reorgs. 
+	// Test blockchain failure for any other errors but reorgs.
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
@@ -798,12 +798,13 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 
 	// Same test but with an error payload for the SubmitStateUpdate
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", 
-	func(_ context.Context, req *common.Request, _ *common.ApplicationState,_ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil, nil	})
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
+		func(_ context.Context, req *common.Request, _ *common.ApplicationState, _ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+			return &common.UpdatePayload{ApplicationID: ApplicationId,
+				RequestID: req.RequestID,
+				ErrorCode: 1,
+				ErrorMsg:  "error"}, nil, nil, nil
+		})
 
 	failure = manager.processProcessRequest(context.Background(), request)
 	require.Error(t, failure)
@@ -1187,20 +1188,38 @@ func TestGetAndSetLogLevel_NonZeroNetworkLogger(t *testing.T) {
 	_, manager := setupTest(t)
 	ctx := context.Background()
 
-	// GetLogLevel should fail with non-ZeroNetworkLogger
-	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
+	// With target "manager", GetLogLevel should fail directly.
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "manager"}
 	result, err := manager.ExecuteCommand(ctx, getMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
 	require.Empty(t, result)
 
-	// SetLogLevel should fail with non-ZeroNetworkLogger
+	// With target "manager", SetLogLevel should fail directly.
 	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "error"})
 	require.NoError(t, err)
-	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Nil(t, result)
+}
+
+func TestExecuteCommand_SetLogLevel_NilData(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	// No Data at all
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager"}
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing request data for set_log_level")
+	require.Nil(t, result)
+
+	// Explicit null Data
+	msg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: json.RawMessage("null")}
+	result, err = mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing request data for set_log_level")
 	require.Nil(t, result)
 }
 
@@ -1214,33 +1233,32 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
 		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
 			require.Equal(t, admin.AdminCmdSetLogLevel, cmdType)
-			resp, _ := json.Marshal(admin.SetLogLevelResponse{Success: true, Level: "debug"})
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
 			return resp, nil
 		},
 	)
-	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "executor"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "executor", Data: setData}
 	result, err := manager.ExecuteCommand(ctx, setMsg)
 	require.NoError(t, err)
 	execResp, ok := result.(*admin.SetLogLevelResponse)
 	require.True(t, ok)
-	require.True(t, execResp.Success)
 	require.Equal(t, "debug", execResp.Level)
 
 	// SetLogLevel with unknown target should be rejected
-	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "unknown"})
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "unknown", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown target 'unknown'")
 	require.Nil(t, result)
 
 	// SetLogLevel with target "manager" should be accepted (fails on logger type, not target)
-	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "manager"})
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
@@ -1254,37 +1272,53 @@ func TestSetLogLevel_TargetValidation(t *testing.T) {
 			return resp, nil
 		},
 	)
-	getData, err := json.Marshal(admin.GetLogLevelRequest{Target: "executor"})
-	require.NoError(t, err)
-	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getData}
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "executor"}
 	result, err = manager.ExecuteCommand(ctx, getMsg)
 	require.NoError(t, err)
 	require.Equal(t, "debug", result)
 
-	// GetLogLevel with empty target defaults to "all" (fails on logger type, not target)
+	// GetLogLevel with empty target defaults to "all".
+	// Manager fails (non-ZeroNetworkLogger), executor mock still active → partial success.
 	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
 	result, err = manager.ExecuteCommand(ctx, getMsg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
-	require.Empty(t, result)
-
-	// SetLogLevel with target "all" should be accepted (fails on logger type, not target)
-	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "all"})
 	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	aggGetResp, ok := result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggGetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Equal(t, "debug", aggGetResp.Executor)
+
+	// SetLogLevel with target "all": manager fails (non-ZeroNetworkLogger),
+	// executor mock returns success → partial success.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
+			return resp, nil
+		},
+	)
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
-	require.Nil(t, result)
-
-	// GetLogLevel with target "all" should be accepted (fails on logger type, not target)
-	getData, err = json.Marshal(admin.GetLogLevelRequest{Target: "all"})
 	require.NoError(t, err)
-	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getData}
+	aggSetResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggSetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Equal(t, "debug", aggSetResp.Executor)
+
+	// GetLogLevel with target "all": manager fails, executor mock still active → partial success.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			resp, _ := json.Marshal("debug")
+			return resp, nil
+		},
+	)
+	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
 	result, err = manager.ExecuteCommand(ctx, getMsg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
-	require.Empty(t, result)
+	require.NoError(t, err)
+	aggGetResp, ok = result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggGetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Equal(t, "debug", aggGetResp.Executor)
 }
 
 // TestGetAndSetLogLevel_WithZeroNetworkLogger verifies the positive SetLogLevel/GetLogLevel
@@ -1329,22 +1363,19 @@ func TestGetAndSetLogLevel_WithZeroNetworkLogger(t *testing.T) {
 	ctx := context.Background()
 
 	// GetLogLevel with explicit target "manager" should return "info" (the initial level).
-	getReqData, err := json.Marshal(admin.GetLogLevelRequest{Target: "manager"})
-	require.NoError(t, err)
-	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getReqData}
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "manager"}
 	result, err := mgr.ExecuteCommand(ctx, getMsg)
 	require.NoError(t, err)
 	require.Equal(t, "info", result)
 
 	// SetLogLevel to "debug" with explicit target "manager".
-	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "manager"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
 	result, err = mgr.ExecuteCommand(ctx, setMsg)
 	require.NoError(t, err)
 	resp, ok := result.(admin.SetLogLevelResponse)
 	require.True(t, ok)
-	require.True(t, resp.Success)
 	require.Equal(t, "debug", resp.Level)
 
 	// GetLogLevel should now return "debug".
@@ -1399,24 +1430,22 @@ func TestExecuteCommand_SetLogLevel_TargetAll(t *testing.T) {
 	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
 		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
 			require.Equal(t, admin.AdminCmdSetLogLevel, cmdType)
-			resp, _ := json.Marshal(admin.SetLogLevelResponse{Success: true, Level: "debug"})
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
 			return resp, nil
 		},
 	)
 
-	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "all"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
 
 	result, err := mgr.ExecuteCommand(context.Background(), msg)
 	require.NoError(t, err)
 
 	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
 	require.True(t, ok)
-	require.True(t, aggResp.Manager.Success)
-	require.Equal(t, "debug", aggResp.Manager.Level)
-	require.True(t, aggResp.Executor.Success)
-	require.Equal(t, "debug", aggResp.Executor.Level)
+	require.Equal(t, "debug", aggResp.Manager)
+	require.Equal(t, "debug", aggResp.Executor)
 
 	// Verify the manager's logger was actually updated
 	require.Equal(t, "debug", znl.GetLevel())
@@ -1467,9 +1496,7 @@ func TestExecuteCommand_GetLogLevel_TargetAll(t *testing.T) {
 		},
 	)
 
-	getData, err := json.Marshal(admin.GetLogLevelRequest{Target: "all"})
-	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Data: getData}
+	msg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
 
 	result, err := mgr.ExecuteCommand(context.Background(), msg)
 	require.NoError(t, err)
@@ -1523,14 +1550,18 @@ func TestExecuteCommand_SetLogLevel_TargetAll_ExecutorFails(t *testing.T) {
 		},
 	)
 
-	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "warn", Target: "all"})
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "warn"})
 	require.NoError(t, err)
-	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
 
-	_, err = mgr.ExecuteCommand(context.Background(), msg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "manager level set to 'warn' successfully")
-	require.Contains(t, err.Error(), "executor failed")
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // partial success is not an error
+
+	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Equal(t, "warn", aggResp.Manager)
+	require.Empty(t, aggResp.ManagerError)
+	require.Contains(t, aggResp.ExecutorError, "connection refused")
 
 	// Verify the manager's log level WAS changed (even though executor failed)
 	require.Equal(t, "warn", znl.GetLevel())
@@ -1567,6 +1598,151 @@ func TestExecuteCommand_KeyAttestation_ForwardError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "executor unreachable")
 	require.Nil(t, result)
+}
+
+func TestExecuteCommand_GetVersion_TargetManager(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "manager"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+	require.Equal(t, version.Version, result)
+}
+
+func TestExecuteCommand_GetVersion_TargetExecutor(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v1.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "executor"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+	require.Equal(t, "v1.0.0-executor", result)
+}
+
+func TestExecuteCommand_GetVersion_TargetAll(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v2.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "all"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Equal(t, "v2.0.0-executor", aggResp.Executor)
+}
+
+func TestExecuteCommand_GetVersion_DefaultTarget(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v3.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	// No data (null) — should default to target="all"
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Equal(t, "v3.0.0-executor", aggResp.Executor)
+}
+
+func TestExecuteCommand_GetVersion_TargetAll_ExecutorFails(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "all"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // partial success is not an error
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Empty(t, aggResp.ManagerError)
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "connection refused")
+}
+
+func TestExecuteCommand_SetLogLevel_TargetAll_BothFail(t *testing.T) {
+	// Manager uses the default test logger (not ZeroNetworkLogger), so local
+	// SetLogLevel will fail. The executor mock also returns an error.
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("executor unreachable")
+		},
+	)
+
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // target="all" always returns aggregated response, never an error
+
+	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Empty(t, aggResp.Manager)
+	require.Contains(t, aggResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "executor unreachable")
+}
+
+func TestExecuteCommand_GetLogLevel_TargetAll_BothFail(t *testing.T) {
+	// Manager uses the default test logger (not ZeroNetworkLogger), so local
+	// GetLogLevel will fail. The executor mock also returns an error.
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("executor unreachable")
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // target="all" always returns aggregated response, never an error
+
+	aggResp, ok := result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Empty(t, aggResp.Manager)
+	require.Contains(t, aggResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "executor unreachable")
 }
 
 func TestExecuteCommand_UnsupportedCommand(t *testing.T) {

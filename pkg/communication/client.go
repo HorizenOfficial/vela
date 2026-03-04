@@ -38,7 +38,7 @@ func NewClient(factory ConnectionFactory, communicationParams common.Communicati
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
 		reqTimeout:      communicationParams.RequestTimeoutSec * time.Second,
-		log: log,
+		log:             log,
 	}
 }
 
@@ -167,7 +167,7 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
-			Request: req,
+			Request:          req,
 			ApplicationState: appState,
 		},
 	}
@@ -215,11 +215,11 @@ func (c *Client) ForwardAdminCommand(ctx context.Context, cmdType string, data j
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errData, _ := extractData[ErrorData](respMsg.Data)
-		if errData != nil {
-			return nil, fmt.Errorf("executor admin command error [%s]: %s", errData.Code, errData.Message)
+		errData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, fmt.Errorf("executor error (failed to decode details: %v)", err)
 		}
-		return nil, fmt.Errorf("executor returned an error response")
+		return nil, fmt.Errorf("executor admin command error [%s]: %s", errData.Code, errData.Message)
 	}
 
 	if respMsg.Type != AdminCommandResponseMessage {
@@ -287,11 +287,11 @@ func (c *Client) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
-	c.log.Debug("%s: MagBytes length before delimiter: %d", c.idLogTag, len(data))
+	c.log.Debug("%s: MsgBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add delimiter
 	data = append(data, MsgDelimiter)
-	c.log.Debug("%s: MagBytes length after delimiter: %d", c.idLogTag, len(data))
+	c.log.Debug("%s: MsgBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write message with delimiter
 	if _, err := c.writer.Write(data); err != nil {

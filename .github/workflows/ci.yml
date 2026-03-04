@@ -14,6 +14,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history so git describe can resolve tags
 
       # Setup Go
       - name: Set up Go
@@ -83,12 +85,12 @@ jobs:
             echo "✅ Generated files are up-to-date."
           fi
 
-      # Build a Go project
+      # Build Go project
       - name: Build Go project
         run: |
           go build ./...
-          go build ./cmd/executor
-          go build ./cmd/manager
+          # Makefile handles git-based versioning via ldflags (see cmd/Makefile)
+          make -C cmd manager executor
 
       # Run Go tests
       - name: Run Go tests quick
@@ -110,6 +112,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history so git describe can resolve tags
 
       # Setup Go
       - name: Set up Go
@@ -174,12 +178,12 @@ jobs:
             echo "✅ Generated files are up-to-date."
           fi
 
-      # Build a Go project
+      # Build Go project
       - name: Build Go project
         run: |
           go build ./...
-          go build ./cmd/executor
-          go build ./cmd/manager
+          # Makefile handles git-based versioning via ldflags (see cmd/Makefile)
+          make -C cmd manager executor
 
       # Run ALL Go tests (including long-running ones)
       - name: Run Go tests (full suite)
@@ -226,6 +230,8 @@ jobs:
           push: true
           secrets: |
             gh_token=${{ secrets.GH_PAT }}
+          build-args: |
+            GIT_VERSION=${{ github.ref_name }}
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-executor:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-executor:latest
@@ -238,6 +244,8 @@ jobs:
           push: true
           secrets: |
             gh_token=${{ secrets.GH_PAT }}
+          build-args: |
+            GIT_VERSION=${{ github.ref_name }}
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-manager:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-manager:latest

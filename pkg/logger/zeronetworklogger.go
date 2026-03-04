@@ -19,11 +19,11 @@ import (
 // protocol over VSOCK, since VSOCK is stream-oriented and does not support UDP natively.
 
 const (
-	defaultBuffer         = 1000
-	defaultRetryDelay     = 2 * time.Second
-	defaultMaxWait        = 30 * time.Second
-	defaultDialTimeout    = 5 * time.Second
-	defaultShutdownGrace  = 200 * time.Millisecond
+	defaultBuffer        = 1000
+	defaultRetryDelay    = 2 * time.Second
+	defaultMaxWait       = 30 * time.Second
+	defaultDialTimeout   = 5 * time.Second
+	defaultShutdownGrace = 200 * time.Millisecond
 )
 
 // LogConnectionFactory abstracts the network dialling logic for different protocols.
@@ -363,15 +363,20 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	}
 }
 
-// SetLevel updates the logging level.
 func (z *ZeroNetworkLogger) SetLevel(level string) error {
-	z.mu.Lock()
-	defer z.mu.Unlock()
 	lvl, err := zerolog.ParseLevel(level)
 	if err != nil {
 		return err
 	}
-	*z.logger = z.logger.Level(lvl)
+
+	z.mu.Lock()
+	defer z.mu.Unlock()
+
+	// Create a new branched logger instance
+	newLogger := z.logger.Level(lvl)
+	// Update the pointer to the new instance
+	z.logger = &newLogger
+
 	return nil
 }
 

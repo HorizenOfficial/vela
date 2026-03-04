@@ -1,5 +1,7 @@
 BIN_DIR := ../bin
 FLAG_FILE := $(BIN_DIR)/.built
+GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS := -X github.com/horizen-pes/pkg/version.Version=$(GIT_VERSION)
 
 # Configuration files
 MANAGER_CONF_SRC := ../pkg/manager/manager.conf
@@ -26,8 +28,8 @@ $(BIN_DIR):
 manager: $(BIN_DIR)/manager
 
 $(BIN_DIR)/manager: $(BIN_DIR) ../go.mod ../go.sum $(MANAGER_SRC_FILES)
-	@echo "Building manager..."
-	@go build -o $(BIN_DIR)/manager ./manager
+	@echo "Building manager (version: $(GIT_VERSION))..."
+	@go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/manager ./manager
 	@echo "Manager binary built"
 	@touch $(FLAG_FILE)
 
@@ -37,8 +39,8 @@ $(BIN_DIR)/manager: $(BIN_DIR) ../go.mod ../go.sum $(MANAGER_SRC_FILES)
 executor: $(BIN_DIR)/executor
 
 $(BIN_DIR)/executor: $(BIN_DIR) ../go.mod ../go.sum $(EXECUTOR_SRC_FILES)
-	@echo "Building executor..."
-	@go build -o $(BIN_DIR)/executor ./executor
+	@echo "Building executor (version: $(GIT_VERSION))..."
+	@go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/executor ./executor
 	@echo "Executor binary built"
 	@touch $(FLAG_FILE)
 

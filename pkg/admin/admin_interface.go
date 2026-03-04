@@ -10,16 +10,32 @@ import (
 
 // AggregatedGetLogLevelResponse is returned when target="all" for GetLogLevel,
 // containing the log level of both the Manager and the Executor.
+// If one component fails, its error field is populated and the other result is still returned.
 type AggregatedGetLogLevelResponse struct {
-	Manager  string `json:"manager"`
-	Executor string `json:"executor"`
+	Manager       string `json:"manager,omitempty"`
+	ManagerError  string `json:"managerError,omitempty"`
+	Executor      string `json:"executor,omitempty"`
+	ExecutorError string `json:"executorError,omitempty"`
 }
 
 // AggregatedSetLogLevelResponse is returned when target="all" for SetLogLevel,
 // containing the result from both the Manager and the Executor.
+// If one component fails, its error field is populated and the other result is still returned.
 type AggregatedSetLogLevelResponse struct {
-	Manager  SetLogLevelResponse `json:"manager"`
-	Executor SetLogLevelResponse `json:"executor"`
+	Manager       string `json:"manager,omitempty"`
+	ManagerError  string `json:"managerError,omitempty"`
+	Executor      string `json:"executor,omitempty"`
+	ExecutorError string `json:"executorError,omitempty"`
+}
+
+// AggregatedGetVersionResponse is returned when target="all" for GetVersion,
+// containing the version of both the Manager and the Executor.
+// If one component fails, its error field is populated and the other result is still returned.
+type AggregatedGetVersionResponse struct {
+	Manager       string `json:"manager,omitempty"`
+	ManagerError  string `json:"managerError,omitempty"`
+	Executor      string `json:"executor,omitempty"`
+	ExecutorError string `json:"executorError,omitempty"`
 }
 
 type AdminCommandServer interface {
@@ -49,7 +65,7 @@ const (
 	// KeyAttestationRequestMessage represents a request to generate a key attestation (forwarded to executor)
 	KeyAttestationRequestMessage AdminMessageType = "key_attestation"
 
-	// GetVersionRequestMessage represents a request to get the version (manager)
+	// GetVersionRequestMessage represents a request to get the version
 	GetVersionRequestMessage AdminMessageType = "get_version"
 
 	// SetLogLevelRequestMessage represents a request to change the log level
@@ -64,6 +80,7 @@ const (
 // Executor (handler).
 const (
 	AdminCmdKeyAttestation = "key_attestation"
+	AdminCmdGetVersion     = "get_version"
 	AdminCmdSetLogLevel    = "set_log_level"
 	AdminCmdGetLogLevel    = "get_log_level"
 )
@@ -73,14 +90,16 @@ const SupportedLogLevels = "trace, debug, info, warn, error, fatal, panic, disab
 
 // SetLogLevelRequest is the payload for SetLogLevelRequestMessage.
 type SetLogLevelRequest struct {
-	Level  string `json:"level"`
-	Target string `json:"target,omitempty"`
+	Level string `json:"level"`
 }
 
 // GetLogLevelRequest is the payload for GetLogLevelRequestMessage.
-type GetLogLevelRequest struct {
-	Target string `json:"target,omitempty"`
-}
+// Currently empty; retained for forward compatibility.
+type GetLogLevelRequest struct{}
+
+// GetVersionRequest is the payload for GetVersionRequestMessage.
+// Currently empty; retained for forward compatibility.
+type GetVersionRequest struct{}
 
 // Target constants for admin commands. The Manager admin server is the single
 // entry point; these values control which component(s) a command applies to.
@@ -104,8 +123,7 @@ func ValidateTarget(target string) error {
 
 // SetLogLevelResponse is the successful response payload for SetLogLevel.
 type SetLogLevelResponse struct {
-	Success bool   `json:"success"`
-	Level   string `json:"level"`
+	Level string `json:"level"`
 }
 
 // HandleSetLogLevel validates and applies a log level change.
@@ -121,7 +139,7 @@ func HandleSetLogLevel(log logger.Logger, componentName, level string) (interfac
 	if err := log.SetLevel(level); err != nil {
 		return nil, fmt.Errorf("invalid log level '%s'; supported levels: %s", level, SupportedLogLevels)
 	}
-	return SetLogLevelResponse{Success: true, Level: level}, nil
+	return SetLogLevelResponse{Level: level}, nil
 }
 
 // HandleGetLogLevel returns the current log level.
@@ -134,10 +152,12 @@ func HandleGetLogLevel(log logger.Logger, componentName string) (string, error) 
 	return log.GetLevel(), nil
 }
 
-// AdminMessage represents an admin command message
+// AdminMessage represents an admin command message.
+// Target controls routing: "manager", "executor", "all", or "" (defaults to "all").
 type AdminMessage struct {
-	Type AdminMessageType `json:"type"`
-	Data json.RawMessage  `json:"data"`
+	Type   AdminMessageType `json:"type"`
+	Target string           `json:"target,omitempty"`
+	Data   json.RawMessage  `json:"data"`
 }
 
 // NewAdminMessage creates an AdminMessage by marshaling the provided data into json.RawMessage.
@@ -151,4 +171,3 @@ func NewAdminMessage(msgType AdminMessageType, data interface{}) (AdminMessage, 
 		Data: raw,
 	}, nil
 }
-
