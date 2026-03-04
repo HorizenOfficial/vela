@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,24 +100,24 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 		return f.(func(context.Context, *common.Request, *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req, appState)
 	}
 
-	if req.ApplicationID != ApplicationId {	
+	if req.ApplicationID != ApplicationId {
 		return nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
-	if req.RequestType != common.Deploy  {
-		return nil, nil,fmt.Errorf("wrong request type: %d", req.RequestType)
+	if req.RequestType != common.Deploy {
+		return nil, nil, fmt.Errorf("wrong request type: %d", req.RequestType)
 
 	}
 
-	if appState != nil {	
+	if appState != nil {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: appState.StateRoot, 
-			NewStateRoot: appState.StateRoot,
-			ErrorCode: uint8(apperrors.CodeApplicationAlreadyDeployed.Category.Category),
-			ErrorMsg: fmt.Sprintf("application %s was already deployed", req.ApplicationID),
-		}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: appState.StateRoot,
+			NewStateRoot:  appState.StateRoot,
+			ErrorCode:     uint8(apperrors.CodeApplicationAlreadyDeployed.Category.Category),
+			ErrorMsg:      fmt.Sprintf("application %s was already deployed", req.ApplicationID),
+		}
 
 		return failurePayload, nil, nil
 	}
@@ -122,12 +125,36 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, NewStateRoot: stateRoot}, &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
 }
 
+func (m *MockExecutorClient) SendBuildErrorPayloadRequest(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+	if f, ok := m.GetMockedFunc("SendBuildErrorPayloadRequest"); ok {
+		return f.(func(context.Context, *common.Request, [32]byte, *apperrors.RequestFailure) (*common.UpdatePayload, error))(ctx, req, stateRoot, failure)
+	}
+
+	if req == nil {
+		return nil, fmt.Errorf("request is nil")
+	}
+	if failure == nil {
+		return nil, fmt.Errorf("failure is nil")
+	}
+
+	return &common.UpdatePayload{
+		ApplicationID:  req.ApplicationID,
+		RequestID:      req.RequestID,
+		PrevStateRoot:  stateRoot,
+		NewStateRoot:   stateRoot,
+		RefundAmount:   req.MaxFeeValue,
+		ApplicationFee: common.NewBig(0),
+		ErrorCode:      failure.Category(),
+		ErrorMsg:       failure.ExternalMessage(),
+	}, nil
+}
+
 func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
 	if f, ok := m.GetMockedFunc("SendProcessRequest"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
 	}
 
-	if req.ApplicationID != ApplicationId {	
+	if req.ApplicationID != ApplicationId {
 		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
@@ -136,27 +163,27 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 
 	}
 
-	if appState == nil {	
+	if appState == nil {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: [32]byte{}, 
-			NewStateRoot: [32]byte{},
-			ErrorCode: uint8(apperrors.CodeAppStateNotFound.Category.Category),
-			ErrorMsg: "application state not found",
-			}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: [32]byte{},
+			NewStateRoot:  [32]byte{},
+			ErrorCode:     uint8(apperrors.CodeAppStateNotFound.Category.Category),
+			ErrorMsg:      "application state not found",
+		}
 		return failurePayload, nil, nil, nil
 	}
 
 	if string(req.Payload) == "invalid" {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: [32]byte{}, 
-			NewStateRoot: [32]byte{},
-			ErrorCode: uint8(apperrors.CategoryInternalMeta.Category),
-			ErrorMsg: "invalid request",
-			}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: [32]byte{},
+			NewStateRoot:  [32]byte{},
+			ErrorCode:     uint8(apperrors.CategoryInternalMeta.Category),
+			ErrorMsg:      "invalid request",
+		}
 		return failurePayload, nil, nil, nil
 	}
 
@@ -215,6 +242,46 @@ func createRequestWithPayload(requestType common.RequestType, appID common.Appli
 
 	request := &common.Request{ProtocolVersion: 0, ApplicationID: appID, RequestID: requestId, RequestType: requestType, Sender: sender, Payload: payload, MaxFeeValue: common.NewBig(100)}
 	return request
+}
+
+func createDeployRequestWithWASM(t *testing.T, manager *SecureProcessorManager, appID common.ApplicationIdType, wasm []byte) *common.Request {
+	t.Helper()
+
+	sum := sha256.Sum256(wasm)
+	wasmSHA := hex.EncodeToString(sum[:])
+	descriptorPayload := createDeployDescriptorPayload(t, appID, wasmSHA, uint64(len(wasm)))
+
+	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
+	require.NoError(t, os.MkdirAll(filepath.Dir(artifactBlobPath), 0o755))
+	require.NoError(t, os.WriteFile(artifactBlobPath, wasm, 0o600))
+
+	return createRequestWithPayload(common.Deploy, appID, descriptorPayload)
+}
+
+func createDeployDescriptorPayload(t *testing.T, appID common.ApplicationIdType, wasmSHA string, wasmSize uint64) []byte {
+	t.Helper()
+
+	artifactID, err := common.BuildArtifactID(wasmSHA)
+	require.NoError(t, err)
+
+	descriptor := common.DeployDescriptor{
+		Mode:          common.DeployModeArtifactRef,
+		ApplicationID: appID,
+		ArtifactID:    artifactID,
+		WasmSHA256:    wasmSHA,
+		WasmSize:      wasmSize,
+	}
+	payload, err := json.Marshal(descriptor)
+	require.NoError(t, err)
+
+	return payload
+}
+
+func writeArtifactBlob(t *testing.T, manager *SecureProcessorManager, wasmSHA string, wasm []byte) {
+	t.Helper()
+	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
+	require.NoError(t, os.MkdirAll(filepath.Dir(artifactBlobPath), 0o755))
+	require.NoError(t, os.WriteFile(artifactBlobPath, wasm, 0o600))
 }
 
 func TestStart(t *testing.T) {
@@ -350,7 +417,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy request
-	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -429,11 +496,11 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	// Prepare different requests
 
 	// Failure expected
-	requestDeploy := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	requestDeploy := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), requestDeploy)
 	require.NoError(t, err)
 
-	requestInvalid :=  createRequestWithPayload(common.Process, ApplicationId, []byte("invalid"))
+	requestInvalid := createRequestWithPayload(common.Process, ApplicationId, []byte("invalid"))
 	err = mockBCClient.SendRequestToChain(context.Background(), requestInvalid)
 	require.NoError(t, err)
 
@@ -442,7 +509,7 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.NoError(t, err)
 
 	// redeploy the same appId (failure expected)
-	requestReDeploy := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	requestReDeploy := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), requestReDeploy)
 	require.NoError(t, err)
 
@@ -490,26 +557,25 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, requestReDeploy.ApplicationID, completedRequests[3].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, requestReDeploy.RequestType, completedRequests[3].RequestType, "Wrong RequestType")
 
-
 }
 
 func TestProcessDeployAppWithFailure(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
-	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer 
+	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil
+		return &common.UpdatePayload{ApplicationID: ApplicationId,
+			RequestID: req.RequestID,
+			ErrorCode: 1,
+			ErrorMsg:  "error"}, nil, nil
 	})
 
 	err = manager.processDeployApp(context.Background(), request)
@@ -520,7 +586,7 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 	failedRequests := mockBCClient.GetFailedRequests()
 	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
-	
+
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendDeployApp")
 
@@ -529,7 +595,7 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 func TestProcessDeployAppWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
-	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -546,7 +612,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendDeployApp")
 
-	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error  
+	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error
 	expectedError = "failed to store state"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		return fmt.Errorf("%s", expectedError)
@@ -561,7 +627,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 
-	// Test blockchain failure for errors that can be due to reorgs. 
+	// Test blockchain failure for errors that can be due to reorgs.
 	// The errors that can be due to reorgs are:
 	// - InvalidRequestId
 	// - InvalidStateRoot
@@ -583,7 +649,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
-	// Test blockchain failure for any other errors but reorgs. 
+	// Test blockchain failure for any other errors but reorgs.
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
@@ -604,11 +670,234 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 }
 
+func TestProcessDeployApp_InvalidDescriptorFailsDeterministically(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte("not-json"))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	var capturedFailure *apperrors.RequestFailure
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+		capturedFailure = failure
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  stateRoot,
+			NewStateRoot:   stateRoot,
+			ErrorCode:      failure.Category(),
+			ErrorMsg:       failure.ExternalMessage(),
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+
+	require.NotNil(t, capturedFailure)
+	require.Equal(t, apperrors.CodeInternalFallback.Code, capturedFailure.RequestError.Code)
+	require.Equal(t, deployFailureMsgGeneric, capturedFailure.ExternalMessage())
+
+	completedRequests := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	failedRequests := mockBCClient.GetFailedRequests()
+	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
+}
+
+func TestProcessDeployApp_UnauthorizedSenderFailsDeterministically(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	request.Sender = ethCommon.HexToAddress("0x1111111111111111111111111111111111111111")
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(context.Context, *common.Request, *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+		t.Fatal("SendDeployApp must not be called for unauthorized deployer")
+		return nil, nil, nil
+	})
+
+	var capturedFailure *apperrors.RequestFailure
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+		capturedFailure = failure
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  stateRoot,
+			NewStateRoot:   stateRoot,
+			ErrorCode:      failure.Category(),
+			ErrorMsg:       failure.ExternalMessage(),
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+
+	require.NotNil(t, capturedFailure)
+	require.Equal(t, apperrors.CodeInternalFallback.Code, capturedFailure.RequestError.Code)
+	require.Equal(t, deployFailureMsgNotAdmitted, capturedFailure.ExternalMessage())
+}
+
+func TestProcessDeployApp_MissingArtifactTransitionsToDeterministicFailure(t *testing.T) {
+	config := Config{
+		ReorgTimeout:              60,
+		LogServerTCPAddress:       common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+		ArtifactReadRetries:       1,
+		ArtifactMaxTransientPolls: 2,
+	}
+	mockBCClient, manager := setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
+
+	missingSHA := strings.Repeat("a", 64)
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, missingSHA, 1))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), string(DeployErrorArtifactNotFound))
+	require.Equal(t, 0, len(mockBCClient.GetCompletedRequests()))
+	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()))
+
+	var capturedFailure *apperrors.RequestFailure
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+		capturedFailure = failure
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  stateRoot,
+			NewStateRoot:   stateRoot,
+			ErrorCode:      failure.Category(),
+			ErrorMsg:       failure.ExternalMessage(),
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+	require.NotNil(t, capturedFailure)
+	require.Equal(t, apperrors.CodeFailedLoadingOrGettingModule.Code, capturedFailure.RequestError.Code)
+	require.Equal(t, deployFailureMsgGeneric, capturedFailure.ExternalMessage())
+
+	failedRequests := mockBCClient.GetFailedRequests()
+	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
+	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
+
+	_, exists := manager.deployTransient[request.RequestID]
+	require.False(t, exists, "transient counter should be reset after deterministic failure")
+}
+
+func TestProcessDeployApp_TransientArtifactFailureRecovers(t *testing.T) {
+	config := Config{
+		ReorgTimeout:              60,
+		LogServerTCPAddress:       common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+		ArtifactReadRetries:       1,
+		ArtifactMaxTransientPolls: 3,
+	}
+	mockBCClient, manager := setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
+
+	wasm := []byte("recovered-wasm")
+	sum := sha256.Sum256(wasm)
+	wasmSHA := hex.EncodeToString(sum[:])
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA, uint64(len(wasm))))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), string(DeployErrorArtifactNotFound))
+	require.Equal(t, 0, len(mockBCClient.GetCompletedRequests()))
+
+	writeArtifactBlob(t, manager, wasmSHA, wasm)
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+
+	completedRequests := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()), "expected 0 failed requests")
+
+	_, exists := manager.deployTransient[request.RequestID]
+	require.False(t, exists, "transient counter should be reset after successful deploy")
+}
+
+func TestProcessDeployApp_ArtifactHashMismatchFailsDeterministically(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	wasm := []byte("real-content")
+	actualHash := sha256.Sum256(wasm)
+	descriptorHash := strings.Repeat("b", 64)
+	writeArtifactBlob(t, manager, descriptorHash, wasm)
+
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, descriptorHash, uint64(len(wasm))))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	var capturedFailure *apperrors.RequestFailure
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+		capturedFailure = failure
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  stateRoot,
+			NewStateRoot:   stateRoot,
+			ErrorCode:      failure.Category(),
+			ErrorMsg:       failure.ExternalMessage(),
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+	require.NotNil(t, capturedFailure)
+	require.Equal(t, apperrors.CodeFailedLoadingOrGettingModule.Code, capturedFailure.RequestError.Code)
+	require.Equal(t, deployFailureMsgGeneric, capturedFailure.ExternalMessage())
+	require.NotEqual(t, descriptorHash, hex.EncodeToString(actualHash[:]))
+}
+
+func TestProcessDeployApp_ArtifactSizeMismatchFailsDeterministically(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	wasm := []byte("exact-size-content")
+	sum := sha256.Sum256(wasm)
+	wasmSHA := hex.EncodeToString(sum[:])
+	writeArtifactBlob(t, manager, wasmSHA, wasm)
+
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA, uint64(len(wasm)+1)))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	var capturedFailure *apperrors.RequestFailure
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+		capturedFailure = failure
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  stateRoot,
+			NewStateRoot:   stateRoot,
+			ErrorCode:      failure.Category(),
+			ErrorMsg:       failure.ExternalMessage(),
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+	require.NotNil(t, capturedFailure)
+	require.Equal(t, apperrors.CodeFailedLoadingOrGettingModule.Code, capturedFailure.RequestError.Code)
+	require.Equal(t, deployFailureMsgGeneric, capturedFailure.ExternalMessage())
+}
+
 func TestProcessProcessRequestWithFailure(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
-	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -620,19 +909,19 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer 
+	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
 
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", 
-	func(_ context.Context, req *common.Request, _ *common.ApplicationState,_ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil, nil	})
-
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
+		func(_ context.Context, req *common.Request, _ *common.ApplicationState, _ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+			return &common.UpdatePayload{ApplicationID: ApplicationId,
+				RequestID: req.RequestID,
+				ErrorCode: 1,
+				ErrorMsg:  "error"}, nil, nil, nil
+		})
 
 	err = manager.processProcessRequest(context.Background(), request)
 	require.NoError(t, err)
@@ -642,7 +931,7 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	failedRequests := mockBCClient.GetFailedRequests()
 	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
-	
+
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
 
@@ -652,7 +941,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
-	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -701,7 +990,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
-	// Failure in GetWasmCode, stop processing and return the error 
+	// Failure in GetWasmCode, stop processing and return the error
 	expectedError = "wasm bytecode not found for application"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, common.ApplicationIdType) ([]byte, error) {
 		return nil, errors.New(expectedError)
@@ -745,7 +1034,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 
-	// Test blockchain failure for errors that can be due to reorgs. 
+	// Test blockchain failure for errors that can be due to reorgs.
 	// The errors that can be due to reorgs are:
 	// - InvalidRequestId
 	// - InvalidStateRoot
@@ -766,7 +1055,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
 
-	// Test blockchain failure for any other errors but reorgs. 
+	// Test blockchain failure for any other errors but reorgs.
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
@@ -786,12 +1075,13 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 
 	// Same test but with an error payload for the SubmitStateUpdate
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", 
-	func(_ context.Context, req *common.Request, _ *common.ApplicationState,_ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil, nil	})
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
+		func(_ context.Context, req *common.Request, _ *common.ApplicationState, _ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+			return &common.UpdatePayload{ApplicationID: ApplicationId,
+				RequestID: req.RequestID,
+				ErrorCode: 1,
+				ErrorMsg:  "error"}, nil, nil, nil
+		})
 
 	failure = manager.processProcessRequest(context.Background(), request)
 	require.Error(t, failure)
@@ -816,7 +1106,7 @@ func TestProcessDeanonymizationViaProcessRequest(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
-	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -848,7 +1138,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute some requests just to have different versions in the DB
-	request1 := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request1 := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), request1)
 	require.NoError(t, err)
 
@@ -998,7 +1288,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Setup the application
-	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -1099,6 +1389,18 @@ func setupTestWithConfig(
 	tmpDir, err := os.MkdirTemp("", "reports")
 	require.NoError(t, err)
 	config.DeanonymizationReportPath = tmpDir
+	if config.ArtifactsPath == "" {
+		config.ArtifactsPath = t.TempDir()
+	}
+	if config.AllowedDeployer == (ethCommon.Address{}) {
+		config.AllowedDeployer = sender
+	}
+	if config.ArtifactReadRetries == 0 {
+		config.ArtifactReadRetries = 2
+	}
+	if config.ArtifactMaxTransientPolls == 0 {
+		config.ArtifactMaxTransientPolls = 12
+	}
 
 	processor := &SecureProcessorManager{
 		config:            &config,
@@ -1109,6 +1411,7 @@ func setupTestWithConfig(
 		executorHandShake: executorHandShake,
 		stopChan:          stopChan,
 		log:               testLogger,
+		deployTransient:   make(map[common.RequestIdType]int),
 	}
 
 	if startLogServer {
@@ -1138,7 +1441,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Deploy the application first
-	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())

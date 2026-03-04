@@ -44,12 +44,12 @@ type Server struct {
 }
 
 // NewServer creates a new server with the specified connection factory
-func NewServer(factory ConnectionFactory, communicationParams common.CommunicationParams,log logger.Logger) *Server {
+func NewServer(factory ConnectionFactory, communicationParams common.CommunicationParams, log logger.Logger) *Server {
 	return &Server{
 		factory:      factory,
 		shutdownChan: make(chan struct{}),
 		reqTimeout:   communicationParams.RequestTimeoutSec * time.Second,
-		log: log,
+		log:          log,
 	}
 }
 
@@ -432,6 +432,8 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg Message,
 		c.handleProcessRequest(ctx, msg, handler)
 	case DeployAppRequestMessage:
 		c.handleDeployAppRequest(ctx, msg, handler)
+	case BuildErrorPayloadRequestMessage:
+		c.handleBuildErrorPayloadRequest(ctx, msg, handler)
 	case KeyAttestationRequestMessage:
 		c.handleKeyAttestationRequest(ctx, msg, handler)
 	default:
@@ -496,6 +498,33 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		c.log.Warn("%s: Failed to send HandleDeployApp response: %v", c.idLogTag, err)
 	}
 	c.log.Info("%s: DeployApp handled successfully, ID=%s", c.idLogTag, msg.ID)
+}
+
+func (c *ClientConnection) handleBuildErrorPayloadRequest(ctx context.Context, msg Message, handler RequestHandler) {
+	reqData, err := extractData[BuildErrorPayloadRequestData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	updatePayload, err := handler.HandleBuildErrorPayloadRequest(ctx, reqData.Request, reqData.StateRoot, reqData.Failure)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+		return
+	}
+
+	response := Message{
+		ID:   msg.ID,
+		Type: BuildErrorPayloadResponseMessage,
+		Data: BuildErrorPayloadResponseData{
+			UpdatePayload: updatePayload,
+		},
+	}
+
+	if err := c.sendMessage(response); err != nil {
+		c.log.Warn("%s: Failed to send HandleBuildErrorPayloadRequest response: %v", c.idLogTag, err)
+	}
+	c.log.Info("%s: BuildErrorPayloadRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // handleKeyAttestationRequest handles KeyAttestationRequest messages

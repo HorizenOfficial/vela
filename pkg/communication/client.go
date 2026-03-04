@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 	"github.com/horizen-pes/pkg/logger"
 	storageErrors "github.com/horizen-pes/pkg/storage/errors"
 )
@@ -38,7 +39,7 @@ func NewClient(factory ConnectionFactory, communicationParams common.Communicati
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
 		reqTimeout:      communicationParams.RequestTimeoutSec * time.Second,
-		log: log,
+		log:             log,
 	}
 }
 
@@ -167,7 +168,7 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
-			Request: req,
+			Request:          req,
 			ApplicationState: appState,
 		},
 	}
@@ -195,6 +196,43 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 	}
 
 	return respData.UpdatePayload, respData.ApplicationState, nil
+}
+
+// SendBuildErrorPayloadRequest asks executor to produce a signed deterministic error payload.
+func (c *Client) SendBuildErrorPayloadRequest(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+	msg := Message{
+		ID:   generateID(),
+		Type: BuildErrorPayloadRequestMessage,
+		Data: BuildErrorPayloadRequestData{
+			Request:   req,
+			StateRoot: stateRoot,
+			Failure:   failure,
+		},
+	}
+
+	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send deterministic error payload request: %w", err)
+	}
+
+	if respMsg.Type == ErrorMessage {
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract server error data: %w", err)
+		}
+		return nil, fmt.Errorf("server error: %s", errorData.Message)
+	}
+
+	if respMsg.Type != BuildErrorPayloadResponseMessage {
+		return nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	}
+
+	respData, err := extractData[BuildErrorPayloadResponseData](respMsg.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	return respData.UpdatePayload, nil
 }
 
 // SendKeyAttestationRequest sends a key attestation request to the executor and waits for the response

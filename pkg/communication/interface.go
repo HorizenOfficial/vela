@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/horizen-pes/pkg/common"
+	"github.com/horizen-pes/pkg/common/apperrors"
 )
 
 // ExecutorClient defines the interface for communication with the WASM Executor.
@@ -21,6 +22,8 @@ type ExecutorClient interface {
 	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	// SendDeployApp deploys a new application to the executor
 	SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
+	// SendBuildErrorPayloadRequest asks executor to create a signed deterministic error payload.
+	SendBuildErrorPayloadRequest(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error)
 	// SendKeyAttestationRequest requests a key attestation from the executor
 	SendKeyAttestationRequest(ctx context.Context) ([]byte, error)
 	// SetClientRequestHandler sets the handler for incoming requests from server
@@ -68,6 +71,8 @@ type RequestHandler interface {
 	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	// HandleDeployApp deploys a new application
 	HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
+	// HandleBuildErrorPayloadRequest creates a signed deterministic error payload.
+	HandleBuildErrorPayloadRequest(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error)
 	// HandleKeyAttestationRequest creates a key attestation document
 	HandleKeyAttestationRequest(ctx context.Context) ([]byte, error)
 }

@@ -49,6 +49,8 @@ type SecureProcessorManager struct {
 	endReorgTime      time.Time
 	log               logger.Logger
 	fatalErrChan      chan error // Channel to signal fatal errors to main
+	deployTransientMu sync.Mutex
+	deployTransient   map[common.RequestIdType]int
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -63,8 +65,9 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 		executorHandShake: &ExecutorHandShake{
 			isComplete: make(chan struct{}),
 		},
-		log:          log,
-		fatalErrChan: make(chan error, 1), // buffered to avoid blocking
+		log:             log,
+		fatalErrChan:    make(chan error, 1), // buffered to avoid blocking
+		deployTransient: make(map[common.RequestIdType]int),
 	}
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
@@ -485,7 +488,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 				m.log.Warn("REORG, wait for next poll")
 				return nil
 			}
-		} 
+		}
 		return err
 	}
 
@@ -511,22 +514,53 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		}
 	}
 
-	//if the payload is empty, try to retrieve the wasm locally. In case of error, try again hoping someone fixes the problem
-	if len(req.Payload) == 0 {
-		m.log.Info("Empty payload received - trying to retrieve wasm locally")
-		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID.String()+".wasm")
-		if !common.FileExists(wasmFilePath) {
-			return fmt.Errorf("failed to deploy application - wasm %v not found in both payload or local path", wasmFilePath)
+	wasmModule, resolveErr := m.resolveDeployWASM(ctx, req)
+	if resolveErr != nil {
+		dErr, ok := resolveErr.(*deployResolutionError)
+		if !ok {
+			return resolveErr
 		}
-		wasmBytesFromFile, err := os.ReadFile(wasmFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to deploy application - Error reading wasm file: %w", err)
+
+		if !dErr.transient {
+			submitErr := m.submitDeterministicDeployFailure(ctx, req, stateRootForDeployFailure(state), dErr.kind, resolveErr)
+			if submitErr == nil {
+				m.resetDeployTransientCounter(req.RequestID)
+			}
+			return submitErr
 		}
-		req.Payload = wasmBytesFromFile
+
+		currentTransientPoll := m.incrementDeployTransientCounter(req.RequestID)
+		m.log.Warn(
+			"Manager: transient deploy artifact resolution failure requestId=%s applicationId=%d poll=%d/%d kind=%s err=%v",
+			req.RequestID,
+			req.ApplicationID,
+			currentTransientPoll,
+			m.config.ArtifactMaxTransientPolls,
+			dErr.kind,
+			resolveErr,
+		)
+
+		if currentTransientPoll < m.config.ArtifactMaxTransientPolls {
+			return resolveErr
+		}
+
+		finalKind := DeployErrorArtifactLoadFailed
+		if dErr.kind == DeployErrorArtifactNotFound {
+			finalKind = DeployErrorArtifactNotFound
+		}
+		submitErr := m.submitDeterministicDeployFailure(ctx, req, stateRootForDeployFailure(state), finalKind, resolveErr)
+		if submitErr == nil {
+			m.resetDeployTransientCounter(req.RequestID)
+		}
+		return submitErr
 	}
+	m.resetDeployTransientCounter(req.RequestID)
+
+	deployReq := *req
+	deployReq.Payload = wasmModule
 
 	// Deploy the application
-	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req, state)
+	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, &deployReq, state)
 	if err != nil {
 		return err
 	}
@@ -544,7 +578,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		ctx,
 		versionID[:],
 		[]*common.ApplicationState{appState},
-		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: req.Payload}},
+		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: wasmModule}},
 	)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)

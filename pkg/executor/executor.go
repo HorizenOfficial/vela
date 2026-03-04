@@ -891,6 +891,23 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	return updatePayload, newAppState, nil
 }
 
+// HandleBuildErrorPayloadRequest creates a signed deterministic error payload for manager-side deterministic failures.
+func (e *StatelessExecutor) HandleBuildErrorPayloadRequest(_ context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	if failure == nil {
+		return nil, fmt.Errorf("failure is required")
+	}
+
+	payload, err := e.buildErrorPayload(req, stateRoot, failure)
+	if err != nil {
+		return nil, err
+	}
+	e.log.Info("Executor: Returning signed deterministic error payload for request %s (error code: %d)", req.RequestID, payload.ErrorCode)
+	return payload, nil
+}
+
 func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.ApplicationState) (*appdata.AppData, error) {
 	// Decrypt the encrypted state
 	decryptedState, err := e.DecryptState(encState.EncryptedState, e.keySet.StateKey)

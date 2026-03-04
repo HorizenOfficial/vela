@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
@@ -57,9 +58,14 @@ type Config struct {
 	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
 	DeanonymizationReportPath string
 
-	// InputWasmPath is the path where the wasm bytecode to be deployed is retrieved if not found in the payload
-	// (we may need to load it externally for GAS limitation)
-	InputWasmPath string
+	// ArtifactsPath is the shared filesystem path where deploy artifacts are stored.
+	ArtifactsPath string
+	// AllowedDeployer is the only sender allowed to submit deploy requests.
+	AllowedDeployer ethCommon.Address
+	// ArtifactReadRetries is the number of local retries for reading an artifact in one poll cycle.
+	ArtifactReadRetries int
+	// ArtifactMaxTransientPolls is the maximum consecutive poll cycles tolerated for transient artifact load failures.
+	ArtifactMaxTransientPolls int
 
 	// Manager logging
 	//--------------------------
@@ -192,7 +198,9 @@ func LoadConfig() (*Config, error) {
 		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
 		DataLayerNumOfVersions:    10,
 		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProperties),
-		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
+		ArtifactsPath:             common.GetConfigVar("MANAGER_ARTIFACTS_PATH", "", fileProperties),
+		ArtifactReadRetries:       int(common.GetConfigVarInt64("MANAGER_ARTIFACT_READ_RETRIES", 2, fileProperties)),
+		ArtifactMaxTransientPolls: int(common.GetConfigVarInt64("MANAGER_ARTIFACT_MAX_TRANSIENT_POLLS", 12, fileProperties)),
 		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
 		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
 		LogConsoleLevel:           common.GetConfigVar("MANAGER_LOG_CONSOLE_LEVEL", "info", fileProperties),
@@ -215,6 +223,27 @@ func LoadConfig() (*Config, error) {
 
 	if strings.TrimSpace(cfg.DeanonymizationReportPath) == "" {
 		return nil, fmt.Errorf("MANAGER_REPORTS_FOLDER (DeanonymizationReportPath) not configured")
+	}
+
+	cfg.ArtifactsPath = strings.TrimSpace(cfg.ArtifactsPath)
+	if cfg.ArtifactsPath == "" {
+		return nil, fmt.Errorf("MANAGER_ARTIFACTS_PATH not configured")
+	}
+
+	allowedDeployerRaw := strings.TrimSpace(common.GetConfigVar("MANAGER_ALLOWED_DEPLOYER", "", fileProperties))
+	if allowedDeployerRaw == "" {
+		return nil, fmt.Errorf("MANAGER_ALLOWED_DEPLOYER not configured")
+	}
+	if !ethCommon.IsHexAddress(allowedDeployerRaw) {
+		return nil, fmt.Errorf("MANAGER_ALLOWED_DEPLOYER is not a valid hex address")
+	}
+	cfg.AllowedDeployer = ethCommon.HexToAddress(allowedDeployerRaw)
+
+	if cfg.ArtifactReadRetries < 0 {
+		return nil, fmt.Errorf("MANAGER_ARTIFACT_READ_RETRIES must be >= 0")
+	}
+	if cfg.ArtifactMaxTransientPolls <= 0 {
+		return nil, fmt.Errorf("MANAGER_ARTIFACT_MAX_TRANSIENT_POLLS must be > 0")
 	}
 
 	return cfg, nil
