@@ -64,8 +64,8 @@ RUN apk add --no-cache su-exec
 ENV MANAGER_DATA_FOLDER="/data"
 #default location for reports folder (can be overridden by docker compose or docker run)
 ENV MANAGER_REPORTS_FOLDER="/reports"
-#default location for input wasms folder (can be overridden by docker compose or docker run)
-ENV MANAGER_INPUT_WASMS="/input_wasms"
+#default location for shared deploy artifacts (can be overridden by docker compose or docker run)
+ENV MANAGER_ARTIFACTS_PATH="/deploy-artifacts"
 #default location for logs folder (can be overridden by docker compose or docker run)
 ENV LOG_SERVER_FOLDER="/logs"
 

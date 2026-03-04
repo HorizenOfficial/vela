@@ -12,4 +12,9 @@ if [ -n "${MANAGER_REPORTS_FOLDER}" ]; then
     chown -R appuser:appgroup "${MANAGER_REPORTS_FOLDER}"
 fi
 
+# Take ownership of the deploy artifacts directory so the non-root user can store uploads.
+if [ -n "${DEPLOY_ARTIFACTS_PATH}" ]; then
+    chown -R appuser:appgroup "${DEPLOY_ARTIFACTS_PATH}"
+fi
+
 exec "$@"

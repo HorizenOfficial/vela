@@ -9,6 +9,7 @@ networks:
 volumes:
   horizen-cce-manager-data:
   horizen-cce-manager-reports:
+  horizen-cce-artifacts-data:
   horizen-cce-chain-data:
   horizen-cce-logs:
   horizen-cce-deploy-data:
@@ -88,7 +89,10 @@ services:
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
-      - MANAGER_INPUT_WASMS
+      - MANAGER_ARTIFACTS_PATH=${MANAGER_ARTIFACTS_PATH:-/deploy-artifacts}
+      - MANAGER_ALLOWED_DEPLOYER
+      - MANAGER_ARTIFACT_READ_RETRIES
+      - MANAGER_ARTIFACT_MAX_TRANSIENT_POLLS
       # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
       - MANAGER_LOG_KIND
       - MANAGER_LOG_CONSOLE
@@ -126,8 +130,8 @@ services:
     volumes:
       - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
       - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
-      # WASM input folder
-      - ./wasms:${MANAGER_INPUT_WASMS:-/input_wasms}
+      # Shared deploy artifact storage (manager reads read-only)
+      - horizen-cce-artifacts-data:${MANAGER_ARTIFACTS_PATH:-/deploy-artifacts}:ro
       - horizen-cce-logs:${LOG_SERVER_FOLDER:-/logs}
       - horizen-cce-deploy-data:/deploy-data:ro
     depends_on:
@@ -151,6 +155,8 @@ services:
       - CHAIN_PROCESSOR_ADDRESS
       - AUTHORITY_SERVICE_SUBGRAPH_URL
       - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
+      - DEPLOY_ARTIFACTS_PATH=${DEPLOY_ARTIFACTS_PATH:-/deploy-artifacts}
+      - DEPLOY_ARTIFACTS_MAX_SIZE_MB
       - AUTHORITY_SERVICE_LOG_CONSOLE
       - AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL
       - AUTHORITY_SERVICE_LOG_CONSOLE_COLOR
@@ -162,6 +168,7 @@ services:
       inet:
     volumes:
       - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
+      - horizen-cce-artifacts-data:${DEPLOY_ARTIFACTS_PATH:-/deploy-artifacts}
       - horizen-cce-deploy-data:/deploy-data:ro
     depends_on:
       manager:
