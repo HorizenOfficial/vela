@@ -128,16 +128,16 @@ type SetLogLevelResponse struct {
 
 // HandleSetLogLevel validates and applies a log level change.
 // It is the shared implementation used by both Manager and Executor.
-func HandleSetLogLevel(log logger.Logger, componentName, level string) (interface{}, error) {
+func HandleSetLogLevel(log logger.Logger, componentName, level string) (SetLogLevelResponse, error) {
 	log.Info("%s: SetLogLevel command received, level=%s", componentName, level)
 	if _, ok := log.(*logger.ZeroNetworkLogger); !ok {
-		return nil, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
+		return SetLogLevelResponse{}, fmt.Errorf("SetLogLevel is only supported with the ZeroNetworkLogger")
 	}
 	if level == "" {
-		return nil, fmt.Errorf("invalid log level: level must not be empty; supported levels: %s", SupportedLogLevels)
+		return SetLogLevelResponse{}, fmt.Errorf("invalid log level: level must not be empty; supported levels: %s", SupportedLogLevels)
 	}
 	if err := log.SetLevel(level); err != nil {
-		return nil, fmt.Errorf("invalid log level '%s'; supported levels: %s", level, SupportedLogLevels)
+		return SetLogLevelResponse{}, fmt.Errorf("invalid log level '%s'; supported levels: %s", level, SupportedLogLevels)
 	}
 	return SetLogLevelResponse{Level: level}, nil
 }

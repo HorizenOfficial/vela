@@ -1600,6 +1600,16 @@ func TestExecuteCommand_KeyAttestation_ForwardError(t *testing.T) {
 	require.Nil(t, result)
 }
 
+func TestExecuteCommand_KeyAttestation_RejectsTargetManager(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	msg := admin.AdminMessage{Type: admin.KeyAttestationRequestMessage, Target: "manager"}
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "key_attestation is only supported on the executor")
+	require.Nil(t, result)
+}
+
 func TestExecuteCommand_GetVersion_TargetManager(t *testing.T) {
 	_, mgr := setupTest(t)
 
