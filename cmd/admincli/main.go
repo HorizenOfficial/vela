@@ -54,7 +54,7 @@ func main() {
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Interactive CLI for sending admin commands to the HCCE Manager.\n\n")
+		fmt.Fprintf(os.Stderr, "Interactive CLI for sending admin commands to the Vela Manager.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -host=<addr>    Admin server host (default \"localhost\")\n")
 		fmt.Fprintf(os.Stderr, "  -port=<number>  Admin server port (default 4002)\n")
@@ -71,7 +71,7 @@ func main() {
 
 	scanner := bufio.NewScanner(os.Stdin)
 
-	fmt.Println("HCCE Admin CLI")
+	fmt.Println("Vela Admin CLI")
 	fmt.Printf("Server: %s\n\n", addr)
 
 	for {
@@ -184,7 +184,7 @@ func buildSetLogLevel(scanner *bufio.Scanner) (*adminMessage, error) {
 }
 
 func buildKeyAttestation() *adminMessage {
-	return &adminMessage{Type: keyAttestationRequest}
+	return &adminMessage{Type: keyAttestationRequest, Target: "executor"}
 }
 
 // --- send / receive ---

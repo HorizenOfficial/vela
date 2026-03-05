@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/horizen-pes/pkg/admin"
-	"github.com/horizen-pes/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/admin"
+	"github.com/HorizenOfficial/vela/pkg/communication"
 )
 
 // TestMessageTypeConstants verifies that the locally-duplicated admin message
