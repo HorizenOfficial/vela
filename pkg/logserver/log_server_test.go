@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 // sendLogMessage sends a JSON log message to the log server via TCP.

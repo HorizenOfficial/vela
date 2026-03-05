@@ -5,8 +5,8 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/common/testutil"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
 )
 
 // Compile-time check that MockKMSClient implements KMSClient

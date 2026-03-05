@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 	"github.com/magiconair/properties"
 )
 
@@ -190,7 +190,7 @@ func LoadConfig() (*Config, error) {
 		DataLayerType:             "versioned_leveldb",
 		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
 		DataLayerNumOfVersions:    10,
-		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProperties),
+		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/vela-data/manager_reports", fileProperties),
 		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
 		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
 		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),

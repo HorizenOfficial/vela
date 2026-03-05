@@ -7,12 +7,12 @@ import (
 	"os"
 	"sync"
 
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldb_errors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 
-	"github.com/horizen-pes/pkg/storage"
+	"github.com/HorizenOfficial/vela/pkg/storage"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 )
 
 // AggregatedGetLogLevelResponse is returned when target="all" for GetLogLevel,

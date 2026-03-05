@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 const MsgDelimiter = byte('\n')

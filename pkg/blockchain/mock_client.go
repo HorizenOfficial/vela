@@ -10,10 +10,10 @@ import (
 	"github.com/elliotchance/orderedmap/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 )
 
 func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, TeeSignerAddress ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {

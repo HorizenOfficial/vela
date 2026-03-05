@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

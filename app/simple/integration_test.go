@@ -11,12 +11,12 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-cce-common-go/wasm/types"
-	"github.com/horizen-pes/app/simple/app"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/testutil"
-	pes_wasm "github.com/horizen-pes/pkg/wasm"
+	"github.com/HorizenOfficial/vela-common-go/wasm/types"
+	"github.com/HorizenOfficial/vela/app/simple/app"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/testutil"
+	vela_wasm "github.com/HorizenOfficial/vela/pkg/wasm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,7 +74,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -212,7 +212,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -234,7 +234,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -344,7 +344,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -376,7 +376,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 }
 
 func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -415,7 +415,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -440,7 +440,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
 
 	// Create a new wasmtime runtime with limited memory to make leaks surface faster.
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -529,7 +529,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 }
 
 // requireMemoryClean is a helper that checks guest memory is fully deallocated.
-func requireMemoryClean(t *testing.T, runtime *pes_wasm.WasmtimeRuntime, wasmBytes []byte, errMsg string) {
+func requireMemoryClean(t *testing.T, runtime *vela_wasm.WasmtimeRuntime, wasmBytes []byte, errMsg string) {
 	t.Helper()
 	ctx := context.Background()
 	mapEntries, totalBytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
@@ -544,7 +544,7 @@ func requireMemoryClean(t *testing.T, runtime *pes_wasm.WasmtimeRuntime, wasmByt
 // round-trip that cannot be unit-tested in native 64-bit Go.
 func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -611,7 +611,7 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 // (which still use SerializeAndWriteResult -> BytesToPtr) do not leak memory.
 func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()
@@ -656,7 +656,7 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 // result that stresses the allocate -> BytesToPtr -> extractResultBytes -> deallocate pipeline.
 func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 	wasmBytes := buildAndLoadWasmModule(t)
-	runtime := pes_wasm.NewWasmtimeRuntime(testLogger)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger)
 	defer runtime.Close()
 
 	ctx := context.Background()

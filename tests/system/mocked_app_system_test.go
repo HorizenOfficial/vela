@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	commontestutil "github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/testutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/testutil"
 )
 
 var (

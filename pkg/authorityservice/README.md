@@ -16,7 +16,7 @@ The authority service now verifies on-chain completion before serving a report. 
 - `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`: RPC endpoint to the node.
 - `CHAIN_PROCESSOR_ADDRESS`: ProcessorEndpoint contract address.
 - `AUTHORITY_SERVICE_SUBGRAPH_URL`: subgraph endpoint to read `RequestCompleted`/`UserEvent`.
-- `MANAGER_REPORTS_FOLDER`: path to the report files shared with the manager (default `/tmp/horizen-pes-data/manager_reports`).
+- `MANAGER_REPORTS_FOLDER`: path to the report files shared with the manager (default `/tmp/vela-data/manager_reports`).
 
 Logging/TLS options are documented in `pkg/authorityservice/config.go`.
 

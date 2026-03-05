@@ -1,4 +1,4 @@
-name: Horizen CCE CI
+name: Vela CI
 on:
   push:
     branches: [ main, dev]
@@ -22,12 +22,6 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
-
-      # Configure Git to use GITHUB_TOKEN for private modules
-      - name: Configure Go for private modules
-        run: |
-          go env -w GOPRIVATE=github.com/HorizenOfficial/*
-          git config --global url."https://${{ secrets.GH_PAT }}:@github.com/".insteadOf "https://github.com/"
 
       # Setup Node.js for contracts
       - name: Set up Node.js
@@ -120,12 +114,6 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
-
-      # Configure Git to use GITHUB_TOKEN for private modules
-      - name: Configure Go for private modules
-        run: |
-          go env -w GOPRIVATE=github.com/HorizenOfficial/*
-          git config --global url."https://${{ secrets.GH_PAT }}:@github.com/".insteadOf "https://github.com/"
 
       # Setup Node.js for contracts
       - name: Set up Node.js
@@ -228,8 +216,6 @@ jobs:
           context: .
           file: ./dockerfiles/executor/Dockerfile
           push: true
-          secrets: |
-            gh_token=${{ secrets.GH_PAT }}
           build-args: |
             GIT_VERSION=${{ github.ref_name }}
           tags: |
@@ -242,8 +228,6 @@ jobs:
           context: .
           file: ./dockerfiles/manager/Dockerfile
           push: true
-          secrets: |
-            gh_token=${{ secrets.GH_PAT }}
           build-args: |
             GIT_VERSION=${{ github.ref_name }}
           tags: |
@@ -266,8 +250,6 @@ jobs:
           context: .
           file: ./dockerfiles/authorityservice/Dockerfile
           push: true
-          secrets: |
-            gh_token=${{ secrets.GH_PAT }}
           tags: |
             ${{ env.DOCKER_HUB_ORG }}/cce-authorityservice:${{ env.GITHUB_TAG }}
             ${{ env.DOCKER_HUB_ORG }}/cce-authorityservice:latest
