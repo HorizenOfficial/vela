@@ -1,6 +1,9 @@
 package deployartifact
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	artifactIDPrefix = "sha256:"
@@ -17,7 +20,8 @@ type UploadResponse struct {
 }
 
 type Metadata struct {
-	ArtifactID string `json:"artifactId"`
-	WasmSHA256 string `json:"wasmSha256"`
-	WasmSize   uint64 `json:"wasmSize"`
+	ArtifactID string    `json:"artifactId"`
+	WasmSHA256 string    `json:"wasmSha256"`
+	WasmSize   uint64    `json:"wasmSize"`
+	CreatedAt  time.Time `json:"createdAt"`
 }

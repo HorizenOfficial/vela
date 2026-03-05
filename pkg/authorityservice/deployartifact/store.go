@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -95,6 +96,7 @@ func (s *Store) SaveWASM(reader io.Reader) (*UploadResponse, error) {
 		ArtifactID: artifactID,
 		WasmSHA256: shaHex,
 		WasmSize:   uint64(size),
+		CreatedAt:  time.Now().UTC().Truncate(time.Second),
 	}
 	metaPath := filepath.Join(s.metaPath, shaHex+".json")
 	if err := writeJSONAtomicallyIfMissing(metaPath, metadata); err != nil {
