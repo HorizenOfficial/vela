@@ -47,8 +47,14 @@ value (e.g. `3` or `info`).
 
 ### 1) Get Version
 
-Returns the Manager's build version string (e.g. `"0.1.0"`). Handled locally
-by the Manager; does not contact the Executor.
+Returns the build version string for the selected target (e.g. `"0.1.0"`).
+When `target=all`, the response is an aggregated object with both components:
+
+```json
+{"manager": "0.1.0", "executor": "0.1.0"}
+```
+
+When targeting a single component, the response is a plain string (`"0.1.0"`).
 
 ### 2) Get Log Level
 
@@ -69,12 +75,12 @@ the process. Accepts: `trace`, `debug`, `info`, `warn`, `error`, `fatal`,
 (e.g. setting `warn` also enables `error`, `fatal`, and `panic`).
 
 When `target=all`, both Manager and Executor are updated and the response
-contains the result from each:
+contains the new level from each:
 
 ```json
 {
-  "manager":  {"success": true, "level": "warn"},
-  "executor": {"success": true, "level": "warn"}
+  "manager":  "warn",
+  "executor": "warn"
 }
 ```
 
@@ -109,11 +115,11 @@ The admin server uses a simple TCP protocol:
 
 Message format:
 ```json
-{"type": <int>, "data": <object or null>}
+{"type": "<string>", "target": "<string>", "data": <object or null>}
 ```
 
-Response type `0` indicates success; type `1` indicates an error with
-`{"code": "...", "message": "..."}` in the data field.
+Response type `"response"` indicates success; type `"error"` indicates an error
+with `{"code": "...", "message": "..."}` in the data field.
 
 ## Architecture: zero internal dependencies
 
@@ -133,7 +139,7 @@ wrong data on the wire.
 import internal packages without affecting the production binary) and
 cross-checks every duplicated value:
 
-- **Message type constants** — each local constant (e.g. `setLogLevelRequest = 4`)
+- **Message type constants** — each local constant (e.g. `setLogLevelRequest = "set_log_level"`)
   is asserted equal to the canonical `admin.SetLogLevelRequestMessage`.
 - **Valid targets** — the local list is compared against `admin.TargetManager`,
   `admin.TargetExecutor`, `admin.TargetAll`.

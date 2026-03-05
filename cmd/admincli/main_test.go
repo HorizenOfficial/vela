@@ -55,8 +55,8 @@ func TestValidLogLevels(t *testing.T) {
 // TestSetLogLevelReqJSONShape verifies that the local setLogLevelReq produces
 // the same JSON field names as admin.SetLogLevelRequest.
 func TestSetLogLevelReqJSONShape(t *testing.T) {
-	local, _ := json.Marshal(setLogLevelReq{Level: "debug", Target: "all"})
-	upstream, _ := json.Marshal(admin.SetLogLevelRequest{Level: "debug", Target: "all"})
+	local, _ := json.Marshal(setLogLevelReq{Level: "debug"})
+	upstream, _ := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 
 	var localMap, upstreamMap map[string]any
 	json.Unmarshal(local, &localMap)
@@ -67,18 +67,26 @@ func TestSetLogLevelReqJSONShape(t *testing.T) {
 	}
 }
 
-// TestGetLogLevelReqJSONShape verifies that the local getLogLevelReq produces
-// the same JSON field names as admin.GetLogLevelRequest.
-func TestGetLogLevelReqJSONShape(t *testing.T) {
-	local, _ := json.Marshal(getLogLevelReq{Target: "executor"})
-	upstream, _ := json.Marshal(admin.GetLogLevelRequest{Target: "executor"})
+// TestAdminMessageJSONShape verifies that the local adminMessage produces
+// the same JSON field names as admin.AdminMessage.
+func TestAdminMessageJSONShape(t *testing.T) {
+	local, _ := json.Marshal(adminMessage{
+		Type:   setLogLevelRequest,
+		Target: "manager",
+		Data:   json.RawMessage(`{"level":"debug"}`),
+	})
+	upstream, _ := json.Marshal(admin.AdminMessage{
+		Type:   admin.SetLogLevelRequestMessage,
+		Target: "manager",
+		Data:   json.RawMessage(`{"level":"debug"}`),
+	})
 
 	var localMap, upstreamMap map[string]any
 	json.Unmarshal(local, &localMap)
 	json.Unmarshal(upstream, &upstreamMap)
 
 	if !reflect.DeepEqual(localMap, upstreamMap) {
-		t.Errorf("GetLogLevelReq JSON mismatch:\n  admincli:  %s\n  pkg/admin: %s", local, upstream)
+		t.Errorf("AdminMessage JSON mismatch:\n  admincli:  %s\n  pkg/admin: %s", local, upstream)
 	}
 }
 

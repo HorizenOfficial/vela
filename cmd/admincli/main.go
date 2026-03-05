@@ -31,8 +31,9 @@ var validLogLevels = []string{
 var validTargets = []string{"manager", "executor", "all"}
 
 type adminMessage struct {
-	Type string           `json:"type"`
-	Data json.RawMessage  `json:"data,omitempty"`
+	Type   string          `json:"type"`
+	Target string          `json:"target,omitempty"`
+	Data   json.RawMessage `json:"data,omitempty"`
 }
 
 type errorData struct {
@@ -41,12 +42,7 @@ type errorData struct {
 }
 
 type setLogLevelReq struct {
-	Level  string `json:"level"`
-	Target string `json:"target,omitempty"`
-}
-
-type getLogLevelReq struct {
-	Target string `json:"target,omitempty"`
+	Level string `json:"level"`
 }
 
 var useColors bool
@@ -90,7 +86,7 @@ func main() {
 
 		switch choice {
 		case "1":
-			msg = buildGetVersion()
+			msg, err = buildGetVersion(scanner)
 		case "2":
 			msg, err = buildGetLogLevel(scanner)
 		case "3":
@@ -128,7 +124,11 @@ func prompt(scanner *bufio.Scanner, label string) string {
 	fmt.Printf("%s> ", label)
 	if !scanner.Scan() {
 		fmt.Println()
-		os.Exit(0)
+		if err := scanner.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "Read error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0) // EOF
 	}
 	return strings.TrimSpace(scanner.Text())
 }
@@ -149,8 +149,13 @@ func promptChoice(scanner *bufio.Scanner, label string, options []string) (strin
 
 // --- builders ---
 
-func buildGetVersion() *adminMessage {
-	return &adminMessage{Type: getVersionRequest}
+func buildGetVersion(scanner *bufio.Scanner) (*adminMessage, error) {
+	fmt.Println("Target:")
+	target, err := promptChoice(scanner, "Target", validTargets)
+	if err != nil {
+		return nil, err
+	}
+	return &adminMessage{Type: getVersionRequest, Target: target}, nil
 }
 
 func buildGetLogLevel(scanner *bufio.Scanner) (*adminMessage, error) {
@@ -159,9 +164,7 @@ func buildGetLogLevel(scanner *bufio.Scanner) (*adminMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, _ := json.Marshal(getLogLevelReq{Target: target})
-	raw := json.RawMessage(data)
-	return &adminMessage{Type: getLogLevelRequest, Data: raw}, nil
+	return &adminMessage{Type: getLogLevelRequest, Target: target}, nil
 }
 
 func buildSetLogLevel(scanner *bufio.Scanner) (*adminMessage, error) {
@@ -175,9 +178,9 @@ func buildSetLogLevel(scanner *bufio.Scanner) (*adminMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, _ := json.Marshal(setLogLevelReq{Level: level, Target: target})
+	data, _ := json.Marshal(setLogLevelReq{Level: level})
 	raw := json.RawMessage(data)
-	return &adminMessage{Type: setLogLevelRequest, Data: raw}, nil
+	return &adminMessage{Type: setLogLevelRequest, Target: target, Data: raw}, nil
 }
 
 func buildKeyAttestation() *adminMessage {
