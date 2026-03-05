@@ -1,11 +1,16 @@
 package authorityservice
 
 import (
+	"fmt"
+
 	"github.com/horizen-pes/pkg/common"
 	"github.com/magiconair/properties"
 )
 
-const confFileName = "authorityservice.conf"
+const (
+	confFileName                    = "authorityservice.conf"
+	defaultDeployArtifactsMaxSizeMB = int64(50)
+)
 
 // Config groups runtime settings for the authority service.
 type Config struct {
@@ -68,7 +73,10 @@ func LoadConfig() (*Config, error) {
 	// We reuse MANAGER_REPORTS_FOLDER so manager and authority service point to the same folder by default
 	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProps)
 	deployArtifactsPath := common.GetConfigVar("DEPLOY_ARTIFACTS_PATH", "/tmp/horizen-pes-data/deploy_artifacts", fileProps)
-	deployArtifactsMaxSizeMB := common.GetConfigVarInt64("DEPLOY_ARTIFACTS_MAX_SIZE_MB", 0, fileProps)
+	deployArtifactsMaxSizeMB := common.GetConfigVarInt64("DEPLOY_ARTIFACTS_MAX_SIZE_MB", defaultDeployArtifactsMaxSizeMB, fileProps)
+	if deployArtifactsMaxSizeMB < 0 {
+		return nil, fmt.Errorf("DEPLOY_ARTIFACTS_MAX_SIZE_MB must be >= 0")
+	}
 
 	rpcURL := common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProps) + "://" +
 		common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProps) + ":" +

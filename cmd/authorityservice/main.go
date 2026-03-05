@@ -57,6 +57,9 @@ func main() {
 		log.Error("Subgraph URL is not configured")
 		return
 	}
+	if cfg.DeployArtifactsMaxSizeMB == 0 {
+		log.Warn("DEPLOY_ARTIFACTS_MAX_SIZE_MB is 0: upload size limit is disabled")
+	}
 
 	sg := subgraph.NewClient(cfg.SubgraphURL)
 	healthCtx, healthCancel := context.WithTimeout(ctx, 5*time.Second)

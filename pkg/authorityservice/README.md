@@ -18,7 +18,7 @@ The authority service now verifies on-chain completion before serving a report. 
 - `AUTHORITY_SERVICE_SUBGRAPH_URL`: subgraph endpoint to read `RequestCompleted`/`UserEvent`.
 - `MANAGER_REPORTS_FOLDER`: path to the report files shared with the manager (default `/tmp/horizen-pes-data/manager_reports`).
 - `DEPLOY_ARTIFACTS_PATH`: path where `POST /deploy/upload` stores uploaded WASM artifacts (default `/tmp/horizen-pes-data/deploy_artifacts`).
-- `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: optional upload limit (`0` means unlimited).
+- `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: upload limit in MB (default `50`, set `0` only to explicitly disable limits).
 
 Logging/TLS options are documented in `pkg/authorityservice/config.go`.
 
