@@ -238,6 +238,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("MANAGER_ALLOWED_DEPLOYER is not a valid hex address")
 	}
 	cfg.AllowedDeployer = ethCommon.HexToAddress(allowedDeployerRaw)
+	if cfg.AllowedDeployer == (ethCommon.Address{}) {
+		return nil, fmt.Errorf("MANAGER_ALLOWED_DEPLOYER must not be zero address")
+	}
 
 	if cfg.ArtifactReadRetries < 0 {
 		return nil, fmt.Errorf("MANAGER_ARTIFACT_READ_RETRIES must be >= 0")
