@@ -96,7 +96,7 @@ func buildAndLoadWasmModule(t *testing.T) []byte {
 func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, wasmBytecode []byte) {
 	t.Helper()
 	timeout := 20 * time.Second
-	deployPayload := stageArtifactAndBuildDescriptorPayload(t, suite, appID, wasmBytecode)
+	deployPayload := uploadArtifactAndBuildDescriptorPayload(t, suite, appID, wasmBytecode)
 
 	// Create and submit deploy request
 	deployReq := &common.Request{
@@ -392,7 +392,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: appID,
 		RequestID:     reqID,
-		Payload:       stageArtifactAndBuildDescriptorPayload(t, suite, appID, wasmBytecode),
+		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, appID, wasmBytecode),
 		Sender:        suite.GetManagerAllowedDeployer(),
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
