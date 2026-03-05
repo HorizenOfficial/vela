@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 )
 
 const (

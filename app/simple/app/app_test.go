@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-cce-common-go/wasm/types"
-	"github.com/horizen-pes/pkg/common"
-	wasmCommon "github.com/horizen-pes/pkg/wasm/common"
+	"github.com/HorizenOfficial/vela-common-go/wasm/types"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	wasmCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
 	"github.com/stretchr/testify/require"
 )
 

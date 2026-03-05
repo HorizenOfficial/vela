@@ -18,10 +18,10 @@ import (
 
 	"github.com/bytecodealliance/wasmtime-go"
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	"github.com/horizen-pes/pkg/logger"
-	appCommon "github.com/horizen-pes/pkg/wasm/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
 )
 
 // Address is a local definition of a 20-byte address.

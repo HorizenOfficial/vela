@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/horizen-cce-common-go/wasm/types"
-	"github.com/horizen-cce-common-go/wasm/utils"
-	"github.com/horizen-pes/app/simple/app"
+	"github.com/HorizenOfficial/vela-common-go/wasm/types"
+	"github.com/HorizenOfficial/vela-common-go/wasm/utils"
+	"github.com/HorizenOfficial/vela/app/simple/app"
 )
 
 // --- WASM-Exposed Functions (Bridge to Application Logic) ---

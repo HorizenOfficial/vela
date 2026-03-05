@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/horizen-pes/pkg/manager"
-	"github.com/horizen-pes/pkg/storage/mockdb"
-	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/HorizenOfficial/vela/pkg/manager"
+	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
+	versionedDb "github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
 )
 
 func TestCreateDataLayer(t *testing.T) {

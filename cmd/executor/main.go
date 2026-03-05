@@ -7,13 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/executor"
-	"github.com/horizen-pes/pkg/executor/kms"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/version"
-	"github.com/horizen-pes/pkg/wasm"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/executor"
+	"github.com/HorizenOfficial/vela/pkg/executor/kms"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/version"
+	"github.com/HorizenOfficial/vela/pkg/wasm"
 )
 
 func main() {

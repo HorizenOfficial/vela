@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/horizen-pes/pkg/common"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
-	"github.com/horizen-pes/pkg/storage/mockdb"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -7,11 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/executor"
-	"github.com/horizen-pes/pkg/manager"
-	"github.com/horizen-pes/pkg/storage/mockdb"
-	"github.com/horizen-pes/pkg/testutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/executor"
+	"github.com/HorizenOfficial/vela/pkg/manager"
+	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
+	"github.com/HorizenOfficial/vela/pkg/testutil"
 )
 
 func TestHandshakeFailureSystem(t *testing.T) {

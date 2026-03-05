@@ -1,23 +1,30 @@
 # Admin Package
 
-The `admin` package provides administrative command interfaces and servers for managing the Horizen PES system at runtime.
+The `admin` package provides administrative command interfaces and servers for managing the Horizen Vela system at runtime.
 
 ## Overview
 
-This package enables runtime administration of the Manager component through a command server interface. Clients can connect to the Manager's admin server to execute administrative commands such as checking version information, changing logging levels, or requesting key attestations.
+This package enables runtime administration of the Manager and Executor components through a command server interface. Clients connect to the Manager's admin server, which can handle commands locally or forward them to the Executor via the communication channel. Supported administrative commands include checking version information, changing logging levels, and requesting key attestations.
 
 ## Architecture
 
 The admin package defines:
 - **AdminCommandServer**: Server interface for accepting admin connections
-- **AdminCmdHandler**: Generic handler interface for Manager admin commands
+- **AdminCmdHandler**: Generic handler interface for admin commands
 - **AdminServer**: Concrete implementation of the admin server
 
 ### Communication Protocol
 
-Admin commands use a JSON-based protocol over TCP or V-Socket connections:
+Admin commands use a JSON-based protocol. The admin server listens on **TCP**; commands targeting the Executor are forwarded over the Manager↔Executor communication channel, which supports both **TCP** and **V-Socket** (used in AWS Nitro Enclaves).
 
-1. Client connects to the admin server
+```
+                         TCP                          TCP or V-Socket
+Admin Client ─────────────────> Manager Admin Server ─────────────────> Executor
+              (admin protocol)                        (comm channel:
+                                                       ForwardAdminCommand)
+```
+
+1. Client connects to the admin server (TCP)
 2. Client sends an `AdminMessage` with:
    - `Type`: The command type (e.g., `"set_log_level"`)
    - `Target`: Routing target (`"manager"`, `"executor"`, `"all"`, or omitted for default `"all"`)
@@ -28,18 +35,54 @@ Admin commands use a JSON-based protocol over TCP or V-Socket connections:
 
 Messages are newline-delimited JSON (`\n`).
 
-## Manager Commands
+## Commands
 
-### GetVersion
+### Target Field
 
-Retrieves the version of the Manager and/or Executor. The version is the git tag injected at build time via `-ldflags`. Falls back to `"dev"` when built without `-ldflags`.
+All admin commands accept an optional `target` field on the `AdminMessage` envelope (not inside `data`). The Manager admin server (the single admin entry point) validates the target and routes the command accordingly:
+
+| `target` value | Result |
+|---|---|
+| `"manager"` | Applied to Manager only |
+| `"executor"` | Forwarded to Executor only (Manager is not affected) |
+| `"all"` | Applied to Manager locally **and** forwarded to Executor; returns an aggregated response |
+| `""` / omitted | Defaults to `"all"` (a warning is logged); see `"all"` above |
+| anything else | **Rejected** (unknown target) |
+
+> **Note:** The Executor does not have its own admin server. Admin commands reach the Executor exclusively through the Manager's proxy forwarding via the communication channel (`ForwardAdminCommand`). When `target` is omitted, the command defaults to `"all"` so that both components are affected.
+
+### Partial Failure Semantics (target="all")
+
+When `target` is `"all"`, the Manager always attempts both the local operation and the Executor forward, regardless of whether one fails. The response is always an aggregated `"type": "response"` with per-component result and error fields:
+
+- **One fails:** The successful component's result is returned normally; the failed component's error is in `managerError` or `executorError`.
+- **Both fail:** Both `managerError` and `executorError` are populated; the result fields are empty.
+
+Example — SetLogLevel succeeds on Manager but Executor is unreachable:
+
+```json
+{
+  "type": "response",
+  "data": {
+    "manager": "debug",
+    "executorError": "connection refused"
+  }
+}
+```
+
+To retry the failed component, send a follow-up command with `target: "executor"`.
+
+### Common Commands
+
+These commands can be sent to both the Manager and the Executor using the `target` field.
+
+#### GetVersion
+
+Retrieves the version of the targeted component(s). The version is the git tag injected at build time via `-ldflags`. Falls back to `"dev"` when built without `-ldflags`.
 
 **Request:**
 ```json
-{
-  "type": "get_version",
-  "data": null
-}
+{"type": "get_version", "data": null}
 ```
 
 Or with an explicit target:
@@ -66,11 +109,9 @@ Or with an explicit target:
 }
 ```
 
-The `target` field is set on the `AdminMessage` (not in `data`). Valid values: `"manager"`, `"executor"`, `"all"`, or omitted (defaults to `"all"`).
+#### GetLogLevel
 
-### GetLogLevel
-
-Retrieves the current logging level of the Manager. Only supported when the Manager uses ZeroNetworkLogger (the production logger).
+Retrieves the current logging level of the targeted component(s). Only supported when the component uses ZeroNetworkLogger (the production logger).
 
 **Request:**
 ```json
@@ -79,10 +120,10 @@ Retrieves the current logging level of the Manager. Only supported when the Mana
 
 Or with an explicit target:
 ```json
-{"type": "get_log_level", "target": "manager", "data": null}
+{"type": "get_log_level", "target": "executor", "data": null}
 ```
 
-**Response:**
+**Response (single target):**
 ```json
 {
   "type": "response",
@@ -90,11 +131,22 @@ Or with an explicit target:
 }
 ```
 
+**Response (target="all"):**
+```json
+{
+  "type": "response",
+  "data": {
+    "manager": "info",
+    "executor": "debug"
+  }
+}
+```
+
 The response contains a string with the current log level. Possible values are: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`, `disabled`.
 
-### SetLogLevel
+#### SetLogLevel
 
-Changes the logging level at runtime without requiring a restart. Only supported when the component uses ZeroNetworkLogger (the production logger). This is especially useful for the Executor running inside an AWS Nitro Enclave, where restarts are not acceptable.
+Changes the logging level of the targeted component(s) at runtime without requiring a restart. Only supported when the component uses ZeroNetworkLogger (the production logger). This is especially useful for the Executor running inside an AWS Nitro Enclave, where restarts are not acceptable.
 
 **Request:**
 ```json
@@ -103,10 +155,10 @@ Changes the logging level at runtime without requiring a restart. Only supported
 
 Or with an explicit target:
 ```json
-{"type": "set_log_level", "target": "manager", "data": {"level": "debug"}}
+{"type": "set_log_level", "target": "all", "data": {"level": "debug"}}
 ```
 
-**Response:**
+**Response (single target):**
 ```json
 {
   "type": "response",
@@ -116,42 +168,18 @@ Or with an explicit target:
 }
 ```
 
-#### Target Field
-
-All admin commands accept an optional `target` field on the `AdminMessage` envelope (not inside `data`). The Manager admin server (the single admin entry point) validates the target and routes the command accordingly:
-
-| `target` value | Result |
-|---|---|
-| `"manager"` | Applied to Manager only |
-| `"executor"` | Forwarded to Executor only (Manager is not affected) |
-| `"all"` | Applied to Manager locally **and** forwarded to Executor; returns an aggregated response |
-| `""` / omitted | Defaults to `"all"` (a warning is logged); see `"all"` above |
-| anything else | **Rejected** (unknown target) |
-
-> **Note:** The Executor does not have its own admin server. Admin commands reach the Executor exclusively through the Manager's proxy forwarding via the communication channel (`ForwardAdminCommand`). When `target` is omitted, the command defaults to `"all"` so that both components are affected.
-
-#### Partial Failure Semantics (target="all")
-
-When `target` is `"all"`, the Manager always attempts both the local operation and the Executor forward, regardless of whether one fails. The response is always an aggregated `"type": "response"` with per-component result and error fields:
-
-- **One fails:** The successful component's result is returned normally; the failed component's error is in `managerError` or `executorError`.
-- **Both fail:** Both `managerError` and `executorError` are populated; the result fields are empty.
-
-Example — SetLogLevel succeeds on Manager but Executor is unreachable:
-
+**Response (target="all"):**
 ```json
 {
   "type": "response",
   "data": {
     "manager": "debug",
-    "executorError": "connection refused"
+    "executor": "debug"
   }
 }
 ```
 
-To retry the failed component, send a follow-up command with `target: "executor"`.
-
-#### Supported Log Levels
+##### Supported Log Levels
 
 The following log levels are supported (based on zerolog):
 
@@ -164,7 +192,7 @@ The following log levels are supported (based on zerolog):
 - `panic` - Severe errors that cause a panic
 - `disabled` - Suppresses all log output; useful for silencing a component temporarily
 
-#### Level Hierarchy
+##### Level Hierarchy
 
 Log levels follow a hierarchy where setting a level enables all messages at that level and above:
 - `trace` → enables all levels
@@ -176,59 +204,21 @@ Log levels follow a hierarchy where setting a level enables all messages at that
 - `panic` → enables panic only
 - `disabled` → suppresses all log output
 
-#### Error Handling
-
-All command errors are returned with the `COMMAND_ERROR` code.
-
-Unknown target:
-```json
-{
-  "type": "error",
-  "data": {
-    "code": "COMMAND_ERROR",
-    "message": "unknown target 'foo'; valid targets: 'manager', 'executor', 'all'"
-  }
-}
-```
-
-Invalid log level:
-```json
-{
-  "type": "error",
-  "data": {
-    "code": "COMMAND_ERROR",
-    "message": "invalid log level 'invalid'; supported levels: trace, debug, info, warn, error, fatal, panic, disabled"
-  }
-}
-```
-
-Component not using ZeroNetworkLogger:
-```json
-{
-  "type": "error",
-  "data": {
-    "code": "COMMAND_ERROR",
-    "message": "SetLogLevel is only supported with the ZeroNetworkLogger"
-  }
-}
-```
-
-#### Implementation Details
+##### Implementation Details
 
 The `SetLogLevel` command:
-1. Validates the `target` field matches the component (or is empty)
-2. Validates the logger is a ZeroNetworkLogger (returns error otherwise)
-3. Validates the level string is not empty
-4. Calls `logger.SetLevel()` to update the logger configuration
-5. Changes take effect immediately for all subsequent log statements
+1. Validates the logger is a ZeroNetworkLogger (returns error otherwise)
+2. Validates the level string is not empty
+3. Calls `logger.SetLevel()` to update the logger configuration
+4. Changes take effect immediately for all subsequent log statements
 
-## Executor Commands (Forwarded via Manager)
+### Executor Commands
 
-All Executor commands are sent to the Manager admin server and forwarded to the Executor through the communication channel. The Executor does not have its own admin server.
+These commands are always forwarded to the Executor through the communication channel. They do not apply to the Manager.
 
-### CreateKeyAttestation
+#### CreateKeyAttestation
 
-Generates a key attestation document for the Executor's cryptographic keys. Always forwarded to the Executor.
+Generates a key attestation document for the Executor's cryptographic keys. Always forwarded to the Executor. Only accepts `target: "executor"` or `target: "all"` (the default); `target: "manager"` is rejected.
 
 **Request:**
 ```json
@@ -246,13 +236,25 @@ Generates a key attestation document for the Executor's cryptographic keys. Alwa
 }
 ```
 
-### GetLogLevel (Executor)
+### Error Handling
 
-Retrieves the current logging level of the Executor. Use `target: "executor"` to get only the Executor's level, or `target: "all"` to get both.
+Errors are returned as `"type": "error"` messages with a `code` and `message` field:
 
-### SetLogLevel (Executor)
+```json
+{
+  "type": "error",
+  "data": {
+    "code": "<error_code>",
+    "message": "<human-readable description>"
+  }
+}
+```
 
-Changes the Executor's logging level at runtime. Use `target: "executor"` to change only the Executor's level, or `target: "all"` to change both.
+| Code | When |
+|---|---|
+| `COMMAND_ERROR` | Command execution failed (unknown target, invalid log level, unsupported logger, unsupported command type, invalid request data, etc.) |
+| `INVALID_REQUEST` | Malformed message or server is busy (only one client at a time) |
+| `INTERNAL_ERROR` | Internal server failure (e.g., no handler set, response marshaling error) |
 
 ## Message Types
 
@@ -358,17 +360,18 @@ Admin commands are forwarded using `AdminCommandRequestMessage` and `AdminComman
 ```
 Admin Client ──> Manager Admin Server ──> Manager ExecuteCommand
                                               │
-                                              ├── get_version (target="all") ──> local + ForwardAdminCommand ──> aggregated response
-                                              ├── set_log_level (target="all") ──> local + ForwardAdminCommand ──> aggregated response
-                                              └── get_log_level (target="all") ──> local + ForwardAdminCommand ──> aggregated response
-                                                                                     │
-                                                                        communication.Client.ForwardAdminCommand
-                                                                                     │
-                                                                                     ▼
-                                                                        communication.Server (Executor)
-                                                                                     │
-                                                                                     ▼
-                                                                        executor.HandleAdminCommand
+                                              ├── target="manager"  ──> local only
+                                              ├── target="executor" ──> ForwardAdminCommand only
+                                              ├── target="all"      ──> local + ForwardAdminCommand ──> aggregated response
+                                              └── key_attestation   ──> ForwardAdminCommand only (always)
+                                                                           │
+                                                              communication.Client.ForwardAdminCommand
+                                                                           │
+                                                                           ▼
+                                                              communication.Server (Executor)
+                                                                           │
+                                                                           ▼
+                                                              executor.HandleAdminCommand
 ```
 
 ## Server Configuration

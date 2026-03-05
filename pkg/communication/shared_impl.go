@@ -9,7 +9,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 )
 
 //---

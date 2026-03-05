@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/admin"
-	"github.com/horizen-pes/pkg/blockchain"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/storage"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
-	"github.com/horizen-pes/pkg/version"
+	"github.com/HorizenOfficial/vela/pkg/admin"
+	"github.com/HorizenOfficial/vela/pkg/blockchain"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/version"
 )
 
 // As of now we support only one app having this ID
@@ -347,6 +347,9 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 
 	switch msg.Type {
 	case admin.KeyAttestationRequestMessage:
+		if target != admin.TargetExecutor && target != admin.TargetAll {
+			return nil, fmt.Errorf("key_attestation is only supported on the executor; valid targets: '%s', '%s'", admin.TargetExecutor, admin.TargetAll)
+		}
 		m.log.Info("Manager: KeyAttestation command received, forwarding to executor")
 		respData, err := m.forwardToExecutor(ctx, admin.AdminCmdKeyAttestation, msg.Data)
 		if err != nil {
@@ -394,10 +397,8 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			mgrResult, mgrErr := m.SetLogLevel(ctx, req.Level)
 			if mgrErr != nil {
 				resp.ManagerError = mgrErr.Error()
-			} else if mgrResp, ok := mgrResult.(admin.SetLogLevelResponse); ok {
-				resp.Manager = mgrResp.Level
 			} else {
-				resp.ManagerError = "unexpected response type from local SetLogLevel"
+				resp.Manager = mgrResult.Level
 			}
 
 			execResp, execErr := m.forwardSetLogLevel(ctx, req.Level)
@@ -410,7 +411,11 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			return resp, nil
 		}
 
-		return m.SetLogLevel(ctx, req.Level)
+		result, err := m.SetLogLevel(ctx, req.Level)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
 
 	case admin.GetLogLevelRequestMessage:
 		if target == admin.TargetExecutor {
@@ -454,7 +459,7 @@ func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error)
 }
 
 // SetLogLevel changes the manager's log level at runtime.
-func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
+func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (admin.SetLogLevelResponse, error) {
 	return admin.HandleSetLogLevel(m.log, "Manager", level)
 }
 

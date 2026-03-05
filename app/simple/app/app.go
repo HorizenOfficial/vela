@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/horizen-cce-common-go/wasm/types"
-	"github.com/horizen-cce-common-go/wasm/utils"
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela-common-go/wasm/types"
+	"github.com/HorizenOfficial/vela-common-go/wasm/utils"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 // --- High-Level Application Logic ---

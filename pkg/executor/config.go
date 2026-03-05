@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/magiconair/properties"
 )
 
