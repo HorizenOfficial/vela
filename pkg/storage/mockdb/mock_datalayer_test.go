@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/horizen-pes/pkg/common"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
-	"github.com/horizen-pes/pkg/storage/mockdb"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -148,7 +148,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := common.NewApplicationId(int64(i))
+				appID := common.NewApplicationId(uint64(i))
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
@@ -164,7 +164,7 @@ func TestApplicationStateStore(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := common.NewApplicationId(int64(i))
+				appID := common.NewApplicationId(uint64(i))
 				state, err := store.GetApplicationState(ctx, appID)
 				assert.NoError(t, err)
 				assert.Equal(t, appID, state.ApplicationID)
@@ -178,7 +178,7 @@ func TestApplicationStateStore(t *testing.T) {
 		store := createStore()
 		defer func() { require.NoError(t, store.Close(), "Store.Close() should not error") }()
 		expectedRecoveryData := &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
+			RecoveryType:       common.RecoveryTypeKMS,
 			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
 			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
 		}

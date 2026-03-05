@@ -5,9 +5,9 @@ import (
 	"context"
 	"math/big"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	ethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 )
 
 // Client defines the interface for interacting with the blockchain
@@ -18,18 +18,19 @@ type Client interface {
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
 	// GetNextPendingRequest gets next pending request and current state root from the blockchain
 	GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error)
-	// MarkRequestFailed marks a request as failed
-	MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error
 	// SubmitStateUpdate submits a state update to the blockchain
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
-	// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
-	SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error
 	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
 	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
 	// ChainID returns the connected chain ID.
 	ChainID(ctx context.Context) (*big.Int, error)
 	// LatestBlockNumber returns the latest block number from the chain.
 	LatestBlockNumber(ctx context.Context) (uint64, error)
+
+	// GetPendingPayments returns the pending payment balance for the given address.
+	GetPendingPayments(ctx context.Context, addr ethCommon.Address) (*big.Int, error)
+	// WithdrawPayments calls withdrawPayments on the ProcessorEndpoint contract for the given payee.
+	WithdrawPayments(ctx context.Context, payee ethCommon.Address) error
 
 	// Close closes the blockchain client
 	Close() error

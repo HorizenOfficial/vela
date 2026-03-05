@@ -12,18 +12,13 @@ contract Structs {
   }
   enum RequestResult {
     COMPLETED,
-    FAILED_REFUNDED,
-    FAILED_NOT_REFUNDED
+    FAILED
   }
   enum ErrorCode {
     NO_ERROR,
     UNKNOWN,
     INTERNAL,
-    APP_NOT_ADMITTED,
     APPLICATION_ALREADY_DEPLOYED,
-    FAILURE_WHEN_DEPLOYING_APPLICATION,
-    DEANONYMIZATION_REPORT_FAILED,
-    REQUEST_TYPE_NOT_PERMITTED,
     FUNCTION_NOT_FOUND,
     DEPOSIT_FAILED,
     REQUEST_FUNC_FAILED,
@@ -50,5 +45,19 @@ contract Structs {
   struct WithdrawalRequest {
     address payable receiver;
     uint256 amount;
+  }
+  // Parameters for TEE signature verification
+  struct SignatureParams {
+    uint64 applicationId;
+    bytes32 prevStateRoot;
+    bytes32 newStateRoot;
+    bytes32 processedRequestId;
+    bytes[] events;
+    string[] eventSubTypes;
+    WithdrawalRequest[] withdrawalRequests;
+    uint256 refundAmount;
+    uint256 applicationFee;
+    Structs.ErrorCode errorCode;
+    string errorMsg;
   }
 }

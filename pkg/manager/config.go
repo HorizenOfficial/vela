@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 	"github.com/magiconair/properties"
 )
 
@@ -28,6 +28,11 @@ type Config struct {
 	ChannelType string
 	// ChannelParams are the parameters for the connection with the executor
 	ChannelParams common.ChannelConnectionParams
+
+	// AdminChannelParams are the parameters for the admin command server
+	AdminChannelParams common.ChannelConnectionParams
+	// AdminCommunicationParams holds parameters for communication towards the admin server
+	AdminCommunicationParams common.CommunicationParams
 
 	// Blockchain client parameters
 	// MockBlockChainClient specifies if the mock BlockChainClient should be used. Only for testing and development.
@@ -85,8 +90,18 @@ type Config struct {
 	LogServerConsole bool
 	// LogServerConsoleLevel is the level of logging for the console
 	LogServerConsoleLevel string
-	// LogFileLevel is the level of logging for the console
+	// LogServerFileLevel is the level of logging for the file
 	LogServerFileLevel string
+	// LogServerRotationEnabled enables log rotation using lumberjack (only when LogServerLogFile is set)
+	LogServerRotationEnabled bool
+	// LogServerMaxSizeMB is the max size in megabytes before rotation (default: 100)
+	LogServerMaxSizeMB int
+	// LogServerMaxBackups is the max number of old log files to retain (default: 3)
+	LogServerMaxBackups int
+	// LogServerMaxAgeDays is the max days to retain old log files, 0 = no limit (default: 28)
+	LogServerMaxAgeDays int
+	// LogServerCompress enables gzip compression for rotated log files (default: true)
+	LogServerCompress bool
 
 	// CommunicationParams holds parameters for communication between manager and executor
 	CommunicationParams common.CommunicationParams
@@ -143,9 +158,22 @@ func LoadConfig() (*Config, error) {
 		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
 	}
 
+	// Admin command server configuration
+	adminServerPort := common.GetConfigVarInt64("MANAGER_ADMIN_PORT", 4002, fileProperties)
+	var adminChannelConnectionParams common.ChannelConnectionParams
+	// Admin server always uses TCP for external access
+	adminServerHost := common.GetConfigVar("MANAGER_IP_HOST", "localhost", fileProperties)
+	adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: adminServerHost, Port: uint32(adminServerPort)}
+
+	adminCommunicationParams := common.CommunicationParams{
+		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("MANAGER_ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
+	}
+
 	cfg := &Config{
-		ChannelType:   channelType,
-		ChannelParams: channelConnectionParams,
+		ChannelType:              channelType,
+		ChannelParams:            channelConnectionParams,
+		AdminChannelParams:       adminChannelConnectionParams,
+		AdminCommunicationParams: adminCommunicationParams,
 
 		ReorgTimeout:              common.GetConfigVarInt64("REORG_TIMEOUT", 180, fileProperties), // 3 minutes
 		HandshakeTimeout:          common.GetConfigVarInt64("HANDSHAKE_TIMEOUT", 5, fileProperties),
@@ -163,7 +191,7 @@ func LoadConfig() (*Config, error) {
 		DataLayerType:             "versioned_leveldb",
 		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
 		DataLayerNumOfVersions:    10,
-		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProperties),
+		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/vela-data/manager_reports", fileProperties),
 		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
 		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
 		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
@@ -177,6 +205,11 @@ func LoadConfig() (*Config, error) {
 		LogServerConsole:          common.GetConfigVarBool("LOG_SERVER_CONSOLE", true, fileProperties),
 		LogServerConsoleLevel:     common.GetConfigVar("LOG_SERVER_CONSOLE_LEVEL", "warn", fileProperties),
 		LogServerFileLevel:        common.GetConfigVar("LOG_SERVER_FILE_LEVEL", "info", fileProperties),
+		LogServerRotationEnabled:  common.GetConfigVarBool("LOG_SERVER_FILE_ROTATION", false, fileProperties),
+		LogServerMaxSizeMB:        int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_SIZE_MB", 100, fileProperties)),
+		LogServerMaxBackups:       int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_BACKUPS", 3, fileProperties)),
+		LogServerMaxAgeDays:       int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_AGE_DAYS", 28, fileProperties)),
+		LogServerCompress:         common.GetConfigVarBool("LOG_SERVER_FILE_COMPRESS", true, fileProperties),
 		CommunicationParams:       communicationParams,
 	}
 

@@ -10,14 +10,15 @@ import (
 	"syscall"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/blockchain"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/logserver"
-	"github.com/horizen-pes/pkg/manager"
-	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/factory"
+	"github.com/HorizenOfficial/vela/pkg/admin"
+	"github.com/HorizenOfficial/vela/pkg/blockchain"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/logserver"
+	"github.com/HorizenOfficial/vela/pkg/manager"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	"github.com/HorizenOfficial/vela/pkg/storage/factory"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
@@ -98,12 +99,17 @@ func main() {
 	err = logserver.StartLogServer(
 		ctx,
 		logserver.LogServerConfig{
-			TCPAddr:        config.LogServerTCPAddress,
-			VSockAddr:      config.LogServerVSockAddress,
-			LogFilePath:    config.LogServerLogFile,
-			ConsoleEnabled: config.LogServerConsole,
-			ConsoleLevel:   config.LogServerConsoleLevel,
-			FileLevel:      config.LogServerFileLevel,
+			TCPAddr:         config.LogServerTCPAddress,
+			VSockAddr:       config.LogServerVSockAddress,
+			LogFilePath:     config.LogServerLogFile,
+			ConsoleEnabled:  config.LogServerConsole,
+			ConsoleLevel:    config.LogServerConsoleLevel,
+			FileLevel:       config.LogServerFileLevel,
+			RotationEnabled: config.LogServerRotationEnabled,
+			MaxSizeMB:       config.LogServerMaxSizeMB,
+			MaxBackups:      config.LogServerMaxBackups,
+			MaxAgeDays:      config.LogServerMaxAgeDays,
+			Compress:        config.LogServerCompress,
 		},
 	)
 	if err != nil {
@@ -152,8 +158,13 @@ func main() {
 		return
 	}
 
+	// Create the admin command server
+	adminChannelParams := config.AdminChannelParams.(common.TcpChannelConnectionParams)
+	adminFactory := communication.NewTCPConnectionFactory(adminChannelParams.Url())
+	adminServer := admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
+
 	// Create the manager
-	secureProcessorManager := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient, log)
+	secureProcessorManager := manager.NewSecureProcessorManager(config, blockchainClient, dataLayer, executorClient, adminServer, log)
 	log.Info("Starting manager...")
 	// Start the manager
 	if err := secureProcessorManager.Start(ctx); err != nil {

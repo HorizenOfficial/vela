@@ -10,9 +10,9 @@ import (
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	apperrors "github.com/horizen-pes/pkg/common/apperrors"
-	"github.com/horizen-pes/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	apperrors "github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,13 +25,13 @@ var (
 
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
-	ProcessRequestFunc                func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
-	DeployAppFunc                     func(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure)
-	GenerateDeanonymizationReportFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure)
-	HelloFunc                         func(ctx context.Context, message string) (string, error)
+	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
+	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
+	KeyAttestationFunc func(ctx context.Context) ([]byte, error)
+	HelloFunc          func(ctx context.Context, message string) (string, error)
 }
 
-func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
 	if m.ProcessRequestFunc != nil {
 		return m.ProcessRequestFunc(ctx, req, appState, wasmModule)
 	}
@@ -52,12 +52,13 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 			StateRoot:      newStateRoot,
 			EncryptedState: []byte("test-encrypted-state"),
 		},
+		nil,
 		nil
 }
 
-func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if m.DeployAppFunc != nil {
-		return m.DeployAppFunc(ctx, req)
+		return m.DeployAppFunc(ctx, req, appState)
 	}
 	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
@@ -77,16 +78,11 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 		nil
 }
 
-func (m *MockRequestHandler) HandleGenerateDeanonymizationReport(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.DeanonymizationReport, *apperrors.RequestFailure) {
-	if m.GenerateDeanonymizationReportFunc != nil {
-		return m.GenerateDeanonymizationReportFunc(ctx, req, appState, wasmModule)
+func (m *MockRequestHandler) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
+	if m.KeyAttestationFunc != nil {
+		return m.KeyAttestationFunc(ctx)
 	}
-	return &common.DeanonymizationReport{
-			ApplicationID:   req.ApplicationID,
-			ReportID:        req.RequestID,
-			EncryptedReport: []byte("test-encrypted-report"),
-		},
-		nil
+	return []byte("mock-attestation-document"), nil
 }
 
 // MockClientRequestHandler is a mock implementation for testing the new client
@@ -115,7 +111,7 @@ func (m *MockClientRequestHandler) HandleGetKeysetRecoveryRequest(ctx context.Co
 		return m.GetKeysetRecoveryFunc(ctx)
 	}
 	recv := &common.EnclaveKeySetRecovery{
-		RecoveryType:       1,
+		RecoveryType:       common.RecoveryTypeKMS,
 		KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
 		RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
 	}
@@ -147,7 +143,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 
 	// Test HandleProcessRequest
 	req := &common.Request{
-		ProtocolVersion: 1,
+		ProtocolVersion: 0,
 		ApplicationID:   ApplicationId,
 		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
@@ -164,7 +160,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	}
 	wasmModule := []byte("test-wasm-module")
 
-	updatePayload, _, failure := client.SendProcessRequest(ctx, req, appState, wasmModule)
+	updatePayload, _, _, failure := client.SendProcessRequest(ctx, req, appState, wasmModule)
 	require.Nil(t, failure)
 	assert.Equal(t, req.ApplicationID, updatePayload.ApplicationID)
 	assert.Equal(t, appState.StateRoot, updatePayload.PrevStateRoot)
@@ -174,20 +170,12 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	assert.Equal(t, []byte("test-event"), updatePayload.Events[0].EncryptedData)
 
 	// Test HandleDeployApp
-	updatedState, appState2, failure := client.SendDeployApp(ctx, req)
+	updatedState, appState2, failure := client.SendDeployApp(ctx, req, nil)
 	require.Nil(t, failure)
 	assert.Equal(t, req.ApplicationID, updatedState.ApplicationID)
 	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), updatedState.NewStateRoot)
 	assert.Equal(t, req.ApplicationID, appState2.ApplicationID)
 	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), appState2.StateRoot)
-
-	// Test HandleGenerateDeanonymizationReport
-	report, failure := client.SendGenerateDeanonymizationReport(ctx, req, appState, wasmModule)
-	require.Nil(t, failure)
-	assert.Equal(t, req.ApplicationID, report.ApplicationID)
-	assert.Equal(t, req.RequestID, report.ReportID)
-	assert.Equal(t, []byte("test-encrypted-report"), report.EncryptedReport)
-
 }
 
 func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
@@ -226,7 +214,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		// Client-initiated request
 		req := &common.Request{
-			ProtocolVersion: 1,
+			ProtocolVersion: 0,
 			ApplicationID:   ApplicationId,
 			RequestID:       testutil.GenerateRandomRequestID(),
 			RequestType:     common.Process,
@@ -243,7 +231,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 		}
 		wasmModule := []byte("test-wasm-module")
 
-		_, _, failure := client.SendProcessRequest(ctx, req, appState, wasmModule)
+		_, _, _, failure := client.SendProcessRequest(ctx, req, appState, wasmModule)
 		require.Nil(t, failure, "Client request %d should succeed", i)
 
 	}
@@ -278,7 +266,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 
 		// Perform a simple request to verify connection works
 		req := &common.Request{
-			ProtocolVersion: 1,
+			ProtocolVersion: 0,
 			ApplicationID:   ApplicationId,
 			RequestID:       testutil.GenerateRandomRequestID(),
 			RequestType:     common.Deploy,
@@ -289,7 +277,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			MaxFeeValue:     common.NewBig(100),
 		}
 
-		_, appState, failure := client.SendDeployApp(ctx, req)
+		_, appState, failure := client.SendDeployApp(ctx, req, nil)
 		require.Nil(t, failure)
 		assert.Equal(t, []byte("test-encrypted-state"), appState.EncryptedState)
 
@@ -301,15 +289,15 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	// Create a mock request handler that returns errors
 	serverHandler := &MockRequestHandler{
-		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
-			return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "handler error", assert.AnError)
+		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+			return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "handler error")
 		},
 	}
 
 	// Create a mock client request handler that returns errors
 	clientHandler := &MockClientRequestHandler{
 		GetUserKeysFunc: func(ctx context.Context, users []string) (map[string][]byte, *apperrors.RequestFailure) {
-			return nil, apperrors.New(apperrors.CodeInternalFallback, "handler error", assert.AnError)
+			return nil, apperrors.New(apperrors.CodeInternalFallback, "handler error")
 		},
 	}
 
@@ -338,7 +326,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 	// Test client request error handling
 	req := &common.Request{
-		ProtocolVersion: 1,
+		ProtocolVersion: 0,
 		ApplicationID:   ApplicationId,
 		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
@@ -355,12 +343,53 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 	}
 	wasmModule := []byte("test-wasm-module")
 
-	_, _, failure := client.SendProcessRequest(ctx, req, appState, wasmModule)
+	_, _, _, failure := client.SendProcessRequest(ctx, req, appState, wasmModule)
 	t.Logf("failure: %#v", failure)
 
 	require.NotNil(t, failure, "Client request should return failure")
 	assert.Contains(t, failure.Error(), "handler error", "Failure should indicate handler error")
 
+}
+
+func TestTCPClientServer_KeyAttestationRequest(t *testing.T) {
+	expectedAttestation := []byte("test-attestation-document-bytes")
+
+	serverHandler := &MockRequestHandler{
+		KeyAttestationFunc: func(ctx context.Context) ([]byte, error) {
+			return expectedAttestation, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	factory := NewTCPConnectionFactory(":8091")
+	server := NewServer(factory, commParams, testLogger)
+	server.SetRequestHandler(serverHandler)
+	err := server.Start(ctx, "Server")
+	require.NoError(t, err)
+	defer server.Stop()
+
+	client := NewClient(factory, commParams, testLogger)
+	err = client.Connect(ctx, "Client")
+	require.NoError(t, err)
+	defer client.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Test success case
+	attestation, err := client.SendKeyAttestationRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, expectedAttestation, attestation)
+
+	// Test error case
+	serverHandler.KeyAttestationFunc = func(ctx context.Context) ([]byte, error) {
+		return nil, assert.AnError
+	}
+
+	attestation, err = client.SendKeyAttestationRequest(ctx)
+	require.Error(t, err)
+	assert.Nil(t, attestation)
+	assert.Contains(t, err.Error(), "key attestation failed")
 }
 
 func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
@@ -435,7 +464,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	ctx := context.Background()
 	// Create a mock request handler that simulates slow processing
 	serverHandler := &MockRequestHandler{
-		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *apperrors.RequestFailure) {
+		ProcessRequestFunc: func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
 			// Simulate slow processing that exceeds timeout
 			// check is performed each 5 seconds, and timeout is 30 seconds, so 35 is the worst case
 			time.Sleep(35 * time.Second)
@@ -448,7 +477,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 				Signature:      []byte("test-signature"),
 				RefundAmount:   req.MaxFeeValue,
 				ApplicationFee: common.NewBig(100),
-			}, appState, nil
+			}, appState, nil, nil
 		},
 	}
 
@@ -473,7 +502,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	req := &common.Request{
-		ProtocolVersion: 1,
+		ProtocolVersion: 0,
 		ApplicationID:   1,
 		RequestID:       testutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
@@ -490,9 +519,9 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	}
 	wasmModule := []byte("test-wasm-module")
 
-	var failure *apperrors.RequestFailure
+	var failure error
 	start := time.Now()
-	_, _, failure = client.SendProcessRequest(ctx, req, appState, wasmModule)
+	_, _, _, failure = client.SendProcessRequest(ctx, req, appState, wasmModule)
 	elapsed := time.Since(start)
 
 	// Should timeout and return a failure

@@ -11,14 +11,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
 )
 
 var testLogger logger.Logger
 
-var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30}
 
 func TestMain(m *testing.M) {
 	// Initialize once
@@ -78,7 +78,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 	} else {
 		// Simulate generating new keyset
 		newRecoveryData := &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
+			RecoveryType:       common.RecoveryTypeKMS,
 			KeySetCiphertext:   []byte("new-keyset"),
 			RecoveryCiphertext: []byte("new-recovery"),
 		}
@@ -104,7 +104,7 @@ func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*comm
 	}
 	if m.recoveryData == nil {
 		m.recoveryData = &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
+			RecoveryType:       common.RecoveryTypeKMS,
 			KeySetCiphertext:   []byte("existing-keyset"),
 			RecoveryCiphertext: []byte("existing-recovery"),
 		}
@@ -189,7 +189,7 @@ func TestHandshake_Reconnection(t *testing.T) {
 
 	// Pre-set recovery data in manager
 	manager.recoveryData = &common.EnclaveKeySetRecovery{
-		RecoveryType:       1,
+		RecoveryType:       common.RecoveryTypeKMS,
 		KeySetCiphertext:   []byte("existing-keyset"),
 		RecoveryCiphertext: []byte("existing-recovery"),
 	}
@@ -255,7 +255,7 @@ func TestHandshake_ExecutorRestoreFailure(t *testing.T) {
 
 	// Pre-set corrupted recovery data in manager
 	manager.recoveryData = &common.EnclaveKeySetRecovery{
-		RecoveryType:       1,
+		RecoveryType:       common.RecoveryTypeKMS,
 		KeySetCiphertext:   []byte("corrupted-keyset"),
 		RecoveryCiphertext: []byte("corrupted-recovery"),
 	}

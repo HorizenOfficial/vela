@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 )
 
 // ClientConnection represents a connection to a client
@@ -212,7 +212,10 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to extract client error data: %w", err)
+		}
 		return false, nil, fmt.Errorf("client error: %s", errorData.Message)
 	}
 
@@ -272,7 +275,10 @@ func (c *ClientConnection) SetKeysetRecovery(ctx context.Context, recovery *comm
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, _ := extractData[ErrorData](respMsg.Data)
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return fmt.Errorf("failed to extract client error data: %w", err)
+		}
 		return fmt.Errorf("client error: %s", errorData.Message)
 	}
 
@@ -426,9 +432,8 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg Message,
 		c.handleProcessRequest(ctx, msg, handler)
 	case DeployAppRequestMessage:
 		c.handleDeployAppRequest(ctx, msg, handler)
-	case DeanonymizationRequestMessage:
-		c.handleDeanonymizationRequest(ctx, msg, handler)
-
+	case KeyAttestationRequestMessage:
+		c.handleKeyAttestationRequest(ctx, msg, handler)
 	default:
 		c.sendErrorResponse(msg.ID, "UNKNOWN_REQUEST", fmt.Errorf("unknown request type: %v", msg.Type))
 	}
@@ -442,16 +447,9 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		return
 	}
 
-	updatePayload, updatedState, failure := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
-	if failure != nil {
-		errorResponse := Message{
-			ID:   msg.ID,
-			Type: ErrorMessage,
-			Data: failure.ToDTO(),
-		}
-		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Error("Server: Failed to send error response: %v", err)
-		}
+	updatePayload, updatedState, deanonymizationReport, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
 	}
 
@@ -461,6 +459,7 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		Data: ProcessResponseData{
 			UpdatePayload:           updatePayload,
 			UpdatedApplicationState: updatedState,
+			DeanonymizationReport:   deanonymizationReport,
 		},
 	}
 
@@ -478,16 +477,9 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		return
 	}
 
-	updatePayload, appState, failure := handler.HandleDeployApp(ctx, reqData.Request)
-	if failure != nil {
-		errorResponse := Message{
-			ID:   msg.ID,
-			Type: ErrorMessage,
-			Data: failure.ToDTO(),
-		}
-		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Warn("Server: Failed to send error response: %v", err)
-		}
+	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request, reqData.ApplicationState)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
 	}
 
@@ -506,39 +498,26 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 	c.log.Info("%s: DeployApp handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
-// handleDeanonymizationRequest handles deanonymization messages
-func (c *ClientConnection) handleDeanonymizationRequest(ctx context.Context, msg Message, handler RequestHandler) {
-	reqData, err := extractData[DeanonymizationRequestData](msg.Data)
+// handleKeyAttestationRequest handles KeyAttestationRequest messages
+func (c *ClientConnection) handleKeyAttestationRequest(ctx context.Context, msg Message, handler RequestHandler) {
+	attestation, err := handler.HandleKeyAttestationRequest(ctx)
 	if err != nil {
-		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
-		return
-	}
-
-	report, failure := handler.HandleGenerateDeanonymizationReport(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
-	if failure != nil {
-		errorResponse := Message{
-			ID:   msg.ID,
-			Type: ErrorMessage,
-			Data: failure.ToDTO(),
-		}
-		if err := c.sendMessage(errorResponse); err != nil {
-			c.log.Info("Server: Failed to send error response: %v", err)
-		}
+		c.sendErrorResponse(msg.ID, "ATTESTATION_ERROR", err)
 		return
 	}
 
 	response := Message{
 		ID:   msg.ID,
-		Type: DeanonymizationResponseMessage,
-		Data: DeanonymizationResponseData{
-			Report: report,
+		Type: KeyAttestationResponseMessage,
+		Data: KeyAttestationResponseData{
+			Attestation: attestation,
 		},
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		c.log.Warn("%s: Failed to send deanonymization response: %v", c.idLogTag, err)
+		c.log.Warn("%s: Failed to send HandleKeyAttestationRequest response: %v", c.idLogTag, err)
 	}
-	c.log.Info("%s: Deanonymization handled successfully, ID=%s", c.idLogTag, msg.ID)
+	c.log.Info("%s: KeyAttestationRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
 // sendErrorResponse sends an error response

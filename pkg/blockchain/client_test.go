@@ -7,11 +7,10 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/blockchain/testutil"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	commontestutil "github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/testutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,110 +99,6 @@ func TestGetPendingRequests(t *testing.T) {
 
 }
 
-func TestMarkRequestCompleted(t *testing.T) {
-
-	testHelper := setupSimTestHelper(t, true, nil)
-	defer testHelper.Close()
-
-	blockchainClient := SetupNewBlockChainClient(testHelper)
-
-	//*****************************************************
-	// submit request
-	transferValue := big.NewInt(0)
-	maxFeeValue := big.NewInt(100)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
-
-	// wait for transaction inclusion
-	testHelper.WaitMined(tx)
-
-	res, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 1, len(res), "There should be one pending request")
-	requestId := res[0].RequestID
-
-	// =========================================================
-	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
-	// =========================================================
-	err = blockchainClient.MarkRequestCompleted(
-		context.Background(),
-		requestId,
-		big.NewInt(50), // refund
-		big.NewInt(20), // fees  => 50 + 20 = 70 != 100
-	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
-
-	// =========================================================
-	// Case 2: applicationFees < minFeePerRequest -> InvalidValue
-	// =========================================================
-	err = blockchainClient.MarkRequestCompleted(
-		context.Background(),
-		requestId,
-		big.NewInt(100), // refund
-		big.NewInt(0),   // fees => 100 + 0 = 100 == maxFeeValue, but fees < minFeePerRequest
-	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
-
-	// =========================================================
-	// Case OK: refund + fees = maxFeeValue, fees >= minFeePerRequest
-	// =========================================================
-	err = blockchainClient.MarkRequestCompleted(
-		context.Background(),
-		requestId,
-		big.NewInt(80),
-		big.NewInt(20),
-	)
-	require.NoError(t, err)
-
-	res, err = blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be zero pending request")
-
-	// Test that completing the same request results in ProcessorEndpointInvalidRequestId
-	err = blockchainClient.MarkRequestCompleted(
-		context.Background(),
-		requestId,
-		big.NewInt(80),
-		big.NewInt(20),
-	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
-	_, isReorgErr := err.(ReorgError)
-	require.True(t, isReorgErr)
-}
-
-func TestMarkRequestFailed(t *testing.T) {
-
-	testHelper := setupSimTestHelper(t, true, nil)
-	defer testHelper.Close()
-
-	blockchainClient := SetupNewBlockChainClient(testHelper)
-
-	transferValue := big.NewInt(1000000)
-	maxFeeValue := big.NewInt(100)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
-
-	// wait for transaction inclusion
-	testHelper.WaitMined(tx)
-
-	res, err := blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-
-	failure := apperrors.New(
-		apperrors.CodeSubmittingStateUpdateFailed,
-		"test failure",
-		nil,
-	)
-
-	err = blockchainClient.MarkRequestFailed(context.Background(), res[0].RequestID, failure)
-	require.NoError(t, err)
-
-	res, err = blockchainClient.GetPendingRequests(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 0, len(res), "There should be zero pending request")
-}
-
 func TestSubmitStateUpdate(t *testing.T) {
 
 	testHelper := setupSimTestHelper(t, true, nil)
@@ -242,7 +137,28 @@ func TestSubmitStateUpdate(t *testing.T) {
 	}
 
 	// =========================================================
-	// Case 1: refund + applicationFees != maxFeeValue -> InvalidValue
+	// Case wrong application id
+	// =========================================================
+	payload.ApplicationID = 9999
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg := err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidApplicationId")
+	payload.ApplicationID = res.ApplicationID
+
+	// =========================================================
+	// Case wrong prev state root
+	// =========================================================
+	payload.PrevStateRoot = [32]byte{0x07, 0x08, 0xaa, 0xbb, 0xee}
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	_, isReorg = err.(ReorgError)
+	require.True(t, isReorg)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
+	payload.PrevStateRoot = oldStateRoot
+
+	// =========================================================
+	// Case refund + applicationFees != maxFeeValue -> InvalidValue
 	// =========================================================
 	payloadWrongSum := *payload // copy value
 	payloadWrongSum.RefundAmount = common.NewBig(80)
@@ -253,7 +169,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidValue")
 
 	// =========================================================
-	// Case 2: applicationFees < minFeePerRequest but correct sum -> InvalidValue
+	// Case applicationFees < minFeePerRequest but correct sum -> InvalidValue
 	// =========================================================
 	payloadWrongFee := *payload
 	payloadWrongFee.RefundAmount = common.NewBig(100)
@@ -273,35 +189,21 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(listOfRes), "There should be 0 pending request")
 
-	// Test error - NonceTooLow
+	// =========================================================
+	// Case NonceTooLow
+	// =========================================================
 	blockchainClient.account.Nonce = big.NewInt(0)
 	blockchainClient.account.GasLimit = 100000 //more than enough to avoid out of gas error
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
-	_, isReorg := err.(ReorgError)
+	_, isReorg = err.(ReorgError)
 	require.True(t, isReorg)
 
 	blockchainClient.account.Nonce = nil  //reset nonce to let it be fetched from the network
 	blockchainClient.account.GasLimit = 0 //reset gas limit to let it be estimated
 
-	// Test error - wrong application id
-	payload.ApplicationID = 9999
-	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
-	_, isReorg = err.(ReorgError)
-	require.True(t, isReorg)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidApplicationId")
-
-	// Test error - wrong prev state root
-	payload.ApplicationID = res.ApplicationID
-	payload.PrevStateRoot = [32]byte{0x07, 0x08, 0xaa, 0xbb, 0xee}
-
-	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
-	fmt.Printf("DEBUG update error: %v\n", err)
-
-	_, isReorg = err.(ReorgError)
-	require.True(t, isReorg)
-	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
-
-	// Test error - wrong request id
+	// =========================================================
+	// Case wrong request id
+	// =========================================================
 	payload.PrevStateRoot = payload.NewStateRoot
 	payload.NewStateRoot = [32]byte{0x07, 0x08, 0x09}
 	payload.RequestID = commontestutil.GenerateRandomRequestID()
@@ -310,6 +212,48 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.True(t, isReorg)
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
 }
+
+
+func TestSubmitStateUpdateRequestFailed(t *testing.T) {
+
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	transferValue := big.NewInt(1000000)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
+
+	// wait for transaction inclusion
+	testHelper.WaitMined(tx)
+
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID:  res.ApplicationID,
+		RequestID:      res.RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   oldStateRoot, // same as old state root to simulate failed request
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{},
+		Signature:      signature[:],
+		RefundAmount:   common.ToBig(maxFeeValue),
+		ApplicationFee: common.NewBig(0), 
+		ErrorCode: 1,
+		ErrorMsg: "test error message",
+	}
+	
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+
+	listOfRes, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 0, len(listOfRes), "There should be zero pending request")
+}
+
 
 func TestSubmitRequest(t *testing.T) {
 	// mock private key for the client
@@ -355,9 +299,65 @@ func TestSubmitRequest(t *testing.T) {
 	if !found {
 		t.Errorf("Submitted request not found in pending requests")
 	}
+}
 
-	err = blockchainClient.MarkRequestCompleted(context.Background(), requestId, big.NewInt(80), big.NewInt(20))
+func TestGetPendingPaymentsAndWithdraw(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Initially the submitter should have no pending payments
+	pending, err := blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
 	require.NoError(t, err)
+	require.Equal(t, 0, pending.Sign(), "Pending payments should be zero initially")
+
+	// Submit a request so there's something to refund
+	depositAmount := big.NewInt(1000000)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, depositAmount, maxFeeValue)
+	testHelper.WaitMined(tx)
+
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	// Submit a failed state update — this credits deposit + (maxFeeValue - minFee) to the submitter
+	signature := [65]byte{}
+	payload := &common.UpdatePayload{
+		ApplicationID:  res.ApplicationID,
+		RequestID:      res.RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   oldStateRoot,
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{},
+		Signature:      signature[:],
+		RefundAmount:   common.ToBig(maxFeeValue),
+		ApplicationFee: common.NewBig(0),
+		ErrorCode:      1,
+		ErrorMsg:       "test failure",
+	}
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
+	require.NoError(t, err)
+
+	// Now the submitter should have a positive pending payment balance
+	pending, err = blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
+	require.NoError(t, err)
+	require.Equal(t, 1, pending.Sign(), "Pending payments should be positive after failed request refund")
+
+	// minFeePerRequest is 5 (set in sim_test_helper.go), so refund = depositAmount + (maxFeeValue - 5)
+	expectedRefund := new(big.Int).Add(depositAmount, new(big.Int).Sub(maxFeeValue, big.NewInt(5)))
+	require.Equal(t, 0, pending.Cmp(expectedRefund), "Pending payments should equal deposit + (maxFee - minFee)")
+
+	// Withdraw payments for the submitter
+	err = blockchainClient.WithdrawPayments(context.Background(), testHelper.Submitter.From)
+	require.NoError(t, err)
+
+	// After withdrawal, pending payments should be zero
+	pending, err = blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
+	require.NoError(t, err)
+	require.Equal(t, 0, pending.Sign(), "Pending payments should be zero after withdrawal")
 }
 
 func TestGetTeePublicKey(t *testing.T) {

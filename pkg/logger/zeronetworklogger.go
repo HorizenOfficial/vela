@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/mdlayher/vsock"
 	"github.com/rs/zerolog"
 )
@@ -310,11 +310,17 @@ func NewZeroNetworkLogger(cfg *Config) *ZeroNetworkLogger {
 	var factory LogConnectionFactory
 	switch cfg.RemoteLogNetwork {
 	case "tcp":
-		factory = NewTCPLogConnectionFactory("tcp", cfg.RemoteLogParams.(common.TcpChannelConnectionParams).Url())
+		params, ok := cfg.RemoteLogParams.(common.TcpChannelConnectionParams)
+		if !ok {
+			panic(fmt.Sprintf("Invalid RemoteLogParams for tcp: %T", cfg.RemoteLogParams))
+		}
+		factory = NewTCPLogConnectionFactory("tcp", params.Url())
 	case "vsock":
-		factory = NewVSockLogConnectionFactory(
-			cfg.RemoteLogParams.(common.VSockChannelConnectionParams).CID,
-			cfg.RemoteLogParams.(common.VSockChannelConnectionParams).Port)
+		params, ok := cfg.RemoteLogParams.(common.VSockChannelConnectionParams)
+		if !ok {
+			panic(fmt.Sprintf("Invalid RemoteLogParams for vsock: %T", cfg.RemoteLogParams))
+		}
+		factory = NewVSockLogConnectionFactory(params.CID, params.Port)
 	default:
 		panic(fmt.Sprintf("Unsupported RemoteLogNetwork: %s", cfg.RemoteLogNetwork))
 	}
@@ -351,6 +357,12 @@ func (z *ZeroNetworkLogger) SetLevel(level string) error {
 	}
 	*z.logger = z.logger.Level(lvl)
 	return nil
+}
+
+func (z *ZeroNetworkLogger) GetLevel() string {
+	z.mu.RLock()
+	defer z.mu.RUnlock()
+	return z.logger.GetLevel().String()
 }
 
 // Logging methods just pass through to the underlying zerolog instance

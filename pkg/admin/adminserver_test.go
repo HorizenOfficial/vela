@@ -10,13 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
 
 var testLogger logger.Logger
 
@@ -31,6 +30,11 @@ func init() {
 	)
 }
 
+// mockSupportedCommands is the list of commands supported by the mock admin handler
+var mockSupportedCommands = []AdminMessageType{
+	KeyAttestationRequestMessage,
+}
+
 // MockAdminCmdHandler is a mock implementation of the AdminCmdHandler interface.
 type MockAdminCmdHandler struct {
 	attestation []byte
@@ -39,10 +43,15 @@ type MockAdminCmdHandler struct {
 	mu          sync.Mutex
 }
 
-func (m *MockAdminCmdHandler) CreateKeyAttestation(ctx context.Context) ([]byte, error) {
+func (m *MockAdminCmdHandler) ExecuteCommand(ctx context.Context, msg AdminMessage) (interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
+
+	if !IsSupportedCommand(msg.Type, mockSupportedCommands) {
+		return nil, errors.New("unsupported command type")
+	}
+
 	return m.attestation, m.err
 }
 
@@ -70,8 +79,8 @@ func (m *MockConnectionFactory) CreateClientConnection() (net.Conn, error) {
 	return nil, nil
 }
 
+var commParams = common.CommunicationParams{RequestTimeoutSec: 30}
 
-var commParams = common.CommunicationParams{RequestTimeoutSec: 30 }
 func TestAdminServer_StartStop(t *testing.T) {
 	listener, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer listener.Close()
@@ -129,8 +138,7 @@ func TestAdminServer_HandleRequestsKeyAttestationSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, AdminResponseMessage, respMsg.Type)
-	attestation, _ := json.Marshal(respMsg.Data)
-	assert.Equal(t, `"YXR0ZXN0YXRpb25fZGF0YQ=="`, string(attestation)) // base64 encoded
+	assert.Equal(t, `"YXR0ZXN0YXRpb25fZGF0YQ=="`, string(respMsg.Data)) // base64 encoded
 	assert.Equal(t, 1, handler.GetCallCount())
 
 }
@@ -159,17 +167,16 @@ func TestAdminServer_HandleRequestsKeyAttestationHandlerError(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
-	assert.Equal(t, "ERROR_CREATING_ATTESTATION", errData.Code)
+	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 	assert.Equal(t, "handler failed", errData.Message)
 	assert.Equal(t, 1, handler.GetCallCount())
 
 }
 
 func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
-	server := NewAdminServer(nil, commParams,testLogger)
+	server := NewAdminServer(nil, commParams, testLogger)
 	server.clientTimeout = 500 * time.Millisecond
 
 	clientConn, serverConn := net.Pipe()
@@ -180,7 +187,7 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 
 	go server.handleNewClient(context.Background(), serverConn, "test")
 
-	req := AdminMessage{Type: 999} // Unknown type
+	req := AdminMessage{Type: "unknown_type"}
 	reqBytes, _ := json.Marshal(req)
 	_, err := clientConn.Write(append(reqBytes, communication.MsgDelimiter))
 	require.NoError(t, err)
@@ -193,15 +200,14 @@ func TestAdminServer_HandleRequestsUnknownRequest(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
-	assert.Equal(t, "UNKNOWN_REQUEST", errData.Code)
+	assert.Equal(t, "COMMAND_ERROR", errData.Code)
 
 }
 
 func TestAdminServer_ServerBusy(t *testing.T) {
-	server := NewAdminServer(nil, common.CommunicationParams{RequestTimeoutSec: 2 }, testLogger)
+	server := NewAdminServer(nil, common.CommunicationParams{RequestTimeoutSec: 2}, testLogger)
 
 	handler := &MockAdminCmdHandler{attestation: []byte("another_attestation_data")}
 	server.SetCmdHandler(handler)
@@ -229,8 +235,7 @@ func TestAdminServer_ServerBusy(t *testing.T) {
 
 	assert.Equal(t, AdminErrorMessage, respMsg.Type)
 	var errData communication.ErrorData
-	dataBytes, _ := json.Marshal(respMsg.Data)
-	json.Unmarshal(dataBytes, &errData)
+	json.Unmarshal(respMsg.Data, &errData)
 
 	assert.Equal(t, "INVALID_REQUEST", errData.Code)
 	assert.Equal(t, "server is busy", errData.Message)

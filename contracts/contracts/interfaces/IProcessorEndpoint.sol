@@ -40,6 +40,10 @@ interface IProcessorEndpoint {
     Structs.ErrorCode errorCode,
     string errorMessage
   );
+  /// @notice Emitted when a reqreport has been generated.
+  /// @param applicationId Application identifier.
+  /// @param requestId Request identifier.
+  event ReportGenerated(uint64 indexed applicationId, bytes32 indexed requestId);
   /// @notice Emitted for application-specific encrypted events.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
@@ -68,6 +72,10 @@ interface IProcessorEndpoint {
   /// @notice Emitted when the fee collector address is updated.
   /// @param newFeeCollector New fee collector address.
   event FeeCollectorUpdated(address newFeeCollector);
+  /// @notice Emitted when a payment is withdrawn.
+  /// @param payee Address of the payee.
+  /// @param amount Amount withdrawn.
+  event PaymentWithdrawn(address indexed payee, uint256 amount);
 
   /// @notice A zero address was supplied where not allowed.
   error AddressCantBeZero();
@@ -113,26 +121,6 @@ interface IProcessorEndpoint {
     uint256 maxFeeValue
   ) external payable returns (bytes32);
 
-  /// @notice Marks the current pending request as completed and handles fee/refund flows.
-  /// @param requestId Request identifier.
-  /// @param refund Amount refunded to the sender.
-  /// @param applicationFees Fee amount paid to the collector.
-  function markRequestCompleted(
-    bytes32 requestId,
-    uint256 refund,
-    uint256 applicationFees
-  ) external;
-
-  /// @notice Marks the current pending request as failed and handles refunds.
-  /// @param requestId Request identifier.
-  /// @param errorCode Failure reason code.
-  /// @param errorMessage Failure reason message.
-  function markRequestFailed(
-    bytes32 requestId,
-    Structs.ErrorCode errorCode,
-    string calldata errorMessage
-  ) external;
-
   /// @notice Returns the number of pending requests in the queue.
   /// @return size Current pending request count.
   function getPendingRequestsSize() external view returns (uint256);
@@ -160,6 +148,8 @@ interface IProcessorEndpoint {
   /// @param withdrawalRequests Withdrawal requests to execute.
   /// @param refund Refund amount to the request sender.
   /// @param applicationFees Fee amount to the collector.
+  /// @param errorCode Error code for the update.
+  /// @param errorMsg Error message for the update.
   /// @param signature Signature over the update data.
   function stateUpdate(
     uint64 applicationId,
@@ -171,6 +161,8 @@ interface IProcessorEndpoint {
     Structs.WithdrawalRequest[] calldata withdrawalRequests,
     uint256 refund,
     uint256 applicationFees,
+    Structs.ErrorCode errorCode,
+    string calldata errorMsg,
     bytes calldata signature
   ) external;
 
@@ -212,4 +204,8 @@ interface IProcessorEndpoint {
     uint256 depositAmount,
     uint256 idx
   ) external pure returns (bytes32);
+
+  /// @notice Withdraws pending payments for a given payee.
+  /// @param payee Payee address.
+  function withdrawPayments(address payable payee) external;
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 type MsgToSignBuilder struct {
@@ -46,6 +46,14 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	}
 	withdrawalsArgs := abi.Arguments{{Type: WithdrawalRequestArrayType}}
 
+	uint8Type, err := abi.NewType("uint8", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failure creating uint8 type: %w", err)
+	}
+	stringType, err := abi.NewType("string", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failure creating string type: %w", err)
+	}
 	uint64Type, err := abi.NewType("uint64", "", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failure creating uint64 type: %w", err)
@@ -68,6 +76,8 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 		{Type: bytes32Type},
 		{Type: uint256Type},
 		{Type: uint256Type},
+		{Type: uint8Type},
+		{Type: stringType},
 	}
 
 	msgBuilder := &MsgToSignBuilder{msgArgs: msgArgs, eventsArgs: eventsArgs, eventSubTypesArgs: eventSubTypesArgs, withdrawalsArgs: withdrawalsArgs}
@@ -125,6 +135,8 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 		withdrawalArr,
 		updatePayload.RefundAmount.ToInt(),
 		updatePayload.ApplicationFee.ToInt(),
+		updatePayload.ErrorCode,
+		updatePayload.ErrorMsg,
 	}
 
 	// Encoding parameters

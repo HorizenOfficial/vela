@@ -7,9 +7,9 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
-	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tee"
+	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,18 +52,21 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 		}
 	}
 
-	params := s.teeContract.PackCheckSignature(
-		processorendpoint.ApplicationIdToBindingType(payload.ApplicationID),
-		payload.PrevStateRoot,
-		payload.NewStateRoot,
-		payload.RequestID,
-		events,
-		eventSubTypes,
-		withdrawals,
-		payload.RefundAmount.ToInt(),
-		payload.ApplicationFee.ToInt(),
-		payload.Signature,
-	)
+	sigParams := tee.StructsSignatureParams{
+		ApplicationId:      processorendpoint.ApplicationIdToBindingType(payload.ApplicationID),
+		PrevStateRoot:      payload.PrevStateRoot,
+		NewStateRoot:       payload.NewStateRoot,
+		ProcessedRequestId: payload.RequestID,
+		Events:             events,
+		EventSubTypes:      eventSubTypes,
+		WithdrawalRequests: withdrawals,
+		RefundAmount:       payload.RefundAmount.ToInt(),
+		ApplicationFee:     payload.ApplicationFee.ToInt(),
+		ErrorCode:          payload.ErrorCode,
+		ErrorMsg:           payload.ErrorMsg,
+	}
+
+	params := s.teeContract.PackCheckSignature(sigParams, payload.Signature)
 
 	result, err := bind.Call(s.teeContractInstance,
 		&bind.CallOpts{Pending: false},

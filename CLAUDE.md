@@ -4,9 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Horizen Privacy Preserving Execution System (PES) - A privacy-preserving execution platform using AWS Nitro Enclaves (TEE). The system executes WebAssembly modules securely, with encrypted state management and blockchain-based coordination.
+Horizen Vela - A privacy-preserving execution platform using AWS Nitro Enclaves (TEE). The system executes WebAssembly modules securely, with encrypted state management and blockchain-based coordination.
 
 **Stack:** Go 1.24, Solidity 0.8.30, Wasmtime-go (WASM runtime), LevelDB, Hardhat, The Graph (subgraphs)
+
+## Language Stack
+
+- **Primary languages:** Go, TypeScript, Solidity
+- This is a blockchain/TEE/WASM project. Be aware of smart contract security patterns (reentrancy, pull payments) and WASM memory management concerns.
+- **Solidity:** Check reentrancy, access control, gas optimization.
+- **Go:** Check error handling, goroutine leaks, resource cleanup.
 
 ## Build Commands
 
@@ -54,7 +61,6 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
   /executor                 - WASM Executor (runs in AWS Nitro Enclave)
   /authorityservice         - HTTP service for deanonymization reports
   /keytool                  - Key management utility
-  /key_attestation_cmd      - Key attestation utility
 
 /pkg                        - Shared Go library code
   /wasm                     - Wasmtime runtime integration

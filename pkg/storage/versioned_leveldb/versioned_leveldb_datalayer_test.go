@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/storage"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
-	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	versionedDb "github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
 )
 
 var testVersionedLevelDBBaseDir string
@@ -668,7 +668,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := common.NewApplicationId(int64(i))
+				appID := common.NewApplicationId(uint64(i))
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
@@ -705,7 +705,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 
 		// Verify all data is present
 		for i := range numGoroutines {
-			appID := common.NewApplicationId(int64(i))
+			appID := common.NewApplicationId(uint64(i))
 			_, err := store.GetApplicationState(ctx, appID)
 			assert.NoError(t, err, "should be able to get state for %s", appID)
 		}
@@ -798,7 +798,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		defer os.RemoveAll(tempDir)
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		expectedRecoveryData := &common.EnclaveKeySetRecovery{
-			RecoveryType:       1,
+			RecoveryType:       common.RecoveryTypeKMS,
 			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
 			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
 		}
@@ -847,7 +847,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				appID := common.NewApplicationId(int64(i))
+				appID := common.NewApplicationId(uint64(i))
 				state := common.ApplicationState{
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),

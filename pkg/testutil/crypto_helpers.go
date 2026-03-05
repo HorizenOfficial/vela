@@ -10,10 +10,10 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/crypto"
-	"github.com/horizen-pes/pkg/executor"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/executor"
 )
 
 // CryptoHelper provides cryptographic operations for system tests
@@ -89,45 +89,6 @@ func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requ
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.ToBig(depositAmount),
-		MaxFeeValue:   common.NewBig(100),
-	}, nil
-}
-
-// CreateTransferRequest creates an encrypted transfer request
-func (c *CryptoHelper) CreateTransferRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, recipient ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	senderKey, err := c.GetUserKey(sender)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create transfer instruction
-	transferInstruction := map[string]interface{}{
-		"type": "transfer",
-		"transfer": map[string]interface{}{
-			"to":     recipient,
-			"amount": amount,
-		},
-	}
-
-	payload, err := json.Marshal(transferInstruction)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal transfer instruction: %w", err)
-	}
-
-	// Encrypt payload
-	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt transfer payload: %w", err)
-	}
-
-	return &common.Request{
-		ApplicationID: appID,
-		RequestID:     requestID,
-		RequestType:   common.Process,
-		Payload:       encryptedPayload,
-		Sender:        sender,
-		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0), // No deposit for transfer
 		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }

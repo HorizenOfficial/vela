@@ -12,23 +12,22 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
-	"github.com/horizen-pes/pkg/blockchain/contracts/tee"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tee"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 )
 
 //go:generate mkdir -p ../../contract_abis
 //go:generate mkdir -p ./contracts/processorendpoint
-//go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/ProcessorEndpoint.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointAbi --overwrite
+//go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/ProcessorEndpoint.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointAbi --overwrite
 //go:generate sh -c "jq --indent 2 '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].abi' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../subgraphs/hcce/abis/ProcessorEndpoint.json"
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].abi' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi"
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].bin' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin"
 //go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi --bin ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
 //go:generate mkdir -p ./contracts/tee
-//go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
+//go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
 
 type ChainClient interface {
@@ -283,39 +282,6 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 	return nil
 }
 
-func (c *BlockChainClient) MarkRequestCompleted(ctx context.Context, requestID common.RequestIdType, refundAmount *big.Int, applicationFees *big.Int) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return fmt.Errorf("client not connected, call Connect first")
-	}
-
-	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestCompleted(requestID, refundAmount, applicationFees))
-
-}
-
-func (c *BlockChainClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return fmt.Errorf("client not connected, call Connect first")
-	}
-
-	c.account.Value = nil
-
-	if requestFailure == nil {
-		requestFailure = apperrors.New(apperrors.CodeInternalFallback, "internal error", nil)
-	}
-
-	solCode := uint8(requestFailure.Category())
-	msg := requestFailure.ExternalMessage()
-
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackMarkRequestFailed(requestID, solCode, msg))
-}
-
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
 func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.RLock()
@@ -359,11 +325,6 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	return common.RequestIdType{}, 0, fmt.Errorf("requestId not found in logs")
 }
 
-func (c *BlockChainClient) SubmitDeanonymizationReport(ctx context.Context, update *common.DeanonymizationReport) error {
-	// This is the only thing that has to be done on the blockchain for deanonymization reports
-	return c.MarkRequestCompleted(ctx, update.ReportID, update.RefundAmount.ToInt(), update.ApplicationFee.ToInt())
-}
-
 func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -398,6 +359,8 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		withdrawals,
 		update.RefundAmount.ToInt(),
 		update.ApplicationFee.ToInt(),
+		update.ErrorCode,
+		update.ErrorMsg,
 		update.Signature,
 	)
 
@@ -417,6 +380,38 @@ func (c *BlockChainClient) Close() error {
 
 	c.connected = false
 	return nil
+}
+
+// GetPendingPayments returns the pending payment balance for the given address.
+func (c *BlockChainClient) GetPendingPayments(ctx context.Context, addr ethCommon.Address) (*big.Int, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return nil, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	amount, err := bind.Call(c.processorBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.processorEndpoint.PackPayments(addr),
+		c.processorEndpoint.UnpackPayments)
+	if err != nil {
+		return nil, fmt.Errorf("cannot retrieve pending payments: %w", err)
+	}
+	return amount, nil
+}
+
+// WithdrawPayments calls withdrawPayments on the ProcessorEndpoint contract for the given payee.
+func (c *BlockChainClient) WithdrawPayments(ctx context.Context, payee ethCommon.Address) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return fmt.Errorf("client not connected, call Connect first")
+	}
+
+	c.account.Value = nil
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackWithdrawPayments(payee))
 }
 
 func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {

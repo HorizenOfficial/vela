@@ -8,10 +8,10 @@ import (
 
 	"math/big"
 
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 var testLogger logger.Logger
@@ -147,7 +147,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	recipient := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
+	depositAmount := big.NewInt(2000000000000000000)    // 2 ETH
 	transferAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
@@ -171,7 +171,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 		t.Fatalf("Failed to marshal transfer instructions: %v", err)
 	}
 
-	newState, events, withdrawals, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	newState, events, withdrawals, _, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, common.Process, payload, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Transfer failed: %v", failure)
 	}
@@ -234,7 +234,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	withdrawTo := ethCommon.HexToAddress("0x0987654321098765432109876543210987654321")
-	depositAmount := big.NewInt(2000000000000000000)               // 2 ETH
+	depositAmount := big.NewInt(2000000000000000000)    // 2 ETH
 	withdrawAmount := common.NewBig(500000000000000000) // 0.5 ETH
 
 	// make a deposit
@@ -258,7 +258,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 		t.Fatalf("Failed to marshal withdraw instructions: %v", err)
 	}
 
-	newState, events, withdrawals, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	newState, events, withdrawals, _, fuel, failure := runtime.ProcessRequest(ctx, appId, sender, common.Process, payload, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Withdrawal failed: %v", failure)
 	}
@@ -342,7 +342,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, _, _, _, failure := runtime.ProcessRequest(ctx, appId, sender, payload, serializedState, wasmBytes)
+	_, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, sender, common.Process, payload, serializedState, wasmBytes)
 	if failure == nil {
 		t.Error("Expected error for insufficient balance, got nil")
 	}
@@ -352,7 +352,7 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	}
 }
 
-func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
+func TestMockRuntime_DeanonymizationViaProcessRequest(t *testing.T) {
 	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
@@ -381,10 +381,21 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 		t.Fatalf("Second deposit failed: %v", failure)
 	}
 
-	// Generate deanonymization report
-	reportBytes, _, failure := runtime.GenerateDeanonymizationReport(context.Background(), appId, []byte(""), serializedState, wasmBytes)
+	// Generate deanonymization report via ProcessRequest with type "deanonymize"
+	deanonPayload := testPayloadInstructions{
+		Type: "deanonymize",
+		Deanonymize: &testDeanonymizeInstruction{
+			Tag: "dummytag",
+		},
+	}
+	payload, err := json.Marshal(deanonPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal deanonymize payload: %v", err)
+	}
+
+	_, _, _, reportBytes, _, failure := runtime.ProcessRequest(context.Background(), appId, sender1, common.Deanonymize, payload, serializedState, wasmBytes)
 	if failure != nil {
-		t.Fatalf("GenerateDeanonymizationReport failed: %v", failure)
+		t.Fatalf("Deanonymize ProcessRequest failed: %v", failure)
 	}
 
 	// Parse the report
@@ -398,10 +409,9 @@ func TestMockRuntime_GenerateDeanonymizationReport(t *testing.T) {
 	if !ok || len(totalAccounts) != 2 {
 		t.Errorf("Expected totalAccounts 2, got %v", report["totalAccounts"])
 	}
-
-	nonce, ok := report["nonce"].(float64)
-	if !ok || int(nonce) != 2 {
-		t.Errorf("Expected nonce 2, got %v", report["nonce"])
+	tag, ok := report["tag"].(string)
+	if !ok || tag != "dummytag" {
+		t.Errorf("Expected tag in the report")
 	}
 }
 

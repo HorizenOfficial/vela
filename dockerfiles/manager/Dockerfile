@@ -2,7 +2,7 @@
 FROM debian:bullseye-slim AS builder
 
 # Install base dependencies
-RUN apt-get update && apt-get install -y wget ca-certificates gnupg
+RUN apt-get update && apt-get install -y wget ca-certificates gnupg git
 
 # Manuallt install Node.js 20 from NodeSource (the one in debian:bullseye-slim is too old)
 RUN mkdir -p /etc/apt/keyrings && \

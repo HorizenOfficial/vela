@@ -10,11 +10,10 @@ import (
 	"github.com/elliotchance/orderedmap/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 )
 
 func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, TeeSignerAddress ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
@@ -174,25 +173,6 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 
 }
 
-// MarkRequestFailed marks a request as failed
-func (c *MockClient) MarkRequestFailed(ctx context.Context, requestID common.RequestIdType, requestFailure *apperrors.RequestFailure) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if f, ok := c.GetMockedFunc("MarkRequestFailed"); ok {
-		return f.(func(context.Context, common.RequestIdType, *apperrors.RequestFailure) error)(ctx, requestID, requestFailure)
-	}
-
-	if !c.pendingRequests.Has(requestID) {
-		return fmt.Errorf("request not found: %s", requestID)
-	}
-
-	c.pendingRequests.Delete(requestID)
-	req, _ := c.requests.Get(requestID)
-	c.failedRequests.Set(requestID, req)
-
-	return nil
-}
 
 func (c *MockClient) GetCompletedRequests() []*common.Request {
 	c.mu.RLock()
@@ -256,6 +236,13 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 		return fmt.Errorf("request not found: %s", update.RequestID)
 	}
 	c.pendingRequests.Delete(update.RequestID)
+
+	if update.ErrorCode != 0 {
+		// Mark as failed if there's an error code
+		req, _ := c.requests.Get(update.RequestID)
+		c.failedRequests.Set(update.RequestID, req)
+		return nil
+	}
 
 	// Store update payload for separate verification by test suite
 	c.updatePayloads[update.RequestID] = update
@@ -348,26 +335,6 @@ func (c *MockClient) GetWithdrawals(ctx context.Context, applicationID common.Ap
 	return withdrawals, nil
 }
 
-// SubmitDeanonymizationReport submits a deanonymization report to the blockchain
-func (c *MockClient) SubmitDeanonymizationReport(ctx context.Context, report *common.DeanonymizationReport) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if f, ok := c.GetMockedFunc("SubmitDeanonymizationReport"); ok {
-		return f.(func(context.Context, *common.DeanonymizationReport) error)(ctx, report)
-	}
-
-	// Complete the request if it exists
-	if !c.pendingRequests.Has(report.ReportID) {
-		return fmt.Errorf("request not found: %s", report.ReportID)
-	}
-	c.pendingRequests.Delete(report.ReportID)
-
-	// store the report
-	c.reports[report.ReportID] = report
-
-	return nil
-}
-
 // GetDeanonymizationReport gets a deanonymization report
 func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID common.RequestIdType) (*common.DeanonymizationReport, error) {
 	c.mu.RLock()
@@ -379,6 +346,14 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID comm
 	}
 
 	return report, nil
+}
+
+func (c *MockClient) GetPendingPayments(_ context.Context, _ ethCommon.Address) (*big.Int, error) {
+	return big.NewInt(0), nil
+}
+
+func (c *MockClient) WithdrawPayments(_ context.Context, _ ethCommon.Address) error {
+	return nil
 }
 
 func (c *MockClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {

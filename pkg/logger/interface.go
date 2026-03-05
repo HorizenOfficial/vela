@@ -1,6 +1,6 @@
 package logger
 
-import "github.com/horizen-pes/pkg/common"
+import "github.com/HorizenOfficial/vela/pkg/common"
 
 type Logger interface {
 	Trace(msg string, args ...any)
@@ -11,6 +11,7 @@ type Logger interface {
 	Fatal(msg string, args ...any)
 	Panic(msg string, args ...any)
 	SetLevel(level string) error
+	GetLevel() string
 	Close() error
 }
 

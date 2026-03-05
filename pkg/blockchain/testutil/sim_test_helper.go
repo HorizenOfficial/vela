@@ -14,12 +14,12 @@ import (
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/horizen-pes/pkg/blockchain/contracts/authority"
-	defaultauthority "github.com/horizen-pes/pkg/blockchain/contracts/defaultauthoritychecker"
-	"github.com/horizen-pes/pkg/blockchain/contracts/mocktee"
-	"github.com/horizen-pes/pkg/blockchain/contracts/processorendpoint"
-	"github.com/horizen-pes/pkg/blockchain/contracts/noattestationtee"
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/authority"
+	defaultauthority "github.com/HorizenOfficial/vela/pkg/blockchain/contracts/defaultauthoritychecker"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mocktee"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/noattestationtee"
+	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/stretchr/testify/require"
 )
 

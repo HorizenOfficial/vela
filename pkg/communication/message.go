@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 const MsgDelimiter = byte('\n')
@@ -24,10 +24,6 @@ const (
 	DeployAppRequestMessage
 	// DeployAppResponseMessage represents a response to a deploy app request
 	DeployAppResponseMessage
-	// DeanonymizationRequestMessage represents a request for deanonymization
-	DeanonymizationRequestMessage
-	// DeanonymizationResponseMessage represents a response to a deanonymization request
-	DeanonymizationResponseMessage
 	// GetKeysetRecoveryRequestMessage represents a handshake message from executor to manager
 	GetKeysetRecoveryRequestMessage
 	// GetKeysetRecoveryResponseMessage represents a handshake message from manager to executor
@@ -41,6 +37,11 @@ const (
 
 	// ErrorMessage represents an error message
 	ErrorMessage
+
+	// KeyAttestationRequestMessage represents a request from manager to executor to create a key attestation
+	KeyAttestationRequestMessage
+	// KeyAttestationResponseMessage represents the executor's response with the attestation document
+	KeyAttestationResponseMessage
 )
 
 // Message represents a message exchanged between components
@@ -88,12 +89,16 @@ type ProcessResponseData struct {
 	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 	// UpdatedApplicationState is the updated application state
 	UpdatedApplicationState *common.ApplicationState `json:"updatedApplicationState"`
+	// DeanonymizationReport is the optional deanonymization report (present if request type was Deanonymize)
+	DeanonymizationReport *common.DeanonymizationReport `json:"deanonymizationReport,omitempty"`
 }
 
 // DeployAppRequestData represents data for a deploy app request message
 type DeployAppRequestData struct {
 	// Request is the request to deploy an application
 	Request *common.Request `json:"request"`
+	// ApplicationState is the current state of the application
+	ApplicationState *common.ApplicationState `json:"applicationState"`
 }
 
 // DeployAppResponseData represents data for a deploy app response message
@@ -102,22 +107,6 @@ type DeployAppResponseData struct {
 	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 	// ApplicationState initialized application state
 	ApplicationState *common.ApplicationState `json:"applicationState"`
-}
-
-// DeanonymizationRequestData represents data for a deanonymization request message
-type DeanonymizationRequestData struct {
-	// Request is the request for deanonymization
-	Request *common.Request `json:"request"`
-	// ApplicationState is the current state of the application
-	ApplicationState *common.ApplicationState `json:"applicationState"`
-	// WasmModule is the WASM module to execute
-	WasmModule []byte `json:"wasmModule"`
-}
-
-// DeanonymizationResponseData represents data for a deanonymization response message
-type DeanonymizationResponseData struct {
-	// Report is the deanonymization report
-	Report *common.DeanonymizationReport `json:"report"`
 }
 
 // ErrorData represents data for an error message
@@ -154,6 +143,12 @@ type KeysetRecoveryResultData struct {
 	Error          string `json:"error,omitempty"`
 	CommPubKey     string `json:"commPubKey,omitempty"`
 	SigningKeyAddr string `json:"signingKeyAddr,omitempty"`
+}
+
+// KeyAttestationResponseData represents data for a key attestation response message
+type KeyAttestationResponseData struct {
+	// Attestation is the raw attestation document bytes
+	Attestation []byte `json:"attestation"`
 }
 
 // generateID generates a simple unique ID for message correlation

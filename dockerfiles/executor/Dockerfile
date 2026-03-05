@@ -1,7 +1,7 @@
 # --- Build Stage ---
 FROM amazonlinux:2 AS builder
 
-RUN yum install -y gcc tar gzip wget
+RUN yum install -y gcc tar gzip wget git
 
 # Install Go
 ENV GO_VERSION=1.24.0
@@ -24,9 +24,9 @@ FROM amazonlinux:2
 
 RUN yum install -y aws-nitro-enclaves-nsm ca-certificates shadow-utils  && yum clean all
 
+COPY --from=builder /executor /executor
+
 RUN useradd -m appuser
 USER appuser
-
-COPY --from=builder /executor /executor
 
 ENTRYPOINT ["/executor"]

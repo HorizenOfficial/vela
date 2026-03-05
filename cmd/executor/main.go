@@ -7,13 +7,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/admin"
-
-	"github.com/horizen-pes/pkg/executor"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/wasm"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/executor"
+	"github.com/HorizenOfficial/vela/pkg/executor/kms"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/wasm"
 )
 
 func main() {
@@ -55,32 +54,61 @@ func main() {
 	// Create the appropriate server based on configuration
 
 	var server communication.ExecutorServer
-	var adminServer admin.AdminCommandServer
 	switch config.ChannelType {
 	case "tcp":
 		factory := communication.NewTCPConnectionFactory(config.ChannelParams.(common.TcpChannelConnectionParams).Url())
-		server = communication.NewServer(factory, config.CommunicationParams,log)
-		adminFactory := communication.NewTCPConnectionFactory(config.AdminChannelParams.(common.TcpChannelConnectionParams).Url())
-		adminServer = admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
+		server = communication.NewServer(factory, config.CommunicationParams, log)
 	case "vsock":
 		factory := communication.NewVSockConnectionFactory(
 			config.ChannelParams.(common.VSockChannelConnectionParams).CID,
 			config.ChannelParams.(common.VSockChannelConnectionParams).Port,
 		)
 		server = communication.NewServer(factory, config.CommunicationParams, log)
-		adminFactory := communication.NewVSockConnectionFactory(
-			config.AdminChannelParams.(common.VSockChannelConnectionParams).CID,
-			config.AdminChannelParams.(common.VSockChannelConnectionParams).Port,
-		)
-		adminServer = admin.NewAdminServer(adminFactory, config.AdminCommunicationParams, log)
 	default:
 		log.Error("Unsupported channel type: %s", config.ChannelType)
 		return
 	}
 
 
+	// Initialize KMS dependencies if Type 1 is configured
+	var kmsClient kms.KMSClient
+	var enclaveHandle kms.EnclaveHandle
+
+	if config.KeySetRecoveryType == common.RecoveryTypeKMS {
+		// Validate KMS configuration
+		if err := config.ValidateKMSConfig(); err != nil {
+			log.Fatal("Invalid KMS configuration: %v", err)
+		}
+
+		log.Info("Initializing Type 1 (KMS) key recovery with Nitro Enclave attestation...")
+
+		// Initialize enclave handle first - this will fail if not running in a Nitro Enclave
+		nitroEnclave, err := kms.NewNitroEnclaveHandle()
+		if err != nil {
+			log.Fatal("Failed to initialize Nitro Enclave handle: %v. "+
+				"Type 1 recovery requires running inside a Nitro Enclave. "+
+				"For local development, use Type 0 (EXECUTOR_KEYSET_RECOVERY_TYPE=0).", err)
+		}
+		enclaveHandle = nitroEnclave
+		log.Info("Nitro Enclave handle initialized successfully")
+
+		// Initialize KMS client with vsock proxy
+		nitroKMS, err := kms.NewNitroKMSClient(
+			context.Background(),
+			config.KMSRegion,
+			config.KMSKeyARN,
+			config.KMSProxyPort,
+		)
+		if err != nil {
+			log.Fatal("Failed to initialize Nitro KMS client: %v", err)
+		}
+		kmsClient = nitroKMS
+		log.Info("Nitro KMS client initialized (region=%s, proxy_port=%d)", config.KMSRegion, config.KMSProxyPort)
+	}
+	// For Type 0, kmsClient and enclaveHandle remain nil (which is valid)
+
 	// Create the executor
-	exec, err := executor.NewStatelessExecutor(config, runtime, server, adminServer, log)
+	exec, err := executor.NewStatelessExecutor(config, runtime, server, log, kmsClient, enclaveHandle)
 	if err != nil {
 		log.Error("Error creating executor: %v", err)
 		return

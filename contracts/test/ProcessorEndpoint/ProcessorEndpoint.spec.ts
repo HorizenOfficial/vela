@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
-import { BYTES32_ZERO } from '../util';
+import { BYTES32_ZERO, getRequestIdFromReceipt as getRequestIdFromReceiptBase } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -20,17 +20,7 @@ describe('ProcessorEndpoint Test', function () {
   });
 
   function getRequestIdFromReceipt(receipt: any) {
-    for (const log of receipt.logs) {
-      try {
-        const parsed = processorEndpoint.interface.parseLog(log);
-        if (parsed.name === 'RequestSubmitted') {
-          return parsed.args.requestId;
-        }
-      } catch {
-        continue;
-      }
-    }
-    throw new Error('RequestSubmitted not found');
+    return getRequestIdFromReceiptBase(processorEndpoint, receipt);
   }
 
   async function submitRequest(
@@ -82,14 +72,18 @@ describe('ProcessorEndpoint Test', function () {
       expect(storedSecond.payload).to.equal('0x02');
     });
 
-    it('marks request as completed then failed and handles refunds', async () => {
+    it('completes request via stateUpdate then fails another and handles refunds', async () => {
       const senderA = signers[0];
       const senderB = signers[3];
 
       const first = await submitRequest(senderA, '0x03', 0n, minFeePerRequest + 2n);
       const second = await submitRequest(senderB, '0x04', 0n, minFeePerRequest + 4n);
 
+      // With pull pattern, funds are credited to pending deposits
       const senderABalanceAfterSubmit = await senderA.provider!.getBalance(
+        await senderA.getAddress()
+      );
+      const senderAPendingAmountBefore = await processorEndpoint.payments(
         await senderA.getAddress()
       );
 
@@ -98,13 +92,30 @@ describe('ProcessorEndpoint Test', function () {
       await expect(
         processorEndpoint
           .connect(signers[1])
-          .markRequestCompleted(first.requestId, refundA, applicationFeesA)
+          .stateUpdate(
+            APPLICATION_ID,
+            BYTES32_ZERO,
+            '0x' + '01'.repeat(32),
+            first.requestId,
+            [],
+            [],
+            [],
+            refundA,
+            applicationFeesA,
+            0,
+            '',
+            '0x'
+          )
       ).to.emit(processorEndpoint, 'RequestCompleted');
 
       const senderABalanceAfterComplete = await senderA.provider!.getBalance(
         await senderA.getAddress()
       );
-      expect(senderABalanceAfterComplete - senderABalanceAfterSubmit).to.equal(refundA);
+      const senderAPendingAmountAfter = await processorEndpoint.payments(
+        await senderA.getAddress()
+      );
+      expect(senderABalanceAfterComplete - senderABalanceAfterSubmit).to.equal(0n);
+      expect(senderAPendingAmountAfter - senderAPendingAmountBefore).to.equal(refundA);
 
       expect(await processorEndpoint.getPendingRequestsSize()).to.equal(1n);
       expect(await processorEndpoint.isCurrentPendingRequest(second.requestId)).to.equal(true);
@@ -112,16 +123,41 @@ describe('ProcessorEndpoint Test', function () {
       const senderBBalanceAfterSubmit = await senderB.provider!.getBalance(
         await senderB.getAddress()
       );
+      const senderBPendingAfterSubmit = await processorEndpoint.payments(
+        await senderB.getAddress()
+      );
+      // Fail second request via stateUpdate with errorCode
+      const currentStateRoot = await processorEndpoint.stateRoot();
       const failTx = await processorEndpoint
         .connect(signers[1])
-        .markRequestFailed(second.requestId, 1, 'failed');
+        .stateUpdate(
+          APPLICATION_ID,
+          currentStateRoot,
+          currentStateRoot,
+          second.requestId,
+          [],
+          [],
+          [],
+          0,
+          0,
+          1,
+          'failed',
+          '0x'
+        );
+      const expectedRefundB = second.depositAmount + (second.maxFeeValue - minFeePerRequest);
+      await expect(failTx)
+        .to.emit(processorEndpoint, 'Refund')
+        .withArgs(APPLICATION_ID, second.requestId, await senderB.getAddress(), expectedRefundB);
       await expect(failTx).to.emit(processorEndpoint, 'RequestCompleted');
 
       const senderBBalanceAfterFail = await senderB.provider!.getBalance(
         await senderB.getAddress()
       );
-      const expectedRefundB = second.maxFeeValue - minFeePerRequest;
-      expect(senderBBalanceAfterFail - senderBBalanceAfterSubmit).to.equal(expectedRefundB);
+      const senderBPendingAmountAfter = await processorEndpoint.payments(
+        await senderB.getAddress()
+      );
+      expect(senderBBalanceAfterFail - senderBBalanceAfterSubmit).to.equal(0n);
+      expect(senderBPendingAmountAfter - senderBPendingAfterSubmit).to.equal(expectedRefundB);
 
       expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
       const [, , success] = await processorEndpoint.getNextPendingRequest();
