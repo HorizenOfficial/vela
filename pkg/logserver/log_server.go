@@ -4,14 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
@@ -20,19 +18,12 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// Struct to hold console and file log levels atomically
-type logLevels struct {
-	console int
-	file    int
-}
-
 // LogServer handles writing log messages from remote clients to a file and/or console.
 type LogServer struct {
 	logger         logger.Logger
 	logWriter      io.WriteCloser // can be *os.File or *lumberjack.Logger
 	fileMutex      sync.Mutex
 	consoleEnabled bool
-	levels         atomic.Value // stores logLevels
 }
 
 // LogServerConfig holds configuration for starting the log server.
@@ -41,25 +32,12 @@ type LogServerConfig struct {
 	VSockAddr      common.VSockChannelConnectionParams
 	LogFilePath    string
 	ConsoleEnabled bool
-	ConsoleLevel   string
-	FileLevel      string
 	// Log rotation settings (only used when LogFilePath is set)
 	RotationEnabled bool // Enable log rotation using lumberjack
 	MaxSizeMB       int  // Max size in megabytes before rotation (default if negative or zero: 100)
 	MaxBackups      int  // Max number of old log files to retain, 0 = retain all (default if negative: 3)
 	MaxAgeDays      int  // Max days to retain old log files, 0 = no limit (default if negative: 28)
 	Compress        bool // Compress rotated log files with gzip (default: false)
-}
-
-// Static log level priority map
-var levelPriority = map[string]int{
-	"trace": 0,
-	"debug": 1,
-	"info":  2,
-	"warn":  3,
-	"error": 4,
-	"fatal": 5,
-	"panic": 6,
 }
 
 // StartLogServer starts server to receive log messages from remote clients via TCP and VSOCK.
@@ -76,18 +54,6 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 
 	if cfg.LogFilePath == "" && !cfg.ConsoleEnabled {
 		return fmt.Errorf("log server file path is empty and console output is disabled, not starting log server")
-	}
-
-	// Validate log levels
-	if cfg.ConsoleEnabled {
-		if _, ok := levelPriority[strings.ToLower(cfg.ConsoleLevel)]; !ok {
-			return fmt.Errorf("invalid console log level: %s", cfg.ConsoleLevel)
-		}
-	}
-	if cfg.LogFilePath != "" {
-		if _, ok := levelPriority[strings.ToLower(cfg.FileLevel)]; !ok {
-			return fmt.Errorf("invalid file log level: %s", cfg.FileLevel)
-		}
 	}
 
 	var logWriter io.WriteCloser
@@ -153,49 +119,23 @@ func StartLogServer(ctx context.Context, cfg LogServerConfig) error {
 		consoleEnabled: cfg.ConsoleEnabled,
 	}
 
-	// Initialize atomic logLevels
-	logServer.levels.Store(logLevels{
-		console: levelPriority[strings.ToLower(cfg.ConsoleLevel)],
-		file:    levelPriority[strings.ToLower(cfg.FileLevel)],
-	})
-
 	if logWriter != nil {
 		if cfg.RotationEnabled {
-			logServer.logger.Info("Remote logs will be written to file %s with level [%s] (rotation enabled: maxSize=%dMB, maxBackups=%d, maxAge=%d days, compress=%v)",
-				cfg.LogFilePath, cfg.FileLevel, maxSize, maxBackups, maxAge, cfg.Compress)
+			logServer.logger.Info("Remote logs will be written to file %s (rotation enabled: maxSize=%dMB, maxBackups=%d, maxAge=%d days, compress=%v)",
+				cfg.LogFilePath, maxSize, maxBackups, maxAge, cfg.Compress)
 		} else {
-			logServer.logger.Info("Remote logs will be written to file %s with level [%s] (rotation disabled)", cfg.LogFilePath, cfg.FileLevel)
+			logServer.logger.Info("Remote logs will be written to file %s (rotation disabled)", cfg.LogFilePath)
 		}
 	}
 	if cfg.ConsoleEnabled {
 		if logWriter == nil {
 			logServer.logger.Warn("No log file configured, logs will only be written to console")
 		}
-		logServer.logger.Info("Remote logs will be written to console with level [%s]", cfg.ConsoleLevel)
+		logServer.logger.Info("Remote logs will be written to console")
 	}
 
 	go logServer.run(ctx, tcpAddrStr, cfg.VSockAddr)
 
-	return nil
-}
-
-// UpdateLogLevels updates console and file log levels at runtime
-func (ls *LogServer) UpdateLogLevels(consoleLevel, fileLevel string) error {
-	console, ok := levelPriority[strings.ToLower(consoleLevel)]
-	if !ok {
-		return fmt.Errorf("invalid console log level: %s", consoleLevel)
-	}
-	file, ok := levelPriority[strings.ToLower(fileLevel)]
-	if !ok {
-		return fmt.Errorf("invalid file log level: %s", fileLevel)
-	}
-
-	ls.levels.Store(logLevels{
-		console: console,
-		file:    file,
-	})
-
-	ls.logger.Info("Log levels updated at runtime (console=%s, file=%s)", consoleLevel, fileLevel)
 	return nil
 }
 
@@ -342,40 +282,23 @@ func (ls *LogServer) handleLogConnection(conn net.Conn) {
 			continue
 		}
 
-		// Apply per-level filtering for console/file outputs.
-		if err := ls.filterAndWrite(trimmed); err != nil {
+		// Write to all configured outputs (no filtering — level control is at the source logger).
+		if err := ls.writeToOutputs(trimmed); err != nil {
 			ls.logger.Error("Error processing remote log: %v", err)
 		}
 	}
 }
 
-// filterAndWrite routes an incoming JSON log entry to console and/or file depending on configured log levels
-func (ls *LogServer) filterAndWrite(jsonMsg []byte) error {
-	// TODO: do something faster than unmarshalling to optimize this
-	var entry struct {
-		Level string `json:"level"`
-	}
-	if err := json.Unmarshal(jsonMsg, &entry); err != nil {
-		return fmt.Errorf("invalid JSON log: %w", err)
-	}
-
-	msgLevel := strings.ToLower(strings.TrimSpace(entry.Level))
-	entryPriority, ok := levelPriority[msgLevel]
-	if !ok {
-		entryPriority = levelPriority["info"]
-	}
-
-	levels := ls.levels.Load().(logLevels)
-
-	if ls.consoleEnabled && entryPriority >= levels.console {
-		// Write raw JSON directly to stdout (message is already structured from the remote client)
+// writeToOutputs writes an incoming log entry to console and/or file unconditionally.
+func (ls *LogServer) writeToOutputs(jsonMsg []byte) error {
+	if ls.consoleEnabled {
 		fmt.Println(string(jsonMsg))
 	}
 
 	ls.fileMutex.Lock()
 	defer ls.fileMutex.Unlock()
 
-	if ls.logWriter != nil && entryPriority >= levels.file {
+	if ls.logWriter != nil {
 		if _, err := ls.logWriter.Write(append(jsonMsg, '\n')); err != nil {
 			return fmt.Errorf("failed to write to file: %w", err)
 		}

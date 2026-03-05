@@ -18,10 +18,8 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/HorizenOfficial/vela/pkg/storage"
 	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/version"
 )
-
-// Version is the current version of the manager
-const Version = "0.1.0"
 
 // As of now we support only one app having this ID
 var (
@@ -132,10 +130,27 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 		return fmt.Errorf("manager is already running")
 	}
 
+	m.log.Info("Manager: startup sequence begin")
+
+	// Start the admin command server early so operators can connect even while
+	// the executor handshake or blockchain connection is still in progress.
+	if m.adminServer != nil {
+		adminParams := m.config.AdminChannelParams.(common.TcpChannelConnectionParams)
+		m.log.Info("Manager: starting admin command server on %s", adminParams.Url())
+		if err := m.adminServer.Start(ctx, "Manager"); err != nil {
+			m.log.Warn("Manager: failed to start admin server: %v", err)
+			// Don't fail startup if admin server fails - it's not critical
+		} else {
+			m.log.Info("Manager: admin command server started")
+		}
+	}
+
 	// Connect to the executor
+	m.log.Info("Manager: connecting to executor...")
 	if err := m.executorClient.Connect(ctx, "Manager"); err != nil {
 		return fmt.Errorf("failed to connect to executor: %w", err)
 	}
+	m.log.Info("Manager: connected to executor")
 
 	// The handshake ensures the executor has a valid keyset before the manager starts
 	// processing any requests from the blockchain, which rely on this keyset for cryptographic operations.
@@ -150,26 +165,20 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 		return fmt.Errorf("Manager: executor handshake failed: %w", err)
 	}
 
-	// Connect to the blockchain
+	// Attempt initial blockchain connection. If it fails, the manager still
+	// starts — the polling loop will retry on every tick until connected.
+	m.log.Info("Manager: connecting to blockchain node at %s...", m.config.RpcURL)
 	if err := m.blockchainClient.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to blockchain node: %w", err)
+		m.log.Warn("Manager: initial blockchain connect failed (will retry during polling): %v", err)
+	} else {
+		m.log.Info("Manager: connected to blockchain node")
 	}
 
 	// Start the blockchain polling loop in a goroutine
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
 
-	// Start the admin command server if configured
-	if m.adminServer != nil {
-		adminParams := m.config.AdminChannelParams.(common.TcpChannelConnectionParams)
-		m.log.Info("Manager: Starting admin command server on %s", adminParams.Url())
-		if err := m.adminServer.Start(ctx, "Manager"); err != nil {
-			m.log.Warn("Manager: Failed to start admin server: %v", err)
-			// Don't fail startup if admin server fails - it's not critical
-		}
-	}
-
-	m.log.Info("Manager: starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
+	m.log.Info("Manager: startup sequence complete - Ethereum address: %s", m.config.PrivateKey.PublicKey().Address())
 
 	m.isRunning = true
 	return nil
@@ -269,24 +278,175 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 	return nil
 }
 
-// ExecuteCommand implements admin.AdminCmdHandler interface.
+// forwardToExecutor sends an admin command to the executor via the existing
+// communication channel (ForwardAdminCommand) and returns the response data.
+func (m *SecureProcessorManager) forwardToExecutor(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	return m.executorClient.ForwardAdminCommand(ctx, cmdType, data)
+}
+
+// forwardSetLogLevel forwards a SetLogLevel command to the executor only.
+func (m *SecureProcessorManager) forwardSetLogLevel(ctx context.Context, level string) (*admin.SetLogLevelResponse, error) {
+	fwdData, err := json.Marshal(admin.SetLogLevelRequest{Level: level})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build executor request: %v", err)
+	}
+	execData, execErr := m.forwardToExecutor(ctx, admin.AdminCmdSetLogLevel, fwdData)
+	if execErr != nil {
+		return nil, execErr
+	}
+	var execResp admin.SetLogLevelResponse
+	if unmarshalErr := json.Unmarshal(execData, &execResp); unmarshalErr != nil {
+		return nil, fmt.Errorf("failed to parse executor response: %v", unmarshalErr)
+	}
+	return &execResp, nil
+}
+
+// forwardGetLogLevel forwards a GetLogLevel command to the executor only.
+func (m *SecureProcessorManager) forwardGetLogLevel(ctx context.Context) (string, error) {
+	execData, execErr := m.forwardToExecutor(ctx, admin.AdminCmdGetLogLevel, nil)
+	if execErr != nil {
+		return "", execErr
+	}
+	var execLevel string
+	if err := json.Unmarshal(execData, &execLevel); err != nil {
+		return "", fmt.Errorf("failed to parse executor log level: %v", err)
+	}
+	return execLevel, nil
+}
+
+// forwardGetVersion forwards a GetVersion command to the executor only.
+func (m *SecureProcessorManager) forwardGetVersion(ctx context.Context) (string, error) {
+	execData, err := m.forwardToExecutor(ctx, admin.AdminCmdGetVersion, nil)
+	if err != nil {
+		return "", err
+	}
+	var v string
+	if err := json.Unmarshal(execData, &v); err != nil {
+		return "", fmt.Errorf("failed to parse executor version: %v", err)
+	}
+	return v, nil
+}
+
+// ExecuteCommand processes an admin command and returns the result.
+// Supported commands: KeyAttestation, GetVersion, SetLogLevel, GetLogLevel.
+// KeyAttestation is always forwarded to the Executor.
+// For GetVersion/SetLogLevel/GetLogLevel, msg.Target controls routing:
+//   - "manager": applied locally only
+//   - "executor": forwarded to Executor only
+//   - "all" or "": applied locally AND forwarded to Executor (aggregated response)
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
+	// Validate and default the target once, before dispatching.
+	if err := admin.ValidateTarget(msg.Target); err != nil {
+		return nil, err
+	}
+	target := msg.Target
+	if target == "" {
+		m.log.Warn("Manager: %s received without target, defaulting to 'all' (applies to both manager and executor)", msg.Type)
+		target = admin.TargetAll
+	}
+
 	switch msg.Type {
 	case admin.KeyAttestationRequestMessage:
-		m.log.Info("Manager: KeyAttestation command received, forwarding to executor")
-		return m.executorClient.SendKeyAttestationRequest(ctx)
-	case admin.GetVersionRequestMessage:
-		return m.GetVersion(ctx)
-	case admin.SetLogLevelRequestMessage:
-		var req struct {
-			Level string `json:"level"`
+		if target != admin.TargetExecutor && target != admin.TargetAll {
+			return nil, fmt.Errorf("key_attestation is only supported on the executor; valid targets: '%s', '%s'", admin.TargetExecutor, admin.TargetAll)
 		}
+		m.log.Info("Manager: KeyAttestation command received, forwarding to executor")
+		respData, err := m.forwardToExecutor(ctx, admin.AdminCmdKeyAttestation, msg.Data)
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(respData), nil
+
+	case admin.GetVersionRequestMessage:
+		if target == admin.TargetExecutor {
+			return m.forwardGetVersion(ctx)
+		}
+		if target == admin.TargetAll {
+			resp := admin.AggregatedGetVersionResponse{}
+			mgrVersion, mgrErr := m.GetVersion(ctx)
+			if mgrErr != nil {
+				resp.ManagerError = mgrErr.Error()
+			} else {
+				resp.Manager = mgrVersion
+			}
+			execVersion, execErr := m.forwardGetVersion(ctx)
+			if execErr != nil {
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = execVersion
+			}
+			return resp, nil
+		}
+		return m.GetVersion(ctx)
+
+	case admin.SetLogLevelRequestMessage:
+		if msg.Data == nil || string(msg.Data) == "null" {
+			return nil, fmt.Errorf("missing request data for set_log_level")
+		}
+		var req admin.SetLogLevelRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, fmt.Errorf("invalid request data: %w", err)
 		}
-		return m.SetLogLevel(ctx, req.Level)
+
+		if target == admin.TargetExecutor {
+			return m.forwardSetLogLevel(ctx, req.Level)
+		}
+
+		if target == admin.TargetAll {
+			resp := admin.AggregatedSetLogLevelResponse{}
+			mgrResult, mgrErr := m.SetLogLevel(ctx, req.Level)
+			if mgrErr != nil {
+				resp.ManagerError = mgrErr.Error()
+			} else {
+				resp.Manager = mgrResult.Level
+			}
+
+			execResp, execErr := m.forwardSetLogLevel(ctx, req.Level)
+			if execErr != nil {
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = execResp.Level
+			}
+
+			return resp, nil
+		}
+
+		result, err := m.SetLogLevel(ctx, req.Level)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+
 	case admin.GetLogLevelRequestMessage:
+		if target == admin.TargetExecutor {
+			execLevel, err := m.forwardGetLogLevel(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return execLevel, nil
+		}
+
+		if target == admin.TargetAll {
+			resp := admin.AggregatedGetLogLevelResponse{}
+			mgrLevel, mgrErr := m.GetLogLevel(ctx)
+			if mgrErr != nil {
+				resp.ManagerError = mgrErr.Error()
+			} else {
+				resp.Manager = mgrLevel
+			}
+
+			execLevel, execErr := m.forwardGetLogLevel(ctx)
+			if execErr != nil {
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = execLevel
+			}
+
+			return resp, nil
+		}
+
 		return m.GetLogLevel(ctx)
+
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
 	}
@@ -294,29 +454,18 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 
 // GetVersion returns the current version of the manager.
 func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error) {
-	m.log.Info("Manager: GetVersion command received")
-	return Version, nil
+	m.log.Info("Manager: GetVersion command received, returning version %s", version.Version)
+	return version.Version, nil
 }
 
 // SetLogLevel changes the manager's log level at runtime.
-func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
-	m.log.Info("Manager: SetLogLevel command received, level=%s", level)
-	if level == "" {
-		return nil, fmt.Errorf("invalid log level: level must not be empty")
-	}
-	if err := m.log.SetLevel(level); err != nil {
-		return nil, fmt.Errorf("invalid log level '%s': %v", level, err)
-	}
-	return struct {
-		Success bool   `json:"success"`
-		Level   string `json:"level"`
-	}{Success: true, Level: level}, nil
+func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (admin.SetLogLevelResponse, error) {
+	return admin.HandleSetLogLevel(m.log, "Manager", level)
 }
 
 // GetLogLevel returns the current log level of the manager.
 func (m *SecureProcessorManager) GetLogLevel(ctx context.Context) (string, error) {
-	m.log.Info("Manager: GetLogLevel command received")
-	return m.log.GetLevel(), nil
+	return admin.HandleGetLogLevel(m.log, "Manager")
 }
 
 // pollBlockchain polls the blockchain for new requests
@@ -349,6 +498,18 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 
 // processRequestFromChain retrieves the next pending request from the blockchain and processes it
 func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
+	// Attempt blockchain (re)connect before acquiring the manager lock.
+	// Connect has its own internal mutex and may block for up to the
+	// configured connect timeout; holding m.mu.RLock during that period
+	// would delay Stop().
+	if !m.blockchainClient.IsConnected() {
+		if err := m.blockchainClient.Connect(ctx); err != nil {
+			m.log.Warn("Manager: blockchain not connected, retrying next poll: %v", err)
+			return nil
+		}
+		m.log.Info("Manager: connected to blockchain node at %s", m.config.RpcURL)
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

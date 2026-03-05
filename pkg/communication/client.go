@@ -38,7 +38,7 @@ func NewClient(factory ConnectionFactory, communicationParams common.Communicati
 		pendingRequests: make(map[string]*PendingRequest),
 		shutdown:        make(chan struct{}),
 		reqTimeout:      communicationParams.RequestTimeoutSec * time.Second,
-		log: log,
+		log:             log,
 	}
 }
 
@@ -167,7 +167,7 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
-			Request: req,
+			Request:          req,
 			ApplicationState: appState,
 		},
 	}
@@ -197,36 +197,41 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 	return respData.UpdatePayload, respData.ApplicationState, nil
 }
 
-// SendKeyAttestationRequest sends a key attestation request to the executor and waits for the response
-func (c *Client) SendKeyAttestationRequest(ctx context.Context) ([]byte, error) {
+// ForwardAdminCommand forwards an admin command to the executor through the
+// existing communication channel.
+func (c *Client) ForwardAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
 	msg := Message{
 		ID:   generateID(),
-		Type: KeyAttestationRequestMessage,
+		Type: AdminCommandRequestMessage,
+		Data: AdminCommandRequestData{
+			CommandType: cmdType,
+			Data:        data,
+		},
 	}
 
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send key attestation request: %w", err)
+		return nil, fmt.Errorf("failed to send admin command: %w", err)
 	}
 
 	if respMsg.Type == ErrorMessage {
-		errorData, err := extractData[ErrorData](respMsg.Data)
+		errData, err := extractData[ErrorData](respMsg.Data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode error response: %w", err)
+			return nil, fmt.Errorf("executor error (failed to decode details: %v)", err)
 		}
-		return nil, fmt.Errorf("key attestation failed [%s]: %s", errorData.Code, errorData.Message)
+		return nil, fmt.Errorf("executor admin command error [%s]: %s", errData.Code, errData.Message)
 	}
 
-	if respMsg.Type != KeyAttestationResponseMessage {
+	if respMsg.Type != AdminCommandResponseMessage {
 		return nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
 	}
 
-	respData, err := extractData[KeyAttestationResponseData](respMsg.Data)
+	respData, err := extractData[AdminCommandResponseData](respMsg.Data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract response data: %w", err)
+		return nil, fmt.Errorf("failed to extract admin command response: %w", err)
 	}
 
-	return respData.Attestation, nil
+	return respData.Data, nil
 }
 
 // sendRequestAndWaitForResponse sends a request and waits for the response
@@ -282,11 +287,11 @@ func (c *Client) sendMessage(msg Message) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
-	c.log.Debug("%s: MagBytes length before delimiter: %d", c.idLogTag, len(data))
+	c.log.Debug("%s: MsgBytes length before delimiter: %d", c.idLogTag, len(data))
 
 	// Add delimiter
 	data = append(data, MsgDelimiter)
-	c.log.Debug("%s: MagBytes length after delimiter: %d", c.idLogTag, len(data))
+	c.log.Debug("%s: MsgBytes length after delimiter: %d", c.idLogTag, len(data))
 
 	// Write message with delimiter
 	if _, err := c.writer.Write(data); err != nil {

@@ -432,8 +432,8 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg Message,
 		c.handleProcessRequest(ctx, msg, handler)
 	case DeployAppRequestMessage:
 		c.handleDeployAppRequest(ctx, msg, handler)
-	case KeyAttestationRequestMessage:
-		c.handleKeyAttestationRequest(ctx, msg, handler)
+	case AdminCommandRequestMessage:
+		c.handleAdminCommandRequest(ctx, msg, handler)
 	default:
 		c.sendErrorResponse(msg.ID, "UNKNOWN_REQUEST", fmt.Errorf("unknown request type: %v", msg.Type))
 	}
@@ -498,26 +498,32 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 	c.log.Info("%s: DeployApp handled successfully, ID=%s", c.idLogTag, msg.ID)
 }
 
-// handleKeyAttestationRequest handles KeyAttestationRequest messages
-func (c *ClientConnection) handleKeyAttestationRequest(ctx context.Context, msg Message, handler RequestHandler) {
-	attestation, err := handler.HandleKeyAttestationRequest(ctx)
+// handleAdminCommandRequest handles admin command requests forwarded from the manager.
+func (c *ClientConnection) handleAdminCommandRequest(ctx context.Context, msg Message, handler RequestHandler) {
+	reqData, err := extractData[AdminCommandRequestData](msg.Data)
 	if err != nil {
-		c.sendErrorResponse(msg.ID, "ATTESTATION_ERROR", err)
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	respData, cmdErr := handler.HandleAdminCommand(ctx, reqData.CommandType, reqData.Data)
+	if cmdErr != nil {
+		c.sendErrorResponse(msg.ID, "COMMAND_ERROR", cmdErr)
 		return
 	}
 
 	response := Message{
 		ID:   msg.ID,
-		Type: KeyAttestationResponseMessage,
-		Data: KeyAttestationResponseData{
-			Attestation: attestation,
+		Type: AdminCommandResponseMessage,
+		Data: AdminCommandResponseData{
+			Data: respData,
 		},
 	}
 
 	if err := c.sendMessage(response); err != nil {
-		c.log.Warn("%s: Failed to send HandleKeyAttestationRequest response: %v", c.idLogTag, err)
+		c.log.Warn("%s: Failed to send HandleAdminCommand response: %v", c.idLogTag, err)
 	}
-	c.log.Info("%s: KeyAttestationRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
+	c.log.Info("%s: AdminCommand handled successfully, ID=%s, type=%s", c.idLogTag, msg.ID, reqData.CommandType)
 }
 
 // sendErrorResponse sends an error response

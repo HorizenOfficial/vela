@@ -2,6 +2,7 @@ package communication
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -21,8 +22,10 @@ type ExecutorClient interface {
 	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	// SendDeployApp deploys a new application to the executor
 	SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
-	// SendKeyAttestationRequest requests a key attestation from the executor
-	SendKeyAttestationRequest(ctx context.Context) ([]byte, error)
+	// ForwardAdminCommand forwards an admin command to the executor through the
+	// existing communication channel. The cmdType identifies the command and data
+	// is the command-specific payload. Returns the executor's response data or an error.
+	ForwardAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
 	// SetClientRequestHandler sets the handler for incoming requests from server
 	SetClientRequestHandler(handler ClientRequestHandler)
 }
@@ -68,8 +71,9 @@ type RequestHandler interface {
 	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	// HandleDeployApp deploys a new application
 	HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
-	// HandleKeyAttestationRequest creates a key attestation document
-	HandleKeyAttestationRequest(ctx context.Context) ([]byte, error)
+	// HandleAdminCommand handles an admin command forwarded from the manager.
+	// The cmdType identifies the command and data is the command-specific payload.
+	HandleAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
 }
 
 type ConnectionFactory interface {

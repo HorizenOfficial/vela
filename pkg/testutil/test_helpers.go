@@ -133,8 +133,6 @@ func NewSystemTestSuiteWithConfigs(
 			VSockAddr:      mgrConfig.LogServerVSockAddress,
 			LogFilePath:    mgrConfig.LogServerLogFile,
 			ConsoleEnabled: mgrConfig.LogServerConsole,
-			ConsoleLevel:   mgrConfig.LogServerConsoleLevel,
-			FileLevel:      mgrConfig.LogServerFileLevel,
 		},
 	)
 

@@ -47,7 +47,10 @@ RUN go mod download
 COPY . .
 
 # Build the manager binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /manager ./cmd/manager
+ARG GIT_VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X github.com/horizen-pes/pkg/version.Version=${GIT_VERSION}" \
+    -o /manager ./cmd/manager
 
 # --- Runtime Stage ---
 FROM alpine:latest

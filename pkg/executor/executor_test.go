@@ -179,3 +179,4 @@ func TestCreateKeyAttestationInternal(t *testing.T) {
 		assert.True(t, mockSession.closeCalled)
 	})
 }
+
