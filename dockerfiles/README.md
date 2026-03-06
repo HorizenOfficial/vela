@@ -68,7 +68,7 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.
 Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
 For WASM deploy v1, ensure these are configured consistently in `.env`:
-- `MANAGER_ALLOWED_DEPLOYER`: deploy sender allowed by manager.
+- `MANAGER_ALLOWED_DEPLOYER`: optional deploy sender whitelist; leave empty to allow any sender.
 - `MANAGER_ARTIFACTS_PATH` and `DEPLOY_ARTIFACTS_PATH`: must refer to the same shared artifacts volume/path.
 - `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: optional upload limit (`0` means unlimited).
 
@@ -102,5 +102,4 @@ SubgraphURL=http://localhost:8000/subgraphs/name/hcce
 ```
 
 Current v1 limitation: deploy still targets `applicationId=1`.
-
 

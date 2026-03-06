@@ -741,6 +741,28 @@ func TestProcessDeployApp_UnauthorizedSenderFailsDeterministically(t *testing.T)
 	require.Equal(t, deployFailureMsgNotAdmitted, capturedFailure.ExternalMessage())
 }
 
+func TestProcessDeployApp_AllowsAnySenderWhenWhitelistDisabled(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+	manager.config.AllowedDeployer = ethCommon.Address{}
+
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	request.Sender = ethCommon.HexToAddress("0x1111111111111111111111111111111111111111")
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(context.Context, *common.Request, [32]byte, *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+		t.Fatal("SendBuildErrorPayloadRequest must not be called when deployer whitelist is disabled")
+		return nil, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+
+	completedRequests := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()), "expected 0 failed requests")
+}
+
 func TestProcessDeployApp_MissingArtifactTransitionsToDeterministicFailure(t *testing.T) {
 	config := Config{
 		ReorgTimeout:              60,

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
 )
@@ -67,7 +68,7 @@ func newDeployResolutionError(kind DeployErrorKind, transient bool, cause error)
 }
 
 func (m *SecureProcessorManager) resolveDeployWASM(ctx context.Context, req *common.Request) ([]byte, error) {
-	if req.Sender != m.config.AllowedDeployer {
+	if m.config.AllowedDeployer != (ethCommon.Address{}) && req.Sender != m.config.AllowedDeployer {
 		m.log.Warn(
 			"Manager: deployer not allowed requestId=%s applicationId=%d receivedSender=%s expectedSender=%s",
 			req.RequestID,

@@ -61,6 +61,7 @@ type Config struct {
 	// ArtifactsPath is the shared filesystem path where deploy artifacts are stored.
 	ArtifactsPath string
 	// AllowedDeployer is the only sender allowed to submit deploy requests.
+	// Zero address disables deployer whitelisting and allows any sender.
 	AllowedDeployer ethCommon.Address
 	// ArtifactReadRetries is the number of local retries for reading an artifact in one poll cycle.
 	ArtifactReadRetries int
@@ -231,15 +232,11 @@ func LoadConfig() (*Config, error) {
 	}
 
 	allowedDeployerRaw := strings.TrimSpace(common.GetConfigVar("MANAGER_ALLOWED_DEPLOYER", "", fileProperties))
-	if allowedDeployerRaw == "" {
-		return nil, fmt.Errorf("MANAGER_ALLOWED_DEPLOYER not configured")
-	}
-	if !ethCommon.IsHexAddress(allowedDeployerRaw) {
+	if allowedDeployerRaw != "" && !ethCommon.IsHexAddress(allowedDeployerRaw) {
 		return nil, fmt.Errorf("MANAGER_ALLOWED_DEPLOYER is not a valid hex address")
 	}
-	cfg.AllowedDeployer = ethCommon.HexToAddress(allowedDeployerRaw)
-	if cfg.AllowedDeployer == (ethCommon.Address{}) {
-		return nil, fmt.Errorf("MANAGER_ALLOWED_DEPLOYER must not be zero address")
+	if allowedDeployerRaw != "" {
+		cfg.AllowedDeployer = ethCommon.HexToAddress(allowedDeployerRaw)
 	}
 
 	if cfg.ArtifactReadRetries < 0 {
