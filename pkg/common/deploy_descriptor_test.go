@@ -184,5 +184,8 @@ func TestDeployDescriptorValidateApplicationID(t *testing.T) {
 	}
 
 	require.NoError(t, descriptor.ValidateApplicationID(NewApplicationId(1)))
-	require.ErrorContains(t, descriptor.ValidateApplicationID(NewApplicationId(2)), "expected 2 got 1")
+	require.ErrorContains(t, descriptor.ValidateApplicationID(NewApplicationId(2)), "only applicationId 1 is currently supported")
+
+	descriptor.ApplicationID = NewApplicationId(2)
+	require.ErrorContains(t, descriptor.ValidateApplicationID(NewApplicationId(1)), "expected 1 got 2")
 }

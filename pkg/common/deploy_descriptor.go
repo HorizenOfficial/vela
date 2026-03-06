@@ -90,6 +90,9 @@ func (d *DeployDescriptor) ValidateApplicationID(expected ApplicationIdType) err
 	if err := d.Validate(); err != nil {
 		return err
 	}
+	if expected != NewApplicationId(1) {
+		return fmt.Errorf("invalid deploy descriptor applicationId: only applicationId 1 is currently supported, got expected %d", expected)
+	}
 	if d.ApplicationID != expected {
 		return fmt.Errorf("invalid deploy descriptor applicationId: expected %d got %d", expected, d.ApplicationID)
 	}
