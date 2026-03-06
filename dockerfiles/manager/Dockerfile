@@ -62,10 +62,8 @@ RUN apk add --no-cache su-exec
 
 #default location for data folder (can be overridden by docker compose or docker run)
 ENV MANAGER_DATA_FOLDER="/data"
-#default location for reports folder (can be overridden by docker compose or docker run)
-ENV MANAGER_REPORTS_FOLDER="/reports"
-#default location for shared deploy artifacts (can be overridden by docker compose or docker run)
-ENV MANAGER_ARTIFACTS_PATH="/deploy-artifacts"
+# default location for shared reports/artifacts data (entrypoint derives subfolders)
+ENV SHARED_DATA_FOLDER="/shared-data"
 #default location for logs folder (can be overridden by docker compose or docker run)
 ENV LOG_SERVER_FOLDER="/logs"
 
@@ -80,7 +78,7 @@ RUN chmod +x /entrypoint.sh
 COPY --from=builder /manager /manager
 
 VOLUME ${MANAGER_DATA_FOLDER}
-VOLUME ${MANAGER_REPORTS_FOLDER}
+VOLUME ${SHARED_DATA_FOLDER}
 VOLUME ${LOG_SERVER_FOLDER}
 
 # Set the entrypoint to our script.

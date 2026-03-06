@@ -60,7 +60,7 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 - the manager database and chain data are persisted in docker volumes (`horizen-cce-manager-data` for the DB, `horizen-cce-chain-data` for chain data).<br>
   To start from scratch, delete the volumes.
 - deployed contract addresses are stored in the `horizen-cce-deploy-data` volume. The deployer checks this on startup and skips deployment if contracts are already present on the chain.
-- deanonymization reports are stored in `horizen-cce-manager-reports`; the authority service shares this reports volume so it can read the same outputs.
+- shared runtime files for manager and authorityservice are stored in `horizen-cce-shared-data`, with `reports/` for deanonymization outputs and `artifacts/` for uploaded deploy WASM blobs.
 - to connect to the chain from Metamask, use the following parameters:
    - rpc url: http://localhost:8545
    - chainid: 31337
@@ -69,7 +69,7 @@ Authority service requires chain connectivity env vars (forwarded via docker-com
 Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
 For WASM deploy v1, ensure these are configured consistently in `.env`:
 - `MANAGER_ALLOWED_DEPLOYER`: optional deploy sender whitelist; leave empty to allow any sender.
-- `MANAGER_ARTIFACTS_PATH` and `DEPLOY_ARTIFACTS_PATH`: must refer to the same shared artifacts volume/path.
+- `SHARED_DATA_FOLDER`: docker entrypoints derive `${SHARED_DATA_FOLDER}/reports` and `${SHARED_DATA_FOLDER}/artifacts` automatically for manager and authorityservice.
 - `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: optional upload limit (`0` means unlimited).
 
 ## Restarting and volume management
@@ -102,4 +102,3 @@ SubgraphURL=http://localhost:8000/subgraphs/name/hcce
 ```
 
 Current v1 limitation: deploy still targets `applicationId=1`.
-

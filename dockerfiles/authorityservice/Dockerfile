@@ -38,10 +38,8 @@ FROM alpine:latest
 # Install su-exec for user switching
 RUN apk add --no-cache su-exec
 
-# Default location for reports folder (can be overridden by docker compose or docker run)
-ENV MANAGER_REPORTS_FOLDER="/data"
-# Default location for shared deploy artifacts folder (can be overridden by docker compose or docker run)
-ENV DEPLOY_ARTIFACTS_PATH="/deploy-artifacts"
+# Default location for shared reports/artifacts data (entrypoint derives subfolders)
+ENV SHARED_DATA_FOLDER="/shared-data"
 
 # Create a non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -53,8 +51,7 @@ RUN chmod +x /entrypoint.sh
 # Copy the built binary from the builder stage
 COPY --from=builder /authorityservice /authorityservice
 
-VOLUME ${MANAGER_REPORTS_FOLDER}
-VOLUME ${DEPLOY_ARTIFACTS_PATH}
+VOLUME ${SHARED_DATA_FOLDER}
 
 # Set the entrypoint to our script.
 # The user is still root here, so the script can chown.
