@@ -80,11 +80,11 @@ For WASM deploy v1, ensure these are configured consistently in `.env`:
 - **Contracts modified**: rebuild the deployer image, delete both volumes, and restart.
 
 ## Where to go next
-The system is up and running, and you can deploy the app with the v1 descriptor flow (no manual `1.wasm` copy).
+The system is up and running, and you can deploy the app with the v1 descriptor flow.
 
 Practical how-to for the `horizen-pes-nova` test app (Private transfer):
 - go to https://github.com/HorizenOfficial/horizen-pes-nova/releases/tag/v0.0.18
-- use `payment_app.wasm` directly (no rename needed)
+- use `payment_app.wasm`
 - run deploy from wallet:
 
     ```
@@ -102,6 +102,5 @@ SubgraphURL=http://localhost:8000/subgraphs/name/hcce
 ```
 
 Current v1 limitation: deploy still targets `applicationId=1`.
-
 
 
