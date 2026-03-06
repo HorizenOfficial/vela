@@ -15,5 +15,4 @@ var (
 type UploadResponse struct {
 	ArtifactID string `json:"artifactId"`
 	WasmSHA256 string `json:"wasmSha256"`
-	WasmSize   uint64 `json:"wasmSize"`
 }

@@ -32,7 +32,6 @@ const (
 	DeployErrorArtifactLoadFailed   DeployErrorKind = "ARTIFACT_LOAD_FAILED"
 	DeployErrorArtifactNotFound     DeployErrorKind = "ARTIFACT_NOT_FOUND"
 	DeployErrorArtifactHashMismatch DeployErrorKind = "ARTIFACT_HASH_MISMATCH"
-	DeployErrorArtifactSizeMismatch DeployErrorKind = "ARTIFACT_SIZE_MISMATCH"
 	DeployErrorDeployerNotAllowed   DeployErrorKind = "DEPLOYER_NOT_ALLOWED"
 )
 
@@ -106,14 +105,6 @@ func (m *SecureProcessorManager) resolveDeployWASM(ctx context.Context, req *com
 		)
 	}
 
-	if gotSize := uint64(len(wasmBytes)); gotSize != descriptor.WasmSize {
-		return nil, newDeployResolutionError(
-			DeployErrorArtifactSizeMismatch,
-			false,
-			fmt.Errorf("artifact size mismatch expected=%d got=%d", descriptor.WasmSize, gotSize),
-		)
-	}
-
 	return wasmBytes, nil
 }
 
@@ -175,7 +166,7 @@ func mapDeployErrorToFailure(kind DeployErrorKind) *apperrors.RequestFailure {
 	switch kind {
 	case DeployErrorDescriptorInvalid:
 		return apperrors.New(apperrors.CodeInternalFallback, deployFailureMsgGeneric)
-	case DeployErrorArtifactLoadFailed, DeployErrorArtifactNotFound, DeployErrorArtifactHashMismatch, DeployErrorArtifactSizeMismatch:
+	case DeployErrorArtifactLoadFailed, DeployErrorArtifactNotFound, DeployErrorArtifactHashMismatch:
 		return apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployFailureMsgGeneric)
 	case DeployErrorDeployerNotAllowed:
 		return apperrors.New(apperrors.CodeInternalFallback, deployFailureMsgNotAdmitted)

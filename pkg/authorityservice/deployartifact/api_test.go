@@ -37,7 +37,6 @@ func TestHandleUpload_Success(t *testing.T) {
 	expectedSHA := hex.EncodeToString(sum[:])
 	require.Equal(t, "sha256:"+expectedSHA, resp.ArtifactID)
 	require.Equal(t, expectedSHA, resp.WasmSHA256)
-	require.EqualValues(t, len("wasm-content"), resp.WasmSize)
 }
 
 func TestHandleUpload_MissingWASM(t *testing.T) {
@@ -87,7 +86,6 @@ func TestHandleUpload_DuplicateUploadSameArtifactID(t *testing.T) {
 
 	require.Equal(t, firstResp.ArtifactID, secondResp.ArtifactID)
 	require.Equal(t, firstResp.WasmSHA256, secondResp.WasmSHA256)
-	require.Equal(t, firstResp.WasmSize, secondResp.WasmSize)
 }
 
 func TestHandleUpload_BadMethod(t *testing.T) {

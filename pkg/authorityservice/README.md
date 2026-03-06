@@ -27,7 +27,7 @@ Logging/TLS options are documented in `pkg/authorityservice/config.go`.
 ## Deploy upload endpoint (`POST /deploy/upload`)
 
 - Request: `multipart/form-data` with required part `wasm`.
-- Success response: `{ artifactId, wasmSha256, wasmSize }`.
+- Success response: `{ artifactId, wasmSha256 }`.
 - Error responses:
   - `400` invalid multipart or missing wasm part.
   - `413` upload exceeds `DEPLOY_ARTIFACTS_MAX_SIZE_MB`.

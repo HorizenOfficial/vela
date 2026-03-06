@@ -24,7 +24,6 @@ func TestStoreSaveWASM_Success(t *testing.T) {
 	expectedSHA := hex.EncodeToString(sum[:])
 	require.Equal(t, "sha256:"+expectedSHA, resp.ArtifactID)
 	require.Equal(t, expectedSHA, resp.WasmSHA256)
-	require.EqualValues(t, len(payload), resp.WasmSize)
 
 	blobPath := filepath.Join(root, "blobs", expectedSHA+".wasm")
 	blob, err := os.ReadFile(blobPath)

@@ -249,7 +249,7 @@ func createDeployRequestWithWASM(t *testing.T, manager *SecureProcessorManager, 
 
 	sum := sha256.Sum256(wasm)
 	wasmSHA := hex.EncodeToString(sum[:])
-	descriptorPayload := createDeployDescriptorPayload(t, appID, wasmSHA, uint64(len(wasm)))
+	descriptorPayload := createDeployDescriptorPayload(t, appID, wasmSHA)
 
 	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
 	require.NoError(t, os.MkdirAll(filepath.Dir(artifactBlobPath), 0o755))
@@ -258,7 +258,7 @@ func createDeployRequestWithWASM(t *testing.T, manager *SecureProcessorManager, 
 	return createRequestWithPayload(common.Deploy, appID, descriptorPayload)
 }
 
-func createDeployDescriptorPayload(t *testing.T, appID common.ApplicationIdType, wasmSHA string, wasmSize uint64) []byte {
+func createDeployDescriptorPayload(t *testing.T, appID common.ApplicationIdType, wasmSHA string) []byte {
 	t.Helper()
 
 	artifactID, err := common.BuildArtifactID(wasmSHA)
@@ -269,7 +269,6 @@ func createDeployDescriptorPayload(t *testing.T, appID common.ApplicationIdType,
 		ApplicationID: appID,
 		ArtifactID:    artifactID,
 		WasmSHA256:    wasmSHA,
-		WasmSize:      wasmSize,
 	}
 	payload, err := json.Marshal(descriptor)
 	require.NoError(t, err)
@@ -773,7 +772,7 @@ func TestProcessDeployApp_MissingArtifactTransitionsToDeterministicFailure(t *te
 	mockBCClient, manager := setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
 
 	missingSHA := strings.Repeat("a", 64)
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, missingSHA, 1))
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, missingSHA))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -826,7 +825,7 @@ func TestProcessDeployApp_ArtifactReadErrorTransitionsToDeterministicFailure(t *
 	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
 	require.NoError(t, os.MkdirAll(artifactBlobPath, 0o755))
 
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA, 1))
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -877,7 +876,7 @@ func TestProcessDeployApp_TransientArtifactFailureRecovers(t *testing.T) {
 	wasm := []byte("recovered-wasm")
 	sum := sha256.Sum256(wasm)
 	wasmSHA := hex.EncodeToString(sum[:])
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA, uint64(len(wasm))))
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -907,7 +906,7 @@ func TestProcessDeployApp_ArtifactHashMismatchFailsDeterministically(t *testing.
 	descriptorHash := strings.Repeat("b", 64)
 	writeArtifactBlob(t, manager, descriptorHash, wasm)
 
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, descriptorHash, uint64(len(wasm))))
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, descriptorHash))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -932,40 +931,6 @@ func TestProcessDeployApp_ArtifactHashMismatchFailsDeterministically(t *testing.
 	require.Equal(t, apperrors.CodeFailedLoadingOrGettingModule.Code, capturedFailure.RequestError.Code)
 	require.Equal(t, deployFailureMsgGeneric, capturedFailure.ExternalMessage())
 	require.NotEqual(t, descriptorHash, hex.EncodeToString(actualHash[:]))
-}
-
-func TestProcessDeployApp_ArtifactSizeMismatchFailsDeterministically(t *testing.T) {
-	mockBCClient, manager := setupTest(t)
-
-	wasm := []byte("exact-size-content")
-	sum := sha256.Sum256(wasm)
-	wasmSHA := hex.EncodeToString(sum[:])
-	writeArtifactBlob(t, manager, wasmSHA, wasm)
-
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA, uint64(len(wasm)+1)))
-	err := mockBCClient.SendRequestToChain(context.Background(), request)
-	require.NoError(t, err)
-
-	var capturedFailure *apperrors.RequestFailure
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
-		capturedFailure = failure
-		return &common.UpdatePayload{
-			ApplicationID:  req.ApplicationID,
-			RequestID:      req.RequestID,
-			PrevStateRoot:  stateRoot,
-			NewStateRoot:   stateRoot,
-			ErrorCode:      failure.Category(),
-			ErrorMsg:       failure.ExternalMessage(),
-			RefundAmount:   req.MaxFeeValue,
-			ApplicationFee: common.NewBig(0),
-		}, nil
-	})
-
-	err = manager.processDeployApp(context.Background(), request)
-	require.NoError(t, err)
-	require.NotNil(t, capturedFailure)
-	require.Equal(t, apperrors.CodeFailedLoadingOrGettingModule.Code, capturedFailure.RequestError.Code)
-	require.Equal(t, deployFailureMsgGeneric, capturedFailure.ExternalMessage())
 }
 
 func TestProcessProcessRequestWithFailure(t *testing.T) {

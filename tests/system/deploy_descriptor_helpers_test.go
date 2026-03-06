@@ -46,7 +46,6 @@ func uploadArtifactAndBuildDescriptorPayload(t *testing.T, suite *testutil.Syste
 	localArtifactID, err := common.BuildArtifactID(localSHA)
 	require.NoError(t, err)
 	require.Equal(t, localSHA, uploadResp.WasmSHA256)
-	require.Equal(t, uint64(len(wasmBytecode)), uploadResp.WasmSize)
 	require.Equal(t, localArtifactID, uploadResp.ArtifactID)
 
 	descriptor := common.DeployDescriptor{
@@ -54,7 +53,6 @@ func uploadArtifactAndBuildDescriptorPayload(t *testing.T, suite *testutil.Syste
 		ApplicationID: appID,
 		ArtifactID:    uploadResp.ArtifactID,
 		WasmSHA256:    uploadResp.WasmSHA256,
-		WasmSize:      uploadResp.WasmSize,
 	}
 	payload, err := json.Marshal(descriptor)
 	require.NoError(t, err)

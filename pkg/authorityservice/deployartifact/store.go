@@ -90,7 +90,6 @@ func (s *Store) SaveWASM(reader io.Reader) (*UploadResponse, error) {
 	return &UploadResponse{
 		ArtifactID: artifactID,
 		WasmSHA256: shaHex,
-		WasmSize:   uint64(size),
 	}, nil
 }
 

@@ -164,7 +164,6 @@ func TestHandleDeployUploadSuccess(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.ArtifactID)
 	require.NotEmpty(t, resp.WasmSHA256)
-	require.NotZero(t, resp.WasmSize)
 }
 
 func TestHandleGetReportUnexpectedChainID(t *testing.T) {

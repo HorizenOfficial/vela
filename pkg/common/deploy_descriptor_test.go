@@ -13,8 +13,7 @@ func TestDecodeDeployDescriptorStrict_Valid(t *testing.T) {
 		"mode":"artifact_ref",
 		"applicationId":1,
 		"artifactId":"sha256:` + sha + `",
-		"wasmSha256":"` + sha + `",
-		"wasmSize":1234
+		"wasmSha256":"` + sha + `"
 	}`)
 
 	descriptor, err := DecodeDeployDescriptorStrict(payload)
@@ -23,7 +22,6 @@ func TestDecodeDeployDescriptorStrict_Valid(t *testing.T) {
 	require.Equal(t, NewApplicationId(1), descriptor.ApplicationID)
 	require.Equal(t, "sha256:"+sha, descriptor.ArtifactID)
 	require.Equal(t, sha, descriptor.WasmSHA256)
-	require.EqualValues(t, 1234, descriptor.WasmSize)
 }
 
 func TestDecodeDeployDescriptorStrict_RejectsEmptyPayload(t *testing.T) {
@@ -43,7 +41,6 @@ func TestDecodeDeployDescriptorStrict_RejectsUnknownField(t *testing.T) {
 		"applicationId":1,
 		"artifactId":"sha256:` + sha + `",
 		"wasmSha256":"` + sha + `",
-		"wasmSize":1234,
 		"version":1
 	}`)
 
@@ -57,8 +54,7 @@ func TestDecodeDeployDescriptorStrict_RejectsInvalidMode(t *testing.T) {
 		"mode":"inline",
 		"applicationId":1,
 		"artifactId":"sha256:` + sha + `",
-		"wasmSha256":"` + sha + `",
-		"wasmSize":1234
+		"wasmSha256":"` + sha + `"
 	}`)
 
 	_, err := DecodeDeployDescriptorStrict(payload)
@@ -71,8 +67,7 @@ func TestDecodeDeployDescriptorStrict_RejectsNonNumericApplicationID(t *testing.
 		"mode":"artifact_ref",
 		"applicationId":"1",
 		"artifactId":"sha256:` + sha + `",
-		"wasmSha256":"` + sha + `",
-		"wasmSize":1234
+		"wasmSha256":"` + sha + `"
 	}`)
 
 	_, err := DecodeDeployDescriptorStrict(payload)
@@ -84,8 +79,7 @@ func TestDecodeDeployDescriptorStrict_RejectsMissingArtifactID(t *testing.T) {
 	payload := []byte(`{
 		"mode":"artifact_ref",
 		"applicationId":1,
-		"wasmSha256":"` + sha + `",
-		"wasmSize":1234
+		"wasmSha256":"` + sha + `"
 	}`)
 
 	_, err := DecodeDeployDescriptorStrict(payload)
@@ -98,8 +92,7 @@ func TestDecodeDeployDescriptorStrict_RejectsInvalidArtifactIDFormat(t *testing.
 		"mode":"artifact_ref",
 		"applicationId":1,
 		"artifactId":"invalid:` + sha + `",
-		"wasmSha256":"` + sha + `",
-		"wasmSize":1234
+		"wasmSha256":"` + sha + `"
 	}`)
 
 	_, err := DecodeDeployDescriptorStrict(payload)
@@ -113,8 +106,7 @@ func TestDecodeDeployDescriptorStrict_RejectsArtifactHashMismatch(t *testing.T) 
 		"mode":"artifact_ref",
 		"applicationId":1,
 		"artifactId":"sha256:` + artifactSHA + `",
-		"wasmSha256":"` + wasmSHA + `",
-		"wasmSize":1234
+		"wasmSha256":"` + wasmSHA + `"
 	}`)
 
 	_, err := DecodeDeployDescriptorStrict(payload)
@@ -127,26 +119,11 @@ func TestDecodeDeployDescriptorStrict_RejectsUppercaseWasmHash(t *testing.T) {
 		"mode":"artifact_ref",
 		"applicationId":1,
 		"artifactId":"sha256:` + strings.Repeat("a", 64) + `",
-		"wasmSha256":"` + sha + `",
-		"wasmSize":1234
+		"wasmSha256":"` + sha + `"
 	}`)
 
 	_, err := DecodeDeployDescriptorStrict(payload)
 	require.ErrorContains(t, err, "invalid deploy descriptor wasmSha256")
-}
-
-func TestDecodeDeployDescriptorStrict_RejectsZeroWasmSize(t *testing.T) {
-	sha := strings.Repeat("a", 64)
-	payload := []byte(`{
-		"mode":"artifact_ref",
-		"applicationId":1,
-		"artifactId":"sha256:` + sha + `",
-		"wasmSha256":"` + sha + `",
-		"wasmSize":0
-	}`)
-
-	_, err := DecodeDeployDescriptorStrict(payload)
-	require.ErrorContains(t, err, "invalid deploy descriptor wasmSize")
 }
 
 func TestBuildArtifactID(t *testing.T) {
@@ -180,7 +157,6 @@ func TestDeployDescriptorValidateApplicationID(t *testing.T) {
 		ApplicationID: NewApplicationId(1),
 		ArtifactID:    "sha256:" + sha,
 		WasmSHA256:    sha,
-		WasmSize:      8,
 	}
 
 	require.NoError(t, descriptor.ValidateApplicationID(NewApplicationId(1)))

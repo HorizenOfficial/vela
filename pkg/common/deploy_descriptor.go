@@ -21,7 +21,6 @@ type DeployDescriptor struct {
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	ArtifactID    string            `json:"artifactId"`
 	WasmSHA256    string            `json:"wasmSha256"`
-	WasmSize      uint64            `json:"wasmSize"`
 }
 
 // DecodeDeployDescriptorStrict decodes deploy descriptor JSON with unknown-field rejection and full validation.
@@ -76,10 +75,6 @@ func (d *DeployDescriptor) Validate() error {
 
 	if artifactSHA != d.WasmSHA256 {
 		return errors.New("invalid deploy descriptor: artifactId hash does not match wasmSha256")
-	}
-
-	if d.WasmSize == 0 {
-		return errors.New("invalid deploy descriptor wasmSize: must be > 0")
 	}
 
 	return nil
