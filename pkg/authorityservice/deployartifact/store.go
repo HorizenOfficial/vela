@@ -3,25 +3,21 @@ package deployartifact
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"hash"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const (
 	blobsFolder = "blobs"
-	metaFolder  = "meta_global"
 )
 
 type Store struct {
 	rootPath  string
 	blobsPath string
-	metaPath  string
 }
 
 func NewStore(rootPath string) (*Store, error) {
@@ -33,7 +29,6 @@ func NewStore(rootPath string) (*Store, error) {
 	s := &Store{
 		rootPath:  rootPath,
 		blobsPath: filepath.Join(rootPath, blobsFolder),
-		metaPath:  filepath.Join(rootPath, metaFolder),
 	}
 
 	if err := s.ensureDirectories(); err != nil {
@@ -92,20 +87,6 @@ func (s *Store) SaveWASM(reader io.Reader) (*UploadResponse, error) {
 		return nil, fmt.Errorf("failed to sync blobs directory: %w", err)
 	}
 
-	metadata := Metadata{
-		ArtifactID: artifactID,
-		WasmSHA256: shaHex,
-		WasmSize:   uint64(size),
-		CreatedAt:  time.Now().UTC().Truncate(time.Second),
-	}
-	metaPath := filepath.Join(s.metaPath, shaHex+".json")
-	if err := writeJSONAtomicallyIfMissing(metaPath, metadata); err != nil {
-		return nil, fmt.Errorf("failed to persist artifact metadata: %w", err)
-	}
-	if err := syncDir(s.metaPath); err != nil {
-		return nil, fmt.Errorf("failed to sync metadata directory: %w", err)
-	}
-
 	return &UploadResponse{
 		ArtifactID: artifactID,
 		WasmSHA256: shaHex,
@@ -116,9 +97,6 @@ func (s *Store) SaveWASM(reader io.Reader) (*UploadResponse, error) {
 func (s *Store) ensureDirectories() error {
 	if err := os.MkdirAll(s.blobsPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create blobs directory: %w", err)
-	}
-	if err := os.MkdirAll(s.metaPath, 0o755); err != nil {
-		return fmt.Errorf("failed to create metadata directory: %w", err)
 	}
 	return nil
 }
@@ -141,42 +119,6 @@ func renameIfMissing(src, dst string) error {
 		return nil
 	}
 	return fmt.Errorf("rename %s -> %s failed", src, dst)
-}
-
-func writeJSONAtomicallyIfMissing(dstPath string, value any) error {
-	if _, err := os.Stat(dstPath); err == nil {
-		return nil
-	}
-
-	dir := filepath.Dir(dstPath)
-	tempFile, err := os.CreateTemp(dir, "meta-*.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temp metadata file: %w", err)
-	}
-	tempPath := tempFile.Name()
-	defer func() {
-		_ = os.Remove(tempPath)
-	}()
-
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		_ = tempFile.Close()
-		return fmt.Errorf("failed to encode metadata json: %w", err)
-	}
-
-	if _, err := tempFile.Write(encoded); err != nil {
-		_ = tempFile.Close()
-		return fmt.Errorf("failed to write metadata file: %w", err)
-	}
-	if err := tempFile.Sync(); err != nil {
-		_ = tempFile.Close()
-		return fmt.Errorf("failed to sync metadata file: %w", err)
-	}
-	if err := tempFile.Close(); err != nil {
-		return fmt.Errorf("failed to close metadata file: %w", err)
-	}
-
-	return renameIfMissing(tempPath, dstPath)
 }
 
 func syncDir(dirPath string) error {

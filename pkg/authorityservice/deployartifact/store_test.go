@@ -3,12 +3,10 @@ package deployartifact
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -32,18 +30,6 @@ func TestStoreSaveWASM_Success(t *testing.T) {
 	blob, err := os.ReadFile(blobPath)
 	require.NoError(t, err)
 	require.Equal(t, payload, blob)
-
-	metaPath := filepath.Join(root, "meta_global", expectedSHA+".json")
-	metaRaw, err := os.ReadFile(metaPath)
-	require.NoError(t, err)
-
-	var meta Metadata
-	require.NoError(t, json.Unmarshal(metaRaw, &meta))
-	require.Equal(t, resp.ArtifactID, meta.ArtifactID)
-	require.Equal(t, resp.WasmSHA256, meta.WasmSHA256)
-	require.Equal(t, resp.WasmSize, meta.WasmSize)
-	require.False(t, meta.CreatedAt.IsZero())
-	require.Equal(t, time.UTC, meta.CreatedAt.Location())
 }
 
 func TestStoreSaveWASM_IdempotentReupload(t *testing.T) {
