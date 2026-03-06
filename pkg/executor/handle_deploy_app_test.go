@@ -2,14 +2,15 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -196,6 +197,11 @@ func TestHandleDeployApp_Success(t *testing.T) {
 
 	// Encrypted state should be non-empty
 	require.NotEmpty(t, newAppState.EncryptedState)
+
+	// WASM fingerprint must be persisted in private app state
+	decryptedAppData, err := executor.fromEncryptedStateToAppData(newAppState)
+	require.NoError(t, err)
+	require.Equal(t, sha256.Sum256(req.Payload), decryptedAppData.GetWasmFingerprint())
 
 	// RefundAmount + ApplicationFee == MaxFeeValue
 	refund := updatePayload.RefundAmount.ToInt()

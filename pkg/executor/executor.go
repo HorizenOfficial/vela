@@ -565,6 +565,32 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, nil, err
 	}
 
+	// Validate wasm module integrity before processing any request path.
+	if len(wasmModule) == 0 {
+		errorPayload, err := e.processErrorResponse(req,
+			appState.StateRoot,
+			apperrors.New(apperrors.CodeWasmModuleEmpty, "wasm module is empty"))
+		return errorPayload, nil, nil, err
+	}
+	expectedWasmFingerprint := appData.GetWasmFingerprint()
+	currentWasmFingerprint := sha256.Sum256(wasmModule)
+	if currentWasmFingerprint != expectedWasmFingerprint {
+		e.log.Warn(
+			"Executor: Wasm fingerprint mismatch for request %s app %d (gotPrefix=%x expectedPrefix=%x)",
+			req.RequestID,
+			req.ApplicationID,
+			currentWasmFingerprint[:4],
+			expectedWasmFingerprint[:4],
+		)
+		errorPayload, err := e.processErrorResponse(req,
+			appState.StateRoot,
+			apperrors.New(
+				apperrors.CodeWasmFingerprintMismatch,
+				"wasm fingerprint mismatch",
+			))
+		return errorPayload, nil, nil, err
+	}
+
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
@@ -842,6 +868,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	initialAppData := appdata.NewAppData(initialAppState)
+	initialAppData.SetWasmFingerprint(sha256.Sum256(wasmModule))
 
 	//serialize the new app data
 	initialAppDataBytes, err := initialAppData.Serialize()

@@ -22,24 +22,24 @@ const (
 )
 
 type errorCategory struct {
-	Category     category
-	Message      string
+	Category category
+	Message  string
 }
 
 var (
-	CategoryNoErrorMeta                         = errorCategory{Category: categoryNoError, Message: "no error"}
-	CategoryUnknownMeta                         = errorCategory{Category: categoryUnknown, Message: "unknown error"}
-	CategoryInternalMeta                        = errorCategory{Category: categoryInternal, Message: "internal error"}
-	CategoryApplicationAlreadyDeployedMeta      = errorCategory{Category: categoryApplicationAlreadyDeployed, Message: "application is already deployed"}
-	CategoryFunctionNotFoundMeta                = errorCategory{Category: categoryFunctionNotFound, Message: "requested function not found"}
-	CategoryDepositFailedMeta                   = errorCategory{Category: categoryDepositFailed, Message: "deposit operation failed"}
-	CategoryRequestFuncFailedMeta               = errorCategory{Category: categoryRequestFuncFailed, Message: "request function execution failed"}
-	CategoryAppNotDeployedMeta                  = errorCategory{Category: categoryAppNotDeployed, Message: "application is not deployed"}
-	CategoryWrongKeySentMeta                    = errorCategory{Category: categoryWrongKeySent, Message: "wrong key sent"}
-	CategoryPubKeyNotRegisteredMeta             = errorCategory{Category: categoryPubKeyNotRegistered, Message: "public key not registered"}
-	CategoryNoReportDataFoundMeta               = errorCategory{Category: categoryNoReportDataFound, Message: "no report data found"}
-	CategoryWasmInternalMeta					= errorCategory{Category: categoryWasmInternal, Message: "wasm internal error"}
-	CategoryInsufficientFuelMeta                = errorCategory{Category: categoryInsufficientFuel, Message: "insufficient fuel"}
+	CategoryNoErrorMeta                    = errorCategory{Category: categoryNoError, Message: "no error"}
+	CategoryUnknownMeta                    = errorCategory{Category: categoryUnknown, Message: "unknown error"}
+	CategoryInternalMeta                   = errorCategory{Category: categoryInternal, Message: "internal error"}
+	CategoryApplicationAlreadyDeployedMeta = errorCategory{Category: categoryApplicationAlreadyDeployed, Message: "application is already deployed"}
+	CategoryFunctionNotFoundMeta           = errorCategory{Category: categoryFunctionNotFound, Message: "requested function not found"}
+	CategoryDepositFailedMeta              = errorCategory{Category: categoryDepositFailed, Message: "deposit operation failed"}
+	CategoryRequestFuncFailedMeta          = errorCategory{Category: categoryRequestFuncFailed, Message: "request function execution failed"}
+	CategoryAppNotDeployedMeta             = errorCategory{Category: categoryAppNotDeployed, Message: "application is not deployed"}
+	CategoryWrongKeySentMeta               = errorCategory{Category: categoryWrongKeySent, Message: "wrong key sent"}
+	CategoryPubKeyNotRegisteredMeta        = errorCategory{Category: categoryPubKeyNotRegistered, Message: "public key not registered"}
+	CategoryNoReportDataFoundMeta          = errorCategory{Category: categoryNoReportDataFound, Message: "no report data found"}
+	CategoryWasmInternalMeta               = errorCategory{Category: categoryWasmInternal, Message: "wasm internal error"}
+	CategoryInsufficientFuelMeta           = errorCategory{Category: categoryInsufficientFuel, Message: "insufficient fuel"}
 )
 
 type FailureCode struct {
@@ -64,12 +64,14 @@ var (
 	CodeMemoryWriteError             = FailureCode{"MEMORY_WRITE_ERROR", CategoryWasmInternalMeta}
 	CodeFailedExtractingResultBytes  = FailureCode{"FAILED_EXTRACTING_RESULT_BYTES", CategoryWasmInternalMeta}
 	CodeFailedLoadingOrGettingModule = FailureCode{"FAILED_LOADING_OR_GETTING_MODULE", CategoryWasmInternalMeta}
+	CodeWasmModuleEmpty              = FailureCode{"WASM_MODULE_EMPTY", CategoryWasmInternalMeta}
+	CodeWasmFingerprintMismatch      = FailureCode{"WASM_FINGERPRINT_MISMATCH", CategoryWasmInternalMeta}
 	CodeDepositFailed                = FailureCode{"DEPOSIT_FAILED", CategoryDepositFailedMeta}
 	CodeRequestFuncFailed            = FailureCode{"REQUEST_FUNC_FAILED", CategoryRequestFuncFailedMeta}
 	CodePubKeyNotRegistered          = FailureCode{"PUBKEY_NOT_REGISTERED", CategoryPubKeyNotRegisteredMeta}
 	CodeWrongKey                     = FailureCode{"WRONG_KEY", CategoryWrongKeySentMeta}
 	CodeNoReportDataFound            = FailureCode{"NO_REPORT_DATA_FOUND", CategoryNoReportDataFoundMeta}
-	CodeInsufficientFuel			 = FailureCode{"INSUFFICIENT_FUEL", CategoryInsufficientFuelMeta}
+	CodeInsufficientFuel             = FailureCode{"INSUFFICIENT_FUEL", CategoryInsufficientFuelMeta}
 )
 
 type RequestFailure struct {

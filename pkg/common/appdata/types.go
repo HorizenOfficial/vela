@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 const (
 	//version of the AppData format - increment in case of future changes
 	Version_1 = 1
+	// WasmFingerprintSize is the byte length of SHA-256 fingerprint.
+	WasmFingerprintSize = 32
 	// KeyStore_KeySize is the size in bytes of a key in the appKeys map (20 bytes)
 	KeyStore_KeySize = ethCommon.AddressLength
 	// KeyStore_ValSize is the size in bytes of a value in the appKeys map (a PublicKeyP521)
@@ -19,19 +22,21 @@ const (
 )
 
 type AppData struct {
-	version  uint8
-	appNonce uint64
-	appKeys  KeyStore
-	appState []byte
+	version         uint8
+	appNonce        uint64
+	wasmFingerprint [WasmFingerprintSize]byte
+	appKeys         KeyStore
+	appState        []byte
 }
 type KeyStore map[ethCommon.Address]*cryptotypes.PublicKeyP521
 
 func NewAppData(initialAppState []byte) *AppData {
 	return &AppData{
-		version:  Version_1,
-		appNonce: 0,
-		appKeys:  make(map[ethCommon.Address]*cryptotypes.PublicKeyP521),
-		appState: initialAppState,
+		version:         Version_1,
+		appNonce:        0,
+		wasmFingerprint: [WasmFingerprintSize]byte{},
+		appKeys:         make(map[ethCommon.Address]*cryptotypes.PublicKeyP521),
+		appState:        initialAppState,
 	}
 }
 
@@ -39,6 +44,7 @@ func NewAppData(initialAppState []byte) *AppData {
 // The format is:
 // - Version (uint8)
 // - Nonce (uint64)
+// - WASM fingerprint ([32]byte)
 // - Number of keys (uint32)
 // - Key-value pairs (KeyStore_KeySize + KeyStore_ValSize each)
 // - appState (variable length)
@@ -53,6 +59,11 @@ func (s *AppData) Serialize() ([]byte, error) {
 	// Write the nonce
 	if err := binary.Write(&buf, binary.BigEndian, s.appNonce); err != nil {
 		return nil, fmt.Errorf("failed to write nonce: %w", err)
+	}
+
+	// Write the wasm fingerprint
+	if _, err := buf.Write(s.wasmFingerprint[:]); err != nil {
+		return nil, fmt.Errorf("failed to write wasm fingerprint: %w", err)
 	}
 
 	// Write the number of keys as a uint32
@@ -97,6 +108,14 @@ func (s *AppData) IncrementNonce() {
 	s.appNonce = s.appNonce + 1
 }
 
+func (s *AppData) GetWasmFingerprint() [WasmFingerprintSize]byte {
+	return s.wasmFingerprint
+}
+
+func (s *AppData) SetWasmFingerprint(fingerprint [WasmFingerprintSize]byte) {
+	s.wasmFingerprint = fingerprint
+}
+
 // DeserializeAppData converts a byte slice back into an AppData struct.
 func DeserializeAppData(data []byte) (*AppData, error) {
 	reader := bytes.NewReader(data)
@@ -111,6 +130,12 @@ func DeserializeAppData(data []byte) (*AppData, error) {
 	var nonce uint64
 	if err := binary.Read(reader, binary.BigEndian, &nonce); err != nil {
 		return nil, fmt.Errorf("failed to read nonce: %w", err)
+	}
+
+	// Read the wasm fingerprint
+	var wasmFingerprint [WasmFingerprintSize]byte
+	if _, err := io.ReadFull(reader, wasmFingerprint[:]); err != nil {
+		return nil, fmt.Errorf("failed to read wasm fingerprint: %w", err)
 	}
 
 	// Read the number of keys
@@ -152,9 +177,10 @@ func DeserializeAppData(data []byte) (*AppData, error) {
 	}
 
 	return &AppData{
-		version:  version,
-		appNonce: nonce,
-		appKeys:  ks,
-		appState: appState,
+		version:         version,
+		appNonce:        nonce,
+		wasmFingerprint: wasmFingerprint,
+		appKeys:         ks,
+		appState:        appState,
 	}, nil
 }

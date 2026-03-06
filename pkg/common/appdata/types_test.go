@@ -2,10 +2,11 @@ package appdata
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/crypto"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,6 +18,8 @@ func TestAppDataSerializationDeserialization(t *testing.T) {
 	assert.NoError(t, err)
 
 	appData := NewAppData(appState)
+	fingerprint := sha256.Sum256([]byte("mock-wasm-module"))
+	appData.SetWasmFingerprint(fingerprint)
 
 	// 2. Add a couple of keys
 	addr1 := ethCommon.Address{1}
@@ -45,6 +48,7 @@ func TestAppDataSerializationDeserialization(t *testing.T) {
 	// 5. Check that they are the same
 	assert.Equal(t, appData.version, deserializedAppData.version, "Version should be the same")
 	assert.Equal(t, appData.appNonce, deserializedAppData.appNonce, "Nonce should be the same")
+	assert.Equal(t, appData.GetWasmFingerprint(), deserializedAppData.GetWasmFingerprint(), "wasm fingerprint should be the same")
 	assert.Equal(t, appData.appState, deserializedAppData.appState, "appState should be the same")
 	assert.Equal(t, len(appData.appKeys), len(deserializedAppData.appKeys), "Number of keys should be the same")
 	for addr, pk := range appData.appKeys {
@@ -52,4 +56,10 @@ func TestAppDataSerializationDeserialization(t *testing.T) {
 		assert.True(t, ok, "Key should be present in deserialized map")
 		assert.Equal(t, pk.Bytes(), deserializedPk.Bytes(), "Public keys should be the same")
 	}
+
+	// 6. Verify binary layout includes fingerprint after nonce
+	const nonceOffset = 1
+	const fingerprintOffset = nonceOffset + 8
+	assert.GreaterOrEqual(t, len(serializedData), fingerprintOffset+WasmFingerprintSize)
+	assert.Equal(t, fingerprint[:], serializedData[fingerprintOffset:fingerprintOffset+WasmFingerprintSize])
 }
