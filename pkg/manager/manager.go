@@ -49,8 +49,6 @@ type SecureProcessorManager struct {
 	endReorgTime      time.Time
 	log               logger.Logger
 	fatalErrChan      chan error // Channel to signal fatal errors to main
-	deployTransientMu sync.Mutex
-	deployTransient   map[common.RequestIdType]int
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -65,9 +63,8 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 		executorHandShake: &ExecutorHandShake{
 			isComplete: make(chan struct{}),
 		},
-		log:             log,
-		fatalErrChan:    make(chan error, 1), // buffered to avoid blocking
-		deployTransient: make(map[common.RequestIdType]int),
+		log:          log,
+		fatalErrChan: make(chan error, 1), // buffered to avoid blocking
 	}
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
@@ -522,39 +519,18 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		}
 
 		if !dErr.transient {
-			submitErr := m.submitDeterministicDeployFailure(ctx, req, stateRootForDeployFailure(state), dErr.kind, resolveErr)
-			if submitErr == nil {
-				m.resetDeployTransientCounter(req.RequestID)
-			}
-			return submitErr
+			return m.submitDeterministicDeployFailure(ctx, req, stateRootForDeployFailure(state), dErr.kind, resolveErr)
 		}
 
-		currentTransientPoll := m.incrementDeployTransientCounter(req.RequestID)
 		m.log.Warn(
-			"Manager: transient deploy artifact resolution failure requestId=%s applicationId=%d poll=%d/%d kind=%s err=%v",
+			"Manager: transient deploy artifact resolution failure requestId=%s applicationId=%d kind=%s err=%v",
 			req.RequestID,
 			req.ApplicationID,
-			currentTransientPoll,
-			m.config.ArtifactMaxTransientPolls,
 			dErr.kind,
 			resolveErr,
 		)
-
-		if currentTransientPoll < m.config.ArtifactMaxTransientPolls {
-			return resolveErr
-		}
-
-		finalKind := DeployErrorArtifactLoadFailed
-		if dErr.kind == DeployErrorArtifactNotFound {
-			finalKind = DeployErrorArtifactNotFound
-		}
-		submitErr := m.submitDeterministicDeployFailure(ctx, req, stateRootForDeployFailure(state), finalKind, resolveErr)
-		if submitErr == nil {
-			m.resetDeployTransientCounter(req.RequestID)
-		}
-		return submitErr
+		return resolveErr
 	}
-	m.resetDeployTransientCounter(req.RequestID)
 
 	deployReq := *req
 	deployReq.Payload = wasmModule

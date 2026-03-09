@@ -762,63 +762,28 @@ func TestProcessDeployApp_AllowsAnySenderWhenWhitelistDisabled(t *testing.T) {
 	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()), "expected 0 failed requests")
 }
 
-func TestProcessDeployApp_MissingArtifactTransitionsToDeterministicFailure(t *testing.T) {
-	config := Config{
-		ReorgTimeout:              60,
-		LogServerTCPAddress:       common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
-		ArtifactReadRetries:       1,
-		ArtifactMaxTransientPolls: 2,
-	}
-	mockBCClient, manager := setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
+func TestProcessDeployApp_MissingArtifactStaysPending(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
 
 	missingSHA := strings.Repeat("a", 64)
 	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, missingSHA))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(context.Context, *common.Request, [32]byte, *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+		t.Fatal("SendBuildErrorPayloadRequest must not be called for transient artifact errors")
+		return nil, nil
+	})
+
 	err = manager.processDeployApp(context.Background(), request)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), string(DeployErrorArtifactNotFound))
 	require.Equal(t, 0, len(mockBCClient.GetCompletedRequests()))
 	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()))
-
-	var capturedFailure *apperrors.RequestFailure
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
-		capturedFailure = failure
-		return &common.UpdatePayload{
-			ApplicationID:  req.ApplicationID,
-			RequestID:      req.RequestID,
-			PrevStateRoot:  stateRoot,
-			NewStateRoot:   stateRoot,
-			ErrorCode:      failure.Category(),
-			ErrorMsg:       failure.ExternalMessage(),
-			RefundAmount:   req.MaxFeeValue,
-			ApplicationFee: common.NewBig(0),
-		}, nil
-	})
-
-	err = manager.processDeployApp(context.Background(), request)
-	require.NoError(t, err)
-	require.NotNil(t, capturedFailure)
-	require.Equal(t, apperrors.CodeFailedLoadingOrGettingModule.Code, capturedFailure.RequestError.Code)
-	require.Equal(t, deployFailureMsgGeneric, capturedFailure.ExternalMessage())
-
-	failedRequests := mockBCClient.GetFailedRequests()
-	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
-	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
-
-	_, exists := manager.deployTransient[request.RequestID]
-	require.False(t, exists, "transient counter should be reset after deterministic failure")
 }
 
-func TestProcessDeployApp_ArtifactReadErrorTransitionsToDeterministicFailure(t *testing.T) {
-	config := Config{
-		ReorgTimeout:              60,
-		LogServerTCPAddress:       common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
-		ArtifactReadRetries:       1,
-		ArtifactMaxTransientPolls: 2,
-	}
-	mockBCClient, manager := setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
+func TestProcessDeployApp_ArtifactReadErrorStaysPending(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
 
 	// Simulate a non-not-found I/O read error by creating a directory where a blob file is expected.
 	wasmSHA := strings.Repeat("c", 64)
@@ -829,49 +794,20 @@ func TestProcessDeployApp_ArtifactReadErrorTransitionsToDeterministicFailure(t *
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(context.Context, *common.Request, [32]byte, *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+		t.Fatal("SendBuildErrorPayloadRequest must not be called for transient artifact errors")
+		return nil, nil
+	})
+
 	err = manager.processDeployApp(context.Background(), request)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), string(DeployErrorArtifactLoadFailed))
 	require.Equal(t, 0, len(mockBCClient.GetCompletedRequests()))
 	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()))
-
-	var capturedFailure *apperrors.RequestFailure
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
-		capturedFailure = failure
-		return &common.UpdatePayload{
-			ApplicationID:  req.ApplicationID,
-			RequestID:      req.RequestID,
-			PrevStateRoot:  stateRoot,
-			NewStateRoot:   stateRoot,
-			ErrorCode:      failure.Category(),
-			ErrorMsg:       failure.ExternalMessage(),
-			RefundAmount:   req.MaxFeeValue,
-			ApplicationFee: common.NewBig(0),
-		}, nil
-	})
-
-	err = manager.processDeployApp(context.Background(), request)
-	require.NoError(t, err)
-	require.NotNil(t, capturedFailure)
-	require.Equal(t, apperrors.CodeFailedLoadingOrGettingModule.Code, capturedFailure.RequestError.Code)
-	require.Equal(t, deployFailureMsgGeneric, capturedFailure.ExternalMessage())
-
-	failedRequests := mockBCClient.GetFailedRequests()
-	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
-	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
-
-	_, exists := manager.deployTransient[request.RequestID]
-	require.False(t, exists, "transient counter should be reset after deterministic failure")
 }
 
 func TestProcessDeployApp_TransientArtifactFailureRecovers(t *testing.T) {
-	config := Config{
-		ReorgTimeout:              60,
-		LogServerTCPAddress:       common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
-		ArtifactReadRetries:       1,
-		ArtifactMaxTransientPolls: 3,
-	}
-	mockBCClient, manager := setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
+	mockBCClient, manager := setupTest(t)
 
 	wasm := []byte("recovered-wasm")
 	sum := sha256.Sum256(wasm)
@@ -893,9 +829,6 @@ func TestProcessDeployApp_TransientArtifactFailureRecovers(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()), "expected 0 failed requests")
-
-	_, exists := manager.deployTransient[request.RequestID]
-	require.False(t, exists, "transient counter should be reset after successful deploy")
 }
 
 func TestProcessDeployApp_ArtifactHashMismatchFailsDeterministically(t *testing.T) {
@@ -1435,12 +1368,6 @@ func setupTestWithConfig(
 	if config.AllowedDeployer == (ethCommon.Address{}) {
 		config.AllowedDeployer = sender
 	}
-	if config.ArtifactReadRetries == 0 {
-		config.ArtifactReadRetries = 2
-	}
-	if config.ArtifactMaxTransientPolls == 0 {
-		config.ArtifactMaxTransientPolls = 12
-	}
 
 	processor := &SecureProcessorManager{
 		config:            &config,
@@ -1451,7 +1378,6 @@ func setupTestWithConfig(
 		executorHandShake: executorHandShake,
 		stopChan:          stopChan,
 		log:               testLogger,
-		deployTransient:   make(map[common.RequestIdType]int),
 	}
 
 	if startLogServer {

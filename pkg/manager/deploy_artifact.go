@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
@@ -16,8 +15,7 @@ import (
 )
 
 const (
-	artifactBlobsFolder      = "blobs"
-	artifactReadRetryBackoff = 100 * time.Millisecond
+	artifactBlobsFolder = "blobs"
 )
 
 const (
@@ -66,7 +64,7 @@ func newDeployResolutionError(kind DeployErrorKind, transient bool, cause error)
 	}
 }
 
-func (m *SecureProcessorManager) resolveDeployWASM(ctx context.Context, req *common.Request) ([]byte, error) {
+func (m *SecureProcessorManager) resolveDeployWASM(_ context.Context, req *common.Request) ([]byte, error) {
 	if m.config.AllowedDeployer != (ethCommon.Address{}) && req.Sender != m.config.AllowedDeployer {
 		m.log.Warn(
 			"Manager: deployer not allowed requestId=%s applicationId=%d receivedSender=%s expectedSender=%s",
@@ -88,7 +86,7 @@ func (m *SecureProcessorManager) resolveDeployWASM(ctx context.Context, req *com
 	}
 
 	artifactPath := filepath.Join(m.config.ArtifactsPath, artifactBlobsFolder, descriptor.WasmSHA256+".wasm")
-	wasmBytes, err := m.readArtifactWithRetries(ctx, artifactPath)
+	wasmBytes, err := os.ReadFile(artifactPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, newDeployResolutionError(DeployErrorArtifactNotFound, true, err)
@@ -106,29 +104,6 @@ func (m *SecureProcessorManager) resolveDeployWASM(ctx context.Context, req *com
 	}
 
 	return wasmBytes, nil
-}
-
-func (m *SecureProcessorManager) readArtifactWithRetries(ctx context.Context, artifactPath string) ([]byte, error) {
-	var lastErr error
-	for attempt := 0; attempt <= m.config.ArtifactReadRetries; attempt++ {
-		content, err := os.ReadFile(artifactPath)
-		if err == nil {
-			return content, nil
-		}
-		lastErr = err
-
-		if attempt == m.config.ArtifactReadRetries {
-			break
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(artifactReadRetryBackoff):
-		}
-	}
-
-	return nil, lastErr
 }
 
 func (m *SecureProcessorManager) submitDeterministicDeployFailure(
@@ -173,17 +148,4 @@ func mapDeployErrorToFailure(kind DeployErrorKind) *apperrors.RequestFailure {
 	default:
 		return apperrors.New(apperrors.CodeInternalFallback, deployFailureMsgGeneric)
 	}
-}
-
-func (m *SecureProcessorManager) incrementDeployTransientCounter(requestID common.RequestIdType) int {
-	m.deployTransientMu.Lock()
-	defer m.deployTransientMu.Unlock()
-	m.deployTransient[requestID]++
-	return m.deployTransient[requestID]
-}
-
-func (m *SecureProcessorManager) resetDeployTransientCounter(requestID common.RequestIdType) {
-	m.deployTransientMu.Lock()
-	defer m.deployTransientMu.Unlock()
-	delete(m.deployTransient, requestID)
 }
