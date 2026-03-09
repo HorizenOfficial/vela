@@ -704,45 +704,8 @@ func TestProcessDeployApp_InvalidDescriptorFailsDeterministically(t *testing.T) 
 	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 }
 
-func TestProcessDeployApp_UnauthorizedSenderFailsDeterministically(t *testing.T) {
+func TestProcessDeployApp_IgnoresRequestSenderForAuthorization(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
-
-	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
-	request.Sender = ethCommon.HexToAddress("0x1111111111111111111111111111111111111111")
-	err := mockBCClient.SendRequestToChain(context.Background(), request)
-	require.NoError(t, err)
-
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(context.Context, *common.Request, *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
-		t.Fatal("SendDeployApp must not be called for unauthorized deployer")
-		return nil, nil, nil
-	})
-
-	var capturedFailure *apperrors.RequestFailure
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBuildErrorPayloadRequest", func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
-		capturedFailure = failure
-		return &common.UpdatePayload{
-			ApplicationID:  req.ApplicationID,
-			RequestID:      req.RequestID,
-			PrevStateRoot:  stateRoot,
-			NewStateRoot:   stateRoot,
-			ErrorCode:      failure.Category(),
-			ErrorMsg:       failure.ExternalMessage(),
-			RefundAmount:   req.MaxFeeValue,
-			ApplicationFee: common.NewBig(0),
-		}, nil
-	})
-
-	err = manager.processDeployApp(context.Background(), request)
-	require.NoError(t, err)
-
-	require.NotNil(t, capturedFailure)
-	require.Equal(t, apperrors.CodeInternalFallback.Code, capturedFailure.RequestError.Code)
-	require.Equal(t, deployFailureMsgNotAdmitted, capturedFailure.ExternalMessage())
-}
-
-func TestProcessDeployApp_AllowsAnySenderWhenWhitelistDisabled(t *testing.T) {
-	mockBCClient, manager := setupTest(t)
-	manager.config.AllowedDeployer = ethCommon.Address{}
 
 	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	request.Sender = ethCommon.HexToAddress("0x1111111111111111111111111111111111111111")
@@ -1364,9 +1327,6 @@ func setupTestWithConfig(
 	config.DeanonymizationReportPath = tmpDir
 	if config.ArtifactsPath == "" {
 		config.ArtifactsPath = t.TempDir()
-	}
-	if config.AllowedDeployer == (ethCommon.Address{}) {
-		config.AllowedDeployer = sender
 	}
 
 	processor := &SecureProcessorManager{

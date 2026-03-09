@@ -213,7 +213,6 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
 }
 
-
 func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 
 	testHelper := setupSimTestHelper(t, true, nil)
@@ -241,11 +240,11 @@ func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 		Withdrawals:    []common.Withdrawal{},
 		Signature:      signature[:],
 		RefundAmount:   common.ToBig(maxFeeValue),
-		ApplicationFee: common.NewBig(0), 
-		ErrorCode: 1,
-		ErrorMsg: "test error message",
+		ApplicationFee: common.NewBig(0),
+		ErrorCode:      1,
+		ErrorMsg:       "test error message",
 	}
-	
+
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
@@ -253,7 +252,6 @@ func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(listOfRes), "There should be zero pending request")
 }
-
 
 func TestSubmitRequest(t *testing.T) {
 	// mock private key for the client
@@ -265,7 +263,7 @@ func TestSubmitRequest(t *testing.T) {
 	// Prepare a request
 	protocolVersion := uint8(0)
 	applicationId := common.NewApplicationId(1)
-	requestType := common.Deploy
+	requestType := common.Process
 	payload := []byte("test-payload")
 	depositAmount := big.NewInt(1)
 	maxFeeValue := big.NewInt(100)
@@ -299,6 +297,60 @@ func TestSubmitRequest(t *testing.T) {
 	if !found {
 		t.Errorf("Submitted request not found in pending requests")
 	}
+}
+
+func TestSubmitDeployRequest_AuthorizedDeployer(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClientConnected(
+		testHelper.Client(),
+		testHelper.ProcessorContractAddress,
+		testHelper.TeeSignerAddress,
+		testHelper.Deployer,
+	)
+
+	requestID, _, err := blockchainClient.SubmitRequest(
+		context.Background(),
+		uint8(0),
+		common.NewApplicationId(1),
+		common.Deploy,
+		[]byte("deploy-payload"),
+		big.NewInt(0),
+		big.NewInt(100),
+	)
+	require.NoError(t, err)
+
+	pending, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, requestID, pending[0].RequestID)
+	require.Equal(t, common.Deploy, pending[0].RequestType)
+	require.Equal(t, testHelper.Deployer.From, pending[0].Sender)
+}
+
+func TestSubmitDeployRequest_UnauthorizedDeployerReverts(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClientConnected(
+		testHelper.Client(),
+		testHelper.ProcessorContractAddress,
+		testHelper.TeeSignerAddress,
+		testHelper.Submitter,
+	)
+
+	_, _, err := blockchainClient.SubmitRequest(
+		context.Background(),
+		uint8(0),
+		common.NewApplicationId(1),
+		common.Deploy,
+		[]byte("deploy-payload"),
+		big.NewInt(0),
+		big.NewInt(100),
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointDeployerNotAllowed")
 }
 
 func TestGetPendingPaymentsAndWithdraw(t *testing.T) {

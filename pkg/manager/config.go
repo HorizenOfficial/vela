@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
 	"github.com/horizen-pes/pkg/crypto"
@@ -60,9 +59,6 @@ type Config struct {
 
 	// ArtifactsPath is the shared filesystem path where deploy artifacts are stored.
 	ArtifactsPath string
-	// AllowedDeployer is the only sender allowed to submit deploy requests.
-	// Zero address disables deployer whitelisting and allows any sender.
-	AllowedDeployer ethCommon.Address
 
 	// Manager logging
 	//--------------------------
@@ -223,14 +219,6 @@ func LoadConfig() (*Config, error) {
 	cfg.ArtifactsPath = strings.TrimSpace(cfg.ArtifactsPath)
 	if cfg.ArtifactsPath == "" {
 		return nil, fmt.Errorf("MANAGER_ARTIFACTS_PATH not configured")
-	}
-
-	allowedDeployerRaw := strings.TrimSpace(common.GetConfigVar("MANAGER_ALLOWED_DEPLOYER", "", fileProperties))
-	if allowedDeployerRaw != "" && !ethCommon.IsHexAddress(allowedDeployerRaw) {
-		return nil, fmt.Errorf("MANAGER_ALLOWED_DEPLOYER is not a valid hex address")
-	}
-	if allowedDeployerRaw != "" {
-		cfg.AllowedDeployer = ethCommon.HexToAddress(allowedDeployerRaw)
 	}
 
 	return cfg, nil

@@ -41,7 +41,6 @@ type SystemTestSuite struct {
 	dbPath             string
 	reportsPath        string
 	artifactsPath      string
-	allowedDeployer    ethCommon.Address
 	log                logger.Logger
 }
 
@@ -182,7 +181,6 @@ func NewSystemTestSuiteWithConfigs(
 		dbPath:           dbPath,
 		reportsPath:      reportsPath,
 		artifactsPath:    artifactsPath,
-		allowedDeployer:  mgrConfig.AllowedDeployer,
 		log:              mgrLog,
 	}
 
@@ -366,10 +364,6 @@ func (s *SystemTestSuite) GetReportsPath() string {
 
 func (s *SystemTestSuite) GetArtifactsPath() string {
 	return s.artifactsPath
-}
-
-func (s *SystemTestSuite) GetManagerAllowedDeployer() ethCommon.Address {
-	return s.allowedDeployer
 }
 
 // WaitForWithdrawal waits for a withdrawal to be processed

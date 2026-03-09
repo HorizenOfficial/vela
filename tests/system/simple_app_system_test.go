@@ -42,6 +42,8 @@ type hostWithdrawalEvent struct {
 	Nonce   uint64            `json:"nonce"`
 }
 
+var deployRequestSender = ethCommon.HexToAddress("0x1000000000000000000000000000000000000001")
+
 // getTestLogger creates a new logger instance for every test
 func getTestLogger(t *testing.T, useNetwork bool) logger.Logger {
 	if !useNetwork {
@@ -104,7 +106,7 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		ApplicationID: appID,
 		RequestID:     deployReqID,
 		Payload:       deployPayload,
-		Sender:        suite.GetManagerAllowedDeployer(),
+		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
@@ -393,7 +395,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		ApplicationID: appID,
 		RequestID:     reqID,
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, appID, wasmBytecode),
-		Sender:        suite.GetManagerAllowedDeployer(),
+		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),

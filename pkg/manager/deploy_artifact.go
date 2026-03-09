@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/horizen-pes/pkg/common"
 	"github.com/horizen-pes/pkg/common/apperrors"
 )
@@ -19,8 +18,7 @@ const (
 )
 
 const (
-	deployFailureMsgGeneric     = "failed to deploy application"
-	deployFailureMsgNotAdmitted = "application is not admitted"
+	deployFailureMsgGeneric = "failed to deploy application"
 )
 
 type DeployErrorKind string
@@ -30,7 +28,6 @@ const (
 	DeployErrorArtifactLoadFailed   DeployErrorKind = "ARTIFACT_LOAD_FAILED"
 	DeployErrorArtifactNotFound     DeployErrorKind = "ARTIFACT_NOT_FOUND"
 	DeployErrorArtifactHashMismatch DeployErrorKind = "ARTIFACT_HASH_MISMATCH"
-	DeployErrorDeployerNotAllowed   DeployErrorKind = "DEPLOYER_NOT_ALLOWED"
 )
 
 type deployResolutionError struct {
@@ -65,17 +62,6 @@ func newDeployResolutionError(kind DeployErrorKind, transient bool, cause error)
 }
 
 func (m *SecureProcessorManager) resolveDeployWASM(_ context.Context, req *common.Request) ([]byte, error) {
-	if m.config.AllowedDeployer != (ethCommon.Address{}) && req.Sender != m.config.AllowedDeployer {
-		m.log.Warn(
-			"Manager: deployer not allowed requestId=%s applicationId=%d receivedSender=%s expectedSender=%s",
-			req.RequestID,
-			req.ApplicationID,
-			req.Sender.Hex(),
-			m.config.AllowedDeployer.Hex(),
-		)
-		return nil, newDeployResolutionError(DeployErrorDeployerNotAllowed, false, fmt.Errorf("sender %s is not allowed", req.Sender.Hex()))
-	}
-
 	descriptor, err := common.DecodeDeployDescriptorStrict(req.Payload)
 	if err != nil {
 		return nil, newDeployResolutionError(DeployErrorDescriptorInvalid, false, err)
@@ -143,8 +129,6 @@ func mapDeployErrorToFailure(kind DeployErrorKind) *apperrors.RequestFailure {
 		return apperrors.New(apperrors.CodeInternalFallback, deployFailureMsgGeneric)
 	case DeployErrorArtifactLoadFailed, DeployErrorArtifactNotFound, DeployErrorArtifactHashMismatch:
 		return apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployFailureMsgGeneric)
-	case DeployErrorDeployerNotAllowed:
-		return apperrors.New(apperrors.CodeInternalFallback, deployFailureMsgNotAdmitted)
 	default:
 		return apperrors.New(apperrors.CodeInternalFallback, deployFailureMsgGeneric)
 	}

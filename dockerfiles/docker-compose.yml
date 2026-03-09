@@ -88,8 +88,6 @@ services:
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       - SHARED_DATA_FOLDER=${SHARED_DATA_FOLDER:-/shared-data}
-      - MANAGER_ALLOWED_DEPLOYER
-      # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
       - MANAGER_LOG_KIND
       - MANAGER_LOG_CONSOLE
       - MANAGER_LOG_CONSOLE_LEVEL

@@ -8,6 +8,7 @@ async function deploy() {
     _teeAuthenticator: ${process.env.TEE_AUTHENTICATOR}
     _authorityRegistry: ${process.env.AUTHORITY_REGISTRY}
     updateStatusOperator: ${process.env.UPDATE_STATUS_OPERATOR}
+    admin (bootstrap deployer): ${process.env.ADMIN}
   `);
   //deploy
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');

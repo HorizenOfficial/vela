@@ -5,11 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadConfig_AllowsEmptyAllowedDeployer(t *testing.T) {
+func TestLoadConfig_UsesConfiguredArtifactAndReportPaths(t *testing.T) {
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 
@@ -18,8 +17,7 @@ func TestLoadConfig_AllowsEmptyAllowedDeployer(t *testing.T) {
 	artifactsDir := filepath.Join(tmpDir, "artifacts")
 
 	configContents := "MANAGER_REPORTS_FOLDER=" + reportsDir + "\n" +
-		"MANAGER_ARTIFACTS_PATH=" + artifactsDir + "\n" +
-		"MANAGER_ALLOWED_DEPLOYER=\n"
+		"MANAGER_ARTIFACTS_PATH=" + artifactsDir + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, confFileName), []byte(configContents), 0o600))
 
 	require.NoError(t, os.Chdir(tmpDir))
@@ -29,7 +27,6 @@ func TestLoadConfig_AllowsEmptyAllowedDeployer(t *testing.T) {
 
 	cfg, err := LoadConfig()
 	require.NoError(t, err)
-	require.Equal(t, ethCommon.Address{}, cfg.AllowedDeployer)
 	require.Equal(t, artifactsDir, cfg.ArtifactsPath)
 	require.Equal(t, reportsDir, cfg.DeanonymizationReportPath)
 }

@@ -68,7 +68,7 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.
 Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
 For WASM deploy v1, ensure these are configured consistently in `.env`:
-- `MANAGER_ALLOWED_DEPLOYER`: optional deploy sender whitelist; leave empty to allow any sender.
+- `DEPLOYER_ADMIN`: this address is bootstrapped on-chain as the initial allowed deployer for `DEPLOYAPP`.
 - `SHARED_DATA_FOLDER`: docker entrypoints derive `${SHARED_DATA_FOLDER}/reports` and `${SHARED_DATA_FOLDER}/artifacts` automatically for manager and authorityservice.
 - `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: optional upload limit (`0` means unlimited).
 
@@ -90,6 +90,8 @@ Practical how-to for the `horizen-pes-nova` test app (Private transfer):
     ```
     novaw deployapp --wasm /absolute/path/to/payment_app.wasm --max-value-fee "100 wei"
     ```
+
+If you submit deploys from a different wallet, grant it first with the ProcessorEndpoint management script (`contracts/scripts/management/addAllowedDeployer.ts`) using the admin account.
 
 Use `wallet.conf.template` as wallet config file, with the following properties set to connect to this dev environment:
 

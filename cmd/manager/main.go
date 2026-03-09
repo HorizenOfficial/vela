@@ -87,9 +87,6 @@ func main() {
 	}()
 
 	log.Warn("Initializing manager...")
-	if config.AllowedDeployer == (ethCommon.Address{}) {
-		log.Warn("MANAGER_ALLOWED_DEPLOYER not configured: deployer whitelist disabled, any sender can deploy")
-	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
