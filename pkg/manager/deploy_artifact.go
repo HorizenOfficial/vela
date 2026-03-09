@@ -1,39 +1,33 @@
 package manager
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
 )
 
 const (
 	artifactBlobsFolder = "blobs"
 )
 
-const (
-	deployFailureMsgGeneric = "failed to deploy application"
-)
-
 type DeployErrorKind string
 
 const (
-	DeployErrorDescriptorInvalid    DeployErrorKind = "ARTIFACT_DESCRIPTOR_INVALID"
-	DeployErrorArtifactLoadFailed   DeployErrorKind = "ARTIFACT_LOAD_FAILED"
-	DeployErrorArtifactNotFound     DeployErrorKind = "ARTIFACT_NOT_FOUND"
-	DeployErrorArtifactHashMismatch DeployErrorKind = "ARTIFACT_HASH_MISMATCH"
+	DeployErrorDescriptorInvalid  DeployErrorKind = "ARTIFACT_DESCRIPTOR_INVALID"
+	DeployErrorArtifactLoadFailed DeployErrorKind = "ARTIFACT_LOAD_FAILED"
+	DeployErrorArtifactNotFound   DeployErrorKind = "ARTIFACT_NOT_FOUND"
 )
 
 type deployResolutionError struct {
-	kind      DeployErrorKind
-	transient bool
-	cause     error
+	kind  DeployErrorKind
+	cause error
 }
 
 func (e *deployResolutionError) Error() string {
@@ -53,83 +47,54 @@ func (e *deployResolutionError) Unwrap() error {
 	return e.cause
 }
 
-func newDeployResolutionError(kind DeployErrorKind, transient bool, cause error) *deployResolutionError {
+func newDeployResolutionError(kind DeployErrorKind, cause error) *deployResolutionError {
 	return &deployResolutionError{
-		kind:      kind,
-		transient: transient,
-		cause:     cause,
+		kind:  kind,
+		cause: cause,
 	}
 }
 
 func (m *SecureProcessorManager) resolveDeployWASM(_ context.Context, req *common.Request) ([]byte, error) {
-	descriptor, err := common.DecodeDeployDescriptorStrict(req.Payload)
+	artifactSHA, err := extractDeployArtifactSHA(req.Payload)
 	if err != nil {
-		return nil, newDeployResolutionError(DeployErrorDescriptorInvalid, false, err)
+		return nil, newDeployResolutionError(DeployErrorDescriptorInvalid, err)
 	}
 
-	if err := descriptor.ValidateApplicationID(req.ApplicationID); err != nil {
-		return nil, newDeployResolutionError(DeployErrorDescriptorInvalid, false, err)
-	}
-
-	artifactPath := filepath.Join(m.config.ArtifactsPath, artifactBlobsFolder, descriptor.WasmSHA256+".wasm")
+	artifactPath := filepath.Join(m.config.ArtifactsPath, artifactBlobsFolder, artifactSHA+".wasm")
 	wasmBytes, err := os.ReadFile(artifactPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, newDeployResolutionError(DeployErrorArtifactNotFound, true, err)
+			return nil, newDeployResolutionError(DeployErrorArtifactNotFound, err)
 		}
-		return nil, newDeployResolutionError(DeployErrorArtifactLoadFailed, true, err)
-	}
-
-	hash := sha256.Sum256(wasmBytes)
-	if got := hex.EncodeToString(hash[:]); got != descriptor.WasmSHA256 {
-		return nil, newDeployResolutionError(
-			DeployErrorArtifactHashMismatch,
-			false,
-			fmt.Errorf("artifact hash mismatch expected=%s got=%s", descriptor.WasmSHA256, got),
-		)
+		return nil, newDeployResolutionError(DeployErrorArtifactLoadFailed, err)
 	}
 
 	return wasmBytes, nil
 }
 
-func (m *SecureProcessorManager) submitDeterministicDeployFailure(
-	ctx context.Context,
-	req *common.Request,
-	stateRoot [32]byte,
-	kind DeployErrorKind,
-	cause error,
-) error {
-	failure := mapDeployErrorToFailure(kind)
-	updatePayload, err := m.executorClient.SendBuildErrorPayloadRequest(ctx, req, stateRoot, failure)
-	if err != nil {
-		return fmt.Errorf("failed to create signed deterministic deploy error payload for kind %s: %w", kind, err)
-	}
-
-	m.log.Warn(
-		"Manager: deterministic deploy failure requestId=%s applicationId=%d kind=%s error=%v",
-		req.RequestID,
-		req.ApplicationID,
-		kind,
-		cause,
-	)
-
-	return m.submitStateOnChain(ctx, updatePayload)
+type deployArtifactLocator struct {
+	ArtifactID string `json:"artifactId"`
+	WasmSHA256 string `json:"wasmSha256"`
 }
 
-func stateRootForDeployFailure(state *common.ApplicationState) [32]byte {
-	if state == nil {
-		return [32]byte{}
+func extractDeployArtifactSHA(payload []byte) (string, error) {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return "", errors.New("deploy descriptor payload is empty")
 	}
-	return state.StateRoot
-}
 
-func mapDeployErrorToFailure(kind DeployErrorKind) *apperrors.RequestFailure {
-	switch kind {
-	case DeployErrorDescriptorInvalid:
-		return apperrors.New(apperrors.CodeInternalFallback, deployFailureMsgGeneric)
-	case DeployErrorArtifactLoadFailed, DeployErrorArtifactNotFound, DeployErrorArtifactHashMismatch:
-		return apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployFailureMsgGeneric)
-	default:
-		return apperrors.New(apperrors.CodeInternalFallback, deployFailureMsgGeneric)
+	var locator deployArtifactLocator
+	if err := json.Unmarshal(payload, &locator); err != nil {
+		return "", fmt.Errorf("invalid deploy descriptor JSON: %w", err)
 	}
+
+	if sha, err := common.ParseArtifactID(strings.TrimSpace(locator.ArtifactID)); err == nil {
+		return sha, nil
+	}
+
+	wasmSHA := strings.TrimSpace(locator.WasmSHA256)
+	if _, err := common.BuildArtifactID(wasmSHA); err == nil {
+		return wasmSHA, nil
+	}
+
+	return "", errors.New("artifact locator not found in deploy payload")
 }

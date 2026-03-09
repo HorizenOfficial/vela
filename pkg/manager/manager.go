@@ -513,30 +513,27 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 
 	wasmModule, resolveErr := m.resolveDeployWASM(ctx, req)
 	if resolveErr != nil {
-		dErr, ok := resolveErr.(*deployResolutionError)
-		if !ok {
-			return resolveErr
+		if dErr, ok := resolveErr.(*deployResolutionError); ok {
+			m.log.Warn(
+				"Manager: continuing deploy with unresolved artifact requestId=%s applicationId=%d kind=%s err=%v",
+				req.RequestID,
+				req.ApplicationID,
+				dErr.kind,
+				resolveErr,
+			)
+		} else {
+			m.log.Warn(
+				"Manager: continuing deploy with unresolved artifact requestId=%s applicationId=%d err=%v",
+				req.RequestID,
+				req.ApplicationID,
+				resolveErr,
+			)
 		}
-
-		if !dErr.transient {
-			return m.submitDeterministicDeployFailure(ctx, req, stateRootForDeployFailure(state), dErr.kind, resolveErr)
-		}
-
-		m.log.Warn(
-			"Manager: transient deploy artifact resolution failure requestId=%s applicationId=%d kind=%s err=%v",
-			req.RequestID,
-			req.ApplicationID,
-			dErr.kind,
-			resolveErr,
-		)
-		return resolveErr
+		wasmModule = nil
 	}
 
-	deployReq := *req
-	deployReq.Payload = wasmModule
-
 	// Deploy the application
-	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, &deployReq, state)
+	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req, state, wasmModule)
 	if err != nil {
 		return err
 	}
@@ -546,6 +543,9 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		m.log.Info("Manager: Received signed error payload for deploy request %s (error code: %d)", req.RequestID, updatePayload.ErrorCode)
 		// Submit the signed error payload to the blockchain (no state to store)
 		return m.submitStateOnChain(ctx, updatePayload)
+	}
+	if len(wasmModule) == 0 {
+		return fmt.Errorf("executor returned successful deploy without wasm module")
 	}
 
 	// Store the application state and WASM bytecode

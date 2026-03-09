@@ -28,9 +28,14 @@ type NsmSession = nsmutil.Session
 
 var (
 	// As of now we support only one app having this ID
-	admittedAppID = common.NewApplicationId(1)
+	admittedAppID           = common.NewApplicationId(1)
 	admittedProtocolVersion = uint8(0)
-	emptyStateRoot = [32]byte{}
+	emptyStateRoot          = [32]byte{}
+)
+
+const (
+	deployDescriptorFailureMsg = "failed to deploy application"
+	deployLoadFailureMsg       = "failed to load or get module"
 )
 
 func CreateNewKeySet() (*EnclaveKeySet, error) {
@@ -520,7 +525,7 @@ func (e *StatelessExecutor) Close() error {
 // set the request as failed because it is not a fault of the request, but rather a fault of
 // the manager or a tampering attempt.
 //
-//TODO ST As a safer alternative, in order to check that the request was not tampered, we could use the requestId,
+// TODO ST As a safer alternative, in order to check that the request was not tampered, we could use the requestId,
 // that is a hash of the request parameters + an index from the ProcessorEndpoint.
 // The index could be added to the request and then the requestId could be reconstructed here and compared with the
 // one in the request. This would ensure that the request parameters were not tampered, otherwise the hash would not match.
@@ -548,12 +553,12 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize {
 		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
-	}	
+	}
 
 	if appState == nil {
-		errorPayload, err := e.processErrorResponse(req, 
-				emptyStateRoot, 
-				apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID)))
+		errorPayload, err := e.processErrorResponse(req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID)))
 		return errorPayload, nil, nil, err
 	}
 
@@ -581,13 +586,13 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
-		errorPayload, err :=  e.processErrorResponse(req, appState.StateRoot,
+		errorPayload, err := e.processErrorResponse(req, appState.StateRoot,
 			apperrors.New(apperrors.CodeInsufficientFuel,
 				fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
-				applicationFee.String(),
-				req.MaxFeeValue.ToInt().String(),
-			),
-		))
+					applicationFee.String(),
+					req.MaxFeeValue.ToInt().String(),
+				),
+			))
 		return errorPayload, nil, nil, err
 	}
 
@@ -599,17 +604,17 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		//request  of type associate key: the payload is not encrypted and contains the new key
 		e.log.Info("Associating new key - RequestID %s", req.RequestID)
 
-		if len(req.Payload) != 133 {	
+		if len(req.Payload) != 133 {
 			return nil, nil, nil, fmt.Errorf("invalid payload length")
 		}
 
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload)
 		if err != nil {
 			e.log.Error("Executor: failed to parse keyP521 in request payload: %v", err)
-			errorPayload, err := e.processErrorResponse(req, 
-				appState.StateRoot, 
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
 				apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload"))
-			return errorPayload, nil, nil, err	
+			return errorPayload, nil, nil, err
 		}
 
 		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
@@ -621,19 +626,19 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		// Decrypt the request payload
 		decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
 		if failure != nil {
-			errorPayload, err := e.processErrorResponse(req, 
-				appState.StateRoot, 
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
 				failure)
-			return errorPayload, nil, nil, err	
+			return errorPayload, nil, nil, err
 		}
 
 		// Invoke WASM method to process the request
 		newState, reqEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
 		if failure != nil {
-			errorPayload, err := e.processErrorResponse(req, 
-				appState.StateRoot, 
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
 				failure)
-			return errorPayload, nil, nil, err	
+			return errorPayload, nil, nil, err
 		}
 		tempState = newState
 		events = reqEvents
@@ -645,18 +650,18 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		// 2. Deanonymize requests must always generate a report
 		if len(reqReportData) > 0 {
 			if req.RequestType != common.Deanonymize {
-				errorPayload, err := e.processErrorResponse(req, 
-					appState.StateRoot, 
+				errorPayload, err := e.processErrorResponse(req,
+					appState.StateRoot,
 					apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("WASM module generated unexpected report for request type %s", req.RequestType)))
-				return errorPayload, nil, nil, err	
+				return errorPayload, nil, nil, err
 			}
 			reportData = reqReportData
 		} else if req.RequestType == common.Deanonymize {
-			errorPayload, err := e.processErrorResponse(req, 
-				appState.StateRoot, 
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
 				apperrors.New(apperrors.CodeRequestFuncFailed,
-						"WASM module failed to generate report for Deanonymize request"))
-			return errorPayload, nil, nil, err	
+					"WASM module failed to generate report for Deanonymize request"))
+			return errorPayload, nil, nil, err
 		}
 		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	}
@@ -664,21 +669,20 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// Check if there is enough ETH to cover the fuel costs
 	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 
-
 	// Application fee must be minimum fee at least
 	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
 		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
 	}
 
 	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
-		errorPayload, err :=  e.processErrorResponse(req,
+		errorPayload, err := e.processErrorResponse(req,
 			appState.StateRoot,
 			apperrors.New(apperrors.CodeInsufficientFuel,
 				fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
-				applicationFee.String(),
-				req.MaxFeeValue.ToInt().String(),
-			),
-		))
+					applicationFee.String(),
+					req.MaxFeeValue.ToInt().String(),
+				),
+			))
 		return errorPayload, nil, nil, err
 	}
 
@@ -708,10 +712,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	events = append(depositEvents, events...)
 	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore())
 	if failure != nil {
-		errorPayload, err := e.processErrorResponse(req, 
-			appState.StateRoot, 
+		errorPayload, err := e.processErrorResponse(req,
+			appState.StateRoot,
 			failure)
-		return errorPayload, nil, nil, err	
+		return errorPayload, nil, nil, err
 	}
 	e.log.Info("Executor: Successfully encrypted new application data")
 
@@ -760,10 +764,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			appData.GetKeyStore(),
 		)
 		if failure != nil {
-			errorPayload, err := e.processErrorResponse(req, 
-				appState.StateRoot, 
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
 				failure)
-			return errorPayload, nil, nil, err	
+			return errorPayload, nil, nil, err
 		}
 		e.log.Info("Executor: Successfully encrypted deanonymization report")
 
@@ -781,43 +785,80 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 }
 
 // HandleDeployApp implements the RequestHandler interface
-func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	e.log.Info("Executor: Deploying application for request %s", req.RequestID)
 
 	if err := e.validateRequest(req); err != nil {
 		return nil, nil, err
 	}
 
-	if req.RequestType != common.Deploy {	
-		return nil, nil, fmt.Errorf("request type %s is not deploy", req.RequestType)
+	if req.RequestType != common.Deploy {
+		errorPayload, err := e.processErrorResponse(
+			req,
+			deployStateRoot(appState),
+			apperrors.New(apperrors.CodeInternalFallback, deployDescriptorFailureMsg),
+		)
+		return errorPayload, nil, err
 	}
 
 	if appState != nil {
 		// This means that the application was already deployed. This is the request fault, so we set the request as failed with the appropriate error code and message.
-		errorPayload, err := e.processErrorResponse(req, 
-				appState.StateRoot, 
-				apperrors.New(apperrors.CodeApplicationAlreadyDeployed,
+		errorPayload, err := e.processErrorResponse(req,
+			appState.StateRoot,
+			apperrors.New(apperrors.CodeApplicationAlreadyDeployed,
 				fmt.Sprintf("application %s was already deployed", req.ApplicationID)))
 		return errorPayload, nil, err
 	}
 
+	descriptor, err := common.DecodeDeployDescriptorStrict(req.Payload)
+	if err != nil {
+		errorPayload, err := e.processErrorResponse(
+			req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeInternalFallback, deployDescriptorFailureMsg),
+		)
+		return errorPayload, nil, err
+	}
 
-	// For deployment, we need to initialize the application with the WASM module
-	// The payload should contain the WASM bytecode
-	wasmModule := req.Payload
+	if err := descriptor.ValidateApplicationID(req.ApplicationID); err != nil {
+		errorPayload, err := e.processErrorResponse(
+			req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeInternalFallback, deployDescriptorFailureMsg),
+		)
+		return errorPayload, nil, err
+	}
+
+	if len(wasmModule) == 0 {
+		errorPayload, err := e.processErrorResponse(
+			req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg),
+		)
+		return errorPayload, nil, err
+	}
+
+	moduleSHA := sha256.Sum256(wasmModule)
+	if got := hex.EncodeToString(moduleSHA[:]); got != descriptor.WasmSHA256 {
+		errorPayload, err := e.processErrorResponse(
+			req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg),
+		)
+		return errorPayload, nil, err
+	}
 
 	// Load the module and get initial state
 	initialAppState, fuel, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
 	if err != nil {
 
-		errorPayload, err := e.processErrorResponse(req, 
-				emptyStateRoot, 
-				apperrors.New(apperrors.CodeFailedLoadingOrGettingModule,
-				"failed to load or get module"))
+		errorPayload, err := e.processErrorResponse(req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg))
 		return errorPayload, nil, err
 	}
 
-	// Check if there is enough ETH to cover the fuel costs 
+	// Check if there is enough ETH to cover the fuel costs
 	// TODO make a helper function?
 	applicationFee := new(big.Int).Mul(fuel, e.config.FuelPricePerUnit)
 
@@ -827,14 +868,14 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 
 	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
-		errorPayload, err :=  e.processErrorResponse(req, 
+		errorPayload, err := e.processErrorResponse(req,
 			emptyStateRoot,
 			apperrors.New(apperrors.CodeInsufficientFuel,
 				fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
-				applicationFee.String(),
-				req.MaxFeeValue.ToInt().String(),
-			),
-		))
+					applicationFee.String(),
+					req.MaxFeeValue.ToInt().String(),
+				),
+			))
 		return errorPayload, nil, err
 	}
 
@@ -846,8 +887,8 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	//serialize the new app data
 	initialAppDataBytes, err := initialAppData.Serialize()
 	if err != nil {
-		errorPayload, err := e.processErrorResponse(req, 
-			emptyStateRoot, 
+		errorPayload, err := e.processErrorResponse(req,
+			emptyStateRoot,
 			apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new app data"))
 		return errorPayload, nil, err
 	}
@@ -891,23 +932,6 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	return updatePayload, newAppState, nil
 }
 
-// HandleBuildErrorPayloadRequest creates a signed deterministic error payload for manager-side deterministic failures.
-func (e *StatelessExecutor) HandleBuildErrorPayloadRequest(_ context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
-	if req == nil {
-		return nil, fmt.Errorf("request is required")
-	}
-	if failure == nil {
-		return nil, fmt.Errorf("failure is required")
-	}
-
-	payload, err := e.buildErrorPayload(req, stateRoot, failure)
-	if err != nil {
-		return nil, err
-	}
-	e.log.Info("Executor: Returning signed deterministic error payload for request %s (error code: %d)", req.RequestID, payload.ErrorCode)
-	return payload, nil
-}
-
 func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.ApplicationState) (*appdata.AppData, error) {
 	// Decrypt the encrypted state
 	decryptedState, err := e.DecryptState(encState.EncryptedState, e.keySet.StateKey)
@@ -942,16 +966,16 @@ func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32
 
 	// Create the error payload with state unchanged
 	updatePayload := &common.UpdatePayload{
-		ApplicationID:   req.ApplicationID,
-		RequestID:       req.RequestID,
-		PrevStateRoot:   stateRoot,
-		NewStateRoot:    stateRoot, // State unchanged on error
-		Events:          nil,       // Empty events on error
-		Withdrawals:     nil,       // Empty withdrawals on error
-		RefundAmount:    req.MaxFeeValue,		// Refund and fees are calculated on chain
-		ApplicationFee:  common.NewBig(0), // No application fee on error, but the actual fee handling is done on chain 
-		ErrorCode:       failure.Category(),
-		ErrorMsg:        errorMsg,
+		ApplicationID:  req.ApplicationID,
+		RequestID:      req.RequestID,
+		PrevStateRoot:  stateRoot,
+		NewStateRoot:   stateRoot,        // State unchanged on error
+		Events:         nil,              // Empty events on error
+		Withdrawals:    nil,              // Empty withdrawals on error
+		RefundAmount:   req.MaxFeeValue,  // Refund and fees are calculated on chain
+		ApplicationFee: common.NewBig(0), // No application fee on error, but the actual fee handling is done on chain
+		ErrorCode:      failure.Category(),
+		ErrorMsg:       errorMsg,
 	}
 
 	// Sign the error payload
@@ -976,6 +1000,12 @@ func (e *StatelessExecutor) processErrorResponse(req *common.Request, stateRoot 
 	return payload, nil
 }
 
+func deployStateRoot(appState *common.ApplicationState) [32]byte {
+	if appState == nil {
+		return emptyStateRoot
+	}
+	return appState.StateRoot
+}
 
 // signUpdatePayload signs the update payload to produce an attestation
 func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]byte, error) {

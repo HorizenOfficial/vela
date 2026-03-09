@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
 )
 
 const MsgDelimiter = byte('\n')
@@ -25,10 +24,6 @@ const (
 	DeployAppRequestMessage
 	// DeployAppResponseMessage represents a response to a deploy app request
 	DeployAppResponseMessage
-	// BuildErrorPayloadRequestMessage represents a request to create a signed deterministic error payload
-	BuildErrorPayloadRequestMessage
-	// BuildErrorPayloadResponseMessage represents the response carrying a signed deterministic error payload
-	BuildErrorPayloadResponseMessage
 	// GetKeysetRecoveryRequestMessage represents a handshake message from executor to manager
 	GetKeysetRecoveryRequestMessage
 	// GetKeysetRecoveryResponseMessage represents a handshake message from manager to executor
@@ -104,6 +99,18 @@ type DeployAppRequestData struct {
 	Request *common.Request `json:"request"`
 	// ApplicationState is the current state of the application
 	ApplicationState *common.ApplicationState `json:"applicationState"`
+	// WasmModule is the resolved WASM bytecode if available; nil means artifact unavailable/unresolved.
+	WasmModule []byte `json:"wasmModule"`
+}
+
+func (dad *DeployAppRequestData) Validate() error {
+	if dad.Request == nil {
+		return fmt.Errorf("Request is required")
+	}
+	if err := dad.Request.Validate(); err != nil {
+		return fmt.Errorf("invalid Request: %w", err)
+	}
+	return nil
 }
 
 // DeployAppResponseData represents data for a deploy app response message
@@ -112,28 +119,6 @@ type DeployAppResponseData struct {
 	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 	// ApplicationState initialized application state
 	ApplicationState *common.ApplicationState `json:"applicationState"`
-}
-
-// BuildErrorPayloadRequestData represents data for a deterministic signed error payload request.
-type BuildErrorPayloadRequestData struct {
-	Request   *common.Request           `json:"request"`
-	StateRoot [32]byte                  `json:"stateRoot"`
-	Failure   *apperrors.RequestFailure `json:"failure"`
-}
-
-func (bed *BuildErrorPayloadRequestData) Validate() error {
-	if bed.Request == nil {
-		return fmt.Errorf("Request is required")
-	}
-	if bed.Failure == nil {
-		return fmt.Errorf("Failure is required")
-	}
-	return nil
-}
-
-// BuildErrorPayloadResponseData represents data for deterministic signed error payload response.
-type BuildErrorPayloadResponseData struct {
-	UpdatePayload *common.UpdatePayload `json:"updatePayload"`
 }
 
 // ErrorData represents data for an error message

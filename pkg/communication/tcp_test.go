@@ -3,7 +3,6 @@ package communication
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"math/big"
 	"os"
 	"sync"
@@ -26,11 +25,10 @@ var (
 
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
-	ProcessRequestFunc    func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
-	DeployAppFunc         func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
-	BuildErrorPayloadFunc func(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error)
-	KeyAttestationFunc    func(ctx context.Context) ([]byte, error)
-	HelloFunc             func(ctx context.Context, message string) (string, error)
+	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
+	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	KeyAttestationFunc func(ctx context.Context) ([]byte, error)
+	HelloFunc          func(ctx context.Context, message string) (string, error)
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
@@ -58,9 +56,9 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 		nil
 }
 
-func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if m.DeployAppFunc != nil {
-		return m.DeployAppFunc(ctx, req, appState)
+		return m.DeployAppFunc(ctx, req, appState, wasmModule)
 	}
 	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
@@ -78,25 +76,6 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 			EncryptedState: []byte("test-encrypted-state"),
 		},
 		nil
-}
-
-func (m *MockRequestHandler) HandleBuildErrorPayloadRequest(ctx context.Context, req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
-	if m.BuildErrorPayloadFunc != nil {
-		return m.BuildErrorPayloadFunc(ctx, req, stateRoot, failure)
-	}
-	if req == nil || failure == nil {
-		return nil, errors.New("request and failure are required")
-	}
-	return &common.UpdatePayload{
-		ApplicationID:  req.ApplicationID,
-		RequestID:      req.RequestID,
-		PrevStateRoot:  stateRoot,
-		NewStateRoot:   stateRoot,
-		ErrorCode:      failure.Category(),
-		ErrorMsg:       failure.ExternalMessage(),
-		RefundAmount:   req.MaxFeeValue,
-		ApplicationFee: common.NewBig(0),
-	}, nil
 }
 
 func (m *MockRequestHandler) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
@@ -191,19 +170,13 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	assert.Equal(t, []byte("test-event"), updatePayload.Events[0].EncryptedData)
 
 	// Test HandleDeployApp
-	updatedState, appState2, failure := client.SendDeployApp(ctx, req, nil)
+	deployWasm := []byte("deploy-wasm-module")
+	updatedState, appState2, failure := client.SendDeployApp(ctx, req, nil, deployWasm)
 	require.Nil(t, failure)
 	assert.Equal(t, req.ApplicationID, updatedState.ApplicationID)
 	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), updatedState.NewStateRoot)
 	assert.Equal(t, req.ApplicationID, appState2.ApplicationID)
 	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), appState2.StateRoot)
-
-	deterministicFailure := apperrors.New(apperrors.CodeInternalFallback, "failed to deploy application")
-	errorPayload, err := client.SendBuildErrorPayloadRequest(ctx, req, [32]byte{}, deterministicFailure)
-	require.NoError(t, err)
-	assert.Equal(t, req.RequestID, errorPayload.RequestID)
-	assert.Equal(t, deterministicFailure.Category(), errorPayload.ErrorCode)
-	assert.Equal(t, deterministicFailure.ExternalMessage(), errorPayload.ErrorMsg)
 }
 
 func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
@@ -305,7 +278,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			MaxFeeValue:     common.NewBig(100),
 		}
 
-		_, appState, failure := client.SendDeployApp(ctx, req, nil)
+		_, appState, failure := client.SendDeployApp(ctx, req, nil, []byte("deploy-wasm-module"))
 		require.Nil(t, failure)
 		assert.Equal(t, []byte("test-encrypted-state"), appState.EncryptedState)
 
