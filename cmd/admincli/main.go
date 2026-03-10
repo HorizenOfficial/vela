@@ -13,8 +13,9 @@ import (
 )
 
 // Mirror the admin message types from pkg/admin/admin_interface.go.
-// We duplicate them here so the CLI has zero internal dependencies and can be
-// built as a standalone tool.
+// We duplicate them here so the CLI binary has zero internal dependencies and
+// can be distributed as a standalone tool. Tests import pkg/admin to guard
+// against drift.
 const (
 	adminResponseMessage  = "response"
 	adminErrorMessage     = "error"
@@ -178,7 +179,10 @@ func buildSetLogLevel(scanner *bufio.Scanner) (*adminMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, _ := json.Marshal(setLogLevelReq{Level: level})
+	data, err := json.Marshal(setLogLevelReq{Level: level})
+	if err != nil {
+		return nil, fmt.Errorf("marshal log level: %w", err)
+	}
 	raw := json.RawMessage(data)
 	return &adminMessage{Type: setLogLevelRequest, Target: target, Data: raw}, nil
 }
@@ -197,7 +201,10 @@ func sendAndPrint(addr string, msg *adminMessage) {
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(30 * time.Second))
+	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		fmt.Printf("\n%sDeadline error: %v%s\n", color(ansiRed), err, color(ansiReset))
+		return
+	}
 
 	payload, err := json.Marshal(msg)
 	if err != nil {
