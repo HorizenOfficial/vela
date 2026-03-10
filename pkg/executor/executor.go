@@ -12,15 +12,17 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/appdata"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/crypto"
-	"github.com/horizen-pes/pkg/executor/kms"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/nsmutil"
+	"github.com/HorizenOfficial/vela/pkg/admin"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common/appdata"
+	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/executor/kms"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/nsmutil"
+	"github.com/HorizenOfficial/vela/pkg/version"
 )
 
 // NsmSession is an interface abstracting nsm.Session for testability.
@@ -496,7 +498,7 @@ func (e *StatelessExecutor) Start(ctx context.Context) error {
 	return e.server.Start(ctx, "Executor")
 }
 
-// Stop stops the executor servers
+// Stop stops the executor server
 func (e *StatelessExecutor) Stop() error {
 	e.log.Info("Executor: Stopping stateless executor")
 
@@ -1113,10 +1115,59 @@ func (e *StatelessExecutor) decryptPayload(decryptionKey *cryptotypes.PrivateKey
 	return decryptedPayload, nil
 }
 
-// HandleKeyAttestationRequest implements communication.RequestHandler.
-// Creates a key attestation document using the executor's keyset and the NSM device.
-func (e *StatelessExecutor) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
-	return e.CreateKeyAttestation(ctx)
+// HandleAdminCommand handles admin commands forwarded from the manager through
+// the communication channel. It dispatches on cmdType to the appropriate handler.
+func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	switch cmdType {
+	case admin.AdminCmdKeyAttestation:
+		attestation, err := e.CreateKeyAttestation(ctx)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := json.Marshal(attestation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal attestation response: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdSetLogLevel:
+		var req admin.SetLogLevelRequest
+		if data != nil && string(data) != "null" {
+			if err := json.Unmarshal(data, &req); err != nil {
+				return nil, fmt.Errorf("invalid request data: %w", err)
+			}
+		}
+		result, err := admin.HandleSetLogLevel(e.log, "Executor", req.Level)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdGetLogLevel:
+		level, err := admin.HandleGetLogLevel(e.log, "Executor")
+		if err != nil {
+			return nil, err
+		}
+		resp, err := json.Marshal(level)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdGetVersion:
+		resp, err := json.Marshal(version.Version)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal version: %w", err)
+		}
+		return resp, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported admin command type: %s", cmdType)
+	}
 }
 
 func (e *StatelessExecutor) CreateKeyAttestation(ctx context.Context) ([]byte, error) {

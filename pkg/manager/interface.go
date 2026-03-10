@@ -3,7 +3,7 @@ package manager
 import (
 	"context"
 
-	"github.com/horizen-pes/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/communication"
 )
 
 // Manager defines the interface for the Secure Processor Manager

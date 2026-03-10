@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 )
 
 type AdminClientConnection struct {
@@ -158,13 +158,8 @@ func (s *AdminServer) handleNewClient(ctx context.Context, conn net.Conn, idLogT
 		return
 	}
 
-	defer func() {
-		s.clientMu.Lock()
-		defer s.clientMu.Unlock()
-		if s.client == client {
-			s.client = nil
-		}
-	}()
+	// Safety net: ensure client slot is cleared even on panic.
+	defer s.clearClient(client)
 
 	select {
 	case <-s.shutdownChan:
@@ -174,7 +169,29 @@ func (s *AdminServer) handleNewClient(ctx context.Context, conn net.Conn, idLogT
 	default:
 	}
 
-	client.handleAdminCommand(ctx, s.handler)
+	response := client.handleAdminCommand(ctx, s.handler)
+
+	// Clear the client slot BEFORE sending the response so that the next
+	// connection's setupNewClient check does not see a stale client and
+	// spuriously reject it as "server is busy".
+	s.clearClient(client)
+
+	if response != nil {
+		if err := client.sendMessage(*response); err != nil {
+			client.log.Warn("%s: Failed to send response: %v", client.idLogTag, err)
+			return
+		}
+		client.log.Info("%s: Command handled successfully", client.idLogTag)
+	}
+}
+
+// clearClient removes the given client from the server's active client slot.
+func (s *AdminServer) clearClient(client *AdminClientConnection) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	if s.client == client {
+		s.client = nil
+	}
 }
 
 // Close closes the client connection
@@ -210,24 +227,23 @@ func (c *AdminClientConnection) sendMessage(msg AdminMessage) error {
 	return nil
 }
 
-// handleAdminCommand handles commands initiated by the client
-func (c *AdminClientConnection) handleAdminCommand(ctx context.Context, handler AdminCmdHandler) {
+// handleAdminCommand processes a command from the client and returns the response
+// to send. Returns nil if the connection was closed before a command was received.
+func (c *AdminClientConnection) handleAdminCommand(ctx context.Context, handler AdminCmdHandler) *AdminMessage {
 	if handler == nil {
-		c.sendErrorResponse("INTERNAL_ERROR", fmt.Errorf("no request handler set"))
-		return
+		return c.buildErrorResponse("INTERNAL_ERROR", fmt.Errorf("no request handler set"))
 	}
 
 	msgBytes, connectionClosedErr := communication.ReadMessageFromSocket(c.conn, c.reader, c.idLogTag, c.log)
 	if connectionClosedErr != nil {
-		return
+		return nil
 	}
 
 	// Parse the message
 	var msg AdminMessage
 	if err := json.Unmarshal(msgBytes, &msg); err != nil {
 		c.log.Error("%s: Error parsing message: %v", c.idLogTag, err)
-		c.sendErrorResponse("INVALID_REQUEST", fmt.Errorf("invalid message format: %w", err))
-		return
+		return c.buildErrorResponse("INVALID_REQUEST", fmt.Errorf("invalid message format: %w", err))
 	}
 
 	c.log.Info("%s: Received message: Type=%v", c.idLogTag, msg.Type)
@@ -235,26 +251,19 @@ func (c *AdminClientConnection) handleAdminCommand(ctx context.Context, handler 
 	// Execute the command using the handler
 	result, err := handler.ExecuteCommand(ctx, msg)
 	if err != nil {
-		c.sendErrorResponse("COMMAND_ERROR", err)
-		return
+		return c.buildErrorResponse("COMMAND_ERROR", err)
 	}
 
-	// Send the response
 	response, marshalErr := NewAdminMessage(AdminResponseMessage, result)
 	if marshalErr != nil {
-		c.sendErrorResponse("INTERNAL_ERROR", marshalErr)
-		return
+		return c.buildErrorResponse("INTERNAL_ERROR", marshalErr)
 	}
 
-	if err := c.sendMessage(response); err != nil {
-		c.log.Warn("%s: Failed to send response: %v", c.idLogTag, err)
-		return
-	}
-	c.log.Info("%s: Command handled successfully", c.idLogTag)
+	return &response
 }
 
-// sendErrorResponse sends an error response
-func (c *AdminClientConnection) sendErrorResponse(code string, err error) {
+// buildErrorResponse creates an error response message without sending it.
+func (c *AdminClientConnection) buildErrorResponse(code string, err error) *AdminMessage {
 	c.log.Info("%s: Sending error response: Code=%s, Error=%v", c.idLogTag, code, err)
 	response, marshalErr := NewAdminMessage(AdminErrorMessage, communication.ErrorData{
 		Code:    code,
@@ -262,10 +271,18 @@ func (c *AdminClientConnection) sendErrorResponse(code string, err error) {
 	})
 	if marshalErr != nil {
 		c.log.Error("%s: Failed to marshal error response: %v", c.idLogTag, marshalErr)
+		return nil
+	}
+	return &response
+}
+
+// sendErrorResponse builds and immediately sends an error response to the client.
+func (c *AdminClientConnection) sendErrorResponse(code string, err error) {
+	response := c.buildErrorResponse(code, err)
+	if response == nil {
 		return
 	}
-
-	if sendErr := c.sendMessage(response); sendErr != nil {
+	if sendErr := c.sendMessage(*response); sendErr != nil {
 		c.log.Warn("%s: Failed to send error response: %v", c.idLogTag, sendErr)
 	}
 }

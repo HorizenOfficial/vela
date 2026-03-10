@@ -7,19 +7,19 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/executor"
-	"github.com/horizen-pes/pkg/executor/kms"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/wasm"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/executor"
+	"github.com/HorizenOfficial/vela/pkg/executor/kms"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/version"
+	"github.com/HorizenOfficial/vela/pkg/wasm"
 )
 
 func main() {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
 
 	// Create the executor configuration
 	config, err := executor.LoadConfig()
@@ -28,6 +28,12 @@ func main() {
 		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
 		log.Fatal("Failed to load configuration: %v", err)
 	}
+
+	// Create context first so defer cancel() is registered before defer log.Close().
+	// Defers run LIFO, so log.Close() will drain the async buffer to the log server
+	// before cancel() shuts down context-dependent resources.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
@@ -47,12 +53,10 @@ func main() {
 		}
 	}()
 
-
 	// Create the WASM runtime
 	runtime := wasm.NewWasmtimeRuntime(log)
 
 	// Create the appropriate server based on configuration
-
 	var server communication.ExecutorServer
 	switch config.ChannelType {
 	case "tcp":
@@ -114,12 +118,10 @@ func main() {
 		return
 	}
 
+	log.Info("Executor version: %s", version.Version)
+
 	// Start the executor
 	log.Info("Starting executor service...")
-	// Create a context that is canceled on SIGINT or SIGTERM
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	
 	if err := exec.Start(ctx); err != nil {
 		log.Error("Error starting executor: %v", err)
 		return

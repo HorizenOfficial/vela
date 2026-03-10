@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	commontestutil "github.com/horizen-pes/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/stretchr/testify/require"
 )
 

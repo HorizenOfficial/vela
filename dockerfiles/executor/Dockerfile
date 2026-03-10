@@ -12,17 +12,15 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /build
 
-ENV GOPRIVATE=github.com/HorizenOfficial/*
-
 COPY go.mod go.sum ./
-RUN --mount=type=secret,id=gh_token \
-    git config --global url."https://$(cat /run/secrets/gh_token):@github.com/".insteadOf "https://github.com/" && \
-    go mod download && \
-    rm -f /root/.gitconfig
+RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux go build -o /executor ./cmd/executor
+ARG GIT_VERSION=dev
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -ldflags "-X github.com/horizen-pes/pkg/version.Version=${GIT_VERSION}" \
+    -o /executor ./cmd/executor
 
 # --- Runtime Stage ---
 FROM amazonlinux:2

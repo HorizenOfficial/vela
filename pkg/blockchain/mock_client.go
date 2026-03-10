@@ -10,10 +10,10 @@ import (
 	"github.com/elliotchance/orderedmap/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 )
 
 func SetupNewBlockChainClientConnected(client ChainClient, ProcessorContractAddress ethCommon.Address, TeeSignerAddress ethCommon.Address, ManagerAccount *bind.TransactOpts) *BlockChainClient {
@@ -375,7 +375,7 @@ func (c *MockClient) Close() error {
 	return nil
 }
 
-// Close closes the blockchain client
+// Connect connects to the blockchain. The mock always succeeds unless overridden.
 func (c *MockClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -384,6 +384,14 @@ func (c *MockClient) Connect(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// IsConnected returns true by default. Override via MockFunc("IsConnected", func() bool { ... }).
+func (c *MockClient) IsConnected() bool {
+	if f, ok := c.GetMockedFunc("IsConnected"); ok {
+		return f.(func() bool)()
+	}
+	return true
 }
 
 func (c *MockClient) ClearAllData() {

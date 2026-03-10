@@ -3,6 +3,8 @@ package communication
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"sync"
@@ -10,9 +12,9 @@ import (
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	apperrors "github.com/horizen-pes/pkg/common/apperrors"
-	"github.com/horizen-pes/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	apperrors "github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,8 +29,7 @@ var (
 type MockRequestHandler struct {
 	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
-	KeyAttestationFunc func(ctx context.Context) ([]byte, error)
-	HelloFunc          func(ctx context.Context, message string) (string, error)
+	AdminCommandFunc func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
@@ -56,6 +57,13 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 		nil
 }
 
+func (m *MockRequestHandler) HandleAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	if m.AdminCommandFunc != nil {
+		return m.AdminCommandFunc(ctx, cmdType, data)
+	}
+	return nil, fmt.Errorf("admin command not supported in mock")
+}
+
 func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if m.DeployAppFunc != nil {
 		return m.DeployAppFunc(ctx, req, appState, wasmModule)
@@ -76,13 +84,6 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 			EncryptedState: []byte("test-encrypted-state"),
 		},
 		nil
-}
-
-func (m *MockRequestHandler) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
-	if m.KeyAttestationFunc != nil {
-		return m.KeyAttestationFunc(ctx)
-	}
-	return []byte("mock-attestation-document"), nil
 }
 
 // MockClientRequestHandler is a mock implementation for testing the new client
@@ -352,12 +353,13 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 }
 
-func TestTCPClientServer_KeyAttestationRequest(t *testing.T) {
-	expectedAttestation := []byte("test-attestation-document-bytes")
+func TestTCPClientServer_AdminCommandRequest(t *testing.T) {
+	expectedResponse := json.RawMessage(`"test-attestation-document-bytes"`)
 
 	serverHandler := &MockRequestHandler{
-		KeyAttestationFunc: func(ctx context.Context) ([]byte, error) {
-			return expectedAttestation, nil
+		AdminCommandFunc: func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			assert.Equal(t, "key_attestation", cmdType)
+			return expectedResponse, nil
 		},
 	}
 
@@ -378,19 +380,19 @@ func TestTCPClientServer_KeyAttestationRequest(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Test success case
-	attestation, err := client.SendKeyAttestationRequest(ctx)
+	result, err := client.ForwardAdminCommand(ctx, "key_attestation", nil)
 	require.NoError(t, err)
-	assert.Equal(t, expectedAttestation, attestation)
+	assert.Equal(t, expectedResponse, result)
 
 	// Test error case
-	serverHandler.KeyAttestationFunc = func(ctx context.Context) ([]byte, error) {
+	serverHandler.AdminCommandFunc = func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
 		return nil, assert.AnError
 	}
 
-	attestation, err = client.SendKeyAttestationRequest(ctx)
+	result, err = client.ForwardAdminCommand(ctx, "key_attestation", nil)
 	require.Error(t, err)
-	assert.Nil(t, attestation)
-	assert.Contains(t, err.Error(), "key attestation failed")
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "COMMAND_ERROR")
 }
 
 func TestTCPClientServer_ServerToClientRequest(t *testing.T) {

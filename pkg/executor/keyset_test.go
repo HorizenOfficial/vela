@@ -7,10 +7,10 @@ import (
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
-	"github.com/horizen-pes/pkg/blockchain/testutil"
-	"github.com/horizen-pes/pkg/common"
-	commontestutil "github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/executor/kms"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/testutil"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/executor/kms"
 	"github.com/stretchr/testify/require"
 )
 

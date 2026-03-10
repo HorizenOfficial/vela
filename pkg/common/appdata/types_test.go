@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 	"github.com/stretchr/testify/assert"
 )
 

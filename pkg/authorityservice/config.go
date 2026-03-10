@@ -2,8 +2,7 @@ package authorityservice
 
 import (
 	"fmt"
-
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/magiconair/properties"
 )
 
@@ -71,8 +70,8 @@ func LoadConfig() (*Config, error) {
 	nonceTTL := common.GetConfigVarInt64("AUTHORITY_SERVICE_NONCE_TTL", 300, fileProps)
 
 	// We reuse MANAGER_REPORTS_FOLDER so manager and authority service point to the same folder by default
-	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProps)
-	deployArtifactsPath := common.GetConfigVar("DEPLOY_ARTIFACTS_PATH", "/tmp/horizen-pes-data/deploy_artifacts", fileProps)
+	reportsPath := common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/vela-data/manager_reports", fileProps)
+	deployArtifactsPath := common.GetConfigVar("DEPLOY_ARTIFACTS_PATH", "/tmp/vela-data/deploy_artifacts", fileProps)
 	deployArtifactsMaxSizeMB := common.GetConfigVarInt64("DEPLOY_ARTIFACTS_MAX_SIZE_MB", defaultDeployArtifactsMaxSizeMB, fileProps)
 	if deployArtifactsMaxSizeMB < 0 {
 		return nil, fmt.Errorf("DEPLOY_ARTIFACTS_MAX_SIZE_MB must be >= 0")

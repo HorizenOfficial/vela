@@ -10,18 +10,18 @@ import (
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/blockchain"
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/communication"
-	"github.com/horizen-pes/pkg/executor"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/logserver"
-	"github.com/horizen-pes/pkg/manager"
-	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/mockdb"
-	"github.com/horizen-pes/pkg/storage/versioned_leveldb"
-	"github.com/horizen-pes/pkg/wasm"
+	"github.com/HorizenOfficial/vela/pkg/blockchain"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/HorizenOfficial/vela/pkg/executor"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/logserver"
+	"github.com/HorizenOfficial/vela/pkg/manager"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
+	"github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
+	"github.com/HorizenOfficial/vela/pkg/wasm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,7 +109,7 @@ func NewSystemTestSuiteWithConfigs(
 	}
 
 	// Create a temporary directory for the database
-	dbPath, err := os.MkdirTemp("", "horizen-pes-test-db")
+	dbPath, err := os.MkdirTemp("", "vela-test-db")
 	require.NoError(t, err)
 
 	// Create a temporary directory for deploy artifacts and force manager to use it.
@@ -139,8 +139,6 @@ func NewSystemTestSuiteWithConfigs(
 			VSockAddr:      mgrConfig.LogServerVSockAddress,
 			LogFilePath:    mgrConfig.LogServerLogFile,
 			ConsoleEnabled: mgrConfig.LogServerConsole,
-			ConsoleLevel:   mgrConfig.LogServerConsoleLevel,
-			FileLevel:      mgrConfig.LogServerFileLevel,
 		},
 	)
 

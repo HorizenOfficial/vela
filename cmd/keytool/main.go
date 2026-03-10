@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 )
 
 // Simple tool to generate a random set of keys

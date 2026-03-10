@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	ccecommon "github.com/horizen-cce-common-go/common"
+	ccecommon "github.com/HorizenOfficial/vela-common-go/common"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
-// Type aliases for types that moved to horizen-cce-common-go/common.
+// Type aliases for types that moved to vela-common-go/common.
 type ApplicationIdType = ccecommon.ApplicationIdType
 type RequestIdType = ccecommon.RequestIdType
 type RequestResultStatus = ccecommon.RequestResultStatus
