@@ -24,10 +24,10 @@ const (
 	enclaveKeyRecoveryPrefix = "enclavekeyrecovery_"
 )
 
-// just two attributes for the time being; should we need more customization we can add them here
+// VersionedLevelDBConfig holds configuration for the versioned LevelDB storage.
 type VersionedLevelDBConfig struct {
 	DBPath         string
-	VersionsToKeep int
+	VersionsToKeep int // Maximum number of historical versions to keep per application.
 }
 
 // generateVersionID creates a unique version identifier for a key-value pair.
@@ -87,6 +87,14 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 	if err := vdl.checkClosed("state store"); err != nil {
 		return err
 	}
+
+	// Derive appID from stateArray. All items must share the same ApplicationID
+	// (sequential processing — one app per Store call).
+	appID, err := extractAppID(stateArray, wasmArray)
+	if err != nil {
+		return err
+	}
+
 	toUpdate := []storage.KeyValuePair{}
 	toRemove := [][]byte{}
 
@@ -114,11 +122,47 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: wasm.Bytecode})
 	}
 
-	err := vdl.adapter.Update(versionID, toUpdate, toRemove)
+	err = vdl.adapter.Update(uint64(appID), versionID, toUpdate, toRemove)
 	if err != nil {
 		return fmt.Errorf("failed to store application state in Versioned LevelDB: %w", err)
 	}
 	return nil
+}
+
+// extractAppID derives the application ID from state and WASM arrays.
+// All non-nil items must share the same ApplicationID.
+func extractAppID(stateArray []*common.ApplicationState, wasmArray []*common.WASMData) (common.ApplicationIdType, error) {
+	var appID common.ApplicationIdType
+	found := false
+
+	for _, state := range stateArray {
+		if state == nil {
+			continue
+		}
+		if !found {
+			appID = state.ApplicationID
+			found = true
+		} else if state.ApplicationID != appID {
+			return 0, fmt.Errorf("inconsistent ApplicationID in stateArray: got %d and %d", appID, state.ApplicationID)
+		}
+	}
+
+	for _, wasm := range wasmArray {
+		if wasm == nil {
+			continue
+		}
+		if !found {
+			appID = wasm.ApplicationID
+			found = true
+		} else if wasm.ApplicationID != appID {
+			return 0, fmt.Errorf("inconsistent ApplicationID in wasmArray: got %d and %d", appID, wasm.ApplicationID)
+		}
+	}
+
+	if !found {
+		return 0, fmt.Errorf("cannot determine ApplicationID: stateArray and wasmArray are both empty or nil")
+	}
+	return appID, nil
 }
 
 func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error) {
@@ -157,25 +201,25 @@ func (vdl *VersionedLevelDBAppStateStore) GetWASMBytecode(ctx context.Context, a
 	return value, nil
 }
 
-func (vdl *VersionedLevelDBAppStateStore) Rollback(versionID []byte) error {
+func (vdl *VersionedLevelDBAppStateStore) Rollback(appID common.ApplicationIdType, versionID []byte) error {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return err
 	}
-	return vdl.adapter.Rollback(versionID)
+	return vdl.adapter.Rollback(uint64(appID), versionID)
 }
 
-func (vdl *VersionedLevelDBAppStateStore) LastVersionID() ([]byte, error) {
+func (vdl *VersionedLevelDBAppStateStore) LastVersionID(appID common.ApplicationIdType) ([]byte, error) {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
-	return vdl.adapter.LastVersionID()
+	return vdl.adapter.LastVersionID(uint64(appID))
 }
 
-func (vdl *VersionedLevelDBAppStateStore) ListVersions() ([][]byte, error) {
+func (vdl *VersionedLevelDBAppStateStore) ListVersions(appID common.ApplicationIdType) ([][]byte, error) {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
-	return vdl.adapter.RollbackVersions()
+	return vdl.adapter.RollbackVersions(uint64(appID))
 }
 
 func (vdl *VersionedLevelDBAppStateStore) Close() error {

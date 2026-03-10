@@ -51,7 +51,9 @@ type Config struct {
 	DataLayerType string
 	// DataLayerDBPath is the path for the database. For "versioned_leveldb", this is a base directory.
 	DataLayerDBPath string
-	// DataLayerNumOfVersions specifies how many historical versions to keep. Only used by "versioned_leveldb".
+	// DataLayerNumOfVersions specifies how many historical versions to keep per application.
+	// Each app's version history is pruned independently when it exceeds this limit.
+	// Only used by "versioned_leveldb".
 	DataLayerNumOfVersions int
 
 	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.

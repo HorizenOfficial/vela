@@ -13,7 +13,7 @@ import (
 type DataLayerConfig struct {
 	Type        string
 	DBPath      string
-	NumVersions int
+	NumVersions int // Maximum number of historical versions to keep per application.
 }
 
 const (

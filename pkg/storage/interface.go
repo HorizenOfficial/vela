@@ -12,9 +12,13 @@ import (
 // ApplicationStateStore defines the interface for managing versioned application state,
 // including WebAssembly (WASM) bytecode and application data. It supports atomic
 // storage of application data, rollbacks, and retrieval of specific versions.
+// Versioning is per-application: each application maintains its own independent
+// version chain, enabling rollback for one app without affecting others.
 type ApplicationStateStore interface {
 	// Store atomically saves the application state and WASM bytecode for a given version.
-	// This allows for reliable versioning and the ability to revert to a previous state if needed.
+	// The version is filed under the application that produced the data.
+	// Precondition: all items in stateArray and wasmArray must share the same ApplicationID
+	// (sequential processing — one app per Store call).
 	Store(
 		ctx context.Context,
 		versionID []byte,
@@ -22,14 +26,16 @@ type ApplicationStateStore interface {
 		wasmArray []*common.WASMData,
 	) error
 
-	// Rollback reverts the application state to the specified versionID.
-	Rollback(versionID []byte) error
+	// Rollback reverts the application state for the given app to the specified versionID.
+	// Only ChangeSets belonging to this app are reverted.
+	Rollback(appID common.ApplicationIdType, versionID []byte) error
 
-	// LastVersionID returns the most recent version ID stored in the database.
-	LastVersionID() ([]byte, error)
+	// LastVersionID returns the most recent version ID for the given application.
+	LastVersionID(appID common.ApplicationIdType) ([]byte, error)
 
-	// ListVersions returns a list of all stored version IDs.
-	ListVersions() ([][]byte, error)
+	// ListVersions returns a list of all stored version IDs for the given application,
+	// ordered from most recent to oldest (LIFO).
+	ListVersions(appID common.ApplicationIdType) ([][]byte, error)
 
 	// GetApplicationState retrieves the state of a specific application by its ID.
 	GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error)

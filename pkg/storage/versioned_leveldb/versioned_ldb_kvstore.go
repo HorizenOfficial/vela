@@ -21,10 +21,16 @@ const (
 	ChangeSetPrefix     = 0x16
 )
 
+// VersionsKey is retained for migration purposes (reading legacy global version chain).
 var VersionsKey [ConstantsHashLength]byte
 
 func init() {
 	VersionsKey = sha256.Sum256([]byte("versions"))
+}
+
+// versionsKeyForApp computes a deterministic per-app versions key: sha256("versions_" + appID).
+func versionsKeyForApp(appID uint64) [ConstantsHashLength]byte {
+	return sha256.Sum256([]byte(fmt.Sprintf("versions_%d", appID)))
 }
 
 type ChangeSet struct {
@@ -60,13 +66,15 @@ func NewVersionedLDBKVStore(db *leveldb.DB, versionsToKeep int) *VersionedLDBKVS
 	}
 }
 
-func (v *VersionedLDBKVStore) Update(toInsert []storage.KeyValuePair, toRemove [][]byte, versionID []byte) error {
+func (v *VersionedLDBKVStore) Update(appID uint64, toInsert []storage.KeyValuePair, toRemove [][]byte, versionID []byte) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
 	if len(versionID) != ConstantsHashLength {
 		return storageErrors.ErrInvalidParameter(fmt.Sprintf("Illegal version ID size: expected %d bytes, got %d", ConstantsHashLength, len(versionID)))
 	}
+
+	appVersionsKey := versionsKeyForApp(appID)
 
 	tx, err := v.Db.OpenTransaction()
 	if err != nil {
@@ -116,7 +124,7 @@ func (v *VersionedLDBKVStore) Update(toInsert []storage.KeyValuePair, toRemove [
 		Altered:      altered,
 	}
 
-	currentVersionsBytes, err := tx.Get(VersionsKey[:], nil)
+	currentVersionsBytes, err := tx.Get(appVersionsKey[:], nil)
 	if err != nil && !errors.Is(err, leveldb_errors.ErrNotFound) {
 		return fmt.Errorf("failed to get current versions list: %w", err)
 	}
@@ -143,7 +151,7 @@ func (v *VersionedLDBKVStore) Update(toInsert []storage.KeyValuePair, toRemove [
 	updatedVersionsRaw := bytes.Join(newVersionsList, nil)
 
 	batch := new(leveldb.Batch)
-	batch.Put(VersionsKey[:], updatedVersionsRaw)
+	batch.Put(appVersionsKey[:], updatedVersionsRaw)
 
 	for _, verId := range versionsToShrink {
 		batch.Delete(verId)
@@ -170,9 +178,11 @@ func (v *VersionedLDBKVStore) Update(toInsert []storage.KeyValuePair, toRemove [
 	return tx.Commit()
 }
 
-func (v *VersionedLDBKVStore) RollbackTo(versionID []byte) error {
+func (v *VersionedLDBKVStore) RollbackTo(appID uint64, versionID []byte) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+
+	appVersionsKey := versionsKeyForApp(appID)
 
 	tx, err := v.Db.OpenTransaction()
 	if err != nil {
@@ -180,7 +190,7 @@ func (v *VersionedLDBKVStore) RollbackTo(versionID []byte) error {
 	}
 	defer tx.Discard()
 
-	currentVersionsBytes, err := tx.Get(VersionsKey[:], nil)
+	currentVersionsBytes, err := tx.Get(appVersionsKey[:], nil)
 	if err != nil {
 		if errors.Is(err, leveldb_errors.ErrNotFound) {
 			return storageErrors.ErrVersionNotFound(versionID)
@@ -252,7 +262,7 @@ func (v *VersionedLDBKVStore) RollbackTo(versionID []byte) error {
 	}
 
 	updatedVersionsRaw := bytes.Join(updatedVersionsList, nil)
-	batch.Put(VersionsKey[:], updatedVersionsRaw)
+	batch.Put(appVersionsKey[:], updatedVersionsRaw)
 
 	if err := tx.Write(batch, nil); err != nil {
 		return fmt.Errorf("failed to write rollback batch to transaction: %w", err)
@@ -261,11 +271,18 @@ func (v *VersionedLDBKVStore) RollbackTo(versionID []byte) error {
 	return tx.Commit()
 }
 
-func (v *VersionedLDBKVStore) Versions() ([][]byte, error) {
+func (v *VersionedLDBKVStore) Versions(appID uint64) ([][]byte, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
-	versionsBytes, err := v.Db.Get(VersionsKey[:], nil)
+	return v.versionsUnlocked(appID)
+}
+
+// versionsUnlocked reads the version list for an app without acquiring the lock.
+// Caller must hold at least a read lock.
+func (v *VersionedLDBKVStore) versionsUnlocked(appID uint64) ([][]byte, error) {
+	appVersionsKey := versionsKeyForApp(appID)
+	versionsBytes, err := v.Db.Get(appVersionsKey[:], nil)
 	if err != nil {
 		if errors.Is(err, leveldb_errors.ErrNotFound) {
 			return [][]byte{}, nil
@@ -283,8 +300,60 @@ func (v *VersionedLDBKVStore) Versions() ([][]byte, error) {
 	return versions, nil
 }
 
-func (v *VersionedLDBKVStore) VersionIDExists(versionID []byte) (bool, error) {
-	versions, err := v.Versions()
+// allKnownAppVersionKeys scans the DB for all per-app versions keys.
+// Keys are identified by attempting to read entries whose key matches the
+// versionsKeyForApp pattern. Since the keys are sha256 hashes, we scan
+// all DB keys and check for the ChangeSet prefix to exclude data keys,
+// then exclude known version IDs.
+// This is used by GetIterator to filter out internal metadata.
+func (v *VersionedLDBKVStore) allKnownAppVersionKeys() (map[string]struct{}, [][]byte, error) {
+	excluded := make(map[string]struct{})
+	var allVersionIDs [][]byte
+
+	// Scan all keys in the DB to find per-app versions keys.
+	// A versions key stores concatenated 32-byte version hashes (no ChangeSetPrefix).
+	// We identify them by checking: value is non-empty, length % 32 == 0, and first byte != ChangeSetPrefix.
+	iter := v.Db.NewIterator(nil, nil)
+	defer iter.Release()
+
+	for iter.Next() {
+		key := iter.Key()
+		value := iter.Value()
+
+		// Skip data keys (app state, wasm, etc.) — they don't start with ChangeSetPrefix
+		// and aren't 32-byte aligned. But ChangeSet entries DO start with ChangeSetPrefix.
+		// Versions keys contain raw concatenated 32-byte hashes.
+		if len(key) == ConstantsHashLength && len(value) > 0 {
+			// Could be a versions key or a changeset key.
+			if value[0] == ChangeSetPrefix {
+				// This is a ChangeSet entry (version ID -> changeset data).
+				// Exclude it from the iterator.
+				excluded[string(key)] = struct{}{}
+				allVersionIDs = append(allVersionIDs, append([]byte{}, key...))
+			} else if len(value)%ConstantsHashLength == 0 {
+				// This looks like a versions key (concatenated 32-byte version hashes).
+				excluded[string(key)] = struct{}{}
+				// Also parse and exclude the version IDs it references.
+				for i := 0; i < len(value); i += ConstantsHashLength {
+					vid := value[i : i+ConstantsHashLength]
+					excluded[string(vid)] = struct{}{}
+					allVersionIDs = append(allVersionIDs, append([]byte{}, vid...))
+				}
+			}
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return nil, nil, fmt.Errorf("failed to scan for app version keys: %w", err)
+	}
+
+	// Also exclude the legacy global VersionsKey if present.
+	excluded[string(VersionsKey[:])] = struct{}{}
+
+	return excluded, allVersionIDs, nil
+}
+
+func (v *VersionedLDBKVStore) VersionIDExists(appID uint64, versionID []byte) (bool, error) {
+	versions, err := v.Versions(appID)
 	if err != nil {
 		return false, err
 	}
@@ -305,16 +374,10 @@ func (v *VersionedLDBKVStore) GetIterator() storage.StorageIterator {
 		return &errorIterator{err: fmt.Errorf("leveldb: %w", err)}
 	}
 
-	excludedKeysMap := make(map[string]struct{})
-	excludedKeysMap[string(VersionsKey[:])] = struct{}{}
-
-	currentVersions, err := v.Versions()
+	excludedKeysMap, _, err := v.allKnownAppVersionKeys()
 	if err != nil {
 		snapshot.Release()
-		return &errorIterator{err: fmt.Errorf("failed to get version list for iterator filtering: %w", err)}
-	}
-	for _, verID := range currentVersions {
-		excludedKeysMap[string(verID)] = struct{}{}
+		return &errorIterator{err: fmt.Errorf("failed to get version keys for iterator filtering: %w", err)}
 	}
 
 	return &ldbStorageIterator{

@@ -96,10 +96,10 @@ func (s *VersionedLevelDbStorageAdapter) GetAll() ([]storage.KeyValuePair, error
 	return allPairs, nil
 }
 
-func (s *VersionedLevelDbStorageAdapter) LastVersionID() ([]byte, error) {
+func (s *VersionedLevelDbStorageAdapter) LastVersionID(appID uint64) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	versions, err := s.dataBase.Versions()
+	versions, err := s.dataBase.Versions(appID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get versions for LastVersionID: %w", err)
 	}
@@ -109,7 +109,7 @@ func (s *VersionedLevelDbStorageAdapter) LastVersionID() ([]byte, error) {
 	return versions[0], nil
 }
 
-func (s *VersionedLevelDbStorageAdapter) Update(versionID []byte, toUpdate []storage.KeyValuePair, toRemove [][]byte) error {
+func (s *VersionedLevelDbStorageAdapter) Update(appID uint64, versionID []byte, toUpdate []storage.KeyValuePair, toRemove [][]byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -141,25 +141,25 @@ func (s *VersionedLevelDbStorageAdapter) Update(versionID []byte, toUpdate []sto
 		seenKeys[keyStr] = struct{}{}
 	}
 
-	return s.dataBase.Update(toUpdate, toRemove, versionID)
+	return s.dataBase.Update(appID, toUpdate, toRemove, versionID)
 }
 
-func (s *VersionedLevelDbStorageAdapter) Rollback(versionID []byte) error {
+func (s *VersionedLevelDbStorageAdapter) Rollback(appID uint64, versionID []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.dataBase.RollbackTo(versionID)
+	return s.dataBase.RollbackTo(appID, versionID)
 }
 
-func (s *VersionedLevelDbStorageAdapter) RollbackVersions() ([][]byte, error) {
+func (s *VersionedLevelDbStorageAdapter) RollbackVersions(appID uint64) ([][]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.dataBase.Versions()
+	return s.dataBase.Versions(appID)
 }
 
-func (s *VersionedLevelDbStorageAdapter) RollbackVersionsLimited(maxNumberOfItems int) ([][]byte, error) {
+func (s *VersionedLevelDbStorageAdapter) RollbackVersionsLimited(appID uint64, maxNumberOfItems int) ([][]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	versions, err := s.dataBase.Versions()
+	versions, err := s.dataBase.Versions(appID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get versions for rollbackVersionsLimited: %w", err)
 	}
@@ -191,20 +191,20 @@ func createDb(path string, versionsToKeep int) (*VersionedLDBKVStore, error) {
 	return NewVersionedLDBKVStore(db, versionsToKeep), nil
 }
 
-func (s *VersionedLevelDbStorageAdapter) IsEmpty() (bool, error) {
+func (s *VersionedLevelDbStorageAdapter) IsEmpty(appID uint64) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	versions, err := s.dataBase.Versions()
+	versions, err := s.dataBase.Versions(appID)
 	if err != nil {
 		return true, fmt.Errorf("error checking if empty: %w", err)
 	}
 	return len(versions) == 0, nil
 }
 
-func (s *VersionedLevelDbStorageAdapter) NumberOfVersions() (int, error) {
+func (s *VersionedLevelDbStorageAdapter) NumberOfVersions(appID uint64) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	versions, err := s.dataBase.Versions()
+	versions, err := s.dataBase.Versions(appID)
 	if err != nil {
 		return 0, fmt.Errorf("error getting number of versions: %w", err)
 	}
