@@ -6,15 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	apperrors "github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/common/testutil"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ var (
 type MockRequestHandler struct {
 	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
-	AdminCommandFunc func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
+	AdminCommandFunc   func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
@@ -485,7 +486,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	}
 
 	// Create a server
-	factory := NewTCPConnectionFactory(":8089")
+	factory := NewTCPConnectionFactory(reserveTCPAddress(t))
 	server := NewServer(factory, commParams, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(context.Background(), "Server")
@@ -531,4 +532,14 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	require.NotNil(t, failure)
 	assert.Contains(t, failure.Error(), "failed to send process request")
 	assert.Greater(t, elapsed, 30*time.Second, "Should timeout at least after 30 seconds")
+}
+
+func reserveTCPAddress(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	return listener.Addr().String()
 }

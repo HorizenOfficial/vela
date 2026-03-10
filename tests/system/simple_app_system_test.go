@@ -17,13 +17,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/HorizenOfficial/vela/pkg/executor"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/HorizenOfficial/vela/pkg/manager"
 	"github.com/HorizenOfficial/vela/pkg/testutil"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // host-side event types for test validation (app-specific, not framework types)
@@ -46,22 +46,11 @@ var deployRequestSender = ethCommon.HexToAddress("0x1000000000000000000000000000
 
 // getTestLogger creates a new logger instance for every test
 func getTestLogger(t *testing.T, useNetwork bool) logger.Logger {
-	if !useNetwork {
-		return logger.NewLogger(&logger.Config{
-			Kind:         "zerolog",
-			ConsoleLevel: "info",
-			Console:      true,
-			ConsoleColor: false,
-		})
-	}
-
-	// Network logger config
 	return logger.NewLogger(&logger.Config{
-		Kind:             "zeronetwork",
-		ConsoleLevel:     "trace",
-		RemoteLogNetwork: "tcp",
-		RemoteLogParams:  common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: 5000},
-		NetworkLevel:     "trace",
+		Kind:         "zerolog",
+		ConsoleLevel: "info",
+		Console:      true,
+		ConsoleColor: false,
 	})
 }
 

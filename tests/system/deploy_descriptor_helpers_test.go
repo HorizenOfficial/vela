@@ -10,10 +10,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/horizen-pes/pkg/authorityservice/deployartifact"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/testutil"
+	"github.com/HorizenOfficial/vela/pkg/authorityservice/deployartifact"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/testutil"
 	"github.com/stretchr/testify/require"
 )
 
