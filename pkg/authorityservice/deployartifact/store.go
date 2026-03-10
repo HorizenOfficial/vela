@@ -3,6 +3,7 @@ package deployartifact
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -107,17 +108,21 @@ func copyAndHash(dst *os.File, hasher hash.Hash, src io.Reader) (int64, error) {
 func renameIfMissing(src, dst string) error {
 	if _, err := os.Stat(dst); err == nil {
 		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to stat destination %s: %w", dst, err)
 	}
 
 	if err := os.Rename(src, dst); err == nil {
 		return nil
-	}
+	} else {
+		renameErr := err
 
-	if _, err := os.Stat(dst); err == nil {
-		// Another concurrent writer won the race; this is still a success.
-		return nil
+		if _, err := os.Stat(dst); err == nil {
+			// Another concurrent writer won the race; this is still a success.
+			return nil
+		}
+		return fmt.Errorf("rename %s -> %s failed: %w", src, dst, renameErr)
 	}
-	return fmt.Errorf("rename %s -> %s failed", src, dst)
 }
 
 func syncDir(dirPath string) error {

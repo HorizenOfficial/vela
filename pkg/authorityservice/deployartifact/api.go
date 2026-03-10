@@ -73,10 +73,17 @@ func (a *API) HandleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		a.log.Error("deploy/upload: failed to write response: %v", err)
+	respBytes, err := json.Marshal(resp)
+	if err != nil {
+		a.log.Error("deploy/upload: failed to encode response: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(append(respBytes, '\n')); err != nil {
+		a.log.Error("deploy/upload: failed to write response: %v", err)
 	}
 }
 
