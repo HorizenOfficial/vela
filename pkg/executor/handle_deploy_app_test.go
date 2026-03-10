@@ -41,7 +41,7 @@ func newDeployRequest(t *testing.T) (*common.Request, []byte) {
 	t.Helper()
 
 	wasmModule := []byte("mock-wasm-bytecode")
-	payload := buildDeployDescriptorPayload(t, common.NewApplicationId(1), wasmModule)
+	payload := buildDeployDescriptorPayload(t, wasmModule)
 
 	return &common.Request{
 		ProtocolVersion: 0,
@@ -54,7 +54,7 @@ func newDeployRequest(t *testing.T) (*common.Request, []byte) {
 	}, wasmModule
 }
 
-func buildDeployDescriptorPayload(t *testing.T, appID common.ApplicationIdType, wasmModule []byte) []byte {
+func buildDeployDescriptorPayload(t *testing.T, wasmModule []byte) []byte {
 	t.Helper()
 
 	sum := sha256.Sum256(wasmModule)
@@ -63,10 +63,9 @@ func buildDeployDescriptorPayload(t *testing.T, appID common.ApplicationIdType, 
 	require.NoError(t, err)
 
 	payload, err := json.Marshal(common.DeployDescriptor{
-		Mode:          common.DeployModeArtifactRef,
-		ApplicationID: appID,
-		ArtifactID:    artifactID,
-		WasmSHA256:    wasmSHA,
+		Mode:       common.DeployModeArtifactRef,
+		ArtifactID: artifactID,
+		WasmSHA256: wasmSHA,
 	})
 	require.NoError(t, err)
 
@@ -101,11 +100,9 @@ func TestHandleDeployApp_WrongRequestType(t *testing.T) {
 	req, wasmModule := newDeployRequest(t)
 	req.RequestType = common.Process
 
-	updatePayload, _, err := executor.HandleDeployApp(context.Background(), req, nil, wasmModule)
-	require.NoError(t, err)
-	require.NotNil(t, updatePayload)
-	require.Equal(t, uint8(apperrors.CodeInternalFallback.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to deploy application", updatePayload.ErrorMsg)
+	_, _, err := executor.HandleDeployApp(context.Background(), req, nil, wasmModule)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "is not deploy")
 }
 
 func TestHandleDeployApp_FeeBelowMinimum(t *testing.T) {
@@ -132,19 +129,6 @@ func TestHandleDeployApp_InvalidDescriptor(t *testing.T) {
 	require.Equal(t, "failed to deploy application", updatePayload.ErrorMsg)
 	require.Equal(t, [32]byte{}, updatePayload.PrevStateRoot)
 	require.Equal(t, [32]byte{}, updatePayload.NewStateRoot)
-}
-
-func TestHandleDeployApp_DescriptorApplicationIDMismatch(t *testing.T) {
-	executor := newTestExecutor(t, NewMockRuntime(testLogger))
-
-	req, wasmModule := newDeployRequest(t)
-	req.Payload = buildDeployDescriptorPayload(t, common.NewApplicationId(2), wasmModule)
-
-	updatePayload, _, err := executor.HandleDeployApp(context.Background(), req, nil, wasmModule)
-	require.NoError(t, err)
-	require.NotNil(t, updatePayload)
-	require.Equal(t, uint8(apperrors.CodeInternalFallback.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to deploy application", updatePayload.ErrorMsg)
 }
 
 func TestHandleDeployApp_NilWASM(t *testing.T) {

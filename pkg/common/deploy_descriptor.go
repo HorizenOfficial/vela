@@ -17,10 +17,9 @@ const (
 
 // DeployDescriptor defines the v1 deploy payload contract stored in Request.Payload.
 type DeployDescriptor struct {
-	Mode          string            `json:"mode"`
-	ApplicationID ApplicationIdType `json:"applicationId"`
-	ArtifactID    string            `json:"artifactId"`
-	WasmSHA256    string            `json:"wasmSha256"`
+	Mode       string `json:"mode"`
+	ArtifactID string `json:"artifactId"`
+	WasmSHA256 string `json:"wasmSha256"`
 }
 
 // DecodeDeployDescriptorStrict decodes deploy descriptor JSON with unknown-field rejection and full validation.
@@ -60,10 +59,6 @@ func (d *DeployDescriptor) Validate() error {
 		return fmt.Errorf("invalid deploy descriptor mode %q", d.Mode)
 	}
 
-	if d.ApplicationID == 0 {
-		return errors.New("invalid deploy descriptor applicationId: must be > 0")
-	}
-
 	if !isLowerHexFixedSize(d.WasmSHA256, sha256HexLength) {
 		return errors.New("invalid deploy descriptor wasmSha256: must be lowercase hex length 64")
 	}
@@ -77,20 +72,6 @@ func (d *DeployDescriptor) Validate() error {
 		return errors.New("invalid deploy descriptor: artifactId hash does not match wasmSha256")
 	}
 
-	return nil
-}
-
-// ValidateApplicationID checks that descriptor applicationId matches the expected request applicationId.
-func (d *DeployDescriptor) ValidateApplicationID(expected ApplicationIdType) error {
-	if err := d.Validate(); err != nil {
-		return err
-	}
-	if expected != NewApplicationId(1) {
-		return fmt.Errorf("invalid deploy descriptor applicationId: only applicationId 1 is currently supported, got expected %d", expected)
-	}
-	if d.ApplicationID != expected {
-		return fmt.Errorf("invalid deploy descriptor applicationId: expected %d got %d", expected, d.ApplicationID)
-	}
 	return nil
 }
 

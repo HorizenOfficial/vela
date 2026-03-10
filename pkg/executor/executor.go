@@ -793,12 +793,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 
 	if req.RequestType != common.Deploy {
-		errorPayload, err := e.processErrorResponse(
-			req,
-			deployStateRoot(appState),
-			apperrors.New(apperrors.CodeInternalFallback, deployDescriptorFailureMsg),
-		)
-		return errorPayload, nil, err
+		return nil, nil, fmt.Errorf("request type %s is not deploy", req.RequestType)
 	}
 
 	if appState != nil {
@@ -812,15 +807,6 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	descriptor, err := common.DecodeDeployDescriptorStrict(req.Payload)
 	if err != nil {
-		errorPayload, err := e.processErrorResponse(
-			req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeInternalFallback, deployDescriptorFailureMsg),
-		)
-		return errorPayload, nil, err
-	}
-
-	if err := descriptor.ValidateApplicationID(req.ApplicationID); err != nil {
 		errorPayload, err := e.processErrorResponse(
 			req,
 			emptyStateRoot,
@@ -998,13 +984,6 @@ func (e *StatelessExecutor) processErrorResponse(req *common.Request, stateRoot 
 	}
 	e.log.Info("Executor: Returning signed error payload for request %s (error code: %d)", req.RequestID, payload.ErrorCode)
 	return payload, nil
-}
-
-func deployStateRoot(appState *common.ApplicationState) [32]byte {
-	if appState == nil {
-		return emptyStateRoot
-	}
-	return appState.StateRoot
 }
 
 // signUpdatePayload signs the update payload to produce an attestation

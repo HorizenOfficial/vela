@@ -237,7 +237,7 @@ func createDeployRequestWithWASM(t *testing.T, manager *SecureProcessorManager, 
 
 	sum := sha256.Sum256(wasm)
 	wasmSHA := hex.EncodeToString(sum[:])
-	descriptorPayload := createDeployDescriptorPayload(t, appID, wasmSHA)
+	descriptorPayload := createDeployDescriptorPayload(t, wasmSHA)
 
 	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
 	require.NoError(t, os.MkdirAll(filepath.Dir(artifactBlobPath), 0o755))
@@ -246,17 +246,16 @@ func createDeployRequestWithWASM(t *testing.T, manager *SecureProcessorManager, 
 	return createRequestWithPayload(common.Deploy, appID, descriptorPayload)
 }
 
-func createDeployDescriptorPayload(t *testing.T, appID common.ApplicationIdType, wasmSHA string) []byte {
+func createDeployDescriptorPayload(t *testing.T, wasmSHA string) []byte {
 	t.Helper()
 
 	artifactID, err := common.BuildArtifactID(wasmSHA)
 	require.NoError(t, err)
 
 	descriptor := common.DeployDescriptor{
-		Mode:          common.DeployModeArtifactRef,
-		ApplicationID: appID,
-		ArtifactID:    artifactID,
-		WasmSHA256:    wasmSHA,
+		Mode:       common.DeployModeArtifactRef,
+		ArtifactID: artifactID,
+		WasmSHA256: wasmSHA,
 	}
 	payload, err := json.Marshal(descriptor)
 	require.NoError(t, err)
@@ -721,7 +720,7 @@ func TestProcessDeployApp_MissingArtifactStaysPending(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	missingSHA := strings.Repeat("a", 64)
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, missingSHA))
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, missingSHA))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -755,7 +754,7 @@ func TestProcessDeployApp_ArtifactReadErrorSendsNilWASMToExecutor(t *testing.T) 
 	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
 	require.NoError(t, os.MkdirAll(artifactBlobPath, 0o755))
 
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA))
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, wasmSHA))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -787,7 +786,7 @@ func TestProcessDeployApp_AvailableArtifactForwardsDescriptorAndWASM(t *testing.
 	wasm := []byte("available-wasm")
 	sum := sha256.Sum256(wasm)
 	wasmSHA := hex.EncodeToString(sum[:])
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, wasmSHA))
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, wasmSHA))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -821,7 +820,7 @@ func TestProcessDeployApp_HashMismatchIsHandledByExecutor(t *testing.T) {
 	descriptorHash := strings.Repeat("b", 64)
 	writeArtifactBlob(t, manager, descriptorHash, wasm)
 
-	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, ApplicationId, descriptorHash))
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, descriptorHash))
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 

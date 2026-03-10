@@ -11,7 +11,6 @@ func TestDecodeDeployDescriptorStrict_Valid(t *testing.T) {
 	sha := strings.Repeat("a", 64)
 	payload := []byte(`{
 		"mode":"artifact_ref",
-		"applicationId":1,
 		"artifactId":"sha256:` + sha + `",
 		"wasmSha256":"` + sha + `"
 	}`)
@@ -19,7 +18,6 @@ func TestDecodeDeployDescriptorStrict_Valid(t *testing.T) {
 	descriptor, err := DecodeDeployDescriptorStrict(payload)
 	require.NoError(t, err)
 	require.Equal(t, DeployModeArtifactRef, descriptor.Mode)
-	require.Equal(t, NewApplicationId(1), descriptor.ApplicationID)
 	require.Equal(t, "sha256:"+sha, descriptor.ArtifactID)
 	require.Equal(t, sha, descriptor.WasmSHA256)
 }
@@ -38,10 +36,22 @@ func TestDecodeDeployDescriptorStrict_RejectsUnknownField(t *testing.T) {
 	sha := strings.Repeat("a", 64)
 	payload := []byte(`{
 		"mode":"artifact_ref",
-		"applicationId":1,
 		"artifactId":"sha256:` + sha + `",
 		"wasmSha256":"` + sha + `",
 		"version":1
+	}`)
+
+	_, err := DecodeDeployDescriptorStrict(payload)
+	require.ErrorContains(t, err, "unknown field")
+}
+
+func TestDecodeDeployDescriptorStrict_RejectsLegacyApplicationIDField(t *testing.T) {
+	sha := strings.Repeat("a", 64)
+	payload := []byte(`{
+		"mode":"artifact_ref",
+		"applicationId":1,
+		"artifactId":"sha256:` + sha + `",
+		"wasmSha256":"` + sha + `"
 	}`)
 
 	_, err := DecodeDeployDescriptorStrict(payload)
@@ -52,7 +62,6 @@ func TestDecodeDeployDescriptorStrict_RejectsInvalidMode(t *testing.T) {
 	sha := strings.Repeat("a", 64)
 	payload := []byte(`{
 		"mode":"inline",
-		"applicationId":1,
 		"artifactId":"sha256:` + sha + `",
 		"wasmSha256":"` + sha + `"
 	}`)
@@ -61,24 +70,10 @@ func TestDecodeDeployDescriptorStrict_RejectsInvalidMode(t *testing.T) {
 	require.ErrorContains(t, err, "invalid deploy descriptor mode")
 }
 
-func TestDecodeDeployDescriptorStrict_RejectsNonNumericApplicationID(t *testing.T) {
-	sha := strings.Repeat("a", 64)
-	payload := []byte(`{
-		"mode":"artifact_ref",
-		"applicationId":"1",
-		"artifactId":"sha256:` + sha + `",
-		"wasmSha256":"` + sha + `"
-	}`)
-
-	_, err := DecodeDeployDescriptorStrict(payload)
-	require.ErrorContains(t, err, "cannot unmarshal string")
-}
-
 func TestDecodeDeployDescriptorStrict_RejectsMissingArtifactID(t *testing.T) {
 	sha := strings.Repeat("a", 64)
 	payload := []byte(`{
 		"mode":"artifact_ref",
-		"applicationId":1,
 		"wasmSha256":"` + sha + `"
 	}`)
 
@@ -90,7 +85,6 @@ func TestDecodeDeployDescriptorStrict_RejectsInvalidArtifactIDFormat(t *testing.
 	sha := strings.Repeat("a", 64)
 	payload := []byte(`{
 		"mode":"artifact_ref",
-		"applicationId":1,
 		"artifactId":"invalid:` + sha + `",
 		"wasmSha256":"` + sha + `"
 	}`)
@@ -104,7 +98,6 @@ func TestDecodeDeployDescriptorStrict_RejectsArtifactHashMismatch(t *testing.T) 
 	wasmSHA := strings.Repeat("b", 64)
 	payload := []byte(`{
 		"mode":"artifact_ref",
-		"applicationId":1,
 		"artifactId":"sha256:` + artifactSHA + `",
 		"wasmSha256":"` + wasmSHA + `"
 	}`)
@@ -117,7 +110,6 @@ func TestDecodeDeployDescriptorStrict_RejectsUppercaseWasmHash(t *testing.T) {
 	sha := strings.Repeat("A", 64)
 	payload := []byte(`{
 		"mode":"artifact_ref",
-		"applicationId":1,
 		"artifactId":"sha256:` + strings.Repeat("a", 64) + `",
 		"wasmSha256":"` + sha + `"
 	}`)
@@ -148,20 +140,4 @@ func TestParseArtifactID(t *testing.T) {
 func TestParseArtifactID_InvalidFormat(t *testing.T) {
 	_, err := ParseArtifactID("sha:abc")
 	require.ErrorContains(t, err, "must start with sha256")
-}
-
-func TestDeployDescriptorValidateApplicationID(t *testing.T) {
-	sha := strings.Repeat("a", 64)
-	descriptor := &DeployDescriptor{
-		Mode:          DeployModeArtifactRef,
-		ApplicationID: NewApplicationId(1),
-		ArtifactID:    "sha256:" + sha,
-		WasmSHA256:    sha,
-	}
-
-	require.NoError(t, descriptor.ValidateApplicationID(NewApplicationId(1)))
-	require.ErrorContains(t, descriptor.ValidateApplicationID(NewApplicationId(2)), "only applicationId 1 is currently supported")
-
-	descriptor.ApplicationID = NewApplicationId(2)
-	require.ErrorContains(t, descriptor.ValidateApplicationID(NewApplicationId(1)), "expected 1 got 2")
 }

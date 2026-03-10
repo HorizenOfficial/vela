@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func uploadArtifactAndBuildDescriptorPayload(t *testing.T, suite *testutil.SystemTestSuite, appID common.ApplicationIdType, wasmBytecode []byte) []byte {
+func uploadArtifactAndBuildDescriptorPayload(t *testing.T, suite *testutil.SystemTestSuite, wasmBytecode []byte) []byte {
 	t.Helper()
 
 	store, err := deployartifact.NewStore(suite.GetArtifactsPath())
@@ -49,10 +49,9 @@ func uploadArtifactAndBuildDescriptorPayload(t *testing.T, suite *testutil.Syste
 	require.Equal(t, localArtifactID, uploadResp.ArtifactID)
 
 	descriptor := common.DeployDescriptor{
-		Mode:          common.DeployModeArtifactRef,
-		ApplicationID: appID,
-		ArtifactID:    uploadResp.ArtifactID,
-		WasmSHA256:    uploadResp.WasmSHA256,
+		Mode:       common.DeployModeArtifactRef,
+		ArtifactID: uploadResp.ArtifactID,
+		WasmSHA256: uploadResp.WasmSHA256,
 	}
 	payload, err := json.Marshal(descriptor)
 	require.NoError(t, err)
