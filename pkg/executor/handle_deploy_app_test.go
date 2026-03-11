@@ -262,7 +262,7 @@ func TestHandleDeployApp_Success(t *testing.T) {
 	// WASM fingerprint must be persisted in private app state
 	decryptedAppData, err := executor.fromEncryptedStateToAppData(newAppState)
 	require.NoError(t, err)
-	require.Equal(t, sha256.Sum256(req.Payload), decryptedAppData.GetWasmFingerprint())
+	require.Equal(t, sha256.Sum256(wasmModule), decryptedAppData.GetWasmFingerprint())
 
 	// RefundAmount + ApplicationFee == MaxFeeValue
 	refund := updatePayload.RefundAmount.ToInt()
