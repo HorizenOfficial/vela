@@ -705,9 +705,6 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		// Submit the signed error payload to the blockchain (no state to store)
 		return m.submitStateOnChain(ctx, updatePayload)
 	}
-	if len(wasmModule) == 0 {
-		return fmt.Errorf("executor returned successful deploy without wasm module")
-	}
 
 	// Store the application state and WASM bytecode
 	versionID := appState.StateRoot[:]
