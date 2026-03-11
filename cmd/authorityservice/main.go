@@ -48,10 +48,17 @@ func main() {
 		log.Error("Reports path is not configured")
 		return
 	}
+	if strings.TrimSpace(cfg.DeployArtifactsPath) == "" {
+		log.Error("Deploy artifacts path is not configured")
+		return
+	}
 
 	if strings.TrimSpace(cfg.SubgraphURL) == "" {
 		log.Error("Subgraph URL is not configured")
 		return
+	}
+	if cfg.DeployArtifactsMaxSizeMB == 0 {
+		log.Warn("DEPLOY_ARTIFACTS_MAX_SIZE_MB is 0: upload size limit is disabled")
 	}
 
 	sg := subgraph.NewClient(cfg.SubgraphURL)
@@ -63,7 +70,15 @@ func main() {
 	}
 	healthCancel()
 
-	svc, err := authorityservice.NewAuthorityService(cfg.ChainID, time.Duration(cfg.NonceTTLSeconds)*time.Second, cfg.ReportsPath, sg, log)
+	svc, err := authorityservice.NewAuthorityService(
+		cfg.ChainID,
+		time.Duration(cfg.NonceTTLSeconds)*time.Second,
+		cfg.ReportsPath,
+		cfg.DeployArtifactsPath,
+		cfg.DeployArtifactsMaxSizeMB,
+		sg,
+		log,
+	)
 	if err != nil {
 		log.Error("Failed to create authority service: %v", err)
 		return

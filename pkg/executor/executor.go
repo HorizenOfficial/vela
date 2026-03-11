@@ -35,6 +35,11 @@ var (
 	emptyStateRoot          = [32]byte{}
 )
 
+const (
+	deployDescriptorFailureMsg = "failed to deploy application"
+	deployLoadFailureMsg       = "failed to load or get module"
+)
+
 func CreateNewKeySet() (*EnclaveKeySet, error) {
 	// If all three fixed key env vars are set, import from hex instead of generating.
 	// This allows using deterministic keys in dev/test environments.
@@ -782,7 +787,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 }
 
 // HandleDeployApp implements the RequestHandler interface
-func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	e.log.Info("Executor: Deploying application for request %s", req.RequestID)
 
 	if err := e.validateRequest(req); err != nil {
@@ -802,9 +807,34 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 		return errorPayload, nil, err
 	}
 
-	// For deployment, we need to initialize the application with the WASM module
-	// The payload should contain the WASM bytecode
-	wasmModule := req.Payload
+	descriptor, err := common.DecodeDeployDescriptorStrict(req.Payload)
+	if err != nil {
+		errorPayload, err := e.processErrorResponse(
+			req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeInternalFallback, deployDescriptorFailureMsg),
+		)
+		return errorPayload, nil, err
+	}
+
+	if len(wasmModule) == 0 {
+		errorPayload, err := e.processErrorResponse(
+			req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg),
+		)
+		return errorPayload, nil, err
+	}
+
+	moduleSHA := sha256.Sum256(wasmModule)
+	if got := hex.EncodeToString(moduleSHA[:]); got != descriptor.WasmSHA256 {
+		errorPayload, err := e.processErrorResponse(
+			req,
+			emptyStateRoot,
+			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg),
+		)
+		return errorPayload, nil, err
+	}
 
 	// Load the module and get initial state
 	initialAppState, fuel, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
@@ -812,8 +842,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 		errorPayload, err := e.processErrorResponse(req,
 			emptyStateRoot,
-			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule,
-				"failed to load or get module"))
+			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg))
 		return errorPayload, nil, err
 	}
 

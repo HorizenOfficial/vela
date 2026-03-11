@@ -63,6 +63,11 @@
   },
   {
     "inputs": [],
+    "name": "DeployerNotAllowed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "FeeValueBelowMinimum",
     "type": "error"
   },
@@ -481,6 +486,19 @@
   },
   {
     "inputs": [],
+    "name": "DEPLOYER_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "PROTOCOL_VERSION",
     "outputs": [
       {
@@ -503,6 +521,19 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "deployer",
+        "type": "address"
+      }
+    ],
+    "name": "addAllowedDeployer",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -853,6 +884,25 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "deployer",
+        "type": "address"
+      }
+    ],
+    "name": "isAllowedDeployer",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "allowed",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "bytes32",
         "name": "requestId",
         "type": "bytes32"
@@ -912,6 +962,19 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "deployer",
+        "type": "address"
+      }
+    ],
+    "name": "removeAllowedDeployer",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

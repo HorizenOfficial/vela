@@ -121,6 +121,7 @@ async function deploy() {
   console.log(`ProcessorEndpoint`);
   console.log(`  contract address: ${processorEndpointAddr}`);
   console.log(`  update status operator (manager address): ${process.env.UPDATE_STATUS_OPERATOR!}`);
+  console.log(`  admin / bootstrap deployer: ${process.env.ADMIN!}`);
 
   // Write deployed addresses to file if DEPLOY_OUTPUT_DIR is set
   const outputDir = process.env.DEPLOY_OUTPUT_DIR;
