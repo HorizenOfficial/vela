@@ -59,9 +59,8 @@ type Config struct {
 	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
 	DeanonymizationReportPath string
 
-	// InputWasmPath is the path where the wasm bytecode to be deployed is retrieved if not found in the payload
-	// (we may need to load it externally for GAS limitation)
-	InputWasmPath string
+	// ArtifactsPath is the shared filesystem path where deploy artifacts are stored.
+	ArtifactsPath string
 
 	// Manager logging
 	//--------------------------
@@ -191,7 +190,7 @@ func LoadConfig() (*Config, error) {
 		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
 		DataLayerNumOfVersions:    10,
 		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/vela-data/manager_reports", fileProperties),
-		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
+		ArtifactsPath:             common.GetConfigVar("MANAGER_ARTIFACTS_PATH", "", fileProperties),
 		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
 		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
 		LogConsoleLevel:           common.GetConfigVar("MANAGER_LOG_CONSOLE_LEVEL", "info", fileProperties),
@@ -213,6 +212,11 @@ func LoadConfig() (*Config, error) {
 
 	if strings.TrimSpace(cfg.DeanonymizationReportPath) == "" {
 		return nil, fmt.Errorf("MANAGER_REPORTS_FOLDER (DeanonymizationReportPath) not configured")
+	}
+
+	cfg.ArtifactsPath = strings.TrimSpace(cfg.ArtifactsPath)
+	if cfg.ArtifactsPath == "" {
+		return nil, fmt.Errorf("MANAGER_ARTIFACTS_PATH not configured")
 	}
 
 	return cfg, nil

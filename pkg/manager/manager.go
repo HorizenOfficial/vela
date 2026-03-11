@@ -646,7 +646,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 				m.log.Warn("REORG, wait for next poll")
 				return nil
 			}
-		} 
+		}
 		return err
 	}
 
@@ -672,22 +672,29 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		}
 	}
 
-	//if the payload is empty, try to retrieve the wasm locally. In case of error, try again hoping someone fixes the problem
-	if len(req.Payload) == 0 {
-		m.log.Info("Empty payload received - trying to retrieve wasm locally")
-		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID.String()+".wasm")
-		if !common.FileExists(wasmFilePath) {
-			return fmt.Errorf("failed to deploy application - wasm %v not found in both payload or local path", wasmFilePath)
+	wasmModule, resolveErr := m.resolveDeployWASM(ctx, req)
+	if resolveErr != nil {
+		if dErr, ok := resolveErr.(*deployResolutionError); ok {
+			m.log.Warn(
+				"Manager: continuing deploy with unresolved artifact requestId=%s applicationId=%d kind=%s err=%v",
+				req.RequestID,
+				req.ApplicationID,
+				dErr.kind,
+				resolveErr,
+			)
+		} else {
+			m.log.Warn(
+				"Manager: continuing deploy with unresolved artifact requestId=%s applicationId=%d err=%v",
+				req.RequestID,
+				req.ApplicationID,
+				resolveErr,
+			)
 		}
-		wasmBytesFromFile, err := os.ReadFile(wasmFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to deploy application - Error reading wasm file: %w", err)
-		}
-		req.Payload = wasmBytesFromFile
+		wasmModule = nil
 	}
 
 	// Deploy the application
-	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req, state)
+	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req, state, wasmModule)
 	if err != nil {
 		return err
 	}
@@ -705,7 +712,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		ctx,
 		versionID[:],
 		[]*common.ApplicationState{appState},
-		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: req.Payload}},
+		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: wasmModule}},
 	)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)

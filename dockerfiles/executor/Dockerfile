@@ -19,7 +19,7 @@ COPY . .
 
 ARG GIT_VERSION=dev
 RUN CGO_ENABLED=1 GOOS=linux go build \
-    -ldflags "-X github.com/horizen-pes/pkg/version.Version=${GIT_VERSION}" \
+    -ldflags "-X github.com/HorizenOfficial/vela/pkg/version.Version=${GIT_VERSION}" \
     -o /executor ./cmd/executor
 
 # --- Runtime Stage ---

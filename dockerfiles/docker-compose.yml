@@ -8,7 +8,7 @@ networks:
 
 volumes:
   horizen-cce-manager-data:
-  horizen-cce-manager-reports:
+  horizen-cce-shared-data:
   horizen-cce-chain-data:
   horizen-cce-logs:
   horizen-cce-deploy-data:
@@ -88,9 +88,7 @@ services:
       - MANAGER_ADMIN_PORT
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
-      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
-      - MANAGER_INPUT_WASMS
-      # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
+      - SHARED_DATA_FOLDER=${SHARED_DATA_FOLDER:-/shared-data}
       - MANAGER_LOG_KIND
       - MANAGER_LOG_CONSOLE
       - MANAGER_LOG_CONSOLE_LEVEL
@@ -125,9 +123,7 @@ services:
       inet:    
     volumes:
       - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
-      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
-      # WASM input folder
-      - ./wasms:${MANAGER_INPUT_WASMS:-/input_wasms}
+      - horizen-cce-shared-data:${SHARED_DATA_FOLDER:-/shared-data}
       - horizen-cce-logs:${LOG_SERVER_FOLDER:-/logs}
       - horizen-cce-deploy-data:/deploy-data:ro
     depends_on:
@@ -150,7 +146,8 @@ services:
       - CHAIN_RPC_PORT
       - CHAIN_PROCESSOR_ADDRESS
       - AUTHORITY_SERVICE_SUBGRAPH_URL
-      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
+      - SHARED_DATA_FOLDER=${SHARED_DATA_FOLDER:-/shared-data}
+      - DEPLOY_ARTIFACTS_MAX_SIZE_MB
       - AUTHORITY_SERVICE_LOG_CONSOLE
       - AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL
       - AUTHORITY_SERVICE_LOG_CONSOLE_COLOR
@@ -161,7 +158,7 @@ services:
         ipv4_address: ${AUTHORITY_SERVICE_IP_ADDRESS}
       inet:
     volumes:
-      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
+      - horizen-cce-shared-data:${SHARED_DATA_FOLDER:-/shared-data}
       - horizen-cce-deploy-data:/deploy-data:ro
     depends_on:
       manager:

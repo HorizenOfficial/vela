@@ -159,7 +159,7 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 }
 
 // SendDeployApp sends a deploy app request and waits for response
-func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	uid := generateID()
 	c.log.Debug("Generated UID: %s", uid)
 
@@ -169,6 +169,7 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 		Data: DeployAppRequestData{
 			Request:          req,
 			ApplicationState: appState,
+			WasmModule:       wasmModule,
 		},
 	}
 

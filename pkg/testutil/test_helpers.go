@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
@@ -22,6 +22,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
 	"github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
 	"github.com/HorizenOfficial/vela/pkg/wasm"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,6 +41,7 @@ type SystemTestSuite struct {
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 	dbPath             string
 	reportsPath        string
+	artifactsPath      string
 	log                logger.Logger
 }
 
@@ -68,27 +70,19 @@ func NewSystemTestSuiteWithConfigs(
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Normalize channel params for tests: default configs may use vsock, but tests run over TCP.
-	var tcpParams common.TcpChannelConnectionParams
-	switch p := execConfig.ChannelParams.(type) {
-	case common.TcpChannelConnectionParams:
-		tcpParams = p
-	case common.VSockChannelConnectionParams:
-		tcpParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
-		execConfig.ChannelParams = tcpParams
-		execConfig.ChannelType = "tcp"
-	default:
-		t.Fatal("unsupported executor channel params type")
-	}
-	switch p := mgrConfig.ChannelParams.(type) {
-	case common.TcpChannelConnectionParams:
-		// keep as is
-	case common.VSockChannelConnectionParams:
-		mgrConfig.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
-		mgrConfig.ChannelType = "tcp"
-	default:
-		t.Fatal("unsupported manager channel params type")
-	}
+	// Tests run over local TCP, so assign dedicated ephemeral ports to avoid cross-package collisions.
+	executorPort := mustGetFreeTCPPort(t)
+	logServerPort := mustGetFreeTCPPort(t)
+	adminPort := mustGetFreeTCPPort(t)
+
+	tcpParams := common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: executorPort}
+	execConfig.ChannelParams = tcpParams
+	execConfig.ChannelType = "tcp"
+	mgrConfig.ChannelParams = tcpParams
+	mgrConfig.ChannelType = "tcp"
+	execConfig.LogChannelParams = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: logServerPort}
+	mgrConfig.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: logServerPort}
+	mgrConfig.AdminChannelParams = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: adminPort}
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
@@ -110,6 +104,11 @@ func NewSystemTestSuiteWithConfigs(
 	// Create a temporary directory for the database
 	dbPath, err := os.MkdirTemp("", "vela-test-db")
 	require.NoError(t, err)
+
+	// Create a temporary directory for deploy artifacts and force manager to use it.
+	artifactsPath, err := os.MkdirTemp("", "horizen-pes-test-artifacts")
+	require.NoError(t, err)
+	mgrConfig.ArtifactsPath = artifactsPath
 
 	cfg := versioned_leveldb.VersionedLevelDBConfig{
 		DBPath:         dbPath,
@@ -172,6 +171,7 @@ func NewSystemTestSuiteWithConfigs(
 		cancel:           cancel,
 		dbPath:           dbPath,
 		reportsPath:      reportsPath,
+		artifactsPath:    artifactsPath,
 		log:              mgrLog,
 	}
 
@@ -181,6 +181,16 @@ func NewSystemTestSuiteWithConfigs(
 	}
 
 	return suite
+}
+
+func mustGetFreeTCPPort(t *testing.T) uint32 {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	return uint32(listener.Addr().(*net.TCPAddr).Port)
 }
 
 func (s *SystemTestSuite) StartManager() error {
@@ -353,6 +363,10 @@ func (s *SystemTestSuite) GetReportsPath() string {
 	return s.reportsPath
 }
 
+func (s *SystemTestSuite) GetArtifactsPath() string {
+	return s.artifactsPath
+}
+
 // WaitForWithdrawal waits for a withdrawal to be processed
 func (s *SystemTestSuite) WaitForWithdrawal(appID common.ApplicationIdType, timeout time.Duration) (*common.Withdrawal, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -425,6 +439,9 @@ func (s *SystemTestSuite) Cleanup() error {
 	// Remove the temporary reports directory
 	if s.reportsPath != "" {
 		os.RemoveAll(s.reportsPath)
+	}
+	if s.artifactsPath != "" {
+		os.RemoveAll(s.artifactsPath)
 	}
 
 	return nil

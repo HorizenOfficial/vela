@@ -27,7 +27,7 @@ func (h *mockCommRequestHandler) HandleProcessRequest(ctx context.Context, req *
 	return nil, nil, nil, apperrors.New(apperrors.CodeInternalFallback, "not implemented")
 }
 
-func (h *mockCommRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (h *mockCommRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	return nil, nil, apperrors.New(apperrors.CodeInternalFallback, "not implemented")
 }
 

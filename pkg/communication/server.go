@@ -44,12 +44,12 @@ type Server struct {
 }
 
 // NewServer creates a new server with the specified connection factory
-func NewServer(factory ConnectionFactory, communicationParams common.CommunicationParams,log logger.Logger) *Server {
+func NewServer(factory ConnectionFactory, communicationParams common.CommunicationParams, log logger.Logger) *Server {
 	return &Server{
 		factory:      factory,
 		shutdownChan: make(chan struct{}),
 		reqTimeout:   communicationParams.RequestTimeoutSec * time.Second,
-		log: log,
+		log:          log,
 	}
 }
 
@@ -477,7 +477,7 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		return
 	}
 
-	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request, reqData.ApplicationState)
+	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return

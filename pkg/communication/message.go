@@ -102,6 +102,18 @@ type DeployAppRequestData struct {
 	Request *common.Request `json:"request"`
 	// ApplicationState is the current state of the application
 	ApplicationState *common.ApplicationState `json:"applicationState"`
+	// WasmModule is the resolved WASM bytecode if available; nil means artifact unavailable/unresolved.
+	WasmModule []byte `json:"wasmModule"`
+}
+
+func (dad *DeployAppRequestData) Validate() error {
+	if dad.Request == nil {
+		return fmt.Errorf("Request is required")
+	}
+	if err := dad.Request.Validate(); err != nil {
+		return fmt.Errorf("invalid Request: %w", err)
+	}
+	return nil
 }
 
 // DeployAppResponseData represents data for a deploy app response message
