@@ -118,9 +118,31 @@ describe('ProcessorEndpoint Test', function () {
           )
         ).to.be.revertedWithCustomError(processorEndpoint, 'AuthorityNotAllowed');
       });
+
+      it('reverts with DeployerNotAllowed when DEPLOYAPP sender lacks DEPLOYER_ROLE', async () => {
+        await expect(
+          processorEndpoint
+            .connect(signers[0])
+            .submitRequest(0, 1, REQUEST_TYPE_DEPLOYAPP, '0x01', 0, minFeePerRequest, {
+              value: minFeePerRequest,
+            })
+        ).to.be.revertedWithCustomError(processorEndpoint, 'DeployerNotAllowed');
+      });
     });
 
     describe('happy paths', function () {
+      it('accepts DEPLOYAPP from the bootstrap admin deployer', async () => {
+        const tx = await processorEndpoint
+          .connect(signers[2])
+          .submitRequest(0, 1, REQUEST_TYPE_DEPLOYAPP, '0x01', 0, minFeePerRequest, {
+            value: minFeePerRequest,
+          });
+
+        await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
+        const receipt = await tx.wait();
+        expect(receipt.logs[0].args.sender).to.equal(await signers[2].getAddress());
+      });
+
       it('emits RequestSubmitted and stores request data for retrieval', async () => {
         const protocolVersion = 0;
         const applicationId = 1;
@@ -200,15 +222,11 @@ describe('ProcessorEndpoint Test', function () {
         const maxFeeValue = minFeePerRequest;
         const associatePayload = '0x' + '11'.repeat(133);
 
-        await processorEndpoint.submitRequest(
-          0,
-          1,
-          REQUEST_TYPE_DEPLOYAPP,
-          '0x01',
-          0,
-          maxFeeValue,
-          { value: maxFeeValue }
-        );
+        await processorEndpoint
+          .connect(signers[2])
+          .submitRequest(0, 1, REQUEST_TYPE_DEPLOYAPP, '0x01', 0, maxFeeValue, {
+            value: maxFeeValue,
+          });
         await processorEndpoint.submitRequest(0, 1, REQUEST_TYPE_PROCESS, '0x02', 0, maxFeeValue, {
           value: maxFeeValue,
         });

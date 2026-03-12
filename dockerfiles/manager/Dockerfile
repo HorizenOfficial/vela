@@ -39,20 +39,18 @@ WORKDIR /app/contracts
 RUN npm ci
 WORKDIR /app
 
-ENV GOPRIVATE=github.com/HorizenOfficial/*
-
 # Copy go.mod and go.sum to download Go dependencies
 COPY go.mod go.sum ./
-RUN --mount=type=secret,id=gh_token \
-    git config --global url."https://$(cat /run/secrets/gh_token):@github.com/".insteadOf "https://github.com/" && \
-    go mod download && \
-    rm -f /root/.gitconfig
+RUN go mod download
 
 # Copy the rest of the source code
 COPY . .
 
 # Build the manager binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /manager ./cmd/manager
+ARG GIT_VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X github.com/HorizenOfficial/vela/pkg/version.Version=${GIT_VERSION}" \
+    -o /manager ./cmd/manager
 
 # --- Runtime Stage ---
 FROM alpine:latest
@@ -62,10 +60,8 @@ RUN apk add --no-cache su-exec
 
 #default location for data folder (can be overridden by docker compose or docker run)
 ENV MANAGER_DATA_FOLDER="/data"
-#default location for reports folder (can be overridden by docker compose or docker run)
-ENV MANAGER_REPORTS_FOLDER="/reports"
-#default location for input wasms folder (can be overridden by docker compose or docker run)
-ENV MANAGER_INPUT_WASMS="/input_wasms"
+# default location for shared reports/artifacts data (entrypoint derives subfolders)
+ENV SHARED_DATA_FOLDER="/shared-data"
 #default location for logs folder (can be overridden by docker compose or docker run)
 ENV LOG_SERVER_FOLDER="/logs"
 
@@ -80,7 +76,7 @@ RUN chmod +x /entrypoint.sh
 COPY --from=builder /manager /manager
 
 VOLUME ${MANAGER_DATA_FOLDER}
-VOLUME ${MANAGER_REPORTS_FOLDER}
+VOLUME ${SHARED_DATA_FOLDER}
 VOLUME ${LOG_SERVER_FOLDER}
 
 # Set the entrypoint to our script.

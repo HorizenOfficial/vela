@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/ethereum/go-ethereum/crypto"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 )
 
 /*

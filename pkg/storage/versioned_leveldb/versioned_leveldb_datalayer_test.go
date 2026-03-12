@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/storage"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
-	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	versionedDb "github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
 )
 
 var testVersionedLevelDBBaseDir string

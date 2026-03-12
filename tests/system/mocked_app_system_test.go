@@ -12,13 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	commontestutil "github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/testutil"
-)
-
-var (
-	sender = ethCommon.HexToAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
+	"github.com/HorizenOfficial/vela/pkg/common"
+	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/testutil"
 )
 
 func TestDeployApp(t *testing.T) {
@@ -43,8 +39,8 @@ func TestDeployApp(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: ApplicationId,
 		RequestID:     RequestID,
-		Payload:       []byte("deploy-payload"),
-		Sender:        sender,
+		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("deploy-payload")),
+		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
@@ -94,8 +90,8 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: appID,
 		RequestID:     deployReqID,
-		Payload:       []byte("mock-runtime-app-bytecode"),
-		Sender:        userAddress,
+		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("mock-runtime-app-bytecode")),
+		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		DepositAmount: common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),

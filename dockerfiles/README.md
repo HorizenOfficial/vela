@@ -6,19 +6,13 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 1)  (Skip this step if you want to use the Docker hub official images)
     To build locally the docker images needed by the docker compose run *from the project root folder* the following commands.
 
-    **Prerequisites:** Some images (executor, manager, kms-proxy, authorityservice) pull dependencies from private GitHub repositories. You need a [GitHub Personal Access Token (PAT)](https://github.com/settings/tokens) with `read:packages` and `repo` scopes. Export it before building:
+    Build the images:
 
     ```
-    export GITHUB_TOKEN=ghp_your_token_here
-    ```
-
-    Then build the images:
-
-    ```
-    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-executor -f dockerfiles/executor/Dockerfile .
-    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-manager -f dockerfiles/manager/Dockerfile .
-    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/kms-proxy -f dockerfiles/kms_proxy/Dockerfile .
-    docker build --secret id=gh_token,env=GITHUB_TOKEN -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
+    docker build -t horizen/cce-executor -f dockerfiles/executor/Dockerfile .
+    docker build -t horizen/cce-manager -f dockerfiles/manager/Dockerfile .
+    docker build -t horizen/kms-proxy -f dockerfiles/kms_proxy/Dockerfile .
+    docker build -t horizen/cce-authorityservice -f dockerfiles/authorityservice/Dockerfile .
     docker build -t horizen/cce-chain -f dockerfiles/chain/Dockerfile .
     docker build -t horizen/cce-deployer -f dockerfiles/deployer/Dockerfile .
     docker build -t horizen/cce-subgraph-deployer -f dockerfiles/subgraph-deployer/Dockerfile .
@@ -60,13 +54,17 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 - the manager database and chain data are persisted in docker volumes (`horizen-cce-manager-data` for the DB, `horizen-cce-chain-data` for chain data).<br>
   To start from scratch, delete the volumes.
 - deployed contract addresses are stored in the `horizen-cce-deploy-data` volume. The deployer checks this on startup and skips deployment if contracts are already present on the chain.
-- deanonymization reports are stored in `horizen-cce-manager-reports`; the authority service shares this reports volume so it can read the same outputs.
+- shared runtime files for manager and authorityservice are stored in `horizen-cce-shared-data`, with `reports/` for deanonymization outputs and `artifacts/` for uploaded deploy WASM blobs.
 - to connect to the chain from Metamask, use the following parameters:
    - rpc url: http://localhost:8545
    - chainid: 31337
 
 Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.
 Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
+For WASM deploy v1, ensure these are configured consistently in `.env`:
+- `DEPLOYER_ADMIN`: this address is bootstrapped on-chain as the initial allowed deployer for `DEPLOYAPP`.
+- `SHARED_DATA_FOLDER`: docker entrypoints derive `${SHARED_DATA_FOLDER}/reports` and `${SHARED_DATA_FOLDER}/artifacts` automatically for manager and authorityservice.
+- `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: optional upload limit (`0` means unlimited).
 
 ## Restarting and volume management
 
@@ -76,27 +74,27 @@ Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUB
 - **Contracts modified**: rebuild the deployer image, delete both volumes, and restart.
 
 ## Where to go next
-The system is up and running, but you need to deploy an app inside it.
+The system is up and running, and you can deploy the app with the v1 descriptor flow.
 
-Currently only  a single-app manual deployment is supported:
-- the app wasm *must* be named *1.wasm* and put manually into the wasms/ folder before launching the deploy app command
-- launch a deploy app command with app id = 1 to initialize it
-
-Practical how-to for the horizen-pes-nova test app (Private transfer):
-- go to https://github.com/HorizenOfficial/horizen-pes-nova/releases/tag/v0.0.18
+Practical how-to for the `horizen-pes-nova` test app (Private transfer):
+- go to https://github.com/HorizenOfficial/vela-nova/releases/tag/v0.0.25
 - use payment_app.wasm (remember to rename to 1.wasm)
 - use the nova-linux wallet executable to launch the deploy command and interact with the app.
 
-    Use wallet.conf.template as wallet config file, with the following properties set to connect to this dev environment:
-    
     ```
-    rpcUrl=http://localhost:8545
-    ProcessorAddress=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
-    TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
-    AuthorityServiceURL=http://localhost:8081
-    SubgraphURL=http://localhost:8000/subgraphs/name/hcce
+    novaw deployapp --wasm /absolute/path/to/payment_app.wasm --max-value-fee "100 wei"
     ```
 
+If you submit deploys from a different wallet, grant it first with the ProcessorEndpoint management script (`contracts/scripts/management/addAllowedDeployer.ts`) using the admin account.
 
+Use `wallet.conf.template` as wallet config file, with the following properties set to connect to this dev environment:
 
+```
+rpcUrl=http://localhost:8545
+ProcessorAddress=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+AuthorityServiceURL=http://localhost:8081
+SubgraphURL=http://localhost:8000/subgraphs/name/hcce
+```
 
+Current v1 limitation: deploy still targets `applicationId=1`.

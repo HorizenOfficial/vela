@@ -6,7 +6,7 @@ package storage
 import (
 	"context"
 
-	"github.com/horizen-pes/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
 // ApplicationStateStore defines the interface for managing versioned application state,

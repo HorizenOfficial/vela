@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/bytecodealliance/wasmtime-go"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
-	appCommon "github.com/horizen-pes/pkg/wasm/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

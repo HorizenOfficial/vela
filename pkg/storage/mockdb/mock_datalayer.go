@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/storage"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
 )
 
 // MockDataLayer is a mock implementation of the data layer for testing.

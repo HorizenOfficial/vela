@@ -15,6 +15,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   //constants
   bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
   bytes32 public constant ADMIN = keccak256('ADMIN');
+  bytes32 public constant DEPLOYER_ROLE = keccak256('DEPLOYER_ROLE');
   uint8 public constant PROTOCOL_VERSION = 0;
   uint64 public constant APPLICATION_ID = 1;
 
@@ -71,6 +72,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     feeCollector = payable(updateStatusOperator);
     _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
     _grantRole(ADMIN, admin);
+    _setRoleAdmin(DEPLOYER_ROLE, ADMIN);
+    _grantRole(DEPLOYER_ROLE, admin);
     minFeePerRequest = _minFeePerRequest;
   }
 
@@ -97,7 +100,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     //check queue size
     if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
-    if (requestType == Structs.RequestType.ASSOCIATEKEY) {
+    if (requestType == Structs.RequestType.DEPLOYAPP) {
+      if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
+    } else if (requestType == Structs.RequestType.ASSOCIATEKEY) {
       //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
       if (payload.length != 133) revert InvalidPayload();
     } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
@@ -389,6 +394,23 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (newFeeCollector == address(0)) revert AddressCantBeZero();
     feeCollector = newFeeCollector;
     emit FeeCollectorUpdated(newFeeCollector);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function addAllowedDeployer(address deployer) external onlyRole(ADMIN) {
+    if (deployer == address(0)) revert AddressCantBeZero();
+    _grantRole(DEPLOYER_ROLE, deployer);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function removeAllowedDeployer(address deployer) external onlyRole(ADMIN) {
+    if (deployer == address(0)) revert AddressCantBeZero();
+    _revokeRole(DEPLOYER_ROLE, deployer);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function isAllowedDeployer(address deployer) external view returns (bool allowed) {
+    return hasRole(DEPLOYER_ROLE, deployer);
   }
 
   /// @inheritdoc IProcessorEndpoint

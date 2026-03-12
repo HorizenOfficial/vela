@@ -4,26 +4,31 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/admin"
-	"github.com/horizen-pes/pkg/blockchain"
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/common/apperrors"
-	"github.com/horizen-pes/pkg/common/testutil"
-	"github.com/horizen-pes/pkg/communication"
-	cryptos "github.com/horizen-pes/pkg/crypto"
-	"github.com/horizen-pes/pkg/logger"
-	"github.com/horizen-pes/pkg/logserver"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
-	"github.com/horizen-pes/pkg/storage/mockdb"
+	"github.com/HorizenOfficial/vela/pkg/admin"
+	"github.com/HorizenOfficial/vela/pkg/blockchain"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	"github.com/HorizenOfficial/vela/pkg/common/testutil"
+	"github.com/HorizenOfficial/vela/pkg/communication"
+	cryptos "github.com/HorizenOfficial/vela/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/logserver"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
+	"github.com/HorizenOfficial/vela/pkg/version"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,31 +97,43 @@ func (m *MockExecutorClient) Close() error {
 	return nil
 }
 
-func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if f, ok := m.GetMockedFunc("SendDeployApp"); ok {
-		return f.(func(context.Context, *common.Request, *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req, appState)
+		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req, appState, wasmModule)
 	}
 
-	if req.ApplicationID != ApplicationId {	
+	if req.ApplicationID != ApplicationId {
 		return nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
-	if req.RequestType != common.Deploy  {
-		return nil, nil,fmt.Errorf("wrong request type: %d", req.RequestType)
+	if req.RequestType != common.Deploy {
+		return nil, nil, fmt.Errorf("wrong request type: %d", req.RequestType)
 
 	}
 
-	if appState != nil {	
+	if appState != nil {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: appState.StateRoot, 
-			NewStateRoot: appState.StateRoot,
-			ErrorCode: uint8(apperrors.CodeApplicationAlreadyDeployed.Category.Category),
-			ErrorMsg: fmt.Sprintf("application %s was already deployed", req.ApplicationID),
-		}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: appState.StateRoot,
+			NewStateRoot:  appState.StateRoot,
+			ErrorCode:     uint8(apperrors.CodeApplicationAlreadyDeployed.Category.Category),
+			ErrorMsg:      fmt.Sprintf("application %s was already deployed", req.ApplicationID),
+		}
 
 		return failurePayload, nil, nil
+	}
+	if len(wasmModule) == 0 {
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  [32]byte{},
+			NewStateRoot:   [32]byte{},
+			ErrorCode:      uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category),
+			ErrorMsg:       "failed to load or get module",
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil, nil
 	}
 	stateRoot := m.generateRandomStateRoot()
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, NewStateRoot: stateRoot}, &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
@@ -127,7 +144,7 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
 	}
 
-	if req.ApplicationID != ApplicationId {	
+	if req.ApplicationID != ApplicationId {
 		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
@@ -136,27 +153,27 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 
 	}
 
-	if appState == nil {	
+	if appState == nil {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: [32]byte{}, 
-			NewStateRoot: [32]byte{},
-			ErrorCode: uint8(apperrors.CodeAppStateNotFound.Category.Category),
-			ErrorMsg: "application state not found",
-			}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: [32]byte{},
+			NewStateRoot:  [32]byte{},
+			ErrorCode:     uint8(apperrors.CodeAppStateNotFound.Category.Category),
+			ErrorMsg:      "application state not found",
+		}
 		return failurePayload, nil, nil, nil
 	}
 
 	if string(req.Payload) == "invalid" {
 		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID, 
-			RequestID: req.RequestID, 
-			PrevStateRoot: [32]byte{}, 
-			NewStateRoot: [32]byte{},
-			ErrorCode: uint8(apperrors.CategoryInternalMeta.Category),
-			ErrorMsg: "invalid request",
-			}	
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: [32]byte{},
+			NewStateRoot:  [32]byte{},
+			ErrorCode:     uint8(apperrors.CategoryInternalMeta.Category),
+			ErrorMsg:      "invalid request",
+		}
 		return failurePayload, nil, nil, nil
 	}
 
@@ -177,11 +194,11 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 		&common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, report, nil
 }
 
-func (m *MockExecutorClient) SendKeyAttestationRequest(ctx context.Context) ([]byte, error) {
-	if f, ok := m.GetMockedFunc("SendKeyAttestationRequest"); ok {
-		return f.(func(context.Context) ([]byte, error))(ctx)
+func (m *MockExecutorClient) ForwardAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	if f, ok := m.GetMockedFunc("ForwardAdminCommand"); ok {
+		return f.(func(context.Context, string, json.RawMessage) (json.RawMessage, error))(ctx, cmdType, data)
 	}
-	return []byte("mock-attestation-document"), nil
+	return nil, fmt.Errorf("ForwardAdminCommand not mocked")
 }
 
 func (m *MockExecutorClient) SetClientRequestHandler(handler communication.ClientRequestHandler) {
@@ -217,6 +234,44 @@ func createRequestWithPayload(requestType common.RequestType, appID common.Appli
 	return request
 }
 
+func createDeployRequestWithWASM(t *testing.T, manager *SecureProcessorManager, appID common.ApplicationIdType, wasm []byte) *common.Request {
+	t.Helper()
+
+	sum := sha256.Sum256(wasm)
+	wasmSHA := hex.EncodeToString(sum[:])
+	descriptorPayload := createDeployDescriptorPayload(t, wasmSHA)
+
+	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
+	require.NoError(t, os.MkdirAll(filepath.Dir(artifactBlobPath), 0o755))
+	require.NoError(t, os.WriteFile(artifactBlobPath, wasm, 0o600))
+
+	return createRequestWithPayload(common.Deploy, appID, descriptorPayload)
+}
+
+func createDeployDescriptorPayload(t *testing.T, wasmSHA string) []byte {
+	t.Helper()
+
+	artifactID, err := common.BuildArtifactID(wasmSHA)
+	require.NoError(t, err)
+
+	descriptor := common.DeployDescriptor{
+		Mode:       common.DeployModeArtifactRef,
+		ArtifactID: artifactID,
+		WasmSHA256: wasmSHA,
+	}
+	payload, err := json.Marshal(descriptor)
+	require.NoError(t, err)
+
+	return payload
+}
+
+func writeArtifactBlob(t *testing.T, manager *SecureProcessorManager, wasmSHA string, wasm []byte) {
+	t.Helper()
+	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
+	require.NoError(t, os.MkdirAll(filepath.Dir(artifactBlobPath), 0o755))
+	require.NoError(t, os.WriteFile(artifactBlobPath, wasm, 0o600))
+}
+
 func TestStart(t *testing.T) {
 
 	key, _ := cryptos.GeneratePrivateKeySecp256k1()
@@ -247,7 +302,8 @@ func TestStart(t *testing.T) {
 
 	// Reset the executor client
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("Connect")
-	// Start the manager but blockchainClient fails to connect
+	// Start the manager when blockchainClient fails to connect — Start should
+	// succeed anyway (non-fatal). The polling loop retries the connection.
 	bcClient.AddMockedFunc("Connect", func(context.Context) error {
 		return fmt.Errorf("failed to connect blockchain client")
 	})
@@ -258,13 +314,23 @@ func TestStart(t *testing.T) {
 		return nil
 	})
 
-	err = manager.Start(context.Background())
-	require.Error(t, err, "failed to connect to blockchain, should return error")
-	require.False(t, manager.isRunning, "Manager should not be running after failed start")
+	ctx, cancel := context.WithCancel(context.Background())
+	err = manager.Start(ctx)
+	require.NoError(t, err, "Start should succeed even if blockchain connect fails initially")
+	require.True(t, manager.isRunning, "Manager should be running (blockchain will retry during polling)")
+
+	// Stop so we can test a fresh start with successful blockchain connect
+	cancel()
+	manager.wg.Wait()
+	manager.isRunning = false
 
 	// Reset the blockchain client
 	bcClient.RemoveMockedFunc("Connect")
-	ctx, cancel := context.WithCancel(context.Background())
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("Connect", func(context.Context, string) error {
+		go manager.completeExecutorHandshake(nil)
+		return nil
+	})
+	ctx, cancel = context.WithCancel(context.Background())
 	err = manager.Start(ctx)
 	require.NoError(t, err, "Failed to start manager")
 
@@ -350,7 +416,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy request
-	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
@@ -429,11 +495,11 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	// Prepare different requests
 
 	// Failure expected
-	requestDeploy := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	requestDeploy := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), requestDeploy)
 	require.NoError(t, err)
 
-	requestInvalid :=  createRequestWithPayload(common.Process, ApplicationId, []byte("invalid"))
+	requestInvalid := createRequestWithPayload(common.Process, ApplicationId, []byte("invalid"))
 	err = mockBCClient.SendRequestToChain(context.Background(), requestInvalid)
 	require.NoError(t, err)
 
@@ -442,7 +508,7 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.NoError(t, err)
 
 	// redeploy the same appId (failure expected)
-	requestReDeploy := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	requestReDeploy := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), requestReDeploy)
 	require.NoError(t, err)
 
@@ -490,26 +556,25 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, requestReDeploy.ApplicationID, completedRequests[3].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, requestReDeploy.RequestType, completedRequests[3].RequestType, "Wrong RequestType")
 
-
 }
 
 func TestProcessDeployAppWithFailure(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
-	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer 
+	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		return &common.UpdatePayload{ApplicationID: ApplicationId,
+			RequestID: req.RequestID,
+			ErrorCode: 1,
+			ErrorMsg:  "error"}, nil, nil
 	})
 
 	err = manager.processDeployApp(context.Background(), request)
@@ -520,7 +585,7 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 	failedRequests := mockBCClient.GetFailedRequests()
 	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
-	
+
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendDeployApp")
 
@@ -529,13 +594,13 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 func TestProcessDeployAppWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
-	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	// Test executor failure
 	expectedError := "failed to deploy app"
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 		return nil, nil, fmt.Errorf("%s", expectedError)
 	})
 
@@ -546,7 +611,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendDeployApp")
 
-	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error  
+	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error
 	expectedError = "failed to store state"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		return fmt.Errorf("%s", expectedError)
@@ -561,7 +626,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 
-	// Test blockchain failure for errors that can be due to reorgs. 
+	// Test blockchain failure for errors that can be due to reorgs.
 	// The errors that can be due to reorgs are:
 	// - InvalidRequestId
 	// - InvalidStateRoot
@@ -583,7 +648,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
-	// Test blockchain failure for any other errors but reorgs. 
+	// Test blockchain failure for any other errors but reorgs.
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
@@ -604,11 +669,206 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 }
 
+func TestProcessDeployApp_InvalidDescriptorIsForwardedToExecutor(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte("not-json"))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	var capturedReq *common.Request
+	var capturedWASM []byte
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		capturedReq = req
+		capturedWASM = wasmModule
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  [32]byte{},
+			NewStateRoot:   [32]byte{},
+			ErrorCode:      uint8(apperrors.CodeInternalFallback.Category.Category),
+			ErrorMsg:       "failed to deploy application",
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+
+	require.NotNil(t, capturedReq)
+	require.Equal(t, request.Payload, capturedReq.Payload)
+	require.Nil(t, capturedWASM)
+
+	completedRequests := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	failedRequests := mockBCClient.GetFailedRequests()
+	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
+}
+
+func TestProcessDeployApp_IgnoresRequestSenderForAuthorization(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	request.Sender = ethCommon.HexToAddress("0x1111111111111111111111111111111111111111")
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		require.Equal(t, request.Sender, req.Sender)
+		require.NotEmpty(t, wasmModule)
+		stateRoot := sha256.Sum256([]byte("sender-agnostic-state"))
+		return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, NewStateRoot: stateRoot}, &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+
+	completedRequests := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()), "expected 0 failed requests")
+}
+
+func TestProcessDeployApp_MissingArtifactStaysPending(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	missingSHA := strings.Repeat("a", 64)
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, missingSHA))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	var capturedWASM []byte
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		capturedWASM = wasmModule
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  [32]byte{},
+			NewStateRoot:   [32]byte{},
+			ErrorCode:      uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category),
+			ErrorMsg:       "failed to load or get module",
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+	require.Nil(t, capturedWASM)
+	require.Equal(t, 1, len(mockBCClient.GetCompletedRequests()))
+	require.Equal(t, 1, len(mockBCClient.GetFailedRequests()))
+}
+
+func TestProcessDeployApp_ArtifactReadErrorSendsNilWASMToExecutor(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	// Simulate a non-not-found I/O read error by creating a directory where a blob file is expected.
+	wasmSHA := strings.Repeat("c", 64)
+	artifactBlobPath := filepath.Join(manager.config.ArtifactsPath, artifactBlobsFolder, wasmSHA+".wasm")
+	require.NoError(t, os.MkdirAll(artifactBlobPath, 0o755))
+
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, wasmSHA))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	var capturedWASM []byte
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		capturedWASM = wasmModule
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  [32]byte{},
+			NewStateRoot:   [32]byte{},
+			ErrorCode:      uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category),
+			ErrorMsg:       "failed to load or get module",
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+	require.Nil(t, capturedWASM)
+	require.Equal(t, 1, len(mockBCClient.GetCompletedRequests()))
+	require.Equal(t, 1, len(mockBCClient.GetFailedRequests()))
+}
+
+func TestProcessDeployApp_AvailableArtifactForwardsDescriptorAndWASM(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	wasm := []byte("available-wasm")
+	sum := sha256.Sum256(wasm)
+	wasmSHA := hex.EncodeToString(sum[:])
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, wasmSHA))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	writeArtifactBlob(t, manager, wasmSHA, wasm)
+
+	var capturedReq *common.Request
+	var capturedWASM []byte
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		capturedReq = req
+		capturedWASM = append([]byte(nil), wasmModule...)
+		stateRoot := sha256.Sum256([]byte("artifact-forward-success"))
+		return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, NewStateRoot: stateRoot}, &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.Equal(t, request.Payload, capturedReq.Payload)
+	require.Equal(t, wasm, capturedWASM)
+
+	completedRequests := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	require.Equal(t, 0, len(mockBCClient.GetFailedRequests()), "expected 0 failed requests")
+}
+
+func TestProcessDeployApp_HashMismatchIsHandledByExecutor(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	wasm := []byte("real-content")
+	actualHash := sha256.Sum256(wasm)
+	descriptorHash := strings.Repeat("b", 64)
+	writeArtifactBlob(t, manager, descriptorHash, wasm)
+
+	request := createRequestWithPayload(common.Deploy, ApplicationId, createDeployDescriptorPayload(t, descriptorHash))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
+	require.NoError(t, err)
+
+	var capturedReq *common.Request
+	var capturedWASM []byte
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendDeployApp", func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
+		capturedReq = req
+		capturedWASM = append([]byte(nil), wasmModule...)
+		return &common.UpdatePayload{
+			ApplicationID:  req.ApplicationID,
+			RequestID:      req.RequestID,
+			PrevStateRoot:  [32]byte{},
+			NewStateRoot:   [32]byte{},
+			ErrorCode:      uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category),
+			ErrorMsg:       "failed to load or get module",
+			RefundAmount:   req.MaxFeeValue,
+			ApplicationFee: common.NewBig(0),
+		}, nil, nil
+	})
+
+	err = manager.processDeployApp(context.Background(), request)
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.Equal(t, request.Payload, capturedReq.Payload)
+	require.Equal(t, wasm, capturedWASM)
+	require.NotEqual(t, descriptorHash, hex.EncodeToString(actualHash[:]))
+	require.Equal(t, 1, len(mockBCClient.GetCompletedRequests()))
+	require.Equal(t, 1, len(mockBCClient.GetFailedRequests()))
+}
+
 func TestProcessProcessRequestWithFailure(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
-	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -620,19 +880,19 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer 
+	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
 
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", 
-	func(_ context.Context, req *common.Request, _ *common.ApplicationState,_ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil, nil	})
-
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
+		func(_ context.Context, req *common.Request, _ *common.ApplicationState, _ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+			return &common.UpdatePayload{ApplicationID: ApplicationId,
+				RequestID: req.RequestID,
+				ErrorCode: 1,
+				ErrorMsg:  "error"}, nil, nil, nil
+		})
 
 	err = manager.processProcessRequest(context.Background(), request)
 	require.NoError(t, err)
@@ -642,7 +902,7 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	failedRequests := mockBCClient.GetFailedRequests()
 	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
-	
+
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
 
@@ -652,7 +912,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
-	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -701,7 +961,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
-	// Failure in GetWasmCode, stop processing and return the error 
+	// Failure in GetWasmCode, stop processing and return the error
 	expectedError = "wasm bytecode not found for application"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, common.ApplicationIdType) ([]byte, error) {
 		return nil, errors.New(expectedError)
@@ -745,7 +1005,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 
-	// Test blockchain failure for errors that can be due to reorgs. 
+	// Test blockchain failure for errors that can be due to reorgs.
 	// The errors that can be due to reorgs are:
 	// - InvalidRequestId
 	// - InvalidStateRoot
@@ -766,7 +1026,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
 
-	// Test blockchain failure for any other errors but reorgs. 
+	// Test blockchain failure for any other errors but reorgs.
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
 	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
@@ -786,12 +1046,13 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 
 	// Same test but with an error payload for the SubmitStateUpdate
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", 
-	func(_ context.Context, req *common.Request, _ *common.ApplicationState,_ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-		return &common.UpdatePayload{ApplicationID: ApplicationId, 
-			RequestID: req.RequestID, 
-			ErrorCode: 1, 
-			ErrorMsg: "error"}, nil, nil, nil	})
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
+		func(_ context.Context, req *common.Request, _ *common.ApplicationState, _ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
+			return &common.UpdatePayload{ApplicationID: ApplicationId,
+				RequestID: req.RequestID,
+				ErrorCode: 1,
+				ErrorMsg:  "error"}, nil, nil, nil
+		})
 
 	failure = manager.processProcessRequest(context.Background(), request)
 	require.Error(t, failure)
@@ -816,7 +1077,7 @@ func TestProcessDeanonymizationViaProcessRequest(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
-	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -848,7 +1109,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute some requests just to have different versions in the DB
-	request1 := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request1 := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), request1)
 	require.NoError(t, err)
 
@@ -998,7 +1259,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Setup the application
-	request := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -1099,6 +1360,9 @@ func setupTestWithConfig(
 	tmpDir, err := os.MkdirTemp("", "reports")
 	require.NoError(t, err)
 	config.DeanonymizationReportPath = tmpDir
+	if config.ArtifactsPath == "" {
+		config.ArtifactsPath = t.TempDir()
+	}
 
 	processor := &SecureProcessorManager{
 		config:            &config,
@@ -1119,8 +1383,6 @@ func setupTestWithConfig(
 				VSockAddr:      config.LogServerVSockAddress,
 				LogFilePath:    config.LogServerLogFile,
 				ConsoleEnabled: config.LogServerConsole,
-				ConsoleLevel:   config.LogServerConsoleLevel,
-				FileLevel:      config.LogServerFileLevel,
 			},
 		)
 		time.Sleep(500 * time.Millisecond)
@@ -1138,7 +1400,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Deploy the application first
-	deployRequest := createRequestWithPayload(common.Deploy, ApplicationId, []byte{0x01})
+	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err = mockBCClient.SendRequestToChain(context.Background(), deployRequest)
 	require.NoError(t, err)
 	err = manager.processRequestFromChain(context.Background())
@@ -1171,106 +1433,584 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	require.Equal(t, sender, report.Authority, "Report authority should match the request sender")
 }
 
-func TestGetAndSetLogLevel(t *testing.T) {
+// TestGetAndSetLogLevel_NonZeroNetworkLogger verifies that SetLogLevel and GetLogLevel
+// return errors when the manager uses a non-ZeroNetworkLogger (e.g., zerolog).
+func TestGetAndSetLogLevel_NonZeroNetworkLogger(t *testing.T) {
 	_, manager := setupTest(t)
 	ctx := context.Background()
 
-	// 1. GetLogLevel - get current level (should be "trace" as configured in TestMain)
-	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
+	// With target "manager", GetLogLevel should fail directly.
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "manager"}
 	result, err := manager.ExecuteCommand(ctx, getMsg)
-	require.NoError(t, err)
-	initialLevel := result.(string)
-	require.Equal(t, "trace", initialLevel, "Initial log level should be trace")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Empty(t, result)
 
-	// 2. SetLogLevel - change it to "error"
-	setData, err := json.Marshal(struct {
-		Level string `json:"level"`
-	}{Level: "error"})
+	// With target "manager", SetLogLevel should fail directly.
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "error"})
 	require.NoError(t, err)
-	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
 	result, err = manager.ExecuteCommand(ctx, setMsg)
-	require.NoError(t, err)
-	// Verify the set response
-	respBytes, err := json.Marshal(result)
-	require.NoError(t, err)
-	var setResp struct {
-		Success bool   `json:"success"`
-		Level   string `json:"level"`
-	}
-	err = json.Unmarshal(respBytes, &setResp)
-	require.NoError(t, err)
-	require.True(t, setResp.Success)
-	require.Equal(t, "error", setResp.Level)
-
-	// 3. GetLogLevel again - verify it changed to "error"
-	result, err = manager.ExecuteCommand(ctx, getMsg)
-	require.NoError(t, err)
-	newLevel := result.(string)
-	require.Equal(t, "error", newLevel, "Log level should be error after SetLogLevel")
-
-	// 4. SetLogLevel with empty string - should fail
-	setData, err = json.Marshal(struct {
-		Level string `json:"level"`
-	}{Level: ""})
-	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
-	result, err = manager.ExecuteCommand(ctx, setMsg)
-	require.Error(t, err, "Empty log level should return an error")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
 	require.Nil(t, result)
-	require.Contains(t, err.Error(), "must not be empty")
-
-	// Verify level is still "error" (unchanged after failed set)
-	result, err = manager.ExecuteCommand(ctx, getMsg)
-	require.NoError(t, err)
-	require.Equal(t, "error", result.(string), "Log level should remain error after failed SetLogLevel")
-
-	// 5. SetLogLevel with invalid level - should fail
-	setData, err = json.Marshal(struct {
-		Level string `json:"level"`
-	}{Level: "bogus"})
-	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
-	result, err = manager.ExecuteCommand(ctx, setMsg)
-	require.Error(t, err, "Invalid log level should return an error")
-	require.Nil(t, result)
-
-	// Restore original level for other tests
-	setData, err = json.Marshal(struct {
-		Level string `json:"level"`
-	}{Level: initialLevel})
-	require.NoError(t, err)
-	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Data: setData}
-	_, err = manager.ExecuteCommand(ctx, setMsg)
-	require.NoError(t, err)
 }
 
-func TestKeyAttestationForwarding(t *testing.T) {
+func TestExecuteCommand_SetLogLevel_NilData(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	// No Data at all
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager"}
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing request data for set_log_level")
+	require.Nil(t, result)
+
+	// Explicit null Data
+	msg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: json.RawMessage("null")}
+	result, err = mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing request data for set_log_level")
+	require.Nil(t, result)
+}
+
+// TestSetLogLevel_TargetValidation verifies that SetLogLevel and GetLogLevel
+// reject invalid targets on the manager.
+func TestSetLogLevel_TargetValidation(t *testing.T) {
 	_, manager := setupTest(t)
 	ctx := context.Background()
 
-	// 1. Success case - executor returns attestation
-	msg := admin.AdminMessage{Type: admin.KeyAttestationRequestMessage}
-	result, err := manager.ExecuteCommand(ctx, msg)
+	// SetLogLevel with target "executor" should be forwarded to executor only.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdSetLogLevel, cmdType)
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
+			return resp, nil
+		},
+	)
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
 	require.NoError(t, err)
-	attestation, ok := result.([]byte)
-	require.True(t, ok, "result should be []byte")
-	require.Equal(t, []byte("mock-attestation-document"), attestation)
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "executor", Data: setData}
+	result, err := manager.ExecuteCommand(ctx, setMsg)
+	require.NoError(t, err)
+	execResp, ok := result.(*admin.SetLogLevelResponse)
+	require.True(t, ok)
+	require.Equal(t, "debug", execResp.Level)
 
-	// 2. Error case - executor returns error
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendKeyAttestationRequest", func(ctx context.Context) ([]byte, error) {
-		return nil, fmt.Errorf("keyset is empty")
-	})
-
-	result, err = manager.ExecuteCommand(ctx, msg)
+	// SetLogLevel with unknown target should be rejected
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "unknown", Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown target 'unknown'")
 	require.Nil(t, result)
-	require.Contains(t, err.Error(), "keyset is empty")
 
-	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendKeyAttestationRequest")
+	// SetLogLevel with target "manager" should be accepted (fails on logger type, not target)
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only supported with the ZeroNetworkLogger")
+	require.Nil(t, result)
 
-	// 3. Verify unsupported command still returns error
+	// GetLogLevel with target "executor" should be forwarded to executor only.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetLogLevel, cmdType)
+			resp, _ := json.Marshal("debug")
+			return resp, nil
+		},
+	)
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "executor"}
+	result, err = manager.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	require.Equal(t, "debug", result)
+
+	// GetLogLevel with empty target defaults to "all".
+	// Manager fails (non-ZeroNetworkLogger), executor mock still active → partial success.
+	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage}
+	result, err = manager.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	aggGetResp, ok := result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggGetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Equal(t, "debug", aggGetResp.Executor)
+
+	// SetLogLevel with target "all": manager fails (non-ZeroNetworkLogger),
+	// executor mock returns success → partial success.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
+			return resp, nil
+		},
+	)
+	setData, err = json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	setMsg = admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
+	result, err = manager.ExecuteCommand(ctx, setMsg)
+	require.NoError(t, err)
+	aggSetResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggSetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Equal(t, "debug", aggSetResp.Executor)
+
+	// GetLogLevel with target "all": manager fails, executor mock still active → partial success.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			resp, _ := json.Marshal("debug")
+			return resp, nil
+		},
+	)
+	getMsg = admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
+	result, err = manager.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	aggGetResp, ok = result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Contains(t, aggGetResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Equal(t, "debug", aggGetResp.Executor)
+}
+
+// TestGetAndSetLogLevel_WithZeroNetworkLogger verifies the positive SetLogLevel/GetLogLevel
+// round-trip when the manager uses a real ZeroNetworkLogger.
+func TestGetAndSetLogLevel_WithZeroNetworkLogger(t *testing.T) {
+	// Start a dummy TCP listener to act as the log sink.
+	logSink, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer logSink.Close()
+	go func() {
+		for {
+			conn, err := logSink.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						c.Close()
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	logSinkAddr := logSink.Addr().(*net.TCPAddr)
+	znl := logger.NewZeroNetworkLogger(&logger.Config{
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(logSinkAddr.Port),
+		},
+		NetworkLevel: "info",
+	})
+	defer znl.Close()
+
+	// Create a manager with the ZeroNetworkLogger.
+	_, mgr := setupTest(t)
+	mgr.log = znl
+	ctx := context.Background()
+
+	// GetLogLevel with explicit target "manager" should return "info" (the initial level).
+	getMsg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "manager"}
+	result, err := mgr.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	require.Equal(t, "info", result)
+
+	// SetLogLevel to "debug" with explicit target "manager".
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	setMsg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "manager", Data: setData}
+	result, err = mgr.ExecuteCommand(ctx, setMsg)
+	require.NoError(t, err)
+	resp, ok := result.(admin.SetLogLevelResponse)
+	require.True(t, ok)
+	require.Equal(t, "debug", resp.Level)
+
+	// GetLogLevel should now return "debug".
+	result, err = mgr.ExecuteCommand(ctx, getMsg)
+	require.NoError(t, err)
+	require.Equal(t, "debug", result)
+
+	// The underlying logger should also reflect the change.
+	require.Equal(t, "debug", znl.GetLevel())
+}
+
+// --- Proxy tests (ForwardAdminCommand via communication channel) ---
+
+func TestExecuteCommand_SetLogLevel_TargetAll(t *testing.T) {
+	// Start a dummy TCP listener to act as the log sink.
+	logSink, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer logSink.Close()
+	go func() {
+		for {
+			conn, err := logSink.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						c.Close()
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	logSinkAddr := logSink.Addr().(*net.TCPAddr)
+	znl := logger.NewZeroNetworkLogger(&logger.Config{
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(logSinkAddr.Port),
+		},
+		NetworkLevel: "info",
+	})
+	defer znl.Close()
+
+	_, mgr := setupTest(t)
+	mgr.log = znl
+
+	// Mock ForwardAdminCommand on the executor client
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdSetLogLevel, cmdType)
+			resp, _ := json.Marshal(admin.SetLogLevelResponse{Level: "debug"})
+			return resp, nil
+		},
+	)
+
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+
+	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Equal(t, "debug", aggResp.Manager)
+	require.Equal(t, "debug", aggResp.Executor)
+
+	// Verify the manager's logger was actually updated
+	require.Equal(t, "debug", znl.GetLevel())
+}
+
+func TestExecuteCommand_GetLogLevel_TargetAll(t *testing.T) {
+	logSink, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer logSink.Close()
+	go func() {
+		for {
+			conn, err := logSink.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						c.Close()
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	logSinkAddr := logSink.Addr().(*net.TCPAddr)
+	znl := logger.NewZeroNetworkLogger(&logger.Config{
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(logSinkAddr.Port),
+		},
+		NetworkLevel: "info",
+	})
+	defer znl.Close()
+
+	_, mgr := setupTest(t)
+	mgr.log = znl
+
+	// Mock ForwardAdminCommand on the executor client
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetLogLevel, cmdType)
+			resp, _ := json.Marshal("debug")
+			return resp, nil
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+
+	aggResp, ok := result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Equal(t, "info", aggResp.Manager)
+	require.Equal(t, "debug", aggResp.Executor)
+}
+
+func TestExecuteCommand_SetLogLevel_TargetAll_ExecutorFails(t *testing.T) {
+	logSink, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer logSink.Close()
+	go func() {
+		for {
+			conn, err := logSink.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						c.Close()
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	logSinkAddr := logSink.Addr().(*net.TCPAddr)
+	znl := logger.NewZeroNetworkLogger(&logger.Config{
+		RemoteLogNetwork: "tcp",
+		RemoteLogParams: common.TcpChannelConnectionParams{
+			Ip:   "127.0.0.1",
+			Port: uint32(logSinkAddr.Port),
+		},
+		NetworkLevel: "info",
+	})
+	defer znl.Close()
+
+	_, mgr := setupTest(t)
+	mgr.log = znl
+
+	// Mock ForwardAdminCommand to fail (simulating executor unreachable)
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	)
+
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "warn"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // partial success is not an error
+
+	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Equal(t, "warn", aggResp.Manager)
+	require.Empty(t, aggResp.ManagerError)
+	require.Contains(t, aggResp.ExecutorError, "connection refused")
+
+	// Verify the manager's log level WAS changed (even though executor failed)
+	require.Equal(t, "warn", znl.GetLevel())
+}
+
+func TestExecuteCommand_KeyAttestation_ForwardSuccess(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	expectedAttestation := []byte(`"base64-encoded-attestation-doc"`)
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdKeyAttestation, cmdType)
+			return expectedAttestation, nil
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.KeyAttestationRequestMessage}
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+	require.Equal(t, json.RawMessage(expectedAttestation), result)
+}
+
+func TestExecuteCommand_KeyAttestation_ForwardError(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("executor unreachable")
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.KeyAttestationRequestMessage}
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "executor unreachable")
+	require.Nil(t, result)
+}
+
+func TestExecuteCommand_KeyAttestation_RejectsTargetManager(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	msg := admin.AdminMessage{Type: admin.KeyAttestationRequestMessage, Target: "manager"}
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "key_attestation is only supported on the executor")
+	require.Nil(t, result)
+}
+
+func TestExecuteCommand_GetVersion_TargetManager(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "manager"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+	require.Equal(t, version.Version, result)
+}
+
+func TestExecuteCommand_GetVersion_TargetExecutor(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v1.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "executor"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+	require.Equal(t, "v1.0.0-executor", result)
+}
+
+func TestExecuteCommand_GetVersion_TargetAll(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v2.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "all"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Equal(t, "v2.0.0-executor", aggResp.Executor)
+}
+
+func TestExecuteCommand_GetVersion_DefaultTarget(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdGetVersion, cmdType)
+			resp, _ := json.Marshal("v3.0.0-executor")
+			return resp, nil
+		},
+	)
+
+	// No data (null) — should default to target="all"
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err)
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Equal(t, "v3.0.0-executor", aggResp.Executor)
+}
+
+func TestExecuteCommand_GetVersion_TargetAll_ExecutorFails(t *testing.T) {
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetVersionRequestMessage, Target: "all"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // partial success is not an error
+
+	aggResp, ok := result.(admin.AggregatedGetVersionResponse)
+	require.True(t, ok)
+	require.Equal(t, version.Version, aggResp.Manager)
+	require.Empty(t, aggResp.ManagerError)
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "connection refused")
+}
+
+func TestExecuteCommand_SetLogLevel_TargetAll_BothFail(t *testing.T) {
+	// Manager uses the default test logger (not ZeroNetworkLogger), so local
+	// SetLogLevel will fail. The executor mock also returns an error.
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("executor unreachable")
+		},
+	)
+
+	setData, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
+	msg := admin.AdminMessage{Type: admin.SetLogLevelRequestMessage, Target: "all", Data: setData}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // target="all" always returns aggregated response, never an error
+
+	aggResp, ok := result.(admin.AggregatedSetLogLevelResponse)
+	require.True(t, ok)
+	require.Empty(t, aggResp.Manager)
+	require.Contains(t, aggResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "executor unreachable")
+}
+
+func TestExecuteCommand_GetLogLevel_TargetAll_BothFail(t *testing.T) {
+	// Manager uses the default test logger (not ZeroNetworkLogger), so local
+	// GetLogLevel will fail. The executor mock also returns an error.
+	_, mgr := setupTest(t)
+
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			return nil, fmt.Errorf("executor unreachable")
+		},
+	)
+
+	msg := admin.AdminMessage{Type: admin.GetLogLevelRequestMessage, Target: "all"}
+
+	result, err := mgr.ExecuteCommand(context.Background(), msg)
+	require.NoError(t, err) // target="all" always returns aggregated response, never an error
+
+	aggResp, ok := result.(admin.AggregatedGetLogLevelResponse)
+	require.True(t, ok)
+	require.Empty(t, aggResp.Manager)
+	require.Contains(t, aggResp.ManagerError, "only supported with the ZeroNetworkLogger")
+	require.Empty(t, aggResp.Executor)
+	require.Contains(t, aggResp.ExecutorError, "executor unreachable")
+}
+
+func TestExecuteCommand_UnsupportedCommand(t *testing.T) {
+	_, mgr := setupTest(t)
+
 	unknownMsg := admin.AdminMessage{Type: "unknown_type"}
-	result, err = manager.ExecuteCommand(ctx, unknownMsg)
+	result, err := mgr.ExecuteCommand(context.Background(), unknownMsg)
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.Contains(t, err.Error(), "unsupported command type")

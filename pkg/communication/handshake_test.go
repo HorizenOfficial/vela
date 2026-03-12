@@ -11,9 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/horizen-pes/pkg/common"
-	"github.com/horizen-pes/pkg/logger"
-	storageErrors "github.com/horizen-pes/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/logger"
+	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
 )
 
 var testLogger logger.Logger

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/horizen-pes/pkg/storage"
-	"github.com/horizen-pes/pkg/storage/mockdb"
-	versionedDb "github.com/horizen-pes/pkg/storage/versioned_leveldb"
+	"github.com/HorizenOfficial/vela/pkg/storage"
+	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
+	versionedDb "github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
 )
 
 // DataLayerConfig captures the minimal parameters needed to build a data layer.

@@ -8,7 +8,7 @@ networks:
 
 volumes:
   horizen-cce-manager-data:
-  horizen-cce-manager-reports:
+  horizen-cce-shared-data:
   horizen-cce-chain-data:
   horizen-cce-logs:
   horizen-cce-deploy-data:
@@ -49,11 +49,13 @@ services:
       - CHANNEL_TYPE
       - EXECUTOR_IP_HOST
       - EXECUTOR_PORT
+      - LOG_SERVER_IP_HOST
+      - LOG_SERVER_PORT
+      - MANAGER_VSOCK_CID
       - EXECUTOR_KMS_KEY_ARN
       - EXECUTOR_KMS_REGION
       - EXECUTOR_KMS_PROXY_PORT
       - EXECUTOR_KEYSET_RECOVERY_TYPE
-      - LOG_SERVER_IP_HOST
       - EXECUTOR_FUEL_PRICE_PER_UNIT
       - EXECUTOR_MIN_FEE_PER_REQUEST
       - EXECUTOR_LOG_KIND
@@ -62,7 +64,6 @@ services:
       - EXECUTOR_LOG_CONSOLE_COLOR
       - EXECUTOR_LOG_FILE_NAME
       - EXECUTOR_LOG_FILE_LEVEL
-      - EXECUTOR_LOG_PORT
       - EXECUTOR_LOG_NETWORK_LEVEL
       - EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
       - EXECUTOR_FIXED_SIGNING_KEY
@@ -87,23 +88,19 @@ services:
       - MANAGER_ADMIN_PORT
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
-      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
-      - MANAGER_INPUT_WASMS
-      # not set to a default, so if the .env does not set it (it is optional) Go app will not enable the feature
+      - SHARED_DATA_FOLDER=${SHARED_DATA_FOLDER:-/shared-data}
       - MANAGER_LOG_KIND
       - MANAGER_LOG_CONSOLE
       - MANAGER_LOG_CONSOLE_LEVEL
       - MANAGER_LOG_CONSOLE_COLOR
       - MANAGER_LOG_FILE_NAME
       - MANAGER_LOG_FILE_LEVEL
-      - MANAGER_VSOCK_CID
+      - MANAGER_LOG_NETWORK_LEVEL
       - LOG_SERVER_IP_HOST
       - LOG_SERVER_PORT
       - LOG_SERVER_CONSOLE
-      - LOG_SERVER_CONSOLE_LEVEL
       - LOG_SERVER_FOLDER=${LOG_SERVER_FOLDER:-/logs}
       - LOG_SERVER_FILE_NAME
-      - LOG_SERVER_FILE_LEVEL
       # Log rotation settings (optional, only used when LOG_SERVER_FILE_NAME is set)
       - LOG_SERVER_FILE_ROTATION
       - LOG_SERVER_FILE_MAX_SIZE_MB
@@ -116,6 +113,7 @@ services:
       - CHAIN_PROCESSOR_ADDRESS
       - CHAIN_TEEAUTHENTICATOR_ADDRESS
       - BLOCKCHAIN_POLLING_INTERVAL
+      - BLOCKCHAIN_CONNECT_TIMEOUT
       - REORG_TIMEOUT
       - HANDSHAKE_TIMEOUT
       - MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
@@ -125,9 +123,7 @@ services:
       inet:    
     volumes:
       - horizen-cce-manager-data:${MANAGER_DATA_FOLDER:-/data}
-      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
-      # WASM input folder
-      - ./wasms:${MANAGER_INPUT_WASMS:-/input_wasms}
+      - horizen-cce-shared-data:${SHARED_DATA_FOLDER:-/shared-data}
       - horizen-cce-logs:${LOG_SERVER_FOLDER:-/logs}
       - horizen-cce-deploy-data:/deploy-data:ro
     depends_on:
@@ -150,7 +146,8 @@ services:
       - CHAIN_RPC_PORT
       - CHAIN_PROCESSOR_ADDRESS
       - AUTHORITY_SERVICE_SUBGRAPH_URL
-      - MANAGER_REPORTS_FOLDER=${MANAGER_REPORTS_FOLDER:-/reports}
+      - SHARED_DATA_FOLDER=${SHARED_DATA_FOLDER:-/shared-data}
+      - DEPLOY_ARTIFACTS_MAX_SIZE_MB
       - AUTHORITY_SERVICE_LOG_CONSOLE
       - AUTHORITY_SERVICE_LOG_CONSOLE_LEVEL
       - AUTHORITY_SERVICE_LOG_CONSOLE_COLOR
@@ -161,7 +158,7 @@ services:
         ipv4_address: ${AUTHORITY_SERVICE_IP_ADDRESS}
       inet:
     volumes:
-      - horizen-cce-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
+      - horizen-cce-shared-data:${SHARED_DATA_FOLDER:-/shared-data}
       - horizen-cce-deploy-data:/deploy-data:ro
     depends_on:
       manager:

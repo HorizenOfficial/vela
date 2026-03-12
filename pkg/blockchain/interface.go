@@ -6,8 +6,8 @@ import (
 	"math/big"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 )
 
 // Client defines the interface for interacting with the blockchain
@@ -34,6 +34,9 @@ type Client interface {
 
 	// Close closes the blockchain client
 	Close() error
-	// Connect connects to the blockchain
+	// Connect connects to the blockchain. It is idempotent: calling it on an
+	// already-connected client returns nil.
 	Connect(ctx context.Context) error
+	// IsConnected returns true if the client has successfully connected.
+	IsConnected() bool
 }

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/horizen-pes/pkg/common"
-	cryptotypes "github.com/horizen-pes/pkg/common/crypto"
-	"github.com/horizen-pes/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
+	"github.com/HorizenOfficial/vela/pkg/crypto"
 	"github.com/magiconair/properties"
 )
 
@@ -22,8 +22,10 @@ type Config struct {
 	// HandshakeTimeout is the max time interval for waiting for the executor handshake to be completed (in seconds)
 	HandshakeTimeout int64
 
-	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests
+	// BlockchainPollingInterval is the interval at which to poll the blockchain for new requests (in seconds)
 	BlockchainPollingInterval int64
+	// BlockchainConnectTimeout is the max time to wait for the dial and initial RPC handshake (ChainID) when connecting (in seconds)
+	BlockchainConnectTimeout int64
 	// ChannelType is the type of communication channel between manager and executor
 	ChannelType string
 	// ChannelParams are the parameters for the connection with the executor
@@ -59,9 +61,8 @@ type Config struct {
 	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
 	DeanonymizationReportPath string
 
-	// InputWasmPath is the path where the wasm bytecode to be deployed is retrieved if not found in the payload
-	// (we may need to load it externally for GAS limitation)
-	InputWasmPath string
+	// ArtifactsPath is the shared filesystem path where deploy artifacts are stored.
+	ArtifactsPath string
 
 	// Manager logging
 	//--------------------------
@@ -90,10 +91,6 @@ type Config struct {
 	LogServerLogFile string
 	// LogServerConsole is true if we want output on console
 	LogServerConsole bool
-	// LogServerConsoleLevel is the level of logging for the console
-	LogServerConsoleLevel string
-	// LogServerFileLevel is the level of logging for the file
-	LogServerFileLevel string
 	// LogServerRotationEnabled enables log rotation using lumberjack (only when LogServerLogFile is set)
 	LogServerRotationEnabled bool
 	// LogServerMaxSizeMB is the max size in megabytes before rotation (default: 100)
@@ -180,6 +177,7 @@ func LoadConfig() (*Config, error) {
 		ReorgTimeout:              common.GetConfigVarInt64("REORG_TIMEOUT", 180, fileProperties), // 3 minutes
 		HandshakeTimeout:          common.GetConfigVarInt64("HANDSHAKE_TIMEOUT", 5, fileProperties),
 		BlockchainPollingInterval: common.GetConfigVarInt64("BLOCKCHAIN_POLLING_INTERVAL", 5, fileProperties),
+		BlockchainConnectTimeout: common.GetConfigVarInt64("BLOCKCHAIN_CONNECT_TIMEOUT", 10, fileProperties),
 
 		RpcURL: common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProperties) + "://" +
 			common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProperties) + ":" +
@@ -193,20 +191,19 @@ func LoadConfig() (*Config, error) {
 		DataLayerType:             "versioned_leveldb",
 		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
 		DataLayerNumOfVersions:    10,
-		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/horizen-pes-data/manager_reports", fileProperties),
-		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
+		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/vela-data/manager_reports", fileProperties),
+		ArtifactsPath:             common.GetConfigVar("MANAGER_ARTIFACTS_PATH", "", fileProperties),
 		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
 		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
 		LogConsoleLevel:           common.GetConfigVar("MANAGER_LOG_CONSOLE_LEVEL", "info", fileProperties),
 		LogConsoleColor:           common.GetConfigVarBool("MANAGER_LOG_CONSOLE_COLOR", false, fileProperties),
 		LogFileName:               common.GetConfigVar("MANAGER_LOG_FILE_NAME", "", fileProperties),
 		LogFileLevel:              common.GetConfigVar("MANAGER_LOG_FILE_LEVEL", "info", fileProperties),
+		LogNetworkLevel:           common.GetConfigVar("MANAGER_LOG_NETWORK_LEVEL", "info", fileProperties),
 		LogServerTCPAddress:       logServerTcpAddress,
 		LogServerVSockAddress:     logServerVsockAddress,
 		LogServerLogFile:          common.GetConfigVar("LOG_SERVER_FILE_NAME", "", fileProperties),
 		LogServerConsole:          common.GetConfigVarBool("LOG_SERVER_CONSOLE", true, fileProperties),
-		LogServerConsoleLevel:     common.GetConfigVar("LOG_SERVER_CONSOLE_LEVEL", "warn", fileProperties),
-		LogServerFileLevel:        common.GetConfigVar("LOG_SERVER_FILE_LEVEL", "info", fileProperties),
 		LogServerRotationEnabled:  common.GetConfigVarBool("LOG_SERVER_FILE_ROTATION", false, fileProperties),
 		LogServerMaxSizeMB:        int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_SIZE_MB", 100, fileProperties)),
 		LogServerMaxBackups:       int(common.GetConfigVarInt64("LOG_SERVER_FILE_MAX_BACKUPS", 3, fileProperties)),
@@ -217,6 +214,11 @@ func LoadConfig() (*Config, error) {
 
 	if strings.TrimSpace(cfg.DeanonymizationReportPath) == "" {
 		return nil, fmt.Errorf("MANAGER_REPORTS_FOLDER (DeanonymizationReportPath) not configured")
+	}
+
+	cfg.ArtifactsPath = strings.TrimSpace(cfg.ArtifactsPath)
+	if cfg.ArtifactsPath == "" {
+		return nil, fmt.Errorf("MANAGER_ARTIFACTS_PATH not configured")
 	}
 
 	return cfg, nil

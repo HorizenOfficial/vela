@@ -99,6 +99,8 @@ interface IProcessorEndpoint {
   error InsufficientBalance();
   /// @notice Caller is not authorized to perform the requested action.
   error AuthorityNotAllowed();
+  /// @notice Caller is not allowed to submit deploy requests.
+  error DeployerNotAllowed();
   /// @notice Queue size exceeds the configured threshold.
   error QueueThresholdExceeded();
   /// @notice An ETH transfer failed.
@@ -173,6 +175,19 @@ interface IProcessorEndpoint {
   /// @notice Updates the fee collector address.
   /// @param newFeeCollector New fee collector address.
   function updateFeeCollector(address payable newFeeCollector) external;
+
+  /// @notice Grants deploy permission to an address.
+  /// @param deployer Address to authorize for deploy requests.
+  function addAllowedDeployer(address deployer) external;
+
+  /// @notice Revokes deploy permission from an address.
+  /// @param deployer Address to revoke for deploy requests.
+  function removeAllowedDeployer(address deployer) external;
+
+  /// @notice Returns whether an address can submit deploy requests.
+  /// @param deployer Address to check.
+  /// @return allowed True when the address has deploy permission.
+  function isAllowedDeployer(address deployer) external view returns (bool allowed);
 
   /// @notice Returns the current pending request and state root.
   /// @return request Pending request data.
