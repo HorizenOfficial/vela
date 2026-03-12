@@ -73,7 +73,11 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// manually corrupted (e.g., invalid JSON) results in an error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		// Use t.Cleanup instead of defer for directory removal. createStore registers
+		// dl.Close() via t.Cleanup; since t.Cleanup callbacks run LIFO, registering
+		// RemoveAll first ensures it runs after Close, preventing "no such file"
+		// errors from LevelDB trying to flush to a deleted directory.
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		appID := common.NewApplicationId(12345)
 
@@ -95,7 +99,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// ensuring data is retrieved correctly and without errors.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		expectedState := common.ApplicationState{
 			ApplicationID:  common.NewApplicationId(5423),
@@ -118,7 +122,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// exist returns a 'NotFound' error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		_, err = store.GetApplicationState(ctx, common.NewApplicationId(888))
 		require.Error(t, err, "Expected an error when getting a non-existent application state")
@@ -133,7 +137,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// ensuring data is retrieved correctly and without errors.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		appID := common.NewApplicationId(725677)
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04}
@@ -155,7 +159,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// exist returns a 'NotFound' error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		_, err = store.GetWASMBytecode(ctx, 111)
 		require.Error(t, err, "Expected an error when getting non-existent WASM bytecode")
@@ -170,7 +174,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// 'StorageIsClosed' error after the database instance has been closed.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		require.NoError(t, store.Close(), "Closing the Versioned LevelDB store should not return an error on first close")
 
@@ -206,7 +210,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// without errors or data corruption.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		largeValue := make([]byte, 1024*1024) // 1MB
 		for i := range largeValue {
@@ -226,7 +230,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// instance, closes it, then verifies the data is readable by a new instance.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "persistent-db-test-")
 		require.NoError(t, err, "Failed to create temp directory for persistent DB test")
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 		dbPath := filepath.Join(tempDir, "test.db")
 		cfg := versionedDb.VersionedLevelDBConfig{
@@ -270,7 +274,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// pruning to the new, lower limit.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "persistent-db-versions-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 		dbPath := filepath.Join(tempDir, "test.db")
 
@@ -330,7 +334,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// verifies that it can then store more versions up to the new limit.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "persistent-db-more-versions-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 		dbPath := filepath.Join(tempDir, "test.db")
 
@@ -408,7 +412,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// correct order (newest first).
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
@@ -470,7 +474,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// updated correctly after a rollback.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "rollback-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
@@ -539,7 +543,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// a 'VersionAlreadyExists' error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "store-twice-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
@@ -564,7 +568,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// manually corrupted (e.g., invalid JSON) results in an error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "corrupted-data-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		appID := common.NewApplicationId(91)
@@ -587,7 +591,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Verifies that storing an ApplicationState and WASM bytecode with the same ID does not result in a key collision
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "collision-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
 		sharedID := common.NewApplicationId(5477)
@@ -622,7 +626,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// results in an error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "nil-entry-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
 		versionID := []byte("v1")
@@ -654,7 +658,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// operations to ensure thread safety.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "concurrency-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 20)
 
 		initial_app_id := common.NewApplicationId(890)
@@ -724,7 +728,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Per-app versioning requires all items in a single Store call to share the same ApplicationID.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "mixed-types-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		sharedAppID := common.NewApplicationId(653485)
 
@@ -759,7 +763,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// and that per-app rollback does not affect other apps.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "rollback-mixed-types-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
 		appAId := common.NewApplicationId(6)
@@ -822,7 +826,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Tests the store and get operations for EnclaveKeySetRecovery.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		expectedRecoveryData := &common.EnclaveKeySetRecovery{
 			RecoveryType:       common.RecoveryTypeKMS,
@@ -843,7 +847,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Ensures that trying to get non-existent recovery data returns a 'NotFound' error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 		_, err = store.GetEnclaveKeySetRecovery(ctx)
 		require.Error(t, err, "Expected an error when getting non-existent recovery data")
@@ -857,7 +861,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Tests for race conditions between writing new versions and rolling back to old ones.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "concurrent-rollback-write-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 20)
 
 		// Pre-populate with an initial version
@@ -909,7 +913,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// independent version chains and do not corrupt each other's state.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "multi-app-interleaved-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 10)
 
 		app1 := common.NewApplicationId(100)
@@ -973,7 +977,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// Rolling back one app must not affect any other app's state or versions.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "multi-app-rollback-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 10)
 
 		app1 := common.NewApplicationId(10)
@@ -1037,7 +1041,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		const maxVersions = 3
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "multi-app-pruning-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), maxVersions)
 
 		app1 := common.NewApplicationId(50)
@@ -1080,7 +1084,7 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		// A single Store call must not mix data from different ApplicationIDs.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "multi-app-reject-test-")
 		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
 		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
 
 		app1 := common.NewApplicationId(1)

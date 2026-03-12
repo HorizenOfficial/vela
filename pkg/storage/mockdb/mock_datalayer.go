@@ -62,34 +62,59 @@ func (d *MockDataLayer) Store(
 		return err
 	}
 
-	// Derive appID from the data arrays.
-	var appID common.ApplicationIdType
-	found := false
+	// Validate that all items share the same ApplicationID (matching real implementation).
+	appID, err := extractMockAppID(stateArray, wasmArray)
+	if err != nil {
+		return err
+	}
+
 	for _, state := range stateArray {
 		if state != nil {
 			d.states[state.ApplicationID] = state
-			if !found {
-				appID = state.ApplicationID
-				found = true
-			}
 		}
 	}
 
 	for _, wasm := range wasmArray {
 		if wasm != nil {
 			d.bytecodes[wasm.ApplicationID] = wasm.Bytecode
-			if !found {
-				appID = wasm.ApplicationID
-				found = true
-			}
 		}
 	}
 
-	if found {
+	if appID != 0 {
 		d.versions[appID] = append(d.versions[appID], versionID)
 	}
 
 	return nil
+}
+
+// extractMockAppID validates that all non-nil items share the same ApplicationID.
+// Mirrors the extractAppID precondition enforced by the real storage implementation.
+func extractMockAppID(stateArray []*common.ApplicationState, wasmArray []*common.WASMData) (common.ApplicationIdType, error) {
+	var appID common.ApplicationIdType
+	found := false
+	for _, state := range stateArray {
+		if state == nil {
+			continue
+		}
+		if !found {
+			appID = state.ApplicationID
+			found = true
+		} else if state.ApplicationID != appID {
+			return 0, fmt.Errorf("inconsistent ApplicationID in stateArray: got %d and %d", appID, state.ApplicationID)
+		}
+	}
+	for _, wasm := range wasmArray {
+		if wasm == nil {
+			continue
+		}
+		if !found {
+			appID = wasm.ApplicationID
+			found = true
+		} else if wasm.ApplicationID != appID {
+			return 0, fmt.Errorf("inconsistent ApplicationID in wasmArray: got %d and %d", appID, wasm.ApplicationID)
+		}
+	}
+	return appID, nil
 }
 
 // GetApplicationState retrieves the state of an application.
@@ -185,6 +210,9 @@ func (d *MockDataLayer) Rollback(appID common.ApplicationIdType, versionID []byt
 	if f, ok := d.GetMockedFunc("Rollback"); ok {
 		return f.(func(common.ApplicationIdType, []byte) error)(appID, versionID)
 	}
+	if err := d.checkClosed(); err != nil {
+		return err
+	}
 
 	var initialState = [32]byte{}
 	if string(versionID) == string(initialState[:]) {
@@ -216,6 +244,9 @@ func (d *MockDataLayer) LastVersionID(appID common.ApplicationIdType) ([]byte, e
 	if f, ok := d.GetMockedFunc("LastVersionID"); ok {
 		return f.(func(common.ApplicationIdType) ([]byte, error))(appID)
 	}
+	if err := d.checkClosed(); err != nil {
+		return nil, err
+	}
 
 	appVersions := d.versions[appID]
 	if len(appVersions) == 0 {
@@ -232,6 +263,9 @@ func (d *MockDataLayer) ListVersions(appID common.ApplicationIdType) ([][]byte, 
 
 	if f, ok := d.GetMockedFunc("ListVersions"); ok {
 		return f.(func(common.ApplicationIdType) ([][]byte, error))(appID)
+	}
+	if err := d.checkClosed(); err != nil {
+		return nil, err
 	}
 
 	appVersions := d.versions[appID]

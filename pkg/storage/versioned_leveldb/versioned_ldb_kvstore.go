@@ -21,7 +21,10 @@ const (
 	ChangeSetPrefix     = 0x16
 )
 
-// VersionsKey is retained for migration purposes (reading legacy global version chain).
+// VersionsKey is the legacy global version key from the single-app era. Retained so that
+// allKnownAppVersionKeys can exclude it from iterator results on databases that predate per-app
+// versioning. No migration code reads this key; migration (task 4.6) was deferred because no
+// production database exists yet.
 var VersionsKey [ConstantsHashLength]byte
 
 func init() {
@@ -82,6 +85,10 @@ func (v *VersionedLDBKVStore) Update(appID uint64, toInsert []storage.KeyValuePa
 	}
 	defer tx.Discard()
 
+	// NOTE: This duplicate check is global (not per-app). ChangeSet entries share the flat LevelDB
+	// keyspace keyed by versionID. In practice, versionID = sha256(stateRoot || data) so cross-app
+	// collisions are extremely unlikely. If per-app namespacing of changeset keys is needed in the
+	// future, prefix the key with appID here and in RollbackTo.
 	_, err = tx.Get(versionID, nil)
 	if err == nil {
 		return storageErrors.ErrVersionAlreadyExists(versionID)
@@ -300,11 +307,16 @@ func (v *VersionedLDBKVStore) versionsUnlocked(appID uint64) ([][]byte, error) {
 	return versions, nil
 }
 
-// allKnownAppVersionKeys scans the DB for all per-app versions keys.
-// Keys are identified by attempting to read entries whose key matches the
-// versionsKeyForApp pattern. Since the keys are sha256 hashes, we scan
-// all DB keys and check for the ChangeSet prefix to exclude data keys,
-// then exclude known version IDs.
+// allKnownAppVersionKeys performs a full DB scan to discover all per-app versions keys
+// and changeset entries. It identifies internal metadata by structure:
+//   - 32-byte key with value starting with ChangeSetPrefix → changeset entry
+//   - 32-byte key with value length divisible by 32 (not ChangeSetPrefix) → versions key
+//
+// This heuristic is safe because all application data keys use string prefixes
+// ("appstate_<id>", "wasm_<id>", etc.) which are never exactly 32 bytes long.
+// If a new key schema introduces 32-byte data keys, this function must be updated.
+//
+// Caller must hold at least v.mu.RLock to ensure consistency with the iterator snapshot.
 // This is used by GetIterator to filter out internal metadata.
 func (v *VersionedLDBKVStore) allKnownAppVersionKeys() (map[string]struct{}, [][]byte, error) {
 	excluded := make(map[string]struct{})

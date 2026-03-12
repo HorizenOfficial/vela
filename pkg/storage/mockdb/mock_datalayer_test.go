@@ -122,6 +122,17 @@ func TestApplicationStateStore(t *testing.T) {
 				_, err := store.GetEnclaveKeySetRecovery(ctx)
 				return err
 			},
+			"Rollback": func() error {
+				return store.Rollback(any_id, []byte("some-version"))
+			},
+			"LastVersionID": func() error {
+				_, err := store.LastVersionID(any_id)
+				return err
+			},
+			"ListVersions": func() error {
+				_, err := store.ListVersions(any_id)
+				return err
+			},
 		}
 
 		for name, op := range operations {
@@ -203,61 +214,67 @@ func TestApplicationStateStore(t *testing.T) {
 		}
 	})
 
-	t.Run("StoreArays", func(t *testing.T) {
+	t.Run("StoreArrays", func(t *testing.T) {
 		ctx := context.Background()
 		dataLayer := mockdb.NewMockDataLayer()
 
-		// 1. Define non-trivial arrays for states and WASM data
-		stateArray := []*common.ApplicationState{
-			{
-				ApplicationID:  common.NewApplicationId(1),
-				StateRoot:      sha256.Sum256([]byte("root1")),
-				EncryptedState: []byte("state1"),
-			},
-			{
-				ApplicationID:  common.NewApplicationId(2),
-				StateRoot:      sha256.Sum256([]byte("root2")),
-				EncryptedState: []byte("state2"),
-			},
+		// Store per-app data in separate calls (Store enforces single-app-per-call).
+		state1 := &common.ApplicationState{
+			ApplicationID:  common.NewApplicationId(1),
+			StateRoot:      sha256.Sum256([]byte("root1")),
+			EncryptedState: []byte("state1"),
 		}
-
-		wasmArray := []*common.WASMData{
-			{
-				ApplicationID: common.NewApplicationId(1),
-				Bytecode:      []byte("wasm1"),
-			},
-			{
-				ApplicationID: common.NewApplicationId(3), // Use a different app ID to test wasm-only storage
-				Bytecode:      []byte("wasm3"),
-			},
+		wasm1 := &common.WASMData{
+			ApplicationID: common.NewApplicationId(1),
+			Bytecode:      []byte("wasm1"),
 		}
+		err := dataLayer.Store(ctx, []byte("version-1"), []*common.ApplicationState{state1}, []*common.WASMData{wasm1})
+		require.NoError(t, err)
 
-		versionID := []byte("test-version-1")
-
-		// 2. Call the Store method
-		err := dataLayer.Store(ctx, versionID, stateArray, wasmArray)
-		require.NoError(t, err, "Store should not return an error")
-
-		// 3. Verify ApplicationStates were stored correctly
-		for _, expectedState := range stateArray {
-			actualState, err := dataLayer.GetApplicationState(ctx, expectedState.ApplicationID)
-			require.NoError(t, err, "GetApplicationState for %s should not return an error", expectedState.ApplicationID)
-			assert.Equal(t, expectedState, actualState, "Stored state for %s does not match", expectedState.ApplicationID)
+		state2 := &common.ApplicationState{
+			ApplicationID:  common.NewApplicationId(2),
+			StateRoot:      sha256.Sum256([]byte("root2")),
+			EncryptedState: []byte("state2"),
 		}
+		err = dataLayer.Store(ctx, []byte("version-2"), []*common.ApplicationState{state2}, nil)
+		require.NoError(t, err)
 
-		// 4. Verify WASMData were stored correctly
-		for _, expectedWasm := range wasmArray {
-			actualWasm, err := dataLayer.GetWASMBytecode(ctx, expectedWasm.ApplicationID)
-			require.NoError(t, err, "GetWASMBytecode for %s should not return an error", expectedWasm.ApplicationID)
-			assert.Equal(t, expectedWasm.Bytecode, actualWasm, "Stored WASM for %s does not match", expectedWasm.ApplicationID)
+		wasm3 := &common.WASMData{
+			ApplicationID: common.NewApplicationId(3),
+			Bytecode:      []byte("wasm3"),
 		}
+		err = dataLayer.Store(ctx, []byte("version-3"), nil, []*common.WASMData{wasm3})
+		require.NoError(t, err)
 
-		// 5. Verify that an app with only WASM data has no state
+		// Verify ApplicationStates were stored correctly
+		actualState1, err := dataLayer.GetApplicationState(ctx, common.NewApplicationId(1))
+		require.NoError(t, err)
+		assert.Equal(t, state1, actualState1)
+
+		actualState2, err := dataLayer.GetApplicationState(ctx, common.NewApplicationId(2))
+		require.NoError(t, err)
+		assert.Equal(t, state2, actualState2)
+
+		// Verify WASMData were stored correctly
+		actualWasm1, err := dataLayer.GetWASMBytecode(ctx, common.NewApplicationId(1))
+		require.NoError(t, err)
+		assert.Equal(t, wasm1.Bytecode, actualWasm1)
+
+		actualWasm3, err := dataLayer.GetWASMBytecode(ctx, common.NewApplicationId(3))
+		require.NoError(t, err)
+		assert.Equal(t, wasm3.Bytecode, actualWasm3)
+
+		// App with only WASM data has no state
 		_, err = dataLayer.GetApplicationState(ctx, 3)
-		assert.Error(t, err, "GetApplicationState for app3 should return an error as it has no state")
+		assert.Error(t, err)
 
-		// 6. Verify that an app with only state data has no WASM
+		// App with only state data has no WASM
 		_, err = dataLayer.GetWASMBytecode(ctx, 2)
-		assert.Error(t, err, "GetWASMBytecode for app2 should return an error as it has no WASM")
+		assert.Error(t, err)
+
+		// Mixed-app Store calls are rejected
+		mixedState := []*common.ApplicationState{state1, state2}
+		err = dataLayer.Store(ctx, []byte("version-bad"), mixedState, nil)
+		assert.Error(t, err, "Store should reject mixed ApplicationIDs")
 	})
 }

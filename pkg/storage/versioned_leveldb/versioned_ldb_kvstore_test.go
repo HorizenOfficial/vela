@@ -457,6 +457,46 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		_, err = kvStore.Db.Get([]byte("key1"), nil)
 		require.NoError(t, err, "Data from pruned version v1 should still exist")
 	})
+
+	t.Run("MultiApp_IndependentVersionChains", func(t *testing.T) {
+		kvStore, cleanup := createKVStore(t, 10)
+		defer cleanup()
+
+		app1 := uint64(1)
+		app2 := uint64(2)
+
+		// Store data under app1
+		v1 := sha256.Sum256([]byte("app1-v1"))
+		err := kvStore.Update(app1, []storage.KeyValuePair{{Key: []byte("a1_key"), Value: []byte("a1_val")}}, nil, v1[:])
+		require.NoError(t, err)
+
+		// Store data under app2
+		v2 := sha256.Sum256([]byte("app2-v1"))
+		err = kvStore.Update(app2, []storage.KeyValuePair{{Key: []byte("a2_key"), Value: []byte("a2_val")}}, nil, v2[:])
+		require.NoError(t, err)
+
+		// Each app should have exactly 1 version
+		versions1, err := kvStore.Versions(app1)
+		require.NoError(t, err)
+		assert.Len(t, versions1, 1)
+
+		versions2, err := kvStore.Versions(app2)
+		require.NoError(t, err)
+		assert.Len(t, versions2, 1)
+
+		// Rolling back app1 should not affect app2
+		err = kvStore.RollbackTo(app1, v1[:])
+		require.NoError(t, err)
+
+		versions2After, err := kvStore.Versions(app2)
+		require.NoError(t, err)
+		assert.Len(t, versions2After, 1, "app2 versions must be unaffected by app1 rollback")
+
+		// app2 data should still be accessible
+		val, err := kvStore.Db.Get([]byte("a2_key"), nil)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("a2_val"), val)
+	})
 }
 
 // TestChangeSetSerializer tests the serialization and deserialization of ChangeSet objects.

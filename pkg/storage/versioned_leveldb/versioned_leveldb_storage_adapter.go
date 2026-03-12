@@ -20,9 +20,8 @@ const (
 )
 
 type VersionedLevelDbStorageAdapter struct {
-	dataBase    *VersionedLDBKVStore
-	versionsKey []byte
-	mu          sync.RWMutex
+	dataBase *VersionedLDBKVStore
+	mu       sync.RWMutex
 }
 
 func NewVersionedLevelDbStorageAdapter(pathToDB string) (*VersionedLevelDbStorageAdapter, error) {
@@ -35,8 +34,7 @@ func NewVersionedLevelDbStorageAdapterWithVersions(pathToDB string, versionsToKe
 		return nil, err
 	}
 	return &VersionedLevelDbStorageAdapter{
-		dataBase:    dataBase,
-		versionsKey: VersionsKey[:],
+		dataBase: dataBase,
 	}, nil
 }
 

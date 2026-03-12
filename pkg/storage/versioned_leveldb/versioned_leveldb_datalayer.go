@@ -131,6 +131,8 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 
 // extractAppID derives the application ID from state and WASM arrays.
 // All non-nil items must share the same ApplicationID.
+// Returns an error if both arrays are empty/nil — with per-app versioning, every Store call
+// must be associated with an app (this intentionally narrows the pre-multi-app API contract).
 func extractAppID(stateArray []*common.ApplicationState, wasmArray []*common.WASMData) (common.ApplicationIdType, error) {
 	var appID common.ApplicationIdType
 	found := false
