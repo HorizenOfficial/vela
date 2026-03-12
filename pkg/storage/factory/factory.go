@@ -30,6 +30,9 @@ func NewDataLayer(cfg DataLayerConfig) (storage.DataLayer, error) {
 		if strings.TrimSpace(cfg.DBPath) == "" {
 			return nil, fmt.Errorf("data layer path is empty")
 		}
+		if cfg.NumVersions <= 0 {
+			return nil, fmt.Errorf("NumVersions must be positive, got %d", cfg.NumVersions)
+		}
 		levelCfg := versionedDb.VersionedLevelDBConfig{
 			DBPath:         cfg.DBPath,
 			VersionsToKeep: cfg.NumVersions,

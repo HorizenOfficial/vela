@@ -37,6 +37,7 @@ func NewMockDataLayer() *MockDataLayer {
 }
 
 // checkClosed returns an error if the mock data layer is closed.
+// Caller must hold d.mutex (read or write) before calling.
 func (d *MockDataLayer) checkClosed() error {
 	if d.isClosed {
 		return storageErrors.ErrStorageIsClosed("mock data layer is closed")
@@ -80,9 +81,7 @@ func (d *MockDataLayer) Store(
 		}
 	}
 
-	if appID != 0 {
-		d.versions[appID] = append(d.versions[appID], versionID)
-	}
+	d.versions[appID] = append(d.versions[appID], versionID)
 
 	return nil
 }
@@ -113,6 +112,9 @@ func extractMockAppID(stateArray []*common.ApplicationState, wasmArray []*common
 		} else if wasm.ApplicationID != appID {
 			return 0, fmt.Errorf("inconsistent ApplicationID in wasmArray: got %d and %d", appID, wasm.ApplicationID)
 		}
+	}
+	if !found {
+		return 0, fmt.Errorf("cannot determine ApplicationID: stateArray and wasmArray are both empty or nil")
 	}
 	return appID, nil
 }

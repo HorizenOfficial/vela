@@ -80,7 +80,7 @@ func (s *VersionedLevelDbStorageAdapter) GetAll() ([]storage.KeyValuePair, error
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var allPairs []storage.KeyValuePair
-	iter := s.GetIterator()
+	iter := s.dataBase.GetIterator()
 	defer iter.Release()
 
 	for iter.Next() {

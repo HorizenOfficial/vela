@@ -26,6 +26,23 @@ func versionsKeyForApp(appID uint64) [ConstantsHashLength]byte {
 	return sha256.Sum256([]byte(fmt.Sprintf("versions_%d", appID)))
 }
 
+// parseVersionsList splits raw bytes into a list of 32-byte version hashes.
+// context describes the caller for error messages (e.g., "update", "rollback").
+func parseVersionsList(data []byte, context string) ([][]byte, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if len(data)%ConstantsHashLength != 0 {
+		return nil, storageErrors.ErrInconsistentState(
+			fmt.Sprintf("corrupted versions key (%s): length not a multiple of hash length", context))
+	}
+	versions := make([][]byte, 0, len(data)/ConstantsHashLength)
+	for i := 0; i < len(data); i += ConstantsHashLength {
+		versions = append(versions, data[i:i+ConstantsHashLength])
+	}
+	return versions, nil
+}
+
 type ChangeSet struct {
 	InsertedKeys [][]byte
 	Removed      []storage.KeyValuePair
@@ -126,14 +143,9 @@ func (v *VersionedLDBKVStore) Update(appID uint64, toInsert []storage.KeyValuePa
 		return fmt.Errorf("failed to get current versions list: %w", err)
 	}
 
-	var parsedCurrentVersions [][]byte
-	if len(currentVersionsBytes) > 0 {
-		if len(currentVersionsBytes)%ConstantsHashLength != 0 {
-			return storageErrors.ErrInconsistentState("Corrupted versions key: length not a multiple of hash length")
-		}
-		for i := 0; i < len(currentVersionsBytes); i += ConstantsHashLength {
-			parsedCurrentVersions = append(parsedCurrentVersions, currentVersionsBytes[i:i+ConstantsHashLength])
-		}
+	parsedCurrentVersions, err := parseVersionsList(currentVersionsBytes, "update")
+	if err != nil {
+		return err
 	}
 
 	newVersionsList := make([][]byte, 1, len(parsedCurrentVersions)+1)
@@ -195,15 +207,12 @@ func (v *VersionedLDBKVStore) RollbackTo(appID uint64, versionID []byte) error {
 		return fmt.Errorf("failed to get current versions for rollback: %w", err)
 	}
 
-	var actualVersions [][]byte
 	if len(currentVersionsBytes) == 0 {
 		return storageErrors.ErrVersionNotFound(versionID)
 	}
-	if len(currentVersionsBytes)%ConstantsHashLength != 0 {
-		return storageErrors.ErrInconsistentState("Corrupted versions key during rollback: length not a multiple of hash length")
-	}
-	for i := 0; i < len(currentVersionsBytes); i += ConstantsHashLength {
-		actualVersions = append(actualVersions, currentVersionsBytes[i:i+ConstantsHashLength])
+	actualVersions, err := parseVersionsList(currentVersionsBytes, "rollback")
+	if err != nil {
+		return err
 	}
 
 	targetVersionFound := false
@@ -287,14 +296,7 @@ func (v *VersionedLDBKVStore) versionsUnlocked(appID uint64) ([][]byte, error) {
 		return nil, fmt.Errorf("failed to get versions: %w", err)
 	}
 
-	var versions [][]byte
-	if len(versionsBytes)%ConstantsHashLength != 0 {
-		return nil, storageErrors.ErrInconsistentState("Corrupted versions key: length not a multiple of hash length")
-	}
-	for i := 0; i < len(versionsBytes); i += ConstantsHashLength {
-		versions = append(versions, versionsBytes[i:i+ConstantsHashLength])
-	}
-	return versions, nil
+	return parseVersionsList(versionsBytes, "read")
 }
 
 // allKnownAppVersionKeys performs a full DB scan to discover all per-app versions keys
@@ -305,6 +307,16 @@ func (v *VersionedLDBKVStore) versionsUnlocked(appID uint64) ([][]byte, error) {
 // This heuristic is safe because all application data keys use string prefixes
 // ("appstate_<id>", "wasm_<id>", etc.) which are never exactly 32 bytes long.
 // If a new key schema introduces 32-byte data keys, this function must be updated.
+//
+// Performance: O(N) where N is total DB entries. Acceptable for current DB sizes.
+// Two alternatives to reduce this to O(1) if it becomes a bottleneck:
+//  1. Prefix-based metadata keys: give all internal keys (versions, changesets) a known
+//     prefix byte. Breaking schema change requiring a one-time migration of existing
+//     databases to rewrite all metadata keys under the new prefix.
+//  2. Key-length filtering: since all metadata keys are exactly 32-byte SHA256 hashes
+//     and all data keys are string-prefixed (never 32 bytes), the iterator could simply
+//     skip keys where len(key) == ConstantsHashLength. No pre-scan, no schema change,
+//     no migration. Relies on the same invariant already documented above.
 //
 // Caller must hold at least v.mu.RLock to ensure consistency with the iterator snapshot.
 // This is used by GetIterator to filter out internal metadata.

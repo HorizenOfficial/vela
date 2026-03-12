@@ -280,7 +280,7 @@ func (s *LevelDbStorageAdapter) Close() error {
 
 // LevelDBEnclaveKeyStore is a non-versioned store for enclave key recovery data.
 type LevelDBEnclaveKeyStore struct {
-	Adapter *LevelDbStorageAdapter
+	adapter *LevelDbStorageAdapter
 	closableStore
 }
 
@@ -289,7 +289,7 @@ func NewLevelDBEnclaveKeyStore(dbPath string) (*LevelDBEnclaveKeyStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &LevelDBEnclaveKeyStore{Adapter: adapter}, nil
+	return &LevelDBEnclaveKeyStore{adapter: adapter}, nil
 }
 
 func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *common.EnclaveKeySetRecovery) error {
@@ -301,7 +301,7 @@ func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context,
 		return fmt.Errorf("failed to marshal enclave key set recovery data: %w", err)
 	}
 	key := []byte(enclaveKeyRecoveryPrefix)
-	err = s.Adapter.Put(key, value)
+	err = s.adapter.Put(key, value)
 	if err != nil {
 		return fmt.Errorf("failed to store enclave key set recovery data in LevelDB: %w", err)
 	}
@@ -313,7 +313,7 @@ func (s *LevelDBEnclaveKeyStore) GetEnclaveKeySetRecovery(ctx context.Context) (
 		return nil, err
 	}
 	key := []byte(enclaveKeyRecoveryPrefix)
-	value, err := s.Adapter.Get(key)
+	value, err := s.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get enclave key set recovery data from LevelDB: %w", err)
 	}
@@ -329,7 +329,7 @@ func (s *LevelDBEnclaveKeyStore) GetEnclaveKeySetRecovery(ctx context.Context) (
 }
 
 func (s *LevelDBEnclaveKeyStore) Close() error {
-	return s.close(s.Adapter.Close)
+	return s.close(s.adapter.Close)
 }
 
 var _ storage.EnclaveKeyStore = (*LevelDBEnclaveKeyStore)(nil)
@@ -364,13 +364,9 @@ func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*LevelDBDataLayer
 }
 
 func (d *LevelDBDataLayer) Close() error {
-	if err := d.VersionedLevelDBAppStateStore.Close(); err != nil {
-		return err
-	}
-	if err := d.LevelDBEnclaveKeyStore.Close(); err != nil {
-		return err
-	}
-	return nil
+	errState := d.VersionedLevelDBAppStateStore.Close()
+	errEnclave := d.LevelDBEnclaveKeyStore.Close()
+	return errors.Join(errState, errEnclave)
 }
 
 var _ storage.DataLayer = (*LevelDBDataLayer)(nil)
