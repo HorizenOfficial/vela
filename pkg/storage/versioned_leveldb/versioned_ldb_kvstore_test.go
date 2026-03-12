@@ -288,7 +288,6 @@ func TestVersionedLDBKVStore(t *testing.T) {
 
 		assert.Len(t, retrievedKeys, 2)
 		for _, key := range retrievedKeys {
-			assert.NotEqual(t, versioned_leveldb.VersionsKey[:], key)
 			assert.NotEqual(t, vID1[:], key)
 			assert.NotEqual(t, vID2[:], key)
 		}

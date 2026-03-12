@@ -183,9 +183,6 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 			t.Errorf("GetAll results mismatch (-want +got):\n%s", diff)
 		}
 
-		for _, pair := range allPairs {
-			assert.False(t, bytes.Equal(pair.Key, versioned_leveldb.VersionsKey[:]), "GetAll should not return VersionsKey")
-		}
 	})
 
 	t.Run("LastVersionID", func(t *testing.T) {
@@ -443,7 +440,6 @@ func TestVersionedLevelDbStorageAdapter(t *testing.T) {
 		}
 
 		for _, pair := range retrievedPairs {
-			assert.False(t, bytes.Equal(pair.Key, versioned_leveldb.VersionsKey[:]), "Iterator should not return VersionsKey")
 			assert.False(t, bytes.Equal(pair.Key, versionID1), "Iterator should not return versionID1 as a data key")
 			assert.False(t, bytes.Equal(pair.Key, versionID2), "Iterator should not return versionID2 as a data key")
 		}

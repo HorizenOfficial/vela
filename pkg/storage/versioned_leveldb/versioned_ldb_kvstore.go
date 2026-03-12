@@ -21,16 +21,6 @@ const (
 	ChangeSetPrefix     = 0x16
 )
 
-// VersionsKey is the legacy global version key from the single-app era. Retained so that
-// allKnownAppVersionKeys can exclude it from iterator results on databases that predate per-app
-// versioning. No migration code reads this key; migration (task 4.6) was deferred because no
-// production database exists yet.
-var VersionsKey [ConstantsHashLength]byte
-
-func init() {
-	VersionsKey = sha256.Sum256([]byte("versions"))
-}
-
 // versionsKeyForApp computes a deterministic per-app versions key: sha256("versions_" + appID).
 func versionsKeyForApp(appID uint64) [ConstantsHashLength]byte {
 	return sha256.Sum256([]byte(fmt.Sprintf("versions_%d", appID)))
@@ -357,9 +347,6 @@ func (v *VersionedLDBKVStore) allKnownAppVersionKeys() (map[string]struct{}, [][
 	if err := iter.Error(); err != nil {
 		return nil, nil, fmt.Errorf("failed to scan for app version keys: %w", err)
 	}
-
-	// Also exclude the legacy global VersionsKey if present.
-	excluded[string(VersionsKey[:])] = struct{}{}
 
 	return excluded, allVersionIDs, nil
 }
