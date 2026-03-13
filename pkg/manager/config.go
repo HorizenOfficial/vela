@@ -146,10 +146,14 @@ func LoadConfig() (*Config, error) {
 
 	var privateKey *cryptotypes.PrivateKeySecp256k1
 	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")
+	var keyErr error
 	if privateKeyFromEnv == "" {
-		privateKey, _ = crypto.GeneratePrivateKeySecp256k1()
+		privateKey, keyErr = crypto.GeneratePrivateKeySecp256k1()
 	} else {
-		privateKey, _ = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
+		privateKey, keyErr = crypto.ImportPrivateKeySecp256k1FromHex(privateKeyFromEnv)
+	}
+	if keyErr != nil {
+		return nil, fmt.Errorf("failed to load MANAGER_KEY_SECP256: %w", keyErr)
 	}
 
 	communicationParams := common.CommunicationParams{
@@ -159,8 +163,10 @@ func LoadConfig() (*Config, error) {
 	// Admin command server configuration
 	adminServerPort := common.GetConfigVarInt64("MANAGER_ADMIN_PORT", 4002, fileProperties)
 	var adminChannelConnectionParams common.ChannelConnectionParams
-	// Admin server always uses TCP for external access
-	adminServerHost := common.GetConfigVar("MANAGER_IP_HOST", "localhost", fileProperties)
+	// Admin server always uses TCP for external access.
+	// MANAGER_ADMIN_SERVER_HOST controls the bind address for the admin server.
+	// Defaults to "0.0.0.0" so admincli can connect from outside the container.
+	adminServerHost := common.GetConfigVar("MANAGER_ADMIN_SERVER_HOST", "0.0.0.0", fileProperties)
 	adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: adminServerHost, Port: uint32(adminServerPort)}
 
 	adminCommunicationParams := common.CommunicationParams{

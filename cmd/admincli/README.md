@@ -1,6 +1,6 @@
 # admincli
 
-Interactive CLI for sending admin commands to the HCCE Manager's admin server.
+Interactive CLI for sending admin commands to the Vela Manager's admin server.
 All commands go through the Manager (TCP port 4002 by default); commands
 targeting the Executor are forwarded automatically via the Manager-Executor
 communication channel.
@@ -28,7 +28,7 @@ go build ./cmd/admincli
 The tool presents a numbered menu and prompts for any required fields:
 
 ```
-HCCE Admin CLI
+Vela Admin CLI
 Server: localhost:4002
 
 Commands:
