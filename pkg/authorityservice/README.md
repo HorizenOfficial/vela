@@ -17,8 +17,21 @@ The authority service now verifies on-chain completion before serving a report. 
 - `CHAIN_PROCESSOR_ADDRESS`: ProcessorEndpoint contract address.
 - `AUTHORITY_SERVICE_SUBGRAPH_URL`: subgraph endpoint to read `RequestCompleted`/`UserEvent`.
 - `MANAGER_REPORTS_FOLDER`: path to the report files shared with the manager (default `/tmp/vela-data/manager_reports`).
+- `DEPLOY_ARTIFACTS_PATH`: path where `POST /deploy/upload` stores uploaded WASM artifacts (default `/tmp/vela-data/deploy_artifacts`).
+- `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: upload limit in MB (default `50`, set `0` only to explicitly disable limits).
 
 Logging/TLS options are documented in `pkg/authorityservice/config.go`.
+
+---
+
+## Deploy upload endpoint (`POST /deploy/upload`)
+
+- Request: `multipart/form-data` with required part `wasm`.
+- Success response: `{ artifactId, wasmSha256 }`.
+- Error responses:
+  - `400` invalid multipart or missing wasm part.
+  - `413` upload exceeds `DEPLOY_ARTIFACTS_MAX_SIZE_MB`.
+  - `500` internal storage/persistence error.
 
 ---
 

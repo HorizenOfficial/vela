@@ -60,9 +60,8 @@ type Config struct {
 	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
 	DeanonymizationReportPath string
 
-	// InputWasmPath is the path where the wasm bytecode to be deployed is retrieved if not found in the payload
-	// (we may need to load it externally for GAS limitation)
-	InputWasmPath string
+	// ArtifactsPath is the shared filesystem path where deploy artifacts are stored.
+	ArtifactsPath string
 
 	// Manager logging
 	//--------------------------
@@ -192,7 +191,7 @@ func LoadConfig() (*Config, error) {
 		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
 		DataLayerNumOfVersions:    10,
 		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/vela-data/manager_reports", fileProperties),
-		InputWasmPath:             common.GetConfigVar("MANAGER_INPUT_WASMS", "", fileProperties),
+		ArtifactsPath:             common.GetConfigVar("MANAGER_ARTIFACTS_PATH", "", fileProperties),
 		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
 		LogConsole:                common.GetConfigVarBool("MANAGER_LOG_CONSOLE", true, fileProperties),
 		LogConsoleLevel:           common.GetConfigVar("MANAGER_LOG_CONSOLE_LEVEL", "info", fileProperties),
@@ -214,6 +213,11 @@ func LoadConfig() (*Config, error) {
 
 	if strings.TrimSpace(cfg.DeanonymizationReportPath) == "" {
 		return nil, fmt.Errorf("MANAGER_REPORTS_FOLDER (DeanonymizationReportPath) not configured")
+	}
+
+	cfg.ArtifactsPath = strings.TrimSpace(cfg.ArtifactsPath)
+	if cfg.ArtifactsPath == "" {
+		return nil, fmt.Errorf("MANAGER_ARTIFACTS_PATH not configured")
 	}
 
 	return cfg, nil
@@ -319,16 +323,16 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// WASM bytecode files (MANAGER_INPUT_WASMS) mixed with LevelDB files carry a
+	// Artifact files (MANAGER_ARTIFACTS_PATH) mixed with LevelDB files carry a
 	// similar risk: any directory-level operation (rm, rsync, backup) on one becomes
 	// hazardous to the other.
-	if c.DataLayerDBPath != "" && c.InputWasmPath != "" {
+	if c.DataLayerDBPath != "" && c.ArtifactsPath != "" {
 		dbAbs, _ := filepath.Abs(c.DataLayerDBPath)
-		wasmAbs, _ := filepath.Abs(c.InputWasmPath)
-		if dbAbs == wasmAbs {
+		artifactsAbs, _ := filepath.Abs(c.ArtifactsPath)
+		if dbAbs == artifactsAbs {
 			errs = append(errs, fmt.Sprintf(
-				"MANAGER_DATA_FOLDER and MANAGER_INPUT_WASMS resolve to the same path (%s); "+
-					"LevelDB files and WASM bytecode files must not share a directory", dbAbs))
+				"MANAGER_DATA_FOLDER and MANAGER_ARTIFACTS_PATH resolve to the same path (%s); "+
+					"LevelDB files and artifact files must not share a directory", dbAbs))
 		}
 	}
 

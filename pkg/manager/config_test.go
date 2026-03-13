@@ -1,6 +1,8 @@
 package manager
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -17,7 +19,7 @@ func validManagerConfig() *Config {
 		LogServerTCPAddress:   common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
 		DataLayerDBPath:       "/tmp/test-db",
 		DeanonymizationReportPath: "/tmp/test-reports",
-		InputWasmPath:         "/tmp/test-wasm",
+		ArtifactsPath:         "/tmp/test-artifacts",
 		LogFileName:           "/tmp/test-manager.log",
 		LogServerLogFile:      "/tmp/test-logserver.log",
 		HandshakeTimeout:          5,
@@ -62,14 +64,14 @@ func TestValidate_DataLayerDBPath_Equals_ReportsPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "MANAGER_DATA_FOLDER and MANAGER_REPORTS_FOLDER")
 }
 
-func TestValidate_DataLayerDBPath_Equals_WasmPath(t *testing.T) {
+func TestValidate_DataLayerDBPath_Equals_ArtifactsPath(t *testing.T) {
 	cfg := validManagerConfig()
 	cfg.DataLayerDBPath = "/tmp/shared"
-	cfg.InputWasmPath = "/tmp/shared"
+	cfg.ArtifactsPath = "/tmp/shared"
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "MANAGER_DATA_FOLDER and MANAGER_INPUT_WASMS")
+	assert.Contains(t, err.Error(), "MANAGER_DATA_FOLDER and MANAGER_ARTIFACTS_PATH")
 }
 
 func TestValidate_LogFile_Equals_LogServerFile(t *testing.T) {
@@ -116,7 +118,7 @@ func TestValidate_MultipleErrors(t *testing.T) {
 
 func TestValidate_EmptyOptionalPaths_NoError(t *testing.T) {
 	cfg := validManagerConfig()
-	cfg.InputWasmPath = ""
+	cfg.ArtifactsPath = ""
 	cfg.LogFileName = ""
 	cfg.LogServerLogFile = ""
 
@@ -226,4 +228,27 @@ func TestValidate_LogRotationEnabled_WithLogFile(t *testing.T) {
 	cfg.LogServerLogFile = "/tmp/test-logserver.log"
 
 	require.NoError(t, cfg.Validate())
+}
+
+func TestLoadConfig_UsesConfiguredArtifactAndReportPaths(t *testing.T) {
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
+	tmpDir := t.TempDir()
+	reportsDir := filepath.Join(tmpDir, "reports")
+	artifactsDir := filepath.Join(tmpDir, "artifacts")
+
+	configContents := "MANAGER_REPORTS_FOLDER=" + reportsDir + "\n" +
+		"MANAGER_ARTIFACTS_PATH=" + artifactsDir + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, confFileName), []byte(configContents), 0o600))
+
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() {
+		require.NoError(t, os.Chdir(wd))
+	})
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+	require.Equal(t, artifactsDir, cfg.ArtifactsPath)
+	require.Equal(t, reportsDir, cfg.DeanonymizationReportPath)
 }

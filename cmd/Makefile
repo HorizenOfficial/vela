@@ -1,7 +1,7 @@
 BIN_DIR := ../bin
 FLAG_FILE := $(BIN_DIR)/.built
 GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -X github.com/horizen-pes/pkg/version.Version=$(GIT_VERSION)
+LDFLAGS := -X github.com/HorizenOfficial/vela/pkg/version.Version=$(GIT_VERSION)
 
 # Configuration files
 MANAGER_CONF_SRC := ../pkg/manager/manager.conf
