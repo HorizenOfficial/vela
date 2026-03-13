@@ -847,7 +847,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 		errorPayload, err := e.processErrorResponse(
 			req,
 			emptyStateRoot,
-			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg),
+			apperrors.New(apperrors.CodeWasmModuleEmpty, "wasm module is empty"),
 		)
 		return errorPayload, nil, err
 	}

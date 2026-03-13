@@ -139,8 +139,8 @@ func TestHandleDeployApp_NilWASM(t *testing.T) {
 	updatePayload, _, err := executor.HandleDeployApp(context.Background(), req, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, updatePayload)
-	require.Equal(t, uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to load or get module", updatePayload.ErrorMsg)
+	require.Equal(t, uint8(apperrors.CodeWasmModuleEmpty.Category.Category), updatePayload.ErrorCode)
+	require.Equal(t, "wasm module is empty", updatePayload.ErrorMsg)
 }
 
 func TestHandleDeployApp_EmptyWASM(t *testing.T) {
@@ -151,8 +151,8 @@ func TestHandleDeployApp_EmptyWASM(t *testing.T) {
 	updatePayload, _, err := executor.HandleDeployApp(context.Background(), req, nil, []byte{})
 	require.NoError(t, err)
 	require.NotNil(t, updatePayload)
-	require.Equal(t, uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to load or get module", updatePayload.ErrorMsg)
+	require.Equal(t, uint8(apperrors.CodeWasmModuleEmpty.Category.Category), updatePayload.ErrorCode)
+	require.Equal(t, "wasm module is empty", updatePayload.ErrorMsg)
 }
 
 func TestHandleDeployApp_ApplicationAlreadyDeployed(t *testing.T) {
