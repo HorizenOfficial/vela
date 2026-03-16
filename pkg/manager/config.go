@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -236,11 +237,10 @@ func (c *Config) Validate() error {
 	var errs []string
 
 	// --- Channel type ---
-	// Only "tcp" and "vsock" are supported. An invalid value falls through to
-	// the default branch in cmd/manager/main.go and cmd/executor/main.go switch
-	// statements, which log an error and return — but by that point the process
-	// has already started the log server, created the blockchain client, and done
-	// significant work. Failing fast here avoids wasted startup effort.
+	// Only "tcp" and "vsock" are supported. Validate() is called before any
+	// resources are created, so catching this early avoids starting the log
+	// server, blockchain client, and other heavy initialization only to fail
+	// in the ChannelType switch.
 	if c.ChannelType != "tcp" && c.ChannelType != "vsock" {
 		errs = append(errs, fmt.Sprintf(
 			"CHANNEL_TYPE must be \"tcp\" or \"vsock\", got %q", c.ChannelType))
@@ -262,10 +262,9 @@ func (c *Config) Validate() error {
 	}
 
 	// --- Timeout values ---
-	// HandshakeTimeout feeds time.After(Duration * time.Second). A zero value
-	// fires the timer immediately, so the executor handshake always times out
-	// before it can complete. A negative value wraps to a huge positive duration
-	// on some platforms, causing an indefinite hang.
+	// HandshakeTimeout feeds time.After(Duration * time.Second). A zero or
+	// negative value fires the timer immediately, so the executor handshake
+	// always times out before it can complete.
 	if c.HandshakeTimeout <= 0 {
 		errs = append(errs, fmt.Sprintf(
 			"HANDSHAKE_TIMEOUT must be > 0 (seconds), got %d", c.HandshakeTimeout))
@@ -320,9 +319,12 @@ func (c *Config) Validate() error {
 	// or backup tooling targeting one set of files can destroy the other — for example,
 	// wiping the "reports folder" would delete the LevelDB database.
 	if c.DataLayerDBPath != "" && c.DeanonymizationReportPath != "" {
-		dbAbs, _ := filepath.Abs(c.DataLayerDBPath)
-		reportsAbs, _ := filepath.Abs(c.DeanonymizationReportPath)
-		if dbAbs == reportsAbs {
+		dbAbs, err1 := filepath.Abs(c.DataLayerDBPath)
+		reportsAbs, err2 := filepath.Abs(c.DeanonymizationReportPath)
+		if err := errors.Join(err1, err2); err != nil {
+			errs = append(errs, fmt.Sprintf(
+				"failed to resolve absolute paths for MANAGER_DATA_FOLDER / MANAGER_REPORTS_FOLDER: %v", err))
+		} else if dbAbs == reportsAbs {
 			errs = append(errs, fmt.Sprintf(
 				"MANAGER_DATA_FOLDER and MANAGER_REPORTS_FOLDER resolve to the same path (%s); "+
 					"LevelDB files and report JSON files must not share a directory", dbAbs))
@@ -333,9 +335,12 @@ func (c *Config) Validate() error {
 	// similar risk: any directory-level operation (rm, rsync, backup) on one becomes
 	// hazardous to the other.
 	if c.DataLayerDBPath != "" && c.ArtifactsPath != "" {
-		dbAbs, _ := filepath.Abs(c.DataLayerDBPath)
-		artifactsAbs, _ := filepath.Abs(c.ArtifactsPath)
-		if dbAbs == artifactsAbs {
+		dbAbs, err1 := filepath.Abs(c.DataLayerDBPath)
+		artifactsAbs, err2 := filepath.Abs(c.ArtifactsPath)
+		if err := errors.Join(err1, err2); err != nil {
+			errs = append(errs, fmt.Sprintf(
+				"failed to resolve absolute paths for MANAGER_DATA_FOLDER / MANAGER_ARTIFACTS_PATH: %v", err))
+		} else if dbAbs == artifactsAbs {
 			errs = append(errs, fmt.Sprintf(
 				"MANAGER_DATA_FOLDER and MANAGER_ARTIFACTS_PATH resolve to the same path (%s); "+
 					"LevelDB files and artifact files must not share a directory", dbAbs))
@@ -351,9 +356,12 @@ func (c *Config) Validate() error {
 	// renames/truncates the file while zerolog still holds an open fd, causing
 	// further data loss.
 	if c.LogFileName != "" && c.LogServerLogFile != "" {
-		logAbs, _ := filepath.Abs(c.LogFileName)
-		logServerAbs, _ := filepath.Abs(c.LogServerLogFile)
-		if logAbs == logServerAbs {
+		logAbs, err1 := filepath.Abs(c.LogFileName)
+		logServerAbs, err2 := filepath.Abs(c.LogServerLogFile)
+		if err := errors.Join(err1, err2); err != nil {
+			errs = append(errs, fmt.Sprintf(
+				"failed to resolve absolute paths for MANAGER_LOG_FILE_NAME / LOG_SERVER_FILE_NAME: %v", err))
+		} else if logAbs == logServerAbs {
 			errs = append(errs, fmt.Sprintf(
 				"MANAGER_LOG_FILE_NAME and LOG_SERVER_FILE_NAME resolve to the same file (%s); "+
 					"concurrent writers will corrupt output", logAbs))

@@ -29,6 +29,12 @@ func main() {
 		log.Fatal("Failed to load configuration: %v", err)
 	}
 
+	// Validate configuration before creating any resources (logger, runtime, server).
+	if err := config.Validate(); err != nil {
+		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
+		log.Fatal("Invalid configuration: %v", err)
+	}
+
 	// Create context first so defer cancel() is registered before defer log.Close().
 	// Defers run LIFO, so log.Close() will drain the async buffer to the log server
 	// before cancel() shuts down context-dependent resources.
@@ -77,10 +83,6 @@ func main() {
 	// Initialize KMS dependencies if Type 1 is configured
 	var kmsClient kms.KMSClient
 	var enclaveHandle kms.EnclaveHandle
-
-	if err := config.Validate(); err != nil {
-		log.Fatal("Invalid configuration: %v", err)
-	}
 
 	if config.KeySetRecoveryType == common.RecoveryTypeKMS {
 		log.Info("Initializing Type 1 (KMS) key recovery with Nitro Enclave attestation...")

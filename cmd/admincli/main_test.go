@@ -8,6 +8,7 @@ import (
 
 	"github.com/HorizenOfficial/vela/pkg/admin"
 	"github.com/HorizenOfficial/vela/pkg/communication"
+	"github.com/stretchr/testify/require"
 )
 
 // TestMessageTypeConstants verifies that the locally-duplicated admin message
@@ -55,12 +56,14 @@ func TestValidLogLevels(t *testing.T) {
 // TestSetLogLevelReqJSONShape verifies that the local setLogLevelReq produces
 // the same JSON field names as admin.SetLogLevelRequest.
 func TestSetLogLevelReqJSONShape(t *testing.T) {
-	local, _ := json.Marshal(setLogLevelReq{Level: "debug"})
-	upstream, _ := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	local, err := json.Marshal(setLogLevelReq{Level: "debug"})
+	require.NoError(t, err)
+	upstream, err := json.Marshal(admin.SetLogLevelRequest{Level: "debug"})
+	require.NoError(t, err)
 
 	var localMap, upstreamMap map[string]any
-	json.Unmarshal(local, &localMap)
-	json.Unmarshal(upstream, &upstreamMap)
+	require.NoError(t, json.Unmarshal(local, &localMap))
+	require.NoError(t, json.Unmarshal(upstream, &upstreamMap))
 
 	if !reflect.DeepEqual(localMap, upstreamMap) {
 		t.Errorf("SetLogLevelReq JSON mismatch:\n  admincli:  %s\n  pkg/admin: %s", local, upstream)
@@ -70,20 +73,22 @@ func TestSetLogLevelReqJSONShape(t *testing.T) {
 // TestAdminMessageJSONShape verifies that the local adminMessage produces
 // the same JSON field names as admin.AdminMessage.
 func TestAdminMessageJSONShape(t *testing.T) {
-	local, _ := json.Marshal(adminMessage{
+	local, err := json.Marshal(adminMessage{
 		Type:   setLogLevelRequest,
 		Target: "manager",
 		Data:   json.RawMessage(`{"level":"debug"}`),
 	})
-	upstream, _ := json.Marshal(admin.AdminMessage{
+	require.NoError(t, err)
+	upstream, err := json.Marshal(admin.AdminMessage{
 		Type:   admin.SetLogLevelRequestMessage,
 		Target: "manager",
 		Data:   json.RawMessage(`{"level":"debug"}`),
 	})
+	require.NoError(t, err)
 
 	var localMap, upstreamMap map[string]any
-	json.Unmarshal(local, &localMap)
-	json.Unmarshal(upstream, &upstreamMap)
+	require.NoError(t, json.Unmarshal(local, &localMap))
+	require.NoError(t, json.Unmarshal(upstream, &upstreamMap))
 
 	if !reflect.DeepEqual(localMap, upstreamMap) {
 		t.Errorf("AdminMessage JSON mismatch:\n  admincli:  %s\n  pkg/admin: %s", local, upstream)
@@ -93,12 +98,14 @@ func TestAdminMessageJSONShape(t *testing.T) {
 // TestErrorDataJSONShape verifies that the local errorData produces the same
 // JSON field names as communication.ErrorData.
 func TestErrorDataJSONShape(t *testing.T) {
-	local, _ := json.Marshal(errorData{Code: "ERR", Message: "fail"})
-	upstream, _ := json.Marshal(communication.ErrorData{Code: "ERR", Message: "fail"})
+	local, err := json.Marshal(errorData{Code: "ERR", Message: "fail"})
+	require.NoError(t, err)
+	upstream, err := json.Marshal(communication.ErrorData{Code: "ERR", Message: "fail"})
+	require.NoError(t, err)
 
 	var localMap, upstreamMap map[string]any
-	json.Unmarshal(local, &localMap)
-	json.Unmarshal(upstream, &upstreamMap)
+	require.NoError(t, json.Unmarshal(local, &localMap))
+	require.NoError(t, json.Unmarshal(upstream, &upstreamMap))
 
 	if !reflect.DeepEqual(localMap, upstreamMap) {
 		t.Errorf("ErrorData JSON mismatch:\n  admincli:  %s\n  pkg/comm:  %s", local, upstream)

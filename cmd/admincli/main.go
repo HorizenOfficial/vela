@@ -34,7 +34,7 @@ var validTargets = []string{"manager", "executor", "all"}
 type adminMessage struct {
 	Type   string          `json:"type"`
 	Target string          `json:"target,omitempty"`
-	Data   json.RawMessage `json:"data,omitempty"`
+	Data   json.RawMessage `json:"data"`
 }
 
 type errorData struct {
@@ -261,11 +261,12 @@ func printSuccess(data json.RawMessage) {
 	// Try to pretty-print the data; fall back to raw string.
 	var pretty any
 	if err := json.Unmarshal(data, &pretty); err == nil {
-		formatted, _ := json.MarshalIndent(pretty, "", "  ")
-		fmt.Printf("\n%sOK: %s%s\n", color(ansiGreen), string(formatted), color(ansiReset))
-	} else {
-		fmt.Printf("\n%sOK: %s%s\n", color(ansiGreen), string(data), color(ansiReset))
+		if formatted, err := json.MarshalIndent(pretty, "", "  "); err == nil {
+			fmt.Printf("\n%sOK: %s%s\n", color(ansiGreen), string(formatted), color(ansiReset))
+			return
+		}
 	}
+	fmt.Printf("\n%sOK: %s%s\n", color(ansiGreen), string(data), color(ansiReset))
 }
 
 func printError(data json.RawMessage) {

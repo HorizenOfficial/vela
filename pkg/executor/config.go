@@ -135,10 +135,10 @@ func (c *Config) Validate() error {
 	var errs []string
 
 	// --- Channel type ---
-	// Only "tcp" and "vsock" are supported. An invalid value falls through to
-	// the default branch in cmd/executor/main.go, which logs an error and
-	// returns — but by that point the logger and WASM runtime have already been
-	// created. Failing fast here avoids wasted startup effort.
+	// Only "tcp" and "vsock" are supported. Validate() is called before the
+	// logger or WASM runtime are created, so catching this early avoids wasted
+	// startup effort and prevents the unguarded type-assertions in the
+	// ChannelType switch from panicking.
 	if c.ChannelType != "tcp" && c.ChannelType != "vsock" {
 		errs = append(errs, fmt.Sprintf(
 			"CHANNEL_TYPE must be \"tcp\" or \"vsock\", got %q", c.ChannelType))
