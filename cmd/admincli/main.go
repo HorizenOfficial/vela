@@ -46,7 +46,10 @@ type setLogLevelReq struct {
 	Level string `json:"level"`
 }
 
-var useColors bool
+var (
+	useColors bool
+	errBack   = fmt.Errorf("back")
+)
 
 func main() {
 	host := flag.String("host", "localhost", "Admin server host")
@@ -103,7 +106,9 @@ func main() {
 		}
 
 		if err != nil {
-			fmt.Printf("Error: %v\n\n", err)
+			if err != errBack {
+				fmt.Printf("Error: %v\n\n", err)
+			}
 			continue
 		}
 
@@ -135,17 +140,23 @@ func prompt(scanner *bufio.Scanner, label string) string {
 }
 
 func promptChoice(scanner *bufio.Scanner, label string, options []string) (string, error) {
-	for i, opt := range options {
-		fmt.Printf("  %d) %s\n", i+1, opt)
-	}
-	raw := prompt(scanner, label)
-	// Accept either the number or the literal value.
-	for i, opt := range options {
-		if raw == strconv.Itoa(i+1) || strings.EqualFold(raw, opt) {
-			return opt, nil
+	for {
+		for i, opt := range options {
+			fmt.Printf("  %d) %s\n", i+1, opt)
 		}
+		fmt.Println("  b) Back")
+		raw := prompt(scanner, label)
+		if strings.EqualFold(raw, "b") || strings.EqualFold(raw, "back") {
+			return "", errBack
+		}
+		// Accept either the number or the literal value.
+		for i, opt := range options {
+			if raw == strconv.Itoa(i+1) || strings.EqualFold(raw, opt) {
+				return opt, nil
+			}
+		}
+		fmt.Printf("Invalid choice: %q, try again.\n\n", raw)
 	}
-	return "", fmt.Errorf("invalid choice: %q", raw)
 }
 
 // --- builders ---
