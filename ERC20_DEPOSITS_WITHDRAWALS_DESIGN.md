@@ -175,6 +175,30 @@ This replaces the current ETH-only `payments[payee]` / `_totalDeposits` accounti
 
 These asset-scoped aggregates should increase when value becomes claimable on-chain and decrease when a claim is executed.
 
+In the multi-app model, this claim-facing storage is not sufficient on its own to protect custody boundaries between applications.
+
+### App-Scoped Custody Accounting
+
+In addition to `pendingClaims`, the contract should maintain app-scoped business-asset accounting so one application cannot create withdrawals backed by liquidity that entered through another application.
+
+Conceptual storage:
+
+```text
+appCustody[applicationId][tokenAddress] uint256
+```
+
+Behavior:
+
+- business-asset deposits increase `appCustody[applicationId][tokenAddress]` for the addressed app;
+- business-asset outflows created by that app, such as withdrawals and failed-request business-asset refunds, decrease that app-scoped balance;
+- app-scoped custody checks apply to business assets, while fee accounting remains ETH-only and bounded by request-specific fee reservation;
+- claim execution itself does not need an `applicationId`, because the app-specific solvency check already happened when the pending claim was created.
+
+This means the contract should use:
+
+- `pendingClaims[tokenAddress][payee]` to track who can claim what asset;
+- `appCustody[applicationId][tokenAddress]` to enforce which app is allowed to create those liabilities in the first place.
+
 ### App Config
 
 App token support should be serialized as deploy-time app configuration and delivered to the guest during deployment, not compiled into the WASM binary.
@@ -327,6 +351,8 @@ Asset solvency must be checked per asset, not as a single global sum. In particu
 - ETH liabilities must be checked against ETH available balance;
 - ERC-20 liabilities must be checked against the available balance of that specific ERC-20;
 - failed-request refunds must account separately for business-asset refunds and ETH fee refunds.
+
+In the multi-app model, business-asset solvency must also be checked against the app-scoped custody balance for `(applicationId, tokenAddress)`, so one app cannot create withdrawals backed by funds deposited through another app.
 
 ### Common Types and Payloads
 
@@ -534,6 +560,7 @@ It should:
 - Solvency checks must be done per asset, not as a single aggregated amount.
 - Event schemas must remain unambiguous once token identity is added.
 - In the multi-app model, contract-side token configuration must be correctly scoped by `applicationId` to avoid one app accidentally inheriting another app's token permissions.
+- In the multi-app model, business-asset custody must be scoped by both `applicationId` and `tokenAddress` to avoid one app creating withdrawals backed by another app's deposits.
 
 ## Testing Plan
 
@@ -560,6 +587,7 @@ System tests should cover:
 - ETH-plus-ERC20 apps accepting only allowlisted tokens;
 - ERC-20 business-asset deposit followed by withdrawal and claim;
 - failed ERC-20 requests producing ERC-20 business-asset claims plus ETH fee refunds.
+- in the multi-app model, one app being unable to create withdrawals backed by another app's deposited business assets.
 
 ## Acceptance Criteria
 
@@ -576,6 +604,7 @@ System tests should cover:
 - Failed requests refund the business asset in its own asset and the unused fees in ETH.
 - Claim execution is permissionless and asset-aware.
 - Claiming a zero pending balance does not revert.
+- In the multi-app model, an app cannot create business-asset withdrawals backed by another app's custody.
 - Withdrawal signature material includes `tokenAddress`.
 - The withdrawal tuple ABI used by executor signing and on-chain signature verification is identical.
 - Events emitted for deposits, refunds, withdrawals, and claims include the asset identity.
