@@ -711,8 +711,8 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
-		[]*common.ApplicationState{appState},
-		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: wasmModule}},
+		appState,
+		&common.WASMData{ApplicationID: appState.ApplicationID, Bytecode: wasmModule},
 	)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
@@ -786,7 +786,7 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	err = m.dataLayer.Store(
 		ctx,
 		versionID[:],
-		[]*common.ApplicationState{updatedState},
+		updatedState,
 		nil,
 	)
 	if err != nil {

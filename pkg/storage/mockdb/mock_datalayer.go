@@ -46,77 +46,46 @@ func (d *MockDataLayer) checkClosed() error {
 }
 
 // Store stores the state of an application.
-// The version is filed under the app that produced the data (derived from stateArray/wasmArray).
+// At least one of state or wasm must be non-nil.
+// If both are provided, they must share the same ApplicationID.
 func (d *MockDataLayer) Store(
 	ctx context.Context,
 	versionID []byte,
-	stateArray []*common.ApplicationState,
-	wasmArray []*common.WASMData,
+	state *common.ApplicationState,
+	wasm *common.WASMData,
 ) error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
 	if f, ok := d.GetMockedFunc("Store"); ok {
-		return f.(func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error)(ctx, versionID, stateArray, wasmArray)
+		return f.(func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error)(ctx, versionID, state, wasm)
 	}
 	if err := d.checkClosed(); err != nil {
 		return err
 	}
 
-	// Validate that all items share the same ApplicationID (matching real implementation).
-	appID, err := extractMockAppID(stateArray, wasmArray)
-	if err != nil {
-		return err
+	if state == nil && wasm == nil {
+		return fmt.Errorf("cannot determine ApplicationID: both state and wasm are nil")
+	}
+	if state != nil && wasm != nil && state.ApplicationID != wasm.ApplicationID {
+		return fmt.Errorf("inconsistent ApplicationID: state has %d, wasm has %d", state.ApplicationID, wasm.ApplicationID)
 	}
 
-	for _, state := range stateArray {
-		if state != nil {
-			d.states[state.ApplicationID] = state
-		}
+	var appID common.ApplicationIdType
+	if state != nil {
+		appID = state.ApplicationID
+		d.states[state.ApplicationID] = state
 	}
-
-	for _, wasm := range wasmArray {
-		if wasm != nil {
-			d.bytecodes[wasm.ApplicationID] = wasm.Bytecode
+	if wasm != nil {
+		if state == nil {
+			appID = wasm.ApplicationID
 		}
+		d.bytecodes[wasm.ApplicationID] = wasm.Bytecode
 	}
 
 	d.versions[appID] = append(d.versions[appID], versionID)
 
 	return nil
-}
-
-// extractMockAppID validates that all non-nil items share the same ApplicationID.
-// Mirrors the extractAppID precondition enforced by the real storage implementation.
-func extractMockAppID(stateArray []*common.ApplicationState, wasmArray []*common.WASMData) (common.ApplicationIdType, error) {
-	var appID common.ApplicationIdType
-	found := false
-	for _, state := range stateArray {
-		if state == nil {
-			continue
-		}
-		if !found {
-			appID = state.ApplicationID
-			found = true
-		} else if state.ApplicationID != appID {
-			return 0, fmt.Errorf("inconsistent ApplicationID in stateArray: got %d and %d", appID, state.ApplicationID)
-		}
-	}
-	for _, wasm := range wasmArray {
-		if wasm == nil {
-			continue
-		}
-		if !found {
-			appID = wasm.ApplicationID
-			found = true
-		} else if wasm.ApplicationID != appID {
-			return 0, fmt.Errorf("inconsistent ApplicationID in wasmArray: got %d and %d", appID, wasm.ApplicationID)
-		}
-	}
-	if !found {
-		return 0, fmt.Errorf("cannot determine ApplicationID: stateArray and wasmArray are both empty or nil")
-	}
-	return appID, nil
 }
 
 // GetApplicationState retrieves the state of an application.

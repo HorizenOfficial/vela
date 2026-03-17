@@ -15,15 +15,15 @@ import (
 // Versioning is per-application: each application maintains its own independent
 // version chain, enabling rollback for one app without affecting others.
 type ApplicationStateStore interface {
-	// Store atomically saves the application state and WASM bytecode for a given version.
+	// Store atomically saves the application state and/or WASM bytecode for a given version.
 	// The version is filed under the application that produced the data.
-	// Precondition: all items in stateArray and wasmArray must share the same ApplicationID
-	// (sequential processing — one app per Store call).
+	// At least one of state or wasm must be non-nil.
+	// If both are provided, they must share the same ApplicationID.
 	Store(
 		ctx context.Context,
 		versionID []byte,
-		stateArray []*common.ApplicationState,
-		wasmArray []*common.WASMData,
+		state *common.ApplicationState,
+		wasm *common.WASMData,
 	) error
 
 	// Rollback reverts the application state for the given app to the specified versionID.

@@ -81,90 +81,49 @@ func NewVersionedLevelDBAppStateStore(cfg VersionedLevelDBConfig) (*VersionedLev
 func (vdl *VersionedLevelDBAppStateStore) Store(
 	ctx context.Context,
 	versionID []byte,
-	stateArray []*common.ApplicationState,
-	wasmArray []*common.WASMData,
+	state *common.ApplicationState,
+	wasm *common.WASMData,
 ) error {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return err
 	}
 
-	// Derive appID from stateArray. All items must share the same ApplicationID
-	// (sequential processing — one app per Store call).
-	appID, err := extractAppID(stateArray, wasmArray)
-	if err != nil {
-		return err
+	if state == nil && wasm == nil {
+		return fmt.Errorf("cannot determine ApplicationID: both state and wasm are nil")
+	}
+	if state != nil && wasm != nil && state.ApplicationID != wasm.ApplicationID {
+		return fmt.Errorf("inconsistent ApplicationID: state has %d, wasm has %d", state.ApplicationID, wasm.ApplicationID)
+	}
+
+	var appID common.ApplicationIdType
+	if state != nil {
+		appID = state.ApplicationID
+	} else {
+		appID = wasm.ApplicationID
 	}
 
 	toUpdate := []storage.KeyValuePair{}
 	toRemove := [][]byte{}
 
-	for _, state := range stateArray {
-
-		if state == nil {
-			return fmt.Errorf("application state entry is nil")
-		}
-
+	if state != nil {
 		value, err := json.Marshal(state)
 		if err != nil {
 			return fmt.Errorf("failed to marshal application state: %w", err)
 		}
-
 		key := []byte(appStatePrefix + state.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: value})
 	}
 
-	for _, wasm := range wasmArray {
-		if wasm == nil {
-			return fmt.Errorf("wasm entry is nil")
-		}
-
+	if wasm != nil {
 		key := []byte(wasmPrefix + wasm.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: wasm.Bytecode})
 	}
 
-	err = vdl.adapter.Update(uint64(appID), versionID, toUpdate, toRemove)
+	err := vdl.adapter.Update(uint64(appID), versionID, toUpdate, toRemove)
 	if err != nil {
 		return fmt.Errorf("failed to store application state in Versioned LevelDB: %w", err)
 	}
 	return nil
-}
-
-// extractAppID derives the application ID from state and WASM arrays.
-// All non-nil items must share the same ApplicationID.
-// Returns an error if both arrays are empty/nil — with per-app versioning, every Store call
-// must be associated with an app (this intentionally narrows the pre-multi-app API contract).
-func extractAppID(stateArray []*common.ApplicationState, wasmArray []*common.WASMData) (common.ApplicationIdType, error) {
-	var appID common.ApplicationIdType
-	found := false
-
-	for _, state := range stateArray {
-		if state == nil {
-			continue
-		}
-		if !found {
-			appID = state.ApplicationID
-			found = true
-		} else if state.ApplicationID != appID {
-			return 0, fmt.Errorf("inconsistent ApplicationID in stateArray: got %d and %d", appID, state.ApplicationID)
-		}
-	}
-
-	for _, wasm := range wasmArray {
-		if wasm == nil {
-			continue
-		}
-		if !found {
-			appID = wasm.ApplicationID
-			found = true
-		} else if wasm.ApplicationID != appID {
-			return 0, fmt.Errorf("inconsistent ApplicationID in wasmArray: got %d and %d", appID, wasm.ApplicationID)
-		}
-	}
-
-	if !found {
-		return 0, fmt.Errorf("cannot determine ApplicationID: stateArray and wasmArray are both empty or nil")
-	}
-	return appID, nil
 }
 
 func (vdl *VersionedLevelDBAppStateStore) GetApplicationState(ctx context.Context, applicationID common.ApplicationIdType) (*common.ApplicationState, error) {
