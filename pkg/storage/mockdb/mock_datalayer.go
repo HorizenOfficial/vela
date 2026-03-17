@@ -64,6 +64,8 @@ func (d *MockDataLayer) Store(
 		return err
 	}
 
+	// At least one must be non-nil — per-app versioning requires every Store call
+	// to be associated with an application.
 	if state == nil && wasm == nil {
 		return fmt.Errorf("cannot determine ApplicationID: both state and wasm are nil")
 	}
