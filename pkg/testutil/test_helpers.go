@@ -311,6 +311,35 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType st
 	}
 }
 
+// WaitForEventBySubtypes waits for an event for userID whose EventSubType is in validSubtypes.
+// Used for privacy-preserving subtype retrieval where the exact subtype is not known in advance.
+func (s *SystemTestSuite) WaitForEventBySubtypes(userID ethCommon.Address, validSubtypes []string, timeout time.Duration) (*common.Event, error) {
+	subtypeSet := make(map[string]struct{}, len(validSubtypes))
+	for _, st := range validSubtypes {
+		subtypeSet[st] = struct{}{}
+	}
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutCh := time.After(timeout)
+
+	for {
+		select {
+		case event := <-s.eventChannel:
+			if evt, ok := event.(common.Event); ok && evt.UserID == userID {
+				if _, matched := subtypeSet[evt.EventSubType]; matched {
+					s.log.Info("TESTING: Received event: %v", evt)
+					return &evt, nil
+				}
+			}
+			s.log.Info("TESTING: Received unexpected event: %v", event)
+		case <-timeoutCh:
+			return nil, fmt.Errorf("timeout waiting for event for user %s", userID)
+		}
+	}
+}
+
 // WaitForDeanonymizationReport waits for a deanonymization report to be generated and saved to the filesystem
 func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestIdType, timeout time.Duration) (*common.DeanonymizationReport, error) {
 	if s.reportsPath == "" {

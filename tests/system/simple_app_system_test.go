@@ -139,8 +139,10 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	require.NoError(t, suite.SubmitRequest(depositReq))
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
 
-	// Wait for, decrypt and verify deposit event
-	depositEvent, err := suite.WaitForEvent(user, "deposit", timeout)
+	// Wait for, decrypt and verify deposit event (using privacy-preserving subtype set)
+	userSeed, err := cryptoHelper.ComputeSeed(user)
+	require.NoError(t, err)
+	depositEvent, err := suite.WaitForEventBySubtypes(user, executor.AllSubtypes(userSeed, executor.DefaultSubtypeN), timeout)
 	require.NoError(t, err)
 	decryptedDepositData, err := cryptoHelper.DecryptEvent(user, depositEvent, executorPubKey)
 	require.NoError(t, err)
@@ -182,8 +184,10 @@ func withdrawFromSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, crypto
 	require.NoError(t, suite.SubmitRequest(withdrawalReq))
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
 
-	// Wait for, decrypt and verify withdrawal event
-	withdrawalEvent, err := suite.WaitForEvent(user, "withdrawal", timeout)
+	// Wait for, decrypt and verify withdrawal event (using privacy-preserving subtype set)
+	userSeed, err := cryptoHelper.ComputeSeed(user)
+	require.NoError(t, err)
+	withdrawalEvent, err := suite.WaitForEventBySubtypes(user, executor.AllSubtypes(userSeed, executor.DefaultSubtypeN), timeout)
 	require.NoError(t, err)
 	decryptedWithdrawalData, err := cryptoHelper.DecryptEvent(user, withdrawalEvent, executorPubKey)
 	require.NoError(t, err)
@@ -239,6 +243,8 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	// Register user key
 	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
+	_, err = cryptoHelper.GenerateUserSigningKey(userAddress)
+	require.NoError(t, err)
 	reqID := commontestutil.GenerateRandomRequestID()
 	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey())
 	require.NoError(t, err)
@@ -247,6 +253,8 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 
 	// Register auditor key
 	auditorKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
+	require.NoError(t, err)
+	_, err = cryptoHelper.GenerateUserSigningKey(auditorAddress)
 	require.NoError(t, err)
 	reqID = commontestutil.GenerateRandomRequestID()
 	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey())
@@ -444,7 +452,11 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	cryptoHelper := testutil.NewCryptoHelper()
 	user1Key, err := cryptoHelper.GenerateUserKey(user1Address)
 	require.NoError(t, err)
+	_, err = cryptoHelper.GenerateUserSigningKey(user1Address)
+	require.NoError(t, err)
 	user2Key, err := cryptoHelper.GenerateUserKey(user2Address)
+	require.NoError(t, err)
+	_, err = cryptoHelper.GenerateUserSigningKey(user2Address)
 	require.NoError(t, err)
 
 	// 4. Deploy the application
@@ -503,8 +515,10 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, suite.SubmitRequest(compareReq))
 	require.NoError(t, suite.AssertRequestCompleted(compareReqID, timeout_value))
 
-	// Wait for action event
-	actionEvent, err := suite.WaitForEvent(user1Address, "compare_accounts", timeout_value)
+	// Wait for action event (using privacy-preserving subtype set)
+	user1Seed, err := cryptoHelper.ComputeSeed(user1Address)
+	require.NoError(t, err)
+	actionEvent, err := suite.WaitForEventBySubtypes(user1Address, executor.AllSubtypes(user1Seed, executor.DefaultSubtypeN), timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, actionEvent)
 
@@ -522,10 +536,15 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, updatePayload.Events, "no events found for request")
 
-	// Find the action event
+	// Find the action event by matching user1's privacy-preserving subtype set
+	user1SubtypeSet := make(map[string]struct{})
+	for _, st := range executor.AllSubtypes(user1Seed, executor.DefaultSubtypeN) {
+		user1SubtypeSet[st] = struct{}{}
+	}
 	var compareEvent *common.Event
 	for i := range updatePayload.Events {
-		if updatePayload.Events[i].UserID == user1Address && updatePayload.Events[i].EventSubType == "compare_accounts" {
+		_, inSet := user1SubtypeSet[updatePayload.Events[i].EventSubType]
+		if updatePayload.Events[i].UserID == user1Address && inSet {
 			compareEvent = &updatePayload.Events[i]
 			break
 		}
@@ -551,6 +570,8 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	RequestID = commontestutil.GenerateRandomRequestID()
 	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 	auditorPrivateKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
+	require.NoError(t, err)
+	_, err = cryptoHelper.GenerateUserSigningKey(auditorAddress)
 	require.NoError(t, err)
 	associateKey1Req, err = cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, auditorAddress, auditorPrivateKey.PublicKey())
 	require.NoError(t, err)
@@ -658,6 +679,8 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
 	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)
+	require.NoError(t, err)
+	_, err = cryptoHelper.GenerateUserSigningKey(userAddress)
 	require.NoError(t, err)
 	requestId := commontestutil.GenerateRandomRequestID()
 	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, requestId, userAddress, user1Key.PublicKey())

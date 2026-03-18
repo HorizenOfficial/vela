@@ -603,14 +603,15 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var reportData []byte
 
 	if req.RequestType == common.AssociateKey {
-		//request  of type associate key: the payload is not encrypted and contains the new key
+		//request  of type associate key: the payload is not encrypted and contains the new key + seed
 		e.log.Info("Associating new key - RequestID %s", req.RequestID)
 
-		if len(req.Payload) != 133 {
+		const associateKeyPayloadSize = 133 + appdata.SeedStore_ValSize // 198 bytes
+		if len(req.Payload) != associateKeyPayloadSize {
 			return nil, nil, nil, fmt.Errorf("invalid payload length")
 		}
 
-		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload)
+		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload[:133])
 		if err != nil {
 			e.log.Error("Executor: failed to parse keyP521 in request payload: %v", err)
 			errorPayload, err := e.processErrorResponse(req,
@@ -619,9 +620,19 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			return errorPayload, nil, nil, err
 		}
 
+		seed := req.Payload[133:associateKeyPayloadSize]
+		if err := VerifySeed(seed, req.Sender); err != nil {
+			e.log.Error("Executor: seed verification failed for request %s: %v", req.RequestID, err)
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
+				apperrors.New(apperrors.CodeParsingKeyError, "seed verification failed"))
+			return errorPayload, nil, nil, err
+		}
+
 		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
 
 		appData.AddKey(req.Sender, *keyToAssociate)
+		appData.AddSeed(req.Sender, seed)
 	} else {
 		//any other case: decrypt the payload and forward to the WASM to obtain the new state
 
@@ -712,7 +723,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
-	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore())
+	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore(), appData.GetSeedStore())
 	if failure != nil {
 		errorPayload, err := e.processErrorResponse(req,
 			appState.StateRoot,
@@ -1015,7 +1026,7 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 	return signature, nil
 }
 
-func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId common.ApplicationIdType, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore appdata.KeyStore) ([]common.Event, *apperrors.RequestFailure) {
+func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId common.ApplicationIdType, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore appdata.KeyStore, seedStore appdata.SeedStore) ([]common.Event, *apperrors.RequestFailure) {
 	if len(events) == 0 {
 		return nil, nil // No events to encrypt
 	}
@@ -1034,11 +1045,22 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 			return nil, apperrors.New(apperrors.CodeWrongKey, "failed to encrypt event data")
 		}
 
+		// Use a privacy-preserving subtype if a seed is registered for this user;
+		// otherwise fall back to the WASM-provided subtype.
+		eventSubType := event.EventSubType
+		if seed, hasSeed := seedStore[event.UserID]; hasSeed {
+			privSubtype, err := GenerateRandomSubtype(seed, DefaultSubtypeN)
+			if err != nil {
+				return nil, apperrors.New(apperrors.CodeRequestFuncFailed, "failed to generate random subtype")
+			}
+			eventSubType = privSubtype
+		}
+
 		// Create the encrypted event
 		encryptedEvents[i] = common.Event{
 			ApplicationID: appId,
 			UserID:        event.UserID,
-			EventSubType:  event.EventSubType,
+			EventSubType:  eventSubType,
 			EncryptedData: encryptedData,
 		}
 	}
