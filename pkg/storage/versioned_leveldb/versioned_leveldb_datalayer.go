@@ -82,46 +82,57 @@ func (vdl *VersionedLevelDBAppStateStore) Store(
 	ctx context.Context,
 	versionID []byte,
 	state *common.ApplicationState,
+) error {
+	return vdl.storeInternal(ctx, versionID, state, nil)
+}
+
+func (vdl *VersionedLevelDBAppStateStore) StoreWithWasm(
+	ctx context.Context,
+	versionID []byte,
+	state *common.ApplicationState,
+	wasm *common.WASMData,
+) error {
+	if wasm == nil {
+		return fmt.Errorf("wasm must not be nil; use Store to save state without WASM")
+	}
+	return vdl.storeInternal(ctx, versionID, state, wasm)
+}
+
+func (vdl *VersionedLevelDBAppStateStore) storeInternal(
+	ctx context.Context,
+	versionID []byte,
+	state *common.ApplicationState,
 	wasm *common.WASMData,
 ) error {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return err
 	}
 
-	// At least one must be non-nil — per-app versioning requires every Store call
-	// to be associated with an application.
-	if state == nil && wasm == nil {
-		return fmt.Errorf("cannot determine ApplicationID: both state and wasm are nil")
+	if state == nil {
+		return fmt.Errorf("state must not be nil")
 	}
-	if state != nil && wasm != nil && state.ApplicationID != wasm.ApplicationID {
+	if wasm != nil && state.ApplicationID != wasm.ApplicationID {
 		return fmt.Errorf("inconsistent ApplicationID: state has %d, wasm has %d", state.ApplicationID, wasm.ApplicationID)
 	}
 
-	var appID common.ApplicationIdType
-	if state != nil {
-		appID = state.ApplicationID
-	} else {
-		appID = wasm.ApplicationID
-	}
+	appID := state.ApplicationID
 
 	toUpdate := []storage.KeyValuePair{}
 	toRemove := [][]byte{}
 
-	if state != nil {
-		value, err := json.Marshal(state)
-		if err != nil {
-			return fmt.Errorf("failed to marshal application state: %w", err)
-		}
-		key := []byte(appStatePrefix + state.ApplicationID.String())
-		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: value})
+	value, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal application state: %w", err)
 	}
+	key := []byte(appStatePrefix + state.ApplicationID.String())
+	toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: value})
 
 	if wasm != nil {
 		key := []byte(wasmPrefix + wasm.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: wasm.Bytecode})
 	}
 
-	err := vdl.adapter.Update(uint64(appID), versionID, toUpdate, toRemove)
+	err = vdl.adapter.Update(uint64(appID), versionID, toUpdate, toRemove)
 	if err != nil {
 		return fmt.Errorf("failed to store application state in Versioned LevelDB: %w", err)
 	}

@@ -45,10 +45,30 @@ func (d *MockDataLayer) checkClosed() error {
 	return nil
 }
 
-// Store stores the state of an application.
-// At least one of state or wasm must be non-nil.
-// If both are provided, they must share the same ApplicationID.
+// Store saves the application state. state must not be nil.
 func (d *MockDataLayer) Store(
+	ctx context.Context,
+	versionID []byte,
+	state *common.ApplicationState,
+) error {
+	return d.storeInternal(ctx, versionID, state, nil)
+}
+
+// StoreWithWasm atomically saves the application state and WASM bytecode.
+// Both state and wasm must not be nil and must share the same ApplicationID.
+func (d *MockDataLayer) StoreWithWasm(
+	ctx context.Context,
+	versionID []byte,
+	state *common.ApplicationState,
+	wasm *common.WASMData,
+) error {
+	if wasm == nil {
+		return fmt.Errorf("wasm must not be nil; use Store to save state without WASM")
+	}
+	return d.storeInternal(ctx, versionID, state, wasm)
+}
+
+func (d *MockDataLayer) storeInternal(
 	ctx context.Context,
 	versionID []byte,
 	state *common.ApplicationState,
@@ -64,24 +84,17 @@ func (d *MockDataLayer) Store(
 		return err
 	}
 
-	// At least one must be non-nil — per-app versioning requires every Store call
-	// to be associated with an application.
-	if state == nil && wasm == nil {
-		return fmt.Errorf("cannot determine ApplicationID: both state and wasm are nil")
+	if state == nil {
+		return fmt.Errorf("state must not be nil")
 	}
-	if state != nil && wasm != nil && state.ApplicationID != wasm.ApplicationID {
+	if wasm != nil && state.ApplicationID != wasm.ApplicationID {
 		return fmt.Errorf("inconsistent ApplicationID: state has %d, wasm has %d", state.ApplicationID, wasm.ApplicationID)
 	}
 
-	var appID common.ApplicationIdType
-	if state != nil {
-		appID = state.ApplicationID
-		d.states[state.ApplicationID] = state
-	}
+	appID := state.ApplicationID
+	d.states[state.ApplicationID] = state
+
 	if wasm != nil {
-		if state == nil {
-			appID = wasm.ApplicationID
-		}
 		d.bytecodes[wasm.ApplicationID] = wasm.Bytecode
 	}
 
