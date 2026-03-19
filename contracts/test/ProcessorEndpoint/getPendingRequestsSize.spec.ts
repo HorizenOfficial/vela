@@ -4,11 +4,13 @@ import { deployProcessorEndpointFixture } from './fixture';
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     processorEndpoint = await fixture.deployProcessorEndpoint();
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   describe('getPendingRequestsSize', function () {
@@ -22,7 +24,6 @@ describe('ProcessorEndpoint Test', function () {
     describe('happy paths', function () {
       it('returns tail - head when queue has pending requests', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const payload = '0x01';
         const depositAmount = 0n;

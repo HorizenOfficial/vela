@@ -87,8 +87,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.feeCollector()).to.equal(updateStatusOperator);
         expect(await processorEndpoint.minFeePerRequest()).to.equal(minFeePerRequest);
         expect(await processorEndpoint.maxQueueSize()).to.equal(10n);
-        expect(await processorEndpoint.stateRoot()).to.equal(BYTES32_ZERO);
-
+        expect(await processorEndpoint.availableDeploySlots()).to.equal(await processorEndpoint.maxQueueSize());
         const updateRole = await processorEndpoint.UPDATE_STATUS_ROLE();
         const adminRole = await processorEndpoint.ADMIN();
         const deployerRole = await processorEndpoint.DEPLOYER_ROLE();

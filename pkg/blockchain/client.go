@@ -369,6 +369,47 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	return common.RequestIdType{}, 0, fmt.Errorf("requestId not found in logs")
 }
 
+// SubmitDeployRequest submits a deploy request to the ProcessorEndpoint smart contract.
+func (c *BlockChainClient) SubmitDeployRequest(ctx context.Context, protocolVersion uint8, payload []byte, maxFeeValue *big.Int) (common.ApplicationIdType, common.RequestIdType, uint64, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	// Pack the transaction data using the generated binding
+	data := c.processorEndpoint.PackSubmitDeployRequest(protocolVersion, payload)
+	// Set the value for the transaction (msg.value = maxFeeValue)
+	c.account.Value = new(big.Int).Set(maxFeeValue)
+
+	// Send the transaction
+	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
+	c.account.Value = nil
+	if err != nil {
+		return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("failed to submit transaction: %w", c.UnpackProcessorEndpointError(err))
+	}
+
+	// Wait for transaction to be mined
+	receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
+	if err != nil {
+		return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("error waiting for tx inclusion: %w", err)
+	}
+	if receipt.Status != 1 {
+		return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("transaction failed")
+	}
+
+	// Parse the returned requestId and applicationId from the transaction receipt logs
+	for _, vLog := range receipt.Logs {
+		event, err := c.processorEndpoint.UnpackRequestSubmittedEvent(vLog)
+		if err == nil {
+			return common.NewApplicationId(event.ApplicationId), event.RequestId, receipt.BlockNumber.Uint64(), nil
+		}
+	}
+
+	return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("requestId not found in logs")
+}
+
 func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
