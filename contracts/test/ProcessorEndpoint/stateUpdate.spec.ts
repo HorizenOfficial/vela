@@ -174,7 +174,9 @@ describe('ProcessorEndpoint Test', function () {
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidStateRoot');
 
-        expect(await processorEndpoint.applicationStateRoots(applicationId)).to.equal(INITIAL_STATE_ROOT);
+        expect(await processorEndpoint.applicationStateRoots(applicationId)).to.equal(
+          INITIAL_STATE_ROOT
+        );
       });
 
       it('reverts with InvalidStateRoot when prevStateRoot does not match after a prior update', async () => {
@@ -507,7 +509,9 @@ describe('ProcessorEndpoint Test', function () {
         await expect(tx)
           .to.emit(fixture.processorEndpoint, 'StateRootUpdate')
           .withArgs(fixture.applicationId, request.requestId, INITIAL_STATE_ROOT, newStateRoot);
-        expect(await fixture.processorEndpoint.applicationStateRoots(fixture.applicationId)).to.equal(newStateRoot);
+        expect(
+          await fixture.processorEndpoint.applicationStateRoots(fixture.applicationId)
+        ).to.equal(newStateRoot);
       });
 
       it('processes update: completes request, emits events, and transfers funds', async () => {

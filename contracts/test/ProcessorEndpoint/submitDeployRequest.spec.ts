@@ -73,8 +73,6 @@ describe('ProcessorEndpoint Test', function () {
             .submitDeployRequest(0, '0x03', { value: minFeePerRequest })
         ).to.be.revertedWithCustomError(processorEndpoint, 'QueueThresholdExceeded');
       });
-
-
     });
 
     describe('happy paths', function () {
@@ -111,9 +109,7 @@ describe('ProcessorEndpoint Test', function () {
         const processorBalanceBefore = await deployer.provider!.getBalance(
           await processorEndpoint.getAddress()
         );
-        const userBalanceBefore = await deployer.provider!.getBalance(
-          await deployer.getAddress()
-        );
+        const userBalanceBefore = await deployer.provider!.getBalance(await deployer.getAddress());
 
         const tx = await processorEndpoint
           .connect(deployer)
@@ -121,9 +117,7 @@ describe('ProcessorEndpoint Test', function () {
         const receipt = await tx.wait();
         const gasCost = receipt.gasUsed * receipt.gasPrice;
 
-        const userBalanceAfter = await deployer.provider!.getBalance(
-          await deployer.getAddress()
-        );
+        const userBalanceAfter = await deployer.provider!.getBalance(await deployer.getAddress());
         const processorBalanceAfter = await deployer.provider!.getBalance(
           await processorEndpoint.getAddress()
         );

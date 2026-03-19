@@ -148,13 +148,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   function submitDeployRequest(
     uint8 protocolVersion,
     bytes calldata payload
-  )
-    external
-    payable
-    validProtocolVersion(protocolVersion)
-    nonReentrant
-    returns (bytes32)
-  {
+  ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
     if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
     if (availableDeploySlots == 0) revert MaxNumOfApplicationsExceeded();
     if (msg.value < minFeePerRequest) revert FeeValueBelowMinimum();

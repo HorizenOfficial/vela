@@ -27,35 +27,57 @@ describe('ProcessorEndpoint Test', function () {
     describe('unhappy paths', function () {
       it('reverts with InvalidProtocolVersion when protocolVersion is invalid', async () => {
         await expect(
-          processorEndpoint.submitRequest(1, applicationId, REQUEST_TYPE_PROCESS, '0x01', 0, minFeePerRequest, {
-            value: minFeePerRequest,
-          })
+          processorEndpoint.submitRequest(
+            1,
+            applicationId,
+            REQUEST_TYPE_PROCESS,
+            '0x01',
+            0,
+            minFeePerRequest,
+            {
+              value: minFeePerRequest,
+            }
+          )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidProtocolVersion');
       });
 
       it('reverts with InvalidApplicationId when applicationId is invalid', async () => {
         await expect(
-          processorEndpoint.submitRequest(0, 999, REQUEST_TYPE_PROCESS, '0x01', 0, minFeePerRequest, {
-            value: minFeePerRequest,
-          })
+          processorEndpoint.submitRequest(
+            0,
+            999,
+            REQUEST_TYPE_PROCESS,
+            '0x01',
+            0,
+            minFeePerRequest,
+            {
+              value: minFeePerRequest,
+            }
+          )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidApplicationId');
       });
 
       it('reverts with InvalidValue when msg.value != depositAmount + maxFeeValue', async () => {
         await expect(
-          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 1, 2, { value: 2 })
+          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 1, 2, {
+            value: 2,
+          })
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
       it('reverts with InvalidValue when msg.value is less than depositAmount + maxFeeValue', async () => {
         await expect(
-          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 2, 2, { value: 3 })
+          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 2, 2, {
+            value: 3,
+          })
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
       it('reverts with InvalidValue when msg.value is greater than depositAmount + maxFeeValue', async () => {
         await expect(
-          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 1, 2, { value: 4 })
+          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 1, 2, {
+            value: 4,
+          })
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
@@ -87,9 +109,17 @@ describe('ProcessorEndpoint Test', function () {
         );
 
         await expect(
-          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x02', 0, minFeePerRequest, {
-            value: minFeePerRequest,
-          })
+          processorEndpoint.submitRequest(
+            0,
+            applicationId,
+            REQUEST_TYPE_PROCESS,
+            '0x02',
+            0,
+            minFeePerRequest,
+            {
+              value: minFeePerRequest,
+            }
+          )
         ).to.be.revertedWithCustomError(processorEndpoint, 'QueueThresholdExceeded');
       });
 
@@ -210,9 +240,17 @@ describe('ProcessorEndpoint Test', function () {
         const maxFeeValue = minFeePerRequest;
         const associatePayload = '0x' + '11'.repeat(133);
 
-        await processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x02', 0, maxFeeValue, {
-          value: maxFeeValue,
-        });
+        await processorEndpoint.submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x02',
+          0,
+          maxFeeValue,
+          {
+            value: maxFeeValue,
+          }
+        );
         await processorEndpoint.submitRequest(
           0,
           applicationId,
@@ -268,9 +306,17 @@ describe('ProcessorEndpoint Test', function () {
 
         const tx = await processorEndpoint
           .connect(signers[3])
-          .submitRequest(0, applicationId, REQUEST_TYPE_DEANONYMIZATION, '0x01', 0, minFeePerRequest, {
-            value: minFeePerRequest,
-          });
+          .submitRequest(
+            0,
+            applicationId,
+            REQUEST_TYPE_DEANONYMIZATION,
+            '0x01',
+            0,
+            minFeePerRequest,
+            {
+              value: minFeePerRequest,
+            }
+          );
 
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
         const receipt = await tx.wait();
