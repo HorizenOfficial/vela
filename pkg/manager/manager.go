@@ -707,13 +707,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Store the application state and WASM bytecode
-	versionID := appState.StateRoot[:]
-	err = m.dataLayer.Store(
-		ctx,
-		versionID[:],
-		[]*common.ApplicationState{appState},
-		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: wasmModule}},
-	)
+	err = m.initAppStorage(ctx, appState, wasmModule)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
 		return err
@@ -780,21 +774,32 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Store the updated application state
-	versionID := updatedState.StateRoot[:]
-	m.log.Info("VersionID %x", versionID[:])
-
-	err = m.dataLayer.Store(
-		ctx,
-		versionID[:],
-		[]*common.ApplicationState{updatedState},
-		nil,
-	)
+	err = m.storeStateToStorage(ctx, updatedState)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
 		return err
 	}
 
 	return m.submitStateOnChain(ctx, updatePayload)
+}
+
+// initAppStorage stores the application state and WASM bytecode for a newly deployed application.
+func (m *SecureProcessorManager) initAppStorage(ctx context.Context, state *common.ApplicationState, wasmModule []byte) error {
+	versionID := state.StateRoot[:]
+	m.log.Info("Storing app state and WASM, versionID %x", versionID)
+	return m.dataLayer.StoreWithWasm(
+		ctx,
+		versionID,
+		state,
+		&common.WASMData{ApplicationID: state.ApplicationID, Bytecode: wasmModule},
+	)
+}
+
+// storeStateToStorage stores the updated application state after processing a request.
+func (m *SecureProcessorManager) storeStateToStorage(ctx context.Context, state *common.ApplicationState) error {
+	versionID := state.StateRoot[:]
+	m.log.Info("Storing app state, versionID %x", versionID)
+	return m.dataLayer.Store(ctx, versionID, state)
 }
 
 // saveDeanonymizationReport saves a deanonymization report to the filesystem

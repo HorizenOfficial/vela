@@ -566,7 +566,7 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
@@ -613,7 +613,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error
 	expectedError = "failed to store state"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		return fmt.Errorf("%s", expectedError)
 	})
 
@@ -881,7 +881,7 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
@@ -992,7 +992,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	// Test data layer failure, stop processing and return the error
 	expectedError = "failed to store state"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		return errors.New(expectedError)
 	})
 

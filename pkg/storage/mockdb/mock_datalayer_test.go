@@ -47,11 +47,11 @@ func TestApplicationStateStore(t *testing.T) {
 		}
 		expectedBytecode := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03}
 
-		err := store.Store(
+		err := store.StoreWithWasm(
 			ctx,
 			[]byte("version-1"),
-			[]*common.ApplicationState{&expectedState},
-			[]*common.WASMData{{ApplicationID: expectedState.ApplicationID, Bytecode: expectedBytecode}},
+			&expectedState,
+			&common.WASMData{ApplicationID: expectedState.ApplicationID, Bytecode: expectedBytecode},
 		)
 		require.NoError(t, err, "Store should not error")
 
@@ -109,7 +109,7 @@ func TestApplicationStateStore(t *testing.T) {
 				return err
 			},
 			"Store": func() error {
-				return store.Store(ctx, []byte("version-1"), nil, nil)
+				return store.Store(ctx, []byte("version-1"), &common.ApplicationState{ApplicationID: any_id})
 			},
 			"GetWASMBytecode": func() error {
 				_, err := store.GetWASMBytecode(ctx, any_id)
@@ -164,7 +164,7 @@ func TestApplicationStateStore(t *testing.T) {
 					ApplicationID: appID,
 					StateRoot:     sha256.Sum256([]byte(fmt.Sprintf("root-%d", i))),
 				}
-				err := store.Store(ctx, []byte(fmt.Sprintf("version-%d", i)), []*common.ApplicationState{&state}, nil)
+				err := store.Store(ctx, []byte(fmt.Sprintf("version-%d", i)), &state)
 				assert.NoError(t, err)
 			}(i)
 		}
@@ -214,11 +214,11 @@ func TestApplicationStateStore(t *testing.T) {
 		}
 	})
 
-	t.Run("StoreArrays", func(t *testing.T) {
+	t.Run("StoreVariants", func(t *testing.T) {
 		ctx := context.Background()
 		dataLayer := mockdb.NewMockDataLayer()
 
-		// Store per-app data in separate calls (Store enforces single-app-per-call).
+		// Store state + wasm together
 		state1 := &common.ApplicationState{
 			ApplicationID:  common.NewApplicationId(1),
 			StateRoot:      sha256.Sum256([]byte("root1")),
@@ -228,22 +228,16 @@ func TestApplicationStateStore(t *testing.T) {
 			ApplicationID: common.NewApplicationId(1),
 			Bytecode:      []byte("wasm1"),
 		}
-		err := dataLayer.Store(ctx, []byte("version-1"), []*common.ApplicationState{state1}, []*common.WASMData{wasm1})
+		err := dataLayer.StoreWithWasm(ctx, []byte("version-1"), state1, wasm1)
 		require.NoError(t, err)
 
+		// Store state only
 		state2 := &common.ApplicationState{
 			ApplicationID:  common.NewApplicationId(2),
 			StateRoot:      sha256.Sum256([]byte("root2")),
 			EncryptedState: []byte("state2"),
 		}
-		err = dataLayer.Store(ctx, []byte("version-2"), []*common.ApplicationState{state2}, nil)
-		require.NoError(t, err)
-
-		wasm3 := &common.WASMData{
-			ApplicationID: common.NewApplicationId(3),
-			Bytecode:      []byte("wasm3"),
-		}
-		err = dataLayer.Store(ctx, []byte("version-3"), nil, []*common.WASMData{wasm3})
+		err = dataLayer.Store(ctx, []byte("version-2"), state2)
 		require.NoError(t, err)
 
 		// Verify ApplicationStates were stored correctly
@@ -260,21 +254,21 @@ func TestApplicationStateStore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, wasm1.Bytecode, actualWasm1)
 
-		actualWasm3, err := dataLayer.GetWASMBytecode(ctx, common.NewApplicationId(3))
-		require.NoError(t, err)
-		assert.Equal(t, wasm3.Bytecode, actualWasm3)
-
-		// App with only WASM data has no state
-		_, err = dataLayer.GetApplicationState(ctx, 3)
-		assert.Error(t, err)
-
 		// App with only state data has no WASM
 		_, err = dataLayer.GetWASMBytecode(ctx, 2)
 		assert.Error(t, err)
 
-		// Mixed-app Store calls are rejected
-		mixedState := []*common.ApplicationState{state1, state2}
-		err = dataLayer.Store(ctx, []byte("version-bad"), mixedState, nil)
-		assert.Error(t, err, "Store should reject mixed ApplicationIDs")
+		// Mismatched ApplicationIDs are rejected
+		wasm3 := &common.WASMData{ApplicationID: common.NewApplicationId(3), Bytecode: []byte("wasm3")}
+		err = dataLayer.StoreWithWasm(ctx, []byte("version-bad"), state1, wasm3)
+		assert.Error(t, err, "StoreWithWasm should reject mismatched ApplicationIDs")
+
+		// Nil state is rejected
+		err = dataLayer.Store(ctx, []byte("version-bad2"), nil)
+		assert.Error(t, err, "Store should reject nil state")
+
+		// Nil wasm in StoreWithWasm is rejected
+		err = dataLayer.StoreWithWasm(ctx, []byte("version-bad3"), state1, nil)
+		assert.Error(t, err, "StoreWithWasm should reject nil wasm")
 	})
 }
