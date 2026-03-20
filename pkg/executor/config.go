@@ -60,6 +60,10 @@ type Config struct {
 
 	// CommunicationParams holds parameters for communication between manager and executor
 	CommunicationParams common.CommunicationParams
+
+	// MaxCachedModules is the maximum number of WASM modules to keep in the LRU cache.
+	// 0 means unlimited.
+	MaxCachedModules int
 }
 
 const confFileName = "executor.conf"
@@ -125,7 +129,8 @@ func LoadConfig() (*Config, error) {
 		LogFileLevel:        common.GetConfigVar("EXECUTOR_LOG_FILE_LEVEL", "info", fileProperties),
 		LogChannelParams:    logClientConnectionParams,
 		LogNetworkLevel:     common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
-		CommunicationParams: communicationParams,
+		CommunicationParams:  communicationParams,
+		MaxCachedModules:     int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
 	}, nil
 }
 

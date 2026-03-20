@@ -444,6 +444,20 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 
 		return m.GetLogLevel(ctx)
 
+	case admin.SetWasmCacheSizeRequestMessage, admin.GetWasmCacheSizeRequestMessage:
+		if target != admin.TargetExecutor && target != admin.TargetAll {
+			return nil, fmt.Errorf("%s is only supported on the executor; valid targets: '%s', '%s'", msg.Type, admin.TargetExecutor, admin.TargetAll)
+		}
+		cmdType := admin.AdminCmdSetWasmCacheSize
+		if msg.Type == admin.GetWasmCacheSizeRequestMessage {
+			cmdType = admin.AdminCmdGetWasmCacheSize
+		}
+		respData, err := m.forwardToExecutor(ctx, cmdType, msg.Data)
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(respData), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
 	}

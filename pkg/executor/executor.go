@@ -1160,6 +1160,38 @@ func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType stri
 		}
 		return resp, nil
 
+	case admin.AdminCmdSetWasmCacheSize:
+		var req admin.SetWasmCacheSizeRequest
+		if data != nil && string(data) != "null" {
+			if err := json.Unmarshal(data, &req); err != nil {
+				return nil, fmt.Errorf("invalid request data: %w", err)
+			}
+		}
+		if req.MaxCachedModules < 0 {
+			return nil, fmt.Errorf("maxCachedModules must be >= 0 (0 = unlimited)")
+		}
+		if cc, ok := e.runtime.(moduleCacheController); ok {
+			cc.SetMaxCachedModules(req.MaxCachedModules)
+		} else {
+			e.log.Warn("Executor: set_wasm_cache_size ignored (runtime does not support module caching)")
+		}
+		resp, err := json.Marshal(admin.SetWasmCacheSizeResponse{MaxCachedModules: req.MaxCachedModules})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdGetWasmCacheSize:
+		var maxCached int
+		if cc, ok := e.runtime.(moduleCacheController); ok {
+			maxCached = cc.GetMaxCachedModules()
+		}
+		resp, err := json.Marshal(admin.GetWasmCacheSizeResponse{MaxCachedModules: maxCached})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported admin command type: %s", cmdType)
 	}
