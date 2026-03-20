@@ -40,7 +40,8 @@ type MockClient struct {
 	reports          map[common.RequestIdType]*common.DeanonymizationReport
 	updatePayloads   map[common.RequestIdType]*common.UpdatePayload
 	eventSubscribers []chan<- interface{}
-	stateRoot        [32]byte
+	stateRoot        [32]byte                                // backward compat: last updated root
+	stateRoots       map[common.ApplicationIdType][32]byte   // per-app state roots (mirrors contract's applicationStateRoots)
 	chainID          *big.Int
 	blockNumber      uint64
 	*testutil.MockFunctions
@@ -56,6 +57,7 @@ func NewMockClient() *MockClient {
 		withdrawals:     make(map[common.ApplicationIdType]*[]common.Withdrawal),
 		reports:         make(map[common.RequestIdType]*common.DeanonymizationReport),
 		updatePayloads:  make(map[common.RequestIdType]*common.UpdatePayload),
+		stateRoots:      make(map[common.ApplicationIdType][32]byte),
 		MockFunctions:   testutil.NewMockFunctions(),
 	}
 }
@@ -185,12 +187,12 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 	if f, ok := c.GetMockedFunc("GetNextPendingRequest"); ok {
 		return f.(func(context.Context) (*common.Request, [32]byte, error))(ctx)
 	}
-	var req *common.Request
 	if c.pendingRequests.Len() > 0 {
-		req = c.pendingRequests.Front().Value
+		req := c.pendingRequests.Front().Value
+		return req, c.stateRoots[req.ApplicationID], nil
 	}
 
-	return req, c.stateRoot, nil
+	return nil, c.stateRoot, nil
 
 }
 
@@ -275,7 +277,8 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 		EncryptedState: nil, // State is stored separately in the data layer
 	}
 
-	c.stateRoot = update.NewStateRoot
+	c.stateRoots[update.ApplicationID] = update.NewStateRoot
+	c.stateRoot = update.NewStateRoot // backward compat
 
 	// Emit events
 	c.emitEvents(update.Events)
@@ -427,6 +430,7 @@ func (c *MockClient) ClearAllData() {
 	c.failedRequests = orderedmap.NewOrderedMap[common.RequestIdType, *common.Request]()
 	c.updatePayloads = make(map[common.RequestIdType]*common.UpdatePayload)
 	c.stateRoot = [32]byte{}
+	c.stateRoots = make(map[common.ApplicationIdType][32]byte)
 	c.MockedFunctions = make(map[string]interface{})
 }
 

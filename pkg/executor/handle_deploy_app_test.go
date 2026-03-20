@@ -83,17 +83,6 @@ func TestHandleDeployApp_WrongProtocolVersion(t *testing.T) {
 	require.Contains(t, err.Error(), "protocol version 99 is not admitted")
 }
 
-func TestHandleDeployApp_WrongApplicationID(t *testing.T) {
-	executor := newTestExecutor(t, NewMockRuntime(testLogger))
-
-	req, wasmModule := newDeployRequest(t)
-	req.ApplicationID = common.NewApplicationId(999)
-
-	_, _, err := executor.HandleDeployApp(context.Background(), req, nil, wasmModule)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "application id 999 is not admitted")
-}
-
 func TestHandleDeployApp_WrongRequestType(t *testing.T) {
 	executor := newTestExecutor(t, NewMockRuntime(testLogger))
 

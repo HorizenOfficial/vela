@@ -29,8 +29,6 @@ import (
 type NsmSession = nsmutil.Session
 
 var (
-	// As of now we support only one app having this ID
-	admittedAppID           = common.NewApplicationId(1)
 	admittedProtocolVersion = uint8(0)
 	emptyStateRoot          = [32]byte{}
 )
@@ -534,9 +532,6 @@ func (e *StatelessExecutor) Close() error {
 func (e *StatelessExecutor) validateRequest(req *common.Request) error {
 	if req.ProtocolVersion != admittedProtocolVersion {
 		return fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
-	}
-	if req.ApplicationID != admittedAppID {
-		return fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 	if req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
 		return fmt.Errorf("request fee is below minimum fee")

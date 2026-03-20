@@ -21,10 +21,6 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/version"
 )
 
-// As of now we support only one app having this ID
-var (
-	admittedAppID = common.NewApplicationId(1)
-)
 
 type ExecutorHandShake struct {
 	isComplete chan struct{}
@@ -44,7 +40,7 @@ type SecureProcessorManager struct {
 	executorHandShake *ExecutorHandShake
 	stopChan          chan struct{} // Channel to signal the polling loop to stop
 	wg                sync.WaitGroup
-	endReorgTime      time.Time
+	endReorgTimes     map[common.ApplicationIdType]time.Time
 	log               logger.Logger
 	fatalErrChan      chan error // Channel to signal fatal errors to main
 }
@@ -61,8 +57,9 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 		executorHandShake: &ExecutorHandShake{
 			isComplete: make(chan struct{}),
 		},
-		log:          log,
-		fatalErrChan: make(chan error, 1), // buffered to avoid blocking
+		log:           log,
+		fatalErrChan:  make(chan error, 1), // buffered to avoid blocking
+		endReorgTimes: make(map[common.ApplicationIdType]time.Time),
 	}
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
@@ -525,43 +522,50 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		return nil
 	}
 
-	localStateRoot, err := m.dataLayer.LastVersionID(admittedAppID)
+	if request == nil { // No request in queue, nothing to process
+		return nil
+	}
+
+	appID := request.ApplicationID
+
+	localStateRoot, err := m.dataLayer.LastVersionID(appID)
 	if err != nil {
 		if dbErr, ok := err.(*storageErrors.Error); ok && dbErr.Code == storageErrors.NoVersionInDb {
 			localStateRoot = make([]byte, 32) // Initialize to zero state root if no version exists
 		} else {
-			m.log.Error("Manager: Failed to get local state root: %v", err)
+			m.log.Error("Manager: Failed to get local state root for app %d: %v", appID, err)
 			return nil
 		}
 	}
 
 	if !bytes.Equal(localStateRoot, stateRoot[:]) {
-		m.log.Warn("Manager: State root mismatch, expected %x, got %x. Checking if it is a REORG.", localStateRoot, stateRoot)
+		m.log.Warn("Manager: State root mismatch for app %d, expected %x, got %x. Checking if it is a REORG.", appID, localStateRoot, stateRoot)
 
-		isReorg, err := m.checkIfReorg(stateRoot)
+		isReorg, err := m.checkIfReorg(appID, stateRoot)
 		if err != nil {
 			m.log.Error("Manager: Failed to check for reorg: %v", err)
 			return nil
 		}
 
 		if isReorg {
-			if m.endReorgTime.IsZero() {
-				m.log.Info("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
-				m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
+			endTime := m.endReorgTimes[appID]
+			if endTime.IsZero() {
+				m.log.Info("Manager: Starting REORG timeout %d for app %d", m.config.ReorgTimeout, appID)
+				m.endReorgTimes[appID] = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
 				return nil
 			}
-			if time.Now().Before(m.endReorgTime) {
-				m.log.Info("Manager: REORG timeout not expired yet. Keep waiting...")
+			if time.Now().Before(endTime) {
+				m.log.Info("Manager: REORG timeout not expired yet for app %d. Keep waiting...", appID)
 				return nil
 			}
-			m.log.Info("Manager: REORG not solved within timeout => Rollback the DB")
-			if err := m.dataLayer.Rollback(admittedAppID, stateRoot[:]); err != nil {
+			m.log.Info("Manager: REORG not solved within timeout for app %d => Rollback the DB", appID)
+			if err := m.dataLayer.Rollback(appID, stateRoot[:]); err != nil {
 				m.log.Error("Manager: Error while rolling back the DB: %v", err)
 				return fmt.Errorf("fatal: rollback failed: %w", err)
 			}
 
 		} else {
-			m.log.Error("Manager: unrecoverable disalignment between DB and chain, no matching state root found in db")
+			m.log.Error("Manager: unrecoverable disalignment between DB and chain for app %d, no matching state root found in db", appID)
 			emptyStateRoot := [32]byte{}
 			if bytes.Equal(localStateRoot, emptyStateRoot[:]) {
 				m.log.Error("Manager: the DB is empty but the chain state root is non-zero, check if the database file is correct and restart the manager")
@@ -571,13 +575,9 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 	}
 
-	if !m.endReorgTime.IsZero() {
-		m.log.Info("Manager: State roots match, REORG resolved")
-		m.endReorgTime = time.Time{}
-	}
-
-	if request == nil { //No request in queue, nothing to process
-		return nil
+	if endTime := m.endReorgTimes[appID]; !endTime.IsZero() {
+		m.log.Info("Manager: State roots match for app %d, REORG resolved", appID)
+		delete(m.endReorgTimes, appID)
 	}
 
 	m.log.Info("Manager: processing request %s", request.RequestID)
@@ -591,14 +591,14 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 }
 
-func (m *SecureProcessorManager) checkIfReorg(stateRoot [32]byte) (bool, error) {
+func (m *SecureProcessorManager) checkIfReorg(appID common.ApplicationIdType, stateRoot [32]byte) (bool, error) {
 	if stateRoot == [32]byte{} {
-		m.log.Info("Manager: State root is zero, REORG")
+		m.log.Info("Manager: State root is zero for app %d, REORG", appID)
 		// Don't look for older db versions, just mark as reorged and wait for next poll
 		return true, nil
 	}
 
-	oldVersions, err := m.dataLayer.ListVersions(admittedAppID)
+	oldVersions, err := m.dataLayer.ListVersions(appID)
 	if err != nil {
 		m.log.Error("Manager: Failed to get db old versions: %v", err)
 		return false, err
@@ -635,7 +635,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 		m.log.Error("Failed to submit state update for error: %v", err)
 		if updatePayload.ErrorCode == 0 {
 			m.log.Info("Rollback the application state to previous version")
-			if err := m.dataLayer.Rollback(admittedAppID, updatePayload.PrevStateRoot[:]); err != nil {
+			if err := m.dataLayer.Rollback(updatePayload.ApplicationID, updatePayload.PrevStateRoot[:]); err != nil {
 				// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
 				// Log and return err to let REORG detection handle it on the next poll.
 				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
@@ -662,9 +662,9 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		return errors.New("manager is not running")
 	}
 
-	// check if app was already deployed
-	// Manager retrieves the state of admittedAppID instead of req.ApplicationID because in case of a wrong applicatioID the executor needs the real stateRoot for submitting the error on chain
-	state, err := m.dataLayer.GetApplicationState(ctx, admittedAppID)
+	// Check if app was already deployed. With per-app state roots, the executor handles
+	// appState == nil gracefully (uses emptyStateRoot for signed error payloads).
+	state, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
 		if !storageErrors.IsNotFound(err) {
 			m.log.Warn("Manager: Got error while getting application state: %v", err)
