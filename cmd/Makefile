@@ -12,9 +12,11 @@ EXECUTOR_CONF_DEST := $(BIN_DIR)/executor.conf
 # Automatically discover all Go source files for proper dependency tracking
 MANAGER_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./manager)
 EXECUTOR_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./executor)
-.PHONY: all manager executor check-conf clean list-deps clean-flag print-nothing
+ADMINCLI_SRC_FILES := $(shell go list -deps -f '{{range .GoFiles}}{{$$.Dir}}/{{.}} {{end}}' ./admincli)
 
-all: clean-flag manager executor check-conf print-nothing
+.PHONY: all manager executor admincli check-conf clean list-deps clean-flag print-nothing
+
+all: clean-flag manager executor admincli check-conf print-nothing
 
 # Ensure binary directory exists
 $(BIN_DIR):
@@ -40,6 +42,17 @@ $(BIN_DIR)/executor: $(BIN_DIR) ../go.mod ../go.sum $(EXECUTOR_SRC_FILES)
 	@echo "Building executor (version: $(GIT_VERSION))..."
 	@go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/executor ./executor
 	@echo "Executor binary built"
+	@touch $(FLAG_FILE)
+
+# ----------------------
+# Admin CLI
+# ----------------------
+admincli: $(BIN_DIR)/admincli
+
+$(BIN_DIR)/admincli: $(BIN_DIR) ../go.mod ../go.sum $(ADMINCLI_SRC_FILES)
+	@echo "Building admincli..."
+	@go build -o $(BIN_DIR)/admincli ./admincli
+	@echo "Admin CLI binary built"
 	@touch $(FLAG_FILE)
 
 # ----------------------
@@ -77,12 +90,13 @@ list-deps:
 	@echo $(MANAGER_SRC_FILES) | tr ' ' '\n'
 	@echo "\nExecutor Source Dependencies:"
 	@echo $(EXECUTOR_SRC_FILES) | tr ' ' '\n'
-
+	@echo "\nAdmin CLI Source Dependencies:"
+	@echo $(ADMINCLI_SRC_FILES) | tr ' ' '\n'
 
 # ----------------------
 # Clean
 # ----------------------
 clean:
 	@echo "Cleaning up..."
-	@rm -f $(BIN_DIR)/manager $(BIN_DIR)/executor
+	@rm -f $(BIN_DIR)/manager $(BIN_DIR)/executor $(BIN_DIR)/admincli
 	@rm -f $(MANAGER_CONF_DEST) $(EXECUTOR_CONF_DEST)
