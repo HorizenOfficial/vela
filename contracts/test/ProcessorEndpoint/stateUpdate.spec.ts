@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
-import { deployProcessorEndpointFixture } from './fixture';
+import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 import { BYTES32_ZERO, getRequestIdFromReceipt } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
@@ -9,9 +9,10 @@ describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
+  let bootstrapApplication: any;
 
   const PROTOCOL_VERSION = 0;
-  const APPLICATION_ID = 1;
   const REQUEST_TYPE = 1;
 
   beforeEach(async function () {
@@ -19,6 +20,8 @@ describe('ProcessorEndpoint Test', function () {
     processorEndpoint = await fixture.deployProcessorEndpoint();
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    bootstrapApplication = fixture.bootstrapApplication;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   function getUserEvents(processorEndpointInstance: any, receipt: any) {
@@ -38,13 +41,14 @@ describe('ProcessorEndpoint Test', function () {
     sender: Signer,
     payload: string,
     depositAmount: bigint,
-    maxFeeValue: bigint
+    maxFeeValue: bigint,
+    appId?: bigint
   ) {
     const tx = await processorEndpointInstance
       .connect(sender)
       .submitRequest(
         PROTOCOL_VERSION,
-        APPLICATION_ID,
+        appId ?? applicationId,
         REQUEST_TYPE,
         payload,
         depositAmount,
@@ -75,10 +79,16 @@ describe('ProcessorEndpoint Test', function () {
       fixture.minFeePerRequest
     );
 
+    const { applicationId: appId } = await fixture.bootstrapApplication(
+      processorEndpointWithNoAttestation,
+      teeSigner
+    );
+
     return {
       ...fixture,
       teeAuthenticator,
       processorEndpoint: processorEndpointWithNoAttestation,
+      applicationId: appId,
     };
   }
 
@@ -97,8 +107,8 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              2,
-              BYTES32_ZERO,
+              999,
+              INITIAL_STATE_ROOT,
               '0x' + '11'.repeat(32),
               request.requestId,
               [],
@@ -118,8 +128,8 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[0])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + '11'.repeat(32),
               '0x' + '00'.repeat(32),
               [],
@@ -134,7 +144,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'AccessControlUnauthorizedAccount');
       });
 
-      it('reverts with InvalidStateRoot when stateRoot is zero and prevStateRoot is non-zero', async () => {
+      it('reverts with InvalidStateRoot when prevStateRoot does not match current stateRoot', async () => {
         const request = await submitRequest(
           processorEndpoint,
           signers[0],
@@ -149,7 +159,7 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
+              applicationId,
               prevStateRoot,
               newStateRoot,
               request.requestId,
@@ -164,10 +174,12 @@ describe('ProcessorEndpoint Test', function () {
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidStateRoot');
 
-        expect(await processorEndpoint.stateRoot()).to.equal(BYTES32_ZERO);
+        expect(await processorEndpoint.applicationStateRoots(applicationId)).to.equal(
+          INITIAL_STATE_ROOT
+        );
       });
 
-      it('reverts with InvalidStateRoot when prevStateRoot does not match current stateRoot', async () => {
+      it('reverts with InvalidStateRoot when prevStateRoot does not match after a prior update', async () => {
         const first = await submitRequest(
           processorEndpoint,
           signers[0],
@@ -178,8 +190,8 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
+            applicationId,
+            INITIAL_STATE_ROOT,
             '0x' + '22'.repeat(32),
             first.requestId,
             [],
@@ -204,7 +216,7 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
+              applicationId,
               BYTES32_ZERO,
               '0x' + '33'.repeat(32),
               second.requestId,
@@ -234,8 +246,8 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + '44'.repeat(32),
               second.requestId,
               [],
@@ -263,8 +275,8 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + '55'.repeat(32),
               request.requestId,
               ['0x01'],
@@ -286,13 +298,14 @@ describe('ProcessorEndpoint Test', function () {
           fixture.signers[0],
           '0x06',
           0n,
-          fixture.minFeePerRequest
+          fixture.minFeePerRequest,
+          fixture.applicationId
         );
 
         const signature = await ethSignStateUpdate(
           fixture.signers[4],
-          APPLICATION_ID,
-          BYTES32_ZERO,
+          fixture.applicationId,
+          INITIAL_STATE_ROOT,
           '0x' + '66'.repeat(32),
           request.requestId,
           [],
@@ -306,8 +319,8 @@ describe('ProcessorEndpoint Test', function () {
           fixture.processorEndpoint
             .connect(fixture.signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              fixture.applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + '66'.repeat(32),
               request.requestId,
               [],
@@ -329,14 +342,15 @@ describe('ProcessorEndpoint Test', function () {
           fixture.signers[0],
           '0x07',
           0n,
-          fixture.minFeePerRequest
+          fixture.minFeePerRequest,
+          fixture.applicationId
         );
 
         const events = ['0x01'];
         const signature = await ethSignStateUpdate(
           fixture.signers[3],
-          APPLICATION_ID,
-          BYTES32_ZERO,
+          fixture.applicationId,
+          INITIAL_STATE_ROOT,
           '0x' + '77'.repeat(32),
           request.requestId,
           events,
@@ -350,8 +364,8 @@ describe('ProcessorEndpoint Test', function () {
           fixture.processorEndpoint
             .connect(fixture.signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              fixture.applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + '77'.repeat(32),
               request.requestId,
               events,
@@ -379,8 +393,8 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + '88'.repeat(32),
               request.requestId,
               [],
@@ -403,8 +417,8 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + '99'.repeat(32),
               request.requestId,
               [],
@@ -432,8 +446,8 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + 'aa'.repeat(32),
               request.requestId,
               [],
@@ -457,14 +471,15 @@ describe('ProcessorEndpoint Test', function () {
           fixture.signers[0],
           '0x0e',
           0n,
-          fixture.minFeePerRequest
+          fixture.minFeePerRequest,
+          fixture.applicationId
         );
         const newStateRoot = '0x' + 'ee'.repeat(32);
 
         const signature = await ethSignStateUpdate(
           fixture.signers[3],
-          APPLICATION_ID,
-          BYTES32_ZERO,
+          fixture.applicationId,
+          INITIAL_STATE_ROOT,
           newStateRoot,
           request.requestId,
           [],
@@ -477,8 +492,8 @@ describe('ProcessorEndpoint Test', function () {
         const tx = await fixture.processorEndpoint
           .connect(fixture.signers[1])
           .stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
+            fixture.applicationId,
+            INITIAL_STATE_ROOT,
             newStateRoot,
             request.requestId,
             [],
@@ -493,8 +508,10 @@ describe('ProcessorEndpoint Test', function () {
 
         await expect(tx)
           .to.emit(fixture.processorEndpoint, 'StateRootUpdate')
-          .withArgs(APPLICATION_ID, request.requestId, BYTES32_ZERO, newStateRoot);
-        expect(await fixture.processorEndpoint.stateRoot()).to.equal(newStateRoot);
+          .withArgs(fixture.applicationId, request.requestId, INITIAL_STATE_ROOT, newStateRoot);
+        expect(
+          await fixture.processorEndpoint.applicationStateRoots(fixture.applicationId)
+        ).to.equal(newStateRoot);
       });
 
       it('processes update: completes request, emits events, and transfers funds', async () => {
@@ -519,8 +536,8 @@ describe('ProcessorEndpoint Test', function () {
         const balanceBPendingAmountAfterSubmit = await processorEndpoint.payments(withdrawalB);
 
         const tx = await processorEndpoint.connect(signers[1]).stateUpdate(
-          APPLICATION_ID,
-          BYTES32_ZERO,
+          applicationId,
+          INITIAL_STATE_ROOT,
           '0x' + 'ff'.repeat(32),
           request.requestId,
           ['0xaa', '0xbb'],
@@ -538,7 +555,7 @@ describe('ProcessorEndpoint Test', function () {
 
         await expect(tx)
           .to.emit(processorEndpoint, 'RequestCompleted')
-          .withArgs(request.requestId, applicationFees, 0, 0, '');
+          .withArgs(applicationId, request.requestId, applicationFees, 0, 0, '');
         const receipt = await tx.wait();
         const userEvents = getUserEvents(processorEndpoint, receipt);
         const eventSubTypes = userEvents.map((event: any) => {
@@ -551,13 +568,13 @@ describe('ProcessorEndpoint Test', function () {
         expect(eventPayloads).to.have.members(['0xaa', '0xbb']);
         await expect(tx)
           .to.emit(processorEndpoint, 'Refund')
-          .withArgs(APPLICATION_ID, request.requestId, sender, refund);
+          .withArgs(applicationId, request.requestId, sender, refund);
         await expect(tx)
           .to.emit(processorEndpoint, 'Withdrawal')
-          .withArgs(APPLICATION_ID, request.requestId, withdrawalA, 10);
+          .withArgs(applicationId, request.requestId, withdrawalA, 10);
         await expect(tx)
           .to.emit(processorEndpoint, 'Withdrawal')
-          .withArgs(APPLICATION_ID, request.requestId, withdrawalB, 10);
+          .withArgs(applicationId, request.requestId, withdrawalB, 10);
 
         const senderPendingAmountAfterUpdate = await processorEndpoint.payments(sender);
         const balanceAPendingAmountAfterUpdate = await processorEndpoint.payments(withdrawalA);
@@ -579,8 +596,8 @@ describe('ProcessorEndpoint Test', function () {
         const tx = await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
+            applicationId,
+            INITIAL_STATE_ROOT,
             '0x' + '10'.repeat(32),
             request.requestId,
             ['0x11', '0x22'],
@@ -605,7 +622,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(eventPayloads).to.have.members(['0x11', '0x22']);
       });
 
-      it('allows first update when stateRoot is zero and prevStateRoot is zero', async () => {
+      it('updates stateRoot from initial value with matching prevStateRoot', async () => {
         const request = await submitRequest(
           processorEndpoint,
           signers[0],
@@ -618,8 +635,8 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
+            applicationId,
+            INITIAL_STATE_ROOT,
             newStateRoot,
             request.requestId,
             [],
@@ -632,7 +649,7 @@ describe('ProcessorEndpoint Test', function () {
             '0x'
           );
 
-        expect(await processorEndpoint.stateRoot()).to.equal(newStateRoot);
+        expect(await processorEndpoint.applicationStateRoots(applicationId)).to.equal(newStateRoot);
       });
 
       it("doesn't emit Refund event when refund amount is zero", async () => {
@@ -648,8 +665,8 @@ describe('ProcessorEndpoint Test', function () {
         const tx = await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
+            applicationId,
+            INITIAL_STATE_ROOT,
             '0x' + '15'.repeat(32),
             request.requestId,
             [],
