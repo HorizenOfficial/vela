@@ -566,7 +566,7 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
@@ -613,7 +613,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error
 	expectedError = "failed to store state"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		return fmt.Errorf("%s", expectedError)
 	})
 
@@ -640,7 +640,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	failure = manager.processDeployApp(context.Background(), request)
 	require.Nil(t, failure)
 	// Check that the local db has been reverted to the initial state
-	_, err = manager.dataLayer.LastVersionID()
+	_, err = manager.dataLayer.LastVersionID(admittedAppID)
 	require.Error(t, err)
 	dbErr, ok := err.(*storageErrors.Error)
 	require.True(t, ok && dbErr.Code == storageErrors.NoVersionInDb)
@@ -659,7 +659,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, expectedError)
 	// Check that the local db has been reverted to the initial state
-	_, err = manager.dataLayer.LastVersionID()
+	_, err = manager.dataLayer.LastVersionID(admittedAppID)
 	require.Error(t, err)
 	dbErr, ok = err.(*storageErrors.Error)
 	require.True(t, ok && dbErr.Code == storageErrors.NoVersionInDb)
@@ -881,7 +881,7 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
@@ -920,7 +920,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	oldDbVersion, err := manager.dataLayer.LastVersionID()
+	oldDbVersion, err := manager.dataLayer.LastVersionID(admittedAppID)
 	require.NoError(t, err)
 
 	// Simulate application state not found. In this case, it should call SendProcessRequest and return a failure payload, then submitStateOnChain is called but the state is not stored in the data layer
@@ -992,7 +992,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	// Test data layer failure, stop processing and return the error
 	expectedError = "failed to store state"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		return errors.New(expectedError)
 	})
 
@@ -1019,7 +1019,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	failure = manager.processProcessRequest(context.Background(), request)
 	require.Nil(t, failure)
 	// Check that the local db has been reverted to the initial state
-	newDbVersion, err := manager.dataLayer.LastVersionID()
+	newDbVersion, err := manager.dataLayer.LastVersionID(admittedAppID)
 	require.NoError(t, err)
 	require.Equal(t, oldDbVersion, newDbVersion)
 
@@ -1038,7 +1038,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Contains(t, failure.Error(), expectedError)
 
 	// Check that the local db has been reverted to the initial state
-	newDbVersion, err = manager.dataLayer.LastVersionID()
+	newDbVersion, err = manager.dataLayer.LastVersionID(admittedAppID)
 	require.NoError(t, err)
 	require.Equal(t, oldDbVersion, newDbVersion)
 
@@ -1059,7 +1059,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Contains(t, failure.Error(), expectedError)
 
 	// Check that the local db has been reverted to the initial state
-	newDbVersion, err = manager.dataLayer.LastVersionID()
+	newDbVersion, err = manager.dataLayer.LastVersionID(admittedAppID)
 	require.NoError(t, err)
 	require.Equal(t, oldDbVersion, newDbVersion)
 
@@ -1134,7 +1134,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	db_version, err := manager.dataLayer.LastVersionID()
+	db_version, err := manager.dataLayer.LastVersionID(admittedAppID)
 	require.NoError(t, err)
 
 	nextPendingReq, stateRootOnChain1, err := mockBCClient.GetNextPendingRequest(context.Background())
@@ -1150,7 +1150,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
 
-	db_version, err = manager.dataLayer.LastVersionID()
+	db_version, err = manager.dataLayer.LastVersionID(admittedAppID)
 	require.NoError(t, err)
 
 	nextPendingReq, stateRootOnChain2, err := mockBCClient.GetNextPendingRequest(context.Background())
@@ -1200,7 +1200,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 3, len(completedRequests), "expected 3 completed requests")
 
-	db_version, err = manager.dataLayer.LastVersionID()
+	db_version, err = manager.dataLayer.LastVersionID(admittedAppID)
 	require.NoError(t, err)
 
 	_, stateRootOnChain3, err := mockBCClient.GetNextPendingRequest(context.Background())
@@ -1246,7 +1246,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	db_version, err = manager.dataLayer.LastVersionID()
+	db_version, err = manager.dataLayer.LastVersionID(admittedAppID)
 	require.NoError(t, err)
 
 	_, stateRootOnChain, err := mockBCClient.GetNextPendingRequest(context.Background())
@@ -1293,7 +1293,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	// Check that if LastVersionID returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
 	//**********************
 
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("LastVersionID", func() ([]byte, error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("LastVersionID", func(common.ApplicationIdType) ([]byte, error) {
 		return nil, fmt.Errorf("LastVersionID error")
 	})
 
@@ -1305,7 +1305,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	//**********************
 	// Check that if ListVersions returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
 	//**********************
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("ListVersions", func() ([][]byte, error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("ListVersions", func(common.ApplicationIdType) ([][]byte, error) {
 		return nil, fmt.Errorf("ListVersions error")
 	})
 

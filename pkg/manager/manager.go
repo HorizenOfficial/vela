@@ -525,7 +525,7 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		return nil
 	}
 
-	localStateRoot, err := m.dataLayer.LastVersionID()
+	localStateRoot, err := m.dataLayer.LastVersionID(admittedAppID)
 	if err != nil {
 		if dbErr, ok := err.(*storageErrors.Error); ok && dbErr.Code == storageErrors.NoVersionInDb {
 			localStateRoot = make([]byte, 32) // Initialize to zero state root if no version exists
@@ -555,7 +555,7 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 				return nil
 			}
 			m.log.Info("Manager: REORG not solved within timeout => Rollback the DB")
-			if err := m.dataLayer.Rollback(stateRoot[:]); err != nil {
+			if err := m.dataLayer.Rollback(admittedAppID, stateRoot[:]); err != nil {
 				m.log.Error("Manager: Error while rolling back the DB: %v", err)
 				return fmt.Errorf("fatal: rollback failed: %w", err)
 			}
@@ -598,7 +598,7 @@ func (m *SecureProcessorManager) checkIfReorg(stateRoot [32]byte) (bool, error) 
 		return true, nil
 	}
 
-	oldVersions, err := m.dataLayer.ListVersions()
+	oldVersions, err := m.dataLayer.ListVersions(admittedAppID)
 	if err != nil {
 		m.log.Error("Manager: Failed to get db old versions: %v", err)
 		return false, err
@@ -635,7 +635,7 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 		m.log.Error("Failed to submit state update for error: %v", err)
 		if updatePayload.ErrorCode == 0 {
 			m.log.Info("Rollback the application state to previous version")
-			if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
+			if err := m.dataLayer.Rollback(admittedAppID, updatePayload.PrevStateRoot[:]); err != nil {
 				// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
 				// Log and return err to let REORG detection handle it on the next poll.
 				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
@@ -707,13 +707,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Store the application state and WASM bytecode
-	versionID := appState.StateRoot[:]
-	err = m.dataLayer.Store(
-		ctx,
-		versionID[:],
-		[]*common.ApplicationState{appState},
-		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: wasmModule}},
-	)
+	err = m.initAppStorage(ctx, appState, wasmModule)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
 		return err
@@ -780,21 +774,32 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Store the updated application state
-	versionID := updatedState.StateRoot[:]
-	m.log.Info("VersionID %x", versionID[:])
-
-	err = m.dataLayer.Store(
-		ctx,
-		versionID[:],
-		[]*common.ApplicationState{updatedState},
-		nil,
-	)
+	err = m.storeStateToStorage(ctx, updatedState)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
 		return err
 	}
 
 	return m.submitStateOnChain(ctx, updatePayload)
+}
+
+// initAppStorage stores the application state and WASM bytecode for a newly deployed application.
+func (m *SecureProcessorManager) initAppStorage(ctx context.Context, state *common.ApplicationState, wasmModule []byte) error {
+	versionID := state.StateRoot[:]
+	m.log.Info("Storing app state and WASM, versionID %x", versionID)
+	return m.dataLayer.StoreWithWasm(
+		ctx,
+		versionID,
+		state,
+		&common.WASMData{ApplicationID: state.ApplicationID, Bytecode: wasmModule},
+	)
+}
+
+// storeStateToStorage stores the updated application state after processing a request.
+func (m *SecureProcessorManager) storeStateToStorage(ctx context.Context, state *common.ApplicationState) error {
+	versionID := state.StateRoot[:]
+	m.log.Info("Storing app state, versionID %x", versionID)
+	return m.dataLayer.Store(ctx, versionID, state)
 }
 
 // saveDeanonymizationReport saves a deanonymization report to the filesystem
