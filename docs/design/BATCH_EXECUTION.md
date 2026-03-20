@@ -510,7 +510,7 @@ HandleBatchProcessRequest(requests, encryptedState, wasmModule):
 
         // WASM execution — can cause soft failure
         appState := appData.GetAppState()
-        run WASM (Deposit if needed, then ProcessRequest)
+        run WASM (Deposit if needed, then ProcessRequest. appState must be updated only after ProcessRequest)
 
         if soft failure:
             results = append(results, buildErrorPayload(req, currentStateRoot))
