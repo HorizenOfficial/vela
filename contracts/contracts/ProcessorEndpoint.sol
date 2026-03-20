@@ -84,7 +84,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     Structs.RequestType requestType,
     bytes calldata payload,
     uint256 depositAmount, // part of the sent value forwarded to the application, for app logic
-    uint256 maxFeeValue // part ot the sent value reserved for fee payment
+    uint256 maxFeeValue // part of the sent value reserved for fee payment
   )
     external
     payable
@@ -151,9 +151,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
     if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
     if (availableDeploySlots == 0) revert MaxNumOfApplicationsExceeded();
-    if (msg.value < minFeePerRequest) revert FeeValueBelowMinimum();
     //check queue size
     if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
+    if (msg.value < minFeePerRequest) revert FeeValueBelowMinimum();
 
     --availableDeploySlots;
 
@@ -348,7 +348,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       }
 
       if (requestInfo.requestType == Structs.RequestType.DEPLOYAPP) {
-        ++availableDeploySlots;
+        unchecked {
+          ++availableDeploySlots;
+        }
       }
 
       _markRequestCompleted(
@@ -413,7 +415,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     //credit withdrawals to receivers' pending balances
     i = 0;
-    while (i < withdrawalRequests.length) {
+    while (i < withdrawalsLength) {
       _asyncTransfer(withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
       emit Withdrawal(
         applicationId,
@@ -535,7 +537,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 idx
   ) public pure returns (bytes32) {
     bytes32 requestId = keccak256(
-      abi.encodePacked(sender, applicationId, requestType, payload, depositAmount, idx)
+      abi.encode(sender, applicationId, requestType, payload, depositAmount, idx)
     );
 
     return requestId;
