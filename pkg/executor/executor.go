@@ -564,19 +564,17 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return errorPayload, nil, nil, err
 	}
 
+	// Validate wasm module integrity before processing any request path.
+	if len(wasmModule) == 0 {
+		return nil, nil, nil, fmt.Errorf("empty wasm module")
+	}
+
 	// Decrypt and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	// Validate wasm module integrity before processing any request path.
-	if len(wasmModule) == 0 {
-		errorPayload, err := e.processErrorResponse(req,
-			appState.StateRoot,
-			apperrors.New(apperrors.CodeWasmModuleEmpty, "wasm module is empty"))
-		return errorPayload, nil, nil, err
-	}
 	expectedWasmFingerprint := appData.GetWasmFingerprint()
 	currentWasmFingerprint := sha256.Sum256(wasmModule)
 	if currentWasmFingerprint != expectedWasmFingerprint {
@@ -587,13 +585,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			currentWasmFingerprint[:4],
 			expectedWasmFingerprint[:4],
 		)
-		errorPayload, err := e.processErrorResponse(req,
-			appState.StateRoot,
-			apperrors.New(
-				apperrors.CodeWasmFingerprintMismatch,
-				"wasm fingerprint mismatch",
-			))
-		return errorPayload, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("wasm fingerprint mismatch")
 	}
 
 	// If the request contains a deposit, handle it first
@@ -854,12 +846,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	moduleSHA := sha256.Sum256(wasmModule)
 	if got := hex.EncodeToString(moduleSHA[:]); got != descriptor.WasmSHA256 {
-		errorPayload, err := e.processErrorResponse(
-			req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg),
-		)
-		return errorPayload, nil, err
+		return nil, nil, fmt.Errorf("wasm fingerprint mismatch")
 	}
 
 	// Load the module and get initial state
@@ -897,7 +884,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	initialAppData := appdata.NewAppData(initialAppState)
-	initialAppData.SetWasmFingerprint(sha256.Sum256(wasmModule))
+	initialAppData.SetWasmFingerprint(moduleSHA)
 
 	//serialize the new app data
 	initialAppDataBytes, err := initialAppData.Serialize()

@@ -234,11 +234,9 @@ func TestHandleDeployApp_HashMismatch(t *testing.T) {
 
 	req, _ := newDeployRequest(t)
 	updatePayload, _, err := executor.HandleDeployApp(context.Background(), req, nil, []byte("different-wasm-bytecode"))
-	require.NoError(t, err)
-	require.NotNil(t, updatePayload)
-	require.Equal(t, uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to load or get module", updatePayload.ErrorMsg)
-}
+	require.Error(t, err)
+	require.Nil(t, updatePayload)
+	require.Contains(t, err.Error(), "wasm fingerprint mismatch")}
 
 func TestHandleDeployApp_Success(t *testing.T) {
 	runtime := NewMockRuntime(testLogger)

@@ -65,7 +65,6 @@ var (
 	CodeFailedExtractingResultBytes  = FailureCode{"FAILED_EXTRACTING_RESULT_BYTES", CategoryWasmInternalMeta}
 	CodeFailedLoadingOrGettingModule = FailureCode{"FAILED_LOADING_OR_GETTING_MODULE", CategoryWasmInternalMeta}
 	CodeWasmModuleEmpty              = FailureCode{"WASM_MODULE_EMPTY", CategoryWasmInternalMeta}
-	CodeWasmFingerprintMismatch      = FailureCode{"WASM_FINGERPRINT_MISMATCH", CategoryWasmInternalMeta}
 	CodeDepositFailed                = FailureCode{"DEPOSIT_FAILED", CategoryDepositFailedMeta}
 	CodeRequestFuncFailed            = FailureCode{"REQUEST_FUNC_FAILED", CategoryRequestFuncFailedMeta}
 	CodePubKeyNotRegistered          = FailureCode{"PUBKEY_NOT_REGISTERED", CategoryPubKeyNotRegisteredMeta}

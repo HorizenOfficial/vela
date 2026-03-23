@@ -169,7 +169,7 @@ func (r *countingRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	return r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
 }
 
-func TestHandleProcessRequest_EmptyWasmModuleReturnsSignedError(t *testing.T) {
+func TestHandleProcessRequest_EmptyWasmModule(t *testing.T) {
 	runtime := &countingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
 	exec := newTestExecutor(t, runtime)
 
@@ -180,20 +180,13 @@ func TestHandleProcessRequest_EmptyWasmModuleReturnsSignedError(t *testing.T) {
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
 	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
-	require.NoError(t, err)
-	require.NotNil(t, payload)
-	require.Equal(t, uint8(apperrors.CategoryWasmInternalMeta.Category), payload.ErrorCode)
-	require.Contains(t, payload.ErrorMsg, "wasm module is empty")
-	require.Equal(t, appState.StateRoot, payload.PrevStateRoot)
-	require.Equal(t, appState.StateRoot, payload.NewStateRoot)
-	require.Len(t, payload.Signature, 65)
+	require.Error(t, err)
+	require.Nil(t, payload)
 	require.Nil(t, newAppState)
 	require.Nil(t, report)
-	require.Equal(t, 0, runtime.depositCalls)
-	require.Equal(t, 0, runtime.processCalls)
 }
 
-func TestHandleProcessRequest_WasmFingerprintMismatchReturnsSignedError(t *testing.T) {
+func TestHandleProcessRequest_WasmFingerprintMismatch(t *testing.T) {
 	runtime := &countingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
 	exec := newTestExecutor(t, runtime)
 
@@ -204,22 +197,13 @@ func TestHandleProcessRequest_WasmFingerprintMismatchReturnsSignedError(t *testi
 	appState := buildEncryptedAppState(t, exec, nil, nil, []byte("expected-wasm"))
 
 	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("tampered-wasm"))
-	require.NoError(t, err)
-	require.NotNil(t, payload)
-	require.Equal(t, uint8(apperrors.CategoryWasmInternalMeta.Category), payload.ErrorCode)
-	require.Equal(t, "wasm fingerprint mismatch", payload.ErrorMsg)
-	require.NotContains(t, payload.ErrorMsg, "got ")
-	require.NotContains(t, payload.ErrorMsg, "want ")
-	require.Equal(t, appState.StateRoot, payload.PrevStateRoot)
-	require.Equal(t, appState.StateRoot, payload.NewStateRoot)
-	require.Len(t, payload.Signature, 65)
+	require.Error(t, err)
+	require.Nil(t, payload)
 	require.Nil(t, newAppState)
 	require.Nil(t, report)
-	require.Equal(t, 0, runtime.depositCalls)
-	require.Equal(t, 0, runtime.processCalls)
 }
 
-func TestHandleProcessRequest_EmptyWasmModuleWithDepositReturnsSignedErrorBeforeDeposit(t *testing.T) {
+func TestHandleProcessRequest_EmptyWasmModuleWithDeposit(t *testing.T) {
 	runtime := &countingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
 	exec := newTestExecutor(t, runtime)
 
@@ -230,20 +214,16 @@ func TestHandleProcessRequest_EmptyWasmModuleWithDepositReturnsSignedErrorBefore
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
 	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
-	require.NoError(t, err)
-	require.NotNil(t, payload)
-	require.Equal(t, uint8(apperrors.CategoryWasmInternalMeta.Category), payload.ErrorCode)
-	require.Contains(t, payload.ErrorMsg, "wasm module is empty")
-	require.Equal(t, appState.StateRoot, payload.PrevStateRoot)
-	require.Equal(t, appState.StateRoot, payload.NewStateRoot)
-	require.Len(t, payload.Signature, 65)
+	require.Error(t, err)
+	require.Nil(t, payload)
 	require.Nil(t, newAppState)
 	require.Nil(t, report)
 	require.Equal(t, 0, runtime.depositCalls)
 	require.Equal(t, 0, runtime.processCalls)
+
 }
 
-func TestHandleProcessRequest_WasmFingerprintMismatchWithDepositReturnsSignedErrorBeforeDeposit(t *testing.T) {
+func TestHandleProcessRequest_WasmFingerprintMismatchWithDeposit(t *testing.T) {
 	runtime := &countingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
 	exec := newTestExecutor(t, runtime)
 
@@ -254,15 +234,8 @@ func TestHandleProcessRequest_WasmFingerprintMismatchWithDepositReturnsSignedErr
 	appState := buildEncryptedAppState(t, exec, nil, nil, []byte("expected-wasm"))
 
 	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("tampered-wasm"))
-	require.NoError(t, err)
-	require.NotNil(t, payload)
-	require.Equal(t, uint8(apperrors.CategoryWasmInternalMeta.Category), payload.ErrorCode)
-	require.Equal(t, "wasm fingerprint mismatch", payload.ErrorMsg)
-	require.NotContains(t, payload.ErrorMsg, "got ")
-	require.NotContains(t, payload.ErrorMsg, "want ")
-	require.Equal(t, appState.StateRoot, payload.PrevStateRoot)
-	require.Equal(t, appState.StateRoot, payload.NewStateRoot)
-	require.Len(t, payload.Signature, 65)
+	require.Error(t, err)
+	require.Nil(t, payload)
 	require.Nil(t, newAppState)
 	require.Nil(t, report)
 	require.Equal(t, 0, runtime.depositCalls)
@@ -279,13 +252,10 @@ func TestHandleProcessRequest_AssociateKey_FingerprintCheckHappensBeforePayloadV
 	appState := buildEncryptedAppState(t, exec, nil, nil, []byte("expected-wasm"))
 
 	payload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("tampered-wasm"))
-	require.NoError(t, err)
-	require.NotNil(t, payload)
-	require.Equal(t, uint8(apperrors.CategoryWasmInternalMeta.Category), payload.ErrorCode)
-	require.Equal(t, "wasm fingerprint mismatch", payload.ErrorMsg)
-	require.NotContains(t, payload.ErrorMsg, "got ")
-	require.NotContains(t, payload.ErrorMsg, "want ")
+	require.Error(t, err)
+	require.Nil(t, payload)
 }
+
 
 // failingDepositRuntime is a runtime where Deposit always fails.
 type failingDepositRuntime struct {
