@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"os"
 	"os/exec"
@@ -230,20 +229,22 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	require.NoError(t, suite.StartManager())
 
 	appID := common.NewApplicationId(1)
-	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
-	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	timeout := 100 * time.Second
 
 	cryptoHelper := testutil.NewCryptoHelper()
+
+	// Generate user identities (address derived from secp256k1 signing key)
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+	auditorAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
 
 	// Deploy the application
 	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
 	// Register user key
 	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
-	require.NoError(t, err)
-	_, err = cryptoHelper.GenerateUserSigningKey(userAddress)
 	require.NoError(t, err)
 	reqID := commontestutil.GenerateRandomRequestID()
 	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey())
@@ -253,8 +254,6 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 
 	// Register auditor key
 	auditorKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
-	require.NoError(t, err)
-	_, err = cryptoHelper.GenerateUserSigningKey(auditorAddress)
 	require.NoError(t, err)
 	reqID = commontestutil.GenerateRandomRequestID()
 	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey())
@@ -422,8 +421,11 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// For debugging it can be useful to use huge timeout value
 	//timeout_value := 10 * time.Hour
 
-	user1Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
-	user2Address := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
+	cryptoHelper := testutil.NewCryptoHelper()
+	user1Address, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+	user2Address, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
 
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
@@ -449,14 +451,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, suite.StartManager())
 
 	// 3. Create users and add their keys to the registry
-	cryptoHelper := testutil.NewCryptoHelper()
 	user1Key, err := cryptoHelper.GenerateUserKey(user1Address)
 	require.NoError(t, err)
-	_, err = cryptoHelper.GenerateUserSigningKey(user1Address)
-	require.NoError(t, err)
 	user2Key, err := cryptoHelper.GenerateUserKey(user2Address)
-	require.NoError(t, err)
-	_, err = cryptoHelper.GenerateUserSigningKey(user2Address)
 	require.NoError(t, err)
 
 	// 4. Deploy the application
@@ -568,10 +565,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// 9: Sending deanonymization request as auditor
 
 	RequestID = commontestutil.GenerateRandomRequestID()
-	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
-	auditorPrivateKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
+	auditorAddress, err := cryptoHelper.GenerateUserIdentity()
 	require.NoError(t, err)
-	_, err = cryptoHelper.GenerateUserSigningKey(auditorAddress)
+	auditorPrivateKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
 	require.NoError(t, err)
 	associateKey1Req, err = cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, auditorAddress, auditorPrivateKey.PublicKey())
 	require.NoError(t, err)
@@ -672,15 +668,14 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	// 3. Create user and add their key to the registry
 	cryptoHelper := testutil.NewCryptoHelper()
 
-	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
 
 	// 4. Deploy the application
 	appID := common.NewApplicationId(1)
 	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
 	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)
-	require.NoError(t, err)
-	_, err = cryptoHelper.GenerateUserSigningKey(userAddress)
 	require.NoError(t, err)
 	requestId := commontestutil.GenerateRandomRequestID()
 	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, requestId, userAddress, user1Key.PublicKey())

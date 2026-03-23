@@ -61,6 +61,19 @@ func (c *CryptoHelper) GenerateUserSigningKey(userID ethCommon.Address) (*crypto
 	return privKey, nil
 }
 
+// GenerateUserIdentity generates a secp256k1 signing key and returns the Ethereum address
+// derived from it. The user address MUST match the signing key for VerifySeed to pass.
+// Use this instead of hardcoded addresses when the user will call AssociateKey.
+func (c *CryptoHelper) GenerateUserIdentity() (ethCommon.Address, error) {
+	privKey, err := crypto.GeneratePrivateKeySecp256k1()
+	if err != nil {
+		return ethCommon.Address{}, fmt.Errorf("failed to generate secp256k1 identity key: %w", err)
+	}
+	addr := ethCommon.HexToAddress(privKey.PublicKey().Address())
+	c.userSigningKeys[addr] = privKey
+	return addr, nil
+}
+
 // GetUserSigningKey returns the secp256k1 signing key for a user.
 func (c *CryptoHelper) GetUserSigningKey(userID ethCommon.Address) (*cryptotypes.PrivateKeySecp256k1, error) {
 	key, exists := c.userSigningKeys[userID]
