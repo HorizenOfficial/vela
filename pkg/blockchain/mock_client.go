@@ -40,7 +40,6 @@ type MockClient struct {
 	reports          map[common.RequestIdType]*common.DeanonymizationReport
 	updatePayloads   map[common.RequestIdType]*common.UpdatePayload
 	eventSubscribers []chan<- interface{}
-	stateRoot        [32]byte                                // backward compat: last updated root
 	stateRoots       map[common.ApplicationIdType][32]byte   // per-app state roots (mirrors contract's applicationStateRoots)
 	chainID          *big.Int
 	blockNumber      uint64
@@ -192,7 +191,7 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 		return req, c.stateRoots[req.ApplicationID], nil
 	}
 
-	return nil, c.stateRoot, nil
+	return nil, [32]byte{}, nil // no pending request — return zero root (matches contract behavior)
 
 }
 
@@ -278,7 +277,6 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 	}
 
 	c.stateRoots[update.ApplicationID] = update.NewStateRoot
-	c.stateRoot = update.NewStateRoot // backward compat
 
 	// Emit events
 	c.emitEvents(update.Events)
@@ -429,7 +427,6 @@ func (c *MockClient) ClearAllData() {
 	c.reports = make(map[common.RequestIdType]*common.DeanonymizationReport)
 	c.failedRequests = orderedmap.NewOrderedMap[common.RequestIdType, *common.Request]()
 	c.updatePayloads = make(map[common.RequestIdType]*common.UpdatePayload)
-	c.stateRoot = [32]byte{}
 	c.stateRoots = make(map[common.ApplicationIdType][32]byte)
 	c.MockedFunctions = make(map[string]interface{})
 }

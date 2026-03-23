@@ -1196,9 +1196,9 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	db_version, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
-	_, stateRootOnChain3, err := mockBCClient.GetNextPendingRequest(context.Background())
+	chainState3, err := mockBCClient.GetApplicationState(context.Background(), ApplicationId)
 	require.NoError(t, err)
-	require.True(t, bytes.Equal(stateRootOnChain3[:], db_version), "State root in DB should be equal to state root on chain")
+	require.True(t, bytes.Equal(chainState3.StateRoot[:], db_version), "State root in DB should be equal to state root on chain")
 
 	// test unrecoverable disalignment between DB and chain
 	request4 := createRequest(common.Process, ApplicationId)
@@ -1242,9 +1242,9 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	db_version, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
-	_, stateRootOnChain, err := mockBCClient.GetNextPendingRequest(context.Background())
+	chainState, err := mockBCClient.GetApplicationState(context.Background(), ApplicationId)
 	require.NoError(t, err)
-	require.True(t, bytes.Equal(stateRootOnChain[:], db_version), "State root in DB should be equal to state root on chain")
+	require.True(t, bytes.Equal(chainState.StateRoot[:], db_version), "State root in DB should be equal to state root on chain")
 
 }
 

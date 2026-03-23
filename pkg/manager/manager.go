@@ -521,8 +521,8 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		m.log.Info("Manager: connected to blockchain node at %s", m.config.RpcURL)
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if !m.isRunning {
 		m.log.Warn("Manager is not started yet, skipping")
@@ -649,11 +649,11 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 		m.log.Error("Failed to submit state update for error: %v", err)
 		if updatePayload.ErrorCode == 0 {
 			m.log.Info("Rollback the application state to previous version")
-			if err := m.dataLayer.Rollback(updatePayload.ApplicationID, updatePayload.PrevStateRoot[:]); err != nil {
+			if rollbackErr := m.dataLayer.Rollback(updatePayload.ApplicationID, updatePayload.PrevStateRoot[:]); rollbackErr != nil {
 				// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
 				// Log and return err to let REORG detection handle it on the next poll.
-				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
-				return err
+				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", rollbackErr)
+				return rollbackErr
 			}
 
 			if _, ok := err.(blockchain.ReorgError); ok {

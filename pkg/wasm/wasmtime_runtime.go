@@ -208,14 +208,19 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 // does not find them in the cache.
 func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (*ApplicationModule, error) {
 	r.moduleLock.RLock()
-	module, exists := r.modules[appId]
+	_, exists := r.modules[appId]
 	r.moduleLock.RUnlock()
 	if exists {
-		// Update LRU access order
+		// Re-read under write lock to guard against eviction between RUnlock and Lock
+		// (an admin command calling SetMaxCachedModules can evict modules concurrently).
 		r.moduleLock.Lock()
-		r.touchModule(appId)
+		if module, ok := r.modules[appId]; ok {
+			r.touchModule(appId)
+			r.moduleLock.Unlock()
+			return module, nil
+		}
+		// Module was evicted between RUnlock and Lock — fall through to load
 		r.moduleLock.Unlock()
-		return module, nil
 	}
 
 	// Acquire write lock and load
@@ -224,6 +229,7 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.Appl
 
 	// Re-check if module was loaded by another goroutine while we were waiting for the lock
 	if module, exists := r.modules[appId]; exists {
+		r.touchModule(appId)
 		return module, nil
 	}
 
