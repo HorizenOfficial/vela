@@ -45,7 +45,14 @@ export async function deployProcessorEndpointFixture() {
       .submitDeployRequest(0, '0x00', { value: minFeePerRequest });
     const deployReceipt = await deployTx.wait();
 
-    const parsed = processorEndpoint.interface.parseLog(deployReceipt.logs[0]);
+    const deployLog = deployReceipt.logs.find((log: any) => {
+      try {
+        return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
+      } catch {
+        return false;
+      }
+    });
+    const parsed = processorEndpoint.interface.parseLog(deployLog);
     const applicationId: bigint = parsed.args.applicationId;
     const requestId: string = parsed.args.requestId;
 

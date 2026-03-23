@@ -447,13 +447,20 @@ describe('ProcessorEndpoint Test', function () {
           .connect(signers[2])
           .submitDeployRequest(PROTOCOL_VERSION, '0x01', { value: minFeePerRequest });
         const deployReceipt = await deployTx.wait();
-        const parsed = processorEndpoint.interface.parseLog(deployReceipt.logs[0]);
+        const deployLog = deployReceipt.logs.find((log: any) => {
+          try {
+            return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
+          } catch {
+            return false;
+          }
+        });
+        const parsed = processorEndpoint.interface.parseLog(deployLog);
         const deployAppId: bigint = parsed.args.applicationId;
         const deployRequestId: string = parsed.args.requestId;
 
         expect(await processorEndpoint.availableDeploySlots()).to.equal(slotsBefore - 1n);
 
-        await processorEndpoint
+        const failTx = await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
             deployAppId,
@@ -470,6 +477,7 @@ describe('ProcessorEndpoint Test', function () {
             '0x'
           );
 
+        await expect(failTx).to.emit(processorEndpoint, 'DeployRequestCompleted');
         expect(await processorEndpoint.availableDeploySlots()).to.equal(slotsBefore);
       });
     });

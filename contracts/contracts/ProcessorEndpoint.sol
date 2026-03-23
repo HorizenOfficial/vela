@@ -187,7 +187,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
 
     //emit event
-    emit RequestSubmitted(applicationId, requestId, msg.sender);
+    emit DeployRequestSubmitted(applicationId, requestId, msg.sender);
 
     return requestId;
   }
@@ -206,11 +206,23 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 applicationFees,
     Structs.RequestResult result,
     Structs.ErrorCode errCode,
-    string memory errorMsg
+    string memory errorMsg,
+    Structs.RequestType requestType
   ) private {
     _removeRequest();
 
-    emit RequestCompleted(applicationId, requestId, applicationFees, result, errCode, errorMsg);
+    if (requestType == Structs.RequestType.DEPLOYAPP) {
+      emit DeployRequestCompleted(
+        applicationId,
+        requestId,
+        applicationFees,
+        result,
+        errCode,
+        errorMsg
+      );
+    } else {
+      emit RequestCompleted(applicationId, requestId, applicationFees, result, errCode, errorMsg);
+    }
 
     _asyncTransfer(feeCollector, applicationFees);
   }
@@ -359,7 +371,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         minFeePerRequest,
         Structs.RequestResult.FAILED,
         Structs.ErrorCode(errorCode),
-        errorMsg
+        errorMsg,
+        requestInfo.requestType
       );
 
       return;
@@ -435,7 +448,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       applicationFees,
       Structs.RequestResult.COMPLETED,
       Structs.ErrorCode.NO_ERROR,
-      ''
+      '',
+      reqType
     );
   }
 
