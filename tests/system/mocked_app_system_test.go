@@ -3,7 +3,6 @@ package system
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"os"
 	"testing"
@@ -77,12 +76,14 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 	require.NoError(t, suite.StartManager())
 
 	appID := common.NewApplicationId(1)
-	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
-	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	timeout := 100 * time.Second
 
 	cryptoHelper := testutil.NewCryptoHelper()
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+	auditorAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
 
 	// Deploy with mock bytecode
 	deployReqID := commontestutil.GenerateRandomRequestID()
@@ -97,7 +98,7 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
-	_, err := suite.WaitForAppStateInDB(appID, timeout)
+	_, err = suite.WaitForAppStateInDB(appID, timeout)
 	require.NoError(t, err)
 	_, err = suite.WaitForAppStateInBlockchain(appID, timeout)
 	require.NoError(t, err)
