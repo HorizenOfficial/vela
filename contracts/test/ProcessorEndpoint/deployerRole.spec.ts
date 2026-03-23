@@ -28,7 +28,7 @@ describe('ProcessorEndpoint deployer role management', function () {
       processorEndpoint
         .connect(signers[4])
         .submitDeployRequest(0, '0x01', { value: minFeePerRequest })
-    ).to.emit(processorEndpoint, 'RequestSubmitted');
+    ).to.emit(processorEndpoint, 'DeployRequestSubmitted');
   });
 
   it('submitRequest reverts with InvalidRequestType for DEPLOYAPP even with deployer role', async () => {

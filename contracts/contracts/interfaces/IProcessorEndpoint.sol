@@ -28,6 +28,15 @@ interface IProcessorEndpoint {
   /// @param requestId Request identifier.
   /// @param sender Request sender.
   event RequestSubmitted(uint64 indexed applicationId, bytes32 requestId, address indexed sender);
+  /// @notice Emitted when a new deploy request enters the queue.
+  /// @param applicationId Application identifier.
+  /// @param requestId Request identifier.
+  /// @param sender Request sender.
+  event DeployRequestSubmitted(
+    uint64 indexed applicationId,
+    bytes32 requestId,
+    address indexed sender
+  );
   /// @notice Emitted when a request is finalized.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
@@ -36,6 +45,21 @@ interface IProcessorEndpoint {
   /// @param errorCode Error code when the request failed.
   /// @param errorMessage Human-readable error message.
   event RequestCompleted(
+    uint64 indexed applicationId,
+    bytes32 indexed requestId,
+    uint256 applicationFees,
+    Structs.RequestResult status,
+    Structs.ErrorCode errorCode,
+    string errorMessage
+  );
+  /// @notice Emitted when a deploy request is finalized.
+  /// @param applicationId Application identifier.
+  /// @param requestId Request identifier.
+  /// @param applicationFees Fees collected for the application.
+  /// @param status Completion status for the request.
+  /// @param errorCode Error code when the request failed.
+  /// @param errorMessage Human-readable error message.
+  event DeployRequestCompleted(
     uint64 indexed applicationId,
     bytes32 indexed requestId,
     uint256 applicationFees,

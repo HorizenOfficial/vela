@@ -401,7 +401,7 @@ func (c *BlockChainClient) SubmitDeployRequest(ctx context.Context, protocolVers
 
 	// Parse the returned requestId and applicationId from the transaction receipt logs
 	for _, vLog := range receipt.Logs {
-		event, err := c.processorEndpoint.UnpackRequestSubmittedEvent(vLog)
+		event, err := c.processorEndpoint.UnpackDeployRequestSubmittedEvent(vLog)
 		if err == nil {
 			return common.NewApplicationId(event.ApplicationId), event.RequestId, receipt.BlockNumber.Uint64(), nil
 		}

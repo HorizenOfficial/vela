@@ -76,7 +76,7 @@ describe('ProcessorEndpoint Test', function () {
     });
 
     describe('happy paths', function () {
-      it('emits RequestSubmitted and stores request data for retrieval', async () => {
+      it('emits DeployRequestSubmitted and stores request data for retrieval', async () => {
         const protocolVersion = 0;
         const payload = '0x01';
         const maxFeeValue = minFeePerRequest;
@@ -87,7 +87,7 @@ describe('ProcessorEndpoint Test', function () {
             value: maxFeeValue,
           });
 
-        await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
+        await expect(tx).to.emit(processorEndpoint, 'DeployRequestSubmitted');
         const receipt = await tx.wait();
         const requestId = receipt.logs[0].args.requestId;
         expect(receipt.logs[0].args.sender).to.equal(await signers[2].getAddress());
