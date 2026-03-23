@@ -17,6 +17,8 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
 )
 
+var testAppID uint64 = 1
+
 // createKVStore is a helper function that sets up a new VersionedLDBKVStore
 // for testing. It creates a temporary directory for the LevelDB database and
 // returns the store instance and a cleanup function to be called with defer.
@@ -44,7 +46,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		kvStore, cleanup := createKVStore(t, 10)
 		defer cleanup()
 
-		err := kvStore.Update(nil, nil, []byte("invalid-version-id"))
+		err := kvStore.Update(testAppID, nil, nil, []byte("invalid-version-id"))
 		require.Error(t, err)
 		var storageErr *storageErrors.Error
 		require.True(t, errors.As(err, &storageErr))
@@ -56,10 +58,10 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		defer cleanup()
 
 		versionID := sha256.Sum256([]byte("version1"))
-		err := kvStore.Update(nil, nil, versionID[:])
+		err := kvStore.Update(testAppID, nil, nil, versionID[:])
 		require.NoError(t, err)
 
-		err = kvStore.Update(nil, nil, versionID[:])
+		err = kvStore.Update(testAppID, nil, nil, versionID[:])
 		require.Error(t, err)
 		var storageErr *storageErrors.Error
 		require.True(t, errors.As(err, &storageErr))
@@ -76,17 +78,17 @@ func TestVersionedLDBKVStore(t *testing.T) {
 
 		// v1
 		v1 := sha256.Sum256([]byte("v1"))
-		err = store.Update([]storage.KeyValuePair{{Key: []byte("k1"), Value: []byte("v1")}}, nil, v1[:])
+		err = store.Update(testAppID, []storage.KeyValuePair{{Key: []byte("k1"), Value: []byte("v1")}}, nil, v1[:])
 		require.NoError(t, err)
 
 		// v2
 		v2 := sha256.Sum256([]byte("v2"))
-		err = store.Update([]storage.KeyValuePair{{Key: []byte("k2"), Value: []byte("v2")}}, nil, v2[:])
+		err = store.Update(testAppID, []storage.KeyValuePair{{Key: []byte("k2"), Value: []byte("v2")}}, nil, v2[:])
 		require.NoError(t, err)
 
 		// v3
 		v3 := sha256.Sum256([]byte("v3"))
-		err = store.Update([]storage.KeyValuePair{{Key: []byte("k3"), Value: []byte("v3")}}, nil, v3[:])
+		err = store.Update(testAppID, []storage.KeyValuePair{{Key: []byte("k3"), Value: []byte("v3")}}, nil, v3[:])
 		require.NoError(t, err)
 
 		// Sanity check: all keys should exist
@@ -103,7 +105,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		require.Equal(t, []byte("v3"), val)
 
 		// Rollback to v2
-		err = store.RollbackTo(v2[:])
+		err = store.RollbackTo(testAppID, v2[:])
 		require.NoError(t, err)
 
 		// Expected: k1 and k2 present, k3 removed
@@ -122,7 +124,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		defer cleanup()
 
 		versionID := sha256.Sum256([]byte("non-existent-version"))
-		err := kvStore.RollbackTo(versionID[:])
+		err := kvStore.RollbackTo(testAppID, versionID[:])
 		require.Error(t, err)
 		var storageErr *storageErrors.Error
 		require.True(t, errors.As(err, &storageErr))
@@ -133,11 +135,12 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		kvStore, cleanup := createKVStore(t, 10)
 		defer cleanup()
 
-		// Manually put corrupted data into the versions key
-		err := kvStore.Db.Put(versioned_leveldb.VersionsKey[:], []byte("corrupted-data"), nil)
+		// Manually put corrupted data into the per-app versions key
+		appVersionsKey := versioned_leveldb.VersionsKeyForApp_ForTest(testAppID)
+		err := kvStore.Db.Put(appVersionsKey[:], []byte("corrupted-data"), nil)
 		require.NoError(t, err)
 
-		_, err = kvStore.Versions()
+		_, err = kvStore.Versions(testAppID)
 		require.Error(t, err)
 		var storageErr *storageErrors.Error
 		require.True(t, errors.As(err, &storageErr))
@@ -149,15 +152,15 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		defer cleanup()
 
 		versionID := sha256.Sum256([]byte("version1"))
-		err := kvStore.Update(nil, nil, versionID[:])
+		err := kvStore.Update(testAppID, nil, nil, versionID[:])
 		require.NoError(t, err)
 
-		exists, err := kvStore.VersionIDExists(versionID[:])
+		exists, err := kvStore.VersionIDExists(testAppID, versionID[:])
 		require.NoError(t, err)
 		assert.True(t, exists)
 
 		nonExistentVersionID := sha256.Sum256([]byte("non-existent-version"))
-		exists, err = kvStore.VersionIDExists(nonExistentVersionID[:])
+		exists, err = kvStore.VersionIDExists(testAppID, nonExistentVersionID[:])
 		require.NoError(t, err)
 		assert.False(t, exists)
 	})
@@ -169,7 +172,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		versionID := sha256.Sum256([]byte("version1"))
 		key := []byte("key1")
 		value := []byte("value1")
-		err := kvStore.Update([]storage.KeyValuePair{{Key: key, Value: value}}, nil, versionID[:])
+		err := kvStore.Update(testAppID, []storage.KeyValuePair{{Key: key, Value: value}}, nil, versionID[:])
 		require.NoError(t, err)
 
 		iter := kvStore.GetIterator()
@@ -190,18 +193,18 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		vID2 := sha256.Sum256([]byte("version2"))
 		vID3 := sha256.Sum256([]byte("version3"))
 
-		err := kvStore.Update(nil, nil, vID1[:])
+		err := kvStore.Update(testAppID, nil, nil, vID1[:])
 		require.NoError(t, err)
-		err = kvStore.Update(nil, nil, vID2[:])
+		err = kvStore.Update(testAppID, nil, nil, vID2[:])
 		require.NoError(t, err)
-		err = kvStore.Update(nil, nil, vID3[:])
+		err = kvStore.Update(testAppID, nil, nil, vID3[:])
 		require.NoError(t, err)
 
 		// Manually delete the change set for vID2
 		err = kvStore.Db.Delete(vID2[:], nil)
 		require.NoError(t, err)
 
-		err = kvStore.RollbackTo(vID1[:])
+		err = kvStore.RollbackTo(testAppID, vID1[:])
 		require.Error(t, err)
 		var storageErr *storageErrors.Error
 		require.True(t, errors.As(err, &storageErr))
@@ -215,16 +218,16 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		vID1 := sha256.Sum256([]byte("version1"))
 		vID2 := sha256.Sum256([]byte("version2"))
 
-		err := kvStore.Update(nil, nil, vID1[:])
+		err := kvStore.Update(testAppID, nil, nil, vID1[:])
 		require.NoError(t, err)
-		err = kvStore.Update(nil, nil, vID2[:])
+		err = kvStore.Update(testAppID, nil, nil, vID2[:])
 		require.NoError(t, err)
 
 		// Manually put a malformed change set for vID2
 		err = kvStore.Db.Put(vID2[:], []byte("malformed-change-set"), nil)
 		require.NoError(t, err)
 
-		err = kvStore.RollbackTo(vID1[:])
+		err = kvStore.RollbackTo(testAppID, vID1[:])
 		require.Error(t, err)
 		var storageErr *storageErrors.Error
 		require.True(t, errors.As(err, &storageErr))
@@ -245,7 +248,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		}
 
 		versionID := sha256.Sum256([]byte("large-update"))
-		err := kvStore.Update(toUpdate, nil, versionID[:])
+		err := kvStore.Update(testAppID, toUpdate, nil, versionID[:])
 		require.NoError(t, err)
 
 		// Verify a few keys
@@ -269,9 +272,9 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		key2 := []byte("key2")
 		value2 := []byte("value2")
 
-		err := kvStore.Update([]storage.KeyValuePair{{Key: key1, Value: value1}}, nil, vID1[:])
+		err := kvStore.Update(testAppID, []storage.KeyValuePair{{Key: key1, Value: value1}}, nil, vID1[:])
 		require.NoError(t, err)
-		err = kvStore.Update([]storage.KeyValuePair{{Key: key2, Value: value2}}, nil, vID2[:])
+		err = kvStore.Update(testAppID, []storage.KeyValuePair{{Key: key2, Value: value2}}, nil, vID2[:])
 		require.NoError(t, err)
 
 		iter := kvStore.GetIterator()
@@ -285,7 +288,6 @@ func TestVersionedLDBKVStore(t *testing.T) {
 
 		assert.Len(t, retrievedKeys, 2)
 		for _, key := range retrievedKeys {
-			assert.NotEqual(t, versioned_leveldb.VersionsKey[:], key)
 			assert.NotEqual(t, vID1[:], key)
 			assert.NotEqual(t, vID2[:], key)
 		}
@@ -324,7 +326,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		valueToRemove := []byte("value-to-remove")
 
 		v1 := sha256.Sum256([]byte("v1"))
-		err := kvStore.Update([]storage.KeyValuePair{
+		err := kvStore.Update(testAppID, []storage.KeyValuePair{
 			{Key: keyToAlter, Value: originalValue},
 			{Key: keyToRemove, Value: valueToRemove},
 		}, nil, v1[:])
@@ -337,6 +339,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 
 		v2 := sha256.Sum256([]byte("v2"))
 		err = kvStore.Update(
+			testAppID,
 			[]storage.KeyValuePair{ // ToUpdate
 				{Key: keyToInsert, Value: valueToInsert},
 				{Key: keyToAlter, Value: alteredValue},
@@ -359,7 +362,7 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		assert.Equal(t, leveldb.ErrNotFound, err)
 
 		// Rollback the mixed update
-		err = kvStore.RollbackTo(v1[:])
+		err = kvStore.RollbackTo(testAppID, v1[:])
 		require.NoError(t, err)
 
 		// Verify state after rollback
@@ -386,16 +389,16 @@ func TestVersionedLDBKVStore(t *testing.T) {
 			versions[i] = v[:]
 			key := []byte("key" + strconv.Itoa(i+1))
 			value := []byte("value" + strconv.Itoa(i+1))
-			err := kvStore.Update([]storage.KeyValuePair{{Key: key, Value: value}}, nil, versions[i])
+			err := kvStore.Update(testAppID, []storage.KeyValuePair{{Key: key, Value: value}}, nil, versions[i])
 			require.NoError(t, err)
 		}
 
 		// Rollback from v5 to v2
-		err := kvStore.RollbackTo(versions[1]) // versions[1] is v2
+		err := kvStore.RollbackTo(testAppID, versions[1]) // versions[1] is v2
 		require.NoError(t, err)
 
 		// Verify versions list
-		currentVersions, err := kvStore.Versions()
+		currentVersions, err := kvStore.Versions(testAppID)
 		require.NoError(t, err)
 		require.Len(t, currentVersions, 2)
 		assert.Equal(t, versions[1], currentVersions[0]) // Newest should be v2
@@ -428,19 +431,19 @@ func TestVersionedLDBKVStore(t *testing.T) {
 			versions[i] = v[:]
 			key := []byte("key" + strconv.Itoa(i))
 			value := []byte("value" + strconv.Itoa(i))
-			err := kvStore.Update([]storage.KeyValuePair{{Key: key, Value: value}}, nil, versions[i])
+			err := kvStore.Update(testAppID, []storage.KeyValuePair{{Key: key, Value: value}}, nil, versions[i])
 			require.NoError(t, err)
 
 			// Check version count after the 4th and 5th updates
 			if i >= 3 {
-				currentVersions, err := kvStore.Versions()
+				currentVersions, err := kvStore.Versions(testAppID)
 				require.NoError(t, err)
 				assert.Len(t, currentVersions, 3, "Should have pruned to 3 versions")
 			}
 		}
 
 		// Verify the correct versions were kept (the last 3)
-		currentVersions, err := kvStore.Versions()
+		currentVersions, err := kvStore.Versions(testAppID)
 		require.NoError(t, err)
 		require.Len(t, currentVersions, 3)
 		assert.Equal(t, versions[4], currentVersions[0]) // v4 (newest)
@@ -452,6 +455,46 @@ func TestVersionedLDBKVStore(t *testing.T) {
 		require.NoError(t, err, "Data from pruned version v0 should still exist")
 		_, err = kvStore.Db.Get([]byte("key1"), nil)
 		require.NoError(t, err, "Data from pruned version v1 should still exist")
+	})
+
+	t.Run("MultiApp_IndependentVersionChains", func(t *testing.T) {
+		kvStore, cleanup := createKVStore(t, 10)
+		defer cleanup()
+
+		app1 := uint64(1)
+		app2 := uint64(2)
+
+		// Store data under app1
+		v1 := sha256.Sum256([]byte("app1-v1"))
+		err := kvStore.Update(app1, []storage.KeyValuePair{{Key: []byte("a1_key"), Value: []byte("a1_val")}}, nil, v1[:])
+		require.NoError(t, err)
+
+		// Store data under app2
+		v2 := sha256.Sum256([]byte("app2-v1"))
+		err = kvStore.Update(app2, []storage.KeyValuePair{{Key: []byte("a2_key"), Value: []byte("a2_val")}}, nil, v2[:])
+		require.NoError(t, err)
+
+		// Each app should have exactly 1 version
+		versions1, err := kvStore.Versions(app1)
+		require.NoError(t, err)
+		assert.Len(t, versions1, 1)
+
+		versions2, err := kvStore.Versions(app2)
+		require.NoError(t, err)
+		assert.Len(t, versions2, 1)
+
+		// Rolling back app1 should not affect app2
+		err = kvStore.RollbackTo(app1, v1[:])
+		require.NoError(t, err)
+
+		versions2After, err := kvStore.Versions(app2)
+		require.NoError(t, err)
+		assert.Len(t, versions2After, 1, "app2 versions must be unaffected by app1 rollback")
+
+		// app2 data should still be accessible
+		val, err := kvStore.Db.Get([]byte("a2_key"), nil)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("a2_val"), val)
 	})
 }
 
