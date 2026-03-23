@@ -25,6 +25,8 @@ func TestMessageTypeConstants(t *testing.T) {
 		{"GetVersionRequestMessage", getVersionRequest, string(admin.GetVersionRequestMessage)},
 		{"SetLogLevelRequestMessage", setLogLevelRequest, string(admin.SetLogLevelRequestMessage)},
 		{"GetLogLevelRequestMessage", getLogLevelRequest, string(admin.GetLogLevelRequestMessage)},
+		{"SetWasmCacheSizeRequestMessage", setWasmCacheSizeRequest, string(admin.SetWasmCacheSizeRequestMessage)},
+		{"GetWasmCacheSizeRequestMessage", getWasmCacheSizeRequest, string(admin.GetWasmCacheSizeRequestMessage)},
 	}
 	for _, c := range checks {
 		if c.local != c.upstream {
@@ -92,6 +94,23 @@ func TestAdminMessageJSONShape(t *testing.T) {
 
 	if !reflect.DeepEqual(localMap, upstreamMap) {
 		t.Errorf("AdminMessage JSON mismatch:\n  admincli:  %s\n  pkg/admin: %s", local, upstream)
+	}
+}
+
+// TestSetWasmCacheSizeReqJSONShape verifies that the local setWasmCacheSizeReq
+// produces the same JSON field names as admin.SetWasmCacheSizeRequest.
+func TestSetWasmCacheSizeReqJSONShape(t *testing.T) {
+	local, err := json.Marshal(setWasmCacheSizeReq{MaxCachedModules: 5})
+	require.NoError(t, err)
+	upstream, err := json.Marshal(admin.SetWasmCacheSizeRequest{MaxCachedModules: 5})
+	require.NoError(t, err)
+
+	var localMap, upstreamMap map[string]any
+	require.NoError(t, json.Unmarshal(local, &localMap))
+	require.NoError(t, json.Unmarshal(upstream, &upstreamMap))
+
+	if !reflect.DeepEqual(localMap, upstreamMap) {
+		t.Errorf("SetWasmCacheSizeReq JSON mismatch:\n  admincli:  %s\n  pkg/admin: %s", local, upstream)
 	}
 }
 

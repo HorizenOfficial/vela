@@ -17,12 +17,14 @@ import (
 // can be distributed as a standalone tool. Tests import pkg/admin to guard
 // against drift.
 const (
-	adminResponseMessage  = "response"
-	adminErrorMessage     = "error"
-	keyAttestationRequest = "key_attestation"
-	getVersionRequest     = "get_version"
-	setLogLevelRequest    = "set_log_level"
-	getLogLevelRequest    = "get_log_level"
+	adminResponseMessage     = "response"
+	adminErrorMessage        = "error"
+	keyAttestationRequest    = "key_attestation"
+	getVersionRequest        = "get_version"
+	setLogLevelRequest       = "set_log_level"
+	getLogLevelRequest       = "get_log_level"
+	setWasmCacheSizeRequest  = "set_wasm_cache_size"
+	getWasmCacheSizeRequest  = "get_wasm_cache_size"
 )
 
 var validLogLevels = []string{
@@ -44,6 +46,10 @@ type errorData struct {
 
 type setLogLevelReq struct {
 	Level string `json:"level"`
+}
+
+type setWasmCacheSizeReq struct {
+	MaxCachedModules int `json:"maxCachedModules"`
 }
 
 var (
@@ -97,7 +103,11 @@ func main() {
 			msg, err = buildSetLogLevel(scanner)
 		case "4":
 			msg = buildKeyAttestation()
-		case "5", "q", "Q":
+		case "5":
+			msg, err = buildGetWasmCacheSize()
+		case "6":
+			msg, err = buildSetWasmCacheSize(scanner)
+		case "7", "q", "Q":
 			fmt.Println("Bye.")
 			return
 		default:
@@ -123,7 +133,9 @@ func printMenu() {
 	fmt.Println("  2) Get Log Level")
 	fmt.Println("  3) Set Log Level")
 	fmt.Println("  4) Key Attestation")
-	fmt.Println("  5) Quit")
+	fmt.Println("  5) Get WASM Cache Size")
+	fmt.Println("  6) Set WASM Cache Size")
+	fmt.Println("  7) Quit")
 }
 
 func prompt(scanner *bufio.Scanner, label string) string {
@@ -200,6 +212,26 @@ func buildSetLogLevel(scanner *bufio.Scanner) (*adminMessage, error) {
 
 func buildKeyAttestation() *adminMessage {
 	return &adminMessage{Type: keyAttestationRequest, Target: "executor"}
+}
+
+func buildGetWasmCacheSize() (*adminMessage, error) {
+	return &adminMessage{Type: getWasmCacheSizeRequest, Target: "executor"}, nil
+}
+
+func buildSetWasmCacheSize(scanner *bufio.Scanner) (*adminMessage, error) {
+	raw := prompt(scanner, "Max cached modules (0 = unlimited)")
+	if strings.EqualFold(raw, "b") || strings.EqualFold(raw, "back") {
+		return nil, errBack
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return nil, fmt.Errorf("invalid value %q: must be a non-negative integer", raw)
+	}
+	data, err := json.Marshal(setWasmCacheSizeReq{MaxCachedModules: n})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	return &adminMessage{Type: setWasmCacheSizeRequest, Target: "executor", Data: json.RawMessage(data)}, nil
 }
 
 // --- send / receive ---
