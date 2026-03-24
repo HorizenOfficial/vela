@@ -113,6 +113,13 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 		req.Timestamp = common.ToBig(new(big.Int).SetInt64(time.Now().Unix()))
 	}
 
+	if req.RequestType == common.Deploy && req.ApplicationID == 0 {
+		// Generate a new application ID for deploy requests without an application ID
+		applicationId := common.NewApplicationId(uint64(req.RequestID[0])<<56 | uint64(req.RequestID[1])<<48 | uint64(req.RequestID[2])<<40 | uint64(req.RequestID[3])<<32 | uint64(req.RequestID[4])<<24 | uint64(req.RequestID[5])<<16 | uint64(req.RequestID[6])<<8 | uint64(req.RequestID[7]))
+		req.ApplicationID = applicationId
+	}
+
+
 	// Store the request
 	c.requests.Set(req.RequestID, req)
 	c.pendingRequests.Set(req.RequestID, req)
@@ -157,11 +164,8 @@ func (c *MockClient) SubmitDeployRequest(ctx context.Context, protocolVersion ui
 		return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	// Derive applicationId from requestId (matching contract logic: uint64(bytes8(requestId)))
-	applicationId := common.NewApplicationId(uint64(req.RequestID[0])<<56 | uint64(req.RequestID[1])<<48 | uint64(req.RequestID[2])<<40 | uint64(req.RequestID[3])<<32 | uint64(req.RequestID[4])<<24 | uint64(req.RequestID[5])<<16 | uint64(req.RequestID[6])<<8 | uint64(req.RequestID[7]))
-	req.ApplicationID = applicationId
 
-	return applicationId, req.RequestID, 0, nil
+	return req.ApplicationID, req.RequestID, 0, nil
 }
 
 // GetPendingRequests gets pending requests from the blockchain
