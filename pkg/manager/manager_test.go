@@ -2189,3 +2189,145 @@ func TestMultiAppReorgIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, bytes.Equal(stateRoot1AfterProcess, newRoot1), "App 1 should have new state after processing")
 }
+
+// TestStaleReorgTimerCausesImmediateRollback demonstrates a bug where a per-app
+// reorg timer that was never cleaned (because no request arrived for that app
+// between two reorgs) causes the second reorg to skip the wait and trigger an
+// immediate rollback.
+//
+// Timeline:
+//  1. Setup: Deploy App A and App B, process one request each so each app has
+//     ≥2 DB versions (needed for checkIfReorg to find a matching old root).
+//  2. Reorg #1: both apps see a state-root mismatch → timers start for both.
+//  3. Reorg #1 resolves: App A gets a new pending request → state roots match
+//     → its timer is cleaned at line 592. App B gets NO pending request between
+//     the two reorgs, so its timer is never visited and stays in endReorgTimes.
+//  4. Time passes: App B's timer expires (simulated by shifting it back in time).
+//  5. Reorg #2: App B sees a new state-root mismatch. The code finds the stale
+//     expired timer, skips the timeout, and immediately calls Rollback — which
+//     is wrong: the new reorg deserves a fresh wait.
+//
+// The test will pass once the fix is applied (stale timers are cleaned or a
+// single chain-level timer replaces the per-app map).
+func TestStaleReorgTimerCausesImmediateRollback(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+	ctx := context.Background()
+
+	// Use a long reorg timeout so we can clearly tell if the wait was skipped.
+	manager.config.ReorgTimeout = 300
+
+	// ── Step 1: Deploy and process one request for App A and App B ──
+
+	deployA := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, deployA))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	processA := createRequest(common.Process, ApplicationId)
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, processA))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	deployB := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, deployB))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	processBReq := createRequest(common.Process, ApplicationId2)
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, processBReq))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	// Grab the deploy-time (older) state roots for both apps.
+	// ListVersions returns LIFO: [latest, ..., oldest].
+	// The deploy root is the second entry (index 1).
+	appAVersions, err := manager.dataLayer.ListVersions(ApplicationId)
+	require.NoError(t, err)
+	require.True(t, len(appAVersions) >= 2, "App A should have ≥2 versions")
+	stateRootAAfterDeploy := appAVersions[1] // older version (deploy root)
+
+	appBVersions, err := manager.dataLayer.ListVersions(ApplicationId2)
+	require.NoError(t, err)
+	require.True(t, len(appBVersions) >= 2, "App B should have ≥2 versions")
+	stateRootBAfterDeploy := appBVersions[1] // older version (deploy root)
+
+	// ── Step 2: Reorg #1 — both apps see a mismatch ──
+
+	// First poll: App A sees reorg (chain returns deploy root, but local is at process root)
+	var reorgStateRootA [32]byte
+	copy(reorgStateRootA[:], stateRootAAfterDeploy)
+	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
+		return processA, reorgStateRootA, nil
+	})
+	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(context.Context, *common.UpdatePayload) error {
+		t.Fatal("SubmitStateUpdate should not be called during reorg")
+		return nil
+	})
+
+	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.False(t, manager.endReorgTimes[ApplicationId].IsZero(), "App A should have reorg timer")
+
+	// Second poll: App B sees reorg (chain returns deploy root)
+	var reorgStateRootB [32]byte
+	copy(reorgStateRootB[:], stateRootBAfterDeploy)
+	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
+		return processBReq, reorgStateRootB, nil
+	})
+
+	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.False(t, manager.endReorgTimes[ApplicationId2].IsZero(), "App B should have reorg timer")
+
+	// ── Step 3: Reorg #1 resolves — only App A gets a request ──
+
+	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
+	mockBCClient.RemoveMockedFunc("SubmitStateUpdate")
+
+	// App A gets a new request; state roots will match → timer cleaned.
+	newReqA := createRequest(common.Process, ApplicationId)
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, newReqA))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	_, appATimerExists := manager.endReorgTimes[ApplicationId]
+	require.False(t, appATimerExists, "App A timer should be cleaned after reorg resolution")
+
+	// App B gets NO request → its timer is still in endReorgTimes.
+	_, appBTimerExists := manager.endReorgTimes[ApplicationId2]
+	require.True(t, appBTimerExists, "App B timer should still exist (no request cleaned it)")
+
+	// ── Step 4: Time passes; App B's timer expires ──
+
+	// Simulate time passing so App B's timer is now expired.
+	manager.endReorgTimes[ApplicationId2] = manager.endReorgTimes[ApplicationId2].Add(-time.Duration(2*manager.config.ReorgTimeout) * time.Second)
+
+	// ── Step 5: Reorg #2 — App B sees a NEW mismatch ──
+
+	// The chain has reorged again: it reports the deploy root for App B.
+	processB2 := createRequest(common.Process, ApplicationId2)
+	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
+		return processB2, reorgStateRootB, nil
+	})
+
+	// Track whether Rollback is called for App B during this poll.
+	// Return nil so execution continues — we only care about whether the
+	// call happens at all, not about the actual rollback side-effects.
+	rollbackCalled := false
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Rollback",
+		func(appID common.ApplicationIdType, versionID []byte) error {
+			if appID == ApplicationId2 {
+				rollbackCalled = true
+			}
+			return nil
+		})
+
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Rollback")
+
+	// What SHOULD happen: the new reorg gets a fresh timer, Rollback is NOT
+	// called, and endReorgTimes[ApplicationId2] has a future deadline.
+	// What ACTUALLY happens (the bug): the expired timer triggers an immediate
+	// rollback, changing the DB state.
+	require.False(t, rollbackCalled,
+		"BUG: stale expired reorg timer caused an immediate rollback on a new reorg for App B. "+
+			"The new reorg should have received a fresh timeout instead of reusing the expired timer from reorg #1.")
+	require.False(t, manager.endReorgTimes[ApplicationId2].IsZero(),
+		"App B should have a fresh reorg timer with a future deadline")
+	require.True(t, manager.endReorgTimes[ApplicationId2].After(time.Now()),
+		"App B's reorg timer should be in the future (fresh timeout)")
+}
