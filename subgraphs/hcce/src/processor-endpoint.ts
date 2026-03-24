@@ -6,7 +6,7 @@ import {
   DeployRequestSubmitted as DeployRequestSubmittedEvent,
   DeployRequestCompleted as DeployRequestCompletedEvent,
 } from "../generated/ProcessorEndpoint/ProcessorEndpoint";
-import { RequestSubmitted, RequestCompleted, UserEvent } from "../generated/schema";
+import { RequestSubmitted, RequestCompleted, UserEvent, DeployRequestCompleted, DeployRequestSubmitted } from "../generated/schema";
 
 const SORT_BASE = BigInt.fromI64(1000000000000);
 
@@ -58,7 +58,7 @@ export function handleUserEvent(event: UserEventEvent): void {
 
 export function handleDeployRequestSubmitted(event: DeployRequestSubmittedEvent): void {
   const id = event.transaction.hash.concatI32(event.logIndex.toI32()).toHex();
-  let entity = new RequestSubmitted(id);
+  let entity = new DeployRequestSubmitted(id);
 
   entity.applicationId = event.params.applicationId;
   entity.requestId = event.params.requestId;
@@ -71,7 +71,7 @@ export function handleDeployRequestSubmitted(event: DeployRequestSubmittedEvent)
 
 export function handleDeployRequestCompleted(event: DeployRequestCompletedEvent): void {
   const id = event.transaction.hash.concatI32(event.logIndex.toI32()).toHex();
-  let entity = new RequestCompleted(id);
+  let entity = new DeployRequestCompleted(id);
 
   entity.applicationId = event.params.applicationId;
   entity.requestId = event.params.requestId;
