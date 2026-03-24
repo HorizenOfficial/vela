@@ -212,7 +212,7 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.Appl
 	r.moduleLock.RUnlock()
 	if exists {
 		// Re-read under write lock to guard against eviction between RUnlock and Lock
-		// (an admin command calling SetMaxCachedModules can evict modules concurrently).
+		// (a concurrent loadModule call can evict this module via LRU).
 		r.moduleLock.Lock()
 		if module, ok := r.modules[appId]; ok {
 			r.touchModule(appId)
@@ -630,9 +630,6 @@ func (r *WasmtimeRuntime) evictIfNeeded() {
 	}
 	for r.accessOrder.Len() > r.maxCachedModules {
 		back := r.accessOrder.Back()
-		if back == nil {
-			break
-		}
 		evictId := back.Value.(common.ApplicationIdType)
 		r.log.Info("Module cache full (%d/%d), evicting app %d", r.accessOrder.Len(), r.maxCachedModules, evictId)
 		if module, exists := r.modules[evictId]; exists {
@@ -705,16 +702,16 @@ func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
 	return nil
 }
 
-// SetMaxCachedModules updates the LRU cache limit at runtime and evicts
-// excess modules if the new limit is lower than the current count.
-// A value of 0 means unlimited.
+// SetMaxCachedModules updates the LRU cache limit at runtime.
+// A value of 0 means unlimited. Excess modules are not evicted immediately;
+// eviction happens lazily on the next loadModule call, which is the only path
+// that mutates the module map during normal operation.
 func (r *WasmtimeRuntime) SetMaxCachedModules(max int) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
 	r.log.Info("Runtime: Setting maxCachedModules from %d to %d", r.maxCachedModules, max)
 	r.maxCachedModules = max
-	r.evictIfNeeded()
 }
 
 // GetMaxCachedModules returns the current LRU cache limit. 0 means unlimited.

@@ -40,7 +40,7 @@ type SecureProcessorManager struct {
 	executorHandShake *ExecutorHandShake
 	stopChan          chan struct{} // Channel to signal the polling loop to stop
 	wg                sync.WaitGroup
-	endReorgTimes     map[common.ApplicationIdType]time.Time
+	endReorgTime      time.Time
 	log               logger.Logger
 	fatalErrChan      chan error // Channel to signal fatal errors to main
 }
@@ -58,8 +58,7 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 			isComplete: make(chan struct{}),
 		},
 		log:           log,
-		fatalErrChan:  make(chan error, 1), // buffered to avoid blocking
-		endReorgTimes: make(map[common.ApplicationIdType]time.Time),
+		fatalErrChan: make(chan error, 1), // buffered to avoid blocking
 	}
 	// Set up the executor client
 	manager.executorClient.SetClientRequestHandler(manager)
@@ -562,13 +561,12 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		}
 
 		if isReorg {
-			endTime := m.endReorgTimes[appID]
-			if endTime.IsZero() {
+			if m.endReorgTime.IsZero() {
 				m.log.Info("Manager: Starting REORG timeout %d for app %d", m.config.ReorgTimeout, appID)
-				m.endReorgTimes[appID] = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
+				m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
 				return nil
 			}
-			if time.Now().Before(endTime) {
+			if time.Now().Before(m.endReorgTime) {
 				m.log.Info("Manager: REORG timeout not expired yet for app %d. Keep waiting...", appID)
 				return nil
 			}
@@ -589,9 +587,9 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 	}
 
-	if endTime := m.endReorgTimes[appID]; !endTime.IsZero() {
+	if !m.endReorgTime.IsZero() {
 		m.log.Info("Manager: State roots match for app %d, REORG resolved", appID)
-		delete(m.endReorgTimes, appID)
+		m.endReorgTime = time.Time{}
 	}
 
 	m.log.Info("Manager: processing request %s", request.RequestID)

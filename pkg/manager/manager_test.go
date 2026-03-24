@@ -1166,8 +1166,8 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
-	require.False(t, manager.endReorgTimes[ApplicationId].IsZero(), "endReorgTime should be set when reorg is detected")
-	currentEndReorgTime := manager.endReorgTimes[ApplicationId]
+	require.False(t, manager.endReorgTime.IsZero(), "endReorgTime should be set when reorg is detected")
+	currentEndReorgTime := manager.endReorgTime
 
 	// Try with the second request and state root
 	mockedGetNextPendingRequest = func(context.Context) (*common.Request, [32]byte, error) {
@@ -1177,7 +1177,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, currentEndReorgTime, manager.endReorgTimes[ApplicationId], "endReorgTime should not change if reorg is not yet resolved")
+	require.Equal(t, currentEndReorgTime, manager.endReorgTime, "endReorgTime should not change if reorg is not yet resolved")
 
 	// Solve the reorg and process the last request
 	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
@@ -1185,8 +1185,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
-	_, reorgExists := manager.endReorgTimes[ApplicationId]
-	require.False(t, reorgExists, "endReorgTime should be reset when reorg is solved")
+	require.True(t, manager.endReorgTime.IsZero(), "endReorgTime should be reset when reorg is solved")
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
 	require.Equal(t, 0, len(pendingRequests), "expected 0 pending request")
@@ -1228,8 +1227,8 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for more than reorg timeout
-	// Instead of sleeping, we will simulate the time.Sleep by manipulating the endReorgTimes
-	manager.endReorgTimes[ApplicationId] = manager.endReorgTimes[ApplicationId].Add(-2 * time.Second) // go back in time by 2 seconds
+	// Instead of sleeping, we will simulate the time.Sleep by manipulating endReorgTime
+	manager.endReorgTime = manager.endReorgTime.Add(-2 * time.Second) // go back in time by 2 seconds
 
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
@@ -1366,7 +1365,6 @@ func setupTestWithConfig(
 		executorHandShake: executorHandShake,
 		stopChan:          stopChan,
 		log:               testLogger,
-		endReorgTimes:     make(map[common.ApplicationIdType]time.Time),
 	}
 
 	if startLogServer {
@@ -2157,12 +2155,8 @@ func TestMultiAppReorgIsolation(t *testing.T) {
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
 
-	// App 1 should have reorg timer set
-	require.False(t, manager.endReorgTimes[ApplicationId].IsZero(), "App 1 should have reorg timer set")
-
-	// App 2 should NOT have reorg timer
-	_, app2ReorgExists := manager.endReorgTimes[ApplicationId2]
-	require.False(t, app2ReorgExists, "App 2 should not have reorg timer")
+	// Reorg timer should be set (chain-level, triggered by App 1's mismatch)
+	require.False(t, manager.endReorgTime.IsZero(), "reorg timer should be set")
 
 	// App 2 state should be untouched
 	unchangedRoot2, err := manager.dataLayer.LastVersionID(ApplicationId2)
@@ -2180,9 +2174,8 @@ func TestMultiAppReorgIsolation(t *testing.T) {
 	err = manager.processRequestFromChain(context.Background())
 	require.NoError(t, err)
 
-	// App 1 reorg timer should be cleared (state roots matched)
-	_, app1ReorgExists := manager.endReorgTimes[ApplicationId]
-	require.False(t, app1ReorgExists, "App 1 reorg timer should be cleared after resolution")
+	// Reorg timer should be cleared (state roots matched)
+	require.True(t, manager.endReorgTime.IsZero(), "reorg timer should be cleared after resolution")
 
 	// App 1 should have processed the new request
 	newRoot1, err := manager.dataLayer.LastVersionID(ApplicationId)
@@ -2190,26 +2183,26 @@ func TestMultiAppReorgIsolation(t *testing.T) {
 	require.False(t, bytes.Equal(stateRoot1AfterProcess, newRoot1), "App 1 should have new state after processing")
 }
 
-// TestStaleReorgTimerCausesImmediateRollback demonstrates a bug where a per-app
-// reorg timer that was never cleaned (because no request arrived for that app
-// between two reorgs) causes the second reorg to skip the wait and trigger an
-// immediate rollback.
+// TestSingleReorgTimerPreventsStaleRollback verifies that the chain-level reorg
+// timer prevents the stale-timer bug that existed with per-app timers.
+//
+// With per-app timers, an app that received no pending requests between two
+// reorgs would keep a stale expired timer, causing the second reorg to skip the
+// wait and trigger an immediate (dangerous) rollback.
+//
+// The single chain-level timer fixes this: when ANY app resolves (state roots
+// match), the shared timer is cleared — so no stale timer can survive.
 //
 // Timeline:
 //  1. Setup: Deploy App A and App B, process one request each so each app has
 //     ≥2 DB versions (needed for checkIfReorg to find a matching old root).
-//  2. Reorg #1: both apps see a state-root mismatch → timers start for both.
+//  2. Reorg #1: both apps see a state-root mismatch → shared timer starts.
 //  3. Reorg #1 resolves: App A gets a new pending request → state roots match
-//     → its timer is cleaned at line 592. App B gets NO pending request between
-//     the two reorgs, so its timer is never visited and stays in endReorgTimes.
-//  4. Time passes: App B's timer expires (simulated by shifting it back in time).
-//  5. Reorg #2: App B sees a new state-root mismatch. The code finds the stale
-//     expired timer, skips the timeout, and immediately calls Rollback — which
-//     is wrong: the new reorg deserves a fresh wait.
-//
-// The test will pass once the fix is applied (stale timers are cleaned or a
-// single chain-level timer replaces the per-app map).
-func TestStaleReorgTimerCausesImmediateRollback(t *testing.T) {
+//     → the shared timer is cleared. App B gets NO pending request, but the
+//     shared timer is already gone — no stale state can accumulate.
+//  4. Reorg #2: App B sees a new state-root mismatch. The timer is zero, so a
+//     fresh timeout is started. No immediate rollback.
+func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 	ctx := context.Background()
 
@@ -2261,41 +2254,34 @@ func TestStaleReorgTimerCausesImmediateRollback(t *testing.T) {
 	})
 
 	require.NoError(t, manager.processRequestFromChain(ctx))
-	require.False(t, manager.endReorgTimes[ApplicationId].IsZero(), "App A should have reorg timer")
+	require.False(t, manager.endReorgTime.IsZero(), "reorg timer should be set after App A mismatch")
 
-	// Second poll: App B sees reorg (chain returns deploy root)
+	// Second poll: App B sees reorg (chain returns deploy root).
+	// The shared timer is already running — it should NOT be reset.
 	var reorgStateRootB [32]byte
 	copy(reorgStateRootB[:], stateRootBAfterDeploy)
+	timerBefore := manager.endReorgTime
 	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
 		return processBReq, reorgStateRootB, nil
 	})
 
 	require.NoError(t, manager.processRequestFromChain(ctx))
-	require.False(t, manager.endReorgTimes[ApplicationId2].IsZero(), "App B should have reorg timer")
+	require.Equal(t, timerBefore, manager.endReorgTime, "shared timer should not change on second mismatch")
 
 	// ── Step 3: Reorg #1 resolves — only App A gets a request ──
 
 	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
 	mockBCClient.RemoveMockedFunc("SubmitStateUpdate")
 
-	// App A gets a new request; state roots will match → timer cleaned.
+	// App A gets a new request; state roots will match → shared timer cleared.
 	newReqA := createRequest(common.Process, ApplicationId)
 	require.NoError(t, mockBCClient.SendRequestToChain(ctx, newReqA))
 	require.NoError(t, manager.processRequestFromChain(ctx))
 
-	_, appATimerExists := manager.endReorgTimes[ApplicationId]
-	require.False(t, appATimerExists, "App A timer should be cleaned after reorg resolution")
+	require.True(t, manager.endReorgTime.IsZero(),
+		"shared timer should be cleared when App A's state roots match (reorg resolved)")
 
-	// App B gets NO request → its timer is still in endReorgTimes.
-	_, appBTimerExists := manager.endReorgTimes[ApplicationId2]
-	require.True(t, appBTimerExists, "App B timer should still exist (no request cleaned it)")
-
-	// ── Step 4: Time passes; App B's timer expires ──
-
-	// Simulate time passing so App B's timer is now expired.
-	manager.endReorgTimes[ApplicationId2] = manager.endReorgTimes[ApplicationId2].Add(-time.Duration(2*manager.config.ReorgTimeout) * time.Second)
-
-	// ── Step 5: Reorg #2 — App B sees a NEW mismatch ──
+	// ── Step 4: Reorg #2 — App B sees a NEW mismatch ──
 
 	// The chain has reorged again: it reports the deploy root for App B.
 	processB2 := createRequest(common.Process, ApplicationId2)
@@ -2304,8 +2290,6 @@ func TestStaleReorgTimerCausesImmediateRollback(t *testing.T) {
 	})
 
 	// Track whether Rollback is called for App B during this poll.
-	// Return nil so execution continues — we only care about whether the
-	// call happens at all, not about the actual rollback side-effects.
 	rollbackCalled := false
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Rollback",
 		func(appID common.ApplicationIdType, versionID []byte) error {
@@ -2319,15 +2303,12 @@ func TestStaleReorgTimerCausesImmediateRollback(t *testing.T) {
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Rollback")
 
-	// What SHOULD happen: the new reorg gets a fresh timer, Rollback is NOT
-	// called, and endReorgTimes[ApplicationId2] has a future deadline.
-	// What ACTUALLY happens (the bug): the expired timer triggers an immediate
-	// rollback, changing the DB state.
+	// The shared timer was zero before this poll, so a fresh timeout must be
+	// started — no rollback should occur.
 	require.False(t, rollbackCalled,
-		"BUG: stale expired reorg timer caused an immediate rollback on a new reorg for App B. "+
-			"The new reorg should have received a fresh timeout instead of reusing the expired timer from reorg #1.")
-	require.False(t, manager.endReorgTimes[ApplicationId2].IsZero(),
-		"App B should have a fresh reorg timer with a future deadline")
-	require.True(t, manager.endReorgTimes[ApplicationId2].After(time.Now()),
-		"App B's reorg timer should be in the future (fresh timeout)")
+		"Rollback should not be called — the new reorg should get a fresh timeout")
+	require.False(t, manager.endReorgTime.IsZero(),
+		"reorg timer should be set with a fresh deadline for the new reorg")
+	require.True(t, manager.endReorgTime.After(time.Now()),
+		"reorg timer should be in the future (fresh timeout)")
 }
