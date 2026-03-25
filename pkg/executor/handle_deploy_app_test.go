@@ -9,10 +9,10 @@ import (
 	"math/big"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -128,8 +128,8 @@ func TestHandleDeployApp_NilWASM(t *testing.T) {
 	updatePayload, _, err := executor.HandleDeployApp(context.Background(), req, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, updatePayload)
-	require.Equal(t, uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to load or get module", updatePayload.ErrorMsg)
+	require.Equal(t, uint8(apperrors.CodeWasmModuleEmpty.Category.Category), updatePayload.ErrorCode)
+	require.Equal(t, "wasm module is empty", updatePayload.ErrorMsg)
 }
 
 func TestHandleDeployApp_EmptyWASM(t *testing.T) {
@@ -140,8 +140,8 @@ func TestHandleDeployApp_EmptyWASM(t *testing.T) {
 	updatePayload, _, err := executor.HandleDeployApp(context.Background(), req, nil, []byte{})
 	require.NoError(t, err)
 	require.NotNil(t, updatePayload)
-	require.Equal(t, uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to load or get module", updatePayload.ErrorMsg)
+	require.Equal(t, uint8(apperrors.CodeWasmModuleEmpty.Category.Category), updatePayload.ErrorCode)
+	require.Equal(t, "wasm module is empty", updatePayload.ErrorMsg)
 }
 
 func TestHandleDeployApp_ApplicationAlreadyDeployed(t *testing.T) {
@@ -223,11 +223,9 @@ func TestHandleDeployApp_HashMismatch(t *testing.T) {
 
 	req, _ := newDeployRequest(t)
 	updatePayload, _, err := executor.HandleDeployApp(context.Background(), req, nil, []byte("different-wasm-bytecode"))
-	require.NoError(t, err)
-	require.NotNil(t, updatePayload)
-	require.Equal(t, uint8(apperrors.CodeFailedLoadingOrGettingModule.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to load or get module", updatePayload.ErrorMsg)
-}
+	require.Error(t, err)
+	require.Nil(t, updatePayload)
+	require.Contains(t, err.Error(), "wasm fingerprint mismatch")}
 
 func TestHandleDeployApp_Success(t *testing.T) {
 	runtime := NewMockRuntime(testLogger)
@@ -248,6 +246,12 @@ func TestHandleDeployApp_Success(t *testing.T) {
 	require.Len(t, updatePayload.Signature, 65)
 	require.NotEmpty(t, newAppState.EncryptedState)
 
+	// WASM fingerprint must be persisted in private app state
+	decryptedAppData, err := executor.fromEncryptedStateToAppData(newAppState)
+	require.NoError(t, err)
+	require.Equal(t, sha256.Sum256(wasmModule), decryptedAppData.GetWasmFingerprint())
+
+	// RefundAmount + ApplicationFee == MaxFeeValue
 	refund := updatePayload.RefundAmount.ToInt()
 	fee := updatePayload.ApplicationFee.ToInt()
 	total := new(big.Int).Add(refund, fee)

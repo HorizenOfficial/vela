@@ -334,6 +334,9 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	if !c.connected {
 		return common.RequestIdType{}, 0, fmt.Errorf("client not connected, call Connect first")
 	}
+	if c.account == nil {
+		return common.RequestIdType{}, 0, fmt.Errorf("client not configured for signing transactions")
+	}
 
 	reqType := uint8(requestType)
 
@@ -377,7 +380,9 @@ func (c *BlockChainClient) SubmitDeployRequest(ctx context.Context, protocolVers
 	if !c.connected {
 		return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("client not connected, call Connect first")
 	}
-
+	if c.account == nil {
+		return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("client not configured for signing transactions")
+	}
 	// Pack the transaction data using the generated binding
 	data := c.processorEndpoint.PackSubmitDeployRequest(protocolVersion, payload)
 	// Set the value for the transaction (msg.value = maxFeeValue)
@@ -417,7 +422,9 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	if !c.connected {
 		return fmt.Errorf("client not connected, call Connect first")
 	}
-
+	if c.account == nil {
+		return fmt.Errorf("client not configured for signing transactions")
+	}
 	events := make([][]byte, len(update.Events))
 	eventSubTypes := make([]string, len(update.Events))
 	for i, event := range update.Events {
@@ -490,7 +497,9 @@ func (c *BlockChainClient) GetPendingPayments(ctx context.Context, addr ethCommo
 func (c *BlockChainClient) WithdrawPayments(ctx context.Context, payee ethCommon.Address) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
+	if c.account == nil {
+		return fmt.Errorf("client not configured for signing transactions")
+	}
 	if !c.connected {
 		return fmt.Errorf("client not connected, call Connect first")
 	}
