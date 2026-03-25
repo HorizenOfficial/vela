@@ -243,11 +243,15 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	// Deploy the application
 	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
+	// Get executor's communication key for encryption
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
 	// Register user key
 	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
 	reqID := commontestutil.GenerateRandomRequestID()
-	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey())
+	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	require.NoError(t, suite.SubmitRequest(associateKeyReq))
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
@@ -256,7 +260,7 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	auditorKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
 	require.NoError(t, err)
 	reqID = commontestutil.GenerateRandomRequestID()
-	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey())
+	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	require.NoError(t, suite.SubmitRequest(associateAuditorReq))
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
@@ -270,8 +274,6 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	withdrawFromSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, recipientAddress, withdrawAmount)
 
 	// Deanonymization report as auditor — verifies final state after deposit and withdrawal
-	executorPubKey, err := suite.GetExecutorCommunicationKey()
-	require.NoError(t, err)
 
 	reqID = commontestutil.GenerateRandomRequestID()
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(appID, reqID, auditorAddress, []byte("{}"), executorPubKey)
@@ -461,9 +463,13 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	RequestID := commontestutil.GenerateRandomRequestID()
 	deploySimpleApp(t, suite, cryptoHelper, appID, RequestID, wasmBytecode)
 
+	// Get executor's communication key for encryption, for now get from the test suite
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
 	//register key 1
 	RequestID = commontestutil.GenerateRandomRequestID()
-	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user1Address, user1Key.PublicKey())
+	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user1Address, user1Key.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
 	require.NoError(t, err)
@@ -472,7 +478,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	//register key 3
 	RequestID = commontestutil.GenerateRandomRequestID()
-	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user2Address, user2Key.PublicKey())
+	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user2Address, user2Key.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey2Req)
 	require.NoError(t, err)
@@ -484,10 +490,6 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	// 6. User2 deposits funds
 	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user2Address, big.NewInt(1000))
-
-	// Get executor's communication key for encryption, for now get from the test suite
-	executorPubKey, err := suite.GetExecutorCommunicationKey()
-	require.NoError(t, err)
 
 	// 7. User1 compares balances with User2
 	compareReqID := commontestutil.GenerateRandomRequestID()
@@ -569,7 +571,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 	auditorPrivateKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
 	require.NoError(t, err)
-	associateKey1Req, err = cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, auditorAddress, auditorPrivateKey.PublicKey())
+	associateKey1Req, err = cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, auditorAddress, auditorPrivateKey.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
 	require.NoError(t, err)
@@ -675,10 +677,14 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	appID := common.NewApplicationId(1)
 	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
+	// Get executor's communication key for encryption
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
 	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
 	requestId := commontestutil.GenerateRandomRequestID()
-	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, requestId, userAddress, user1Key.PublicKey())
+	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, requestId, userAddress, user1Key.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	err = suite.SubmitRequest(associateKey1Req)
 	require.NoError(t, err)
@@ -687,10 +693,6 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 
 	// 5. User1 deposits funds
 	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, big.NewInt(1000))
-
-	// Get executor's communication key for encryption
-	executorPubKey, err := suite.GetExecutorCommunicationKey()
-	require.NoError(t, err)
 
 	// --- Negative Test Cases ---
 

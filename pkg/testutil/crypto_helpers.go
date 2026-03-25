@@ -100,15 +100,25 @@ func (c *CryptoHelper) ComputeSeed(userID ethCommon.Address) ([]byte, error) {
 }
 
 // CreateAssociateKeyRequest creates an associate key request.
-// The payload contains the P521 public key (133 bytes) followed by the seed (65 bytes).
+// The payload contains the P521 public key (133 bytes) followed by the encrypted seed (93 bytes).
+// The seed is encrypted with ECDH(user_priv_P521, enclave_pub_P521).
 // GenerateUserSigningKey must be called for sender before this method.
-func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, key *cryptotypes.PublicKeyP521) (*common.Request, error) {
+func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, key *cryptotypes.PublicKeyP521, enclavePubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	seed, err := c.ComputeSeed(sender)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute seed for user %s: %w", sender, err)
 	}
-	// payload = 133-byte P521 pubkey + 65-byte seed
-	payload := append(key.Bytes(), seed...)
+	// Encrypt the seed with ECDH(user_priv_P521, enclave_pub_P521)
+	userPrivKey, err := c.GetUserKey(sender)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user P521 key for %s: %w", sender, err)
+	}
+	encryptedSeed, err := crypto.Encrypt(userPrivKey, enclavePubKey, seed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt seed for user %s: %w", sender, err)
+	}
+	// payload = 133-byte P521 pubkey + 93-byte encrypted seed
+	payload := append(key.Bytes(), encryptedSeed...)
 
 	return &common.Request{
 		ApplicationID: appID,

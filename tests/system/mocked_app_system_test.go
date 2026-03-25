@@ -112,11 +112,15 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
 	require.NoError(t, err)
 
+	// Get executor's communication key for encryption
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
 	// Register user key
 	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
 	reqID := commontestutil.GenerateRandomRequestID()
-	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey())
+	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	require.NoError(t, suite.SubmitRequest(associateKeyReq))
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
@@ -125,7 +129,7 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 	auditorKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
 	require.NoError(t, err)
 	reqID = commontestutil.GenerateRandomRequestID()
-	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey())
+	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	require.NoError(t, suite.SubmitRequest(associateAuditorReq))
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
@@ -139,8 +143,6 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 	withdrawFromSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, recipientAddress, withdrawAmount)
 
 	// Deanonymization report as auditor — verifies final state after deposit and withdrawal
-	executorPubKey, err := suite.GetExecutorCommunicationKey()
-	require.NoError(t, err)
 
 	reqID = commontestutil.GenerateRandomRequestID()
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(appID, reqID, auditorAddress, []byte("{}"), executorPubKey)
