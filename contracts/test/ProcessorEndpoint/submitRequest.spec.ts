@@ -304,7 +304,7 @@ describe('ProcessorEndpoint Test', function () {
         const payload = '0x' + '22'.repeat(226);
         const tx = await processorEndpoint.submitRequest(
           0,
-          1,
+          applicationId,
           REQUEST_TYPE_ASSOCIATEKEY,
           payload,
           0,
