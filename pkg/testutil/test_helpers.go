@@ -144,7 +144,7 @@ func NewSystemTestSuiteWithConfigs(
 		runtime = executor.NewMockRuntime(excLog)
 	default:
 		t.Log("wasm app type: ", appType)
-		runtime = wasm.NewWasmtimeRuntime(excLog)
+		runtime = wasm.NewWasmtimeRuntime(excLog, 0)
 	}
 
 	// Create the executor (nil KMS dependencies for Type 0 testing)

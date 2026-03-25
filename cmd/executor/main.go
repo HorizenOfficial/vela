@@ -60,7 +60,7 @@ func main() {
 	}()
 
 	// Create the WASM runtime
-	runtime := wasm.NewWasmtimeRuntime(log)
+	runtime := wasm.NewWasmtimeRuntime(log, config.MaxCachedModules)
 
 	// Create the appropriate server based on configuration
 	var server communication.ExecutorServer

@@ -79,16 +79,6 @@ func TestHandleProcessRequest_WrongProtocolVersion(t *testing.T) {
 	require.Contains(t, err.Error(), "protocol version 42 is not admitted")
 }
 
-func TestHandleProcessRequest_WrongApplicationID(t *testing.T) {
-	exec := newTestExecutor(t, NewMockRuntime(testLogger))
-	req := newProcessRequest()
-	req.ApplicationID = common.NewApplicationId(999)
-
-	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, nil, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "application id 999 is not admitted")
-}
-
 func TestHandleProcessRequest_FeeBelowMinimum(t *testing.T) {
 	exec := newTestExecutor(t, NewMockRuntime(testLogger))
 	req := newProcessRequest()

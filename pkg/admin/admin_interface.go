@@ -73,6 +73,12 @@ const (
 
 	// GetLogLevelRequestMessage represents a request to get the current log level
 	GetLogLevelRequestMessage AdminMessageType = "get_log_level"
+
+	// SetWasmCacheSizeRequestMessage represents a request to change the WASM module cache size (executor only)
+	SetWasmCacheSizeRequestMessage AdminMessageType = "set_wasm_cache_size"
+
+	// GetWasmCacheSizeRequestMessage represents a request to get the WASM module cache size (executor only)
+	GetWasmCacheSizeRequestMessage AdminMessageType = "get_wasm_cache_size"
 )
 
 // Admin command type constants for ForwardAdminCommand dispatching through the
@@ -82,7 +88,9 @@ const (
 	AdminCmdKeyAttestation = "key_attestation"
 	AdminCmdGetVersion     = "get_version"
 	AdminCmdSetLogLevel    = "set_log_level"
-	AdminCmdGetLogLevel    = "get_log_level"
+	AdminCmdGetLogLevel       = "get_log_level"
+	AdminCmdSetWasmCacheSize  = "set_wasm_cache_size"
+	AdminCmdGetWasmCacheSize  = "get_wasm_cache_size"
 )
 
 // SupportedLogLevels lists all valid log level strings accepted by SetLogLevel.
@@ -150,6 +158,21 @@ func HandleGetLogLevel(log logger.Logger, componentName string) (string, error) 
 		return "", fmt.Errorf("GetLogLevel is only supported with the ZeroNetworkLogger")
 	}
 	return log.GetLevel(), nil
+}
+
+// SetWasmCacheSizeRequest is the payload for SetWasmCacheSizeRequestMessage.
+type SetWasmCacheSizeRequest struct {
+	MaxCachedModules int `json:"maxCachedModules"`
+}
+
+// SetWasmCacheSizeResponse is the response for SetWasmCacheSizeRequestMessage.
+type SetWasmCacheSizeResponse struct {
+	MaxCachedModules int `json:"maxCachedModules"`
+}
+
+// GetWasmCacheSizeResponse is the response for GetWasmCacheSizeRequestMessage.
+type GetWasmCacheSizeResponse struct {
+	MaxCachedModules int `json:"maxCachedModules"`
 }
 
 // AdminMessage represents an admin command message.
