@@ -1,3 +1,7 @@
+---
+description: "Use when reviewing, auditing, or analyzing code in pkg/executor/ — including error handling, new error paths, refactors, or general code reviews of executor.go or related executor files. Ensures the correct classification of execution errors (signed, on-chain) vs transient errors (plain Go errors, retry on next poll)."
+---
+
 Review the error handling in the diff of this PR (against the `dev` branch) to verify that the correct error type is chosen when a request execution fails.
 
 ## Error Handling Rules

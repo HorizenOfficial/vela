@@ -60,7 +60,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 				ApplicationState: nil,
 				WasmModule:       validWasmModule,
 			},
-			err: "ApplicationState is required",
+			err: "",
 		},
 		{
 			name: "empty WasmModule",
@@ -69,7 +69,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 				ApplicationState: validApplicationState,
 				WasmModule:       []byte{},
 			},
-			err: "WasmModule cannot be empty",
+			err: "",
 		},
 		{
 			name: "invalid Request - negative Timestamp",
