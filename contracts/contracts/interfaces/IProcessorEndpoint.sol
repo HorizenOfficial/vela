@@ -24,16 +24,43 @@ interface IProcessorEndpoint {
     uint256 amount
   );
   /// @notice Emitted when a new request enters the queue.
+  /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
   /// @param sender Request sender.
-  event RequestSubmitted(bytes32 indexed requestId, address indexed sender);
+  event RequestSubmitted(uint64 indexed applicationId, bytes32 requestId, address indexed sender);
+  /// @notice Emitted when a new deploy request enters the queue.
+  /// @param applicationId Application identifier.
+  /// @param requestId Request identifier.
+  /// @param sender Request sender.
+  event DeployRequestSubmitted(
+    uint64 indexed applicationId,
+    bytes32 requestId,
+    address indexed sender
+  );
   /// @notice Emitted when a request is finalized.
+  /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
   /// @param applicationFees Fees collected for the application.
   /// @param status Completion status for the request.
   /// @param errorCode Error code when the request failed.
   /// @param errorMessage Human-readable error message.
   event RequestCompleted(
+    uint64 indexed applicationId,
+    bytes32 indexed requestId,
+    uint256 applicationFees,
+    Structs.RequestResult status,
+    Structs.ErrorCode errorCode,
+    string errorMessage
+  );
+  /// @notice Emitted when a deploy request is finalized.
+  /// @param applicationId Application identifier.
+  /// @param requestId Request identifier.
+  /// @param applicationFees Fees collected for the application.
+  /// @param status Completion status for the request.
+  /// @param errorCode Error code when the request failed.
+  /// @param errorMessage Human-readable error message.
+  event DeployRequestCompleted(
+    uint64 indexed applicationId,
     bytes32 indexed requestId,
     uint256 applicationFees,
     Structs.RequestResult status,
@@ -69,6 +96,10 @@ interface IProcessorEndpoint {
   /// @notice Emitted when the queue size threshold is changed.
   /// @param newThreshold New maximum queue size.
   event QueueThresholdUpdated(uint256 newThreshold);
+  /// @notice Emitted when the maximum number of applications is updated.
+  /// @param oldMax Previous maximum.
+  /// @param newMax New maximum.
+  event MaxNumberOfAppUpdated(uint256 oldMax, uint256 newMax);
   /// @notice Emitted when the fee collector address is updated.
   /// @param newFeeCollector New fee collector address.
   event FeeCollectorUpdated(address newFeeCollector);
@@ -103,8 +134,12 @@ interface IProcessorEndpoint {
   error DeployerNotAllowed();
   /// @notice Queue size exceeds the configured threshold.
   error QueueThresholdExceeded();
+  /// @notice Maximum number of deployed applications has been reached.
+  error MaxNumOfApplicationsExceeded();
   /// @notice An ETH transfer failed.
   error TransferFailed();
+  /// @notice The provided request type is not allowed.
+  error InvalidRequestType();
 
   /// @notice Submits a new request and enqueues it for processing.
   /// @param protocolVersion Protocol version.
@@ -121,6 +156,15 @@ interface IProcessorEndpoint {
     bytes calldata payload,
     uint256 depositAmount,
     uint256 maxFeeValue
+  ) external payable returns (bytes32);
+
+  /// @notice Submits a new deploy request and enqueues it for processing.
+  /// @param protocolVersion Protocol version.
+  /// @param payload Request payload.
+  /// @return requestId Generated request id.
+  function submitDeployRequest(
+    uint8 protocolVersion,
+    bytes calldata payload
   ) external payable returns (bytes32);
 
   /// @notice Returns the number of pending requests in the queue.
@@ -171,6 +215,10 @@ interface IProcessorEndpoint {
   /// @notice Updates the maximum pending queue size.
   /// @param newThreshold New queue size limit.
   function updateQueueThreshold(uint256 newThreshold) external;
+
+  /// @notice Updates the maximum number of deployable applications.
+  /// @param newMax New maximum. Must be >= currently deployed count.
+  function updateMaxNumOfApplications(uint256 newMax) external;
 
   /// @notice Updates the fee collector address.
   /// @param newFeeCollector New fee collector address.

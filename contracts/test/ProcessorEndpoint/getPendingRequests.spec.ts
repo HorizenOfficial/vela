@@ -1,18 +1,19 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
-import { deployProcessorEndpointFixture } from './fixture';
-import { BYTES32_ZERO } from '../util';
+import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     processorEndpoint = await fixture.deployProcessorEndpoint();
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   describe('getPendingRequests', function () {
@@ -26,7 +27,6 @@ describe('ProcessorEndpoint Test', function () {
     describe('happy paths', function () {
       it('returns pending requests in FIFO order with correct data', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const depositAmount1 = 0n;
         const depositAmount2 = 10n;
@@ -80,7 +80,6 @@ describe('ProcessorEndpoint Test', function () {
 
       it('removes head request after completion or failure', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const payload = '0x01';
         const depositAmount = 0n;
@@ -114,7 +113,7 @@ describe('ProcessorEndpoint Test', function () {
           .connect(signers[1])
           .stateUpdate(
             applicationId,
-            BYTES32_ZERO,
+            INITIAL_STATE_ROOT,
             '0x' + '01'.repeat(32),
             requestId1,
             [],
@@ -132,7 +131,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(requests[0].requestId).to.equal(requestId2);
 
         // Fail second request via stateUpdate with errorCode
-        const currentStateRoot = await processorEndpoint.stateRoot();
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
@@ -156,7 +155,6 @@ describe('ProcessorEndpoint Test', function () {
 
       it('accepts new requests after the queue is emptied', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const depositAmount = 0n;
         const maxFeeValue = minFeePerRequest;
@@ -189,7 +187,7 @@ describe('ProcessorEndpoint Test', function () {
           .connect(signers[1])
           .stateUpdate(
             applicationId,
-            BYTES32_ZERO,
+            INITIAL_STATE_ROOT,
             '0x' + '01'.repeat(32),
             requestId1,
             [],
@@ -203,7 +201,7 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         // Fail second request via stateUpdate with errorCode
-        const currentStateRoot = await processorEndpoint.stateRoot();
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(

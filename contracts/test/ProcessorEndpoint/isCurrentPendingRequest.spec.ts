@@ -5,11 +5,13 @@ import { BYTES32_ZERO } from '../util';
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     processorEndpoint = await fixture.deployProcessorEndpoint();
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   describe('isCurrentPendingRequest', function () {
@@ -21,7 +23,6 @@ describe('ProcessorEndpoint Test', function () {
 
       it('returns false for a request that is not at the head', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const payload = '0x01';
         const depositAmount = 0n;
@@ -60,7 +61,6 @@ describe('ProcessorEndpoint Test', function () {
     describe('happy paths', function () {
       it('returns true for the request at the head of the queue', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const payload = '0x01';
         const depositAmount = 0n;

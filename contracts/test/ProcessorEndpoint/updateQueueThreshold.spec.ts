@@ -6,12 +6,14 @@ describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     processorEndpoint = await fixture.deployProcessorEndpoint();
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   describe('updateQueueThreshold', function () {
@@ -38,7 +40,6 @@ describe('ProcessorEndpoint Test', function () {
 
       it('prevents new requests when newThreshold is below current queue size', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const payload = '0x01';
         const depositAmount = 0n;
