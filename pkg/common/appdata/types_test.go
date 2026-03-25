@@ -41,12 +41,14 @@ func TestAppDataSerializationDeserialization(t *testing.T) {
 	seed1 := make([]byte, SeedStore_ValSize)
 	_, err = rand.Read(seed1)
 	assert.NoError(t, err)
-	appData.AddSeed(addr1, seed1)
+	err = appData.AddSeed(addr1, seed1)
+	assert.NoError(t, err)
 
 	seed2 := make([]byte, SeedStore_ValSize)
 	_, err = rand.Read(seed2)
 	assert.NoError(t, err)
-	appData.AddSeed(addr2, seed2)
+	err = appData.AddSeed(addr2, seed2)
+	assert.NoError(t, err)
 
 	// 4. increment nonce
 	appData.IncrementNonce()

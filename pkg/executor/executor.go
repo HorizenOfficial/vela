@@ -636,8 +636,6 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			return errorPayload, nil, nil, err
 		}
 
-		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
-
 		appData.AddKey(req.Sender, *keyToAssociate)
 
 		if len(req.Payload) == keyWithEncryptedSeedPayloadSize {
@@ -658,8 +656,12 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 					apperrors.New(apperrors.CodeParsingKeyError, "seed verification failed"))
 				return errorPayload, nil, nil, err
 			}
-			appData.AddSeed(req.Sender, seed)
+			if err := appData.AddSeed(req.Sender, seed); err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to add seed for request %s: %w", req.RequestID, err)
+			}
 		}
+
+		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
 	} else {
 		//any other case: decrypt the payload and forward to the WASM to obtain the new state
 
