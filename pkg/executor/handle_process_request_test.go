@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
@@ -15,6 +14,7 @@ import (
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/HorizenOfficial/vela/pkg/crypto"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,11 +33,17 @@ func newProcessRequest() *common.Request {
 
 // buildEncryptedAppState creates a valid encrypted ApplicationState using the executor's keys.
 // Optionally adds a user key to the keystore.
-func buildEncryptedAppState(t *testing.T, exec *StatelessExecutor, userAddr *ethCommon.Address, userKey *cryptotypes.PublicKeyP521) *common.ApplicationState {
+func buildEncryptedAppState(t *testing.T, exec *StatelessExecutor, userAddr *ethCommon.Address, userKey *cryptotypes.PublicKeyP521, wasmModule ...[]byte) *common.ApplicationState {
 	t.Helper()
+
+	moduleForFingerprint := []byte("wasm")
+	if len(wasmModule) > 0 {
+		moduleForFingerprint = wasmModule[0]
+	}
 
 	appState := []byte(`{"appId":1,"accounts":{},"nonce":0}`)
 	ad := appdata.NewAppData(appState)
+	ad.SetWasmFingerprint(sha256.Sum256(moduleForFingerprint))
 	if userAddr != nil && userKey != nil {
 		ad.AddKey(*userAddr, *userKey)
 	}
@@ -114,7 +120,7 @@ func TestHandleProcessRequest_UnsupportedRequestType(t *testing.T) {
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
-	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported request type")
 }
@@ -130,7 +136,7 @@ func TestHandleProcessRequest_DecryptStateFails(t *testing.T) {
 		EncryptedState: []byte("not-valid-encrypted-data"),
 	}
 
-	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to decrypt state")
 }
@@ -143,10 +149,114 @@ func TestHandleProcessRequest_StateRootMismatch(t *testing.T) {
 	// Corrupt the state root so hash check fails
 	appState.StateRoot = [32]byte{0xFF}
 
-	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "state root mismatch")
 }
+
+type countingRuntime struct {
+	MockRuntime
+	depositCalls int
+	processCalls int
+}
+
+func (r *countingRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+	r.depositCalls++
+	return r.MockRuntime.Deposit(ctx, appId, sender, depositAmount, state, wasm)
+}
+
+func (r *countingRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	r.processCalls++
+	return r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
+}
+
+func TestHandleProcessRequest_EmptyWasmModule(t *testing.T) {
+	runtime := &countingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
+	exec := newTestExecutor(t, runtime)
+
+	req := newProcessRequest()
+	req.Payload = []byte("encrypted-stuff")
+	req.Sender = ethCommon.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
+	appState := buildEncryptedAppState(t, exec, nil, nil)
+
+	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	require.Error(t, err)
+	require.Nil(t, payload)
+	require.Nil(t, newAppState)
+	require.Nil(t, report)
+}
+
+func TestHandleProcessRequest_WasmFingerprintMismatch(t *testing.T) {
+	runtime := &countingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
+	exec := newTestExecutor(t, runtime)
+
+	req := newProcessRequest()
+	req.Payload = []byte("encrypted-stuff")
+	req.Sender = ethCommon.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+	appState := buildEncryptedAppState(t, exec, nil, nil, []byte("expected-wasm"))
+
+	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("tampered-wasm"))
+	require.Error(t, err)
+	require.Nil(t, payload)
+	require.Nil(t, newAppState)
+	require.Nil(t, report)
+}
+
+func TestHandleProcessRequest_EmptyWasmModuleWithDeposit(t *testing.T) {
+	runtime := &countingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
+	exec := newTestExecutor(t, runtime)
+
+	req := newProcessRequest()
+	req.Sender = ethCommon.HexToAddress("0xABABABABABABABABABABABABABABABABABABABAB")
+	req.DepositAmount = common.ToBig(big.NewInt(1000))
+
+	appState := buildEncryptedAppState(t, exec, nil, nil)
+
+	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	require.Error(t, err)
+	require.Nil(t, payload)
+	require.Nil(t, newAppState)
+	require.Nil(t, report)
+	require.Equal(t, 0, runtime.depositCalls)
+	require.Equal(t, 0, runtime.processCalls)
+
+}
+
+func TestHandleProcessRequest_WasmFingerprintMismatchWithDeposit(t *testing.T) {
+	runtime := &countingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
+	exec := newTestExecutor(t, runtime)
+
+	req := newProcessRequest()
+	req.Sender = ethCommon.HexToAddress("0xCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCD")
+	req.DepositAmount = common.ToBig(big.NewInt(1000))
+
+	appState := buildEncryptedAppState(t, exec, nil, nil, []byte("expected-wasm"))
+
+	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("tampered-wasm"))
+	require.Error(t, err)
+	require.Nil(t, payload)
+	require.Nil(t, newAppState)
+	require.Nil(t, report)
+	require.Equal(t, 0, runtime.depositCalls)
+	require.Equal(t, 0, runtime.processCalls)
+}
+
+func TestHandleProcessRequest_AssociateKey_FingerprintCheckHappensBeforePayloadValidation(t *testing.T) {
+	exec := newTestExecutor(t, NewMockRuntime(testLogger))
+
+	req := newProcessRequest()
+	req.RequestType = common.AssociateKey
+	req.Payload = []byte("too-short")
+
+	appState := buildEncryptedAppState(t, exec, nil, nil, []byte("expected-wasm"))
+
+	payload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("tampered-wasm"))
+	require.Error(t, err)
+	require.Nil(t, payload)
+}
+
 
 // failingDepositRuntime is a runtime where Deposit always fails.
 type failingDepositRuntime struct {
@@ -209,7 +319,7 @@ func TestHandleProcessRequest_AssociateKey_InvalidPayloadLength(t *testing.T) {
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
-	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	_, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid payload length")
 }
@@ -222,7 +332,7 @@ func TestHandleProcessRequest_AssociateKey_InvalidKeyBytes(t *testing.T) {
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
-	payload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	payload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
 	require.NoError(t, err)
 	require.NotNil(t, payload)
 	require.Equal(t, uint8(apperrors.CategoryWrongKeySentMeta.Category), payload.ErrorCode)
@@ -445,7 +555,7 @@ func TestHandleProcessRequest_AssociateKey_Success(t *testing.T) {
 	req.Payload = payloadWithSeed
 	req.Sender = sender
 
-	payload, newAppState, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	payload, newAppState, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
 	require.NoError(t, err)
 	require.NotNil(t, payload)
 	require.NotNil(t, newAppState)

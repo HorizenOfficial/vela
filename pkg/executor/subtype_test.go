@@ -156,7 +156,8 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 	payloadWithSeed := append(pubKeyBytes, encryptedSeed...)
 	require.Len(t, payloadWithSeed, 226)
 
-	appState := buildEncryptedAppState(t, exec, nil, nil)
+	wasmModule := []byte("wasm")
+	appState := buildEncryptedAppState(t, exec, nil, nil, wasmModule)
 
 	req := newProcessRequest()
 	req.RequestType = common.AssociateKey
@@ -164,7 +165,7 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 	req.Sender = sender
 
 	// Execute AssociateKey request
-	respPayload, newAppState, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	respPayload, newAppState, _, err := exec.HandleProcessRequest(context.Background(), req, appState, wasmModule)
 	require.NoError(t, err)
 	require.NotNil(t, respPayload)
 	require.Equal(t, uint8(0), respPayload.ErrorCode, "expected success, got error: %s", respPayload.ErrorMsg)
@@ -194,7 +195,7 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 	}}
 
 	e := &StatelessExecutor{log: testLogger}
-	encryptedEvents, failure := e.encryptEvents(
+	encryptedEvents, failure, err := e.encryptEvents(
 		context.Background(),
 		plainEvents,
 		common.NewApplicationId(1),
@@ -204,6 +205,7 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 		seedStore,
 	)
 	require.Nil(t, failure)
+	require.NoError(t, err)
 	require.Len(t, encryptedEvents, 1)
 
 	// The subtype should be one of the N possible subtypes derived from the seed
@@ -244,7 +246,7 @@ func TestEventRetrieval_BySubtypeSet(t *testing.T) {
 	}
 
 	e := &StatelessExecutor{log: testLogger}
-	encrypted, failure := e.encryptEvents(
+	encrypted, failure, err := e.encryptEvents(
 		context.Background(),
 		plainEvents,
 		common.NewApplicationId(1),
@@ -254,6 +256,7 @@ func TestEventRetrieval_BySubtypeSet(t *testing.T) {
 		seedStore,
 	)
 	require.Nil(t, failure)
+	require.NoError(t, err)
 	require.Len(t, encrypted, 3)
 
 	// All user A events should have a subtype in AllSubtypes(seedA, N)
@@ -316,13 +319,14 @@ func TestAssociateKey_WrongSeedSigner(t *testing.T) {
 
 	payloadWithSeed := append(p521Key.PublicKey().Bytes(), encryptedWrongSeed...)
 
-	appState := buildEncryptedAppState(t, exec, nil, nil)
+	wasmModule := []byte("wasm")
+	appState := buildEncryptedAppState(t, exec, nil, nil, wasmModule)
 	req := newProcessRequest()
 	req.RequestType = common.AssociateKey
 	req.Payload = payloadWithSeed
 	req.Sender = realSender
 
-	respPayload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
+	respPayload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, wasmModule)
 	require.NoError(t, err) // no system error; returns an error payload
 	require.NotNil(t, respPayload)
 	require.NotEqual(t, uint8(0), respPayload.ErrorCode, "should reject mismatched seed signer")
@@ -343,8 +347,9 @@ func TestEncryptEvents_NoSeed_PreservesSubtype(t *testing.T) {
 	plain := []common.PlainEvent{{UserID: userAddr, EventSubType: "original_type", Data: []byte("x")}}
 
 	e := &StatelessExecutor{log: testLogger}
-	encrypted, failure := e.encryptEvents(context.Background(), plain, common.NewApplicationId(1), commKey, nil, keyStore, seedStore)
+	encrypted, failure, err := e.encryptEvents(context.Background(), plain, common.NewApplicationId(1), commKey, nil, keyStore, seedStore)
 	require.Nil(t, failure)
+	require.NoError(t, err)
 	require.Equal(t, "original_type", encrypted[0].EventSubType, "subtype should be preserved when no seed is registered")
 
 	_ = commontestutil.GenerateRandomRequestID() // keep import used

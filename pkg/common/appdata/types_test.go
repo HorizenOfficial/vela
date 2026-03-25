@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"crypto/sha256"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/crypto"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,6 +21,8 @@ func TestAppDataSerializationDeserialization(t *testing.T) {
 	assert.NoError(t, err)
 
 	appData := NewAppData(appState)
+	fingerprint := sha256.Sum256([]byte("mock-wasm-module"))
+	appData.SetWasmFingerprint(fingerprint)
 
 	// 2. Add a couple of keys
 	addr1 := ethCommon.Address{1}
@@ -59,6 +62,7 @@ func TestAppDataSerializationDeserialization(t *testing.T) {
 	// 7. Check that they are the same
 	assert.Equal(t, uint8(Version_1), deserializedAppData.version, "Version should be Version_1")
 	assert.Equal(t, appData.appNonce, deserializedAppData.appNonce, "Nonce should be the same")
+	assert.Equal(t, appData.GetWasmFingerprint(), deserializedAppData.GetWasmFingerprint(), "wasm fingerprint should be the same")
 	assert.Equal(t, appData.appState, deserializedAppData.appState, "appState should be the same")
 	assert.Equal(t, len(appData.appKeys), len(deserializedAppData.appKeys), "Number of keys should be the same")
 	for addr, pk := range appData.appKeys {
@@ -70,10 +74,17 @@ func TestAppDataSerializationDeserialization(t *testing.T) {
 	// Check seeds round-trip
 	assert.Equal(t, len(appData.appEventSeeds), len(deserializedAppData.appEventSeeds), "Number of seeds should be the same")
 	for addr, seed := range appData.appEventSeeds {
-		deserializedSeed, ok := deserializedAppData.appEventSeeds[addr]
+		deserializedSeed, ok := deserializedAppData.appEventSeeds[addr]		
 		assert.True(t, ok, "Seed should be present in deserialized map")
 		assert.Equal(t, seed, deserializedSeed, "Seeds should be equal")
 	}
+
+	// 6. Verify binary layout includes fingerprint after nonce
+	const nonceOffset = 1
+	const fingerprintOffset = nonceOffset + 8
+	assert.GreaterOrEqual(t, len(serializedData), fingerprintOffset+WasmFingerprintSize)
+	assert.Equal(t, fingerprint[:], serializedData[fingerprintOffset:fingerprintOffset+WasmFingerprintSize])
+
 }
 
 // buildV1Bytes manually constructs a Version_1 serialized AppData blob with seed section.
@@ -81,6 +92,7 @@ func buildV1Bytes(appState []byte) []byte {
 	var buf bytes.Buffer
 	buf.WriteByte(Version_1)                                    // version
 	binary.Write(&buf, binary.BigEndian, uint64(0))             // nonce
+	buf.Write(make([]byte, WasmFingerprintSize))                // wasmFingerprint (zeroed)
 	binary.Write(&buf, binary.BigEndian, uint32(0))             // numKeys
 	binary.Write(&buf, binary.BigEndian, uint32(0))             // numSeeds
 	buf.Write(appState)

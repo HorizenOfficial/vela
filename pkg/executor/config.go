@@ -5,6 +5,7 @@ package executor
 import (
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -129,16 +130,72 @@ func LoadConfig() (*Config, error) {
 	}, nil
 }
 
-// ValidateKMSConfig validates KMS-related configuration.
-// Returns an error if KMS is enabled but required settings are missing.
-func (c *Config) ValidateKMSConfig() error {
-	if c.KeySetRecoveryType == common.RecoveryTypeKMS {
-		if c.KMSKeyARN == "" {
-			return fmt.Errorf("KMS key ARN is required when KMS is enabled (EXECUTOR_KMS_KEY_ARN)")
-		}
-		if c.KMSRegion == "" {
-			return fmt.Errorf("KMS region is required when KMS is enabled (EXECUTOR_KMS_REGION)")
-		}
+// Validate checks the executor configuration for invalid or conflicting settings.
+func (c *Config) Validate() error {
+	var errs []string
+
+	// --- Channel type ---
+	// Only "tcp" and "vsock" are supported. Validate() is called before the
+	// logger or WASM runtime are created, so catching this early avoids wasted
+	// startup effort and prevents the unguarded type-assertions in the
+	// ChannelType switch from panicking.
+	if c.ChannelType != "tcp" && c.ChannelType != "vsock" {
+		errs = append(errs, fmt.Sprintf(
+			"CHANNEL_TYPE must be \"tcp\" or \"vsock\", got %q", c.ChannelType))
+	}
+
+	// --- Fee parameters ---
+	// FuelPricePerUnit is used in Mul operations (e.g. totalFuel * FuelPricePerUnit)
+	// to compute application fees. A nil value would panic. A zero value effectively
+	// disables fuel metering — every fee computation returns 0 and then falls back
+	// to MinFeePerRequest, meaning all requests cost the same flat fee regardless
+	// of how much computation they consume. A negative value would produce negative
+	// fees, which breaks the economic model.
+	if c.FuelPricePerUnit == nil || c.FuelPricePerUnit.Sign() <= 0 {
+		errs = append(errs, "EXECUTOR_FUEL_PRICE_PER_UNIT must be > 0")
+	}
+
+	// MinFeePerRequest is compared against req.MaxFeeValue to reject underfunded
+	// requests, and used as a floor for the application fee. A nil value would
+	// panic. A negative value means the fee check always passes regardless of what
+	// the user sends — a security concern since the system would process requests
+	// without collecting fees. Zero is legal: it means there is no minimum fee.
+	if c.MinFeePerRequest == nil || c.MinFeePerRequest.Sign() < 0 {
+		errs = append(errs, "EXECUTOR_MIN_FEE_PER_REQUEST must be >= 0")
+	}
+
+	// --- Communication timeout ---
+	// RequestTimeoutSec feeds time.Now().Add(Duration * time.Second) for pending
+	// request deadlines. A zero value means every request's deadline is already
+	// in the past at creation time — the response-routing loop evicts it
+	// immediately, so every request fails with a timeout error.
+	if c.CommunicationParams.RequestTimeoutSec <= 0 {
+		errs = append(errs, fmt.Sprintf(
+			"EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC must be > 0 (seconds), got %d",
+			c.CommunicationParams.RequestTimeoutSec))
+	}
+
+	// --- KMS configuration ---
+	errs = append(errs, c.validateKMSConfig()...)
+
+	if len(errs) > 0 {
+		return fmt.Errorf("configuration errors:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+// validateKMSConfig validates KMS-related configuration.
+// Returns all errors found so the caller can present them at once.
+func (c *Config) validateKMSConfig() []string {
+	if c.KeySetRecoveryType != common.RecoveryTypeKMS {
+		return nil
+	}
+	var errs []string
+	if c.KMSKeyARN == "" {
+		errs = append(errs, "KMS key ARN is required when KMS is enabled (EXECUTOR_KMS_KEY_ARN)")
+	}
+	if c.KMSRegion == "" {
+		errs = append(errs, "KMS region is required when KMS is enabled (EXECUTOR_KMS_REGION)")
+	}
+	return errs
 }

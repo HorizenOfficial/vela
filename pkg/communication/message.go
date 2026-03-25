@@ -77,12 +77,6 @@ func (prd *ProcessRequestData) Validate() error {
 	if err := prd.Request.Validate(); err != nil {
 		return fmt.Errorf("invalid Request: %w", err)
 	}
-	if prd.ApplicationState == nil {
-		return fmt.Errorf("ApplicationState is required")
-	}
-	if len(prd.WasmModule) == 0 {
-		return fmt.Errorf("WasmModule cannot be empty")
-	}
 	return nil
 }
 

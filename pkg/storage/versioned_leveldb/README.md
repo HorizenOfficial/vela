@@ -20,7 +20,7 @@ The system is composed of several layers:
 
 The versioning mechanism is based on the concept of **change sets**. Each update to the database is treated as a new version, identified by a unique `versionID`.
 
--   **`VersionsKey`**: A special key (`sha256("versions")`) is used to store a list of all active `versionID`s in the database. This list is ordered from newest to oldest.
+-   **`VersionsKey`**: Each application has its own versions key (`sha256("versions_<appID>")`), which stores a list of all active `versionID`s for that application. This list is ordered from newest to oldest. Version chains are independent per application — storing, pruning, and rolling back one app does not affect any other app.
 
 -   **`ChangeSet`**: For each `versionID`, a corresponding `ChangeSet` is stored. The `ChangeSet` is a JSON-serialized object that records the changes made in that version. It contains three lists:
     -   `InsertedKeys`: A list of keys that were added in this version.
@@ -34,8 +34,8 @@ When an `Update` operation is performed:
 1.  A new `versionID` is provided.
 2.  The system checks if the `versionID` already exists. If it does, an error is returned.
 3.  A `ChangeSet` is created by comparing the keys to be updated and removed with their current values in the database.
-4.  The new `versionID` is prepended to the list of versions stored under `VersionsKey`.
-5.  If the number of versions exceeds the `versionsToKeep` limit, the oldest versions are pruned.
+4.  The new `versionID` is prepended to the application's version list (stored under its per-app versions key).
+5.  If the number of versions for that application exceeds the `versionsToKeep` limit, the oldest versions are pruned. This limit is applied independently per application.
 6.  The `ChangeSet` is serialized and stored with the `versionID` as the key.
 7.  The actual data is updated in the database.
 8.  All these operations are performed within a single LevelDB transaction to ensure atomicity.
