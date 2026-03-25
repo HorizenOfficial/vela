@@ -564,10 +564,28 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return errorPayload, nil, nil, err
 	}
 
+	// Validate wasm module integrity before processing any request path.
+	if len(wasmModule) == 0 {
+		return nil, nil, nil, fmt.Errorf("empty wasm module")
+	}
+
 	// Decrypt and parse the app data
 	appData, err := e.fromEncryptedStateToAppData(appState)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	expectedWasmFingerprint := appData.GetWasmFingerprint()
+	currentWasmFingerprint := sha256.Sum256(wasmModule)
+	if currentWasmFingerprint != expectedWasmFingerprint {
+		e.log.Warn(
+			"Executor: Wasm fingerprint mismatch for request %s app %d (gotPrefix=%x expectedPrefix=%x)",
+			req.RequestID,
+			req.ApplicationID,
+			currentWasmFingerprint[:4],
+			expectedWasmFingerprint[:4],
+		)
+		return nil, nil, nil, fmt.Errorf("wasm fingerprint mismatch")
 	}
 
 	// If the request contains a deposit, handle it first
@@ -712,12 +730,16 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
-	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore())
+	encryptedEvents, failure, err := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore())
 	if failure != nil {
 		errorPayload, err := e.processErrorResponse(req,
 			appState.StateRoot,
 			failure)
 		return errorPayload, nil, nil, err
+	}
+	if err != nil {
+		e.log.Error("Executor: error encrypting events: %v", err)
+		return nil, nil, nil, err
 	}
 	e.log.Info("Executor: Successfully encrypted new application data")
 
@@ -757,7 +779,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// If a report was generated, encrypt it and create the DeanonymizationReport
 	var deanonymizationReport *common.DeanonymizationReport
 	if reportGenerated {
-		encryptedReport, failure := e.encryptDeanonymizationReport(
+		encryptedReport, failure, err := e.encryptDeanonymizationReport(
 			req.ApplicationID,
 			req.RequestID,
 			&e.keySet.CommunicationKey,
@@ -771,6 +793,11 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 				failure)
 			return errorPayload, nil, nil, err
 		}
+		if err != nil {
+			e.log.Error("Executor: error encrypting deanonymization report: %v", err)
+			return nil, nil, nil, err
+		}
+
 		e.log.Info("Executor: Successfully encrypted deanonymization report")
 
 		deanonymizationReport = &common.DeanonymizationReport{
@@ -821,19 +848,14 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 		errorPayload, err := e.processErrorResponse(
 			req,
 			emptyStateRoot,
-			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg),
+			apperrors.New(apperrors.CodeWasmModuleEmpty, "wasm module is empty"),
 		)
 		return errorPayload, nil, err
 	}
 
 	moduleSHA := sha256.Sum256(wasmModule)
 	if got := hex.EncodeToString(moduleSHA[:]); got != descriptor.WasmSHA256 {
-		errorPayload, err := e.processErrorResponse(
-			req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg),
-		)
-		return errorPayload, nil, err
+		return nil, nil, fmt.Errorf("wasm fingerprint mismatch")
 	}
 
 	// Load the module and get initial state
@@ -871,6 +893,7 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
 
 	initialAppData := appdata.NewAppData(initialAppState)
+	initialAppData.SetWasmFingerprint(moduleSHA)
 
 	//serialize the new app data
 	initialAppDataBytes, err := initialAppData.Serialize()
@@ -1015,9 +1038,9 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 	return signature, nil
 }
 
-func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId common.ApplicationIdType, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore appdata.KeyStore) ([]common.Event, *apperrors.RequestFailure) {
+func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.PlainEvent, appId common.ApplicationIdType, key *cryptotypes.PrivateKeyP521, server communication.ExecutorServer, keyStore appdata.KeyStore) ([]common.Event, *apperrors.RequestFailure, error) {
 	if len(events) == 0 {
-		return nil, nil // No events to encrypt
+		return nil, nil, nil // No events to encrypt
 	}
 	encryptedEvents := make([]common.Event, len(events))
 
@@ -1026,12 +1049,12 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 		userKey, exists := keyStore[event.UserID]
 
 		if !exists {
-			return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found")
+			return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found"), nil
 		}
 		// Encrypt the event data
 		encryptedData, err := crypto.Encrypt(key, userKey, event.Data)
 		if err != nil {
-			return nil, apperrors.New(apperrors.CodeWrongKey, "failed to encrypt event data")
+			return nil, nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
 		}
 
 		// Create the encrypted event
@@ -1044,18 +1067,18 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	}
 
 	e.log.Info("Executor: Successfully encrypted %d events", len(events))
-	return encryptedEvents, nil
+	return encryptedEvents, nil, nil
 }
 
-func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId common.ApplicationIdType, requestId common.RequestIdType, key *cryptotypes.PrivateKeyP521, requester ethCommon.Address, reportData []byte, keyStore appdata.KeyStore) ([]byte, *apperrors.RequestFailure) {
+func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId common.ApplicationIdType, requestId common.RequestIdType, key *cryptotypes.PrivateKeyP521, requester ethCommon.Address, reportData []byte, keyStore appdata.KeyStore) ([]byte, *apperrors.RequestFailure, error) {
 	if len(reportData) == 0 {
-		return nil, apperrors.New(apperrors.CodeNoReportDataFound, "no report data found")
+		return nil, apperrors.New(apperrors.CodeNoReportDataFound, "no report data found"), nil
 	}
 
 	// retrieve user Secp521r1_PubKey
 	requesterPublicKey, exists := keyStore[requester]
 	if !exists {
-		return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found")
+		return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found"), nil
 	}
 
 	// Unencrypted deanonymization reports are specific to the application, we can not assume a defined struct of the reportData.
@@ -1069,16 +1092,16 @@ func (e *StatelessExecutor) encryptDeanonymizationReport(applicationId common.Ap
 	// Marshal the updated report data
 	updatedReportData, err := json.Marshal(data)
 	if err != nil {
-		return nil, apperrors.New(apperrors.CodeJsonMarshalError, "failed to marshal updated deanonymization report")
+		return nil, apperrors.New(apperrors.CodeJsonMarshalError, "failed to marshal updated deanonymization report"), nil
 	}
 
 	// Encrypt the report data
 	encryptedReport, err := crypto.Encrypt(key, requesterPublicKey, updatedReportData)
 	if err != nil {
-		return nil, apperrors.New(apperrors.CodeWrongKey, "failed to encrypt deanonymization report")
+		return nil, nil, fmt.Errorf("failed to encrypt deanonymization report: %w", err)
 	}
 
-	return encryptedReport, nil
+	return encryptedReport, nil, nil
 }
 
 func (e *StatelessExecutor) DecryptState(encryptedState []byte, decryptionKey cryptotypes.AES256Key) ([]byte, error) {
