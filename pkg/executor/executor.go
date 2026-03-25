@@ -29,8 +29,6 @@ import (
 type NsmSession = nsmutil.Session
 
 var (
-	// As of now we support only one app having this ID
-	admittedAppID           = common.NewApplicationId(1)
 	admittedProtocolVersion = uint8(0)
 	emptyStateRoot          = [32]byte{}
 )
@@ -534,9 +532,6 @@ func (e *StatelessExecutor) Close() error {
 func (e *StatelessExecutor) validateRequest(req *common.Request) error {
 	if req.ProtocolVersion != admittedProtocolVersion {
 		return fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
-	}
-	if req.ApplicationID != admittedAppID {
-		return fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 	if req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
 		return fmt.Errorf("request fee is below minimum fee")
@@ -1222,6 +1217,39 @@ func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType stri
 		resp, err := json.Marshal(version.Version)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal version: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdSetWasmCacheSize:
+		var req admin.SetWasmCacheSizeRequest
+		if data != nil && string(data) != "null" {
+			if err := json.Unmarshal(data, &req); err != nil {
+				return nil, fmt.Errorf("invalid request data: %w", err)
+			}
+		}
+		if req.MaxCachedModules < 0 {
+			return nil, fmt.Errorf("maxCachedModules must be >= 0 (0 = unlimited)")
+		}
+		cc, ok := e.runtime.(moduleCacheController)
+		if !ok {
+			return nil, fmt.Errorf("runtime does not support module caching")
+		}
+		cc.SetMaxCachedModules(req.MaxCachedModules)
+		resp, err := json.Marshal(admin.SetWasmCacheSizeResponse{MaxCachedModules: req.MaxCachedModules})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
+		}
+		return resp, nil
+
+	case admin.AdminCmdGetWasmCacheSize:
+		cc, ok := e.runtime.(moduleCacheController)
+		if !ok {
+			return nil, fmt.Errorf("runtime does not support module caching")
+		}
+		maxCached := cc.GetMaxCachedModules()
+		resp, err := json.Marshal(admin.GetWasmCacheSizeResponse{MaxCachedModules: maxCached})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal response: %w", err)
 		}
 		return resp, nil
 

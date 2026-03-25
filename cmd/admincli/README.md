@@ -36,7 +36,9 @@ Commands:
   2) Get Log Level
   3) Set Log Level
   4) Key Attestation
-  5) Quit
+  5) Get WASM Cache Size
+  6) Set WASM Cache Size
+  7) Quit
 Select command>
 ```
 
@@ -84,7 +86,7 @@ contains the new level from each:
 }
 ```
 
-### 4) Key Attestation
+### 4) Key Attestation (executor only)
 
 Requests an AWS Nitro Enclave attestation document from the Executor. The
 attestation document cryptographically binds the Executor's keyset (P521
@@ -95,6 +97,29 @@ structure returned as base64.
 
 This command only works when the Executor is running inside a Nitro Enclave
 (requires `/dev/nsm`). Outside of an enclave it returns an error.
+
+### 5) Get WASM Cache Size (executor only)
+
+Returns the current WASM module LRU cache limit from the Executor. A value of
+`0` means unlimited (all modules stay in memory). Always targets the executor.
+
+```json
+{"maxCachedModules": 0}
+```
+
+### 6) Set WASM Cache Size (executor only)
+
+Changes the WASM module LRU cache limit at runtime. If the new limit is lower
+than the current number of cached modules, excess modules are evicted lazily
+when the next module is loaded (least recently used first). A value of `0`
+means unlimited. Always targets the executor.
+
+```json
+{"maxCachedModules": 5}
+```
+
+The initial value is set via the `EXECUTOR_MAX_CACHED_MODULES` environment
+variable (default `0`).
 
 ### Targets
 
@@ -146,8 +171,9 @@ cross-checks every duplicated value:
 - **Valid log levels** — the local list is compared against
   `admin.SupportedLogLevels` (parsed from the canonical comma-separated string).
 - **JSON field names** — both local and upstream structs (`setLogLevelReq` vs
-  `admin.SetLogLevelRequest`, etc.) are marshaled and the resulting JSON keys
-  are compared to catch renamed or missing fields.
+  `admin.SetLogLevelRequest`, `setWasmCacheSizeReq` vs
+  `admin.SetWasmCacheSizeRequest`, etc.) are marshaled and the resulting JSON
+  keys are compared to catch renamed or missing fields.
 
 These tests run in milliseconds with no network or servers required:
 

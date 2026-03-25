@@ -56,11 +56,12 @@ func (c *closableStore) checkClosed(storeName string) error {
 
 func (c *closableStore) close(closeFunc func() error) error {
 	c.mutex.Lock()
-	defer c.mutex.Unlock()
 	if c.isClosed {
+		c.mutex.Unlock()
 		return nil
 	}
 	c.isClosed = true
+	c.mutex.Unlock()
 	return closeFunc()
 }
 

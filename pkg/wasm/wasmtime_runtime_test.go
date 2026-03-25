@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestWriteToMemory_NilModule(t *testing.T) {
-	runtime := NewWasmtimeRuntime(testLogger)
+	runtime := NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
 
 	_, err := runtime.writeToMemory(nil, []byte("some data"))
@@ -45,7 +45,7 @@ func TestWriteToMemory_NilModule(t *testing.T) {
 }
 
 func TestWriteToMemory_NilModuleStore(t *testing.T) {
-	runtime := NewWasmtimeRuntime(testLogger)
+	runtime := NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
 
 	// Create a per-module store
@@ -68,7 +68,7 @@ func TestWriteToMemory_NilModuleStore(t *testing.T) {
 }
 
 func TestWriteToMemory_NilMemory(t *testing.T) {
-	runtime := NewWasmtimeRuntime(testLogger)
+	runtime := NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
 
 	module := &ApplicationModule{} // memory is nil by default
@@ -79,7 +79,7 @@ func TestWriteToMemory_NilMemory(t *testing.T) {
 }
 
 func TestWriteToMemory_NilData(t *testing.T) {
-	runtime := NewWasmtimeRuntime(testLogger)
+	runtime := NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
 
 	// Create a per-module store
@@ -109,7 +109,7 @@ func TestWriteToMemory_NilData(t *testing.T) {
 }
 
 func TestExtractResultBytes(t *testing.T) {
-	runtime := NewWasmtimeRuntime(testLogger)
+	runtime := NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
 
 	// Create a per-module store
@@ -227,13 +227,123 @@ func TestToWasmType_MaxUint64(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	runtime := NewWasmtimeRuntime(testLogger)
+	runtime := NewWasmtimeRuntime(testLogger, 0)
 	// Add a dummy module to ensure the map is cleared
 	runtime.modules[1] = &ApplicationModule{}
+	runtime.touchModule(common.NewApplicationId(1))
 
 	err := runtime.Close()
 	require.NoError(t, err)
 
 	require.Nil(t, runtime.engine)
 	require.Empty(t, runtime.modules)
+	require.Equal(t, 0, runtime.accessOrder.Len())
+	require.Empty(t, runtime.accessElements)
+}
+
+// --- LRU Cache Eviction Tests ---
+
+func TestLRUEviction_Basic(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 2)
+	defer runtime.Close()
+
+	app1 := common.NewApplicationId(1)
+	app2 := common.NewApplicationId(2)
+	app3 := common.NewApplicationId(3)
+
+	// Insert 3 modules into a cache with limit 2
+	runtime.moduleLock.Lock()
+	runtime.modules[app1] = &ApplicationModule{}
+	runtime.touchModule(app1)
+	runtime.modules[app2] = &ApplicationModule{}
+	runtime.touchModule(app2)
+	runtime.modules[app3] = &ApplicationModule{}
+	runtime.touchModule(app3)
+	runtime.evictIfNeeded()
+	runtime.moduleLock.Unlock()
+
+	// app1 (least recent) should be evicted
+	require.Equal(t, 2, len(runtime.modules))
+	_, hasApp1 := runtime.modules[app1]
+	_, hasApp2 := runtime.modules[app2]
+	_, hasApp3 := runtime.modules[app3]
+	require.False(t, hasApp1, "app1 should be evicted (LRU)")
+	require.True(t, hasApp2, "app2 should remain")
+	require.True(t, hasApp3, "app3 should remain")
+	require.Equal(t, 2, runtime.accessOrder.Len())
+}
+
+func TestLRUEviction_TouchUpdatesOrder(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 2)
+	defer runtime.Close()
+
+	app1 := common.NewApplicationId(1)
+	app2 := common.NewApplicationId(2)
+	app3 := common.NewApplicationId(3)
+
+	runtime.moduleLock.Lock()
+	// Insert app1, then app2
+	runtime.modules[app1] = &ApplicationModule{}
+	runtime.touchModule(app1)
+	runtime.modules[app2] = &ApplicationModule{}
+	runtime.touchModule(app2)
+
+	// Touch app1 again — now app2 is the LRU
+	runtime.touchModule(app1)
+
+	// Insert app3 — should evict app2 (not app1)
+	runtime.modules[app3] = &ApplicationModule{}
+	runtime.touchModule(app3)
+	runtime.evictIfNeeded()
+	runtime.moduleLock.Unlock()
+
+	require.Equal(t, 2, len(runtime.modules))
+	_, hasApp1 := runtime.modules[app1]
+	_, hasApp2 := runtime.modules[app2]
+	_, hasApp3 := runtime.modules[app3]
+	require.True(t, hasApp1, "app1 should remain (was touched)")
+	require.False(t, hasApp2, "app2 should be evicted (LRU)")
+	require.True(t, hasApp3, "app3 should remain (newest)")
+}
+
+func TestLRUEviction_Unlimited(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0) // 0 = unlimited
+	defer runtime.Close()
+
+	runtime.moduleLock.Lock()
+	for i := uint64(1); i <= 100; i++ {
+		appId := common.NewApplicationId(i)
+		runtime.modules[appId] = &ApplicationModule{}
+		runtime.touchModule(appId)
+		runtime.evictIfNeeded()
+	}
+	runtime.moduleLock.Unlock()
+
+	require.Equal(t, 100, len(runtime.modules), "no eviction with unlimited cache")
+	require.Equal(t, 100, runtime.accessOrder.Len())
+}
+
+func TestLRUEviction_UnloadRemovesFromAccessOrder(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	app1 := common.NewApplicationId(1)
+	app2 := common.NewApplicationId(2)
+
+	runtime.moduleLock.Lock()
+	runtime.modules[app1] = &ApplicationModule{}
+	runtime.touchModule(app1)
+	runtime.modules[app2] = &ApplicationModule{}
+	runtime.touchModule(app2)
+	runtime.moduleLock.Unlock()
+
+	require.Equal(t, 2, runtime.accessOrder.Len())
+
+	err := runtime.UnloadModule(app1)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(runtime.modules))
+	require.Equal(t, 1, runtime.accessOrder.Len())
+	_, hasApp1 := runtime.accessElements[app1]
+	require.False(t, hasApp1)
 }

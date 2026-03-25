@@ -1,21 +1,21 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
-import { deployProcessorEndpointFixture } from './fixture';
-import { ADDRESS_ZERO, BYTES32_ZERO } from '../util';
+import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
+import { ADDRESS_ZERO } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     processorEndpoint = await fixture.deployProcessorEndpoint();
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
-
-  const APPLICATION_ID = 1;
 
   async function submitBasicRequest(payload: string) {
     const protocolVersion = 0;
@@ -25,7 +25,7 @@ describe('ProcessorEndpoint Test', function () {
 
     const tx = await processorEndpoint.submitRequest(
       protocolVersion,
-      APPLICATION_ID,
+      applicationId,
       requestType,
       payload,
       depositAmount,
@@ -35,7 +35,7 @@ describe('ProcessorEndpoint Test', function () {
     const receipt = await tx.wait();
     return {
       requestId: receipt.logs[0].args.requestId,
-      applicationId: APPLICATION_ID,
+      applicationId,
       maxFeeValue,
     };
   }
@@ -67,15 +67,15 @@ describe('ProcessorEndpoint Test', function () {
         const newCollector = await signers[3].getAddress();
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
-        const { requestId, applicationId, maxFeeValue } = await submitBasicRequest('0x01');
+        const { requestId, applicationId: appId, maxFeeValue } = await submitBasicRequest('0x01');
         // With pull pattern, funds are credited to pending deposits
         const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
-            applicationId,
-            BYTES32_ZERO,
+            appId,
+            INITIAL_STATE_ROOT,
             '0x' + '01'.repeat(32),
             requestId,
             [],
@@ -96,17 +96,18 @@ describe('ProcessorEndpoint Test', function () {
         const newCollector = await signers[4].getAddress();
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
-        const { requestId, applicationId, maxFeeValue } = await submitBasicRequest('0x02');
+        const { requestId, applicationId: appId } = await submitBasicRequest('0x02');
         // With pull pattern, funds are credited to pending deposits
         const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(appId);
         // Fail request via stateUpdate with errorCode
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
-            applicationId,
-            BYTES32_ZERO,
-            BYTES32_ZERO,
+            appId,
+            currentStateRoot,
+            currentStateRoot,
             requestId,
             [],
             [],
@@ -128,15 +129,15 @@ describe('ProcessorEndpoint Test', function () {
         const newCollector = await signers[5].getAddress();
         await processorEndpoint.connect(signers[2]).updateFeeCollector(newCollector);
 
-        const { requestId, applicationId, maxFeeValue } = await submitBasicRequest('0x03');
+        const { requestId, applicationId: appId, maxFeeValue } = await submitBasicRequest('0x03');
         // With pull pattern, funds are credited to pending deposits
         const collectorPendingAmountBefore = await processorEndpoint.payments(newCollector);
 
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
-            applicationId,
-            BYTES32_ZERO,
+            appId,
+            INITIAL_STATE_ROOT,
             '0x1000000000000000000000000000000000000000000000000000000000000000',
             requestId,
             ['0x'],

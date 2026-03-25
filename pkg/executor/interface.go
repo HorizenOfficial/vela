@@ -23,6 +23,14 @@ type Executor interface {
 	Close() error
 }
 
+// moduleCacheController is an optional interface for runtimes that support
+// module cache management (LRU eviction). Used by admin commands to get/set
+// cache limits at runtime without importing the concrete wasm package.
+type moduleCacheController interface {
+	SetMaxCachedModules(max int)
+	GetMaxCachedModules() int
+}
+
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
 	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)

@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
-import { deployProcessorEndpointFixture } from './fixture';
+import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 import { BYTES32_ZERO, getRequestIdFromReceipt } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
@@ -9,9 +9,10 @@ describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
+  let bootstrapApplication: any;
 
   const PROTOCOL_VERSION = 0;
-  const APPLICATION_ID = 1;
   const REQUEST_TYPE = 1;
 
   beforeEach(async function () {
@@ -19,13 +20,15 @@ describe('ProcessorEndpoint Test', function () {
     processorEndpoint = await fixture.deployProcessorEndpoint();
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    bootstrapApplication = fixture.bootstrapApplication;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   async function submitBasicRequest(sender: Signer, payload: string, maxFeeValue?: bigint) {
     const fee = maxFeeValue ?? minFeePerRequest;
     const tx = await processorEndpoint
       .connect(sender)
-      .submitRequest(PROTOCOL_VERSION, APPLICATION_ID, REQUEST_TYPE, payload, 0, fee, {
+      .submitRequest(PROTOCOL_VERSION, applicationId, REQUEST_TYPE, payload, 0, fee, {
         value: fee,
       });
     const receipt = await tx.wait();
@@ -33,11 +36,11 @@ describe('ProcessorEndpoint Test', function () {
   }
 
   async function failRequest(requestId: string, errorCode: number, errorMsg: string) {
-    const currentStateRoot = await processorEndpoint.stateRoot();
+    const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
     return processorEndpoint
       .connect(signers[1])
       .stateUpdate(
-        APPLICATION_ID,
+        applicationId,
         currentStateRoot,
         currentStateRoot,
         requestId,
@@ -71,10 +74,16 @@ describe('ProcessorEndpoint Test', function () {
       fixture.minFeePerRequest
     );
 
+    const { applicationId: appId } = await fixture.bootstrapApplication(
+      processorEndpointWithNoAttestation,
+      teeSigner
+    );
+
     return {
       ...fixture,
       teeAuthenticator,
       processorEndpoint: processorEndpointWithNoAttestation,
+      applicationId: appId,
     };
   }
 
@@ -83,13 +92,14 @@ describe('ProcessorEndpoint Test', function () {
     sender: Signer,
     payload: string,
     depositAmount: bigint,
-    maxFeeValue: bigint
+    maxFeeValue: bigint,
+    appId?: bigint
   ) {
     const tx = await processorEndpointInstance
       .connect(sender)
       .submitRequest(
         PROTOCOL_VERSION,
-        APPLICATION_ID,
+        appId ?? applicationId,
         REQUEST_TYPE,
         payload,
         depositAmount,
@@ -108,9 +118,9 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[0])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
-              BYTES32_ZERO,
+              applicationId,
+              INITIAL_STATE_ROOT,
+              INITIAL_STATE_ROOT,
               '0x' + '00'.repeat(32),
               [],
               [],
@@ -150,8 +160,8 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
-            APPLICATION_ID,
-            BYTES32_ZERO,
+            applicationId,
+            INITIAL_STATE_ROOT,
             '0x' + '22'.repeat(32),
             first.requestId,
             [],
@@ -170,7 +180,7 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
+              applicationId,
               BYTES32_ZERO,
               BYTES32_ZERO,
               second.requestId,
@@ -192,8 +202,8 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
+              applicationId,
+              INITIAL_STATE_ROOT,
               '0x' + '22'.repeat(32),
               failedTx.requestId,
               [],
@@ -215,14 +225,15 @@ describe('ProcessorEndpoint Test', function () {
           fixture.signers[0],
           '0x06',
           0n,
-          fixture.minFeePerRequest
+          fixture.minFeePerRequest,
+          fixture.applicationId
         );
 
         const signature = await ethSignStateUpdate(
           fixture.signers[4],
-          APPLICATION_ID,
-          BYTES32_ZERO,
-          BYTES32_ZERO,
+          fixture.applicationId,
+          INITIAL_STATE_ROOT,
+          INITIAL_STATE_ROOT,
           request.requestId,
           [],
           [],
@@ -237,9 +248,9 @@ describe('ProcessorEndpoint Test', function () {
           fixture.processorEndpoint
             .connect(fixture.signers[1])
             .stateUpdate(
-              APPLICATION_ID,
-              BYTES32_ZERO,
-              BYTES32_ZERO,
+              fixture.applicationId,
+              INITIAL_STATE_ROOT,
+              INITIAL_STATE_ROOT,
               request.requestId,
               [],
               [],
@@ -255,13 +266,13 @@ describe('ProcessorEndpoint Test', function () {
 
       it('reverts with InvalidPayload when events array is non-empty on error', async () => {
         const { requestId } = await submitBasicRequest(signers[0], '0x08');
-        const currentStateRoot = await processorEndpoint.stateRoot();
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
 
         await expect(
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
+              applicationId,
               currentStateRoot,
               currentStateRoot,
               requestId,
@@ -279,13 +290,13 @@ describe('ProcessorEndpoint Test', function () {
 
       it('reverts with InvalidPayload when withdrawalRequests array is non-empty on error', async () => {
         const { requestId } = await submitBasicRequest(signers[0], '0x09');
-        const currentStateRoot = await processorEndpoint.stateRoot();
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
 
         await expect(
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
+              applicationId,
               currentStateRoot,
               currentStateRoot,
               requestId,
@@ -303,13 +314,13 @@ describe('ProcessorEndpoint Test', function () {
 
       it('reverts with InvalidPayload when both events and withdrawalRequests are non-empty on error', async () => {
         const { requestId } = await submitBasicRequest(signers[0], '0x0a');
-        const currentStateRoot = await processorEndpoint.stateRoot();
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
 
         await expect(
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              APPLICATION_ID,
+              applicationId,
               currentStateRoot,
               currentStateRoot,
               requestId,
@@ -343,7 +354,7 @@ describe('ProcessorEndpoint Test', function () {
         const insertTx = await fallbackFailure.insertRequestOnProcessorEndpoint(
           processorEndpoint,
           PROTOCOL_VERSION,
-          APPLICATION_ID,
+          applicationId,
           REQUEST_TYPE,
           '0x04',
           0,
@@ -366,7 +377,7 @@ describe('ProcessorEndpoint Test', function () {
           .connect(sender)
           .submitRequest(
             PROTOCOL_VERSION,
-            APPLICATION_ID,
+            applicationId,
             REQUEST_TYPE,
             '0x07',
             depositAmount,
@@ -387,7 +398,7 @@ describe('ProcessorEndpoint Test', function () {
 
         await expect(failTx)
           .to.emit(processorEndpoint, 'Refund')
-          .withArgs(APPLICATION_ID, requestId, await sender.getAddress(), expectedRefund);
+          .withArgs(applicationId, requestId, await sender.getAddress(), expectedRefund);
 
         const senderPendingAmountAfterComplete = await processorEndpoint.payments(
           await sender.getAddress()
@@ -403,7 +414,7 @@ describe('ProcessorEndpoint Test', function () {
 
         const tx = await processorEndpoint
           .connect(sender)
-          .submitRequest(PROTOCOL_VERSION, APPLICATION_ID, REQUEST_TYPE, '0x05', 0, maxFeeValue, {
+          .submitRequest(PROTOCOL_VERSION, applicationId, REQUEST_TYPE, '0x05', 0, maxFeeValue, {
             value: maxFeeValue,
           });
         const receipt = await tx.wait();
@@ -418,7 +429,7 @@ describe('ProcessorEndpoint Test', function () {
 
         await expect(failTx)
           .to.emit(processorEndpoint, 'RequestCompleted')
-          .withArgs(requestId, minFeePerRequest, 1, 1, 'err');
+          .withArgs(applicationId, requestId, minFeePerRequest, 1, 1, 'err');
 
         const senderPendingAmountAfterFail = await processorEndpoint.payments(
           await sender.getAddress()
@@ -427,6 +438,47 @@ describe('ProcessorEndpoint Test', function () {
         expect(senderPendingAmountAfterFail - senderPendingAmountAfterSubmit).to.equal(
           expectedRefund
         );
+      });
+
+      it('restores an available deploy slot when a deploy request fails', async () => {
+        const slotsBefore = await processorEndpoint.availableDeploySlots();
+
+        const deployTx = await processorEndpoint
+          .connect(signers[2])
+          .submitDeployRequest(PROTOCOL_VERSION, '0x01', { value: minFeePerRequest });
+        const deployReceipt = await deployTx.wait();
+        const deployLog = deployReceipt.logs.find((log: any) => {
+          try {
+            return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
+          } catch {
+            return false;
+          }
+        });
+        const parsed = processorEndpoint.interface.parseLog(deployLog);
+        const deployAppId: bigint = parsed.args.applicationId;
+        const deployRequestId: string = parsed.args.requestId;
+
+        expect(await processorEndpoint.availableDeploySlots()).to.equal(slotsBefore - 1n);
+
+        const failTx = await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            deployAppId,
+            BYTES32_ZERO,
+            BYTES32_ZERO,
+            deployRequestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'deploy failed',
+            '0x'
+          );
+
+        await expect(failTx).to.emit(processorEndpoint, 'DeployRequestCompleted');
+        expect(await processorEndpoint.availableDeploySlots()).to.equal(slotsBefore);
       });
     });
   });

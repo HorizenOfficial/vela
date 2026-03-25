@@ -5,6 +5,7 @@ describe('ProcessorEndpoint deployer role management', function () {
   let processorEndpoint: any;
   let signers: any[];
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   const REQUEST_TYPE_DEPLOYAPP = 0;
 
@@ -13,6 +14,7 @@ describe('ProcessorEndpoint deployer role management', function () {
     processorEndpoint = await fixture.deployProcessorEndpoint();
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   it('admin can add a second allowed deployer', async () => {
@@ -25,10 +27,18 @@ describe('ProcessorEndpoint deployer role management', function () {
     await expect(
       processorEndpoint
         .connect(signers[4])
-        .submitRequest(0, 1, REQUEST_TYPE_DEPLOYAPP, '0x01', 0, minFeePerRequest, {
+        .submitDeployRequest(0, '0x01', { value: minFeePerRequest })
+    ).to.emit(processorEndpoint, 'DeployRequestSubmitted');
+  });
+
+  it('submitRequest reverts with InvalidRequestType for DEPLOYAPP even with deployer role', async () => {
+    await expect(
+      processorEndpoint
+        .connect(signers[2])
+        .submitRequest(0, applicationId, REQUEST_TYPE_DEPLOYAPP, '0x01', 0, minFeePerRequest, {
           value: minFeePerRequest,
         })
-    ).to.emit(processorEndpoint, 'RequestSubmitted');
+    ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestType');
   });
 
   it('admin can remove an allowed deployer', async () => {
@@ -41,9 +51,7 @@ describe('ProcessorEndpoint deployer role management', function () {
     await expect(
       processorEndpoint
         .connect(signers[4])
-        .submitRequest(0, 1, REQUEST_TYPE_DEPLOYAPP, '0x01', 0, minFeePerRequest, {
-          value: minFeePerRequest,
-        })
+        .submitDeployRequest(0, '0x01', { value: minFeePerRequest })
     ).to.be.revertedWithCustomError(processorEndpoint, 'DeployerNotAllowed');
   });
 
