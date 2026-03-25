@@ -148,15 +148,19 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 	pubKeyBytes := p521Key.PublicKey().Bytes()
 	require.Len(t, pubKeyBytes, 133)
 
-	// Build 198-byte AssociateKey payload
-	payload198 := append(pubKeyBytes, seed...)
-	require.Len(t, payload198, 198)
+	// Encrypt the seed with the user's P521 private key and the enclave's P521 public key
+	encryptedSeed, err := crypto.Encrypt(p521Key, exec.keySet.CommunicationKey.PublicKey(), seed)
+	require.NoError(t, err)
+
+	// Build AssociateKey payload: P521 pubkey (133 bytes) + encrypted seed (93 bytes)
+	payloadWithSeed := append(pubKeyBytes, encryptedSeed...)
+	require.Len(t, payloadWithSeed, 226)
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
 	req := newProcessRequest()
 	req.RequestType = common.AssociateKey
-	req.Payload = payload198
+	req.Payload = payloadWithSeed
 	req.Sender = sender
 
 	// Execute AssociateKey request
@@ -306,12 +310,16 @@ func TestAssociateKey_WrongSeedSigner(t *testing.T) {
 	p521Key, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err)
 
-	payload198 := append(p521Key.PublicKey().Bytes(), wrongSeed...)
+	// Encrypt the wrong seed with the user's P521 key and the enclave's P521 public key
+	encryptedWrongSeed, err := crypto.Encrypt(p521Key, exec.keySet.CommunicationKey.PublicKey(), wrongSeed)
+	require.NoError(t, err)
+
+	payloadWithSeed := append(p521Key.PublicKey().Bytes(), encryptedWrongSeed...)
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 	req := newProcessRequest()
 	req.RequestType = common.AssociateKey
-	req.Payload = payload198
+	req.Payload = payloadWithSeed
 	req.Sender = realSender
 
 	respPayload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)

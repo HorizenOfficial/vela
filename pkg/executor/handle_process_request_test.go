@@ -218,7 +218,7 @@ func TestHandleProcessRequest_AssociateKey_InvalidKeyBytes(t *testing.T) {
 	exec := newTestExecutor(t, NewMockRuntime(testLogger))
 	req := newProcessRequest()
 	req.RequestType = common.AssociateKey
-	req.Payload = make([]byte, 198) // 198 bytes but not a valid P521 key
+	req.Payload = make([]byte, 226) // 226 bytes but not a valid P521 key
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
@@ -432,13 +432,17 @@ func TestHandleProcessRequest_AssociateKey_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, seed, 65)
 
-	// payload = P521 pubkey (133 bytes) + seed (65 bytes)
-	payload198 := append(pubKeyBytes, seed...)
-	require.Len(t, payload198, 198)
+	// Encrypt the seed with the user's P521 private key and the enclave's P521 public key
+	encryptedSeed, err := crypto.Encrypt(keyToAssociate, exec.keySet.CommunicationKey.PublicKey(), seed)
+	require.NoError(t, err)
+
+	// payload = P521 pubkey (133 bytes) + encrypted seed (93 bytes)
+	payloadWithSeed := append(pubKeyBytes, encryptedSeed...)
+	require.Len(t, payloadWithSeed, 226)
 
 	req := newProcessRequest()
 	req.RequestType = common.AssociateKey
-	req.Payload = payload198
+	req.Payload = payloadWithSeed
 	req.Sender = sender
 
 	payload, newAppState, _, err := exec.HandleProcessRequest(context.Background(), req, appState, nil)
