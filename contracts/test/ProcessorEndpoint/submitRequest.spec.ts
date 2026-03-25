@@ -91,7 +91,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'QueueThresholdExceeded');
       });
 
-      it('reverts with InvalidPayload when ASSOCIATEKEY payload length != 198', async () => {
+      it('reverts with InvalidPayload when ASSOCIATEKEY payload length is not 133 or 198', async () => {
         await expect(
           processorEndpoint.submitRequest(
             0,
@@ -263,7 +263,24 @@ describe('ProcessorEndpoint Test', function () {
         expect(receipt.logs[0].args.sender).to.equal(await signers[0].getAddress());
       });
 
-      it('accepts ASSOCIATEKEY when payload length is 198', async () => {
+      it('accepts ASSOCIATEKEY when payload length is 133 (key only)', async () => {
+        const payload = '0x' + '22'.repeat(133);
+        const tx = await processorEndpoint.submitRequest(
+          0,
+          1,
+          REQUEST_TYPE_ASSOCIATEKEY,
+          payload,
+          0,
+          minFeePerRequest,
+          { value: minFeePerRequest }
+        );
+
+        await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
+        const receipt = await tx.wait();
+        expect(receipt.logs[0].args.sender).to.equal(await signers[0].getAddress());
+      });
+
+      it('accepts ASSOCIATEKEY when payload length is 198 (key + seed)', async () => {
         const payload = '0x' + '22'.repeat(198);
         const tx = await processorEndpoint.submitRequest(
           0,

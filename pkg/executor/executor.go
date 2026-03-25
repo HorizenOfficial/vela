@@ -603,11 +603,12 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var reportData []byte
 
 	if req.RequestType == common.AssociateKey {
-		//request  of type associate key: the payload is not encrypted and contains the new key + seed
+		//request  of type associate key: the payload is not encrypted and contains the new key
 		e.log.Info("Associating new key - RequestID %s", req.RequestID)
 
-		const associateKeyPayloadSize = 133 + appdata.SeedStore_ValSize // 198 bytes
-		if len(req.Payload) != associateKeyPayloadSize {
+		const associateKeyPayloadSize = 133
+		const associateKeyWithSeedPayloadSize = 133 + appdata.SeedStore_ValSize // 198 bytes
+		if len(req.Payload) != associateKeyPayloadSize && len(req.Payload) != associateKeyWithSeedPayloadSize {
 			return nil, nil, nil, fmt.Errorf("invalid payload length")
 		}
 
@@ -620,19 +621,21 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			return errorPayload, nil, nil, err
 		}
 
-		seed := req.Payload[133:associateKeyPayloadSize]
-		if err := VerifySeed(seed, req.Sender); err != nil {
-			e.log.Error("Executor: seed verification failed for request %s: %v", req.RequestID, err)
-			errorPayload, err := e.processErrorResponse(req,
-				appState.StateRoot,
-				apperrors.New(apperrors.CodeParsingKeyError, "seed verification failed"))
-			return errorPayload, nil, nil, err
-		}
-
 		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
 
 		appData.AddKey(req.Sender, *keyToAssociate)
-		appData.AddSeed(req.Sender, seed)
+
+		if len(req.Payload) == associateKeyWithSeedPayloadSize {
+			seed := req.Payload[133:associateKeyWithSeedPayloadSize]
+			if err := VerifySeed(seed, req.Sender); err != nil {
+				e.log.Error("Executor: seed verification failed for request %s: %v", req.RequestID, err)
+				errorPayload, err := e.processErrorResponse(req,
+					appState.StateRoot,
+					apperrors.New(apperrors.CodeParsingKeyError, "seed verification failed"))
+				return errorPayload, nil, nil, err
+			}
+			appData.AddSeed(req.Sender, seed)
+		}
 	} else {
 		//any other case: decrypt the payload and forward to the WASM to obtain the new state
 
@@ -723,7 +726,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
-	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore(), appData.GetSeedStore())
+	encryptedEvents, failure := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore(), appData.GetEventSeedStore())
 	if failure != nil {
 		errorPayload, err := e.processErrorResponse(req,
 			appState.StateRoot,

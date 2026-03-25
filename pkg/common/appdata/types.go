@@ -25,7 +25,7 @@ type AppData struct {
 	version  uint8
 	appNonce uint64
 	appKeys  KeyStore
-	appSeeds SeedStore
+	appEventSeeds SeedStore
 	appState []byte
 }
 type KeyStore map[ethCommon.Address]*cryptotypes.PublicKeyP521
@@ -33,16 +33,16 @@ type SeedStore map[ethCommon.Address][]byte
 
 func NewAppData(initialAppState []byte) *AppData {
 	return &AppData{
-		version:  Version_2,
+		version:  Version_1,
 		appNonce: 0,
 		appKeys:  make(map[ethCommon.Address]*cryptotypes.PublicKeyP521),
-		appSeeds: make(SeedStore),
+		appEventSeeds: make(SeedStore),
 		appState: initialAppState,
 	}
 }
 
 // Serialize converts the AppData struct into a byte slice.
-// Version 2 format:
+// The format is:
 // - Version (uint8)
 // - Nonce (uint64)
 // - Number of keys (uint32)
@@ -80,12 +80,12 @@ func (s *AppData) Serialize() ([]byte, error) {
 	}
 
 	// Write the number of seeds as a uint32
-	if err := binary.Write(&buf, binary.BigEndian, uint32(len(s.appSeeds))); err != nil {
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(s.appEventSeeds))); err != nil {
 		return nil, fmt.Errorf("failed to write seed count: %w", err)
 	}
 
 	// Write each seed key-value pair (address + 65-byte seed)
-	for addr, seed := range s.appSeeds {
+	for addr, seed := range s.appEventSeeds {
 		buf.Write(addr.Bytes())
 		if len(seed) != SeedStore_ValSize {
 			return nil, fmt.Errorf("seed for %s has incorrect size: expected %d, got %d", addr, SeedStore_ValSize, len(seed))
@@ -118,16 +118,16 @@ func (s *AppData) GetKeyStore() KeyStore {
 func (s *AppData) AddSeed(user ethCommon.Address, seed []byte) {
 	seedCopy := make([]byte, len(seed))
 	copy(seedCopy, seed)
-	s.appSeeds[user] = seedCopy
+	s.appEventSeeds[user] = seedCopy
 }
 
 func (s *AppData) GetSeed(user ethCommon.Address) ([]byte, bool) {
-	seed, exists := s.appSeeds[user]
+	seed, exists := s.appEventSeeds[user]
 	return seed, exists
 }
 
-func (s *AppData) GetSeedStore() SeedStore {
-	return s.appSeeds
+func (s *AppData) GetEventSeedStore() SeedStore {
+	return s.appEventSeeds
 }
 
 func (s *AppData) IncrementNonce() {
@@ -182,33 +182,29 @@ func DeserializeAppData(data []byte) (*AppData, error) {
 		ks[ethCommon.BytesToAddress(keyBuf)] = val
 	}
 
-	// Read seed store — only present in Version_2 and above
+	// Read seed store
 	ss := make(SeedStore)
-	switch version {
-	case Version_1:
-		// no seed store in v1; ss stays empty
-	case Version_2:
-		var numSeeds uint32
-		if err := binary.Read(reader, binary.BigEndian, &numSeeds); err != nil {
-			return nil, fmt.Errorf("failed to read seed count: %w", err)
-		}
-		expectedSeedSize := int(numSeeds) * (KeyStore_KeySize + SeedStore_ValSize)
-		if reader.Len() < expectedSeedSize {
-			return nil, fmt.Errorf("insufficient data for seed pairs: need %d, have %d", expectedSeedSize, reader.Len())
-		}
-		for i := uint32(0); i < numSeeds; i++ {
-			addrBuf := make([]byte, KeyStore_KeySize)
-			if _, err := reader.Read(addrBuf); err != nil {
-				return nil, fmt.Errorf("failed to read seed address %d: %w", i, err)
-			}
-			seedBuf := make([]byte, SeedStore_ValSize)
-			if _, err := reader.Read(seedBuf); err != nil {
-				return nil, fmt.Errorf("failed to read seed value %d: %w", i, err)
-			}
-			ss[ethCommon.BytesToAddress(addrBuf)] = seedBuf
-		}
-	default:
+	if version != Version_1 {
 		return nil, fmt.Errorf("unsupported AppData version: %d", version)
+	}
+	var numSeeds uint32
+	if err := binary.Read(reader, binary.BigEndian, &numSeeds); err != nil {
+		return nil, fmt.Errorf("failed to read seed count: %w", err)
+	}
+	expectedSeedSize := int(numSeeds) * (KeyStore_KeySize + SeedStore_ValSize)
+	if reader.Len() < expectedSeedSize {
+		return nil, fmt.Errorf("insufficient data for seed pairs: need %d, have %d", expectedSeedSize, reader.Len())
+	}
+	for i := uint32(0); i < numSeeds; i++ {
+		addrBuf := make([]byte, KeyStore_KeySize)
+		if _, err := reader.Read(addrBuf); err != nil {
+			return nil, fmt.Errorf("failed to read seed address %d: %w", i, err)
+		}
+		seedBuf := make([]byte, SeedStore_ValSize)
+		if _, err := reader.Read(seedBuf); err != nil {
+			return nil, fmt.Errorf("failed to read seed value %d: %w", i, err)
+		}
+		ss[ethCommon.BytesToAddress(addrBuf)] = seedBuf
 	}
 
 	// The rest of the reader is the appState
@@ -221,7 +217,7 @@ func DeserializeAppData(data []byte) (*AppData, error) {
 		version:  version,
 		appNonce: nonce,
 		appKeys:  ks,
-		appSeeds: ss,
+		appEventSeeds: ss,
 		appState: appState,
 	}, nil
 }
