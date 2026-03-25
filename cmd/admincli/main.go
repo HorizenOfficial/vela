@@ -102,7 +102,7 @@ func main() {
 		case "3":
 			msg, err = buildSetLogLevel(scanner)
 		case "4":
-			msg = buildKeyAttestation()
+			msg, err = buildKeyAttestation()
 		case "5":
 			msg, err = buildGetWasmCacheSize()
 		case "6":
@@ -210,8 +210,8 @@ func buildSetLogLevel(scanner *bufio.Scanner) (*adminMessage, error) {
 	return &adminMessage{Type: setLogLevelRequest, Target: target, Data: raw}, nil
 }
 
-func buildKeyAttestation() *adminMessage {
-	return &adminMessage{Type: keyAttestationRequest, Target: "executor"}
+func buildKeyAttestation() (*adminMessage, error) {
+	return &adminMessage{Type: keyAttestationRequest, Target: "executor"}, nil
 }
 
 func buildGetWasmCacheSize() (*adminMessage, error) {

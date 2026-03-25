@@ -1170,11 +1170,11 @@ func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType stri
 		if req.MaxCachedModules < 0 {
 			return nil, fmt.Errorf("maxCachedModules must be >= 0 (0 = unlimited)")
 		}
-		if cc, ok := e.runtime.(moduleCacheController); ok {
-			cc.SetMaxCachedModules(req.MaxCachedModules)
-		} else {
-			e.log.Warn("Executor: set_wasm_cache_size ignored (runtime does not support module caching)")
+		cc, ok := e.runtime.(moduleCacheController)
+		if !ok {
+			return nil, fmt.Errorf("runtime does not support module caching")
 		}
+		cc.SetMaxCachedModules(req.MaxCachedModules)
 		resp, err := json.Marshal(admin.SetWasmCacheSizeResponse{MaxCachedModules: req.MaxCachedModules})
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal response: %w", err)
@@ -1182,10 +1182,11 @@ func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType stri
 		return resp, nil
 
 	case admin.AdminCmdGetWasmCacheSize:
-		var maxCached int
-		if cc, ok := e.runtime.(moduleCacheController); ok {
-			maxCached = cc.GetMaxCachedModules()
+		cc, ok := e.runtime.(moduleCacheController)
+		if !ok {
+			return nil, fmt.Errorf("runtime does not support module caching")
 		}
+		maxCached := cc.GetMaxCachedModules()
 		resp, err := json.Marshal(admin.GetWasmCacheSizeResponse{MaxCachedModules: maxCached})
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal response: %w", err)

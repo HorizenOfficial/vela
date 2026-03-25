@@ -110,10 +110,9 @@ Returns the current WASM module LRU cache limit from the Executor. A value of
 ### 6) Set WASM Cache Size (executor only)
 
 Changes the WASM module LRU cache limit at runtime. If the new limit is lower
-than the current number of cached modules, excess modules are evicted
-immediately (least recently used first). Evicted modules are transparently
-reloaded on next access. A value of `0` means unlimited. Always targets the
-executor.
+than the current number of cached modules, excess modules are evicted lazily
+when the next module is loaded (least recently used first). A value of `0`
+means unlimited. Always targets the executor.
 
 ```json
 {"maxCachedModules": 5}
