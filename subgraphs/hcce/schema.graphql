@@ -1,5 +1,6 @@
 type RequestSubmitted @entity(immutable: true) {
   id: ID!
+  applicationId: BigInt!
   requestId: Bytes!
   sender: Bytes!
   blockNumber: BigInt!
@@ -8,6 +9,7 @@ type RequestSubmitted @entity(immutable: true) {
 
 type RequestCompleted @entity(immutable: true) {
   id: ID!
+  applicationId: BigInt!
   requestId: Bytes!
   applicationFees: BigInt!
   status: Int!
@@ -26,5 +28,26 @@ type UserEvent @entity(immutable: true) {
   blockNumber: BigInt!
   logIndex: BigInt!
   sortKey: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type DeployRequestSubmitted @entity(immutable: true) {
+  id: ID!
+  applicationId: BigInt!
+  requestId: Bytes!
+  sender: Bytes!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type DeployRequestCompleted @entity(immutable: true) {
+  id: ID!
+  applicationId: BigInt!
+  requestId: Bytes!
+  applicationFees: BigInt!
+  status: Int!
+  errorCode: Int!
+  errorMessage: String!
+  blockNumber: BigInt!
   blockTimestamp: BigInt!
 }

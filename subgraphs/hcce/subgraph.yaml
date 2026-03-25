@@ -19,14 +19,20 @@ dataSources:
         - RequestSubmitted
         - RequestCompleted
         - UserEvent
+        - DeployRequestSubmitted
+        - DeployRequestCompleted
       abis:
         - name: ProcessorEndpoint
           file: ./abis/ProcessorEndpoint.json
       eventHandlers:
-        - event: RequestSubmitted(indexed bytes32,indexed address)
+        - event: RequestSubmitted(indexed uint64,bytes32,indexed address)
           handler: handleRequestSubmitted
-        - event: RequestCompleted(indexed bytes32,uint256,uint8,uint8,string)
+        - event: RequestCompleted(indexed uint64,indexed bytes32,uint256,uint8,uint8,string)
           handler: handleRequestCompleted
         - event: UserEvent(indexed uint64,indexed bytes32,indexed string,bytes)
           handler: handleUserEvent
+        - event: DeployRequestSubmitted(indexed uint64,bytes32,indexed address)
+          handler: handleDeployRequestSubmitted
+        - event: DeployRequestCompleted(indexed uint64,indexed bytes32,uint256,uint8,uint8,string)
+          handler: handleDeployRequestCompleted
       file: ./src/processor-endpoint.ts
