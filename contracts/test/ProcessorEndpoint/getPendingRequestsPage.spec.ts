@@ -6,9 +6,9 @@ describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   const PROTOCOL_VERSION = 0;
-  const APPLICATION_ID = 1;
   const REQUEST_TYPE_PROCESS = 1;
 
   beforeEach(async function () {
@@ -16,13 +16,14 @@ describe('ProcessorEndpoint Test', function () {
     processorEndpoint = await fixture.deployProcessorEndpoint();
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   async function submitRequest(payload: string, depositAmount: bigint) {
     const maxFeeValue = minFeePerRequest;
     const tx = await processorEndpoint.submitRequest(
       PROTOCOL_VERSION,
-      APPLICATION_ID,
+      applicationId,
       REQUEST_TYPE_PROCESS,
       payload,
       depositAmount,

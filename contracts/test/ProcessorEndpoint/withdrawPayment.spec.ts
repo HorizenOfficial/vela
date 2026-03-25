@@ -1,15 +1,14 @@
 import { expect } from 'chai';
 import { BigNumberish, Signer } from 'ethers';
 import { ethers } from 'hardhat';
-import { deployProcessorEndpointFixture } from './fixture';
-import { BYTES32_ZERO } from '../util';
+import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let protocolVersion: BigNumberish;
-  let applicationId: BigNumberish;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
@@ -17,7 +16,7 @@ describe('ProcessorEndpoint Test', function () {
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     protocolVersion = await processorEndpoint.PROTOCOL_VERSION();
-    applicationId = await processorEndpoint.APPLICATION_ID();
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   describe('withdrawPayments', function () {
@@ -43,12 +42,13 @@ describe('ProcessorEndpoint Test', function () {
 
         // Mark request as failed via stateUpdate with errorCode
         // With pull pattern, we just credit to pending, don't transfer
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
             applicationId,
-            BYTES32_ZERO,
-            BYTES32_ZERO,
+            currentStateRoot,
+            currentStateRoot,
             currentPendingRequest.requestId,
             [],
             [],
@@ -93,7 +93,7 @@ describe('ProcessorEndpoint Test', function () {
         );
         await submitTx.wait();
 
-        let initialStateRoot = await processorEndpoint.stateRoot();
+        let initialStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
         let [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
 
         let newStateRoot = '0x1234000000000000000000000000000000000000000000000000000000000000';
@@ -133,7 +133,7 @@ describe('ProcessorEndpoint Test', function () {
         await updateTx.wait();
 
         // State root should be updated
-        expect(await processorEndpoint.stateRoot()).eql(newStateRoot);
+        expect(await processorEndpoint.applicationStateRoots(applicationId)).eql(newStateRoot);
 
         // Funds should be in pending for FallbackFailure
         let pendingAmount = await processorEndpoint.payments(fallbackAddr);
@@ -154,12 +154,13 @@ describe('ProcessorEndpoint Test', function () {
         let [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
 
         // Fail the request via stateUpdate with errorCode to credit refund to signer[2]
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
             applicationId,
-            BYTES32_ZERO,
-            BYTES32_ZERO,
+            currentStateRoot,
+            currentStateRoot,
             currentPendingRequest.requestId,
             [],
             [],
@@ -211,13 +212,14 @@ describe('ProcessorEndpoint Test', function () {
         await submitTx.wait();
 
         // Fail both requests via stateUpdate with errorCode
+        let currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
         let [req1] = await processorEndpoint.getNextPendingRequest();
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
             applicationId,
-            BYTES32_ZERO,
-            BYTES32_ZERO,
+            currentStateRoot,
+            currentStateRoot,
             req1.requestId,
             [],
             [],
@@ -229,13 +231,14 @@ describe('ProcessorEndpoint Test', function () {
             '0x'
           );
 
+        currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
         let [req2] = await processorEndpoint.getNextPendingRequest();
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
             applicationId,
-            BYTES32_ZERO,
-            BYTES32_ZERO,
+            currentStateRoot,
+            currentStateRoot,
             req2.requestId,
             [],
             [],

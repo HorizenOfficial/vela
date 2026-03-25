@@ -255,6 +255,21 @@ func (s *SimTestHelper) SubmitRequest(applicationId common.ApplicationIdType, re
 	return s.SubmitRequestFromUser(applicationId, requestType, payload, depositAmount, maxFeeValue, s.Submitter)
 }
 
+func (s *SimTestHelper) SubmitDeployRequestFromUser(payload []byte, maxFeeValue *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
+	if payload == nil {
+		payload = ethCommon.FromHex("0x00")
+	}
+	sender.Value = new(big.Int).Set(maxFeeValue)
+	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitDeployRequest(s.ProtocolVersion, payload))
+	require.NoError(s.t, err, "failed to submit deploy transaction")
+	sender.Value = big.NewInt(0)
+	return tx
+}
+
+func (s *SimTestHelper) SubmitDeployRequest(payload []byte, maxFeeValue *big.Int) *ethTypes.Transaction {
+	return s.SubmitDeployRequestFromUser(payload, maxFeeValue, s.Deployer)
+}
+
 func (s *SimTestHelper) MineBlock() ethCommon.Hash {
 	require.False(s.t, s.autoMining, "auto mining is enabled, cannot manually mine blocks")
 	return s.sim.Commit()
@@ -265,11 +280,11 @@ func (s *SimTestHelper) WaitMined(tx *ethTypes.Transaction) {
 	require.NoError(s.t, err, "error waiting for tx inclusion")
 }
 
-func (s *SimTestHelper) GetStateRoot() [32]byte {
+func (s *SimTestHelper) GetStateRoot(applicationId common.ApplicationIdType) [32]byte {
 	oldStateRoot, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
-		s.processEndpointContract.PackStateRoot(),
-		s.processEndpointContract.UnpackStateRoot)
+		s.processEndpointContract.PackApplicationStateRoots(uint64(applicationId)),
+		s.processEndpointContract.UnpackApplicationStateRoots)
 	require.NoError(s.t, err)
 	return oldStateRoot
 }

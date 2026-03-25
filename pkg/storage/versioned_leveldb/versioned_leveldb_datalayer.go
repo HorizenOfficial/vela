@@ -24,10 +24,10 @@ const (
 	enclaveKeyRecoveryPrefix = "enclavekeyrecovery_"
 )
 
-// just two attributes for the time being; should we need more customization we can add them here
+// VersionedLevelDBConfig holds configuration for the versioned LevelDB storage.
 type VersionedLevelDBConfig struct {
 	DBPath         string
-	VersionsToKeep int
+	VersionsToKeep int // Maximum number of historical versions to keep per application.
 }
 
 // generateVersionID creates a unique version identifier for a key-value pair.
@@ -56,11 +56,12 @@ func (c *closableStore) checkClosed(storeName string) error {
 
 func (c *closableStore) close(closeFunc func() error) error {
 	c.mutex.Lock()
-	defer c.mutex.Unlock()
 	if c.isClosed {
+		c.mutex.Unlock()
 		return nil
 	}
 	c.isClosed = true
+	c.mutex.Unlock()
 	return closeFunc()
 }
 
@@ -81,40 +82,58 @@ func NewVersionedLevelDBAppStateStore(cfg VersionedLevelDBConfig) (*VersionedLev
 func (vdl *VersionedLevelDBAppStateStore) Store(
 	ctx context.Context,
 	versionID []byte,
-	stateArray []*common.ApplicationState,
-	wasmArray []*common.WASMData,
+	state *common.ApplicationState,
+) error {
+	return vdl.storeInternal(ctx, versionID, state, nil)
+}
+
+func (vdl *VersionedLevelDBAppStateStore) StoreWithWasm(
+	ctx context.Context,
+	versionID []byte,
+	state *common.ApplicationState,
+	wasm *common.WASMData,
+) error {
+	if wasm == nil {
+		return fmt.Errorf("wasm must not be nil; use Store to save state without WASM")
+	}
+	return vdl.storeInternal(ctx, versionID, state, wasm)
+}
+
+func (vdl *VersionedLevelDBAppStateStore) storeInternal(
+	ctx context.Context,
+	versionID []byte,
+	state *common.ApplicationState,
+	wasm *common.WASMData,
 ) error {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return err
 	}
+
+	if state == nil {
+		return fmt.Errorf("state must not be nil")
+	}
+	if wasm != nil && state.ApplicationID != wasm.ApplicationID {
+		return fmt.Errorf("inconsistent ApplicationID: state has %d, wasm has %d", state.ApplicationID, wasm.ApplicationID)
+	}
+
+	appID := state.ApplicationID
+
 	toUpdate := []storage.KeyValuePair{}
 	toRemove := [][]byte{}
 
-	for _, state := range stateArray {
-
-		if state == nil {
-			return fmt.Errorf("application state entry is nil")
-		}
-
-		value, err := json.Marshal(state)
-		if err != nil {
-			return fmt.Errorf("failed to marshal application state: %w", err)
-		}
-
-		key := []byte(appStatePrefix + state.ApplicationID.String())
-		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: value})
+	value, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal application state: %w", err)
 	}
+	key := []byte(appStatePrefix + state.ApplicationID.String())
+	toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: value})
 
-	for _, wasm := range wasmArray {
-		if wasm == nil {
-			return fmt.Errorf("wasm entry is nil")
-		}
-
+	if wasm != nil {
 		key := []byte(wasmPrefix + wasm.ApplicationID.String())
 		toUpdate = append(toUpdate, storage.KeyValuePair{Key: key, Value: wasm.Bytecode})
 	}
 
-	err := vdl.adapter.Update(versionID, toUpdate, toRemove)
+	err = vdl.adapter.Update(uint64(appID), versionID, toUpdate, toRemove)
 	if err != nil {
 		return fmt.Errorf("failed to store application state in Versioned LevelDB: %w", err)
 	}
@@ -157,25 +176,25 @@ func (vdl *VersionedLevelDBAppStateStore) GetWASMBytecode(ctx context.Context, a
 	return value, nil
 }
 
-func (vdl *VersionedLevelDBAppStateStore) Rollback(versionID []byte) error {
+func (vdl *VersionedLevelDBAppStateStore) Rollback(appID common.ApplicationIdType, versionID []byte) error {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return err
 	}
-	return vdl.adapter.Rollback(versionID)
+	return vdl.adapter.Rollback(uint64(appID), versionID)
 }
 
-func (vdl *VersionedLevelDBAppStateStore) LastVersionID() ([]byte, error) {
+func (vdl *VersionedLevelDBAppStateStore) LastVersionID(appID common.ApplicationIdType) ([]byte, error) {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
-	return vdl.adapter.LastVersionID()
+	return vdl.adapter.LastVersionID(uint64(appID))
 }
 
-func (vdl *VersionedLevelDBAppStateStore) ListVersions() ([][]byte, error) {
+func (vdl *VersionedLevelDBAppStateStore) ListVersions(appID common.ApplicationIdType) ([][]byte, error) {
 	if err := vdl.checkClosed("state store"); err != nil {
 		return nil, err
 	}
-	return vdl.adapter.RollbackVersions()
+	return vdl.adapter.RollbackVersions(uint64(appID))
 }
 
 func (vdl *VersionedLevelDBAppStateStore) Close() error {
@@ -234,7 +253,7 @@ func (s *LevelDbStorageAdapter) Close() error {
 
 // LevelDBEnclaveKeyStore is a non-versioned store for enclave key recovery data.
 type LevelDBEnclaveKeyStore struct {
-	Adapter *LevelDbStorageAdapter
+	adapter *LevelDbStorageAdapter
 	closableStore
 }
 
@@ -243,7 +262,7 @@ func NewLevelDBEnclaveKeyStore(dbPath string) (*LevelDBEnclaveKeyStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &LevelDBEnclaveKeyStore{Adapter: adapter}, nil
+	return &LevelDBEnclaveKeyStore{adapter: adapter}, nil
 }
 
 func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context, recoveryData *common.EnclaveKeySetRecovery) error {
@@ -255,7 +274,7 @@ func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context,
 		return fmt.Errorf("failed to marshal enclave key set recovery data: %w", err)
 	}
 	key := []byte(enclaveKeyRecoveryPrefix)
-	err = s.Adapter.Put(key, value)
+	err = s.adapter.Put(key, value)
 	if err != nil {
 		return fmt.Errorf("failed to store enclave key set recovery data in LevelDB: %w", err)
 	}
@@ -267,7 +286,7 @@ func (s *LevelDBEnclaveKeyStore) GetEnclaveKeySetRecovery(ctx context.Context) (
 		return nil, err
 	}
 	key := []byte(enclaveKeyRecoveryPrefix)
-	value, err := s.Adapter.Get(key)
+	value, err := s.adapter.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get enclave key set recovery data from LevelDB: %w", err)
 	}
@@ -283,7 +302,7 @@ func (s *LevelDBEnclaveKeyStore) GetEnclaveKeySetRecovery(ctx context.Context) (
 }
 
 func (s *LevelDBEnclaveKeyStore) Close() error {
-	return s.close(s.Adapter.Close)
+	return s.close(s.adapter.Close)
 }
 
 var _ storage.EnclaveKeyStore = (*LevelDBEnclaveKeyStore)(nil)
@@ -318,13 +337,9 @@ func NewVersionedLevelDBDataLayer(cfg VersionedLevelDBConfig) (*LevelDBDataLayer
 }
 
 func (d *LevelDBDataLayer) Close() error {
-	if err := d.VersionedLevelDBAppStateStore.Close(); err != nil {
-		return err
-	}
-	if err := d.LevelDBEnclaveKeyStore.Close(); err != nil {
-		return err
-	}
-	return nil
+	errState := d.VersionedLevelDBAppStateStore.Close()
+	errEnclave := d.LevelDBEnclaveKeyStore.Close()
+	return errors.Join(errState, errEnclave)
 }
 
 var _ storage.DataLayer = (*LevelDBDataLayer)(nil)

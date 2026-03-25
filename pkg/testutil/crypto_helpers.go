@@ -18,13 +18,15 @@ import (
 
 // CryptoHelper provides cryptographic operations for system tests
 type CryptoHelper struct {
-	userKeys map[ethCommon.Address]*cryptotypes.PrivateKeyP521
+	userKeys        map[ethCommon.Address]*cryptotypes.PrivateKeyP521
+	userSigningKeys map[ethCommon.Address]*cryptotypes.PrivateKeySecp256k1
 }
 
 // NewCryptoHelper creates a new crypto helper
 func NewCryptoHelper() *CryptoHelper {
 	return &CryptoHelper{
-		userKeys: make(map[ethCommon.Address]*cryptotypes.PrivateKeyP521),
+		userKeys:        make(map[ethCommon.Address]*cryptotypes.PrivateKeyP521),
+		userSigningKeys: make(map[ethCommon.Address]*cryptotypes.PrivateKeySecp256k1),
 	}
 }
 
@@ -48,10 +50,75 @@ func (c *CryptoHelper) GetUserKey(userID ethCommon.Address) (*cryptotypes.Privat
 	return key, nil
 }
 
-// CreateAssociateKeyRequest creates an associate key request
-func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, key *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	// For associate key, the payload is unencrypted and contains the key to associate
-	payload := key.Bytes()
+// GenerateUserSigningKey generates a secp256k1 signing key for the user and stores it.
+// This key is used to compute the seed for privacy-preserving event subtypes.
+func (c *CryptoHelper) GenerateUserSigningKey(userID ethCommon.Address) (*cryptotypes.PrivateKeySecp256k1, error) {
+	privKey, err := crypto.GeneratePrivateKeySecp256k1()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate secp256k1 key for user %s: %w", userID, err)
+	}
+	c.userSigningKeys[userID] = privKey
+	return privKey, nil
+}
+
+// GenerateUserIdentity generates a secp256k1 signing key and returns the Ethereum address
+// derived from it. The user address MUST match the signing key for VerifySeed to pass.
+// Use this instead of hardcoded addresses when the user will call AssociateKey.
+func (c *CryptoHelper) GenerateUserIdentity() (ethCommon.Address, error) {
+	privKey, err := crypto.GeneratePrivateKeySecp256k1()
+	if err != nil {
+		return ethCommon.Address{}, fmt.Errorf("failed to generate secp256k1 identity key: %w", err)
+	}
+	addr := ethCommon.HexToAddress(privKey.PublicKey().Address())
+	c.userSigningKeys[addr] = privKey
+	return addr, nil
+}
+
+// GetUserSigningKey returns the secp256k1 signing key for a user.
+func (c *CryptoHelper) GetUserSigningKey(userID ethCommon.Address) (*cryptotypes.PrivateKeySecp256k1, error) {
+	key, exists := c.userSigningKeys[userID]
+	if !exists {
+		return nil, fmt.Errorf("no secp256k1 signing key found for user %s", userID)
+	}
+	return key, nil
+}
+
+// ComputeSeed signs keccak256(SubtypeKeyMessage) with the user's secp256k1 key.
+// The resulting 65-byte signature is the seed used to derive privacy-preserving event subtypes.
+// GenerateUserSigningKey must be called before ComputeSeed.
+func (c *CryptoHelper) ComputeSeed(userID ethCommon.Address) ([]byte, error) {
+	signingKey, err := c.GetUserSigningKey(userID)
+	if err != nil {
+		return nil, err
+	}
+	msgHash := ethCrypto.Keccak256([]byte(executor.SubtypeKeyMessage))
+	seed, err := signingKey.Sign(msgHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign subtype message for user %s: %w", userID, err)
+	}
+	return seed, nil
+}
+
+// CreateAssociateKeyRequest creates an associate key request.
+// The payload contains the P521 public key (133 bytes) followed by the encrypted seed (93 bytes).
+// The seed is encrypted with ECDH(user_priv_P521, enclave_pub_P521).
+// GenerateUserSigningKey must be called for sender before this method.
+func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, key *cryptotypes.PublicKeyP521, enclavePubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	seed, err := c.ComputeSeed(sender)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute seed for user %s: %w", sender, err)
+	}
+	// Encrypt the seed with ECDH(user_priv_P521, enclave_pub_P521)
+	userPrivKey, err := c.GetUserKey(sender)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user P521 key for %s: %w", sender, err)
+	}
+	encryptedSeed, err := crypto.Encrypt(userPrivKey, enclavePubKey, seed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt seed for user %s: %w", sender, err)
+	}
+	// payload = 133-byte P521 pubkey + 93-byte encrypted seed
+	payload := append(key.Bytes(), encryptedSeed...)
 
 	return &common.Request{
 		ApplicationID: appID,

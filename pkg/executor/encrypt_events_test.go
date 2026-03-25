@@ -28,8 +28,9 @@ func TestEncryptEventsCopiesSubType(t *testing.T) {
 	}}
 
 	executor := &StatelessExecutor{log: testLogger}
-	encrypted, failure := executor.encryptEvents(context.Background(), plain, common.NewApplicationId(1), privKey, nil, keyStore)
+	encrypted, failure, err := executor.encryptEvents(context.Background(), plain, common.NewApplicationId(1), privKey, nil, keyStore, appdata.SeedStore{})
 	require.Nil(t, failure)
+	require.Nil(t, err)
 	require.Len(t, encrypted, 1)
 	require.Equal(t, "test_subtype", encrypted[0].EventSubType)
 	require.Equal(t, userAddr, encrypted[0].UserID)

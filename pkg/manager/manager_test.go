@@ -102,10 +102,6 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, error))(ctx, req, appState, wasmModule)
 	}
 
-	if req.ApplicationID != ApplicationId {
-		return nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
-	}
-
 	if req.RequestType != common.Deploy {
 		return nil, nil, fmt.Errorf("wrong request type: %d", req.RequestType)
 
@@ -142,10 +138,6 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
 	if f, ok := m.GetMockedFunc("SendProcessRequest"); ok {
 		return f.(func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error))(ctx, req, appState, wasmModule)
-	}
-
-	if req.ApplicationID != ApplicationId {
-		return nil, nil, nil, fmt.Errorf("application id %s is not admitted", req.ApplicationID)
 	}
 
 	if req.RequestType != common.Process && req.RequestType != common.Deanonymize && req.RequestType != common.AssociateKey {
@@ -566,7 +558,7 @@ func TestProcessDeployAppWithFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
@@ -613,7 +605,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 
 	// Test data layer failure. In this case, it shouldn't call stateUpdate on chain and it returns the error
 	expectedError = "failed to store state"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		return fmt.Errorf("%s", expectedError)
 	})
 
@@ -640,7 +632,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	failure = manager.processDeployApp(context.Background(), request)
 	require.Nil(t, failure)
 	// Check that the local db has been reverted to the initial state
-	_, err = manager.dataLayer.LastVersionID()
+	_, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.Error(t, err)
 	dbErr, ok := err.(*storageErrors.Error)
 	require.True(t, ok && dbErr.Code == storageErrors.NoVersionInDb)
@@ -659,7 +651,7 @@ func TestProcessDeployAppWithErrors(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, expectedError)
 	// Check that the local db has been reverted to the initial state
-	_, err = manager.dataLayer.LastVersionID()
+	_, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.Error(t, err)
 	dbErr, ok = err.(*storageErrors.Error)
 	require.True(t, ok && dbErr.Code == storageErrors.NoVersionInDb)
@@ -881,7 +873,7 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		t.Fatal("Store should not be called if the executor returned a failure payload")
 		return nil
 	})
@@ -920,7 +912,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	oldDbVersion, err := manager.dataLayer.LastVersionID()
+	oldDbVersion, err := manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
 	// Simulate application state not found. In this case, it should call SendProcessRequest and return a failure payload, then submitStateOnChain is called but the state is not stored in the data layer
@@ -992,7 +984,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 
 	// Test data layer failure, stop processing and return the error
 	expectedError = "failed to store state"
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Store", func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error {
 		return errors.New(expectedError)
 	})
 
@@ -1019,7 +1011,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	failure = manager.processProcessRequest(context.Background(), request)
 	require.Nil(t, failure)
 	// Check that the local db has been reverted to the initial state
-	newDbVersion, err := manager.dataLayer.LastVersionID()
+	newDbVersion, err := manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 	require.Equal(t, oldDbVersion, newDbVersion)
 
@@ -1038,7 +1030,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Contains(t, failure.Error(), expectedError)
 
 	// Check that the local db has been reverted to the initial state
-	newDbVersion, err = manager.dataLayer.LastVersionID()
+	newDbVersion, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 	require.Equal(t, oldDbVersion, newDbVersion)
 
@@ -1059,7 +1051,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Contains(t, failure.Error(), expectedError)
 
 	// Check that the local db has been reverted to the initial state
-	newDbVersion, err = manager.dataLayer.LastVersionID()
+	newDbVersion, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 	require.Equal(t, oldDbVersion, newDbVersion)
 
@@ -1134,7 +1126,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	db_version, err := manager.dataLayer.LastVersionID()
+	db_version, err := manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
 	nextPendingReq, stateRootOnChain1, err := mockBCClient.GetNextPendingRequest(context.Background())
@@ -1150,7 +1142,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
 
-	db_version, err = manager.dataLayer.LastVersionID()
+	db_version, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
 	nextPendingReq, stateRootOnChain2, err := mockBCClient.GetNextPendingRequest(context.Background())
@@ -1200,12 +1192,12 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 3, len(completedRequests), "expected 3 completed requests")
 
-	db_version, err = manager.dataLayer.LastVersionID()
+	db_version, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
-	_, stateRootOnChain3, err := mockBCClient.GetNextPendingRequest(context.Background())
+	chainState3, err := mockBCClient.GetApplicationState(context.Background(), ApplicationId)
 	require.NoError(t, err)
-	require.True(t, bytes.Equal(stateRootOnChain3[:], db_version), "State root in DB should be equal to state root on chain")
+	require.True(t, bytes.Equal(chainState3.StateRoot[:], db_version), "State root in DB should be equal to state root on chain")
 
 	// test unrecoverable disalignment between DB and chain
 	request4 := createRequest(common.Process, ApplicationId)
@@ -1235,7 +1227,7 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for more than reorg timeout
-	// Instead of sleeping, we will simulate the time.Sleep by manipulating the endReorgTime
+	// Instead of sleeping, we will simulate the time.Sleep by manipulating endReorgTime
 	manager.endReorgTime = manager.endReorgTime.Add(-2 * time.Second) // go back in time by 2 seconds
 
 	err = manager.processRequestFromChain(context.Background())
@@ -1246,12 +1238,12 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	db_version, err = manager.dataLayer.LastVersionID()
+	db_version, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
-	_, stateRootOnChain, err := mockBCClient.GetNextPendingRequest(context.Background())
+	chainState, err := mockBCClient.GetApplicationState(context.Background(), ApplicationId)
 	require.NoError(t, err)
-	require.True(t, bytes.Equal(stateRootOnChain[:], db_version), "State root in DB should be equal to state root on chain")
+	require.True(t, bytes.Equal(chainState.StateRoot[:], db_version), "State root in DB should be equal to state root on chain")
 
 }
 
@@ -1293,7 +1285,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	// Check that if LastVersionID returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
 	//**********************
 
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("LastVersionID", func() ([]byte, error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("LastVersionID", func(common.ApplicationIdType) ([]byte, error) {
 		return nil, fmt.Errorf("LastVersionID error")
 	})
 
@@ -1305,7 +1297,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	//**********************
 	// Check that if ListVersions returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
 	//**********************
-	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("ListVersions", func() ([][]byte, error) {
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("ListVersions", func(common.ApplicationIdType) ([][]byte, error) {
 		return nil, fmt.Errorf("ListVersions error")
 	})
 
@@ -2014,4 +2006,309 @@ func TestExecuteCommand_UnsupportedCommand(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.Contains(t, err.Error(), "unsupported command type")
+}
+
+// --- Multi-App Tests ---
+
+var ApplicationId2 = common.NewApplicationId(2)
+
+func TestMultiAppDeployAndProcess(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	// Deploy App 1
+	deployReq1 := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	err := mockBCClient.SendRequestToChain(context.Background(), deployReq1)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	completed := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completed), "App 1 deploy should complete")
+
+	// Deploy App 2
+	deployReq2 := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
+	err = mockBCClient.SendRequestToChain(context.Background(), deployReq2)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	completed = mockBCClient.GetCompletedRequests()
+	require.Equal(t, 2, len(completed), "App 2 deploy should complete")
+
+	// Verify independent state roots
+	stateRoot1, err := manager.dataLayer.LastVersionID(ApplicationId)
+	require.NoError(t, err)
+	stateRoot2, err := manager.dataLayer.LastVersionID(ApplicationId2)
+	require.NoError(t, err)
+	require.False(t, bytes.Equal(stateRoot1, stateRoot2), "App 1 and App 2 should have different state roots")
+
+	// Process a request for App 1
+	processReq1 := createRequest(common.Process, ApplicationId)
+	err = mockBCClient.SendRequestToChain(context.Background(), processReq1)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	// Verify App 1 state root changed but App 2 unchanged
+	newStateRoot1, err := manager.dataLayer.LastVersionID(ApplicationId)
+	require.NoError(t, err)
+	require.False(t, bytes.Equal(stateRoot1, newStateRoot1), "App 1 state root should change after processing")
+
+	unchangedStateRoot2, err := manager.dataLayer.LastVersionID(ApplicationId2)
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(stateRoot2, unchangedStateRoot2), "App 2 state root should be unchanged")
+
+	// Process a request for App 2
+	processReq2 := createRequest(common.Process, ApplicationId2)
+	err = mockBCClient.SendRequestToChain(context.Background(), processReq2)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	completed = mockBCClient.GetCompletedRequests()
+	require.Equal(t, 4, len(completed), "All 4 requests should be completed")
+
+	// Verify App 2 state root changed
+	newStateRoot2, err := manager.dataLayer.LastVersionID(ApplicationId2)
+	require.NoError(t, err)
+	require.False(t, bytes.Equal(stateRoot2, newStateRoot2), "App 2 state root should change after processing")
+}
+
+func TestMultiAppDeployNewApp(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	// Deploy and process App 1
+	deployReq1 := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	err := mockBCClient.SendRequestToChain(context.Background(), deployReq1)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	processReq1 := createRequest(common.Process, ApplicationId)
+	err = mockBCClient.SendRequestToChain(context.Background(), processReq1)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	stateRoot1, err := manager.dataLayer.LastVersionID(ApplicationId)
+	require.NoError(t, err)
+
+	// Deploy App 2 — no prior state
+	deployReq2 := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
+	err = mockBCClient.SendRequestToChain(context.Background(), deployReq2)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	completed := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 3, len(completed), "All 3 requests should be completed")
+
+	// App 1 state unchanged
+	unchangedRoot1, err := manager.dataLayer.LastVersionID(ApplicationId)
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(stateRoot1, unchangedRoot1), "App 1 state should be unchanged after App 2 deploy")
+
+	// App 2 now has state
+	stateRoot2, err := manager.dataLayer.LastVersionID(ApplicationId2)
+	require.NoError(t, err)
+	require.NotEqual(t, make([]byte, 32), stateRoot2, "App 2 should have a non-zero state root after deploy")
+}
+
+func TestMultiAppReorgIsolation(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+
+	// Deploy App 1 and App 2
+	deployReq1 := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	err := mockBCClient.SendRequestToChain(context.Background(), deployReq1)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	deployReq2 := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
+	err = mockBCClient.SendRequestToChain(context.Background(), deployReq2)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	// Process a request for App 1 (creates a second version)
+	processReq1 := createRequest(common.Process, ApplicationId)
+	err = mockBCClient.SendRequestToChain(context.Background(), processReq1)
+	require.NoError(t, err)
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	stateRoot1AfterProcess, err := manager.dataLayer.LastVersionID(ApplicationId)
+	require.NoError(t, err)
+	stateRoot2AfterDeploy, err := manager.dataLayer.LastVersionID(ApplicationId2)
+	require.NoError(t, err)
+
+	// Simulate reorg for App 1 — chain returns old stateRoot (zero, as if rolled back to before deploy)
+	mockedReorg := func(context.Context) (*common.Request, [32]byte, error) {
+		return processReq1, [32]byte{}, nil
+	}
+	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedReorg)
+	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(context.Context, *common.UpdatePayload) error {
+		t.Fatal("SubmitStateUpdate should not be called during reorg")
+		return nil
+	})
+
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	// Reorg timer should be set (chain-level, triggered by App 1's mismatch)
+	require.False(t, manager.endReorgTime.IsZero(), "reorg timer should be set")
+
+	// App 2 state should be untouched
+	unchangedRoot2, err := manager.dataLayer.LastVersionID(ApplicationId2)
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(stateRoot2AfterDeploy, unchangedRoot2), "App 2 state should be unchanged during App 1 reorg")
+
+	// Resolve reorg — remove mock, next poll returns App 1's correct state
+	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
+	mockBCClient.RemoveMockedFunc("SubmitStateUpdate")
+
+	// Restore App 1's request to pending and set correct state root
+	err = mockBCClient.SendRequestToChain(context.Background(), createRequest(common.Process, ApplicationId))
+	require.NoError(t, err)
+
+	err = manager.processRequestFromChain(context.Background())
+	require.NoError(t, err)
+
+	// Reorg timer should be cleared (state roots matched)
+	require.True(t, manager.endReorgTime.IsZero(), "reorg timer should be cleared after resolution")
+
+	// App 1 should have processed the new request
+	newRoot1, err := manager.dataLayer.LastVersionID(ApplicationId)
+	require.NoError(t, err)
+	require.False(t, bytes.Equal(stateRoot1AfterProcess, newRoot1), "App 1 should have new state after processing")
+}
+
+// TestSingleReorgTimerPreventsStaleRollback verifies that the chain-level reorg
+// timer prevents the stale-timer bug that existed with per-app timers.
+//
+// With per-app timers, an app that received no pending requests between two
+// reorgs would keep a stale expired timer, causing the second reorg to skip the
+// wait and trigger an immediate (dangerous) rollback.
+//
+// The single chain-level timer fixes this: when ANY app resolves (state roots
+// match), the shared timer is cleared — so no stale timer can survive.
+//
+// Timeline:
+//  1. Setup: Deploy App A and App B, process one request each so each app has
+//     ≥2 DB versions (needed for checkIfReorg to find a matching old root).
+//  2. Reorg #1: both apps see a state-root mismatch → shared timer starts.
+//  3. Reorg #1 resolves: App A gets a new pending request → state roots match
+//     → the shared timer is cleared. App B gets NO pending request, but the
+//     shared timer is already gone — no stale state can accumulate.
+//  4. Reorg #2: App B sees a new state-root mismatch. The timer is zero, so a
+//     fresh timeout is started. No immediate rollback.
+func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
+	mockBCClient, manager := setupTest(t)
+	ctx := context.Background()
+
+	// Use a long reorg timeout so we can clearly tell if the wait was skipped.
+	manager.config.ReorgTimeout = 300
+
+	// ── Step 1: Deploy and process one request for App A and App B ──
+
+	deployA := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, deployA))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	processA := createRequest(common.Process, ApplicationId)
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, processA))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	deployB := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, deployB))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	processBReq := createRequest(common.Process, ApplicationId2)
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, processBReq))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	// Grab the deploy-time (older) state roots for both apps.
+	// ListVersions returns LIFO: [latest, ..., oldest].
+	// The deploy root is the second entry (index 1).
+	appAVersions, err := manager.dataLayer.ListVersions(ApplicationId)
+	require.NoError(t, err)
+	require.True(t, len(appAVersions) >= 2, "App A should have ≥2 versions")
+	stateRootAAfterDeploy := appAVersions[1] // older version (deploy root)
+
+	appBVersions, err := manager.dataLayer.ListVersions(ApplicationId2)
+	require.NoError(t, err)
+	require.True(t, len(appBVersions) >= 2, "App B should have ≥2 versions")
+	stateRootBAfterDeploy := appBVersions[1] // older version (deploy root)
+
+	// ── Step 2: Reorg #1 — both apps see a mismatch ──
+
+	// First poll: App A sees reorg (chain returns deploy root, but local is at process root)
+	var reorgStateRootA [32]byte
+	copy(reorgStateRootA[:], stateRootAAfterDeploy)
+	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
+		return processA, reorgStateRootA, nil
+	})
+	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(context.Context, *common.UpdatePayload) error {
+		t.Fatal("SubmitStateUpdate should not be called during reorg")
+		return nil
+	})
+
+	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.False(t, manager.endReorgTime.IsZero(), "reorg timer should be set after App A mismatch")
+
+	// Second poll: App B sees reorg (chain returns deploy root).
+	// The shared timer is already running — it should NOT be reset.
+	var reorgStateRootB [32]byte
+	copy(reorgStateRootB[:], stateRootBAfterDeploy)
+	timerBefore := manager.endReorgTime
+	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
+		return processBReq, reorgStateRootB, nil
+	})
+
+	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.Equal(t, timerBefore, manager.endReorgTime, "shared timer should not change on second mismatch")
+
+	// ── Step 3: Reorg #1 resolves — only App A gets a request ──
+
+	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
+	mockBCClient.RemoveMockedFunc("SubmitStateUpdate")
+
+	// App A gets a new request; state roots will match → shared timer cleared.
+	newReqA := createRequest(common.Process, ApplicationId)
+	require.NoError(t, mockBCClient.SendRequestToChain(ctx, newReqA))
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	require.True(t, manager.endReorgTime.IsZero(),
+		"shared timer should be cleared when App A's state roots match (reorg resolved)")
+
+	// ── Step 4: Reorg #2 — App B sees a NEW mismatch ──
+
+	// The chain has reorged again: it reports the deploy root for App B.
+	processB2 := createRequest(common.Process, ApplicationId2)
+	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
+		return processB2, reorgStateRootB, nil
+	})
+
+	// Track whether Rollback is called for App B during this poll.
+	rollbackCalled := false
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("Rollback",
+		func(appID common.ApplicationIdType, versionID []byte) error {
+			if appID == ApplicationId2 {
+				rollbackCalled = true
+			}
+			return nil
+		})
+
+	require.NoError(t, manager.processRequestFromChain(ctx))
+
+	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Rollback")
+
+	// The shared timer was zero before this poll, so a fresh timeout must be
+	// started — no rollback should occur.
+	require.False(t, rollbackCalled,
+		"Rollback should not be called — the new reorg should get a fresh timeout")
+	require.False(t, manager.endReorgTime.IsZero(),
+		"reorg timer should be set with a fresh deadline for the new reorg")
+	require.True(t, manager.endReorgTime.After(time.Now()),
+		"reorg timer should be in the future (fresh timeout)")
 }

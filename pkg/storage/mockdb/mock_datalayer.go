@@ -12,7 +12,7 @@ import (
 )
 
 // MockDataLayer is a mock implementation of the data layer for testing.
-// It is safe for concurrent use.
+// It is safe for concurrent use. Versioning is per-application.
 type MockDataLayer struct {
 	mutex              sync.RWMutex
 	states             map[common.ApplicationIdType]*common.ApplicationState
@@ -20,7 +20,7 @@ type MockDataLayer struct {
 	keys               map[string][]byte
 	enclaveKeyRecovery *common.EnclaveKeySetRecovery
 	isClosed           bool
-	versions           [][]byte
+	versions           map[common.ApplicationIdType][][]byte
 	*testutil.MockFunctions
 }
 
@@ -31,12 +31,13 @@ func NewMockDataLayer() *MockDataLayer {
 		states:        make(map[common.ApplicationIdType]*common.ApplicationState),
 		bytecodes:     make(map[common.ApplicationIdType][]byte),
 		keys:          make(map[string][]byte),
-		versions:      make([][]byte, 0),
+		versions:      make(map[common.ApplicationIdType][][]byte),
 		MockFunctions: testutil.NewMockFunctions(),
 	}
 }
 
 // checkClosed returns an error if the mock data layer is closed.
+// Caller must hold d.mutex (read or write) before calling.
 func (d *MockDataLayer) checkClosed() error {
 	if d.isClosed {
 		return storageErrors.ErrStorageIsClosed("mock data layer is closed")
@@ -44,37 +45,60 @@ func (d *MockDataLayer) checkClosed() error {
 	return nil
 }
 
-// Store stores the state of an application.
-// versionID is ignored in current mock implementation
+// Store saves the application state. state must not be nil.
 func (d *MockDataLayer) Store(
 	ctx context.Context,
 	versionID []byte,
-	stateArray []*common.ApplicationState,
-	wasmArray []*common.WASMData,
+	state *common.ApplicationState,
+) error {
+	return d.storeInternal(ctx, versionID, state, nil)
+}
+
+// StoreWithWasm atomically saves the application state and WASM bytecode.
+// Both state and wasm must not be nil and must share the same ApplicationID.
+func (d *MockDataLayer) StoreWithWasm(
+	ctx context.Context,
+	versionID []byte,
+	state *common.ApplicationState,
+	wasm *common.WASMData,
+) error {
+	if wasm == nil {
+		return fmt.Errorf("wasm must not be nil; use Store to save state without WASM")
+	}
+	return d.storeInternal(ctx, versionID, state, wasm)
+}
+
+func (d *MockDataLayer) storeInternal(
+	ctx context.Context,
+	versionID []byte,
+	state *common.ApplicationState,
+	wasm *common.WASMData,
 ) error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
 	if f, ok := d.GetMockedFunc("Store"); ok {
-		return f.(func(context.Context, []byte, []*common.ApplicationState, []*common.WASMData) error)(ctx, versionID, stateArray, wasmArray)
+		return f.(func(context.Context, []byte, *common.ApplicationState, *common.WASMData) error)(ctx, versionID, state, wasm)
 	}
 	if err := d.checkClosed(); err != nil {
 		return err
 	}
 
-	for _, state := range stateArray {
-		if state != nil {
-			d.states[state.ApplicationID] = state
-		}
+	if state == nil {
+		return fmt.Errorf("state must not be nil")
+	}
+	if wasm != nil && state.ApplicationID != wasm.ApplicationID {
+		return fmt.Errorf("inconsistent ApplicationID: state has %d, wasm has %d", state.ApplicationID, wasm.ApplicationID)
 	}
 
-	for _, wasm := range wasmArray {
-		if wasm != nil {
-			d.bytecodes[wasm.ApplicationID] = wasm.Bytecode
-		}
+	appID := state.ApplicationID
+	d.states[state.ApplicationID] = state
+
+	if wasm != nil {
+		d.bytecodes[wasm.ApplicationID] = wasm.Bytecode
 	}
 
-	d.versions = append(d.versions, versionID)
+	d.versions[appID] = append(d.versions[appID], versionID)
 
 	return nil
 }
@@ -164,64 +188,76 @@ func (d *MockDataLayer) Close() error {
 }
 
 // Rollback is a mock implementation of the Rollback method.
-// For now, only the StateRoot is restored.
-func (d *MockDataLayer) Rollback(versionID []byte) error {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
+// Only reverts version history and state root for the specified app.
+func (d *MockDataLayer) Rollback(appID common.ApplicationIdType, versionID []byte) error {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
 
 	if f, ok := d.GetMockedFunc("Rollback"); ok {
-		return f.(func([]byte) error)(versionID)
+		return f.(func(common.ApplicationIdType, []byte) error)(appID, versionID)
+	}
+	if err := d.checkClosed(); err != nil {
+		return err
 	}
 
 	var initialState = [32]byte{}
 	if string(versionID) == string(initialState[:]) {
-		d.versions = make([][]byte, 0)
-		d.states = make(map[common.ApplicationIdType]*common.ApplicationState)
-		d.bytecodes = make(map[common.ApplicationIdType][]byte)
+		d.versions[appID] = make([][]byte, 0)
+		delete(d.states, appID)
+		delete(d.bytecodes, appID)
 		return nil
 	}
 
-	for i, v := range d.versions {
+	appVersions := d.versions[appID]
+	for i, v := range appVersions {
 		if string(v) == string(versionID) {
-			d.versions = d.versions[:i+1]
-			for _, v := range d.states {
-				copy(v.StateRoot[:32], versionID)
+			d.versions[appID] = appVersions[:i+1]
+			// Only update the target app's state root.
+			if state, exists := d.states[appID]; exists {
+				copy(state.StateRoot[:32], versionID)
 			}
-
 			return nil
 		}
 	}
-	return fmt.Errorf("versionID not found: %x", versionID)
+	return fmt.Errorf("versionID not found for app %d: %x", appID, versionID)
 }
 
 // LastVersionID is a mock implementation of the LastVersionID method.
-func (d *MockDataLayer) LastVersionID() ([]byte, error) {
+func (d *MockDataLayer) LastVersionID(appID common.ApplicationIdType) ([]byte, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
 	if f, ok := d.GetMockedFunc("LastVersionID"); ok {
-		return f.(func() ([]byte, error))()
+		return f.(func(common.ApplicationIdType) ([]byte, error))(appID)
+	}
+	if err := d.checkClosed(); err != nil {
+		return nil, err
 	}
 
-	if len(d.versions) == 0 {
+	appVersions := d.versions[appID]
+	if len(appVersions) == 0 {
 		return nil, storageErrors.ErrNoVersionInDb("No version in db")
 	}
 
-	return d.versions[len(d.versions)-1], nil
+	return appVersions[len(appVersions)-1], nil
 }
 
 // ListVersions is a mock implementation of the ListVersions method.
-func (d *MockDataLayer) ListVersions() ([][]byte, error) {
+func (d *MockDataLayer) ListVersions(appID common.ApplicationIdType) ([][]byte, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
 	if f, ok := d.GetMockedFunc("ListVersions"); ok {
-		return f.(func() ([][]byte, error))()
+		return f.(func(common.ApplicationIdType) ([][]byte, error))(appID)
+	}
+	if err := d.checkClosed(); err != nil {
+		return nil, err
 	}
 
-	lifoVersions := make([][]byte, len(d.versions))
-	for i, v := range d.versions {
-		lifoVersions[len(d.versions)-1-i] = v
+	appVersions := d.versions[appID]
+	lifoVersions := make([][]byte, len(appVersions))
+	for i, v := range appVersions {
+		lifoVersions[len(appVersions)-1-i] = v
 	}
 	return lifoVersions, nil
 }

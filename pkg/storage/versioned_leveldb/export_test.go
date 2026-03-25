@@ -10,6 +10,11 @@ var (
 	TestWasmPrefix = wasmPrefix
 )
 
+// VersionsKeyForApp_ForTest exposes the internal versionsKeyForApp function for testing purposes.
+func VersionsKeyForApp_ForTest(appID uint64) [ConstantsHashLength]byte {
+	return versionsKeyForApp(appID)
+}
+
 // GetAdapter_ForTest returns the underlying VersionedLevelDbStorageAdapter instance for testing purposes.
 func (vdl *LevelDBDataLayer) GetAdapter_ForTest() *VersionedLevelDbStorageAdapter {
 	return vdl.VersionedLevelDBAppStateStore.getAdapter()

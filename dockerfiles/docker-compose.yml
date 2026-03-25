@@ -58,6 +58,7 @@ services:
       - EXECUTOR_KEYSET_RECOVERY_TYPE
       - EXECUTOR_FUEL_PRICE_PER_UNIT
       - EXECUTOR_MIN_FEE_PER_REQUEST
+      - EXECUTOR_MAX_CACHED_MODULES
       - EXECUTOR_LOG_KIND
       - EXECUTOR_LOG_CONSOLE
       - EXECUTOR_LOG_CONSOLE_LEVEL
@@ -77,7 +78,10 @@ services:
     restart: always
     privileged: true
     devices:
-      - /dev/vsock:/dev/vsock 
+      - /dev/vsock:/dev/vsock
+    ports:
+      # Expose admin server so admincli on the Docker host can connect
+      - "${MANAGER_ADMIN_PORT:-4002}:${MANAGER_ADMIN_PORT:-4002}"
     environment:
       - CHANNEL_TYPE
       - EXECUTOR_IP_HOST
@@ -86,6 +90,7 @@ services:
       - MANAGER_ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC
       - MANAGER_IP_HOST
       - MANAGER_ADMIN_PORT
+      - MANAGER_ADMIN_SERVER_HOST
       - MANAGER_KEY_SECP256
       - MANAGER_DATA_FOLDER=${MANAGER_DATA_FOLDER:-/data}
       - SHARED_DATA_FOLDER=${SHARED_DATA_FOLDER:-/shared-data}

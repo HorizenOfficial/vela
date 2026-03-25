@@ -2,6 +2,7 @@ package wasm
 
 import (
 	"bufio"
+	"container/list"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -60,23 +61,30 @@ func (m *ApplicationModule) Close() {
 
 // WasmtimeRuntime implements the Runtime interface using wasmtime-go
 type WasmtimeRuntime struct {
-	engine     *wasmtime.Engine
-	modules    map[common.ApplicationIdType]*ApplicationModule // Map of application ID to module
-	moduleLock sync.RWMutex                                    // Lock for module access
-	log        logger.Logger
+	engine           *wasmtime.Engine
+	modules          map[common.ApplicationIdType]*ApplicationModule // Map of application ID to module
+	moduleLock       sync.RWMutex                                    // Lock for module access
+	log              logger.Logger
+	maxCachedModules int                                              // 0 = unlimited
+	accessOrder      *list.List                                       // LRU order: front = most recent, back = least recent
+	accessElements   map[common.ApplicationIdType]*list.Element       // O(1) lookup into accessOrder
 }
 
-// NewWasmtimeRuntime creates a new wasmtime runtime instance
-func NewWasmtimeRuntime(log logger.Logger) *WasmtimeRuntime {
-	log.Info("Runtime: Initializing wasmtime runtime")
+// NewWasmtimeRuntime creates a new wasmtime runtime instance.
+// maxCachedModules controls the LRU cache size: 0 means unlimited.
+func NewWasmtimeRuntime(log logger.Logger, maxCachedModules int) *WasmtimeRuntime {
+	log.Info("Runtime: Initializing wasmtime runtime (maxCachedModules=%d)", maxCachedModules)
 
 	// Create a new engine with default configuration
 	engine := wasmtime.NewEngine()
 
 	return &WasmtimeRuntime{
-		engine:  engine,
-		modules: make(map[common.ApplicationIdType]*ApplicationModule),
-		log:     log,
+		engine:           engine,
+		modules:          make(map[common.ApplicationIdType]*ApplicationModule),
+		log:              log,
+		maxCachedModules: maxCachedModules,
+		accessOrder:      list.New(),
+		accessElements:   make(map[common.ApplicationIdType]*list.Element),
 	}
 }
 
@@ -199,19 +207,11 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 // One approach could be that we use just the appId, and the executor asks to the manager for wasm bytes (that are stored in the dblayer) if it
 // does not find them in the cache.
 func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (*ApplicationModule, error) {
-	r.moduleLock.RLock()
-	module, exists := r.modules[appId]
-	r.moduleLock.RUnlock()
-	if exists {
-		return module, nil
-	}
-
-	// Acquire write lock and load
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
-	// Re-check if module was loaded by another goroutine while we were waiting for the lock
 	if module, exists := r.modules[appId]; exists {
+		r.touchModule(appId)
 		return module, nil
 	}
 
@@ -341,8 +341,10 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 		r.cleanupModule(appId, oldModule)
 	}
 
-	// Store the module in the runtime registry
+	// Store the module in the runtime registry and update LRU
 	r.modules[appId] = appModule
+	r.touchModule(appId)
+	r.evictIfNeeded()
 	r.log.Info("Wasmtime Runtime: Successfully loaded WASM module for application %d", appId)
 
 	return loadResult.State, loadResult.Fuel.ToInt(), nil
@@ -591,6 +593,45 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	return out, nil
 }
 
+// touchModule moves appId to front of access order (most recently used).
+// Must be called with moduleLock held (write lock).
+func (r *WasmtimeRuntime) touchModule(appId common.ApplicationIdType) {
+	if elem, exists := r.accessElements[appId]; exists {
+		r.accessOrder.MoveToFront(elem)
+	} else {
+		elem := r.accessOrder.PushFront(appId)
+		r.accessElements[appId] = elem
+	}
+}
+
+// evictIfNeeded removes least-recently-used modules until cache is within limit.
+// Must be called with moduleLock held (write lock).
+func (r *WasmtimeRuntime) evictIfNeeded() {
+	if r.maxCachedModules <= 0 {
+		return
+	}
+	for r.accessOrder.Len() > r.maxCachedModules {
+		back := r.accessOrder.Back()
+		evictId := back.Value.(common.ApplicationIdType)
+		r.log.Info("Module cache full (%d/%d), evicting app %d", r.accessOrder.Len(), r.maxCachedModules, evictId)
+		if module, exists := r.modules[evictId]; exists {
+			r.cleanupModule(evictId, module)
+			delete(r.modules, evictId)
+		}
+		r.accessOrder.Remove(back)
+		delete(r.accessElements, evictId)
+	}
+}
+
+// removeFromAccessOrder removes appId from LRU tracking.
+// Must be called with moduleLock held.
+func (r *WasmtimeRuntime) removeFromAccessOrder(appId common.ApplicationIdType) {
+	if elem, exists := r.accessElements[appId]; exists {
+		r.accessOrder.Remove(elem)
+		delete(r.accessElements, appId)
+	}
+}
+
 // cleanupModule releases all resources associated with a single ApplicationModule.
 func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *ApplicationModule) {
 	r.log.Info("Cleaning up module %d", appId)
@@ -609,12 +650,22 @@ func (r *WasmtimeRuntime) Close() error {
 		delete(r.modules, appId)
 	}
 
+	r.accessOrder.Init()
+	r.accessElements = make(map[common.ApplicationIdType]*list.Element)
 	r.engine = nil
 	r.log.Info("Wasmtime Runtime: Wasmtime runtime closed successfully")
 	return nil
 }
 
-// UnloadModule unloads a WASM module and frees its resources (not used so far - TODO use it).
+// UnloadModule unloads a WASM module and frees its resources.
+// Currently unused in production — module removal is handled automatically by
+// evictIfNeeded() as part of the LRU cache. This method exists as a public API
+// for explicit removal (e.g. future app decommissioning or admin commands).
+// Note: evictIfNeeded() intentionally duplicates the removal logic (cleanupModule
+// + delete + removeFromAccessOrder) rather than calling UnloadModule, because
+// evictIfNeeded runs inside an already-held write lock and UnloadModule acquires
+// its own lock — Go's sync.RWMutex is not reentrant, so calling one from the
+// other would deadlock.
 func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
@@ -627,9 +678,29 @@ func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
 
 	r.cleanupModule(appId, module)
 	delete(r.modules, appId)
+	r.removeFromAccessOrder(appId)
 
 	r.log.Info("Module %d unloaded successfully", appId)
 	return nil
+}
+
+// SetMaxCachedModules updates the LRU cache limit at runtime.
+// A value of 0 means unlimited. Excess modules are not evicted immediately;
+// eviction happens lazily on the next loadModule call, which is the only path
+// that mutates the module map during normal operation.
+func (r *WasmtimeRuntime) SetMaxCachedModules(max int) {
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	r.log.Info("Runtime: Setting maxCachedModules from %d to %d", r.maxCachedModules, max)
+	r.maxCachedModules = max
+}
+
+// GetMaxCachedModules returns the current LRU cache limit. 0 means unlimited.
+func (r *WasmtimeRuntime) GetMaxCachedModules() int {
+	r.moduleLock.RLock()
+	defer r.moduleLock.RUnlock()
+	return r.maxCachedModules
 }
 
 // ToWasmType converts ApplicationIdType (uint64) to the WASM i64 representation

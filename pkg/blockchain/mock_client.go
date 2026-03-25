@@ -40,7 +40,7 @@ type MockClient struct {
 	reports          map[common.RequestIdType]*common.DeanonymizationReport
 	updatePayloads   map[common.RequestIdType]*common.UpdatePayload
 	eventSubscribers []chan<- interface{}
-	stateRoot        [32]byte
+	stateRoots       map[common.ApplicationIdType][32]byte   // per-app state roots (mirrors contract's applicationStateRoots)
 	chainID          *big.Int
 	blockNumber      uint64
 	*testutil.MockFunctions
@@ -56,6 +56,7 @@ func NewMockClient() *MockClient {
 		withdrawals:     make(map[common.ApplicationIdType]*[]common.Withdrawal),
 		reports:         make(map[common.RequestIdType]*common.DeanonymizationReport),
 		updatePayloads:  make(map[common.RequestIdType]*common.UpdatePayload),
+		stateRoots:      make(map[common.ApplicationIdType][32]byte),
 		MockFunctions:   testutil.NewMockFunctions(),
 	}
 }
@@ -113,6 +114,13 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 		req.Timestamp = common.ToBig(new(big.Int).SetInt64(time.Now().Unix()))
 	}
 
+	if req.RequestType == common.Deploy && req.ApplicationID == 0 {
+		// Generate a new application ID for deploy requests without an application ID
+		applicationId := common.NewApplicationId(uint64(req.RequestID[0])<<56 | uint64(req.RequestID[1])<<48 | uint64(req.RequestID[2])<<40 | uint64(req.RequestID[3])<<32 | uint64(req.RequestID[4])<<24 | uint64(req.RequestID[5])<<16 | uint64(req.RequestID[6])<<8 | uint64(req.RequestID[7]))
+		req.ApplicationID = applicationId
+	}
+
+
 	// Store the request
 	c.requests.Set(req.RequestID, req)
 	c.pendingRequests.Set(req.RequestID, req)
@@ -122,8 +130,6 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 
 // SubmitRequest submits a request to the blockchain according to the official interface
 func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	//prepare request
 	req := &common.Request{
@@ -141,6 +147,26 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 	}
 
 	return req.RequestID, 0, nil
+}
+
+// SubmitDeployRequest submits a deploy request to the blockchain according to the official interface
+func (c *MockClient) SubmitDeployRequest(ctx context.Context, protocolVersion uint8, payload []byte, maxFeeValue *big.Int) (common.ApplicationIdType, common.RequestIdType, uint64, error) {
+
+	req := &common.Request{
+		ProtocolVersion: protocolVersion,
+		RequestType:     common.Deploy,
+		Payload:         payload,
+		DepositAmount:   common.ToBig(big.NewInt(0)),
+		MaxFeeValue:     common.ToBig(maxFeeValue),
+	}
+
+	err := c.SendRequestToChain(ctx, req)
+	if err != nil {
+		return common.ApplicationIdType(0), common.RequestIdType{}, 0, fmt.Errorf("failed to send request: %w", err)
+	}
+
+
+	return req.ApplicationID, req.RequestID, 0, nil
 }
 
 // GetPendingRequests gets pending requests from the blockchain
@@ -164,12 +190,12 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 	if f, ok := c.GetMockedFunc("GetNextPendingRequest"); ok {
 		return f.(func(context.Context) (*common.Request, [32]byte, error))(ctx)
 	}
-	var req *common.Request
 	if c.pendingRequests.Len() > 0 {
-		req = c.pendingRequests.Front().Value
+		req := c.pendingRequests.Front().Value
+		return req, c.stateRoots[req.ApplicationID], nil
 	}
 
-	return req, c.stateRoot, nil
+	return nil, [32]byte{}, nil // no pending request — return zero root (matches contract behavior)
 
 }
 
@@ -254,7 +280,7 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 		EncryptedState: nil, // State is stored separately in the data layer
 	}
 
-	c.stateRoot = update.NewStateRoot
+	c.stateRoots[update.ApplicationID] = update.NewStateRoot
 
 	// Emit events
 	c.emitEvents(update.Events)
@@ -405,7 +431,7 @@ func (c *MockClient) ClearAllData() {
 	c.reports = make(map[common.RequestIdType]*common.DeanonymizationReport)
 	c.failedRequests = orderedmap.NewOrderedMap[common.RequestIdType, *common.Request]()
 	c.updatePayloads = make(map[common.RequestIdType]*common.UpdatePayload)
-	c.stateRoot = [32]byte{}
+	c.stateRoots = make(map[common.ApplicationIdType][32]byte)
 	c.MockedFunctions = make(map[string]interface{})
 }
 

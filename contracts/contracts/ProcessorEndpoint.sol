@@ -17,10 +17,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   bytes32 public constant ADMIN = keccak256('ADMIN');
   bytes32 public constant DEPLOYER_ROLE = keccak256('DEPLOYER_ROLE');
   uint8 public constant PROTOCOL_VERSION = 0;
-  uint64 public constant APPLICATION_ID = 1;
-
   //state variables
-  bytes32 public stateRoot;
+  mapping(uint64 => bytes32) public applicationStateRoots;
+  uint256 public maxNumOfApplications = 10;
+  uint256 public availableDeploySlots = maxNumOfApplications;
 
   mapping(bytes32 => Structs.PendingRequest) public requestById;
   mapping(uint256 => bytes32) private _requestIdByOrder;
@@ -44,7 +44,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   modifier validApplicationId(uint64 applicationId) {
-    if (applicationId != APPLICATION_ID) revert InvalidApplicationId();
+    if (applicationStateRoots[applicationId] == bytes32(0)) revert InvalidApplicationId();
     _;
   }
 
@@ -84,7 +84,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     Structs.RequestType requestType,
     bytes calldata payload,
     uint256 depositAmount, // part of the sent value forwarded to the application, for app logic
-    uint256 maxFeeValue // part ot the sent value reserved for fee payment
+    uint256 maxFeeValue // part of the sent value reserved for fee payment
   )
     external
     payable
@@ -93,6 +93,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     nonReentrant
     returns (bytes32)
   {
+    if (requestType == Structs.RequestType.DEPLOYAPP) revert InvalidRequestType();
+
     //check values
     if (msg.value != depositAmount + maxFeeValue) revert InvalidValue();
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
@@ -100,11 +102,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     //check queue size
     if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
-    if (requestType == Structs.RequestType.DEPLOYAPP) {
-      if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
-    } else if (requestType == Structs.RequestType.ASSOCIATEKEY) {
-      //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
-      if (payload.length != 133) revert InvalidPayload();
+    if (requestType == Structs.RequestType.ASSOCIATEKEY) {
+      //if requestype is associatekey, the payload must be 133 bytes (key only) or 226 bytes (key + encrypted seed)
+      if (payload.length != 133 && payload.length != 226) revert InvalidPayload();
     } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
       // only allowed authorities can request deanonymization
       if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
@@ -139,7 +139,55 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
 
     //emit event
-    emit RequestSubmitted(requestId, msg.sender);
+    emit RequestSubmitted(applicationId, requestId, msg.sender);
+
+    return requestId;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function submitDeployRequest(
+    uint8 protocolVersion,
+    bytes calldata payload
+  ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
+    if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
+    if (availableDeploySlots == 0) revert MaxNumOfApplicationsExceeded();
+    //check queue size
+    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
+    if (msg.value < minFeePerRequest) revert FeeValueBelowMinimum();
+
+    --availableDeploySlots;
+
+    Structs.RequestType requestType = Structs.RequestType.DEPLOYAPP;
+    //create request
+    bytes32 requestId = generateRequestId(
+      msg.sender,
+      0, // deploy requests have applicationId 0, a unique applicationId will be derived from the requestId for each deploy request to avoid collisions with regular requests and to group deploy requests together
+      requestType,
+      payload,
+      0,
+      _tail
+    );
+
+    uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
+    requestById[requestId] = Structs.PendingRequest({
+      timestamp: block.timestamp,
+      depositAmount: 0,
+      maxFeeValue: msg.value,
+      requestId: requestId,
+      payload: payload,
+      sender: msg.sender,
+      applicationId: applicationId,
+      protocolVersion: protocolVersion,
+      requestType: requestType
+    });
+    _requestIdByOrder[_tail] = requestId;
+
+    unchecked {
+      ++_tail;
+    }
+
+    //emit event
+    emit DeployRequestSubmitted(applicationId, requestId, msg.sender);
 
     return requestId;
   }
@@ -153,15 +201,28 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   function _markRequestCompleted(
+    uint64 applicationId,
     bytes32 requestId,
     uint256 applicationFees,
     Structs.RequestResult result,
     Structs.ErrorCode errCode,
-    string memory errorMsg
+    string memory errorMsg,
+    Structs.RequestType requestType
   ) private {
     _removeRequest();
 
-    emit RequestCompleted(requestId, applicationFees, result, errCode, errorMsg);
+    if (requestType == Structs.RequestType.DEPLOYAPP) {
+      emit DeployRequestCompleted(
+        applicationId,
+        requestId,
+        applicationFees,
+        result,
+        errCode,
+        errorMsg
+      );
+    } else {
+      emit RequestCompleted(applicationId, requestId, applicationFees, result, errCode, errorMsg);
+    }
 
     _asyncTransfer(feeCollector, applicationFees);
   }
@@ -251,7 +312,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
 
     //check prev state root
-    if (prevStateRoot != stateRoot) revert InvalidStateRoot();
+    if (prevStateRoot != applicationStateRoots[applicationId]) revert InvalidStateRoot();
 
     uint256 eventsLength = events.length;
     uint256 eventSubTypesLength = eventSubTypes.length;
@@ -283,7 +344,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       // For errors: state unchanged (prevStateRoot == newStateRoot), no events, no withdrawals
       // Refund user (minus minimum fee) and collect minimum fee
       if (eventsLength != 0 || withdrawalRequests.length != 0) revert InvalidPayload();
-      if (stateRoot != newStateRoot) revert InvalidStateRoot();
+      if (applicationStateRoots[applicationId] != newStateRoot) revert InvalidStateRoot();
 
       if (requestInfo.depositAmount + requestInfo.maxFeeValue > _getAvailableBalance())
         revert InsufficientBalance();
@@ -298,12 +359,20 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         emit Refund(applicationId, processedRequestId, sender, totalRefund);
       }
 
+      if (requestInfo.requestType == Structs.RequestType.DEPLOYAPP) {
+        unchecked {
+          ++availableDeploySlots;
+        }
+      }
+
       _markRequestCompleted(
+        applicationId,
         processedRequestId,
         minFeePerRequest,
         Structs.RequestResult.FAILED,
         Structs.ErrorCode(errorCode),
-        errorMsg
+        errorMsg,
+        requestInfo.requestType
       );
 
       return;
@@ -311,7 +380,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     // Handle success case
     // State cannot remain the same
-    if (stateRoot == newStateRoot) revert InvalidStateRoot();
+    if (applicationStateRoots[applicationId] == newStateRoot) revert InvalidStateRoot();
 
     if (refund + applicationFees != maxFeeValue) revert InvalidValue();
     if (applicationFees < minFeePerRequest) {
@@ -348,7 +417,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
 
     //update state root and request
-    stateRoot = newStateRoot;
+    applicationStateRoots[applicationId] = newStateRoot;
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
     //credit refund to sender's pending balance (pull pattern)
@@ -359,7 +428,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     //credit withdrawals to receivers' pending balances
     i = 0;
-    while (i < withdrawalRequests.length) {
+    while (i < withdrawalsLength) {
       _asyncTransfer(withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
       emit Withdrawal(
         applicationId,
@@ -374,11 +443,13 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     //set requests as completed
     _markRequestCompleted(
+      applicationId,
       processedRequestId,
       applicationFees,
       Structs.RequestResult.COMPLETED,
       Structs.ErrorCode.NO_ERROR,
-      ''
+      '',
+      reqType
     );
   }
 
@@ -387,6 +458,17 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (newThreshold == 0) revert InvalidValue();
     maxQueueSize = newThreshold;
     emit QueueThresholdUpdated(newThreshold);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function updateMaxNumOfApplications(uint256 newMax) external onlyRole(ADMIN) {
+    if (newMax == 0) revert InvalidValue();
+    uint256 deployedApps = maxNumOfApplications - availableDeploySlots;
+    if (newMax < deployedApps) revert InvalidValue();
+    uint256 oldMax = maxNumOfApplications;
+    maxNumOfApplications = newMax;
+    availableDeploySlots = newMax - deployedApps;
+    emit MaxNumberOfAppUpdated(oldMax, newMax);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -422,11 +504,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 numOfRequests = getPendingRequestsSize();
     if (numOfRequests > 0) {
       bytes32 requestId = _requestIdByOrder[_head];
-      return (requestById[requestId], stateRoot, true);
+      Structs.PendingRequest storage req = requestById[requestId];
+      return (req, applicationStateRoots[req.applicationId], true);
     }
 
     Structs.PendingRequest memory emptyReq;
-    return (emptyReq, stateRoot, false);
+    return (emptyReq, bytes32(0), false);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -468,7 +551,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 idx
   ) public pure returns (bytes32) {
     bytes32 requestId = keccak256(
-      abi.encodePacked(sender, applicationId, requestType, payload, depositAmount, idx)
+      abi.encode(sender, applicationId, requestType, payload, depositAmount, idx)
     );
 
     return requestId;
