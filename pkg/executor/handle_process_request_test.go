@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"testing"
 
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
@@ -317,7 +318,7 @@ func TestHandleProcessRequest_AssociateKey_InvalidKeyBytes(t *testing.T) {
 	exec := newTestExecutor(t, NewMockRuntime(testLogger))
 	req := newProcessRequest()
 	req.RequestType = common.AssociateKey
-	req.Payload = make([]byte, 133) // 133 bytes but not a valid P521 key
+	req.Payload = make([]byte, 226) // 226 bytes but not a valid P521 key
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
@@ -512,8 +513,6 @@ func TestHandleProcessRequest_InsufficientFuelAfterProcessing(t *testing.T) {
 func TestHandleProcessRequest_AssociateKey_Success(t *testing.T) {
 	exec := newTestExecutor(t, NewMockRuntime(testLogger))
 
-	sender := ethCommon.HexToAddress("0x2222222222222222222222222222222222222222")
-
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
 	// Generate a valid P521 key to associate
@@ -522,9 +521,28 @@ func TestHandleProcessRequest_AssociateKey_Success(t *testing.T) {
 	pubKeyBytes := keyToAssociate.PublicKey().Bytes()
 	require.Len(t, pubKeyBytes, 133, "P521 uncompressed public key should be 133 bytes")
 
+	// Generate a secp256k1 key — the sender's Ethereum wallet key
+	signingKey, err := crypto.GeneratePrivateKeySecp256k1()
+	require.NoError(t, err)
+	sender := ethCommon.HexToAddress(signingKey.PublicKey().Address())
+
+	// Compute seed: sign keccak256(SubtypeKeyMessage) with the secp256k1 key
+	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
+	seed, err := signingKey.Sign(msgHash)
+	require.NoError(t, err)
+	require.Len(t, seed, 65)
+
+	// Encrypt the seed with the user's P521 private key and the enclave's P521 public key
+	encryptedSeed, err := crypto.Encrypt(keyToAssociate, exec.keySet.CommunicationKey.PublicKey(), seed)
+	require.NoError(t, err)
+
+	// payload = P521 pubkey (133 bytes) + encrypted seed (93 bytes)
+	payloadWithSeed := append(pubKeyBytes, encryptedSeed...)
+	require.Len(t, payloadWithSeed, 226)
+
 	req := newProcessRequest()
 	req.RequestType = common.AssociateKey
-	req.Payload = pubKeyBytes
+	req.Payload = payloadWithSeed
 	req.Sender = sender
 
 	payload, newAppState, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))

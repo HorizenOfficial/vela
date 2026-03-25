@@ -103,8 +103,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
     if (requestType == Structs.RequestType.ASSOCIATEKEY) {
-      //if requestype is associatekey, the payload must be 133 bytes long (contains a Secp521r1_PubKey)
-      if (payload.length != 133) revert InvalidPayload();
+      //if requestype is associatekey, the payload must be 133 bytes (key only) or 226 bytes (key + encrypted seed)
+      if (payload.length != 133 && payload.length != 226) revert InvalidPayload();
     } else if (requestType == Structs.RequestType.DEANONYMIZATION) {
       // only allowed authorities can request deanonymization
       if (!authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)) {
