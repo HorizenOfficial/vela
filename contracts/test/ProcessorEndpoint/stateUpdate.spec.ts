@@ -433,7 +433,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
-      it('reverts with InsufficientBalance when withdrawals sum exceeds contract balance', async () => {
+      it('reverts with InsufficientAppBalance when withdrawals sum exceeds app locked funds', async () => {
         const request = await submitRequest(
           processorEndpoint,
           signers[0],
@@ -459,7 +459,7 @@ describe('ProcessorEndpoint Test', function () {
               '',
               '0x'
             )
-        ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientBalance');
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientAppBalance');
       });
     });
 

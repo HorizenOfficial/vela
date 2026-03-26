@@ -128,6 +128,8 @@ interface IProcessorEndpoint {
   error InvalidPayload();
   /// @notice Contract balance is insufficient for the requested operation.
   error InsufficientBalance();
+  /// @notice Application's locked funds are insufficient for the requested operation.
+  error InsufficientAppBalance();
   /// @notice Caller is not authorized to perform the requested action.
   error AuthorityNotAllowed();
   /// @notice Caller is not allowed to submit deploy requests.
@@ -267,6 +269,11 @@ interface IProcessorEndpoint {
     uint256 depositAmount,
     uint256 idx
   ) external pure returns (bytes32);
+
+  /// @notice Returns the locked funds for a given application.
+  /// @param applicationId Application identifier.
+  /// @return amount Current locked funds for the application.
+  function appLockedFunds(uint64 applicationId) external view returns (uint256);
 
   /// @notice Withdraws pending payments for a given payee.
   /// @param payee Payee address.

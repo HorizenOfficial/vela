@@ -35,6 +35,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   mapping(address => uint256) public payments;
   uint256 private _totalDeposits;
 
+  // Per-app fund tracking for solvency isolation
+  mapping(uint64 => uint256) public appLockedFunds;
+
   uint256 public minFeePerRequest;
   address payable public feeCollector;
 
@@ -133,6 +136,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       requestType: requestType
     });
     _requestIdByOrder[_tail] = requestId;
+    appLockedFunds[applicationId] += msg.value;
 
     unchecked {
       ++_tail;
@@ -181,6 +185,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       requestType: requestType
     });
     _requestIdByOrder[_tail] = requestId;
+    appLockedFunds[applicationId] += msg.value;
 
     unchecked {
       ++_tail;
@@ -346,8 +351,17 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       if (eventsLength != 0 || withdrawalRequests.length != 0) revert InvalidPayload();
       if (applicationStateRoots[applicationId] != newStateRoot) revert InvalidStateRoot();
 
-      if (requestInfo.depositAmount + requestInfo.maxFeeValue > _getAvailableBalance())
+      // Per-app solvency: ensures this app's withdrawals cannot drain another app's funds.
+      // Uses InsufficientAppBalance (not InsufficientBalance) so callers can distinguish
+      // per-app solvency failures from global balance issues.
+      uint256 totalErrorAmount = requestInfo.depositAmount + requestInfo.maxFeeValue;
+      if (totalErrorAmount > appLockedFunds[applicationId])
+        revert InsufficientAppBalance();
+      // Defense-in-depth: global balance check as a safety net (~200 gas).
+      // Should never fire if per-app accounting is correct, but guards against bugs.
+      if (totalErrorAmount > _getAvailableBalance())
         revert InsufficientBalance();
+      appLockedFunds[applicationId] -= totalErrorAmount;
 
       // Refund includes deposit amount for error cases
       // For now, we always collect the minimum fee per request in case of an error, in the future
@@ -399,7 +413,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
     sum += refund + applicationFees;
 
+    // Per-app solvency: ensures this app's withdrawals cannot drain another app's funds.
+    // Uses InsufficientAppBalance (not InsufficientBalance) so callers can distinguish
+    // per-app solvency failures from global balance issues.
+    if (sum > appLockedFunds[applicationId]) revert InsufficientAppBalance();
+    // Defense-in-depth: global balance check as a safety net (~200 gas).
+    // Should never fire if per-app accounting is correct, but guards against bugs.
     if (sum > _getAvailableBalance()) revert InsufficientBalance();
+    appLockedFunds[applicationId] -= sum;
 
     //emit encrypted event
     i = 0;
