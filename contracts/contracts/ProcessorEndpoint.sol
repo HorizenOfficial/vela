@@ -35,7 +35,11 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   mapping(address => uint256) public payments;
   uint256 private _totalDeposits;
 
-  // Per-app fund tracking for solvency isolation
+  // Per-app fund tracking for solvency isolation.
+  // Credited on submitRequest / submitDeployRequest (msg.value), debited on stateUpdate
+  // (withdrawals + refund + fees). If an app's withdrawals are less than its deposits,
+  // the residual accumulates here as credit available to future requests. There is
+  // currently no mechanism to recover residual funds from decommissioned apps.
   mapping(uint64 => uint256) public appLockedFunds;
 
   uint256 public minFeePerRequest;
@@ -351,14 +355,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       if (eventsLength != 0 || withdrawalRequests.length != 0) revert InvalidPayload();
       if (applicationStateRoots[applicationId] != newStateRoot) revert InvalidStateRoot();
 
-      // Per-app solvency: ensures this app's withdrawals cannot drain another app's funds.
-      // Uses InsufficientAppBalance (not InsufficientBalance) so callers can distinguish
-      // per-app solvency failures from global balance issues.
+      // Per-app solvency check, then defense-in-depth global balance check.
       uint256 totalErrorAmount = requestInfo.depositAmount + requestInfo.maxFeeValue;
       if (totalErrorAmount > appLockedFunds[applicationId])
         revert InsufficientAppBalance();
-      // Defense-in-depth: global balance check as a safety net (~200 gas).
-      // Should never fire if per-app accounting is correct, but guards against bugs.
       if (totalErrorAmount > _getAvailableBalance())
         revert InsufficientBalance();
       appLockedFunds[applicationId] -= totalErrorAmount;
@@ -413,12 +413,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
     sum += refund + applicationFees;
 
-    // Per-app solvency: ensures this app's withdrawals cannot drain another app's funds.
-    // Uses InsufficientAppBalance (not InsufficientBalance) so callers can distinguish
-    // per-app solvency failures from global balance issues.
+    // Per-app solvency check, then defense-in-depth global balance check.
     if (sum > appLockedFunds[applicationId]) revert InsufficientAppBalance();
-    // Defense-in-depth: global balance check as a safety net (~200 gas).
-    // Should never fire if per-app accounting is correct, but guards against bugs.
     if (sum > _getAvailableBalance()) revert InsufficientBalance();
     appLockedFunds[applicationId] -= sum;
 
