@@ -358,10 +358,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
       // Per-app solvency check, then defense-in-depth global balance check.
       uint256 totalErrorAmount = requestInfo.depositAmount + requestInfo.maxFeeValue;
-      if (totalErrorAmount > appLockedFunds[applicationId])
-        revert InsufficientAppBalance();
-      if (totalErrorAmount > _getAvailableBalance())
-        revert InsufficientBalance();
+      if (totalErrorAmount > appLockedFunds[applicationId]) revert InsufficientAppBalance();
+      if (totalErrorAmount > _getAvailableBalance()) revert InsufficientBalance();
       appLockedFunds[applicationId] -= totalErrorAmount;
 
       // Refund includes deposit amount for error cases

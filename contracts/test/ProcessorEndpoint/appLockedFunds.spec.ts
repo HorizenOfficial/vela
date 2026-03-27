@@ -74,9 +74,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
   }
 
   async function failRequest(requestId: string, appId?: bigint) {
-    const currentStateRoot = await processorEndpoint.applicationStateRoots(
-      appId ?? applicationId
-    );
+    const currentStateRoot = await processorEndpoint.applicationStateRoots(appId ?? applicationId);
     return processorEndpoint
       .connect(signers[1])
       .stateUpdate(
