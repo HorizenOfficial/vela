@@ -89,10 +89,16 @@ When a request fails, the business-asset deposit is refunded in its original tok
 
 ### R9 — Solvency Checks
 
-Solvency is validated per asset, not as a single aggregated amount. The contract must verify at `stateUpdate` time that:
-- For ERC-20 tokens, `IERC20(token).balanceOf(contract) - totalAppCustody[token] - totalPendingClaims[token] >= withdrawalAmount/refund` and `address(this).balance - totalPendingClaims[0x0] - totalAppCustody[0x0] >= maxFeeValue` for fee payment and fee refund.
-- For ETH, `address(this).balance - totalPendingClaims[0x0] - totalAppCustody[0x0] >= withdrawalAmount/refund + maxFeeValue`
-App-scoped custody is checked before crediting pending claims during state updates.
+Solvency is validated per asset, not as a single aggregated amount. During `stateUpdate`, the contract first decreases `appCustody` and `totalAppCustody` for each outflow (withdrawals and failed-request refunds), then verifies that the contract's physical balance can still cover all remaining obligations before crediting pending claims.
+
+The check, performed after custody is decremented but before pending claims are incremented:
+
+- For ERC-20 tokens: `IERC20(token).balanceOf(contract) - totalAppCustody[token] - totalPendingClaims[token] >= outflowAmount` and `address(this).balance - totalPendingClaims[0x0] - totalAppCustody[0x0] >= maxFeeValue` for fee payment and fee refund.
+- For ETH: `address(this).balance - totalAppCustody[0x0] - totalPendingClaims[0x0] >= outflowAmount + maxFeeValue`
+
+where `outflowAmount` is the total business-asset value being moved from custody into pending claims in that update, and `maxFeeValue` accounts for the fee payment and potential fee refund.
+
+App-scoped custody (`appCustody[appId][token] >= outflowAmount`) is checked before the global solvency check to ensure no app creates outflows exceeding its own deposits.
 
 ### R10 — Reentrancy Protection
 
@@ -110,13 +116,9 @@ Withdrawal instructions produced by the guest include the token address.
 
 All deposit, withdrawal, refund, and claim events emitted on-chain include the token address. This ensures external systems (subgraphs, explorers, monitoring) can distinguish between ETH and ERC-20 operations and correctly index asset-aware flows.
 
-### R13 — Permit (Deferred)
-
-A `submitRequestWithPermit()` entry point for EIP-2612-compatible tokens (see 11) will be added as a follow-up. It is not a blocking requirement. The standard `approve` + `submitRequest` flow works for all tokens including USDC.
-
 ### R14 — Unsupported Token Behaviors
 
-The following token behaviors are explicitly unsupported:
+The following token behaviors will never be included in the whitelisted token list (ADMIN responsability, no on-chain check):
 - **Fee-on-transfer**: rejected at deposit time via the balance check (see 2, R4).
 - **Rebasing**: must be excluded from the allowlist (see 4, R2). No in-contract defense exists.
 - **ERC-777**: must be excluded from the allowlist (see 3, R2). `nonReentrant` provides backup defense (R10).
