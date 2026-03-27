@@ -122,6 +122,8 @@ function submitRequestFor(
     uint256 deadline,
     bytes calldata requestSignature,
     // EIP-3009 deposit authorization (empty if assetAmount == 0)
+    // When present: abi.encode(bytes32 eip3009Nonce, bytes signature)
+    // validAfter is hardcoded to 0, validBefore is derived from deadline
     bytes calldata depositAuthorization
 )
     external
@@ -132,7 +134,7 @@ function submitRequestFor(
     returns (bytes32)
 ```
 
-**Execution flow (solidty code):**
+**Execution flow (solidity pseudo-code):**
 
 ```
 submitRequestFor()
@@ -142,12 +144,13 @@ submitRequestFor()
   │
   ├─ 2. Recover user address from EIP-712 request signature
   │     user = ecrecover(hashTypedData(requestAuth), requestSignature)
+  │     require(user != address(0))   // invalid signature guard
   │
   ├─ 3. Verify and consume nonce for the EIP-712 authorization (replay protection)
   │     require(nonces[user] == nonce)
   │     nonces[user]++
   │
-  ├─ 4. Validate token allowlists
+  ├─ 4. If assetAmount > 0: validate token allowlists
   │     require(globalAllowedTokens[tokenAddress])
   │     require(appAllowedTokens[applicationId][tokenAddress])
   │
@@ -155,10 +158,13 @@ submitRequestFor()
   │     maxFeeValue = msg.value
   │     require(maxFeeValue >= minFeePerRequest)
   │
-  ├─ 6. If assetAmount > 0: execute EIP-3009 transfer
+  ├─ 6. If assetAmount > 0: decode depositAuthorization and execute EIP-3009 transfer
+  │     (eip3009Nonce, sig) = abi.decode(depositAuthorization, (bytes32, bytes))
   │     token.transferWithAuthorization(
   │         user, address(this), assetAmount,
-  │         validAfter, validBefore, eip3009Nonce, depositAuthorization
+  │         0,        // validAfter: always immediate
+  │         deadline, // validBefore: bound to request deadline
+  │         eip3009Nonce, sig
   │     )
   │     appCustody[applicationId][tokenAddress] += assetAmount
   │
@@ -238,30 +244,19 @@ struct PendingRequest {
 In `stateUpdate`, claim routing becomes:
 
 ```solidity
-if (request.facilitator != address(0)) {
-    // Facilitated request:
-    //   - business-asset refund → user (in tokenAddress)
-    //   - fee refund → facilitator (in ETH)
-    if (assetRefund > 0) {
-        pendingClaims[request.tokenAddress][request.sender] += assetRefund;
-        totalPendingClaims[request.tokenAddress] += assetRefund;
-    }
-    if (feeRefund > 0) {
-        pendingClaims[address(0)][request.facilitator] += feeRefund;
-        totalPendingClaims[address(0)] += feeRefund;
-    }
-} else {
-    // Direct request: standard claim routing per ERC-20 design
-    //   - business-asset refund → sender (in tokenAddress)
-    //   - fee refund → sender (in ETH)
-    if (assetRefund > 0) {
-        pendingClaims[request.tokenAddress][request.sender] += assetRefund;
-        totalPendingClaims[request.tokenAddress] += assetRefund;
-    }
-    if (feeRefund > 0) {
-        pendingClaims[address(0)][request.sender] += feeRefund;
-        totalPendingClaims[address(0)] += feeRefund;
-    }
+// Asset refund always goes to user (the real requester)
+if (assetRefund > 0) {
+    pendingClaims[request.tokenAddress][request.sender] += assetRefund;
+    totalPendingClaims[request.tokenAddress] += assetRefund;
+}
+
+// Fee refund goes to facilitator if present, otherwise to sender
+address feeRecipient = request.facilitator != address(0)
+    ? request.facilitator
+    : request.sender;
+if (feeRefund > 0) {
+    pendingClaims[address(0)][feeRecipient] += feeRefund;
+    totalPendingClaims[address(0)] += feeRefund;
 }
 ```
 
@@ -307,11 +302,11 @@ These endpoints are **open** (no authentication required). See Open Questions fo
 
 #### x402 Scheme Layer
 
-For applications integrating with the [x402 HTTP payment protocol](https://github.com/coinbase/x402/), the facilitator implements a custom scheme (`private-vela-fixed`) and the default endpoints defined by Coinbase.
+For applications integrating with the [x402 HTTP payment protocol](https://github.com/coinbase/x402/), the facilitator implements a custom scheme (`private-vela-fixed`) and the default endpoints defined by Coinbase: they are part of the specification from Coinbase, and defines a standard way to perform x402 payments and extend them by defining a custom payment flow.
 
-IMPORTANT: this part is an extension/specialization of the Core Facilitation Endpoints that requires the usage of the vela-nova app for executing private stransfer.
+IMPORTANT: this part is an extension/specialization of the Core Facilitation Endpoints that requires the usage of the vela-nova app for executing private transfers.
 
-**npm package: `@horizen/x402-private-vela-fixed`** — Published from the `vela-facilitator` repo, this package defines the `private-vela-fixed` scheme and can be used by:
+**npm package: `@horizen/x402-private-vela-fixed`** — This package defines the `private-vela-fixed` payment scheme and can be used by:
 - **x402 clients** (via the Coinbase x402 client SDK) to construct EIP-712 + EIP-3009 payment signatures
 - **x402 facilitators** (including the Coinbase reference facilitator or the `vela-facilitator` itself) to verify and settle payments
 
@@ -474,10 +469,9 @@ If a user uses both paths, there is no conflict: direct calls are not nonce-gate
 
 | File | Change |
 |---|---|
-| `ProcessorEndpoint.sol` | Add `submitRequestFor()`, `facilitatorNonces` mapping, EIP-712 domain/typehash constants, refactor `generateRequestId` to internal `_generateRequestId` |
+| `ProcessorEndpoint.sol` | Add `submitRequestFor()`, `facilitatorNonces` mapping, EIP-712 domain separator + `REQUEST_AUTHORIZATION_TYPEHASH`, refactor `generateRequestId` to internal `_generateRequestId`, modify `stateUpdate` claim routing for split claims (user asset / facilitator ETH fee) |
 | `IProcessorEndpoint.sol` | Add `submitRequestFor()` and `getFacilitatorNonce()` to interface |
 | `Structs.sol` | Add `facilitator` field to `PendingRequest` |
-| `ProcessorEndpoint.sol` | Modify `stateUpdate` claim routing for split claims (user asset / facilitator ETH fee) |
 
 ### Go Backend
 
