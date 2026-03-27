@@ -65,7 +65,7 @@ If a user submits a request with a token the app does not support, the WASM app 
 
 ### R4 — Deposit Flow
 
-For ETH requests, `msg.value` equals `assetAmount + maxFeeValue`, matching the current behavior. For ERC-20 requests, `msg.value` equals `maxFeeValue` exactly (see 9), and the contract pulls `assetAmount` via `safeTransferFrom` (see 5). The contract verifies the actual received amount matches `assetAmount` using a balance-before/after check (see 2).
+For ETH requests, `msg.value` equals `assetAmount + maxFeeValue`, matching the current behavior. For ERC-20 requests, `msg.value` equals `maxFeeValue` exactly (see 9), and the contract pulls `assetAmount` via `safeTransferFrom` (see 5). The contract verifies the actual received amount matches `assetAmount` using a balance-before/after check (see 2). The User should have already called `approve(processorEndpoint, amount)` on the token contract before sending the ERC-20 deposit request.
 
 ### R5 — Custody Accounting
 
