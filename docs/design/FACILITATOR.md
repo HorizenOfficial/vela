@@ -33,7 +33,8 @@ A **facilitator** should allow users to submit requests without holding any ETH.
 - The facilitator is a platform-operated service that **absorbs costs** (no on-chain reimbursement mechanism)
 
 
-This document covers the **smart contract changes** and **Go backend changes** needed in this repository to support facilitated requests. The off-chain facilitator service and client SDK will be implemented in the separate [`vela-x402`](https://github.com/HorizenOfficial/vela-x402) repository, which builds on the x402 HTTP payment protocol defined by Coinbase.
+This document covers the **smart contract changes** and **Go backend changes** needed in this repository to support facilitated requests. The off-chain facilitator service and client SDK will be implemented in a separate [`vela-x402`](https://github.com/HorizenOfficial/vela-x402) repository, which builds on the x402 HTTP payment protocol defined by Coinbase (see [https://github.com/coinbase/x402/](https://github.com/coinbase/x402/)).
+More info on the off-chain facilitator will be provided below in paragraph 5.3 .
 
 ## 4. Approach: EIP-3009 + EIP-712 Meta-Transaction
 
@@ -132,7 +133,7 @@ function submitRequestFor(
     returns (bytes32)
 ```
 
-**Execution flow:**
+**Execution flow (solidty code):**
 
 ```
 submitRequestFor()
@@ -185,10 +186,22 @@ mapping(address => uint256) public facilitatorNonces;
 function getFacilitatorNonce(address user) external view returns (uint256);
 ```
 
-Sequential nonces are preferred over random nonces here because:
+**Why a dedicated nonce is needed.** The `facilitatorNonces` counter is independent from both the Ethereum account nonce (used by the facilitator's EOA to order on-chain transactions) and the EIP-3009 random nonce (managed by the token contract for `transferWithAuthorization`). It protects the EIP-712 request authorization (Signature 1) against replay. This is critical when `assetAmount == 0` (e.g., `ASSOCIATEKEY` or `PROCESS` requests): in that case there is no Signature 2 / EIP-3009 transfer, so without this nonce there would be **no replay protection at all** — a facilitator could re-submit the same signed request multiple times. When `assetAmount > 0` the EIP-3009 nonce would already block a second transfer, but the dedicated nonce provides defense-in-depth.
+
+Because `facilitatorNonces` lives inside the `ProcessorEndpoint` contract and is keyed by user address, it does **not** interfere with the user's EOA nonce. A user can freely submit direct transactions (e.g., call `submitRequest`) without affecting their facilitator nonce, and vice versa.
+
+**Sequential vs random.** Unlike EIP-3009 (which uses random `bytes32` nonces and an on-chain bitmap), this design uses a simple sequential counter. Trade-offs:
+
+| | Sequential (current design) | Random (EIP-3009 style) |
+|---|---|---|
+| **Pro** | Minimal storage, simple replay prevention, enforces ordering | Allows out-of-order / parallel submission |
+| **Con** | Requires querying the current nonce on-chain; a stuck tx blocks subsequent requests for the same user | Higher gas cost (bitmap storage), more complex contract logic |
+
+Sequential nonces are preferred here because:
 - They prevent replay attacks with minimal storage
 - They enforce ordering (a user can't submit request N+1 before N is mined)
 - They're simpler for the facilitator service to track
+- The facilitator is a single centralized service with moderate throughput, so the ordering constraint is acceptable
 
 #### Modified `generateRequestId`
 
@@ -257,9 +270,9 @@ The `claim(tokenAddress, payee)` function remains unchanged — it is permission
 
 ### 5.3. Facilitator Service (Off-Chain)
 
-The facilitator service is implemented as a separate project: [`vela-x402`](https://github.com/HorizenOfficial/vela-x402). It is **not** part of this repository.
+The facilitator service will be implemented as a separate project: [`vela-x402`](https://github.com/HorizenOfficial/vela-x402). It is **not** part of this repository.
 
-`vela-x402` implements a custom **x402 payment scheme** (`private-vela-fixed`) that integrates with the HTTP 402 payment protocol. The facilitator acts as the settlement layer between x402 resource servers and the `ProcessorEndpoint` contract.
+`vela-x402` will implement a custom **x402 payment scheme** (`private-vela-fixed`) that integrates with the HTTP 402 payment protocol. The facilitator acts as the settlement layer between x402 resource servers and the `ProcessorEndpoint` contract.
 
 #### Architecture
 
@@ -312,12 +325,14 @@ User/Client              Resource Server           Facilitator (vela-x402)     B
 
 #### Setup Endpoints (Non-x402)
 
-In addition to the standard x402 verify/settle flow, the facilitator exposes setup endpoints:
+In addition to the standard x402 verify/settle flow, the facilitator exposes additional endpoints to perform the initial steps (register, deposit) and
+the final withdraw step.
 
 - **`POST /register`** — Relays `ASSOCIATEKEY` requests (user key registration, one-shot)
 - **`POST /deposit`** — Relays ERC-20 deposit requests via `submitRequestFor()`
+- **`POST /withdrawal`** — Relays ERC-20 withdrawal requests via `submitRequestFor()`
 
-These enable users to onboard (register keys and fund their private balance) without holding ETH.
+These enable users to execute also the onboarding (register keys and fund their private balance) and withdrawal without holding ETH.
 
 #### Facilitator Responsibilities
 
@@ -350,14 +365,7 @@ Works naturally with the facilitator: the user signs a request authorization wit
 
 #### DEANONYMIZATION
 
-Currently checks `authorityRegistry.checkAuthorityIsAllowed(applicationId, msg.sender)`. For facilitated requests, this must check the **recovered user address** (the authority), not `msg.sender` (the facilitator):
-
-```solidity
-// In submitRequestFor:
-if (requestType == Structs.RequestType.DEANONYMIZATION) {
-    require(authorityRegistry.checkAuthorityIsAllowed(applicationId, user), "AuthorityNotAllowed");
-}
-```
+Deanonymization will not be covered by the facilitator feature.
 
 ## 6. Security Considerations
 
