@@ -32,8 +32,10 @@ A **facilitator** should allow users to submit requests without holding any ETH.
 - The existing **direct EOA submission** path remains fully functional
 - The facilitator is a platform-operated service that **absorbs costs** (no on-chain reimbursement mechanism)
 
+The facilitator pattern is designed for **ERC-20 business-asset deposits**. For ETH deposits (`tokenAddress = 0x0`), the user inherently needs ETH for `assetAmount` and therefore likely has enough for gas and fees — making the facilitator less valuable. ETH deposits remain supported only via the direct `submitRequest` path.
 
-This document covers the **smart contract changes** and **Go backend changes** needed in this repository to support facilitated requests. The off-chain facilitator service and client SDK will be implemented in a separate [`vela-facilitator`](https://github.com/HorizenOfficial/vela-facilitator) repository, which builds on the x402 HTTP payment protocol defined by Coinbase (see [https://github.com/coinbase/x402/](https://github.com/coinbase/x402/)).
+
+This document covers the **smart contract changes** and **Go backend changes** needed in this repository to support facilitated requests. The off-chain facilitator service and client SDK will be implemented in a separate [`vela-facilitator`](https://github.com/HorizenOfficial/vela-facilitator) repository, which will provide also compatibility with the x402 HTTP payment protocol defined by Coinbase (see [https://github.com/coinbase/x402/](https://github.com/coinbase/x402/)).
 More info on the off-chain facilitator will be provided below in paragraph 5.3 .
 
 ## 4. Approach: EIP-3009 + EIP-712 Meta-Transaction
@@ -58,10 +60,6 @@ ERC-4337 could be revisited if the platform needs broader account abstraction (e
 
 EIP-2771 (Trusted Forwarder) solves `msg.sender` identity but doesn't solve payment delegation for ERC-20 deposits. Since we already need EIP-3009 for the deposit token transfer, we can derive user identity from the EIP-712 request signature directly, without introducing a forwarder dependency.
 
-### 4.4. Scope: ERC-20 Deposits Only
-
-The facilitator pattern is designed for **ERC-20 business-asset deposits**. For ETH deposits (`tokenAddress = 0x0`), the user inherently needs ETH for `assetAmount` and therefore likely has enough for gas and fees — making the facilitator less valuable. ETH deposits remain supported only via the direct `submitRequest` path.
-
 ## 5. Design
 
 ### 5.1. User Signature Scheme
@@ -84,6 +82,7 @@ RequestAuthorization {
     uint256  deadline           // expiration timestamp
 }
 ```
+Note there is a specific nonce for this authorization, described deeply below in 5.2.
 
 The contract recovers the user address from this signature → this becomes the `sender` in `PendingRequest`.
 
@@ -144,7 +143,7 @@ submitRequestFor()
   ├─ 2. Recover user address from EIP-712 request signature
   │     user = ecrecover(hashTypedData(requestAuth), requestSignature)
   │
-  ├─ 3. Verify and consume nonce (replay protection)
+  ├─ 3. Verify and consume nonce for the EIP-712 authorization (replay protection)
   │     require(nonces[user] == nonce)
   │     nonces[user]++
   │
@@ -308,7 +307,9 @@ These endpoints are **open** (no authentication required). See Open Questions fo
 
 #### x402 Scheme Layer
 
-For applications integrating with the [x402 HTTP payment protocol](https://github.com/coinbase/x402/), the facilitator implements a custom scheme (`private-vela-fixed`).
+For applications integrating with the [x402 HTTP payment protocol](https://github.com/coinbase/x402/), the facilitator implements a custom scheme (`private-vela-fixed`) and the default endpoints defined by Coinbase.
+
+IMPORTANT: this part is an extension/specialization of the Core Facilitation Endpoints that requires the usage of the vela-nova app for executing private stransfer.
 
 **npm package: `@horizen/x402-private-vela-fixed`** — Published from the `vela-facilitator` repo, this package defines the `private-vela-fixed` scheme and can be used by:
 - **x402 clients** (via the Coinbase x402 client SDK) to construct EIP-712 + EIP-3009 payment signatures
@@ -488,10 +489,9 @@ If a user uses both paths, there is no conflict: direct calls are not nonce-gate
 | Subgraph schema | Add `facilitator` field to `RequestSubmitted` entity |
 | Subgraph handler | Index `facilitator` from event/call data |
 
-## 8. Open Questions
+## 8. Open points for future developments
 
-1. **Facilitator API authentication**: the core facilitation endpoints (`/submit`, `/nonce`) are currently open (no authentication). Before production, an authentication mechanism (API keys, allowlists, or similar) should be designed to prevent unauthorized use of the facilitator's ETH funds.
-
+1. **Facilitator API authentication**: the facilitation endpoints (`/submit`, `/nonce`) are currently open (no authentication). Before production, an authentication mechanism (API keys, allowlists, or similar) should be designed to prevent unauthorized use of the facilitator's ETH funds.
 
 2. **Multi-facilitator support**: can multiple facilitator addresses be active simultaneously? The current design supports this naturally (any address can call `submitRequestFor`), but operational monitoring may need to account for it.
 
