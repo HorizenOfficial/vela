@@ -234,6 +234,11 @@ describe('ProcessorEndpoint Test', function () {
         expect(processorBalanceAfter).to.equal(
           processorBalanceBefore + depositAmount + maxFeeValue
         );
+
+        // appLockedFunds should increase by depositAmount + maxFeeValue
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
+          depositAmount + maxFeeValue
+        );
       });
 
       it('accepts non-deanonymization requests (PROCESS/ASSOCIATEKEY) and enqueues', async () => {

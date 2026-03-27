@@ -582,6 +582,10 @@ describe('ProcessorEndpoint Test', function () {
         expect(senderPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(refund);
         expect(balanceAPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(10n);
         expect(balanceBPendingAmountAfterUpdate - balanceBPendingAmountAfterSubmit).to.equal(10n);
+
+        // appLockedFunds debited by withdrawals(10+10) + refund(5) + fees(100) = 125
+        // credited depositAmount(20) + maxFeeValue(105) = 125, so should be 0
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 
       it('emits UserEvent for provided events and subtypes', async () => {

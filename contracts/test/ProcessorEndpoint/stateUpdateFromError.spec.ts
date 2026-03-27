@@ -387,6 +387,11 @@ describe('ProcessorEndpoint Test', function () {
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
 
+        // After submit: appLockedFunds should equal depositAmount + maxFeeValue
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
+          depositAmount + maxFeeValue
+        );
+
         // With pull pattern, funds are credited to pending deposits
         const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
           await sender.getAddress()
@@ -406,6 +411,9 @@ describe('ProcessorEndpoint Test', function () {
         expect(senderPendingAmountAfterComplete - senderPendingAmountAfterSubmit).to.equal(
           expectedRefund
         );
+
+        // After error: appLockedFunds debited by full depositAmount + maxFeeValue → 0
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 
       it('refunds sender and emits RequestCompleted FAILED when error stateUpdate succeeds', async () => {
@@ -419,6 +427,9 @@ describe('ProcessorEndpoint Test', function () {
           });
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
+
+        // After submit: appLockedFunds should equal maxFeeValue (depositAmount is 0)
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(maxFeeValue);
 
         // With pull pattern, funds are credited to pending deposits
         const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
@@ -438,6 +449,9 @@ describe('ProcessorEndpoint Test', function () {
         expect(senderPendingAmountAfterFail - senderPendingAmountAfterSubmit).to.equal(
           expectedRefund
         );
+
+        // After error: appLockedFunds debited by full maxFeeValue → 0
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 
       it('restores an available deploy slot when a deploy request fails', async () => {

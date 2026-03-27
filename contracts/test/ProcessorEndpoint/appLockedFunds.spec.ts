@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
+import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 import { BYTES32_ZERO, getRequestIdFromReceipt } from '../util';
 
@@ -95,10 +96,14 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
   }
 
   describe('basics', function () {
+    // bootstrapApplication submits a deploy request and completes it via stateUpdate,
+    // consuming the entire fee. The app should start with zero locked funds.
     it('appLockedFunds is 0 after bootstrapApplication', async () => {
       expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
     });
 
+    // Verifies that submitRequest credits the full msg.value (depositAmount + maxFeeValue)
+    // to the app's locked funds, since both components belong to the app until processing.
     it('increases by depositAmount + maxFeeValue after submitRequest', async () => {
       const depositAmount = 50n;
       const maxFeeValue = minFeePerRequest + 10n;
@@ -110,6 +115,8 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       );
     });
 
+    // Verifies that submitDeployRequest credits msg.value (which equals maxFeeValue,
+    // since depositAmount is always 0 for deploys) to the new app's locked funds.
     it('increases by msg.value after submitDeployRequest', async () => {
       const fee = minFeePerRequest + 20n;
       const deployTx = await processorEndpoint
@@ -130,6 +137,9 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       expect(await processorEndpoint.appLockedFunds(deployAppId)).to.equal(fee);
     });
 
+    // Verifies that a successful stateUpdate debits appLockedFunds by the total outflow:
+    // withdrawals + refund + applicationFees. The remaining balance should equal the
+    // original credit minus this sum.
     it('decreases correctly after successful stateUpdate', async () => {
       const depositAmount = 100n;
       const refund = 10n;
@@ -158,6 +168,9 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       );
     });
 
+    // Verifies that a failed stateUpdate debits the full original amount
+    // (depositAmount + maxFeeValue) from appLockedFunds, since the entire deposit
+    // is consumed by the refund + minimum fee.
     it('decreases correctly after error stateUpdate', async () => {
       const depositAmount = 30n;
       const maxFeeValue = minFeePerRequest + 5n;
@@ -172,6 +185,8 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
     });
 
+    // Solidity mappings return the default value (0) for uninitialized keys.
+    // Confirms no spurious balance exists for apps that were never deployed.
     it('returns 0 for unknown application IDs', async () => {
       expect(await processorEndpoint.appLockedFunds(999999)).to.equal(0n);
     });
@@ -184,6 +199,10 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       ({ applicationId: appIdB } = await bootstrapApplication(processorEndpoint));
     });
 
+    // Core isolation guarantee: App B cannot withdraw more than its own locked funds,
+    // even when the contract's global ETH balance is sufficient (due to App A's funds).
+    // The test explicitly asserts global balance >= B's requested outflow before
+    // verifying the per-app revert, proving it's the app-level check that blocks it.
     it('App A withdrawal succeeds while App B same-amount withdrawal reverts with InsufficientAppBalance', async () => {
       const depositA = 200n;
       const depositB = 50n;
@@ -214,7 +233,21 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         [[await signers[3].getAddress(), depositA]]
       );
 
-      // B tries to withdraw 200 — should fail because B only has 50 + maxFee
+      // The contract's global balance is sufficient for a 200 withdrawal —
+      // this is the key assertion: it proves the per-app check is what blocks B,
+      // not the global balance.
+      const withdrawalAttempt = 200n;
+      const totalOutflowB = withdrawalAttempt + 0n + maxFee; // withdrawal + refund + fee
+      const contractBalance = await ethers.provider.getBalance(
+        await processorEndpoint.getAddress()
+      );
+      expect(contractBalance).to.be.greaterThanOrEqual(
+        totalOutflowB,
+        'Global balance should be sufficient — per-app check must be what blocks this'
+      );
+
+      // B tries to withdraw 200 — reverts because B only has 50 + maxFee locked,
+      // even though the contract holds enough ETH globally
       await expect(
         completeRequest(
           reqB.requestId,
@@ -222,12 +255,14 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
           '0x' + 'b1'.repeat(32),
           0n,
           maxFee,
-          [[await signers[4].getAddress(), 200n]],
+          [[await signers[4].getAddress(), withdrawalAttempt]],
           appIdB
         )
       ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientAppBalance');
     });
 
+    // Verifies that processing App A's request (debiting A's pool) has no side effect
+    // on App B's appLockedFunds. Each app's accounting is fully independent.
     it("App A's stateUpdate does not change App B's appLockedFunds", async () => {
       const depositA = 100n;
       const depositB = 75n;
@@ -253,6 +288,8 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       expect(await processorEndpoint.appLockedFunds(appIdB)).to.equal(fundsB);
     });
 
+    // Same isolation guarantee for the error path: failing App A's request and
+    // refunding its deposit must not touch App B's locked funds.
     it("App A error refund does not affect App B's pool", async () => {
       const depositA = 40n;
       const depositB = 60n;
@@ -272,6 +309,9 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
   });
 
   describe('accumulation', function () {
+    // When multiple requests are pending for the same app, their deposits accumulate
+    // in appLockedFunds. Processing them one at a time should debit each request's
+    // portion, eventually draining the balance to zero.
     it('multiple pending requests accumulate, process sequentially to zero', async () => {
       const dep1 = 100n;
       const dep2 = 200n;
@@ -311,10 +351,138 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
     });
   });
 
+  describe('edge cases', function () {
+    // Boundary test: when the total outflow exactly equals appLockedFunds, the
+    // stateUpdate should succeed and drain the balance to zero (no off-by-one).
+    it('exact boundary: sum == appLockedFunds succeeds', async () => {
+      const depositAmount = 50n;
+      const maxFeeValue = minFeePerRequest;
+
+      const request = await submitRequest(signers[0], '0x50', depositAmount, maxFeeValue);
+
+      await completeRequest(
+        request.requestId,
+        INITIAL_STATE_ROOT,
+        '0x' + 'd1'.repeat(32),
+        0n,
+        maxFeeValue,
+        [[await signers[3].getAddress(), depositAmount]]
+      );
+
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+    });
+
+    // Boundary test: when the total outflow exceeds appLockedFunds by exactly 1 wei,
+    // the solvency check must revert. Also verifies that the reverted tx does not
+    // modify appLockedFunds (EVM atomicity).
+    it('boundary + 1: sum == appLockedFunds + 1 reverts with InsufficientAppBalance', async () => {
+      const depositAmount = 50n;
+      const maxFeeValue = minFeePerRequest;
+
+      const request = await submitRequest(signers[0], '0x51', depositAmount, maxFeeValue);
+
+      await expect(
+        completeRequest(
+          request.requestId,
+          INITIAL_STATE_ROOT,
+          '0x' + 'd2'.repeat(32),
+          0n,
+          maxFeeValue,
+          [[await signers[3].getAddress(), depositAmount + 1n]]
+        )
+      ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientAppBalance');
+
+      // appLockedFunds unchanged after revert
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
+        depositAmount + maxFeeValue
+      );
+    });
+
+    // Verifies correct bookkeeping when the same app has one request fail (error path)
+    // and another succeed (success path). Both debit paths must work independently,
+    // and the final balance should be zero.
+    it('mixed error + success for same app drains to zero', async () => {
+      const dep1 = 80n;
+      const dep2 = 120n;
+      const maxFee = minFeePerRequest;
+
+      // Submit two requests
+      const req1 = await submitRequest(signers[0], '0x60', dep1, maxFee);
+      const req2 = await submitRequest(signers[0], '0x61', dep2, maxFee);
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
+        dep1 + dep2 + 2n * maxFee
+      );
+
+      // Fail first request — debits dep1 + maxFee
+      await failRequest(req1.requestId);
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep2 + maxFee);
+
+      // Succeed second request — debits dep2 + maxFee
+      await completeRequest(
+        req2.requestId,
+        INITIAL_STATE_ROOT,
+        '0x' + 'd3'.repeat(32),
+        0n,
+        maxFee,
+        [[await signers[3].getAddress(), dep2]]
+      );
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+    });
+
+    // Verifies that appLockedFunds accounting is decoupled from actual ETH transfers.
+    // A request submitted by a contract that rejects ETH (FallbackFailure) still gets
+    // its funds correctly debited from appLockedFunds on the error path, because the
+    // pull payment pattern (_asyncTransfer) only credits the payments mapping — the
+    // actual transfer happens later via withdrawPayments.
+    it('FallbackFailure: appLockedFunds still debited even when receiver rejects ETH', async () => {
+      const { ethers: hre } = await import('hardhat');
+      const FallbackFailure = await hre.getContractFactory('FallbackFailure');
+      const fallbackFailure = await FallbackFailure.deploy();
+      await fallbackFailure.deploymentTransaction()!.wait();
+
+      // FallbackFailure submits a request via its proxy function
+      const depositAmount = 0n;
+      const maxFeeValue = minFeePerRequest + 4n;
+      const insertTx = await fallbackFailure.insertRequestOnProcessorEndpoint(
+        processorEndpoint,
+        PROTOCOL_VERSION,
+        applicationId,
+        1,
+        '0x04',
+        depositAmount,
+        maxFeeValue,
+        { value: maxFeeValue }
+      );
+      const insertReceipt = await insertTx.wait();
+
+      // appLockedFunds should reflect the submitted request
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(maxFeeValue);
+
+      // Fail the request (error path) — the refund goes to FallbackFailure
+      // via _asyncTransfer (pull pattern), so no actual ETH transfer happens here
+      const requestId = insertReceipt.logs
+        .map((log: any) => {
+          try {
+            return processorEndpoint.interface.parseLog(log);
+          } catch {
+            return null;
+          }
+        })
+        .find((parsed: any) => parsed && parsed.name === 'RequestSubmitted')?.args.requestId;
+
+      await failRequest(requestId!);
+
+      // appLockedFunds should be zero even though the receiver rejects ETH
+      // (the pull pattern decouples fund accounting from actual transfers)
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+    });
+  });
+
   describe('deploy request tracking', function () {
+    // Verifies the full deploy lifecycle: submitDeployRequest credits msg.value
+    // (= maxFeeValue, since depositAmount is always 0 for deploys) to appLockedFunds,
+    // and the subsequent stateUpdate debits it back to zero.
     it('deploy request credits then stateUpdate debits to zero', async () => {
-      // bootstrapApplication already consumed the first deploy, so appLockedFunds is 0
-      // Deploy a new app and verify the cycle
       const fixture = await deployProcessorEndpointFixture();
       const pe = await fixture.deployProcessorEndpoint();
 
