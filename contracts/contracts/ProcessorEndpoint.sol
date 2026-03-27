@@ -36,8 +36,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   uint256 private _totalDeposits;
 
   // Per-app fund tracking for solvency isolation.
-  // Credited on submitRequest / submitDeployRequest (msg.value), debited on stateUpdate
-  // (withdrawals + refund + fees). If an app's withdrawals are less than its deposits,
+  // Credited on submitRequest / submitDeployRequest (msg.value), debited on stateUpdate:
+  // success path (withdrawals + refund + fees), error path (depositAmount + maxFeeValue).
+  // If an app's withdrawals are less than its deposits,
   // the residual accumulates here as credit available to future requests. There is
   // currently no mechanism to recover residual funds from decommissioned apps.
   mapping(uint64 => uint256) public appLockedFunds;

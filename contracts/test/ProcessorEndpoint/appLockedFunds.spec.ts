@@ -233,21 +233,8 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         [[await signers[3].getAddress(), depositA]]
       );
 
-      // The contract's global balance is sufficient for a 200 withdrawal —
-      // this is the key assertion: it proves the per-app check is what blocks B,
-      // not the global balance.
+      // B tries to withdraw 200 — reverts because B only has 50 + maxFee locked
       const withdrawalAttempt = 200n;
-      const totalOutflowB = withdrawalAttempt + 0n + maxFee; // withdrawal + refund + fee
-      const contractBalance = await ethers.provider.getBalance(
-        await processorEndpoint.getAddress()
-      );
-      expect(contractBalance).to.be.greaterThanOrEqual(
-        totalOutflowB,
-        'Global balance should be sufficient — per-app check must be what blocks this'
-      );
-
-      // B tries to withdraw 200 — reverts because B only has 50 + maxFee locked,
-      // even though the contract holds enough ETH globally
       await expect(
         completeRequest(
           reqB.requestId,

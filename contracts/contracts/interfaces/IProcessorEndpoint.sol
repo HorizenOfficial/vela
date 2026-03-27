@@ -270,7 +270,7 @@ interface IProcessorEndpoint {
     uint256 idx
   ) external pure returns (bytes32);
 
-  /// @notice Returns the locked funds for a given application.
+  /// @notice Returns the locked funds for a given application (includes residual credit from prior requests).
   /// @param applicationId Application identifier.
   /// @return amount Current locked funds for the application.
   function appLockedFunds(uint64 applicationId) external view returns (uint256);
