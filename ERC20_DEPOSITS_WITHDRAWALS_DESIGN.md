@@ -8,8 +8,6 @@ Fees remain ETH-only and are explicitly out of scope for ERC-20 support in this 
 
 In this document, `0x0` is used as shorthand for the zero address. In Solidity this means `address(0)`. In Go this means the zero-value Ethereum address.
 
-The design is intended to remain valid when the system moves from the current single-app deployment model to a future multi-app model where a shared contract can serve multiple applications.
-
 ## Current State
 
 Today the system is ETH-only across the full flow:
@@ -25,9 +23,7 @@ This means the current model cannot represent:
 - ERC-20 deposits into private state.
 - ERC-20 withdrawals from private state.
 - ERC-20 pending claims after successful withdrawals or failed requests.
-- Per-app token support policies.
 
-In addition, the current codebase still behaves as a single-app system in practice, but that is expected to change soon. The design in this document should therefore be read as the target model for a multi-app-capable system, not as a restatement of the current single-app limitation.
 
 ## Goals
 
@@ -36,7 +32,6 @@ In addition, the current codebase still behaves as a single-app system in practi
 - Allow deposits into private state for ETH and supported ERC-20 tokens.
 - Allow withdrawals from private state for ETH and supported ERC-20 tokens.
 - Support claim flows for both ETH and ERC-20 pending balances.
-- Allow each WASM app to define which tokens it supports.
 - Keep fees denominated and settled in ETH only.
 
 ## Non-Goals
@@ -45,30 +40,98 @@ In addition, the current codebase still behaves as a single-app system in practi
 - Supporting more than one business asset in a single request.
 - Supporting non-standard ERC-20 behaviors such as fee-on-transfer, rebasing, or other custom semantics.
 - Preserving backwards compatibility with the current ETH-only request and withdrawal formats.
+- Enforcing per-app token policies
 
-## Decisions
 
-- A request carries exactly one business asset.
-- The asset is represented as `tokenAddress`, with `0x0` meaning ETH.
-- If `assetAmount == 0`, `tokenAddress` must be `0x0`.
-- ERC-20 deposits use the standard `approve + transferFrom` flow.
-- Fees remain ETH-only.
-- If a request fails, the business-asset deposit is returned via claim.
-- Refunds for unused fees are also claimed, but always in ETH.
-- Claims use a generic asset-aware mechanism, not separate ETH-only and ERC-20-only designs.
-- Pending claimable balances are tracked by `(payee, tokenAddress)`.
-- Claim execution remains permissionless: anyone can trigger a claim for a payee.
-- Token validation is performed both on-chain and in the app runtime.
-- App token support follows a hybrid model:
-  - The contract enforces a global system allowlist of tokens that can be custodied at all.
-  - Each app declares its own allowlist, scoped by `applicationId`, as a subset of that global allowlist.
-  - The app also validates supported tokens at runtime.
-- Token support is allowlist-based.
-- ETH-only apps use an allowlist containing only `0x0`.
-- ETH-plus-ERC20 apps use an allowlist containing `0x0` and the supported ERC-20 token addresses.
-- Private balances move from `account -> balance` to `account -> token -> balance`.
-- The WASM deposit ABI must be extended to include `tokenAddress`.
-- Deposit, refund, withdrawal, and claim-related events must include the token.
+## Requirements
+
+### R1 — Asset Model
+
+A request carries exactly one business asset identified by `(tokenAddress, assetAmount)`. The zero address (`0x0`) represents ETH. Non-zero addresses represent ERC-20 tokens. If `assetAmount` is zero, `tokenAddress` must be `0x0` (a zero-amount deposit has no meaningful token identity). Fees remain denominated and settled in ETH only.
+
+This establishes a uniform representation for all value transfers in the system and avoids the need for separate ETH-only and ERC-20-only code paths.
+
+### R2 — Global Token Allowlist
+
+The contract maintains a global allowlist of ERC-20 tokens that can enter the system. ETH (`0x0`) is always allowed implicitly. Only the `ADMIN` role can add or remove tokens. Adding a token requires verifying that the address contains contract code (see 8). Removing a token blocks new deposits but does not block claims or processing of requests already in the queue.
+
+The global allowlist is the primary defense against all non-standard token behaviors (see ERC-20 Token Behaviors That Affect Vela). Only vetted, standard ERC-20 tokens should be added.
+
+### R3 — No Per-App On-Chain Allowlist
+
+The contract does not enforce per-app token policies. Each WASM application manages its own supported-token configuration at runtime. The contract only enforces the global allowlist.
+
+If a user submits a request with a token the app does not support, the WASM app rejects it during execution. The failed-request path refunds the deposit. This avoids additional on-chain complexity and gives apps full flexibility over their token policies.
+
+### R4 — Deposit Flow
+
+For ETH requests, `msg.value` equals `assetAmount + maxFeeValue`, matching the current behavior. For ERC-20 requests, `msg.value` equals `maxFeeValue` exactly (see 9), and the contract pulls `assetAmount` via `safeTransferFrom` (see 5). The contract verifies the actual received amount matches `assetAmount` using a balance-before/after check (see 2).
+
+### R5 — Custody Accounting
+
+The contract tracks per-app, per-token custody via `appCustody[applicationId][tokenAddress]` and a global aggregate `totalAppCustody[tokenAddress]`. Deposits increase these balances. Withdrawals and failed-request refunds decrease them (moving value into pending claims).
+
+This prevents one application from creating withdrawals backed by another application's deposits in the multi-app model.
+
+### R6 — Withdrawal Model
+
+Withdrawals become `(tokenAddress, receiver, amount)`. A single state update can contain withdrawals in multiple tokens (an app may hold balances in several tokens and produce mixed withdrawals in one execution). The withdrawal tuple ABI must be identical across executor signing, contract signature verification, and Go bindings. Any mismatch in fields or field order causes signature verification to fail.
+
+### R7 — Claim Accounting
+
+Pending claimable balances are tracked per payee and per asset via `pendingClaims[tokenAddress][payee]`, with a global aggregate `totalPendingClaims[tokenAddress]`. The claim entrypoint `claim(tokenAddress, payee)` replaces the current ETH-only `withdrawPayments(payee)`.
+
+Claims are permissionless. If the pending balance is zero, the function returns without reverting (see 10 for why the check must precede any transfer). For ETH, the transfer uses a low-level call. For ERC-20, it uses `safeTransfer`. The claim function does not check the global allowlist, so tokens that have been removed from the allowlist can still be claimed.
+
+### R8 — Failed Request Handling
+
+When a request fails, the business-asset deposit is refunded in its original token. For ETH requests, this produces a single ETH pending credit (asset plus unused fees combined). For ERC-20 requests, this produces two separate pending credits: the business asset in the deposited token and the unused fee portion in ETH.
+
+### R9 — Solvency Checks
+
+Solvency is validated per asset, not as a single aggregated amount. The contract must verify at `stateUpdate` time that:
+- For ERC-20 tokens, `IERC20(token).balanceOf(contract) - totalAppCustody[token] - totalPendingClaims[token] >= withdrawalAmount/refund` and `address(this).balance - totalPendingClaims[0x0] - totalAppCustody[0x0] >= maxFeeValue` for fee payment and fee refund.
+- For ETH, `address(this).balance - totalPendingClaims[0x0] - totalAppCustody[0x0] >= withdrawalAmount/refund + maxFeeValue`
+App-scoped custody is checked before crediting pending claims during state updates.
+
+### R10 — Reentrancy Protection
+
+All state-modifying entry points (`submitRequest`, `stateUpdate`, `claim`) use `nonReentrant` guards. The contract follows the checks-effects-interactions pattern: all state updates are performed before any external call. This is the primary in-contract defense against ERC-777 (see 3) and a general best practice for contracts that interact with untrusted external code.
+
+### R11 — WASM ABI
+
+A new guest export `deploy(appId, constructorParams)` is introduced, called once at deploy time. It receives opaque bytes that only the guest knows how to parse, and returns the initial application state. This allows apps to initialize with arbitrary configuration (supported tokens, admin addresses, fee parameters, etc.) without the contract or executor needing to understand the configuration format.
+
+The `deposit` guest export is extended to include the token address, so the guest knows which asset is being deposited: `deposit(appId, sender, tokenAddress, amount, state)`.
+
+Withdrawal instructions produced by the guest include the token address.
+
+### R12 — Events
+
+All deposit, withdrawal, refund, and claim events emitted on-chain include the token address. This ensures external systems (subgraphs, explorers, monitoring) can distinguish between ETH and ERC-20 operations and correctly index asset-aware flows.
+
+### R13 — Permit (Deferred)
+
+A `submitRequestWithPermit()` entry point for EIP-2612-compatible tokens (see 11) will be added as a follow-up. It is not a blocking requirement. The standard `approve` + `submitRequest` flow works for all tokens including USDC.
+
+### R14 — Unsupported Token Behaviors
+
+The following token behaviors are explicitly unsupported:
+- **Fee-on-transfer**: rejected at deposit time via the balance check (see 2, R4).
+- **Rebasing**: must be excluded from the allowlist (see 4, R2). No in-contract defense exists.
+- **ERC-777**: must be excluded from the allowlist (see 3, R2). `nonReentrant` provides backup defense (R10).
+- **Non-standard return values**: handled transparently by `SafeERC20` (see 5, R4).
+
+### R15 — Admin Surplus Recovery (Optional, Deferred)
+
+An admin function to recover unaccounted token surplus may be added in a future iteration. The recoverable amount would be `balanceOf(token) - totalAppCustody[token] - totalPendingClaims[token]`, ensuring only tokens not owed to anyone can be moved.
+
+This would handle tokens sent to the contract by mistake (direct `transfer` instead of going through `submitRequest`), dust accumulation, and leftover balances after a token is removed from the allowlist. For ETH, the surplus calculation would also need to account for fee reservations held for in-queue requests.
+
+This is not required for the initial implementation.
+
+---
+
 
 ## Proposed Design
 
@@ -76,12 +139,7 @@ At a high level, the system should stop modeling the business asset as an implic
 
 The special case `tokenAddress = 0x0` preserves ETH as a first-class supported asset without needing a separate model.
 
-Each app defines an allowlist of supported tokens. That allowlist is declared in app configuration or deploy metadata and is also enforced by the application logic at runtime. In addition, the contract maintains a global token allowlist so it can reject unsupported assets before custodying them. This allows some apps to stay ETH-only while others support ETH plus selected ERC-20 tokens.
-
-Whether a shared contract accepts a given ERC-20 for a given request therefore depends on two checks:
-
-- the token must be globally allowlisted by the system;
-- the token must be enabled for the specific `applicationId` being addressed by the request.
+The contract maintains a global token allowlist so it can reject unsupported assets before custodying them. 
 
 Pending claimable balances are tracked by payee and asset. This same mechanism is used for:
 
@@ -185,6 +243,7 @@ Conceptual storage:
 
 ```text
 appCustody[applicationId][tokenAddress] uint256
+totalAppCustody[tokenAddress]           uint256
 ```
 
 Behavior:
@@ -198,36 +257,6 @@ This means the contract should use:
 
 - `pendingClaims[tokenAddress][payee]` to track who can claim what asset;
 - `appCustody[applicationId][tokenAddress]` to enforce which app is allowed to create those liabilities in the first place.
-
-### App Config
-
-App token support should be serialized as deploy-time app configuration and delivered to the guest during deployment, not compiled into the WASM binary.
-
-Conceptual app config shape:
-
-```text
-AppConfig {
-  allowedTokens []address  // 0x0 means ETH
-}
-```
-
-Examples:
-
-- ETH-only app: `allowedTokens = [0x0]`
-- ETH + ERC-20 app: `allowedTokens = [0x0, usdc, dai, ...]`
-
-This app-level allowlist is assumed to be a subset of the contract-level global allowlist and must be scoped by `applicationId` in the multi-app model.
-
-Delivery model:
-
-- the deploy payload must carry app configuration, including `allowedTokens`;
-- the executor/runtime must pass that configuration into `load_module`;
-- the guest must persist the configuration inside its initial private state;
-- subsequent `deposit` and `process_request` calls validate token support by reading that state.
-
-This is preferred over having the host mutate app-specific state after deployment, because the host should not need to understand each app's internal state schema.
-
-This app config is only the per-app allowlist needed by the guest. The guest should not persist or replicate the contract-wide global token allowlist, which remains an on-chain source of truth.
 
 ### Contract-Level Token Allowlist
 
@@ -243,36 +272,14 @@ Behavior:
 
 - `0x0` is always treated as ETH and always allowed;
 - any non-zero `tokenAddress` must be present in `globalAllowedTokens`;
-- app-level allowlists can only use tokens that are already globally allowlisted.
+- app-level token policies are managed off-chain by each WASM application at runtime (see R3), not enforced by the contract.
 
 Administration model:
 
 - the global allowlist is the single source of truth for which ERC-20 contracts can ever enter custody;
 - it should be managed on-chain by the existing `ADMIN` role, following the same access-control pattern already used for fee collector and deployer management;
 - the contract should expose explicit admin functions for adding and removing globally allowed ERC-20 token addresses.
-
-### Per-App Token Allowlist On-Chain
-
-Because the system is expected to move to a multi-app model, the contract should also maintain app-scoped token support.
-
-Conceptual storage:
-
-```text
-appAllowedTokens[applicationId][tokenAddress] bool
-```
-
-Behavior:
-
-- a request must pass both the global token allowlist and the per-app token allowlist;
-- different applications can support different token subsets on the same shared contract;
-- an ETH-only app would have `appAllowedTokens[applicationId][0x0] = true` and no ERC-20 entries;
-- an ETH + ERC-20 app would enable `0x0` and the selected token addresses for its own `applicationId`.
-
-Registration model:
-
-- the per-app token allowlist should be registered on-chain as part of the app deployment flow, using the `allowedTokens` declared in deploy-time app configuration;
-- during deployment, the contract must reject any app token allowlist entry that is not already present in the global allowlist;
-- for this design, app token support is treated as deploy-time configuration rather than a mutable runtime setting.
+- when adding a token, the admin function must verify that the address contains contract code (`tokenAddress.code.length > 0`), as required by R2. See section 8 for details and optional code-hash hardening.
 
 ### Contract API
 
@@ -322,8 +329,7 @@ The request identifier must include both `tokenAddress` and `assetAmount`, since
 The contract must also reject requests if:
 
 - `assetAmount == 0` and `tokenAddress != 0x0`;
-- `tokenAddress` is non-zero and not globally allowlisted;
-- the addressed `applicationId` does not allow that token.
+- `tokenAddress` is non-zero and not globally allowlisted.
 
 The on-chain pending-balance mechanism must become asset-aware so claims can be executed for either ETH or ERC-20 tokens.
 
@@ -364,7 +370,7 @@ Conceptually, the request model must carry:
 - business asset amount;
 - ETH fee reservation.
 
-The deploy payload format must also be extended so deployment can carry app configuration, including `allowedTokens`.
+The deploy payload format must also be extended so deployment can carry app configuration.
 
 Withdrawal models must also include the token identity, not just destination and amount.
 
@@ -376,7 +382,7 @@ The signed update payload must continue to treat:
 - `applicationFee` as ETH-only;
 - withdrawals as asset-aware objects containing `tokenAddress`.
 
-For failed requests, the business-asset refund is not represented as an ETH refund. It must be handled as a pending claim in the deposited asset.
+For failed requests, the business-asset refund is not included in the signed update's `refundAmount` field. It is handled separately as a pending claim in the deposited asset. For ETH requests, both credits are denominated in ETH and combine into a single `pendingClaims[0x0][sender]` entry, consistent with R8.
 
 ### Executor
 
@@ -386,16 +392,15 @@ If a request contains a business-asset deposit:
 
 - the executor must pass both `tokenAddress` and `amount` to the runtime deposit flow;
 - the resulting events must preserve the token information;
-- failed requests must produce the appropriate pending claim balances for both the business asset and ETH fee refund.
+- failed requests must signal failure in the signed update so the contract can produce the appropriate pending claim balances. The contract credits the business-asset refund using the request's stored `tokenAddress` and `assetAmount`. The signed update's `refundAmount` covers only the ETH fee refund.
 
 The executor update payload and its signature material must also include token-aware withdrawal data.
 
 During deployment, the executor must:
 
 1. decode the deploy payload, including app configuration;
-2. validate that the app allowlist is compatible with the contract-side token allowlists;
-3. pass the app configuration into the runtime `load_module` flow;
-4. persist the guest-produced initial state that already contains the app configuration.
+2. pass the app configuration into the runtime `deploy` flow;
+3. persist the guest-produced initial state that already contains the app configuration.
 
 The executor should preserve the current high-level execution order:
 
@@ -468,44 +473,15 @@ deposit(appId, sender, tokenAddress, amount, state)
 
 The exact pointer-based host/guest ABI can follow the current runtime style, but the semantic inputs must include `tokenAddress`.
 
-The deployment ABI must also be extended so `load_module` receives deploy-time app configuration.
+A new ABI must be added for deployment, for receiving constructor params. 
 
 Conceptually:
 
 ```text
-load_module(appId, appConfig)
+deploy(appId, params)
 ```
 
-The guest should use this deploy-time configuration to build its initial state, including the persisted allowlist that will later be enforced during request processing.
-
-### WASM Applications
-
-WASM apps must validate that the request token is supported by their configured allowlist, even if the contract already performed token checks.
-
-App state must evolve from a single balance per account to balances per account and per token.
-
-App state must also persist the deploy-time token configuration so runtime validation does not depend on any external side channel after deployment.
-
-Apps that do not want ERC-20 support can remain ETH-only by allowing only `0x0`.
-
-`vela-nova` is the main ETH-only reference app for this design. Even if its business logic remains ETH-only, it must still adopt the shared ABI and type changes introduced by this work, including:
-
-- accepting the updated deploy-time configuration flow;
-- accepting the updated `deposit` ABI with `tokenAddress`;
-- rejecting any non-zero `tokenAddress` at runtime;
-- emitting token-aware withdrawals using `tokenAddress = 0x0`.
-
-### Simple App
-
-`simpleapp` should be updated to demonstrate token-aware deposits and withdrawals and to serve as the reference implementation for the new model.
-
-It should:
-
-- support ETH and a configured allowlist of ERC-20 tokens;
-- store balances per account and token;
-- make its private withdrawal instruction token-aware, for example by moving from `WithdrawInstruction { to, amount }` to `WithdrawInstruction { tokenAddress, to, amount }`;
-- emit token-aware deposit and withdrawal events;
-- reject unsupported tokens cleanly.
+The guest should use this deploy-time configuration to build its initial state, eventually including the the app's allowlist.
 
 ## Main Flows
 
@@ -553,14 +529,150 @@ It should:
 
 - A request may specify a token not present in the app allowlist.
 - A request may specify a token that is globally allowlisted but not allowed by the app.
-- Configuration-level allowlists and runtime validation can diverge if not kept consistent.
 - ERC-20 transfers may fail or revert during deposit or claim flows.
 - Non-standard ERC-20 tokens are explicitly unsupported and must be rejected or documented as unsupported behavior.
 - Pending claim balances may exist simultaneously for multiple assets for the same payee.
 - Solvency checks must be done per asset, not as a single aggregated amount.
 - Event schemas must remain unambiguous once token identity is added.
-- In the multi-app model, contract-side token configuration must be correctly scoped by `applicationId` to avoid one app accidentally inheriting another app's token permissions.
 - In the multi-app model, business-asset custody must be scoped by both `applicationId` and `tokenAddress` to avoid one app creating withdrawals backed by another app's deposits.
+
+
+## ERC-20 Token Behaviors That Affect Vela
+
+This section documents ERC-20 token behaviors that were analyzed during the design phase. Each behavior is described alongside its impact on Vela and the defense strategy adopted.
+
+### 1 Standard ERC-20 Deposit Pattern
+
+Vela needs the two-step delegation pattern to pull tokens from users during request submission:
+
+1. User calls `approve(processorEndpoint, amount)` on the token contract.
+2. User calls `submitRequest(...)` on `ProcessorEndpoint`, which internally calls `transferFrom(user, address(this), amount)`.
+
+This is the standard approach used across DeFi. The user must have granted sufficient allowance before submitting. If allowance or balance is insufficient, `transferFrom` reverts and the request never enters the queue.
+
+### 2 Fee-on-Transfer Tokens
+
+Some ERC-20 tokens deduct a percentage on every `transfer` or `transferFrom` call. The token contract itself takes a cut before delivering to the recipient.
+
+**Deposit-side impact:** the contract calls `transferFrom(user, address(this), assetAmount)` and records `assetAmount` in custody, but actually receives `assetAmount - fee`. Over many deposits, the deficit grows. Eventually claims fail because the contract does not hold enough tokens to pay out.
+
+**Claim-side impact:** the contract transfers `amount` to the payee, but the payee receives `amount - fee`. There is no contract-level defense for this direction; the fee is applied by the token itself.
+
+Examples of tokens with fee-on-transfer behavior include STA (Statera), SafeMoon, and PAXG. USDT has a fee mechanism built in that is currently set to zero but can be enabled by the token issuer at any time.
+
+**Recommended mitigation:** in addition to the allowlist, the contract should verify the actual received amount on deposit:
+
+```text
+balanceBefore = IERC20(token).balanceOf(address(this))
+IERC20(token).safeTransferFrom(sender, address(this), assetAmount)
+received = IERC20(token).balanceOf(address(this)) - balanceBefore
+require(received == assetAmount, "fee-on-transfer not supported")
+```
+
+This costs approximately 2600 additional gas (two `balanceOf` SLOAD calls), which is negligible relative to the rest of `submitRequest`. It turns a silent accounting mismatch into a loud revert and catches cases where a previously standard token activates fees after being allowlisted.
+
+### 3 ERC-777 Backwards-Compatible Tokens
+
+ERC-777 is a token standard that implements the full ERC-20 interface but adds transfer hooks (`tokensToSend` on the sender side, `tokensReceived` on the recipient side) registered via the ERC-1820 registry. During a `transferFrom` call, execution control passes to external code through these hooks, creating a reentrancy vector.
+
+A token that appears to be a standard ERC-20 may actually be an ERC-777. If such a token is allowlisted, a malicious user can register a `tokensToSend` hook and re-enter the contract during deposit processing.
+
+This class of attack was exploited in practice against Uniswap V1 in 2020 via the imBTC token (an ERC-777).
+
+**Impact on Vela:** A malicious user could register a hook and re-enter the contract during deposit processing.
+
+**Mitigation:** the global allowlist must not include ERC-777 tokens. The `nonReentrant` modifier on all state-modifying entry points provides a backup defense. The checks-effects-interactions pattern should also be followed so that state updates occur before any external ERC-20 call.
+
+### 4 Rebasing Tokens
+
+Rebasing tokens automatically adjust every holder's balance to track a target value (a peg, an index, or a yield accrual) without any explicit transfer. The token contract periodically scales every holder's `balanceOf()` result up or down by a global factor. Examples include AMPL, stETH, and OHM.
+
+**Impact on Vela:** A negative rebase reduces the contract's actual token balance while the internal accounting (`appCustody`, `pendingClaims`) remains unchanged. The contract becomes insolvent silently over time. A positive rebase creates unaccounted surplus. Unlike fee-on-transfer, this drift happens *between* transactions, so a per-deposit balance check cannot detect it.
+
+**Defense:** Rebasing tokens must not be added to the global allowlist. There is no viable in-contract defense.
+
+### 5 Non-Standard Return Values
+
+The ERC-20 specification requires `transfer` and `transferFrom` to return a `bool`. Some widely used tokens, notably USDT, do not return any value. A raw `IERC20` call reverts on these tokens because Solidity expects a return value.
+
+**Impact on Vela:** Any direct use of `IERC20.transfer` or `IERC20.transferFrom` would fail for USDT and similar tokens.
+
+**Defense:** All ERC-20 interactions use OpenZeppelin's `SafeERC20` library (`safeTransfer`, `safeTransferFrom`), which handles both tokens that return `true` and tokens that return nothing.
+
+### 6 Upgradeable Proxy Tokens
+
+Major tokens such as USDC and USDT are deployed behind upgradeable proxy contracts. The token issuer can change the implementation at any time, potentially adding fees, pausing functionality, changing approval semantics, or introducing other behavioral changes.
+
+**Impact on Vela:** A previously standard token could start behaving non-standardly after an upgrade.
+
+**Mitigation:** this is an operational risk. The administrator managing the global allowlist should monitor upgrades to allowlisted tokens. The deposit-side balance check described above catches some behavioral changes early by reverting if the received amount does not match the expected amount.
+
+### 7 Pausable Tokens and Address Blocklists
+
+USDC and USDT have `pause()` functions that halt all transfers and address blocklist mechanisms that prevent specific addresses from sending or receiving tokens.
+
+When a token is paused:
+
+- deposits revert at `transferFrom` inside `submitRequest`, so no request enters the queue;
+- claims revert at the outbound transfer, so the payee cannot withdraw until the token is unpaused;
+- `stateUpdate` is unaffected because `_asyncTransfer` only updates internal accounting without making an external ERC-20 call.
+
+If a payee address is on the token's blocklist, their claim permanently reverts and the funds remain in `pendingClaims`. This is consistent with the pull-payment pattern, which places the burden of receivability on the payee.
+
+If the ProcessorEndpoint contract itself is added to a token's blocklist, all operations for that token break. This is an external dependency risk with no in-contract defense.
+
+**Impact on Vela:**
+- When a token is paused, deposits revert at `transferFrom` (no request enters the queue) and claims revert at the outbound transfer (funds are safe but temporarily inaccessible).
+- If a payee address is on the token's blocklist, their claim permanently reverts. Funds remain in `pendingClaims` indefinitely.
+- If the `ProcessorEndpoint` contract itself is blocklisted, all operations for that token break entirely.
+
+**Mitigation:** the pull-payment pattern already handles pauses gracefully. Blocklist and contract-blocklist risks should be documented as known external dependencies for allowlist administrators. A permanently blocked payee's funds remain in the contract; this is consistent with the pull-payment model where receivability is the payee's responsibility.
+
+### 8 Contract Address Validation
+
+An Ethereum address does not guarantee the presence of a valid ERC-20 contract. The address could point to an externally owned account (no code), a non-token contract, or a self-destructed contract. Calling `transferFrom` on an address with no code succeeds silently with empty return data in some cases, which can lead to unexpected behavior.
+
+Additionally, with `CREATE2`, a contract can be deployed at a deterministic address, self-destructed, and a different contract redeployed at the same address. If the original address was allowlisted, the system would now trust a completely different contract.
+
+**Impact on Vela:** An admin could accidentally allowlist an invalid address, leading to silent failures.
+
+**Recommended mitigation:** the admin function that adds tokens to the global allowlist should verify that the address contains code:
+
+```text
+require(tokenAddress.code.length > 0, "not a contract")
+```
+
+As optional hardening, the contract could record the code hash at allowlist time and verify it at request time to detect contract redeployment:
+
+```text
+allowedTokenCodeHash[token] = token.codehash   // at allowlist time
+require(token.codehash == allowedTokenCodeHash[token])  // at request time
+```
+
+### 9 ETH Overpayment on ERC-20 Requests
+
+For ERC-20 requests, `msg.value` must equal `maxFeeValue` exactly. The business asset arrives via `transferFrom`, not via `msg.value`. If a caller sends `msg.value > maxFeeValue` on an ERC-20 request, the excess ETH has no accounting path and is effectively stuck in the contract.
+
+**Recommended mitigation:** explicit validation in `submitRequest`:
+
+```text
+if (tokenAddress != address(0)) {
+    require(msg.value == maxFeeValue, "ETH value must equal maxFeeValue for ERC-20 requests")
+}
+```
+
+### 10 Zero-Amount Transfers
+
+Some ERC-20 tokens revert on zero-amount transfers. The claim function must check the pending balance before attempting a transfer, not after.
+
+### 11 EIP-2612 Permit
+
+Some tokens (including USDC v2) support EIP-2612 `permit`, which allows a gasless off-chain signature to grant approval. This turns the standard two-transaction deposit flow (`approve` + `submitRequest`) into a single transaction. This is a UX improvement that can be added as a follow-up without architectural impact on the rest of the system.
+
+### 12 Token Decimals
+
+ERC-20 tokens use different decimal precisions (e.g., 18 for DAI, 6 for USDC, 8 for WBTC). The contract is decimal-agnostic and operates exclusively on raw uint256 amounts. However, WASM applications that perform internal accounting must know the decimals of each token they support to avoid incorrect balance calculations. This information should be included in the deploy-time constructor parameters passed to the application.
+
 
 ## Testing Plan
 
@@ -584,7 +696,6 @@ System tests should cover:
 
 - ETH-only apps rejecting unsupported ERC-20 deposits;
 - `vela-nova` remaining ETH-only while still working with the updated shared ABI and types;
-- ETH-plus-ERC20 apps accepting only allowlisted tokens;
 - ERC-20 business-asset deposit followed by withdrawal and claim;
 - failed ERC-20 requests producing ERC-20 business-asset claims plus ETH fee refunds.
 - in the multi-app model, one app being unable to create withdrawals backed by another app's deposited business assets.
@@ -598,8 +709,6 @@ System tests should cover:
 - Private app state can store balances per account and per token.
 - ETH-only apps reject non-zero `tokenAddress` values.
 - The contract rejects non-zero `tokenAddress` values that are not globally allowlisted.
-- ETH + ERC-20 apps accept only allowlisted token addresses.
-- The contract rejects tokens not enabled for the targeted `applicationId`.
 - Successful withdrawals create claimable balances in the correct asset.
 - Failed requests refund the business asset in its own asset and the unused fees in ETH.
 - Claim execution is permissionless and asset-aware.
@@ -609,18 +718,66 @@ System tests should cover:
 - The withdrawal tuple ABI used by executor signing and on-chain signature verification is identical.
 - Events emitted for deposits, refunds, withdrawals, and claims include the asset identity.
 - Only standard ERC-20 tokens are considered supported by this design.
+- Withdrawals of delisted tokens are always possibile
 
-## Open Questions
 
-There are no remaining blocking design questions for this ticket.
+## Implementation Tasks
 
-Implementation should use the following defaults unless a concrete technical issue appears during coding:
+### 1. Smart Contracts
+- Add global token allowlist storage and admin functions (`addAllowedToken`, `removeAllowedToken`) with contract-code validation
+- Refactor `submitRequest` to accept `tokenAddress` + `assetAmount`; handle ETH vs ERC-20 deposit paths (balance-before/after check, `SafeERC20.safeTransferFrom`)
+- Add `msg.value == maxFeeValue` validation for ERC-20 requests; enforce `assetAmount == 0 → tokenAddress == 0x0`
+- Add per-app per-token custody accounting (`appCustody[appId][token]`, `totalAppCustody[token]`)
+- Refactor pending claim storage to `pendingClaims[token][payee]` + `totalPendingClaims[token]`; replace `withdrawPayments(payee)` with `claim(tokenAddress, payee)`
+- Update withdrawal model to `(tokenAddress, receiver, amount)` tuple — must match across Structs, signature verification, and stateUpdate
+- Update `stateUpdate` for asset-aware solvency checks, failed-request dual refunds (ERC-20 asset + ETH fee), and token-aware withdrawal processing
+- Add `nonReentrant` to all state-modifying entry points if not already present
+- Update request ID calculation to include `tokenAddress` + `assetAmount` (replacing `depositAmount`)
+- Update all events to include `tokenAddress`
+- Write Hardhat tests: allowlist, ETH/ERC-20 deposits, withdrawals, claims, failed-request refunds, solvency, reentrancy, unsupported tokens
+- Regenerate Go bindings (`go generate`) and commit
 
-- app token support is serialized in deploy-time config as `allowedTokens []address`;
-- deploy-time app config is carried in the deploy payload and passed into `load_module`;
-- the guest persists `allowedTokens` inside its initial private state;
-- the contract maintains a global token allowlist and enforces it on-chain;
-- the contract also maintains an app-scoped token allowlist keyed by `applicationId`;
-- the generic claim entrypoint is `claim(tokenAddress, payee)`;
-- the request model carries `tokenAddress`, `assetAmount`, and `maxFeeValue`;
-- the withdrawal model carries `tokenAddress`, `receiver`, and `amount`.
+### 2. Common Types & Payloads
+- Update request model to carry `tokenAddress` + `assetAmount` instead of `depositAmount`
+- Update withdrawal type to include `tokenAddress` (both host-side in `pkg/` and guest-side in `vela-common-go`)
+- Add deploy payload type with constructor params
+- Update signed-update payload: withdrawals become token-aware; `refundAmount` stays ETH-only
+
+### 3. Common Go Libraries (`vela-common-go`)
+- Update shared guest `Withdrawal` type to include `tokenAddress`
+- Update shared request types / serialization to carry `tokenAddress` + `assetAmount`
+- Add deploy-related shared types (constructor params, deploy response)
+- Ensure serialization across guest/host boundary is consistent for all updated types
+
+### 4. WASM Runtime
+- Extend `deposit` guest export ABI: `deposit(appId, sender, tokenAddress, amount, state)`
+- Add `deploy(appId, params)` guest export for deploy-time configuration
+- Update host-side runtime to pass `tokenAddress` through to the guest
+
+### 5. Executor
+- Pass `tokenAddress` + `amount` into the runtime deposit flow
+- Build token-aware withdrawal instructions in the signed update payload
+- Implement deploy flow: decode deploy payload → call runtime `deploy` → persist initial state
+- Ensure failed-request signaling lets the contract produce correct dual refunds
+
+### 6. Blockchain Client & Signature Builder
+- Update request submission: ETH (`msg.value = assetAmount + maxFeeValue`) vs ERC-20 (`msg.value = maxFeeValue` + `transferFrom`)
+- Update signature builder to hash `(tokenAddress, receiver, amount)` withdrawal tuples
+- Ensure tuple ABI is identical across executor signing, contract verification, and bindings
+
+### 7. Simple App (`app/simple`)
+- Update to new `deposit(appId, sender, tokenAddress, amount, state)` ABI
+- Implement `deploy(appId, params)` export to initialize state from constructor params
+- Add per-token balance tracking in private state
+- Support token-aware withdrawal instructions
+- Add app-level token allowlist configured via deploy params
+
+### 8. Nova App (`vela-nova`)
+- Update to new `deposit` and `deploy` ABIs
+- Keep ETH-only behavior: reject non-zero `tokenAddress` in deposit
+- Initialize via `deploy` with ETH-only configuration
+- Verify existing functionality is unbroken with the updated shared types
+
+### 9. Testing (Integration & System)
+- Integration tests: updated WASM deposit ABI, ETH and ERC-20 deposit/withdrawal flows, mixed refund scenarios
+- System tests: ETH-only app (nova) rejects ERC-20 deposits, ERC-20 full lifecycle (deposit → withdraw → claim), failed ERC-20 request dual refunds, cross-app custody isolation
