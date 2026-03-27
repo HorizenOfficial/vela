@@ -33,7 +33,7 @@ A **facilitator** should allow users to submit requests without holding any ETH.
 - The facilitator is a platform-operated service that **absorbs costs** (no on-chain reimbursement mechanism)
 
 
-This document covers the **smart contract changes** and **Go backend changes** needed in this repository to support facilitated requests. The off-chain facilitator service and client SDK will be implemented in a separate [`vela-x402`](https://github.com/HorizenOfficial/vela-x402) repository, which builds on the x402 HTTP payment protocol defined by Coinbase (see [https://github.com/coinbase/x402/](https://github.com/coinbase/x402/)).
+This document covers the **smart contract changes** and **Go backend changes** needed in this repository to support facilitated requests. The off-chain facilitator service and client SDK will be implemented in a separate [`vela-facilitator`](https://github.com/HorizenOfficial/vela-facilitator) repository, which builds on the x402 HTTP payment protocol defined by Coinbase (see [https://github.com/coinbase/x402/](https://github.com/coinbase/x402/)).
 More info on the off-chain facilitator will be provided below in paragraph 5.3 .
 
 ## 4. Approach: EIP-3009 + EIP-712 Meta-Transaction
@@ -270,69 +270,56 @@ The `claim(tokenAddress, payee)` function remains unchanged — it is permission
 
 ### 5.3. Facilitator Service (Off-Chain)
 
-The facilitator service will be implemented as a separate project: [`vela-x402`](https://github.com/HorizenOfficial/vela-x402). It is **not** part of this repository.
+The facilitator service will be implemented as a separate project: [`vela-facilitator`](https://github.com/HorizenOfficial/vela-facilitator). It is **not** part of this repository.
 
-`vela-x402` will implement a custom **x402 payment scheme** (`private-vela-fixed`) that integrates with the HTTP 402 payment protocol. The facilitator acts as the settlement layer between x402 resource servers and the `ProcessorEndpoint` contract.
+`vela-facilitator` is a platform-level service that submits requests on behalf of users who do not hold ETH. It exposes two layers of functionality:
+
+1. **Core facilitation endpoints** — generic, application-agnostic gasless submission via `submitRequestFor()`
+2. **x402 scheme endpoints** — standard Coinbase x402 `verify`/`settle` flow for applications that integrate with the [x402 HTTP payment protocol](https://github.com/coinbase/x402/)
 
 #### Architecture
 
-The `vela-x402` project is a TypeScript monorepo with the following structure:
-
-- **`packages/x402-private-vela-fixed/`** — Core npm package (`@horizen/x402-private-vela-fixed`) containing:
-  - `types.ts` — Data structures for `RequestAuthorization`, `DepositAuthorization`, `VelaPaymentPayload`
-  - `client/` — Client-side scheme (`VelaPaymentClientScheme`) for constructing EIP-712 + EIP-3009 signatures
-  - `server/` — Facilitator-side scheme (`VelaPaymentFacilitatorScheme`) for verification and on-chain settlement
-- **`facilitator/`** — Deployable Express.js server exposing x402 endpoints and setup endpoints
-- **`specs/`** — Formal specification of the `private-vela-fixed` scheme
-
-#### x402 Flow
-
-The facilitator integrates with the x402 protocol as follows:
-
 ```
-User/Client              Resource Server           Facilitator (vela-x402)     Blockchain
-  │                            │                          │                        │
-  │  1. HTTP request           │                          │                        │
-  │───────────────────────────>│                          │                        │
-  │                            │                          │                        │
-  │  2. 402 Payment Required   │                          │                        │
-  │     (scheme, token, amount)│                          │                        │
-  │<───────────────────────────│                          │                        │
-  │                            │                          │                        │
-  │  3. Sign EIP-712 request   │                          │                        │
-  │     + EIP-3009 deposit     │                          │                        │
-  │     (off-chain)            │                          │                        │
-  │                            │                          │                        │
-  │  4. Retry with             │                          │                        │
-  │     PAYMENT-SIGNATURE      │                          │                        │
-  │───────────────────────────>│                          │                        │
-  │                            │  5. POST /verify         │                        │
-  │                            │  (off-chain validation)  │                        │
-  │                            │─────────────────────────>│                        │
-  │                            │                          │                        │
-  │                            │  6. POST /settle         │                        │
-  │                            │─────────────────────────>│                        │
-  │                            │                          │  submitRequestFor()    │
-  │                            │                          │  msg.value=maxFeeValue │
-  │                            │                          │───────────────────────>│
-  │                            │                          │                        │
-  │                            │                          │  txHash, requestId     │
-  │                            │                          │<───────────────────────│
-  │                            │                          │                        │
-  │  7. 200 OK + resource      │                          │                        │
-  │<───────────────────────────│                          │                        │
+vela-facilitator/
+  │
+  ├─ Core facilitation layer (generic, platform-level)
+  │   ├─ POST /submit          — gasless submitRequestFor() for any app/request type
+  │   ├─ GET  /nonce/:user     — query facilitatorNonces from contract
+  │   └─ wallet management, gas monitoring, claim scheduling
+  │
+  ├─ x402 scheme layer (for x402-enabled applications)
+  │   ├─ POST /verify          — off-chain signature validation (standard x402)
+  │   └─ POST /settle          — on-chain settlement (delegates to core /submit)
+  │
+  └─ @horizen/x402-private-vela-fixed (npm package)
+      └─ scheme definition for x402 clients and facilitators (incl. Coinbase reference facilitator)
 ```
 
-#### Setup Endpoints (Non-x402)
+The core layer handles all interaction with the `ProcessorEndpoint` contract: signature validation, nonce management, gas estimation, and transaction submission. The x402 layer is a thin adapter that translates the x402 verify/settle protocol into calls to the core layer.
 
-In addition to the standard x402 verify/settle flow, the facilitator exposes additional endpoints to perform the initial steps (register, deposit) and
-the final withdraw step.
+Applications that do not use x402 (e.g., a mobile SDK, a bot, a CLI) can call the core endpoints directly.
 
-- **`POST /register`** — Relays `ASSOCIATEKEY` requests (user key registration, one-shot)
-- **`POST /deposit`** — Relays ERC-20 deposit requests via `submitRequestFor()`
-- **`POST /withdrawal`** — Relays ERC-20 withdrawal requests via `submitRequestFor()`
+#### Core Facilitation Endpoints
 
-These enable users to execute also the onboarding (register keys and fund their private balance) and withdrawal without holding ETH.
+- **`POST /submit`** — Generic gasless submission. Accepts the user's EIP-712 request signature, EIP-3009 deposit signature (if `assetAmount > 0`), and request parameters. Calls `submitRequestFor()` on-chain. Works for any request type (`ASSOCIATEKEY`, `DEPOSIT`, `WITHDRAWAL`, `PROCESS`, etc.).
+- **`GET /nonce/:user`** — Returns the current `facilitatorNonces[user]` value from the contract, so clients can construct valid signatures.
+
+These endpoints are **open** (no authentication required). See Open Questions for future authentication/rate-limiting considerations.
+
+#### x402 Scheme Layer
+
+For applications integrating with the [x402 HTTP payment protocol](https://github.com/coinbase/x402/), the facilitator implements a custom scheme (`private-vela-fixed`).
+
+**npm package: `@horizen/x402-private-vela-fixed`** — Published from the `vela-facilitator` repo, this package defines the `private-vela-fixed` scheme and can be used by:
+- **x402 clients** (via the Coinbase x402 client SDK) to construct EIP-712 + EIP-3009 payment signatures
+- **x402 facilitators** (including the Coinbase reference facilitator or the `vela-facilitator` itself) to verify and settle payments
+
+**Endpoints:**
+
+- **`POST /verify`** — Validates both user signatures off-chain without submitting a transaction. Returns whether the payment would succeed.
+- **`POST /settle`** — Validates signatures and submits the transaction on-chain via the core facilitation layer. Returns `requestId` and `txHash`.
+
+The x402 flow follows the standard protocol: a resource server returns HTTP 402 with payment requirements, the client signs and retries, and the resource server delegates verification and settlement to the facilitator.
 
 #### Facilitator Responsibilities
 
@@ -348,6 +335,85 @@ The facilitator needs an EOA with:
 - ETH for gas + `maxFeeValue` (both paid in the same transaction as `msg.value`)
 
 No ERC-20 token balance or approval is needed for the facilitator itself — it only pays in ETH. The user's ERC-20 deposit is pulled directly from the user via EIP-3009.
+
+#### Sequence Diagram — x402 Flow
+
+```
+┌──────┐           ┌─────────────────┐       ┌───────────────────┐       ┌──────────────────────┐
+│ User │           │ Resource Server │       │ vela-facilitator  │       │ ProcessorEndpoint    │
+└──┬───┘           └────────┬────────┘       └─────────┬─────────┘       └──────────┬───────────┘
+   │                        │                          │                            │
+   │  1. HTTP request       │                          │                            │
+   │───────────────────────>│                          │                            │
+   │                        │                          │                            │
+   │  2. 402 Payment        │                          │                            │
+   │     Required           │                          │                            │
+   │     {scheme, token,    │                          │                            │
+   │      amount, resource} │                          │                            │
+   │<───────────────────────│                          │                            │
+   │                        │                          │                            │
+   │  3. Query nonce        │                          │  getFacilitatorNonce(user) │
+   │  ──────────────────────────────────────────────>  │  ─────────────────────────>│
+   │       nonce = N        │                          │                   nonce = N│
+   │  <──────────────────────────────────────────────  │  <─────────────────────────│
+   │                        │                          │                            │
+   │  4. Sign EIP-712       │                          │                            │
+   │     request auth +     │                          │                            │
+   │     EIP-3009 deposit   │                          │                            │
+   │     (off-chain)        │                          │                            │
+   │                        │                          │                            │
+   │  5. Retry with         │                          │                            │
+   │     PAYMENT-SIGNATURE  │                          │                            │
+   │───────────────────────>│                          │                            │
+   │                        │  6. POST /verify         │                            │
+   │                        │  (off-chain validation)  │                            │
+   │                        │─────────────────────────>│                            │
+   │                        │  OK                      │                            │
+   │                        │<─────────────────────────│                            │
+   │                        │                          │                            │
+   │                        │  7. POST /settle         │                            │
+   │                        │─────────────────────────>│                            │
+   │                        │                          │  8. submitRequestFor(      │
+   │                        │                          │       params, sigs)        │
+   │                        │                          │     msg.value=maxFeeValue  │
+   │                        │                          │  ─────────────────────────>│
+   │                        │                          │                            │
+   │                        │                          │    ┌───────────────────────│
+   │                        │                          │    │ 9.  Verify EIP-712    │
+   │                        │                          │    │     → recover user    │
+   │                        │                          │    │ 10. Verify & consume  │
+   │                        │                          │    │     nonce             │
+   │                        │                          │    │ 11. Validate token    │
+   │                        │                          │    │     allowlists        │
+   │                        │                          │    │ 12. EIP-3009 transfer │
+   │                        │                          │    │     user → contract   │
+   │                        │                          │    │ 13. Create            │
+   │                        │                          │    │     PendingRequest    │
+   │                        │                          │    │     sender=user       │
+   │                        │                          │    │     facilitator=      │
+   │                        │                          │    │       msg.sender      │
+   │                        │                          │    │ 14. Emit              │
+   │                        │                          │    │     RequestSubmitted  │
+   │                        │                          │    └───────────────────────│
+   │                        │                          │                            │
+   │                        │                          │  requestId, txHash         │
+   │                        │                          │  <─────────────────────────│
+   │                        │  {requestId, txHash}     │                            │
+   │                        │<─────────────────────────│                            │
+   │                        │                          │                            │
+   │  15. 200 OK + resource │                          │                            │
+   │<───────────────────────│                          │                            │
+   │                        │                          │                            │
+   │  ... request processed by manager/executor ...                                │
+   │                        │                          │                            │
+   │  16. claim(tokenAddr, user)                       │                            │
+   │  (asset refund, if any)                           │                            │
+   │───────────────────────────────────────────────────────────────────────────────>│
+   │                        │                          │                            │
+   │                        │                          │  17. claim(0x0,facilitator)│
+   │                        │                          │  (ETH fee refund, if any)  │
+   │                        │                          │  ─────────────────────────>│
+```
 
 ### 5.4. Direct EOA Path (Unchanged)
 
@@ -422,97 +488,10 @@ If a user uses both paths, there is no conflict: direct calls are not nonce-gate
 | Subgraph schema | Add `facilitator` field to `RequestSubmitted` entity |
 | Subgraph handler | Index `facilitator` from event/call data |
 
-### External: Facilitator Service (`vela-x402`)
+## 8. Open Questions
 
-The off-chain facilitator service and client SDK are implemented in the separate [`vela-x402`](https://github.com/HorizenOfficial/vela-x402) repository. No new off-chain components are added to this project.
+1. **Facilitator API authentication**: the core facilitation endpoints (`/submit`, `/nonce`) are currently open (no authentication). Before production, an authentication mechanism (API keys, allowlists, or similar) should be designed to prevent unauthorized use of the facilitator's ETH funds.
 
-| Component | Repository | Description |
-|---|---|---|
-| Facilitator HTTP service | `vela-x402/facilitator/` | Express.js server: x402 verify/settle + setup endpoints (register, deposit) |
-| Client SDK | `vela-x402/packages/x402-private-vela-fixed/` | npm package with client-side and server-side x402 scheme implementations |
-
-## 8. Sequence Diagram — Full x402 Flow
-
-```
-┌──────┐           ┌─────────────────┐       ┌───────────────────┐       ┌──────────────────────┐
-│ User │           │ Resource Server │       │ Facilitator       │       │ ProcessorEndpoint    │
-│      │           │                 │       │ (vela-x402)       │       │                      │
-└──┬───┘           └────────┬────────┘       └─────────┬─────────┘       └──────────┬───────────┘
-   │                        │                          │                            │
-   │  1. HTTP request       │                          │                            │
-   │───────────────────────>│                          │                            │
-   │                        │                          │                            │
-   │  2. 402 Payment        │                          │                            │
-   │     Required           │                          │                            │
-   │     {scheme, token,    │                          │                            │
-   │      amount, resource} │                          │                            │
-   │<───────────────────────│                          │                            │
-   │                        │                          │                            │
-   │  3. Query nonce        │                          │  getFacilitatorNonce(user) │
-   │  ──────────────────────────────────────────────>  │  ─────────────────────────>│
-   │       nonce = N        │                          │                   nonce = N│
-   │  <──────────────────────────────────────────────  │  <─────────────────────────│
-   │                        │                          │                            │
-   │  4. Sign EIP-712       │                          │                            │
-   │     request auth +     │                          │                            │
-   │     EIP-3009 deposit   │                          │                            │
-   │     (off-chain)        │                          │                            │
-   │                        │                          │                            │
-   │  5. Retry with         │                          │                            │
-   │     PAYMENT-SIGNATURE  │                          │                            │
-   │───────────────────────>│                          │                            │
-   │                        │  6. POST /verify         │                            │
-   │                        │  (off-chain validation)  │                            │
-   │                        │─────────────────────────>│                            │
-   │                        │  OK                      │                            │
-   │                        │<─────────────────────────│                            │
-   │                        │                          │                            │
-   │                        │  7. POST /settle         │                            │
-   │                        │─────────────────────────>│                            │
-   │                        │                          │  8. submitRequestFor(      │
-   │                        │                          │       params, sigs)        │
-   │                        │                          │     msg.value=maxFeeValue  │
-   │                        │                          │  ─────────────────────────>│
-   │                        │                          │                            │
-   │                        │                          │    ┌───────────────────────│
-   │                        │                          │    │ 9.  Verify EIP-712    │
-   │                        │                          │    │     → recover user    │
-   │                        │                          │    │ 10. Verify & consume  │
-   │                        │                          │    │     nonce             │
-   │                        │                          │    │ 11. Validate token    │
-   │                        │                          │    │     allowlists        │
-   │                        │                          │    │ 12. EIP-3009 transfer │
-   │                        │                          │    │     user → contract   │
-   │                        │                          │    │ 13. Create            │
-   │                        │                          │    │     PendingRequest    │
-   │                        │                          │    │     sender=user       │
-   │                        │                          │    │     facilitator=      │
-   │                        │                          │    │       msg.sender      │
-   │                        │                          │    │ 14. Emit              │
-   │                        │                          │    │     RequestSubmitted  │
-   │                        │                          │    └───────────────────────│
-   │                        │                          │                            │
-   │                        │                          │  requestId, txHash         │
-   │                        │                          │  <─────────────────────────│
-   │                        │  {requestId, txHash}     │                            │
-   │                        │<─────────────────────────│                            │
-   │                        │                          │                            │
-   │  8. 200 OK + resource  │                          │                            │
-   │<───────────────────────│                          │                            │
-   │                        │                          │                            │
-   │  ... request processed by manager/executor ...                                │
-   │                        │                          │                            │
-   │  15. claim(tokenAddr, user)                       │                            │
-   │  (asset refund, if any)                           │                            │
-   │───────────────────────────────────────────────────────────────────────────────>│
-   │                        │                          │                            │
-   │                        │                          │  16. claim(0x0,facilitator)│
-   │                        │                          │  (ETH fee refund, if any)  │
-   │                        │                          │  ─────────────────────────>│
-```
-
-## 9. Open Questions
-
-1. **Rate limiting / abuse prevention**: deferred for now, but should be designed before production. A facilitator without rate limiting is an open gas faucet.
 
 2. **Multi-facilitator support**: can multiple facilitator addresses be active simultaneously? The current design supports this naturally (any address can call `submitRequestFor`), but operational monitoring may need to account for it.
+
