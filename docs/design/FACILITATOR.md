@@ -70,13 +70,31 @@ EIP-2771 (Trusted Forwarder) solves `msg.sender` identity but doesn't solve paym
 
 ### 5.1. User Signature Scheme
 
-The user produces **two signatures** off-chain:
+The user produces **two signatures** off-chain. Both use the EIP-712 typed data standard, which means each signature covers not only the message fields but also an **EIP-712 domain separator** containing `chainId` and `verifyingContract`. This provides cross-chain and cross-contract replay protection: a signature produced for one chain or contract cannot be replayed on another.
+
+The two signatures have **different domain separators** because they are verified by different contracts:
+
+| Signature | `verifyingContract` | Purpose |
+|---|---|---|
+| Signature 1 (RequestAuthorization) | `ProcessorEndpoint` | Request parameters authorization |
+| Signature 2 (Permit EIP-2612) | Token contract (e.g., USDC) | Deposit transfer authorization |
+
+This is also the structural reason why the two signatures cannot be merged into one — they belong to different EIP-712 domains.
 
 #### Signature 1 — Request Authorization (EIP-712)
 
 An EIP-712 typed data signature over the request parameters, proving the user authorized this specific request:
 
 ```
+// EIP-712 domain (used in the domain separator hash)
+Domain {
+    string  name               // "Vela"
+    string  version            // contract version
+    uint256 chainId            // e.g., 1 for mainnet
+    address verifyingContract  // ProcessorEndpoint address
+}
+
+// Message struct
 RequestAuthorization {
     address  sender             // user address (verified against ecrecover result)
     uint8    protocolVersion
@@ -89,6 +107,9 @@ RequestAuthorization {
     uint256  deadline           // expiration timestamp
 }
 ```
+
+The full signed hash is: `keccak256("\x19\x01" || domainSeparator || hashStruct(RequestAuthorization))`.
+
 Note there is a specific nonce for this authorization, described deeply below in 5.2.
 
 The contract recovers the user address from this signature and verifies it matches the `sender` field. This prevents `ecrecover` from silently returning a wrong address when given a tampered message — without this check, a manipulated payload could pass nonce validation against an arbitrary unused address (especially when `assetAmount == 0` and there is no EIP-2612 permit to provide a second identity check).
@@ -98,6 +119,15 @@ The contract recovers the user address from this signature and verifies it match
 A standard EIP-2612 `permit` signature:
 
 ```
+// EIP-712 domain (defined by the token contract, e.g., USDC)
+Domain {
+    string  name               // e.g., "USD Coin"
+    string  version            // e.g., "2"
+    uint256 chainId            // must match Signature 1
+    address verifyingContract  // token contract address (e.g., USDC)
+}
+
+// Message struct (defined by EIP-2612)
 Permit {
     address owner              // user
     address spender            // ProcessorEndpoint contract
@@ -106,6 +136,8 @@ Permit {
     uint256 deadline           // expiration timestamp (matches request)
 }
 ```
+
+The full signed hash is: `keccak256("\x19\x01" || domainSeparator || hashStruct(Permit))`.
 
 This authorizes the contract to call `transferFrom` and pull `assetAmount` tokens from the user.
 
