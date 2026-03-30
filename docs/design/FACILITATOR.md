@@ -76,6 +76,7 @@ An EIP-712 typed data signature over the request parameters, proving the user au
 
 ```
 RequestAuthorization {
+    address  sender             // user address (verified against ecrecover result)
     uint8    protocolVersion
     uint64   applicationId
     uint8    requestType
@@ -88,7 +89,7 @@ RequestAuthorization {
 ```
 Note there is a specific nonce for this authorization, described deeply below in 5.2.
 
-The contract recovers the user address from this signature → this becomes the `sender` in `PendingRequest`.
+The contract recovers the user address from this signature and verifies it matches the `sender` field. This prevents `ecrecover` from silently returning a wrong address when given a tampered message — without this check, a manipulated payload could pass nonce validation against an arbitrary unused address (especially when `assetAmount == 0` and there is no EIP-2612 permit to provide a second identity check).
 
 #### Signature 2 — Deposit Permit (EIP-2612)
 
@@ -114,6 +115,7 @@ This authorizes the contract to call `transferFrom` and pull `assetAmount` token
 
 ```solidity
 function submitRequestFor(
+    address sender,
     uint8 protocolVersion,
     uint64 applicationId,
     Structs.RequestType requestType,
@@ -145,9 +147,10 @@ submitRequestFor()
   ├─ 1. Verify deadline not expired
   │     require(block.timestamp <= deadline)
   │
-  ├─ 2. Recover user address from EIP-712 request signature
+  ├─ 2. Recover user address from EIP-712 request signature and verify
   │     user = ecrecover(hashTypedData(requestAuth), requestSignature)
   │     require(user != address(0))   // invalid signature guard
+  │     require(user == sender)       // ecrecover result must match declared sender
   │
   ├─ 3. Verify and consume nonce for the EIP-712 authorization (replay protection)
   │     require(nonces[user] == nonce)
@@ -155,7 +158,7 @@ submitRequestFor()
   │
   ├─ 4. If assetAmount > 0: validate token allowlists
   │     require(globalAllowedTokens[tokenAddress])
-  │     require(appAllowedTokens[applicationId][tokenAddress])
+  |     Token address must not be the one identifying ETH
   │
   ├─ 5. Validate fee
   │     maxFeeValue = msg.value
