@@ -448,7 +448,7 @@ Deanonymization will not be covered by the facilitator feature.
 
 ### 6.2. Signature Binding
 
-The request authorization signs `payloadHash` (not the raw payload) to keep signature size manageable. The contract verifies `keccak256(payload) == payloadHash` to ensure the facilitator cannot alter the payload.
+The signed request authorization includes `payloadHash` rather than the raw payload. This is a convenience choice — EIP-712 hashes dynamic `bytes` fields to `keccak256(bytes)` internally anyway, so the cryptographic result is identical. The full payload is passed as a parameter to `submitRequestFor` (it travels on-chain as calldata), and the contract computes `keccak256(payload)` internally to reconstruct the EIP-712 struct hash. If the facilitator alters the payload, the reconstructed hash won't match the one the user signed, and `ecrecover` will return a different address — failing the `user == sender` check.
 
 The request authorization also binds `tokenAddress` and `assetAmount`, preventing the facilitator from substituting a different token or amount. The EIP-2612 permit additionally binds the spender (the contract) and the value, providing a second layer of protection.
 
