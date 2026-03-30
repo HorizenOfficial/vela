@@ -9,11 +9,11 @@ This design builds on the **ERC-20 Deposits/Withdrawals/Claims** change ([design
 - `maxFeeValue` **remains ETH-only**, paid via `msg.value`
 - Claims replace pull payments: `claim(tokenAddress, payee)` is the generic, permissionless, asset-aware claim mechanism
 - Pending claims are tracked by `(payee, tokenAddress)`
-- Token allowlists (global + per-app) gate which tokens are accepted
+- Token allowlists (global) gate which tokens are accepted
 
 Additional prerequisite:
 
-- **Token requirement**: only ERC-20 tokens that implement **EIP-3009** (`transferWithAuthorization`) are supported for facilitated deposits. 
+- **Token requirement**: only ERC-20 tokens that implement **EIP-2612** (`permit`) are supported for facilitated deposits.
 Primary target: **USDC**.
 
 ## 2. Problem Statement
@@ -27,7 +27,7 @@ A **facilitator** should allow users to submit requests without holding any ETH.
 
 - Users can submit requests **without holding ETH**
 - The facilitator covers **gas fees** (paid to Ethereum validators) and **service fees** (`maxFeeValue`, always in ETH)
-- The user pays **only `assetAmount`** in ERC-20 tokens, authorized via off-chain EIP-3009 signature
+- The user pays **only `assetAmount`** in ERC-20 tokens, authorized via off-chain EIP-2612 signature
 - The **real user address** is tracked as the request sender (for key association, deposits in WASM, claims)
 - The existing **direct EOA submission** path remains fully functional
 - The facilitator is a platform-operated service that **absorbs costs** (no on-chain reimbursement mechanism)
@@ -38,13 +38,13 @@ The facilitator pattern is designed for **ERC-20 business-asset deposits**. For 
 This document covers the **smart contract changes** and **Go backend changes** needed in this repository to support facilitated requests. The off-chain facilitator service and client SDK will be implemented in a separate [`vela-facilitator`](https://github.com/HorizenOfficial/vela-facilitator) repository, which will provide also compatibility with the x402 HTTP payment protocol defined by Coinbase (see [https://github.com/coinbase/x402/](https://github.com/coinbase/x402/)).
 More info on the off-chain facilitator will be provided below in paragraph 5.3 .
 
-## 4. Approach: EIP-3009 + EIP-712 Meta-Transaction
+## 4. Approach: EIP-2612 + EIP-712 Meta-Transaction
 
-### 4.1. Why EIP-3009
+### 4.1. Why EIP-2612
 
-EIP-3009 defines `transferWithAuthorization` — a standard that allows a token holder to authorize a transfer via off-chain signature. A third party (the facilitator) can then execute the transfer on-chain without the token holder spending gas.
+EIP-2612 defines `permit` — a standard that allows a token holder to authorize a spender via off-chain signature. A third party (the facilitator) can then call `permit` followed by `transferFrom` on-chain without the token holder spending gas.
 
-This fits our model: the user signs an authorization to transfer `assetAmount` tokens to the contract, and the facilitator submits it.
+This fits our model: the user signs a permit authorizing the contract to pull `assetAmount` tokens, and the facilitator executes both `permit` and `transferFrom` in the same transaction.
 
 ### 4.2. Why not ERC-4337
 
@@ -56,9 +56,13 @@ ERC-4337 (Account Abstraction) is more powerful but introduces significant infra
 
 ERC-4337 could be revisited if the platform needs broader account abstraction (e.g., gasless contract wallet interactions beyond Vela).
 
-### 4.3. Why not EIP-2771
+### 4.3. Why not EIP-3009
 
-EIP-2771 (Trusted Forwarder) solves `msg.sender` identity but doesn't solve payment delegation for ERC-20 deposits. Since we already need EIP-3009 for the deposit token transfer, we can derive user identity from the EIP-712 request signature directly, without introducing a forwarder dependency.
+EIP-3009 (`transferWithAuthorization`) is an alternative that allows direct transfer via off-chain signature with random `bytes32` nonces. While it provides stronger isolation between protocols (random nonces can't collide), EIP-2612 is more widely adopted across ERC-20 tokens and provides sufficient security for our use case. The sequential nonce model of EIP-2612 is simpler and well understood. 
+
+### 4.4. Why not EIP-2771
+
+EIP-2771 (Trusted Forwarder) solves `msg.sender` identity but doesn't solve payment delegation for ERC-20 deposits. Since we already need EIP-2612 for the deposit token transfer, we can derive user identity from the EIP-712 request signature directly, without introducing a forwarder dependency.
 
 ## 5. Design
 
@@ -86,22 +90,21 @@ Note there is a specific nonce for this authorization, described deeply below in
 
 The contract recovers the user address from this signature → this becomes the `sender` in `PendingRequest`.
 
-#### Signature 2 — Deposit Transfer (EIP-3009)
+#### Signature 2 — Deposit Permit (EIP-2612)
 
-A standard EIP-3009 `transferWithAuthorization` signature:
+A standard EIP-2612 `permit` signature:
 
 ```
-TransferWithAuthorization {
-    address from               // user
-    address to                 // ProcessorEndpoint contract
+Permit {
+    address owner              // user
+    address spender            // ProcessorEndpoint contract
     uint256 value              // assetAmount
-    uint256 validAfter         // 0 (immediate)
-    uint256 validBefore        // deadline (matches request)
-    bytes32 nonce              // unique nonce (EIP-3009 uses random nonces)
+    uint256 nonce              // sequential nonce managed by the token contract
+    uint256 deadline           // expiration timestamp (matches request)
 }
 ```
 
-This authorizes the contract to pull `assetAmount` tokens from the user.
+This authorizes the contract to call `transferFrom` and pull `assetAmount` tokens from the user.
 
 > **When `assetAmount == 0`**: Signature 2 is not required. Many request types (e.g., `PROCESS`, `ASSOCIATEKEY`) may not require a deposit, in which case the user only signs the request authorization.
 
@@ -121,10 +124,10 @@ function submitRequestFor(
     uint256 nonce,
     uint256 deadline,
     bytes calldata requestSignature,
-    // EIP-3009 deposit authorization (empty if assetAmount == 0)
-    // When present: abi.encode(bytes32 eip3009Nonce, bytes signature)
-    // validAfter is hardcoded to 0, validBefore is derived from deadline
-    bytes calldata depositAuthorization
+    // EIP-2612 deposit permit (empty if assetAmount == 0)
+    // When present: abi.encode(uint8 v, bytes32 r, bytes32 s)
+    // owner, spender, value, deadline are derived from other parameters
+    bytes calldata depositPermit
 )
     external
     payable                    // msg.value = maxFeeValue (ETH)
@@ -158,14 +161,10 @@ submitRequestFor()
   │     maxFeeValue = msg.value
   │     require(maxFeeValue >= minFeePerRequest)
   │
-  ├─ 6. If assetAmount > 0: decode depositAuthorization and execute EIP-3009 transfer
-  │     (eip3009Nonce, sig) = abi.decode(depositAuthorization, (bytes32, bytes))
-  │     token.transferWithAuthorization(
-  │         user, address(this), assetAmount,
-  │         0,        // validAfter: always immediate
-  │         deadline, // validBefore: bound to request deadline
-  │         eip3009Nonce, sig
-  │     )
+  ├─ 6. If assetAmount > 0: decode depositPermit and execute EIP-2612 permit + transferFrom
+  │     (v, r, s) = abi.decode(depositPermit, (uint8, bytes32, bytes32))
+  │     token.permit(user, address(this), assetAmount, deadline, v, r, s)
+  │     token.transferFrom(user, address(this), assetAmount)
   │     appCustody[applicationId][tokenAddress] += assetAmount
   │
   ├─ 7. Create PendingRequest with sender = user (not msg.sender)
@@ -185,17 +184,17 @@ submitRequestFor()
 #### Nonce management
 
 ```solidity
-// Sequential nonces per user (simpler than EIP-3009's random nonces)
+// Sequential nonces per user (consistent with EIP-2612's sequential model)
 mapping(address => uint256) public facilitatorNonces;
 
 function getFacilitatorNonce(address user) external view returns (uint256);
 ```
 
-**Why a dedicated nonce is needed.** The `facilitatorNonces` counter is independent from both the Ethereum account nonce (used by the facilitator's EOA to order on-chain transactions) and the EIP-3009 random nonce (managed by the token contract for `transferWithAuthorization`). It protects the EIP-712 request authorization (Signature 1) against replay. This is critical when `assetAmount == 0` (e.g., `ASSOCIATEKEY` or `PROCESS` requests): in that case there is no Signature 2 / EIP-3009 transfer, so without this nonce there would be **no replay protection at all** — a facilitator could re-submit the same signed request multiple times. When `assetAmount > 0` the EIP-3009 nonce would already block a second transfer, but the dedicated nonce provides defense-in-depth.
+**Why a dedicated nonce is needed.** The `facilitatorNonces` counter is independent from both the Ethereum account nonce (used by the facilitator's EOA to order on-chain transactions) and the EIP-2612 nonce (managed by the token contract for `permit`). It protects the EIP-712 request authorization (Signature 1) against replay. This is critical when `assetAmount == 0` (e.g., `ASSOCIATEKEY` or `PROCESS` requests): in that case there is no Signature 2 / EIP-2612 permit, so without this nonce there would be **no replay protection at all** — a facilitator could re-submit the same signed request multiple times. When `assetAmount > 0` the EIP-2612 nonce would already block a second permit, but the dedicated nonce provides defense-in-depth.
 
 Because `facilitatorNonces` lives inside the `ProcessorEndpoint` contract and is keyed by user address, it does **not** interfere with the user's EOA nonce. A user can freely submit direct transactions (e.g., call `submitRequest`) without affecting their facilitator nonce, and vice versa.
 
-**Sequential vs random.** Unlike EIP-3009 (which uses random `bytes32` nonces and an on-chain bitmap), this design uses a simple sequential counter. Trade-offs:
+**Sequential vs random.** Like EIP-2612 (which also uses sequential nonces), this design uses a simple sequential counter. Trade-offs:
 
 | | Sequential (current design) | Random (EIP-3009 style) |
 |---|---|---|
@@ -271,6 +270,8 @@ The facilitator service will be implemented as a separate project: [`vela-facili
 1. **Core facilitation endpoints** — generic, application-agnostic gasless submission via `submitRequestFor()`
 2. **x402 scheme endpoints** — standard Coinbase x402 `verify`/`settle` flow for applications that integrate with the [x402 HTTP payment protocol](https://github.com/coinbase/x402/)
 
+> **Note on EIP-2612 and x402:** The standard x402 `exact` EVM scheme uses EIP-3009 as its recommended `assetTransferMethod` for USDC. Our custom `private-vela-fixed` scheme uses EIP-2612 instead. This is fully compatible with the x402 protocol architecture (which is scheme-agnostic), but means the Coinbase reference facilitator's `exact` settle logic cannot be reused directly — our scheme implements its own verify/settle via `submitRequestFor()`.
+
 #### Architecture
 
 ```
@@ -295,7 +296,7 @@ Applications that do not use x402 (e.g., a mobile SDK, a bot, a CLI) can call th
 
 #### Core Facilitation Endpoints
 
-- **`POST /submit`** — Generic gasless submission. Accepts the user's EIP-712 request signature, EIP-3009 deposit signature (if `assetAmount > 0`), and request parameters. Calls `submitRequestFor()` on-chain. Works for any request type (`ASSOCIATEKEY`, `DEPOSIT`, `WITHDRAWAL`, `PROCESS`, etc.).
+- **`POST /submit`** — Generic gasless submission. Accepts the user's EIP-712 request signature, EIP-2612 deposit permit (if `assetAmount > 0`), and request parameters. Calls `submitRequestFor()` on-chain. Works for any request type (`ASSOCIATEKEY`, `DEPOSIT`, `WITHDRAWAL`, `PROCESS`, etc.).
 - **`GET /nonce/:user`** — Returns the current `facilitatorNonces[user]` value from the contract, so clients can construct valid signatures.
 
 These endpoints are **open** (no authentication required). See Open Questions for future authentication/rate-limiting considerations.
@@ -307,19 +308,19 @@ For applications integrating with the [x402 HTTP payment protocol](https://githu
 IMPORTANT: this part is an extension/specialization of the Core Facilitation Endpoints that requires the usage of the vela-nova app for executing private transfers.
 
 **npm package: `@horizen/x402-private-vela-fixed`** — This package defines the `private-vela-fixed` payment scheme and can be used by:
-- **x402 clients** (via the Coinbase x402 client SDK) to construct EIP-712 + EIP-3009 payment signatures
+- **x402 clients** (via the Coinbase x402 client SDK) to construct EIP-712 + EIP-2612 payment signatures
 - **x402 facilitators** (including the Coinbase reference facilitator or the `vela-facilitator` itself) to verify and settle payments
 
 **Endpoints:**
 
-- **`POST /verify`** — Validates both user signatures off-chain without submitting a transaction. Returns whether the payment would succeed.
+- **`POST /verify`** — Validates both user signatures (request authorization + deposit permit) off-chain without submitting a transaction. Returns whether the payment would succeed.
 - **`POST /settle`** — Validates signatures and submits the transaction on-chain via the core facilitation layer. Returns `requestId` and `txHash`.
 
 The x402 flow follows the standard protocol: a resource server returns HTTP 402 with payment requirements, the client signs and retries, and the resource server delegates verification and settlement to the facilitator.
 
 #### Facilitator Responsibilities
 
-1. **Validate** both signatures off-chain before submitting (avoid wasting gas on invalid requests)
+1. **Validate** both signatures (request authorization + deposit permit) off-chain before submitting (avoid wasting gas on invalid requests)
 2. **Manage** its own ETH balance for gas and `maxFeeValue` payments (sent as `msg.value`)
 3. **Set** `maxFeeValue` according to platform policy (the user doesn't choose this — the facilitator does)
 4. **Monitor** its ETH balance, alert on low funds
@@ -330,7 +331,7 @@ The x402 flow follows the standard protocol: a resource server returns HTTP 402 
 The facilitator needs an EOA with:
 - ETH for gas + `maxFeeValue` (both paid in the same transaction as `msg.value`)
 
-No ERC-20 token balance or approval is needed for the facilitator itself — it only pays in ETH. The user's ERC-20 deposit is pulled directly from the user via EIP-3009.
+No ERC-20 token balance or approval is needed for the facilitator itself — it only pays in ETH. The user's ERC-20 deposit is pulled from the user via EIP-2612 permit + transferFrom.
 
 #### Sequence Diagram — x402 Flow
 
@@ -355,7 +356,7 @@ No ERC-20 token balance or approval is needed for the facilitator itself — it 
    │                        │                          │                            │
    │  4. Sign EIP-712       │                          │                            │
    │     request auth +     │                          │                            │
-   │     EIP-3009 deposit   │                          │                            │
+   │     EIP-2612 permit    │                          │                            │
    │     (off-chain)        │                          │                            │
    │                        │                          │                            │
    │  5. Retry with         │                          │                            │
@@ -381,8 +382,8 @@ No ERC-20 token balance or approval is needed for the facilitator itself — it 
    │                        │                          │    │     nonce             │
    │                        │                          │    │ 11. Validate token    │
    │                        │                          │    │     allowlists        │
-   │                        │                          │    │ 12. EIP-3009 transfer │
-   │                        │                          │    │     user → contract   │
+   │                        │                          │    │ 12. EIP-2612 permit + │
+   │                        │                          │    │     transferFrom      │
    │                        │                          │    │ 13. Create            │
    │                        │                          │    │     PendingRequest    │
    │                        │                          │    │     sender=user       │
@@ -435,24 +436,24 @@ Deanonymization will not be covered by the facilitator feature.
 
 - **Request replay**: Sequential nonce per user prevents replaying the same request authorization. The nonce is consumed atomically in `submitRequestFor`.
 - **Cross-chain replay**: The EIP-712 domain separator includes `chainId` and contract address.
-- **Deposit replay**: EIP-3009 nonces are managed by the token contract independently. Each `transferWithAuthorization` nonce can only be used once.
+- **Deposit replay**: EIP-2612 nonces are managed by the token contract independently. Each `permit` nonce is sequential and can only be used once. Note: EIP-2612 nonces are shared across all protocols using `permit` on the same token — if a user signs permits for multiple dApps concurrently, nonce ordering must be coordinated.
 
 ### 6.2. Signature Binding
 
 The request authorization signs `payloadHash` (not the raw payload) to keep signature size manageable. The contract verifies `keccak256(payload) == payloadHash` to ensure the facilitator cannot alter the payload.
 
-The request authorization also binds `tokenAddress` and `assetAmount`, preventing the facilitator from substituting a different token or amount.
+The request authorization also binds `tokenAddress` and `assetAmount`, preventing the facilitator from substituting a different token or amount. The EIP-2612 permit additionally binds the spender (the contract) and the value, providing a second layer of protection.
 
 ### 6.3. Deadline Enforcement
 
-Both the request authorization and the EIP-3009 transfer have deadlines. The facilitator cannot hold signatures indefinitely and submit them later when conditions change.
+Both the request authorization and the EIP-2612 permit have deadlines. The facilitator cannot hold signatures indefinitely and submit them later when conditions change.
 
 ### 6.4. Facilitator Trust Model
 
 The facilitator is **semi-trusted**:
 - **Cannot** alter request parameters (bound by user's EIP-712 signature)
-- **Cannot** steal the user's deposit (EIP-3009 transfer goes to the contract, not the facilitator)
-- **Cannot** change the deposit token or amount (bound by both EIP-712 and EIP-3009 signatures)
+- **Cannot** steal the user's deposit (EIP-2612 permit authorizes the contract as spender; `transferFrom` is called by the contract itself)
+- **Cannot** change the deposit token or amount (bound by both EIP-712 and EIP-2612 signatures)
 - **Can** choose not to submit a valid request (censorship) — mitigated by the direct EOA path remaining available
 - **Can** choose the `maxFeeValue` — but this is the facilitator's own ETH, so misalignment is self-penalizing
 - **Can** front-run or delay submission within the deadline window
@@ -469,7 +470,7 @@ If a user uses both paths, there is no conflict: direct calls are not nonce-gate
 
 | File | Change |
 |---|---|
-| `ProcessorEndpoint.sol` | Add `submitRequestFor()`, `facilitatorNonces` mapping, EIP-712 domain separator + `REQUEST_AUTHORIZATION_TYPEHASH`, refactor `generateRequestId` to internal `_generateRequestId`, modify `stateUpdate` claim routing for split claims (user asset / facilitator ETH fee) |
+| `ProcessorEndpoint.sol` | Add `submitRequestFor()`, `facilitatorNonces` mapping, EIP-712 domain separator + `REQUEST_AUTHORIZATION_TYPEHASH`, EIP-2612 `permit` + `transferFrom` for deposit handling, refactor `generateRequestId` to internal `_generateRequestId`, modify `stateUpdate` claim routing for split claims (user asset / facilitator ETH fee) |
 | `IProcessorEndpoint.sol` | Add `submitRequestFor()` and `getFacilitatorNonce()` to interface |
 | `Structs.sol` | Add `facilitator` field to `PendingRequest` |
 
