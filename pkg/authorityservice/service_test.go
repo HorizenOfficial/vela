@@ -45,6 +45,15 @@ func (stubSubgraphClient) HealthCheck(context.Context) error {
 	return nil
 }
 
+// GetDeployRequestCompletedByID is required to satisfy the subgraph.Client interface,
+// which added this method for multi-app deploy support. The authority service does not
+// use deploy request queries — this stub exists only for interface compliance.
+// TODO: consider splitting subgraph.Client into narrower interfaces so consumers
+// only need to implement the methods they actually use.
+func (s stubSubgraphClient) GetDeployRequestCompletedByID(ctx context.Context, id common.RequestIdType) (*subgraph.RequestCompleted, error) {
+	return s.GetRequestCompletedByID(ctx, id)
+}
+
 func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdType, string, int, *big.Int) ([]subgraph.UserEvent, error) {
 	return nil, nil
 }

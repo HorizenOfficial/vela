@@ -8,24 +8,24 @@ import (
 	"strings"
 	"time"
 
-	ccecommon "github.com/HorizenOfficial/vela-common-go/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // Type aliases for types that moved to vela-common-go/common.
-type ApplicationIdType = ccecommon.ApplicationIdType
-type RequestIdType = ccecommon.RequestIdType
-type RequestResultStatus = ccecommon.RequestResultStatus
+type ApplicationIdType = velacommon.ApplicationIdType
+type RequestIdType = velacommon.RequestIdType
+type RequestResultStatus = velacommon.RequestResultStatus
 
 const (
-	RequestResultOK      = ccecommon.RequestResultOK
-	RequestResultFailed  = ccecommon.RequestResultFailed
-	RequestResultUnknown = ccecommon.RequestResultUnknown
+	RequestResultOK      = velacommon.RequestResultOK
+	RequestResultFailed  = velacommon.RequestResultFailed
+	RequestResultUnknown = velacommon.RequestResultUnknown
 )
 
 func NewApplicationId(id uint64) ApplicationIdType {
-	return ccecommon.NewApplicationId(id)
+	return velacommon.NewApplicationId(id)
 }
 
 // RequestType represents the type of request being sent to the TEE

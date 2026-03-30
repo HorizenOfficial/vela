@@ -7,22 +7,44 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 )
+
+// Re-export shared deploy descriptor types from vela-common-go.
+const DeployModeArtifactRef = velacommon.DeployModeArtifactRef
+
+type DeployDescriptor = velacommon.DeployDescriptor
 
 const (
-	DeployModeArtifactRef = "artifact_ref"
-	artifactIDPrefix      = "sha256:"
-	sha256HexLength       = 64
+	artifactIDPrefix = "sha256:"
+	sha256HexLength  = 64
 )
 
-// DeployDescriptor defines the v1 deploy payload contract stored in Request.Payload.
-type DeployDescriptor struct {
-	Mode       string `json:"mode"`
-	ArtifactID string `json:"artifactId"`
-	WasmSHA256 string `json:"wasmSha256"`
+// BuildArtifactID builds a content-addressed artifactId from a validated sha256 hex string.
+func BuildArtifactID(wasmSHA256 string) (string, error) {
+	if !isLowerHexFixedSize(wasmSHA256, sha256HexLength) {
+		return "", errors.New("invalid wasm sha256: must be lowercase hex length 64")
+	}
+	return artifactIDPrefix + wasmSHA256, nil
+}
+
+// ParseArtifactID validates and extracts the sha256 hex from an artifact id.
+func ParseArtifactID(artifactID string) (string, error) {
+	if !strings.HasPrefix(artifactID, artifactIDPrefix) {
+		return "", errors.New("must start with sha256:")
+	}
+
+	sha := strings.TrimPrefix(artifactID, artifactIDPrefix)
+	if !isLowerHexFixedSize(sha, sha256HexLength) {
+		return "", errors.New("sha256 part must be lowercase hex length 64")
+	}
+
+	return sha, nil
 }
 
 // DecodeDeployDescriptorStrict decodes deploy descriptor JSON with unknown-field rejection and full validation.
+// This is framework-specific validation logic used by the executor.
 func DecodeDeployDescriptorStrict(payload []byte) (*DeployDescriptor, error) {
 	if len(bytes.TrimSpace(payload)) == 0 {
 		return nil, errors.New("deploy descriptor payload is empty")
@@ -42,15 +64,15 @@ func DecodeDeployDescriptorStrict(payload []byte) (*DeployDescriptor, error) {
 		return nil, errors.New("invalid deploy descriptor JSON: trailing data")
 	}
 
-	if err := descriptor.Validate(); err != nil {
+	if err := ValidateDeployDescriptor(&descriptor); err != nil {
 		return nil, err
 	}
 
 	return &descriptor, nil
 }
 
-// Validate checks descriptor-level schema and consistency rules.
-func (d *DeployDescriptor) Validate() error {
+// ValidateDeployDescriptor checks descriptor-level schema and consistency rules.
+func ValidateDeployDescriptor(d *DeployDescriptor) error {
 	if d == nil {
 		return errors.New("deploy descriptor is nil")
 	}
@@ -73,28 +95,6 @@ func (d *DeployDescriptor) Validate() error {
 	}
 
 	return nil
-}
-
-// BuildArtifactID builds a content-addressed artifactId from a validated sha256 hex string.
-func BuildArtifactID(wasmSHA256 string) (string, error) {
-	if !isLowerHexFixedSize(wasmSHA256, sha256HexLength) {
-		return "", errors.New("invalid wasm sha256: must be lowercase hex length 64")
-	}
-	return artifactIDPrefix + wasmSHA256, nil
-}
-
-// ParseArtifactID validates and extracts the sha256 hex from an artifact id.
-func ParseArtifactID(artifactID string) (string, error) {
-	if !strings.HasPrefix(artifactID, artifactIDPrefix) {
-		return "", errors.New("must start with sha256:")
-	}
-
-	sha := strings.TrimPrefix(artifactID, artifactIDPrefix)
-	if !isLowerHexFixedSize(sha, sha256HexLength) {
-		return "", errors.New("sha256 part must be lowercase hex length 64")
-	}
-
-	return sha, nil
 }
 
 func isLowerHexFixedSize(v string, size int) bool {
