@@ -125,7 +125,6 @@ function submitRequestFor(
     address tokenAddress,
     uint256 assetAmount,
     // User's EIP-712 request authorization
-    uint256 nonce,
     uint256 deadline,
     bytes calldata requestSignature,
     // EIP-2612 deposit permit (empty if assetAmount == 0)
@@ -152,41 +151,46 @@ submitRequestFor()
   ├─ 2. Verify deadline not expired
   │     require(block.timestamp <= deadline)
   │
-  ├─ 3. Recover user address from EIP-712 request signature and verify
+  ├─ 3. Read current nonce and build EIP-712 hash
+  │     nonce = facilitatorNonces[sender]
+  │     // nonce is not a parameter — the contract uses the current on-chain value
+  │     // to reconstruct the EIP-712 struct hash. If the user signed a different
+  │     // nonce, ecrecover will return a wrong address and fail the sender check.
+  │
+  ├─ 4. Recover user address from EIP-712 request signature and verify
   │     user = ecrecover(hashTypedData(requestAuth), requestSignature)
   │     require(user != address(0))   // invalid signature guard
   │     require(user == sender)       // ecrecover result must match declared sender
   │
-  ├─ 4. Verify and consume nonce for the EIP-712 authorization (replay protection)
-  │     require(nonces[user] == nonce)
-  │     nonces[user]++
+  ├─ 5. Consume nonce (replay protection)
+  │     facilitatorNonces[sender]++
   │
-  ├─ 5. If assetAmount > 0: validate token allowlists
+  ├─ 6. If assetAmount > 0: validate token allowlists
   │     require(globalAllowedTokens[tokenAddress])
   |     Token address must not be the one identifying ETH
   │
-  ├─ 6. Validate fee
+  ├─ 7. Validate fee
   │     maxFeeValue = msg.value
   │     require(maxFeeValue >= minFeePerRequest)
   │
-  ├─ 7. If assetAmount > 0: decode depositPermit and execute EIP-2612 permit + transferFrom
+  ├─ 8. If assetAmount > 0: decode depositPermit and execute EIP-2612 permit + transferFrom
   │     (v, r, s) = abi.decode(depositPermit, (uint8, bytes32, bytes32))
   │     token.permit(user, address(this), assetAmount, deadline, v, r, s)
   │     token.transferFrom(user, address(this), assetAmount)
   │     appCustody[applicationId][tokenAddress] += assetAmount
   │
-  ├─ 8. Create PendingRequest with sender = user (not msg.sender)
+  ├─ 9. Create PendingRequest with sender = user (not msg.sender)
   │     pendingRequest.sender = user
   │     pendingRequest.facilitator = msg.sender
   │     pendingRequest.tokenAddress = tokenAddress
   │     pendingRequest.assetAmount = assetAmount
   │     pendingRequest.maxFeeValue = maxFeeValue
   │
-  ├─ 9. Generate requestId using user address
-  │     requestId = _generateRequestId(user, applicationId, requestType,
-  │                                     payload, tokenAddress, assetAmount, idx)
+  ├─ 10. Generate requestId using user address
+  │      requestId = _generateRequestId(user, applicationId, requestType,
+  │                                      payload, tokenAddress, assetAmount, idx)
   │
-  └─ 10. Emit RequestSubmitted(applicationId, requestId, user)
+  └─ 11. Emit RequestSubmitted(applicationId, requestId, user)
 ```
 
 #### Nonce management
@@ -199,6 +203,8 @@ function getFacilitatorNonce(address user) external view returns (uint256);
 ```
 
 **Why a dedicated nonce is needed.** The `facilitatorNonces` counter is independent from both the Ethereum account nonce (used by the facilitator's EOA to order on-chain transactions) and the EIP-2612 nonce (managed by the token contract for `permit`). It protects the EIP-712 request authorization (Signature 1) against replay. This is critical when `assetAmount == 0` (e.g., `ASSOCIATEKEY` or `PROCESS` requests): in that case there is no Signature 2 / EIP-2612 permit, so without this nonce there would be **no replay protection at all** — a facilitator could re-submit the same signed request multiple times. When `assetAmount > 0` the EIP-2612 nonce would already block a second permit, but the dedicated nonce provides defense-in-depth.
+
+**Nonce is not a calldata parameter.** The nonce is not passed as a parameter to `submitRequestFor`. The contract reads `facilitatorNonces[sender]` directly and uses it to reconstruct the EIP-712 struct hash. The user must sign the current on-chain nonce value; if the signed nonce differs, the recovered address won't match `sender` and the transaction reverts. This eliminates a parameter, reduces calldata, and removes the possibility of the facilitator submitting a mismatched nonce.
 
 Because `facilitatorNonces` lives inside the `ProcessorEndpoint` contract and is keyed by user address, it does **not** interfere with the user's EOA nonce. A user can freely submit direct transactions (e.g., call `submitRequest`) without affecting their facilitator nonce, and vice versa.
 
