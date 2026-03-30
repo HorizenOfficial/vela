@@ -34,6 +34,8 @@ A **facilitator** should allow users to submit requests without holding any ETH.
 
 The facilitator pattern is designed for **ERC-20 business-asset deposits**. For ETH deposits (`tokenAddress = 0x0`), the user inherently needs ETH for `assetAmount` and therefore likely has enough for gas and fees — making the facilitator less valuable. ETH deposits remain supported only via the direct `submitRequest` path.
 
+**Supported request types:** Initially, only `ASSOCIATEKEY` and `PROCESS` request types will be supported via `submitRequestFor`. Any other request type submitted through the facilitator will be rejected with an error. Support for additional request types may be added in future iterations.
+
 
 This document covers the **smart contract changes** and **Go backend changes** needed in this repository to support facilitated requests. The off-chain facilitator service and client SDK will be implemented in a separate [`vela-facilitator`](https://github.com/HorizenOfficial/vela-facilitator) repository, which will provide also compatibility with the x402 HTTP payment protocol defined by Coinbase (see [https://github.com/coinbase/x402/](https://github.com/coinbase/x402/)).
 More info on the off-chain facilitator will be provided below in paragraph 5.3 .
@@ -144,44 +146,47 @@ function submitRequestFor(
 ```
 submitRequestFor()
   │
-  ├─ 1. Verify deadline not expired
+  ├─ 1. Verify request type is supported
+  │     require(requestType == ASSOCIATEKEY || requestType == PROCESS)
+  │
+  ├─ 2. Verify deadline not expired
   │     require(block.timestamp <= deadline)
   │
-  ├─ 2. Recover user address from EIP-712 request signature and verify
+  ├─ 3. Recover user address from EIP-712 request signature and verify
   │     user = ecrecover(hashTypedData(requestAuth), requestSignature)
   │     require(user != address(0))   // invalid signature guard
   │     require(user == sender)       // ecrecover result must match declared sender
   │
-  ├─ 3. Verify and consume nonce for the EIP-712 authorization (replay protection)
+  ├─ 4. Verify and consume nonce for the EIP-712 authorization (replay protection)
   │     require(nonces[user] == nonce)
   │     nonces[user]++
   │
-  ├─ 4. If assetAmount > 0: validate token allowlists
+  ├─ 5. If assetAmount > 0: validate token allowlists
   │     require(globalAllowedTokens[tokenAddress])
   |     Token address must not be the one identifying ETH
   │
-  ├─ 5. Validate fee
+  ├─ 6. Validate fee
   │     maxFeeValue = msg.value
   │     require(maxFeeValue >= minFeePerRequest)
   │
-  ├─ 6. If assetAmount > 0: decode depositPermit and execute EIP-2612 permit + transferFrom
+  ├─ 7. If assetAmount > 0: decode depositPermit and execute EIP-2612 permit + transferFrom
   │     (v, r, s) = abi.decode(depositPermit, (uint8, bytes32, bytes32))
   │     token.permit(user, address(this), assetAmount, deadline, v, r, s)
   │     token.transferFrom(user, address(this), assetAmount)
   │     appCustody[applicationId][tokenAddress] += assetAmount
   │
-  ├─ 7. Create PendingRequest with sender = user (not msg.sender)
+  ├─ 8. Create PendingRequest with sender = user (not msg.sender)
   │     pendingRequest.sender = user
   │     pendingRequest.facilitator = msg.sender
   │     pendingRequest.tokenAddress = tokenAddress
   │     pendingRequest.assetAmount = assetAmount
   │     pendingRequest.maxFeeValue = maxFeeValue
   │
-  ├─ 8. Generate requestId using user address
+  ├─ 9. Generate requestId using user address
   │     requestId = _generateRequestId(user, applicationId, requestType,
   │                                     payload, tokenAddress, assetAmount, idx)
   │
-  └─ 9. Emit RequestSubmitted(applicationId, requestId, user)
+  └─ 10. Emit RequestSubmitted(applicationId, requestId, user)
 ```
 
 #### Nonce management
@@ -427,7 +432,7 @@ Users who hold ETH can continue using `submitRequest` directly.
 
 #### ASSOCIATEKEY
 
-Works naturally with the facilitator: the user signs a request authorization with their key payload (133 bytes). The recovered address from the EIP-712 signature is the user whose key is being associated. No special handling needed.
+Works naturally with the facilitator: the user signs a request authorization with their key payload. The recovered address from the EIP-712 signature is the user whose key is being associated. No special handling needed.
 
 #### DEANONYMIZATION
 
