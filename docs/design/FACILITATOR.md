@@ -325,7 +325,6 @@ vela-facilitator/
   │
   ├─ Core facilitation layer (generic, platform-level)
   │   ├─ POST /submit          — gasless submitRequestFor() for any app/request type
-  │   ├─ GET  /nonce/:user     — query facilitatorNonces from contract
   │   └─ wallet management, gas monitoring, claim scheduling
   │
   ├─ x402 scheme layer (for x402-enabled applications)
@@ -342,10 +341,11 @@ Applications that do not use x402 (e.g., a mobile SDK, a bot, a CLI) can call th
 
 #### Core Facilitation Endpoints
 
-- **`POST /submit`** — Generic gasless submission. Accepts the user's EIP-712 request signature, EIP-2612 deposit permit (if `assetAmount > 0`), and request parameters. Calls `submitRequestFor()` on-chain. Works for any request type (`ASSOCIATEKEY`, `DEPOSIT`, `WITHDRAWAL`, `PROCESS`, etc.).
-- **`GET /nonce/:user`** — Returns the current `facilitatorNonces[user]` value from the contract, so clients can construct valid signatures.
+- **`POST /submit`** — Generic gasless submission. Accepts the user's EIP-712 request signature, EIP-2612 deposit permit (if `assetAmount > 0`), and request parameters. Calls `submitRequestFor()` on-chain. Works for any request type (`ASSOCIATEKEY`, `PROCESS`).
 
-These endpoints are **open** (no authentication required). See Open Questions for future authentication/rate-limiting considerations.
+Nonce queries are not part of the facilitator API — clients read `facilitatorNonces[user]` directly from the `ProcessorEndpoint` contract (it is a `public` mapping with an auto-generated getter), just as they read the EIP-2612 nonce from the token contract.
+
+This endpoint is **open** (no authentication required). See Open Questions for future authentication/rate-limiting considerations.
 
 #### x402 Scheme Layer
 
@@ -395,10 +395,12 @@ No ERC-20 token balance or approval is needed for the facilitator itself — it 
    │      amount, resource} │                          │                            │
    │<───────────────────────│                          │                            │
    │                        │                          │                            │
-   │  3. Query nonce        │                          │  getFacilitatorNonce(user) │
-   │  ──────────────────────────────────────────────>  │  ─────────────────────────>│
+   │  3. Query nonces       │                          │                            │
+   │     directly from      │                          │                            │
+   │     contracts           │                          │  facilitatorNonces[user]   │
+   │───────────────────────────────────────────────────────────────────────────────>│
    │       nonce = N        │                          │                   nonce = N│
-   │  <──────────────────────────────────────────────  │  <─────────────────────────│
+   │<──────────────────────────────────────────────────────────────────────────────│
    │                        │                          │                            │
    │  4. Sign EIP-712       │                          │                            │
    │     request auth +     │                          │                            │
