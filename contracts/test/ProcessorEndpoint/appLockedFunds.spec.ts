@@ -100,22 +100,20 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
     });
 
-    // Verifies that submitRequest credits the full msg.value (depositAmount + maxFeeValue)
-    // to the app's locked funds, since both components belong to the app until processing.
-    it('increases by depositAmount + maxFeeValue after submitRequest', async () => {
+    // Verifies that submitRequest credits only the depositAmount (not fees)
+    // to the app's locked funds. Fees are tracked globally, not per-app.
+    it('increases by depositAmount after submitRequest', async () => {
       const depositAmount = 50n;
       const maxFeeValue = minFeePerRequest + 10n;
 
       await submitRequest(signers[0], '0x01', depositAmount, maxFeeValue);
 
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
-        depositAmount + maxFeeValue
-      );
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
     });
 
-    // Verifies that submitDeployRequest credits msg.value (which equals maxFeeValue,
-    // since depositAmount is always 0 for deploys) to the new app's locked funds.
-    it('increases by msg.value after submitDeployRequest', async () => {
+    // Verifies that submitDeployRequest does not credit appLockedFunds,
+    // since depositAmount is always 0 for deploys. Fees are tracked globally.
+    it('remains 0 after submitDeployRequest (no deposit)', async () => {
       const fee = minFeePerRequest + 20n;
       const deployTx = await processorEndpoint
         .connect(signers[2])
@@ -132,12 +130,12 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const parsed = processorEndpoint.interface.parseLog(deployLog);
       const deployAppId: bigint = parsed.args.applicationId;
 
-      expect(await processorEndpoint.appLockedFunds(deployAppId)).to.equal(fee);
+      expect(await processorEndpoint.appLockedFunds(deployAppId)).to.equal(0n);
     });
 
-    // Verifies that a successful stateUpdate debits appLockedFunds by the total outflow:
-    // withdrawals + refund + applicationFees. The remaining balance should equal the
-    // original credit minus this sum.
+    // Verifies that a successful stateUpdate debits appLockedFunds by the withdrawal sum
+    // only (fees are tracked globally). The remaining balance should equal the
+    // original deposit credit minus withdrawals.
     it('decreases correctly after successful stateUpdate', async () => {
       const depositAmount = 100n;
       const refund = 10n;
@@ -146,7 +144,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
 
       const request = await submitRequest(signers[0], '0x02', depositAmount, maxFeeValue);
       const fundsAfterSubmit = await processorEndpoint.appLockedFunds(applicationId);
-      expect(fundsAfterSubmit).to.equal(depositAmount + maxFeeValue);
+      expect(fundsAfterSubmit).to.equal(depositAmount);
 
       const withdrawalAddr = await signers[3].getAddress();
       const withdrawalAmount = 50n;
@@ -160,23 +158,19 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         [[withdrawalAddr, withdrawalAmount]]
       );
 
-      const totalDebited = withdrawalAmount + refund + applicationFees;
       expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
-        fundsAfterSubmit - totalDebited
+        fundsAfterSubmit - withdrawalAmount
       );
     });
 
-    // Verifies that a failed stateUpdate debits the full original amount
-    // (depositAmount + maxFeeValue) from appLockedFunds, since the entire deposit
-    // is consumed by the refund + minimum fee.
+    // Verifies that a failed stateUpdate debits only the depositAmount from
+    // appLockedFunds. Fees are handled globally.
     it('decreases correctly after error stateUpdate', async () => {
       const depositAmount = 30n;
       const maxFeeValue = minFeePerRequest + 5n;
 
       const request = await submitRequest(signers[0], '0x03', depositAmount, maxFeeValue);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
-        depositAmount + maxFeeValue
-      );
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
 
       await failRequest(request.requestId);
 
@@ -231,7 +225,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         [[await signers[3].getAddress(), depositA]]
       );
 
-      // B tries to withdraw 200 — reverts because B only has 50 + maxFee locked
+      // B tries to withdraw 200 — reverts because B only has 50 locked (deposit only)
       const withdrawalAttempt = 200n;
       await expect(
         completeRequest(
@@ -257,7 +251,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       await submitRequest(signers[0], '0x21', depositB, maxFee, appIdB);
 
       const fundsB = await processorEndpoint.appLockedFunds(appIdB);
-      expect(fundsB).to.equal(depositB + maxFee);
+      expect(fundsB).to.equal(depositB);
 
       // Process A
       await completeRequest(
@@ -303,12 +297,10 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const maxFee = minFeePerRequest;
 
       const req1 = await submitRequest(signers[0], '0x40', dep1, maxFee);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep1 + maxFee);
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep1);
 
       const req2 = await submitRequest(signers[0], '0x41', dep2, maxFee);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
-        dep1 + dep2 + 2n * maxFee
-      );
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep1 + dep2);
 
       // Process first
       await completeRequest(
@@ -320,7 +312,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         [[await signers[3].getAddress(), dep1]]
       );
 
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep2 + maxFee);
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep2);
 
       // Process second
       await completeRequest(
@@ -357,10 +349,10 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
     });
 
-    // Boundary test: when the total outflow exceeds appLockedFunds by exactly 1 wei,
+    // Boundary test: when the withdrawal sum exceeds appLockedFunds by exactly 1 wei,
     // the solvency check must revert. Also verifies that the reverted tx does not
     // modify appLockedFunds (EVM atomicity).
-    it('boundary + 1: sum == appLockedFunds + 1 reverts with InsufficientAppBalance', async () => {
+    it('boundary + 1: withdrawalSum == appLockedFunds + 1 reverts with InsufficientAppBalance', async () => {
       const depositAmount = 50n;
       const maxFeeValue = minFeePerRequest;
 
@@ -378,9 +370,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientAppBalance');
 
       // appLockedFunds unchanged after revert
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
-        depositAmount + maxFeeValue
-      );
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
     });
 
     // Verifies correct bookkeeping when the same app has one request fail (error path)
@@ -394,15 +384,13 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       // Submit two requests
       const req1 = await submitRequest(signers[0], '0x60', dep1, maxFee);
       const req2 = await submitRequest(signers[0], '0x61', dep2, maxFee);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
-        dep1 + dep2 + 2n * maxFee
-      );
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep1 + dep2);
 
-      // Fail first request — debits dep1 + maxFee
+      // Fail first request — debits dep1
       await failRequest(req1.requestId);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep2 + maxFee);
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep2);
 
-      // Succeed second request — debits dep2 + maxFee
+      // Succeed second request — debits dep2 (via withdrawal)
       await completeRequest(
         req2.requestId,
         INITIAL_STATE_ROOT,
@@ -440,8 +428,8 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       );
       const insertReceipt = await insertTx.wait();
 
-      // appLockedFunds should reflect the submitted request
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(maxFeeValue);
+      // appLockedFunds should be 0 (depositAmount is 0, fees are not tracked per-app)
+      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
 
       // Fail the request (error path) — the refund goes to FallbackFailure
       // via _asyncTransfer (pull pattern), so no actual ETH transfer happens here
@@ -486,7 +474,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const deployAppId: bigint = parsed.args.applicationId;
       const deployRequestId: string = parsed.args.requestId;
 
-      expect(await pe.appLockedFunds(deployAppId)).to.equal(fixture.minFeePerRequest);
+      expect(await pe.appLockedFunds(deployAppId)).to.equal(0n);
 
       // Complete deploy
       await pe

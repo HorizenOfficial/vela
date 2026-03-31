@@ -387,10 +387,8 @@ describe('ProcessorEndpoint Test', function () {
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
 
-        // After submit: appLockedFunds should equal depositAmount + maxFeeValue
-        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
-          depositAmount + maxFeeValue
-        );
+        // After submit: appLockedFunds should equal depositAmount only (fees tracked globally)
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
 
         // With pull pattern, funds are credited to pending deposits
         const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
@@ -412,7 +410,7 @@ describe('ProcessorEndpoint Test', function () {
           expectedRefund
         );
 
-        // After error: appLockedFunds debited by full depositAmount + maxFeeValue → 0
+        // After error: appLockedFunds debited by depositAmount → 0
         expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 
@@ -428,8 +426,8 @@ describe('ProcessorEndpoint Test', function () {
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
 
-        // After submit: appLockedFunds should equal maxFeeValue (depositAmount is 0)
-        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(maxFeeValue);
+        // After submit: appLockedFunds should be 0 (depositAmount is 0, fees tracked globally)
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
 
         // With pull pattern, funds are credited to pending deposits
         const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
@@ -450,7 +448,7 @@ describe('ProcessorEndpoint Test', function () {
           expectedRefund
         );
 
-        // After error: appLockedFunds debited by full maxFeeValue → 0
+        // After error: appLockedFunds remains 0 (no deposit was tracked)
         expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 

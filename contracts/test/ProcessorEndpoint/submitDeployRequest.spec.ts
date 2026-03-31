@@ -125,10 +125,10 @@ describe('ProcessorEndpoint Test', function () {
         expect(userBalanceAfter).to.equal(userBalanceBefore - gasCost - maxFeeValue);
         expect(processorBalanceAfter).to.equal(processorBalanceBefore + maxFeeValue);
 
-        // appLockedFunds should increase by msg.value for the derived applicationId
+        // appLockedFunds should remain 0 for deploys (no deposit, fees tracked globally)
         const requests = await processorEndpoint.getPendingRequests();
         const deployAppId = requests[0].applicationId;
-        expect(await processorEndpoint.appLockedFunds(deployAppId)).to.equal(maxFeeValue);
+        expect(await processorEndpoint.appLockedFunds(deployAppId)).to.equal(0n);
       });
 
       it('enqueues the deploy request as a pending request', async () => {
