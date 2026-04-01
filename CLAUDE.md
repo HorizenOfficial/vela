@@ -145,6 +145,8 @@ Versioned LevelDB with atomic transactions and rollback support:
 
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
 
+**User Signatures:** When a signature is provided by an external user (e.g. via a wallet), it must be compatible with MetaMask's `personal_sign` format. This means the message is prefixed with `\x19Ethereum Signed Message:\n<length of message>` before hashing and signing. Both Go verification code and Solidity `ecrecover` usage must account for this prefix.
+
 ## Code Review Guidelines
 
 ### Go Code
