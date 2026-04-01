@@ -188,6 +188,9 @@ describe('ProcessorEndpoint Test', function () {
 
         expect(balanceAfter).eql(balanceBefore + 100n);
         expect(await processorEndpoint.payments(await signers[2].getAddress())).eql(0n);
+
+        // withdrawPayments must not affect appLockedFunds (orthogonal systems)
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 
       it('should not revert withdrawPayments if no pending amount', async function () {

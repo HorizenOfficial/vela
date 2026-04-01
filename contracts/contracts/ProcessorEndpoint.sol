@@ -35,6 +35,17 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   mapping(address => uint256) public payments;
   uint256 private _totalDeposits;
 
+  // Per-app fund tracking for solvency isolation (deposit-only).
+  // Credited on submitRequest (depositAmount only; fees are tracked globally),
+  // debited on stateUpdate: success path (withdrawals), error path (depositAmount).
+  // Fees are self-balancing per request (refund + applicationFees == maxFeeValue)
+  // so global balance checks are sufficient for the fee portion.
+  // If an app's withdrawals are less than its deposits,
+  // the residual accumulates here as credit available to future requests.
+  // Note: There is currently no mechanism to recover residual funds from decommissioned
+  // apps.
+  mapping(uint64 => uint256) public appLockedFunds;
+
   uint256 public minFeePerRequest;
   address payable public feeCollector;
 
@@ -133,6 +144,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       requestType: requestType
     });
     _requestIdByOrder[_tail] = requestId;
+    appLockedFunds[applicationId] += depositAmount;
 
     unchecked {
       ++_tail;
@@ -346,8 +358,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       if (eventsLength != 0 || withdrawalRequests.length != 0) revert InvalidPayload();
       if (applicationStateRoots[applicationId] != newStateRoot) revert InvalidStateRoot();
 
-      if (requestInfo.depositAmount + requestInfo.maxFeeValue > _getAvailableBalance())
-        revert InsufficientBalance();
+      // Per-app solvency check (deposits only), then defense-in-depth global balance check on total outflow.
+      uint256 depositAmount = requestInfo.depositAmount;
+      uint256 totalErrorAmount = depositAmount + requestInfo.maxFeeValue;
+      if (depositAmount > appLockedFunds[applicationId]) revert InsufficientAppBalance();
+      if (totalErrorAmount > _getAvailableBalance()) revert InsufficientBalance();
+      appLockedFunds[applicationId] -= depositAmount;
 
       // Refund includes deposit amount for error cases
       // For now, we always collect the minimum fee per request in case of an error, in the future
@@ -389,17 +405,20 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     //check withdrawal sums (account for already committed pending deposits)
     uint256 i;
-    uint256 sum;
+    uint256 withdrawalSum;
     uint256 withdrawalsLength = withdrawalRequests.length;
     while (i < withdrawalsLength) {
-      sum += withdrawalRequests[i].amount;
+      withdrawalSum += withdrawalRequests[i].amount;
       unchecked {
         ++i;
       }
     }
-    sum += refund + applicationFees;
+    uint256 totalOutflow = withdrawalSum + refund + applicationFees;
 
-    if (sum > _getAvailableBalance()) revert InsufficientBalance();
+    // Per-app solvency check (deposits vs withdrawals), then global balance check on total outflow.
+    if (withdrawalSum > appLockedFunds[applicationId]) revert InsufficientAppBalance();
+    if (totalOutflow > _getAvailableBalance()) revert InsufficientBalance();
+    appLockedFunds[applicationId] -= withdrawalSum;
 
     //emit encrypted event
     i = 0;

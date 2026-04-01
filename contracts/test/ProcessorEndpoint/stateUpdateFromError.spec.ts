@@ -387,6 +387,9 @@ describe('ProcessorEndpoint Test', function () {
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
 
+        // After submit: appLockedFunds should equal depositAmount only (fees tracked globally)
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
+
         // With pull pattern, funds are credited to pending deposits
         const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
           await sender.getAddress()
@@ -406,6 +409,9 @@ describe('ProcessorEndpoint Test', function () {
         expect(senderPendingAmountAfterComplete - senderPendingAmountAfterSubmit).to.equal(
           expectedRefund
         );
+
+        // After error: appLockedFunds debited by depositAmount → 0
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 
       it('refunds sender and emits RequestCompleted FAILED when error stateUpdate succeeds', async () => {
@@ -419,6 +425,9 @@ describe('ProcessorEndpoint Test', function () {
           });
         const receipt = await tx.wait();
         const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
+
+        // After submit: appLockedFunds should be 0 (depositAmount is 0, fees tracked globally)
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
 
         // With pull pattern, funds are credited to pending deposits
         const senderPendingAmountAfterSubmit = await processorEndpoint.payments(
@@ -438,6 +447,9 @@ describe('ProcessorEndpoint Test', function () {
         expect(senderPendingAmountAfterFail - senderPendingAmountAfterSubmit).to.equal(
           expectedRefund
         );
+
+        // After error: appLockedFunds remains 0 (no deposit was tracked)
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 
       it('restores an available deploy slot when a deploy request fails', async () => {

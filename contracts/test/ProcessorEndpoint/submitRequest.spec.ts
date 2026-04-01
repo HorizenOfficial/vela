@@ -234,6 +234,9 @@ describe('ProcessorEndpoint Test', function () {
         expect(processorBalanceAfter).to.equal(
           processorBalanceBefore + depositAmount + maxFeeValue
         );
+
+        // appLockedFunds should increase by depositAmount only (fees tracked globally)
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
       });
 
       it('accepts non-deanonymization requests (PROCESS/ASSOCIATEKEY) and enqueues', async () => {

@@ -433,7 +433,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
-      it('reverts with InsufficientBalance when withdrawals sum exceeds contract balance', async () => {
+      it('reverts with InsufficientAppBalance when withdrawals sum exceeds app locked funds', async () => {
         const request = await submitRequest(
           processorEndpoint,
           signers[0],
@@ -459,7 +459,7 @@ describe('ProcessorEndpoint Test', function () {
               '',
               '0x'
             )
-        ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientBalance');
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientAppBalance');
       });
     });
 
@@ -582,6 +582,9 @@ describe('ProcessorEndpoint Test', function () {
         expect(senderPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(refund);
         expect(balanceAPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(10n);
         expect(balanceBPendingAmountAfterUpdate - balanceBPendingAmountAfterSubmit).to.equal(10n);
+
+        // appLockedFunds: credited depositAmount(20), debited withdrawals(10+10) = 20, so should be 0
+        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
       });
 
       it('emits UserEvent for provided events and subtypes', async () => {

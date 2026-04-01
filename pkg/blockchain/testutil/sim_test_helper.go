@@ -289,6 +289,15 @@ func (s *SimTestHelper) GetStateRoot(applicationId common.ApplicationIdType) [32
 	return oldStateRoot
 }
 
+func (s *SimTestHelper) GetAppLockedFunds(applicationId common.ApplicationIdType) *big.Int {
+	funds, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackAppLockedFunds(uint64(applicationId)),
+		s.processEndpointContract.UnpackAppLockedFunds)
+	require.NoError(s.t, err)
+	return funds
+}
+
 func (s *SimTestHelper) GetRequest(requestID common.RequestIdType) processorendpoint.RequestByIdOutput {
 	request, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
