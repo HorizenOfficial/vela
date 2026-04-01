@@ -882,3 +882,159 @@ func TestUint256BigStructCompatibility(t *testing.T) {
 	require.Equal(t, 0, hostStruct.Fee.ToInt().Cmp(hostStruct2.Fee.ToInt()))
 	require.Equal(t, 0, hostStruct.Balance.ToInt().Cmp(hostStruct2.Balance.ToInt()))
 }
+
+// --- ERC-20 / Deploy tests ---
+
+var (
+	erc20TokenAddr, _ = types.HexToAddress("0xdead000000000000000000000000000000000001")
+)
+
+func TestDeploy_EmptyParams(t *testing.T) {
+	result := Deploy(int64(testAppId), "")
+	require.Empty(t, result.Error)
+	require.NotNil(t, result.State)
+
+	var state ApplicationInternalState
+	err := json.Unmarshal(result.State, &state)
+	require.NoError(t, err)
+
+	require.Equal(t, testAppId, state.AppID)
+	require.Empty(t, state.Accounts)
+	// ETH is always allowed
+	require.True(t, state.AllowedTokens[zeroAddressHex])
+}
+
+func TestDeploy_WithAllowedTokens(t *testing.T) {
+	params := `{"allowedTokens":["` + erc20TokenAddr.Hex() + `"]}`
+	result := Deploy(int64(testAppId), params)
+	require.Empty(t, result.Error)
+
+	var state ApplicationInternalState
+	err := json.Unmarshal(result.State, &state)
+	require.NoError(t, err)
+
+	// Both ETH and the ERC-20 token should be allowed
+	require.True(t, state.AllowedTokens[zeroAddressHex])
+	require.True(t, state.AllowedTokens[erc20TokenAddr.Hex()])
+}
+
+func TestDeploy_InvalidParams(t *testing.T) {
+	result := Deploy(int64(testAppId), "not-json")
+	require.NotEmpty(t, result.Error)
+	require.Contains(t, result.Error, "failed to parse deploy params")
+}
+
+func TestDepositFunds_RejectsNonAllowlistedToken(t *testing.T) {
+	// Deploy with ETH-only (no ERC-20 tokens)
+	stateJSON, _ := getInitialState(t)
+	depositAmount := types.NewUint256(100)
+
+	result := DepositFunds(&user1Address, &erc20TokenAddr, depositAmount, stateJSON)
+	require.NotEmpty(t, result.Error)
+	require.Contains(t, result.Error, "not allowed")
+}
+
+func TestDepositFunds_AcceptsAllowlistedERC20Token(t *testing.T) {
+	// Build state with ERC-20 token allowed
+	state := ApplicationInternalState{
+		AppID:         testAppId,
+		Accounts:      make(map[string]*AccountState),
+		AllowedTokens: map[string]bool{zeroAddressHex: true, erc20TokenAddr.Hex(): true},
+	}
+	stateBytes, err := json.Marshal(state)
+	require.NoError(t, err)
+
+	depositAmount := types.NewUint256(500)
+	result := DepositFunds(&user1Address, &erc20TokenAddr, depositAmount, string(stateBytes))
+	require.Empty(t, result.Error)
+
+	var newState ApplicationInternalState
+	err = json.Unmarshal(result.State, &newState)
+	require.NoError(t, err)
+
+	// ERC-20 balance should be credited
+	tokenBal := newState.Accounts[user1Address.Hex()].Balances[erc20TokenAddr.Hex()]
+	require.NotNil(t, tokenBal)
+	require.Equal(t, 0, depositAmount.Cmp(*tokenBal))
+
+	// ETH balance should not exist (no ETH deposit was made)
+	ethBal := newState.Accounts[user1Address.Hex()].Balances[zeroAddressHex]
+	require.Nil(t, ethBal)
+}
+
+func TestDepositFunds_MultiTokenBalancesAreIndependent(t *testing.T) {
+	// Build state with both ETH and ERC-20 allowed
+	state := ApplicationInternalState{
+		AppID:         testAppId,
+		Accounts:      make(map[string]*AccountState),
+		AllowedTokens: map[string]bool{zeroAddressHex: true, erc20TokenAddr.Hex(): true},
+	}
+	stateBytes, err := json.Marshal(state)
+	require.NoError(t, err)
+
+	// Deposit ETH
+	ethAmount := types.NewUint256(1000)
+	result := DepositFunds(&user1Address, &types.Address{}, ethAmount, string(stateBytes))
+	require.Empty(t, result.Error)
+
+	// Deposit ERC-20 on top
+	erc20Amount := types.NewUint256(500)
+	result = DepositFunds(&user1Address, &erc20TokenAddr, erc20Amount, string(result.State))
+	require.Empty(t, result.Error)
+
+	var newState ApplicationInternalState
+	err = json.Unmarshal(result.State, &newState)
+	require.NoError(t, err)
+
+	acct := newState.Accounts[user1Address.Hex()]
+	require.NotNil(t, acct)
+	require.Equal(t, 0, ethAmount.Cmp(*acct.Balances[zeroAddressHex]))
+	require.Equal(t, 0, erc20Amount.Cmp(*acct.Balances[erc20TokenAddr.Hex()]))
+}
+
+func TestProcessRequest_WithdrawRejectsNonAllowlistedToken(t *testing.T) {
+	stateJSON, _ := getPopulatedState(t)
+
+	payload := `{"type":"withdraw","withdraw":{"to":"` + user3Address.Hex() + `","tokenAddress":"` + erc20TokenAddr.Hex() + `","amount":"0x64"}}`
+	result := ProcessRequest(&user1Address, int32(common.Process), payload, stateJSON)
+	require.NotEmpty(t, result.Error)
+	require.Contains(t, result.Error, "not allowed")
+}
+
+func TestProcessRequest_WithdrawTokenAwareWithdrawal(t *testing.T) {
+	// State with ERC-20 allowed and user1 holding ERC-20 balance
+	state := ApplicationInternalState{
+		AppID: testAppId,
+		Accounts: map[string]*AccountState{
+			user1Address.Hex(): {
+				Address: user1Address,
+				Balances: map[string]*types.Uint256{
+					zeroAddressHex:       types.NewUint256(1000),
+					erc20TokenAddr.Hex(): types.NewUint256(500),
+				},
+			},
+		},
+		AllowedTokens: map[string]bool{zeroAddressHex: true, erc20TokenAddr.Hex(): true},
+	}
+	stateBytes, err := json.Marshal(state)
+	require.NoError(t, err)
+
+	// Withdraw 200 of ERC-20 token to user3
+	payload := `{"type":"withdraw","withdraw":{"to":"` + user3Address.Hex() + `","tokenAddress":"` + erc20TokenAddr.Hex() + `","amount":"0xc8"}}`
+	result := ProcessRequest(&user1Address, int32(common.Process), payload, string(stateBytes))
+	require.Empty(t, result.Error)
+
+	// Verify withdrawal carries the correct token address
+	require.Len(t, result.Withdrawals, 1)
+	require.Equal(t, erc20TokenAddr, result.Withdrawals[0].TokenAddress)
+	require.Equal(t, user3Address, result.Withdrawals[0].DestinationAddress)
+	require.Equal(t, 0, types.NewUint256(200).Cmp(*result.Withdrawals[0].Amount))
+
+	// Verify ERC-20 balance was debited, ETH balance untouched
+	var newState ApplicationInternalState
+	err = json.Unmarshal(result.State, &newState)
+	require.NoError(t, err)
+	acct := newState.Accounts[user1Address.Hex()]
+	require.Equal(t, 0, types.NewUint256(300).Cmp(*acct.Balances[erc20TokenAddr.Hex()]))
+	require.Equal(t, 0, types.NewUint256(1000).Cmp(*acct.Balances[zeroAddressHex]))
+}
