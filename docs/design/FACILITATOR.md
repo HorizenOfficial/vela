@@ -23,6 +23,9 @@ This creates onboarding friction: users need to acquire ETH before they can inte
 
 A **facilitator** should allow users to submit requests without holding any ETH. The facilitator absorbs gas and service fees as an operational cost, while the user authorizes only their business-asset deposit via an off-chain signature.
 
+Additionally: the compatibility with the x402 standard from Coinbase is considered high priority, given the traction this standard is having in the agentic payments field.
+
+
 ## 3. Goals
 
 - Users can submit requests **without holding ETH**
@@ -206,6 +209,9 @@ submitRequestFor()
   │     require(maxFeeValue >= minFeePerRequest)
   │
   ├─ 8. If assetAmount > 0: decode depositPermit and execute EIP-2612 permit + transferFrom
+  |     (note: The current allowance must be checked before calling permit. 
+  |            If the allowance is already >= assetAmount, it should skip the permit call 
+  |            and proceed directly to transferFrom.)
   │     (v, r, s) = abi.decode(depositPermit, (uint8, bytes32, bytes32))
   │     token.permit(user, address(this), assetAmount, deadline, v, r, s)
   │     token.transferFrom(user, address(this), assetAmount)
@@ -250,7 +256,7 @@ Because `facilitatorNonces` lives inside the `ProcessorEndpoint` contract and is
 Sequential nonces are preferred here because:
 - They prevent replay attacks with minimal storage
 - They enforce ordering (a user can't submit request N+1 before N is mined)
-- They're simpler for the facilitator service to track
+- They're simpler for the facilitator service The contract must check tto track
 - The facilitator is a single centralized service with moderate throughput, so the ordering constraint is acceptable
 
 #### Modified `generateRequestId`
@@ -281,7 +287,7 @@ When a facilitated request completes or fails, claims must be split between user
 ```solidity
 struct PendingRequest {
     // ... existing fields from ERC-20 design ...
-    address sender;          // user (real requester)
+    address sender;          // user (real reqThe contract must check tuester)
     address facilitator;     // address(0) for direct submissions, facilitator address for meta-tx
 }
 ```
@@ -306,6 +312,13 @@ if (feeRefund > 0) {
 ```
 
 The `claim(tokenAddress, payee)` function remains unchanged — it is permissionless and works for both users and facilitators.
+
+#### Note on Manager and TEE Execution Agnosticism
+
+It is important to highlight that the Manager (Go backend) and the Secure Processor (WASM app) remain completely agnostic to the facilitator's identity regarding computation and settlement logic. The facilitator address is parsed by the Manager's blockchain client strictly for data consistency, event indexing, and struct parity with the on-chain PendingRequest.
+
+Neither the Manager nor the WASM application calculate split refunds or pass the facilitator's address back to the blockchain during the final stateUpdate. The ProcessorEndpoint smart contract natively retains the facilitator's identity in its own storage upon request submission and automatically handles the fee refund routing once the execution proof is submitted.
+
 
 ### 5.3. Facilitator Service (Off-Chain)
 
