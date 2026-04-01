@@ -137,7 +137,8 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 		ApplicationID:   applicationId,
 		RequestType:     requestType,
 		Payload:         payload,
-		DepositAmount:   common.ToBig(depositAmount),
+		TokenAddress:    ethCommon.Address{},
+		AssetAmount:     common.ToBig(depositAmount),
 		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}
 
@@ -156,7 +157,8 @@ func (c *MockClient) SubmitDeployRequest(ctx context.Context, protocolVersion ui
 		ProtocolVersion: protocolVersion,
 		RequestType:     common.Deploy,
 		Payload:         payload,
-		DepositAmount:   common.ToBig(big.NewInt(0)),
+		TokenAddress:    ethCommon.Address{},
+		AssetAmount:     common.ToBig(big.NewInt(0)),
 		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}
 

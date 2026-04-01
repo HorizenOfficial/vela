@@ -79,8 +79,26 @@ func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationId
 	return stateBytes, r.fuel, nil
 }
 
-func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	r.log.Info("Mock Runtime: Processing deposit for application %d ( value: %s wei for sender: %s )", appId, depositAmount.String(), sender)
+// Deploy loads a WASM module and initializes it with constructor parameters
+func (r *MockRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
+	r.log.Info("Mock Runtime: Deploying mock runtime module for application %d (wasm size: %d bytes, params size: %d bytes)", appId, len(wasm), len(constructorParams))
+
+	initialState := &testApplicationInternalState{
+		AppID:    appId,
+		Accounts: make(map[ethCommon.Address]*testAccountState),
+		Nonce:    0,
+	}
+	stateBytes, err := json.Marshal(initialState)
+	if err != nil {
+		return nil, r.fuel, fmt.Errorf("failed to marshal initial state: %w", err)
+	}
+
+	r.log.Info("Mock Runtime: Successfully deployed mock runtime module for application %d", appId)
+	return stateBytes, r.fuel, nil
+}
+
+func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+	r.log.Info("Mock Runtime: Processing deposit for application %d (token: %s, value: %s wei for sender: %s)", appId, tokenAddress, depositAmount.String(), sender)
 
 	var currentState testApplicationInternalState
 	if err := json.Unmarshal(state, &currentState); err != nil {
@@ -213,7 +231,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			nonce++
 			currentState.Nonce = nonce
 
-			withdrawals = append(withdrawals, common.Withdrawal{DestinationAddress: to, Amount: amount})
+			withdrawals = append(withdrawals, common.Withdrawal{TokenAddress: ethCommon.Address{}, DestinationAddress: to, Amount: amount})
 
 			withdrawEvent := common.PlainEvent{
 				UserID:       sender,

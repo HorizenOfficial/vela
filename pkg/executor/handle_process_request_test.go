@@ -27,7 +27,7 @@ func newProcessRequest() *common.Request {
 		RequestType:     common.Process,
 		Payload:         nil, // set per test
 		MaxFeeValue:     common.NewBig(1000),
-		DepositAmount:   common.NewBig(0),
+		AssetAmount:     common.NewBig(0),
 	}
 }
 
@@ -150,9 +150,9 @@ type countingRuntime struct {
 	processCalls int
 }
 
-func (r *countingRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+func (r *countingRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
 	r.depositCalls++
-	return r.MockRuntime.Deposit(ctx, appId, sender, depositAmount, state, wasm)
+	return r.MockRuntime.Deposit(ctx, appId, sender, tokenAddress, depositAmount, state, wasm)
 }
 
 func (r *countingRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
@@ -200,7 +200,7 @@ func TestHandleProcessRequest_EmptyWasmModuleWithDeposit(t *testing.T) {
 
 	req := newProcessRequest()
 	req.Sender = ethCommon.HexToAddress("0xABABABABABABABABABABABABABABABABABABABAB")
-	req.DepositAmount = common.ToBig(big.NewInt(1000))
+	req.AssetAmount = common.ToBig(big.NewInt(1000))
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
@@ -220,7 +220,7 @@ func TestHandleProcessRequest_WasmFingerprintMismatchWithDeposit(t *testing.T) {
 
 	req := newProcessRequest()
 	req.Sender = ethCommon.HexToAddress("0xCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCD")
-	req.DepositAmount = common.ToBig(big.NewInt(1000))
+	req.AssetAmount = common.ToBig(big.NewInt(1000))
 
 	appState := buildEncryptedAppState(t, exec, nil, nil, []byte("expected-wasm"))
 
@@ -253,7 +253,7 @@ type failingDepositRuntime struct {
 	MockRuntime
 }
 
-func (r *failingDepositRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ *big.Int, _ []byte, _ []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+func (r *failingDepositRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ ethCommon.Address, _ *big.Int, _ []byte, _ []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
 	return nil, nil, big.NewInt(10), apperrors.New(apperrors.CodeDepositFailed, "deposit rejected by app")
 }
 
@@ -261,7 +261,7 @@ func TestHandleProcessRequest_DepositFails(t *testing.T) {
 	runtime := &failingDepositRuntime{MockRuntime: *NewMockRuntime(testLogger)}
 	exec := newTestExecutor(t, runtime)
 	req := newProcessRequest()
-	req.DepositAmount = common.ToBig(big.NewInt(1000))
+	req.AssetAmount = common.ToBig(big.NewInt(1000))
 
 	appState := buildEncryptedAppState(t, exec, nil, nil)
 
@@ -277,8 +277,8 @@ type expensiveDepositRuntime struct {
 	MockRuntime
 }
 
-func (r *expensiveDepositRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	newState, events, _, failure := r.MockRuntime.Deposit(ctx, appId, sender, depositAmount, state, wasm)
+func (r *expensiveDepositRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+	newState, events, _, failure := r.MockRuntime.Deposit(ctx, appId, sender, tokenAddress, depositAmount, state, wasm)
 	return newState, events, big.NewInt(999999), failure
 }
 
@@ -286,7 +286,7 @@ func TestHandleProcessRequest_InsufficientFuelAfterDeposit(t *testing.T) {
 	runtime := &expensiveDepositRuntime{MockRuntime: *NewMockRuntime(testLogger)}
 	exec := newTestExecutor(t, runtime)
 	req := newProcessRequest()
-	req.DepositAmount = common.ToBig(big.NewInt(1000))
+	req.AssetAmount = common.ToBig(big.NewInt(1000))
 	req.MaxFeeValue = common.NewBig(100) // less than 999999 * 1
 
 	sender := ethCommon.HexToAddress("0x1111111111111111111111111111111111111111")

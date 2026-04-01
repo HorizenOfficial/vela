@@ -34,6 +34,13 @@ type ProcessResult struct {
 	Error       string              `json:"error,omitempty"`
 }
 
+// DeployResult represents the result of a deploy operation
+type DeployResult struct {
+	State []byte      `json:"state"`
+	Fuel  *common.Big `json:"fuel"`
+	Error string      `json:"error,omitempty"`
+}
+
 // optional mem statistics
 type MemoryStats struct {
 	MapSize              int64 `json:"mapSize"`

@@ -51,8 +51,9 @@ var (
 func getInitialState(t *testing.T) (string, ApplicationInternalState) {
 	t.Helper()
 	initialState := ApplicationInternalState{
-		AppID:    testAppId,
-		Accounts: make(map[string]*AccountState),
+		AppID:         testAppId,
+		Accounts:      make(map[string]*AccountState),
+		AllowedTokens: map[string]bool{"0x0000000000000000000000000000000000000000": true},
 	}
 	stateBytes, err := json.Marshal(initialState)
 	require.NoError(t, err)
@@ -64,9 +65,10 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 	state := ApplicationInternalState{
 		AppID: testAppId,
 		Accounts: map[string]*AccountState{
-			user1Address.Hex(): {Address: user1Address, Balance: types.NewUint256(1000)},
-			user2Address.Hex(): {Address: user2Address, Balance: types.NewUint256(500)},
+			user1Address.Hex(): {Address: user1Address, Balances: map[string]*types.Uint256{"0x0000000000000000000000000000000000000000": types.NewUint256(1000)}},
+			user2Address.Hex(): {Address: user2Address, Balances: map[string]*types.Uint256{"0x0000000000000000000000000000000000000000": types.NewUint256(500)}},
 		},
+		AllowedTokens: map[string]bool{"0x0000000000000000000000000000000000000000": true},
 	}
 	stateBytes, err := json.Marshal(state)
 	require.NoError(t, err)
@@ -91,7 +93,7 @@ func TestDepositFunds(t *testing.T) {
 		stateJSON, _ := getInitialState(t)
 		depositAmount := types.NewUint256(100)
 
-		result := DepositFunds(&user1Address, depositAmount, stateJSON)
+		result := DepositFunds(&user1Address, &types.Address{}, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
 		require.NotNil(t, result.State)
 		require.Len(t, result.Events, 1)
@@ -101,7 +103,7 @@ func TestDepositFunds(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, newState.Accounts, 1)
-		require.Equal(t, depositAmount, newState.Accounts[user1Address.Hex()].Balance)
+		require.Equal(t, depositAmount, newState.Accounts[user1Address.Hex()].Balances["0x0000000000000000000000000000000000000000"])
 		require.Equal(t, user1Address, newState.Accounts[user1Address.Hex()].Address)
 
 		event := result.Events[0]
@@ -120,14 +122,14 @@ func TestDepositFunds(t *testing.T) {
 	t.Run("deposit to existing account", func(t *testing.T) {
 		_, state := getInitialState(t)
 		initialBalance := types.NewUint256(50)
-		state.Accounts[user1Address.Hex()] = &AccountState{Address: user1Address, Balance: initialBalance}
+		state.Accounts[user1Address.Hex()] = &AccountState{Address: user1Address, Balances: map[string]*types.Uint256{"0x0000000000000000000000000000000000000000": initialBalance}}
 
 		stateBytes, err := json.Marshal(state)
 		require.NoError(t, err)
 		stateJSON := string(stateBytes)
 
 		depositAmount := types.NewUint256(100)
-		result := DepositFunds(&user1Address, depositAmount, stateJSON)
+		result := DepositFunds(&user1Address, &types.Address{}, depositAmount, stateJSON)
 		require.Empty(t, result.Error)
 
 		var newState ApplicationInternalState
@@ -135,11 +137,11 @@ func TestDepositFunds(t *testing.T) {
 		require.NoError(t, err)
 
 		sum := types.NewUint256(0).Add(*initialBalance, *depositAmount)
-		require.Equal(t, sum, newState.Accounts[user1Address.Hex()].Balance)
+		require.Equal(t, sum, newState.Accounts[user1Address.Hex()].Balances["0x0000000000000000000000000000000000000000"])
 	})
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		result := DepositFunds(&user1Address, types.NewUint256(100), "{invalid json}")
+		result := DepositFunds(&user1Address, &types.Address{}, types.NewUint256(100), "{invalid json}")
 		require.NotEmpty(t, result.Error)
 		require.Contains(t, result.Error, "Failed to parse application state")
 	})
@@ -168,7 +170,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, types.NewUint256(800), newState.Accounts[user1Address.Hex()].Balance)
+		require.Equal(t, types.NewUint256(800), newState.Accounts[user1Address.Hex()].Balances["0x0000000000000000000000000000000000000000"])
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -238,7 +240,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, types.NewUint256(1000), newState.Accounts[user1Address.Hex()].Balance) // balance should not change
+		require.Equal(t, types.NewUint256(1000), newState.Accounts[user1Address.Hex()].Balances["0x0000000000000000000000000000000000000000"]) // balance should not change
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -265,7 +267,7 @@ func TestProcessRequest(t *testing.T) {
 		var newState ApplicationInternalState
 		err = json.Unmarshal(result.State, &newState)
 		require.NoError(t, err)
-		require.Equal(t, types.NewUint256(0), newState.Accounts[user2Address.Hex()].Balance)
+		require.Equal(t, types.NewUint256(0), newState.Accounts[user2Address.Hex()].Balances["0x0000000000000000000000000000000000000000"])
 
 		withdrawal := result.Withdrawals[0]
 		require.Equal(t, user3Address, withdrawal.DestinationAddress)
@@ -318,9 +320,10 @@ func TestProcessRequest(t *testing.T) {
 		state := ApplicationInternalState{
 			AppID: testAppId,
 			Accounts: map[string]*AccountState{
-				user1Address.Hex(): {Address: user1Address, Balance: types.NewUint256(1000)},
-				user2Address.Hex(): {Address: user2Address, Balance: types.NewUint256(1000)},
+				user1Address.Hex(): {Address: user1Address, Balances: map[string]*types.Uint256{"0x0000000000000000000000000000000000000000": types.NewUint256(1000)}},
+				user2Address.Hex(): {Address: user2Address, Balances: map[string]*types.Uint256{"0x0000000000000000000000000000000000000000": types.NewUint256(1000)}},
 			},
+			AllowedTokens: map[string]bool{"0x0000000000000000000000000000000000000000": true},
 		}
 		stateBytes, err := json.Marshal(state)
 		require.NoError(t, err)
@@ -438,7 +441,9 @@ func TestDeanonymizationViaProcessRequest(t *testing.T) {
 			found := false
 			for _, reportAcc := range report.Accounts {
 				if reportAcc.Address == expectedAcc.Address {
-					found = reportAcc.Balance.Cmp(*expectedAcc.Balance) == 0
+					expectedBal := expectedAcc.Balances["0x0000000000000000000000000000000000000000"]
+					reportBal := reportAcc.Balances["0x0000000000000000000000000000000000000000"]
+					found = reportBal != nil && expectedBal != nil && reportBal.Cmp(*expectedBal) == 0
 					break
 				}
 			}

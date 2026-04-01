@@ -50,7 +50,7 @@ func newDeployRequest(t *testing.T) (*common.Request, []byte) {
 		RequestType:     common.Deploy,
 		Payload:         payload,
 		MaxFeeValue:     common.NewBig(1000),
-		DepositAmount:   common.NewBig(0),
+		AssetAmount:     common.NewBig(0),
 	}, wasmModule
 }
 
@@ -169,7 +169,11 @@ func (r *failingRuntime) LoadModule(_ context.Context, _ common.ApplicationIdTyp
 	return nil, big.NewInt(0), fmt.Errorf("wasm compilation failed")
 }
 
-func (r *failingRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ *big.Int, _ []byte, _ []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+func (r *failingRuntime) Deploy(_ context.Context, _ common.ApplicationIdType, _ []byte, _ []byte) ([]byte, *big.Int, error) {
+	return nil, big.NewInt(0), fmt.Errorf("wasm compilation failed")
+}
+
+func (r *failingRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ ethCommon.Address, _ *big.Int, _ []byte, _ []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
 	return nil, nil, big.NewInt(0), nil
 }
 
@@ -199,6 +203,11 @@ type expensiveRuntime struct {
 
 func (r *expensiveRuntime) LoadModule(ctx context.Context, appID common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
 	state, _, err := r.MockRuntime.LoadModule(ctx, appID, wasm)
+	return state, big.NewInt(999999), err
+}
+
+func (r *expensiveRuntime) Deploy(ctx context.Context, appID common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
+	state, _, err := r.MockRuntime.Deploy(ctx, appID, constructorParams, wasm)
 	return state, big.NewInt(999999), err
 }
 

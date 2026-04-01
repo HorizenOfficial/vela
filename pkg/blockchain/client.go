@@ -256,7 +256,8 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			Payload:         request.Payload,
 			Timestamp:       common.ToBig(request.Timestamp),
 			Sender:          request.Sender,
-			DepositAmount:   common.ToBig(request.DepositAmount),
+			TokenAddress:    ethCommon.Address{},
+			AssetAmount:     common.ToBig(request.DepositAmount),
 			MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 		}
 
@@ -297,7 +298,8 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		Payload:         request.Payload,
 		Timestamp:       common.ToBig(request.Timestamp),
 		Sender:          request.Sender,
-		DepositAmount:   common.ToBig(request.DepositAmount),
+		TokenAddress:    ethCommon.Address{},
+		AssetAmount:     common.ToBig(request.DepositAmount),
 		MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 	}
 

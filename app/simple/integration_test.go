@@ -92,7 +92,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User1 Deposits funds
 	deposit1Amount := big.NewInt(1000)
-	depositState1Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), deposit1Amount, initialStateBytes, wasmBytes)
+	depositState1Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, deposit1Amount, initialStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
@@ -102,11 +102,11 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(depositState1Bytes, &depositState)
 	require.NoError(t, err)
 	require.Len(t, depositState.Accounts, 1)
-	require.Equal(t, deposit1Amount.String(), depositState.Accounts[user1Address.Hex()].Balance.String())
+	require.Equal(t, deposit1Amount.String(), depositState.Accounts[user1Address.Hex()].Balances["0x0000000000000000000000000000000000000000"].String())
 
 	// 2. User2 Deposits funds (more than previous user)
 	deposit2Amount := big.NewInt(2000)
-	depositState2Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), deposit2Amount, depositState1Bytes, wasmBytes)
+	depositState2Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, deposit2Amount, depositState1Bytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState2Bytes)
 	require.Len(t, depositEvents, 1)
@@ -115,7 +115,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(depositState2Bytes, &depositState)
 	require.NoError(t, err)
 	require.Len(t, depositState.Accounts, 2)
-	require.Equal(t, deposit2Amount.String(), depositState.Accounts[user2Address.Hex()].Balance.String())
+	require.Equal(t, deposit2Amount.String(), depositState.Accounts[user2Address.Hex()].Balances["0x0000000000000000000000000000000000000000"].String())
 
 	// 3. Process a withdraw request for user1
 	withdrawAmount := big.NewInt(200)
@@ -142,7 +142,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	diffBalance := new(big.Int).Sub(deposit1Amount, withdrawAmount)
-	require.Equal(t, diffBalance.String(), withdrawState.Accounts[user1Address.Hex()].Balance.String())
+	require.Equal(t, diffBalance.String(), withdrawState.Accounts[user1Address.Hex()].Balances["0x0000000000000000000000000000000000000000"].String())
 
 	require.Equal(t, ethCommon.Address(recipient1Address), withdrawals[0].DestinationAddress)
 	require.Equal(t, withdrawAmount, withdrawals[0].Amount.ToInt())
@@ -245,10 +245,10 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 	// 2. Create a populated state for testing
 	// User1 deposits 1000
-	populatedStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), initialStateBytes, wasmBytes)
+	populatedStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), initialStateBytes, wasmBytes)
 	require.Nil(t, err)
 	// User2 deposits 500
-	populatedStateBytes, _, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), big.NewInt(500), populatedStateBytes, wasmBytes)
+	populatedStateBytes, _, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, big.NewInt(500), populatedStateBytes, wasmBytes)
 	require.Nil(t, err)
 
 	// --- Test Cases ---
@@ -356,7 +356,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	t.Run("deposit with nil state", func(t *testing.T) {
 		// This should fail inside the wasm module because a nil state is not valid JSON.
 		// This test verifies that the runtime correctly handles passing a nil slice to wasm.
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), nil, wasmBytes)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), nil, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -397,7 +397,7 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 
 	// For other functions, the error will come from getOrLoadModule -> LoadModule
 	t.Run("deposit with nil wasm", func(t *testing.T) {
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), initialStateBytes, nil)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
@@ -422,7 +422,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	invalidState := []byte("{invalid-state}")
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), invalidState, wasmBytes)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -471,7 +471,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				require.NoError(t, err)
 
 				runtimeMutex.Lock()
-				newStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), depositAmount, stateBytes, wasmBytes)
+				newStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), ethCommon.Address{}, depositAmount, stateBytes, wasmBytes)
 				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
 				stateBytes = newStateBytes
 				runtimeMutex.Unlock()
@@ -555,7 +555,7 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after LoadModule")
 
 	// Deposit: exercises SerializeAndWriteResult for DepositResult (with events)
-	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(5000), stateBytes, wasmBytes)
+	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(5000), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after Deposit")
 
@@ -575,7 +575,7 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (withdraw)")
 
 	// Deposit a second user so we can compare
-	stateBytes, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), big.NewInt(3000), stateBytes, wasmBytes)
+	stateBytes, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, big.NewInt(3000), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after second Deposit")
 
@@ -620,7 +620,7 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 	require.NoError(t, err)
 
 	// Deposit so user1 has a balance
-	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(100), stateBytes, wasmBytes)
+	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(100), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after initial deposit")
 
@@ -646,7 +646,7 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for non-existent account")
 
 	// Trigger error: invalid state
-	_, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(100), []byte("{bad-json}"), wasmBytes)
+	_, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(100), []byte("{bad-json}"), wasmBytes)
 	require.NotNil(t, failure, "expected error for invalid state")
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for invalid state")
 }
@@ -670,7 +670,7 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 		addr, err := types.HexToAddress(fmt.Sprintf("0xadd%037d", i))
 		require.NoError(t, err)
 
-		newState, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(addr), big.NewInt(int64(1000+i)), stateBytes, wasmBytes)
+		newState, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(addr), ethCommon.Address{}, big.NewInt(int64(1000+i)), stateBytes, wasmBytes)
 		require.Nil(t, failure, "deposit failed for account %d", i)
 		stateBytes = newState
 	}

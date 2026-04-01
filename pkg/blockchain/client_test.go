@@ -112,7 +112,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, 1, request.Timestamp.ToInt().Sign(), "Timestamp should be set and positive")
 
 	require.Equal(t, testHelper.Deployer.From, request.Sender, "Sender should match")
-	require.Equal(t, 0, request.DepositAmount.ToInt().Sign(), "Deposit amount should be zero for deploy requests")
+	require.Equal(t, 0, request.AssetAmount.ToInt().Sign(), "Deposit amount should be zero for deploy requests")
 
 	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
 
 	require.Equal(t, testHelper.Deployer.From, pendingRequest.Sender, "Sender should match")
-	require.Equal(t, 0, pendingRequest.DepositAmount.ToInt().Sign(), "Deposit amount should be zero for deploy requests")
+	require.Equal(t, 0, pendingRequest.AssetAmount.ToInt().Sign(), "Deposit amount should be zero for deploy requests")
 
 	currentStateRoot := testHelper.GetStateRoot(request.ApplicationID)
 
@@ -346,10 +346,10 @@ func TestSubmitRequest(t *testing.T) {
 		if r.RequestID == requestId {
 			found = true
 
-			if r.ProtocolVersion != protocolVersion || r.ApplicationID != deployedAppId || r.RequestType != requestType || string(r.Payload) != string(payload) || r.DepositAmount.ToInt().Cmp(depositAmount) != 0 {
+			if r.ProtocolVersion != protocolVersion || r.ApplicationID != deployedAppId || r.RequestType != requestType || string(r.Payload) != string(payload) || r.AssetAmount.ToInt().Cmp(depositAmount) != 0 {
 				t.Errorf(
 					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
-					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.DepositAmount,
+					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.AssetAmount,
 					protocolVersion, deployedAppId, requestType, string(payload), depositAmount,
 				)
 			}

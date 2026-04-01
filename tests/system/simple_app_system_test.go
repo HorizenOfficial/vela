@@ -96,7 +96,8 @@ func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper
 		Payload:       deployPayload,
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
@@ -314,11 +315,14 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	require.Len(t, accounts, 1, "expected exactly one account in report")
 
 	expectedBalance := new(big.Int).Sub(depositAmount, withdrawAmount)
+	ethZeroAddr := "0x0000000000000000000000000000000000000000"
 	for _, acct := range accounts {
 		acctMap, ok := acct.(map[string]interface{})
 		require.True(t, ok, "account entry is not a map")
-		balanceStr, ok := acctMap["balance"].(string)
-		require.True(t, ok, "balance is not a string")
+		balancesMap, ok := acctMap["balances"].(map[string]interface{})
+		require.True(t, ok, "balances is not a map")
+		balanceStr, ok := balancesMap[ethZeroAddr].(string)
+		require.True(t, ok, "ETH balance is not a string")
 		require.True(t, len(balanceStr) > 2 && balanceStr[:2] == "0x", "balance is not hex")
 		balance, ok := new(big.Int).SetString(balanceStr[2:], 16)
 		require.True(t, ok, "failed to parse balance hex")
@@ -395,7 +399,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, wasmBytecode),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))

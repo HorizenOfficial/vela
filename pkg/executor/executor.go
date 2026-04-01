@@ -587,8 +587,8 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
 	var totalFuel *big.Int = big.NewInt(0)
-	if req.DepositAmount.ToInt().Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount.ToInt(), tempState, wasmModule)
+	if req.AssetAmount.ToInt().Sign() > 0 {
+		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req, appState.StateRoot, failure)
 			return errorPayload, nil, nil, err
@@ -880,8 +880,8 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 		return nil, nil, fmt.Errorf("wasm fingerprint mismatch")
 	}
 
-	// Load the module and get initial state
-	initialAppState, fuel, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
+	// Deploy the module with constructor params and get initial state
+	initialAppState, fuel, err := e.runtime.Deploy(ctx, req.ApplicationID, descriptor.ConstructorParams, wasmModule)
 	if err != nil {
 
 		errorPayload, err := e.processErrorResponse(req,

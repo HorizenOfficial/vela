@@ -11,10 +11,56 @@ import (
 
 // --- High-Level Application Logic ---
 
+// zeroAddressHex is the hex representation of the zero address (ETH)
+var zeroAddressHex = (types.Address{}).Hex()
+
+// Deploy initializes the application state from constructor parameters.
+// The AllowedTokens list specifies which tokens the app accepts; ETH (0x0) is always allowed.
+func Deploy(appId int64, paramsJSON string) types.DeployResult {
+	allowedTokens := make(map[string]bool)
+	// ETH is always allowed
+	allowedTokens[zeroAddressHex] = true
+
+	if paramsJSON != "" {
+		var params DeployParams
+		if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+			utils.LogError("Deploy: failed to parse deploy params: %v", err)
+			return types.DeployResult{
+				Error: fmt.Sprintf("failed to parse deploy params: %v", err),
+			}
+		}
+		for _, tokenHex := range params.AllowedTokens {
+			allowedTokens[tokenHex] = true
+		}
+	}
+
+	initialState := &ApplicationInternalState{
+		AppID:         uint64(appId),
+		Accounts:      make(map[string]*AccountState),
+		AllowedTokens: allowedTokens,
+	}
+	stateJSON, err := json.Marshal(initialState)
+	if err != nil {
+		utils.LogError("Deploy: failed to marshal initial state: %v", err)
+		return types.DeployResult{
+			Error: fmt.Sprintf("failed to marshal initial state: %v", err),
+		}
+	}
+	fuel := types.NewUint256(5)
+	utils.LogDebug("Deploy: appId=%d, allowedTokens=%d, stateSize=%d, fuel=%v", appId, len(allowedTokens), len(stateJSON), fuel)
+	return types.DeployResult{
+		State: stateJSON,
+		Fuel:  fuel,
+	}
+}
+
+// LoadModule is retained for cache warm-up by getOrLoadModule (see wasmtime_runtime.go).
+// New deployments should use Deploy instead.
 func LoadModule(appId int64) types.LoadModuleResult {
 	initialState := &ApplicationInternalState{
-		AppID:    uint64(appId),
-		Accounts: make(map[string]*AccountState),
+		AppID:         uint64(appId),
+		Accounts:      make(map[string]*AccountState),
+		AllowedTokens: map[string]bool{zeroAddressHex: true},
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
@@ -31,13 +77,25 @@ func LoadModule(appId int64) types.LoadModuleResult {
 	}
 }
 
-func DepositFunds(senderPtr *types.Address, value *types.Uint256, stateJSON string) types.DepositResult {
+// getTokenBalance returns the balance for a specific token, or a zero value if not found.
+func getTokenBalance(acc *AccountState, tokenHex string) *types.Uint256 {
+	if bal, ok := acc.Balances[tokenHex]; ok {
+		return bal
+	}
+	return types.NewUint256(0)
+}
+
+func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *types.Uint256, stateJSON string) types.DepositResult {
 	if senderPtr == nil {
 		utils.LogError("DepositFunds: sender address is nil")
 		return types.DepositResult{Error: "Sender address is nil"}
 	}
 
-	//This should never happens but just in case
+	if tokenPtr == nil {
+		utils.LogError("DepositFunds: token address is nil")
+		return types.DepositResult{Error: "Token address is nil"}
+	}
+
 	if value == nil {
 		utils.LogError("DepositFunds: value is nil")
 		return types.DepositResult{Error: "value is nil"}
@@ -45,37 +103,50 @@ func DepositFunds(senderPtr *types.Address, value *types.Uint256, stateJSON stri
 
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		// we could add the stateJSON to the error, but it is not safe if it is very large
 		utils.LogError("DepositFunds: failed to parse application state: %v", err)
 		return types.DepositResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
 	}
 
+	tokenHex := tokenPtr.Hex()
+
+	// Validate token against app allowlist
+	if !currentState.AllowedTokens[tokenHex] {
+		return types.DepositResult{Error: fmt.Sprintf("Token %s is not allowed by this application", tokenHex)}
+	}
+
 	senderHex := senderPtr.Hex()
 
-	// safe Map Access & Initialization
+	// Safe map access & initialization
 	acc, exists := currentState.Accounts[senderHex]
 	if !exists {
 		acc = &AccountState{
-			Address: *senderPtr,
-			Balance: types.NewUint256(0),
+			Address:  *senderPtr,
+			Balances: make(map[string]*types.Uint256),
 		}
 		currentState.Accounts[senderHex] = acc
 	}
+	if acc.Balances == nil {
+		acc.Balances = make(map[string]*types.Uint256)
+	}
+
+	// Get or initialize per-token balance
+	balance, exists := acc.Balances[tokenHex]
+	if !exists {
+		balance = types.NewUint256(0)
+		acc.Balances[tokenHex] = balance
+	}
 
 	// Update balance in-place
-	if acc.Balance.AddOverflow(*acc.Balance, *value) {
-		return types.DepositResult{Error: fmt.Sprintf("Overflow while adding amount %s to balance: %s", value, acc.Balance)}
+	if balance.AddOverflow(*balance, *value) {
+		return types.DepositResult{Error: fmt.Sprintf("Overflow while adding amount %s to balance: %s", value, balance)}
 	}
 
 	// Create deposit event
-	type Event struct {
-		Type   string         `json:"type"`
-		Amount *types.Uint256 `json:"amount"`
-	}
-
-	eventData := Event{
-		Type:   "deposit",
-		Amount: value,
+	eventData := DepositEvent{
+		Type:         "deposit",
+		TokenAddress: *tokenPtr,
+		Amount:       value,
+		Balance:      balance,
 	}
 
 	eventDataBytes, err := json.Marshal(eventData)
@@ -97,8 +168,8 @@ func DepositFunds(senderPtr *types.Address, value *types.Uint256, stateJSON stri
 		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
 	fuel := types.NewUint256(35)
-	utils.LogDebug("DepositFunds: sender=%s, value=%v, newBalance=%v, eventsCount=%d, stateSize=%d, fuel=%v",
-		senderHex, value, acc.Balance, len(events), len(newStateBytes), fuel)
+	utils.LogDebug("DepositFunds: sender=%s, token=%s, value=%v, newBalance=%v, eventsCount=%d, stateSize=%d, fuel=%v",
+		senderHex, tokenHex, value, balance, len(events), len(newStateBytes), fuel)
 	return types.DepositResult{State: newStateBytes, Events: events, Fuel: fuel}
 }
 
@@ -150,6 +221,12 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 			targetAddress := instructions.CompareAccounts.TargetAddress
 			targetAddressHex := targetAddress.Hex()
 
+			// Determine which token to compare (defaults to ETH)
+			tokenHex := zeroAddressHex
+			if instructions.CompareAccounts.TokenAddress != (types.Address{}) {
+				tokenHex = instructions.CompareAccounts.TokenAddress.Hex()
+			}
+
 			// Validate accounts to be compared
 			if currentState.Accounts[senderHex] == nil {
 				utils.LogError("ProcessRequest: account %s does not exist", senderHex)
@@ -160,8 +237,8 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 				return types.ProcessResult{Error: fmt.Sprintf("Account %s does not exist!", targetAddressHex)}
 			}
 
-			targetBalance := currentState.Accounts[targetAddressHex].Balance
-			senderBalance := currentState.Accounts[senderHex].Balance
+			targetBalance := getTokenBalance(currentState.Accounts[targetAddressHex], tokenHex)
+			senderBalance := getTokenBalance(currentState.Accounts[senderHex], tokenHex)
 
 			var cmp = ""
 			switch targetBalance.Cmp(*senderBalance) {
@@ -202,23 +279,33 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 				return types.ProcessResult{Error: "Withdraw amount is nil"}
 			}
 
+			tokenHex := instructions.Withdraw.TokenAddress.Hex()
+
+			// Validate token against app allowlist
+			if !currentState.AllowedTokens[tokenHex] {
+				return types.ProcessResult{Error: fmt.Sprintf("Token %s is not allowed for withdrawal", tokenHex)}
+			}
+
 			// Validate sender account exists and has sufficient balance
 			if currentState.Accounts[senderHex] == nil {
 				utils.LogError("ProcessRequest: account %s does not exist", senderHex)
 				return types.ProcessResult{Error: fmt.Sprintf("Account %s does not exist", senderHex)}
 			}
 
-			if currentState.Accounts[senderHex].Balance.Cmp(*instructions.Withdraw.Amount) < 0 {
+			senderBalance := getTokenBalance(currentState.Accounts[senderHex], tokenHex)
+
+			if senderBalance.Cmp(*instructions.Withdraw.Amount) < 0 {
 				utils.LogError("ProcessRequest: insufficient balance for account %s", senderHex)
 				return types.ProcessResult{Error: fmt.Sprintf("Insufficient balance %s for withdrawal %s for account %s",
-					currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount, senderHex)}
+					senderBalance, *instructions.Withdraw.Amount, senderHex)}
 			}
 
-			// Execute withdrawal
-			currentState.Accounts[senderHex].Balance.Sub(*currentState.Accounts[senderHex].Balance, *instructions.Withdraw.Amount)
+			// Execute withdrawal — debit per-token balance
+			senderBalance.Sub(*senderBalance, *instructions.Withdraw.Amount)
 
-			// Create withdrawal
+			// Create token-aware withdrawal
 			withdrawals = append(withdrawals, types.Withdrawal{
+				TokenAddress:       instructions.Withdraw.TokenAddress,
 				DestinationAddress: instructions.Withdraw.To,
 				Amount:             instructions.Withdraw.Amount,
 			})
@@ -228,7 +315,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 				Type:    "withdrawal",
 				To:      instructions.Withdraw.To,
 				Amount:  instructions.Withdraw.Amount,
-				Balance: currentState.Accounts[senderHex].Balance,
+				Balance: senderBalance,
 			}
 			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
 			if err != nil {

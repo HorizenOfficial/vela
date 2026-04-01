@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// ConstructorParams is an alias for raw JSON constructor parameters passed to the guest deploy function.
+type ConstructorParams = json.RawMessage
+
 const (
 	DeployModeArtifactRef = "artifact_ref"
 	artifactIDPrefix      = "sha256:"
@@ -17,9 +20,10 @@ const (
 
 // DeployDescriptor defines the v1 deploy payload contract stored in Request.Payload.
 type DeployDescriptor struct {
-	Mode       string `json:"mode"`
-	ArtifactID string `json:"artifactId"`
-	WasmSHA256 string `json:"wasmSha256"`
+	Mode              string            `json:"mode"`
+	ArtifactID        string            `json:"artifactId"`
+	WasmSHA256        string            `json:"wasmSha256"`
+	ConstructorParams ConstructorParams `json:"constructorParams,omitempty"`
 }
 
 // DecodeDeployDescriptorStrict decodes deploy descriptor JSON with unknown-field rejection and full validation.

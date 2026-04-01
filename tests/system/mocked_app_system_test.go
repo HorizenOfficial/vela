@@ -41,7 +41,8 @@ func TestDeployApp(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("deploy-payload")),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	err = suite.SubmitRequest(deployReq)
@@ -94,7 +95,8 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("mock-runtime-app-bytecode")),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))

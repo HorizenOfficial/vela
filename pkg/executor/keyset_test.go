@@ -66,6 +66,10 @@ func TestRestoreEnclaveKeySet_UnsupportedType(t *testing.T) {
 	require.Contains(t, err.Error(), "unsupported recovery type: 99", "Error message should indicate unsupported type")
 }
 
+// TODO(ERC-20): This test fails because the Go-side withdrawal tuple now encodes 3 fields
+// (tokenAddress, receiver, amount) while the Solidity contract still expects 2 fields
+// (receiver, amount). It will pass again once Track A (contracts team) updates Structs.sol
+// and we regenerate Go bindings at integration time.
 func TestCheckSignature(t *testing.T) {
 	applicationId := common.NewApplicationId(1)
 	execConfig, err := LoadConfig()
