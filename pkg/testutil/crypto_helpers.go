@@ -127,23 +127,33 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 		Payload:       payload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		AssetAmount:  common.NewBig(0),
-		TokenAddress: ethCommon.Address{},
-		MaxFeeValue:  common.NewBig(100),
+		AssetAmount:   common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
-// CreateDepositRequest creates an encrypted deposit request
+// CreateDepositRequest creates an encrypted ETH deposit request.
+// Convenience wrapper around CreateTokenDepositRequest with tokenAddress = 0x0.
 func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, depositAmount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	return c.CreateTokenDepositRequest(appID, requestID, sender, ethCommon.Address{}, depositAmount, receiverPubKey)
+}
+
+// CreateWithdrawalRequest creates an encrypted ETH withdrawal request.
+// Convenience wrapper around CreateTokenWithdrawalRequest with tokenAddress = 0x0.
+func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	return c.CreateTokenWithdrawalRequest(appID, requestID, sender, destinationAddress, ethCommon.Address{}, amount, receiverPubKey)
+}
+
+// CreateTokenDepositRequest creates an encrypted deposit request for a specific token.
+// tokenAddress = 0x0 for ETH, non-zero for ERC-20.
+func (c *CryptoHelper) CreateTokenDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
 	}
 
-	// For deposit, payload can be empty since deposit is handled through the Value field
 	payload := []byte{}
-
-	// Encrypt payload (even empty payload needs to be encrypted)
 	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt deposit payload: %w", err)
@@ -156,25 +166,25 @@ func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requ
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		AssetAmount:  common.ToBig(depositAmount),
-		TokenAddress: ethCommon.Address{},
-		MaxFeeValue:  common.NewBig(100),
+		AssetAmount:   common.ToBig(depositAmount),
+		TokenAddress:  tokenAddress,
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
-// CreateWithdrawalRequest creates an encrypted withdrawal request
-func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+// CreateTokenWithdrawalRequest creates an encrypted withdrawal request for a specific token.
+func (c *CryptoHelper) CreateTokenWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, tokenAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create withdrawal instruction
 	withdrawInstruction := map[string]interface{}{
 		"type": "withdraw",
 		"withdraw": map[string]interface{}{
-			"to":     destinationAddress,
-			"amount": amount,
+			"to":           destinationAddress,
+			"tokenAddress": tokenAddress,
+			"amount":       amount,
 		},
 	}
 
@@ -183,7 +193,6 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, r
 		return nil, fmt.Errorf("failed to marshal withdrawal instruction: %w", err)
 	}
 
-	// Encrypt payload
 	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt withdrawal payload: %w", err)
@@ -196,9 +205,9 @@ func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, r
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		AssetAmount:  common.NewBig(0), // No deposit for withdrawal
-		TokenAddress: ethCommon.Address{},
-		MaxFeeValue:  common.NewBig(100),
+		AssetAmount:   common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
@@ -223,9 +232,9 @@ func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdTy
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		AssetAmount:  common.NewBig(0),
-		TokenAddress: ethCommon.Address{},
-		MaxFeeValue:  common.NewBig(100),
+		AssetAmount:   common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
@@ -279,9 +288,9 @@ func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requ
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		AssetAmount:  common.NewBig(0),
-		TokenAddress: ethCommon.Address{},
-		MaxFeeValue:  common.NewBig(100),
+		AssetAmount:   common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 

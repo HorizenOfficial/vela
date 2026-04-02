@@ -6,6 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"math/big"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/HorizenOfficial/vela/pkg/authorityservice/deployartifact"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/HorizenOfficial/vela/pkg/executor"
@@ -840,4 +844,228 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "has failed")
 	})
+}
+
+// --- ERC-20 system tests ---
+
+// erc20TokenAddress is a synthetic ERC-20 token address used in system tests.
+// It does not need to be a real contract since the token logic is handled entirely
+// inside the WASM guest (app-level allowlist), not on-chain in these tests.
+var erc20TokenAddress = ethCommon.HexToAddress("0xdead000000000000000000000000000000000001")
+
+// uploadArtifactAndBuildDescriptorPayloadWithParams builds a deploy descriptor
+// with constructor params (for token allowlist configuration).
+func uploadArtifactAndBuildDescriptorPayloadWithParams(t *testing.T, suite *testutil.SystemTestSuite, wasmBytecode []byte, constructorParams json.RawMessage) []byte {
+	t.Helper()
+
+	store, err := deployartifact.NewStore(suite.GetArtifactsPath())
+	require.NoError(t, err)
+	uploadAPI := deployartifact.NewAPI(store, 50, logger.NewLogger(&logger.Config{Kind: "zerolog", Console: false}))
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	fileWriter, err := writer.CreateFormFile("wasm", "app.wasm")
+	require.NoError(t, err)
+	_, err = fileWriter.Write(wasmBytecode)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/deploy/upload", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rr := httptest.NewRecorder()
+	uploadAPI.HandleUpload(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	var uploadResp deployartifact.UploadResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &uploadResp))
+
+	descriptor := common.DeployDescriptor{
+		Mode:              common.DeployModeArtifactRef,
+		ArtifactID:        uploadResp.ArtifactID,
+		WasmSHA256:        uploadResp.WasmSHA256,
+		ConstructorParams: constructorParams,
+	}
+	payload, err := json.Marshal(descriptor)
+	require.NoError(t, err)
+	return payload
+}
+
+// deploySimpleAppWithTokens deploys the simple app with an ERC-20 token allowlist.
+func deploySimpleAppWithTokens(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, wasmBytecode []byte, allowedTokens []string) {
+	t.Helper()
+	timeout := 20 * time.Second
+
+	params, err := json.Marshal(map[string]interface{}{
+		"allowedTokens": allowedTokens,
+	})
+	require.NoError(t, err)
+
+	deployPayload := uploadArtifactAndBuildDescriptorPayloadWithParams(t, suite, wasmBytecode, params)
+
+	deployReq := &common.Request{
+		RequestType:   common.Deploy,
+		ApplicationID: appID,
+		RequestID:     deployReqID,
+		Payload:       deployPayload,
+		Sender:        deployRequestSender,
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
+	}
+	require.NoError(t, suite.SubmitRequest(deployReq))
+
+	_, err = suite.WaitForAppStateInDB(appID, timeout)
+	require.NoError(t, err)
+	_, err = suite.WaitForAppStateInBlockchain(appID, timeout)
+	require.NoError(t, err)
+	require.NoError(t, suite.AssertRequestCompleted(deployReqID, timeout))
+
+	executorSigningKey, err := suite.GetExecutorSigningKey()
+	require.NoError(t, err)
+	payload, err := suite.GetRequestUpdatePayload(deployReqID)
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+}
+
+// TestSimpleAppERC20DepositAndWithdraw exercises the full ERC-20 lifecycle through the
+// system stack: deploy with token allowlist -> deposit ERC-20 -> withdraw ERC-20 -> verify
+// final balance via deanonymization report.
+func TestSimpleAppERC20DepositAndWithdraw(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	log := getTestLogger(t, true)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
+	defer suite.Cleanup()
+
+	wasmBytecode := buildAndLoadWasmModule(t)
+
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	appID := common.NewApplicationId(1)
+	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	timeout := 100 * time.Second
+
+	cryptoHelper := testutil.NewCryptoHelper()
+
+	// Generate user identity
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+
+	// Step 1: Deploy with ERC-20 token in the allowlist
+	deploySimpleAppWithTokens(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode, []string{erc20TokenAddress.Hex()})
+
+	// Get executor's communication key for encryption
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
+	// Register user key
+	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
+	require.NoError(t, err)
+	reqID := commontestutil.GenerateRandomRequestID()
+	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey(), executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(associateKeyReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Step 2: Deposit 1000 units of ERC-20 token
+	erc20DepositAmount := big.NewInt(1000)
+	reqID = commontestutil.GenerateRandomRequestID()
+	depositReq, err := cryptoHelper.CreateTokenDepositRequest(appID, reqID, userAddress, erc20TokenAddress, erc20DepositAmount, executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(depositReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Verify deposit event carries token address
+	userSeed, err := cryptoHelper.ComputeSeed(userAddress)
+	require.NoError(t, err)
+	depositEvent, err := suite.WaitForEventBySubtypes(userAddress, executor.AllSubtypes(userSeed, executor.DefaultSubtypeN), timeout)
+	require.NoError(t, err)
+	decryptedDepositData, err := cryptoHelper.DecryptEvent(userAddress, depositEvent, executorPubKey)
+	require.NoError(t, err)
+
+	var depositEventData struct {
+		Type         string      `json:"type"`
+		TokenAddress string      `json:"tokenAddress"`
+		Amount       *common.Big `json:"amount"`
+	}
+	err = json.Unmarshal(decryptedDepositData, &depositEventData)
+	require.NoError(t, err)
+	require.Equal(t, "deposit", depositEventData.Type)
+	require.Equal(t, strings.ToLower(erc20TokenAddress.Hex()), strings.ToLower(depositEventData.TokenAddress))
+	require.Equal(t, 0, erc20DepositAmount.Cmp(depositEventData.Amount.ToInt()))
+
+	// Step 3: Withdraw 300 units of ERC-20 token
+	erc20WithdrawAmount := big.NewInt(300)
+	reqID = commontestutil.GenerateRandomRequestID()
+	withdrawReq, err := cryptoHelper.CreateTokenWithdrawalRequest(appID, reqID, userAddress, recipientAddress, erc20TokenAddress, common.ToBig(erc20WithdrawAmount), executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(withdrawReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Verify on-chain withdrawal carries the correct token address
+	withdrawal, err := suite.WaitForWithdrawal(appID, timeout)
+	require.NoError(t, err)
+	require.NotNil(t, withdrawal)
+	require.Equal(t, erc20TokenAddress, withdrawal.TokenAddress)
+	require.Equal(t, recipientAddress, withdrawal.DestinationAddress)
+	require.Equal(t, 0, erc20WithdrawAmount.Cmp(withdrawal.Amount.ToInt()))
+
+	// Step 4: Verify final ERC-20 balance via deanonymization report (1000 - 300 = 700)
+	auditorAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+	auditorKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
+	require.NoError(t, err)
+	reqID = commontestutil.GenerateRandomRequestID()
+	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey(), executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(associateAuditorReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	reqID = commontestutil.GenerateRandomRequestID()
+	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(appID, reqID, auditorAddress, []byte("{}"), executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(deanonReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	deanonReport, err := suite.WaitForDeanonymizationReport(reqID, timeout)
+	require.NoError(t, err)
+	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditorAddress, deanonReport, executorPubKey)
+	require.NoError(t, err)
+
+	var report struct {
+		ReportDataBytes interface{} `json:"reportDataBytes"`
+	}
+	err = json.Unmarshal(decryptedReport, &report)
+	require.NoError(t, err)
+	jsonStr, ok := report.ReportDataBytes.(string)
+	require.True(t, ok)
+	reportBytes, err := base64.StdEncoding.DecodeString(jsonStr)
+	require.NoError(t, err)
+
+	var reportData map[string]interface{}
+	err = json.Unmarshal(reportBytes, &reportData)
+	require.NoError(t, err)
+	accounts, ok := reportData["accounts"].(map[string]interface{})
+	require.True(t, ok)
+
+	expectedBalance := new(big.Int).Sub(erc20DepositAmount, erc20WithdrawAmount)
+	tokenHex := strings.ToLower(erc20TokenAddress.Hex())
+	for _, acct := range accounts {
+		acctMap, ok := acct.(map[string]interface{})
+		require.True(t, ok)
+		balancesMap, ok := acctMap["balances"].(map[string]interface{})
+		require.True(t, ok)
+		balanceStr, ok := balancesMap[tokenHex].(string)
+		require.True(t, ok, "ERC-20 balance not found for token %s", tokenHex)
+		require.True(t, len(balanceStr) > 2 && balanceStr[:2] == "0x")
+		balance, ok := new(big.Int).SetString(balanceStr[2:], 16)
+		require.True(t, ok)
+		require.Equal(t, 0, expectedBalance.Cmp(balance),
+			"expected ERC-20 balance %s, got %s", expectedBalance, balance)
+	}
 }
