@@ -20,7 +20,7 @@ export async function ethSignStateUpdate(
   );
   const withdrawalRequestsHash = ethers.keccak256(
     AbiCoder.defaultAbiCoder().encode(
-      ['tuple(address recipient, uint256 amount)[]'],
+      ['tuple(address tokenAddress, address recipient, uint256 amount)[]'],
       [withdrawalRequests]
     )
   );

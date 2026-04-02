@@ -2,6 +2,9 @@
 pragma solidity ^0.8.28;
 
 //they are isolated so they can be imported in multiple contracts without loops
+/// @dev Sentinel address representing native ETH as the token.
+address constant ETH_TOKEN = address(0);
+
 contract Structs {
   //type definitions
   enum RequestType {
@@ -32,7 +35,8 @@ contract Structs {
 
   struct PendingRequest {
     uint256 timestamp; //assigned automatically
-    uint256 depositAmount; //assigned automatically
+    address tokenAddress; // 0x0 = ETH
+    uint256 assetAmount;
     uint256 maxFeeValue;
     bytes32 requestId; //assigned automatically
     bytes payload;
@@ -43,6 +47,7 @@ contract Structs {
   }
 
   struct WithdrawalRequest {
+    address tokenAddress; // 0x0 = ETH
     address payable receiver;
     uint256 amount;
   }

@@ -3,15 +3,20 @@ pragma solidity ^0.8.28;
 
 import '@openzeppelin/contracts/access/AccessControl.sol';
 import '@openzeppelin/contracts/utils/ReentrancyGuard.sol';
+import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
+import './TokenAllowlist.sol';
 import './Structs.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard {
+contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuard {
+  using SafeERC20 for IERC20;
+
   //constants
   bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
   bytes32 public constant ADMIN = keccak256('ADMIN');
@@ -31,20 +36,15 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   ITeeAuthenticator public teeAuthenticator;
   IAuthorityRegistry public authorityRegistry;
 
-  // Pull payment pattern state
-  mapping(address => uint256) public payments;
-  uint256 private _totalDeposits;
+  // Pull payment pattern state — per-token, per-payee
+  mapping(address => mapping(address => uint256)) public pendingClaims;
+  mapping(address => uint256) public totalPendingClaims;
 
-  // Per-app fund tracking for solvency isolation (deposit-only).
-  // Credited on submitRequest (depositAmount only; fees are tracked globally),
-  // debited on stateUpdate: success path (withdrawals), error path (depositAmount).
-  // Fees are self-balancing per request (refund + applicationFees == maxFeeValue)
-  // so global balance checks are sufficient for the fee portion.
-  // If an app's withdrawals are less than its deposits,
-  // the residual accumulates here as credit available to future requests.
-  // Note: There is currently no mechanism to recover residual funds from decommissioned
-  // apps.
-  mapping(uint64 => uint256) public appLockedFunds;
+  // Per-app, per-token custody tracking for solvency isolation.
+  // Credited on submitRequest (assetAmount only; fees are tracked globally),
+  // debited on stateUpdate: success path (withdrawals), error path (assetAmount).
+  mapping(uint64 => mapping(address => uint256)) public appCustody;
+  mapping(address => uint256) public totalAppCustody;
 
   uint256 public minFeePerRequest;
   address payable public feeCollector;
@@ -94,7 +94,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint64 applicationId,
     Structs.RequestType requestType,
     bytes calldata payload,
-    uint256 depositAmount, // part of the sent value forwarded to the application, for app logic
+    address tokenAddress,
+    uint256 assetAmount,
     uint256 maxFeeValue // part of the sent value reserved for fee payment
   )
     external
@@ -107,8 +108,21 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (requestType == Structs.RequestType.DEPLOYAPP) revert InvalidRequestType();
 
     //check values
-    if (msg.value != depositAmount + maxFeeValue) revert InvalidValue();
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
+
+    if (tokenAddress == ETH_TOKEN) {
+      if (msg.value != assetAmount + maxFeeValue) revert InvalidValue();
+    } else {
+      if (msg.value != maxFeeValue) revert InvalidValue();
+      if (assetAmount == 0) revert InvalidValue();
+      if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
+      // Pull ERC-20 tokens with balance-before/after check
+      IERC20 token = IERC20(tokenAddress);
+      uint256 balanceBefore = token.balanceOf(address(this));
+      token.safeTransferFrom(msg.sender, address(this), assetAmount);
+      uint256 received = token.balanceOf(address(this)) - balanceBefore;
+      if (received != assetAmount) revert TransferAmountMismatch();
+    }
 
     //check queue size
     if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
@@ -129,12 +143,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       applicationId,
       requestType,
       payload,
-      depositAmount,
+      tokenAddress,
+      assetAmount,
       _tail
     );
     requestById[requestId] = Structs.PendingRequest({
       timestamp: block.timestamp,
-      depositAmount: depositAmount,
+      tokenAddress: tokenAddress,
+      assetAmount: assetAmount,
       maxFeeValue: maxFeeValue,
       requestId: requestId,
       payload: payload,
@@ -144,7 +160,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       requestType: requestType
     });
     _requestIdByOrder[_tail] = requestId;
-    appLockedFunds[applicationId] += depositAmount;
+    appCustody[applicationId][tokenAddress] += assetAmount;
+    totalAppCustody[tokenAddress] += assetAmount;
 
     unchecked {
       ++_tail;
@@ -176,6 +193,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       0, // deploy requests have applicationId 0, a unique applicationId will be derived from the requestId for each deploy request to avoid collisions with regular requests and to group deploy requests together
       requestType,
       payload,
+      ETH_TOKEN,
       0,
       _tail
     );
@@ -183,7 +201,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
     requestById[requestId] = Structs.PendingRequest({
       timestamp: block.timestamp,
-      depositAmount: 0,
+      tokenAddress: ETH_TOKEN,
+      assetAmount: 0,
       maxFeeValue: msg.value,
       requestId: requestId,
       payload: payload,
@@ -236,7 +255,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       emit RequestCompleted(applicationId, requestId, applicationFees, result, errCode, errorMsg);
     }
 
-    _asyncTransfer(feeCollector, applicationFees);
+    _asyncTransfer(ETH_TOKEN, feeCollector, applicationFees);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -358,21 +377,34 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       if (eventsLength != 0 || withdrawalRequests.length != 0) revert InvalidPayload();
       if (applicationStateRoots[applicationId] != newStateRoot) revert InvalidStateRoot();
 
-      // Per-app solvency check (deposits only), then defense-in-depth global balance check on total outflow.
-      uint256 depositAmount = requestInfo.depositAmount;
-      uint256 totalErrorAmount = depositAmount + requestInfo.maxFeeValue;
-      if (depositAmount > appLockedFunds[applicationId]) revert InsufficientAppBalance();
-      if (totalErrorAmount > _getAvailableBalance()) revert InsufficientBalance();
-      appLockedFunds[applicationId] -= depositAmount;
+      // Per-app per-token solvency check, then ETH balance check for fee outflow.
+      uint256 assetAmount = requestInfo.assetAmount;
+      address reqTokenAddress = requestInfo.tokenAddress;
+      if (assetAmount > appCustody[applicationId][reqTokenAddress]) revert InsufficientAppBalance();
+      if (requestInfo.maxFeeValue > _getAvailableEthBalance()) revert InsufficientBalance();
+      appCustody[applicationId][reqTokenAddress] -= assetAmount;
+      totalAppCustody[reqTokenAddress] -= assetAmount;
 
-      // Refund includes deposit amount for error cases
-      // For now, we always collect the minimum fee per request in case of an error, in the future
-      // the wasm application may specify different fee handling policies.
-      uint256 totalRefund = requestInfo.depositAmount +
-        (requestInfo.maxFeeValue - minFeePerRequest);
-      if (totalRefund > 0) {
-        _asyncTransfer(sender, totalRefund);
-        emit Refund(applicationId, processedRequestId, sender, totalRefund);
+      // Refund business-asset deposit in its original token.
+      // Fee refund is always in ETH.
+      uint256 feeRefund = requestInfo.maxFeeValue - minFeePerRequest;
+      if (reqTokenAddress == ETH_TOKEN) {
+        // For ETH requests, combine asset + fee refund into a single ETH credit
+        uint256 totalRefund = assetAmount + feeRefund;
+        if (totalRefund > 0) {
+          _asyncTransfer(ETH_TOKEN, sender, totalRefund);
+          emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, totalRefund);
+        }
+      } else {
+        // For ERC-20 requests, asset refund in token, fee refund in ETH
+        if (assetAmount > 0) {
+          _asyncTransfer(reqTokenAddress, sender, assetAmount);
+          emit Refund(applicationId, processedRequestId, reqTokenAddress, sender, assetAmount);
+        }
+        if (feeRefund > 0) {
+          _asyncTransfer(ETH_TOKEN, sender, feeRefund);
+          emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, feeRefund);
+        }
       }
 
       if (requestInfo.requestType == Structs.RequestType.DEPLOYAPP) {
@@ -403,22 +435,33 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       revert InvalidValue();
     }
 
-    //check withdrawal sums (account for already committed pending deposits)
+    //check withdrawal sums and debit per-app per-token custody
     uint256 i;
-    uint256 withdrawalSum;
     uint256 withdrawalsLength = withdrawalRequests.length;
+    uint256 ethWithdrawalSum;
     while (i < withdrawalsLength) {
-      withdrawalSum += withdrawalRequests[i].amount;
+      address wToken = withdrawalRequests[i].tokenAddress;
+      uint256 wAmount = withdrawalRequests[i].amount;
+      if (wAmount > appCustody[applicationId][wToken]) revert InsufficientAppBalance();
+      appCustody[applicationId][wToken] -= wAmount;
+      totalAppCustody[wToken] -= wAmount;
+      if (wToken == ETH_TOKEN) {
+        ethWithdrawalSum += wAmount;
+      } else {
+        // Per-token solvency: contract must hold enough ERC-20 to cover all obligations
+        if (
+          IERC20(wToken).balanceOf(address(this)) <
+          totalAppCustody[wToken] + totalPendingClaims[wToken] + wAmount
+        ) revert InsufficientBalance();
+      }
       unchecked {
         ++i;
       }
     }
-    uint256 totalOutflow = withdrawalSum + refund + applicationFees;
 
-    // Per-app solvency check (deposits vs withdrawals), then global balance check on total outflow.
-    if (withdrawalSum > appLockedFunds[applicationId]) revert InsufficientAppBalance();
-    if (totalOutflow > _getAvailableBalance()) revert InsufficientBalance();
-    appLockedFunds[applicationId] -= withdrawalSum;
+    // ETH solvency: contract must hold enough ETH to cover fee outflow + ETH withdrawals
+    uint256 totalEthOutflow = refund + applicationFees + ethWithdrawalSum;
+    if (totalEthOutflow > _getAvailableEthBalance()) revert InsufficientBalance();
 
     //emit encrypted event
     i = 0;
@@ -439,19 +482,24 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     applicationStateRoots[applicationId] = newStateRoot;
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
-    //credit refund to sender's pending balance (pull pattern)
+    //credit refund to sender's pending balance (pull pattern) — refund is always ETH
     if (refund > 0) {
-      _asyncTransfer(sender, refund);
-      emit Refund(applicationId, processedRequestId, sender, refund);
+      _asyncTransfer(ETH_TOKEN, sender, refund);
+      emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, refund);
     }
 
     //credit withdrawals to receivers' pending balances
     i = 0;
     while (i < withdrawalsLength) {
-      _asyncTransfer(withdrawalRequests[i].receiver, withdrawalRequests[i].amount);
+      _asyncTransfer(
+        withdrawalRequests[i].tokenAddress,
+        withdrawalRequests[i].receiver,
+        withdrawalRequests[i].amount
+      );
       emit Withdrawal(
         applicationId,
         processedRequestId,
+        withdrawalRequests[i].tokenAddress,
         withdrawalRequests[i].receiver,
         withdrawalRequests[i].amount
       );
@@ -537,27 +585,31 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   // Pull payment pattern functions
-  function _asyncTransfer(address dest, uint256 amount) internal {
-    payments[dest] += amount;
-    _totalDeposits += amount;
+  function _asyncTransfer(address tokenAddress, address dest, uint256 amount) internal {
+    pendingClaims[tokenAddress][dest] += amount;
+    totalPendingClaims[tokenAddress] += amount;
   }
 
-  function _getAvailableBalance() internal view returns (uint256) {
-    return address(this).balance - _totalDeposits;
+  function _getAvailableEthBalance() internal view returns (uint256) {
+    return address(this).balance - totalPendingClaims[ETH_TOKEN] - totalAppCustody[ETH_TOKEN];
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function withdrawPayments(address payable payee) public nonReentrant {
-    uint256 payment = payments[payee];
-    if (payment == 0) return;
+  function claim(address tokenAddress, address payable payee) public nonReentrant {
+    uint256 amount = pendingClaims[tokenAddress][payee];
+    if (amount == 0) return;
 
-    payments[payee] = 0;
-    _totalDeposits -= payment;
+    pendingClaims[tokenAddress][payee] = 0;
+    totalPendingClaims[tokenAddress] -= amount;
 
-    emit PaymentWithdrawn(payee, payment);
+    emit PaymentWithdrawn(tokenAddress, payee, amount);
 
-    (bool success, ) = payee.call{value: payment}('');
-    if (!success) revert TransferFailed();
+    if (tokenAddress == ETH_TOKEN) {
+      (bool success, ) = payee.call{value: amount}('');
+      if (!success) revert TransferFailed();
+    } else {
+      IERC20(tokenAddress).safeTransfer(payee, amount);
+    }
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -566,11 +618,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint64 applicationId,
     Structs.RequestType requestType,
     bytes calldata payload,
-    uint256 depositAmount,
+    address tokenAddress,
+    uint256 assetAmount,
     uint256 idx
   ) public pure returns (bytes32) {
     bytes32 requestId = keccak256(
-      abi.encode(sender, applicationId, requestType, payload, depositAmount, idx)
+      abi.encode(sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx)
     );
 
     return requestId;

@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -19,16 +20,17 @@ describe('ProcessorEndpoint Test', function () {
     ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
-  async function submitRequest(payload: string, depositAmount: bigint) {
+  async function submitRequest(payload: string, assetAmount: bigint) {
     const maxFeeValue = minFeePerRequest;
     const tx = await processorEndpoint.submitRequest(
       PROTOCOL_VERSION,
       applicationId,
       REQUEST_TYPE_PROCESS,
       payload,
-      depositAmount,
+      ETH_TOKEN,
+      assetAmount,
       maxFeeValue,
-      { value: depositAmount + maxFeeValue }
+      { value: assetAmount + maxFeeValue }
     );
     const receipt = await tx.wait();
     return receipt.logs[0].args.requestId;
@@ -59,10 +61,10 @@ describe('ProcessorEndpoint Test', function () {
         expect(requests.length).to.equal(2);
         expect(requests[0].requestId).to.equal(requestId2);
         expect(requests[0].payload).to.equal('0x02');
-        expect(requests[0].depositAmount).to.equal(10n);
+        expect(requests[0].assetAmount).to.equal(10n);
         expect(requests[1].requestId).to.equal(requestId3);
         expect(requests[1].payload).to.equal('0x03');
-        expect(requests[1].depositAmount).to.equal(20n);
+        expect(requests[1].assetAmount).to.equal(20n);
 
         const remaining = await processorEndpoint.getPendingRequestsPage(2, 10);
         expect(remaining.length).to.equal(1);

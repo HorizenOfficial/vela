@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint deployer role management', function () {
   let processorEndpoint: any;
@@ -35,9 +36,16 @@ describe('ProcessorEndpoint deployer role management', function () {
     await expect(
       processorEndpoint
         .connect(signers[2])
-        .submitRequest(0, applicationId, REQUEST_TYPE_DEPLOYAPP, '0x01', 0, minFeePerRequest, {
-          value: minFeePerRequest,
-        })
+        .submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_DEPLOYAPP,
+          '0x01',
+          ETH_TOKEN,
+          0,
+          minFeePerRequest,
+          { value: minFeePerRequest }
+        )
     ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestType');
   });
 

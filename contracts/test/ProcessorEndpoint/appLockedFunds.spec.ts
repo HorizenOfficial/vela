@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { BYTES32_ZERO, getRequestIdFromReceipt } from '../util';
+import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt } from '../util';
 
 describe('ProcessorEndpoint — appLockedFunds', function () {
   let processorEndpoint: any;
@@ -37,6 +37,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         appId ?? applicationId,
         REQUEST_TYPE,
         payload,
+        ETH_TOKEN,
         depositAmount,
         maxFeeValue,
         { value: depositAmount + maxFeeValue }
@@ -52,7 +53,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
     newStateRoot: string,
     refund: bigint,
     applicationFees: bigint,
-    withdrawals: [string, bigint][],
+    withdrawals: [string, string, bigint][],
     appId?: bigint
   ) {
     return processorEndpoint
@@ -97,7 +98,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
     // bootstrapApplication submits a deploy request and completes it via stateUpdate,
     // consuming the entire fee. The app should start with zero locked funds.
     it('appLockedFunds is 0 after bootstrapApplication', async () => {
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
     });
 
     // Verifies that submitRequest credits only the depositAmount (not fees)
@@ -108,7 +109,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
 
       await submitRequest(signers[0], '0x01', depositAmount, maxFeeValue);
 
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(depositAmount);
     });
 
     // Verifies that submitDeployRequest does not credit appLockedFunds,
@@ -130,7 +131,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const parsed = processorEndpoint.interface.parseLog(deployLog);
       const deployAppId: bigint = parsed.args.applicationId;
 
-      expect(await processorEndpoint.appLockedFunds(deployAppId)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(deployAppId, ETH_TOKEN)).to.equal(0n);
     });
 
     // Verifies that a successful stateUpdate debits appLockedFunds by the withdrawal sum
@@ -143,7 +144,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const maxFeeValue = refund + applicationFees;
 
       const request = await submitRequest(signers[0], '0x02', depositAmount, maxFeeValue);
-      const fundsAfterSubmit = await processorEndpoint.appLockedFunds(applicationId);
+      const fundsAfterSubmit = await processorEndpoint.appCustody(applicationId, ETH_TOKEN);
       expect(fundsAfterSubmit).to.equal(depositAmount);
 
       const withdrawalAddr = await signers[3].getAddress();
@@ -155,10 +156,10 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         '0x' + '22'.repeat(32),
         refund,
         applicationFees,
-        [[withdrawalAddr, withdrawalAmount]]
+        [[ETH_TOKEN, withdrawalAddr, withdrawalAmount]]
       );
 
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(
         fundsAfterSubmit - withdrawalAmount
       );
     });
@@ -170,17 +171,17 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const maxFeeValue = minFeePerRequest + 5n;
 
       const request = await submitRequest(signers[0], '0x03', depositAmount, maxFeeValue);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(depositAmount);
 
       await failRequest(request.requestId);
 
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
     });
 
     // Solidity mappings return the default value (0) for uninitialized keys.
     // Confirms no spurious balance exists for apps that were never deployed.
     it('returns 0 for unknown application IDs', async () => {
-      expect(await processorEndpoint.appLockedFunds(999999)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(999999, ETH_TOKEN)).to.equal(0n);
     });
   });
 
@@ -208,7 +209,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         '0x' + 'a1'.repeat(32),
         0n,
         maxFee,
-        [[await signers[3].getAddress(), depositA]]
+        [[ETH_TOKEN, await signers[3].getAddress(), depositA]]
       );
 
       // Now submit for both apps
@@ -222,7 +223,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         '0x' + 'a2'.repeat(32),
         0n,
         maxFee,
-        [[await signers[3].getAddress(), depositA]]
+        [[ETH_TOKEN, await signers[3].getAddress(), depositA]]
       );
 
       // B tries to withdraw 200 — reverts because B only has 50 locked (deposit only)
@@ -234,7 +235,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
           '0x' + 'b1'.repeat(32),
           0n,
           maxFee,
-          [[await signers[4].getAddress(), withdrawalAttempt]],
+          [[ETH_TOKEN, await signers[4].getAddress(), withdrawalAttempt]],
           appIdB
         )
       ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientAppBalance');
@@ -250,7 +251,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const reqA = await submitRequest(signers[0], '0x20', depositA, maxFee);
       await submitRequest(signers[0], '0x21', depositB, maxFee, appIdB);
 
-      const fundsB = await processorEndpoint.appLockedFunds(appIdB);
+      const fundsB = await processorEndpoint.appCustody(appIdB, ETH_TOKEN);
       expect(fundsB).to.equal(depositB);
 
       // Process A
@@ -260,11 +261,11 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         '0x' + 'a3'.repeat(32),
         0n,
         maxFee,
-        [[await signers[3].getAddress(), depositA]]
+        [[ETH_TOKEN, await signers[3].getAddress(), depositA]]
       );
 
       // B's funds unchanged
-      expect(await processorEndpoint.appLockedFunds(appIdB)).to.equal(fundsB);
+      expect(await processorEndpoint.appCustody(appIdB, ETH_TOKEN)).to.equal(fundsB);
     });
 
     // Same isolation guarantee for the error path: failing App A's request and
@@ -277,13 +278,13 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const reqA = await submitRequest(signers[0], '0x30', depositA, maxFee);
       await submitRequest(signers[0], '0x31', depositB, maxFee, appIdB);
 
-      const fundsB = await processorEndpoint.appLockedFunds(appIdB);
+      const fundsB = await processorEndpoint.appCustody(appIdB, ETH_TOKEN);
 
       // Fail A
       await failRequest(reqA.requestId);
 
       // B unchanged
-      expect(await processorEndpoint.appLockedFunds(appIdB)).to.equal(fundsB);
+      expect(await processorEndpoint.appCustody(appIdB, ETH_TOKEN)).to.equal(fundsB);
     });
   });
 
@@ -297,10 +298,10 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const maxFee = minFeePerRequest;
 
       const req1 = await submitRequest(signers[0], '0x40', dep1, maxFee);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep1);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(dep1);
 
       const req2 = await submitRequest(signers[0], '0x41', dep2, maxFee);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep1 + dep2);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(dep1 + dep2);
 
       // Process first
       await completeRequest(
@@ -309,10 +310,10 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         '0x' + 'c1'.repeat(32),
         0n,
         maxFee,
-        [[await signers[3].getAddress(), dep1]]
+        [[ETH_TOKEN, await signers[3].getAddress(), dep1]]
       );
 
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep2);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(dep2);
 
       // Process second
       await completeRequest(
@@ -321,10 +322,10 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         '0x' + 'c2'.repeat(32),
         0n,
         maxFee,
-        [[await signers[3].getAddress(), dep2]]
+        [[ETH_TOKEN, await signers[3].getAddress(), dep2]]
       );
 
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
     });
   });
 
@@ -343,10 +344,10 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         '0x' + 'd1'.repeat(32),
         0n,
         maxFeeValue,
-        [[await signers[3].getAddress(), depositAmount]]
+        [[ETH_TOKEN, await signers[3].getAddress(), depositAmount]]
       );
 
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
     });
 
     // Boundary test: when the withdrawal sum exceeds appLockedFunds by exactly 1 wei,
@@ -365,12 +366,12 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
           '0x' + 'd2'.repeat(32),
           0n,
           maxFeeValue,
-          [[await signers[3].getAddress(), depositAmount + 1n]]
+          [[ETH_TOKEN, await signers[3].getAddress(), depositAmount + 1n]]
         )
       ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientAppBalance');
 
       // appLockedFunds unchanged after revert
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(depositAmount);
     });
 
     // Verifies correct bookkeeping when the same app has one request fail (error path)
@@ -384,11 +385,11 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       // Submit two requests
       const req1 = await submitRequest(signers[0], '0x60', dep1, maxFee);
       const req2 = await submitRequest(signers[0], '0x61', dep2, maxFee);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep1 + dep2);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(dep1 + dep2);
 
       // Fail first request — debits dep1
       await failRequest(req1.requestId);
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(dep2);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(dep2);
 
       // Succeed second request — debits dep2 (via withdrawal)
       await completeRequest(
@@ -397,9 +398,9 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         '0x' + 'd3'.repeat(32),
         0n,
         maxFee,
-        [[await signers[3].getAddress(), dep2]]
+        [[ETH_TOKEN, await signers[3].getAddress(), dep2]]
       );
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
     });
 
     // Verifies that appLockedFunds accounting is decoupled from actual ETH transfers.
@@ -422,6 +423,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
         applicationId,
         1,
         '0x04',
+        ETH_TOKEN,
         depositAmount,
         maxFeeValue,
         { value: maxFeeValue }
@@ -429,7 +431,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const insertReceipt = await insertTx.wait();
 
       // appLockedFunds should be 0 (depositAmount is 0, fees are not tracked per-app)
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
 
       // Fail the request (error path) — the refund goes to FallbackFailure
       // via _asyncTransfer (pull pattern), so no actual ETH transfer happens here
@@ -447,7 +449,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
 
       // appLockedFunds should be zero even though the receiver rejects ETH
       // (the pull pattern decouples fund accounting from actual transfers)
-      expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
     });
   });
 
@@ -474,7 +476,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
       const deployAppId: bigint = parsed.args.applicationId;
       const deployRequestId: string = parsed.args.requestId;
 
-      expect(await pe.appLockedFunds(deployAppId)).to.equal(0n);
+      expect(await pe.appCustody(deployAppId, ETH_TOKEN)).to.equal(0n);
 
       // Complete deploy
       await pe
@@ -494,7 +496,7 @@ describe('ProcessorEndpoint — appLockedFunds', function () {
           '0x'
         );
 
-      expect(await pe.appLockedFunds(deployAppId)).to.equal(0n);
+      expect(await pe.appCustody(deployAppId, ETH_TOKEN)).to.equal(0n);
     });
   });
 });

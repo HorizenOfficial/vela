@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { BigNumberish, Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -33,6 +34,7 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           1,
           '0x01',
+          ETH_TOKEN,
           100,
           minFeePerRequest,
           { value: 100n + minFeePerRequest }
@@ -61,17 +63,17 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         // Verify funds are in pending deposits
-        let pendingAmount = await processorEndpoint.payments(await fallbackFailure.getAddress());
+        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,await fallbackFailure.getAddress());
         expect(pendingAmount).eql(100n);
 
         // When someone tries to withdraw for FallbackFailure, it will fail
         // but the contract operation (stateUpdate with error) succeeded
         await expect(
-          processorEndpoint.withdrawPayments(await fallbackFailure.getAddress())
+          processorEndpoint.claim(ETH_TOKEN,await fallbackFailure.getAddress())
         ).to.be.revertedWithCustomError(processorEndpoint, 'TransferFailed');
 
         // Funds remain in pending for FallbackFailure
-        pendingAmount = await processorEndpoint.payments(await fallbackFailure.getAddress());
+        pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,await fallbackFailure.getAddress());
         expect(pendingAmount).eql(100n);
       });
 
@@ -87,6 +89,7 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           1,
           '0x01',
+          ETH_TOKEN,
           100,
           minFeePerRequest,
           { value: 100n + minFeePerRequest }
@@ -108,7 +111,7 @@ describe('ProcessorEndpoint Test', function () {
           currentPendingRequest.requestId,
           [],
           [],
-          [[fallbackAddr, 50]], // withdrawal to FallbackFailure
+          [[ETH_TOKEN, fallbackAddr, 50]], // withdrawal to FallbackFailure
           0,
           minFeePerRequest
         );
@@ -123,7 +126,7 @@ describe('ProcessorEndpoint Test', function () {
             currentPendingRequest.requestId,
             [],
             [],
-            [[fallbackAddr, 50]],
+            [[ETH_TOKEN, fallbackAddr, 50]],
             0,
             minFeePerRequest,
             0,
@@ -136,7 +139,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.applicationStateRoots(applicationId)).eql(newStateRoot);
 
         // Funds should be in pending for FallbackFailure
-        let pendingAmount = await processorEndpoint.payments(fallbackAddr);
+        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,fallbackAddr);
         expect(pendingAmount).eql(50n);
       });
     });
@@ -146,9 +149,16 @@ describe('ProcessorEndpoint Test', function () {
         // Submit a request from signer[2]
         let submitTx = await processorEndpoint
           .connect(signers[2])
-          .submitRequest(protocolVersion, applicationId, 1, '0x01', 100, minFeePerRequest, {
-            value: 100n + minFeePerRequest,
-          });
+          .submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            '0x01',
+            ETH_TOKEN,
+            100,
+            minFeePerRequest,
+            { value: 100n + minFeePerRequest }
+          );
         await submitTx.wait();
 
         let [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
@@ -173,45 +183,59 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         // Check pending amount for signer[2]
-        let pendingAmount = await processorEndpoint.payments(await signers[2].getAddress());
+        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,await signers[2].getAddress());
         expect(pendingAmount).eql(100n); // depositAmount + (maxFeeValue - minFeePerRequest) = 100 + 0 = 100
 
         // signer[3] (not the payee) can trigger withdrawal for signer[2]
         let balanceBefore = await ethers.provider.getBalance(await signers[2].getAddress());
         let tx = await processorEndpoint
           .connect(signers[3])
-          .withdrawPayments(await signers[2].getAddress());
+          .claim(ETH_TOKEN, await signers[2].getAddress());
         await expect(tx)
           .to.emit(processorEndpoint, 'PaymentWithdrawn')
-          .withArgs(await signers[2].getAddress(), BigInt(100n));
+          .withArgs(ETH_TOKEN, await signers[2].getAddress(), BigInt(100n));
         let balanceAfter = await ethers.provider.getBalance(await signers[2].getAddress());
 
         expect(balanceAfter).eql(balanceBefore + 100n);
-        expect(await processorEndpoint.payments(await signers[2].getAddress())).eql(0n);
+        expect(await processorEndpoint.pendingClaims(ETH_TOKEN,await signers[2].getAddress())).eql(0n);
 
         // withdrawPayments must not affect appLockedFunds (orthogonal systems)
-        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(0n);
+        expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
       });
 
       it('should not revert withdrawPayments if no pending amount', async function () {
         // This should not revert, just do nothing
-        await processorEndpoint.withdrawPayments(await signers[5].getAddress());
+        await processorEndpoint.claim(ETH_TOKEN,await signers[5].getAddress());
       });
 
       it('should accumulate multiple credits for same address', async function () {
         // Submit two requests from signer[2]
         let submitTx = await processorEndpoint
           .connect(signers[2])
-          .submitRequest(protocolVersion, applicationId, 1, '0x01', 50, minFeePerRequest, {
-            value: 50n + minFeePerRequest,
-          });
+          .submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            '0x01',
+            ETH_TOKEN,
+            50,
+            minFeePerRequest,
+            { value: 50n + minFeePerRequest }
+          );
         await submitTx.wait();
 
         submitTx = await processorEndpoint
           .connect(signers[2])
-          .submitRequest(protocolVersion, applicationId, 1, '0x02', 60, minFeePerRequest, {
-            value: 60n + minFeePerRequest,
-          });
+          .submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            '0x02',
+            ETH_TOKEN,
+            60,
+            minFeePerRequest,
+            { value: 60n + minFeePerRequest }
+          );
         await submitTx.wait();
 
         // Fail both requests via stateUpdate with errorCode
@@ -254,7 +278,7 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         // Check accumulated pending: 50 + 60 = 110
-        let pendingAmount = await processorEndpoint.payments(await signers[2].getAddress());
+        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,await signers[2].getAddress());
         expect(pendingAmount).eql(110n);
       });
     });
