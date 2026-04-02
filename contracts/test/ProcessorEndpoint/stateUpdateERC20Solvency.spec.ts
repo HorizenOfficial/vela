@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, getRequestIdFromReceipt } from '../util';
+import { ETH_TOKEN, getRequestIdFromReceipt, PROTOCOL_VERSION, REQUEST_TYPE_PROCESS } from '../util';
 
 describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
   let processorEndpoint: any;
@@ -11,9 +11,6 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
   let applicationId: bigint;
   let bootstrapApplication: any;
   let mockERC20: any;
-
-  const PROTOCOL_VERSION = 0;
-  const REQUEST_TYPE = 1;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
@@ -41,7 +38,7 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
 
     const tx = await processorEndpoint
       .connect(sender)
-      .submitRequest(PROTOCOL_VERSION, appId ?? applicationId, REQUEST_TYPE, payload, tokenAddr, assetAmount, maxFeeValue, {
+      .submitRequest(PROTOCOL_VERSION, appId ?? applicationId, REQUEST_TYPE_PROCESS, payload, tokenAddr, assetAmount, maxFeeValue, {
         value: maxFeeValue,
       });
     const receipt = await tx.wait();
@@ -128,7 +125,7 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
       const ethTx = await processorEndpoint.submitRequest(
         PROTOCOL_VERSION,
         applicationId,
-        REQUEST_TYPE,
+        REQUEST_TYPE_PROCESS,
         '0x10',
         ETH_TOKEN,
         ethDeposit,

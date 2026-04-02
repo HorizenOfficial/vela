@@ -1,16 +1,13 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
-import { ETH_TOKEN } from '../util';
+import { ETH_TOKEN, PROTOCOL_VERSION, REQUEST_TYPE_PROCESS } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let applicationId: bigint;
-
-  const PROTOCOL_VERSION = 0;
-  const REQUEST_TYPE_PROCESS = 1;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();

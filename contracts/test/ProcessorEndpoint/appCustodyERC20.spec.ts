@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, getRequestIdFromReceipt } from '../util';
+import { ETH_TOKEN, getRequestIdFromReceipt, PROTOCOL_VERSION, REQUEST_TYPE_PROCESS } from '../util';
 
 describe('ProcessorEndpoint — appCustody ERC-20', function () {
   let processorEndpoint: any;
@@ -11,9 +11,6 @@ describe('ProcessorEndpoint — appCustody ERC-20', function () {
   let applicationId: bigint;
   let bootstrapApplication: any;
   let mockERC20: any;
-
-  const PROTOCOL_VERSION = 0;
-  const REQUEST_TYPE = 1;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
@@ -45,7 +42,7 @@ describe('ProcessorEndpoint — appCustody ERC-20', function () {
       .submitRequest(
         PROTOCOL_VERSION,
         appId ?? applicationId,
-        REQUEST_TYPE,
+        REQUEST_TYPE_PROCESS,
         payload,
         tokenAddr,
         assetAmount,
@@ -114,19 +111,24 @@ describe('ProcessorEndpoint — appCustody ERC-20', function () {
       const tokenAddr = await mockERC20.getAddress();
       const assetAmount = 500n;
 
+      const appCustodyBefore = await processorEndpoint.appCustody(applicationId, tokenAddr);
+      const totalAppCustodyBefore = await processorEndpoint.totalAppCustody(tokenAddr);
+
       await submitERC20Request(signers[0], '0x01', assetAmount, minFeePerRequest);
 
-      expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(assetAmount);
-      expect(await processorEndpoint.totalAppCustody(tokenAddr)).to.equal(assetAmount);
+      expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(appCustodyBefore + assetAmount);
+      expect(await processorEndpoint.totalAppCustody(tokenAddr)).to.equal(totalAppCustodyBefore + assetAmount);
     });
 
     it('does not affect ETH custody when depositing ERC-20', async () => {
       const assetAmount = 500n;
+      const appCustodyBefore = await processorEndpoint.appCustody(applicationId, ETH_TOKEN);
+      const totalAppCustodyBefore = await processorEndpoint.totalAppCustody(ETH_TOKEN);
 
       await submitERC20Request(signers[0], '0x01', assetAmount, minFeePerRequest);
 
-      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
-      expect(await processorEndpoint.totalAppCustody(ETH_TOKEN)).to.equal(0n);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(appCustodyBefore);
+      expect(await processorEndpoint.totalAppCustody(ETH_TOKEN)).to.equal(totalAppCustodyBefore);
     });
 
     it('decreases appCustody after successful stateUpdate with ERC-20 withdrawal', async () => {
