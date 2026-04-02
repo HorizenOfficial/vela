@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt } from '../util';
+import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt, PROTOCOL_VERSION, REQUEST_TYPE_PROCESS } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
 describe('ProcessorEndpoint Test', function () {
@@ -11,9 +11,6 @@ describe('ProcessorEndpoint Test', function () {
   let minFeePerRequest: bigint;
   let applicationId: bigint;
   let bootstrapApplication: any;
-
-  const PROTOCOL_VERSION = 0;
-  const REQUEST_TYPE = 1;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
@@ -28,7 +25,7 @@ describe('ProcessorEndpoint Test', function () {
     const fee = maxFeeValue ?? minFeePerRequest;
     const tx = await processorEndpoint
       .connect(sender)
-      .submitRequest(PROTOCOL_VERSION, applicationId, REQUEST_TYPE, payload, ETH_TOKEN, 0, fee, {
+      .submitRequest(PROTOCOL_VERSION, applicationId, REQUEST_TYPE_PROCESS, payload, ETH_TOKEN, 0, fee, {
         value: fee,
       });
     const receipt = await tx.wait();
@@ -100,7 +97,7 @@ describe('ProcessorEndpoint Test', function () {
       .submitRequest(
         PROTOCOL_VERSION,
         appId ?? applicationId,
-        REQUEST_TYPE,
+        REQUEST_TYPE_PROCESS,
         payload,
         ETH_TOKEN,
         depositAmount,
@@ -356,7 +353,7 @@ describe('ProcessorEndpoint Test', function () {
           processorEndpoint,
           PROTOCOL_VERSION,
           applicationId,
-          REQUEST_TYPE,
+          REQUEST_TYPE_PROCESS,
           '0x04',
           ETH_TOKEN,
           0,
@@ -380,7 +377,7 @@ describe('ProcessorEndpoint Test', function () {
           .submitRequest(
             PROTOCOL_VERSION,
             applicationId,
-            REQUEST_TYPE,
+            REQUEST_TYPE_PROCESS,
             '0x07',
             ETH_TOKEN,
             depositAmount,
@@ -426,7 +423,7 @@ describe('ProcessorEndpoint Test', function () {
           .submitRequest(
             PROTOCOL_VERSION,
             applicationId,
-            REQUEST_TYPE,
+            REQUEST_TYPE_PROCESS,
             '0x05',
             ETH_TOKEN,
             0,

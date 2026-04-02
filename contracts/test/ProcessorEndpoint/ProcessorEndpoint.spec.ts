@@ -3,8 +3,10 @@ import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 import {
   ETH_TOKEN,
-  BYTES32_ZERO,
   getRequestIdFromReceipt as getRequestIdFromReceiptBase,
+  PROTOCOL_VERSION,
+  REQUEST_TYPE_PROCESS
+
 } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
@@ -12,9 +14,6 @@ describe('ProcessorEndpoint Test', function () {
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let applicationId: bigint;
-
-  const PROTOCOL_VERSION = 0;
-  const REQUEST_TYPE = 1;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
@@ -39,7 +38,7 @@ describe('ProcessorEndpoint Test', function () {
       .submitRequest(
         PROTOCOL_VERSION,
         applicationId,
-        REQUEST_TYPE,
+        REQUEST_TYPE_PROCESS,
         payload,
         ETH_TOKEN,
         depositAmount,

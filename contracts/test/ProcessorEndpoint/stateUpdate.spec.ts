@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt } from '../util';
+import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt, REQUEST_TYPE_PROCESS, PROTOCOL_VERSION } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
 describe('ProcessorEndpoint Test', function () {
@@ -11,9 +11,6 @@ describe('ProcessorEndpoint Test', function () {
   let minFeePerRequest: bigint;
   let applicationId: bigint;
   let bootstrapApplication: any;
-
-  const PROTOCOL_VERSION = 0;
-  const REQUEST_TYPE = 1;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
@@ -49,7 +46,7 @@ describe('ProcessorEndpoint Test', function () {
       .submitRequest(
         PROTOCOL_VERSION,
         appId ?? applicationId,
-        REQUEST_TYPE,
+        REQUEST_TYPE_PROCESS,
         payload,
         ETH_TOKEN,
         depositAmount,
@@ -104,11 +101,12 @@ describe('ProcessorEndpoint Test', function () {
           minFeePerRequest
         );
 
+        const invalidAppId = applicationId + 1n; // assuming this appId does not exist
         await expect(
           processorEndpoint
             .connect(signers[1])
             .stateUpdate(
-              999,
+              invalidAppId,
               INITIAL_STATE_ROOT,
               '0x' + '11'.repeat(32),
               request.requestId,
@@ -412,6 +410,7 @@ describe('ProcessorEndpoint Test', function () {
 
       it('reverts with InvalidValue when applicationFees < minFeePerRequest', async () => {
         const maxFeeValue = minFeePerRequest + 1n;
+        const applicationFees = minFeePerRequest - 1n;
         const request = await submitRequest(processorEndpoint, signers[0], '0x09', 0n, maxFeeValue);
 
         await expect(
@@ -425,8 +424,8 @@ describe('ProcessorEndpoint Test', function () {
               [],
               [],
               [],
-              maxFeeValue - (minFeePerRequest - 1n),
-              minFeePerRequest - 1n,
+              maxFeeValue - applicationFees,
+              applicationFees,
               0,
               '',
               '0x'
@@ -536,6 +535,11 @@ describe('ProcessorEndpoint Test', function () {
         const balanceAPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalA);
         const balanceBPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalB);
 
+        expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(depositAmount);
+
+        const withdrawalAAmount = 15n;
+        const withdrawalBAmount = 5n;
+
         const tx = await processorEndpoint.connect(signers[1]).stateUpdate(
           applicationId,
           INITIAL_STATE_ROOT,
@@ -544,8 +548,8 @@ describe('ProcessorEndpoint Test', function () {
           ['0xaa', '0xbb'],
           ['A', 'B'],
           [
-            [ETH_TOKEN, withdrawalA, 10],
-            [ETH_TOKEN, withdrawalB, 10],
+            [ETH_TOKEN, withdrawalA, withdrawalAAmount],
+            [ETH_TOKEN, withdrawalB, withdrawalBAmount],
           ],
           refund,
           applicationFees,
@@ -572,19 +576,19 @@ describe('ProcessorEndpoint Test', function () {
           .withArgs(applicationId, request.requestId, ETH_TOKEN, sender, refund);
         await expect(tx)
           .to.emit(processorEndpoint, 'Withdrawal')
-          .withArgs(applicationId, request.requestId, ETH_TOKEN, withdrawalA, 10);
+          .withArgs(applicationId, request.requestId, ETH_TOKEN, withdrawalA, withdrawalAAmount);
         await expect(tx)
           .to.emit(processorEndpoint, 'Withdrawal')
-          .withArgs(applicationId, request.requestId, ETH_TOKEN, withdrawalB, 10);
+          .withArgs(applicationId, request.requestId, ETH_TOKEN, withdrawalB, withdrawalBAmount);
 
         const senderPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(ETH_TOKEN,sender);
         const balanceAPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalA);
         const balanceBPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalB);
-        expect(senderPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(refund);
-        expect(balanceAPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(10n);
-        expect(balanceBPendingAmountAfterUpdate - balanceBPendingAmountAfterSubmit).to.equal(10n);
+        expect(senderPendingAmountAfterUpdate - senderPendingAmountAfterSubmit).to.equal(refund);
+        expect(balanceAPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(withdrawalAAmount);
+        expect(balanceBPendingAmountAfterUpdate - balanceBPendingAmountAfterSubmit).to.equal(withdrawalBAmount);
 
-        // appLockedFunds: credited depositAmount(20), debited withdrawals(10+10) = 20, so should be 0
+        // appLockedFunds: credited depositAmount(20), debited withdrawals(15+5) = 20, so should be 0
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
       });
 
