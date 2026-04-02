@@ -6,9 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"math/big"
-	"mime/multipart"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +16,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/HorizenOfficial/vela/pkg/authorityservice/deployartifact"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/HorizenOfficial/vela/pkg/executor"
@@ -86,40 +82,11 @@ func buildAndLoadWasmModule(t *testing.T) []byte {
 	return wasmBytecode
 }
 
-// deploySimpleApp is a helper function to deploy the simple app wasm module.
+// deploySimpleApp deploys the simple app without constructor params (ETH-only).
+// Convenience wrapper around deploySimpleAppWithTokens with nil token list.
 func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, wasmBytecode []byte) {
 	t.Helper()
-	timeout := 20 * time.Second
-	deployPayload := uploadArtifactAndBuildDescriptorPayload(t, suite, wasmBytecode)
-
-	// Create and submit deploy request
-	deployReq := &common.Request{
-		RequestType:   common.Deploy,
-		ApplicationID: appID,
-		RequestID:     deployReqID,
-		Payload:       deployPayload,
-		Sender:        deployRequestSender,
-		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		TokenAddress:  ethCommon.Address{},
-		AssetAmount:   common.NewBig(0),
-		MaxFeeValue:   common.NewBig(100),
-	}
-	require.NoError(t, suite.SubmitRequest(deployReq))
-
-	// Wait for app to be deployed
-	_, err := suite.WaitForAppStateInDB(appID, timeout)
-	require.NoError(t, err)
-	_, err = suite.WaitForAppStateInBlockchain(appID, timeout)
-	require.NoError(t, err)
-	require.NoError(t, suite.AssertRequestCompleted(deployReqID, timeout))
-
-	// Verify updatePayload signature
-	executorSigningKey, err := suite.GetExecutorSigningKey()
-	require.NoError(t, err)
-	payload, err := suite.GetRequestUpdatePayload(deployReqID)
-	require.NoError(t, err)
-	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
-	require.NoError(t, err)
+	deploySimpleAppWithTokens(t, suite, cryptoHelper, appID, deployReqID, wasmBytecode, nil)
 }
 
 // depositToSimpleApp is a helper function to deposit funds into the simple app.
@@ -852,43 +819,6 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 // It does not need to be a real contract since the token logic is handled entirely
 // inside the WASM guest (app-level allowlist), not on-chain in these tests.
 var erc20TokenAddress = ethCommon.HexToAddress("0xdead000000000000000000000000000000000001")
-
-// uploadArtifactAndBuildDescriptorPayloadWithParams builds a deploy descriptor
-// with constructor params (for token allowlist configuration).
-func uploadArtifactAndBuildDescriptorPayloadWithParams(t *testing.T, suite *testutil.SystemTestSuite, wasmBytecode []byte, constructorParams json.RawMessage) []byte {
-	t.Helper()
-
-	store, err := deployartifact.NewStore(suite.GetArtifactsPath())
-	require.NoError(t, err)
-	uploadAPI := deployartifact.NewAPI(store, 50, logger.NewLogger(&logger.Config{Kind: "zerolog", Console: false}))
-
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	fileWriter, err := writer.CreateFormFile("wasm", "app.wasm")
-	require.NoError(t, err)
-	_, err = fileWriter.Write(wasmBytecode)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-
-	req := httptest.NewRequest(http.MethodPost, "/deploy/upload", &body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	rr := httptest.NewRecorder()
-	uploadAPI.HandleUpload(rr, req)
-	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
-
-	var uploadResp deployartifact.UploadResponse
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &uploadResp))
-
-	descriptor := common.DeployDescriptor{
-		Mode:              common.DeployModeArtifactRef,
-		ArtifactID:        uploadResp.ArtifactID,
-		WasmSHA256:        uploadResp.WasmSHA256,
-		ConstructorParams: constructorParams,
-	}
-	payload, err := json.Marshal(descriptor)
-	require.NoError(t, err)
-	return payload
-}
 
 // deploySimpleAppWithTokens deploys the simple app with an ERC-20 token allowlist.
 func deploySimpleAppWithTokens(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, wasmBytecode []byte, allowedTokens []string) {
