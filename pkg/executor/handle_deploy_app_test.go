@@ -266,3 +266,43 @@ func TestHandleDeployApp_Success(t *testing.T) {
 	total := new(big.Int).Add(refund, fee)
 	require.Equal(t, req.MaxFeeValue.ToInt().Cmp(total), 0, "refund + fee should equal MaxFeeValue")
 }
+
+// TestHandleDeployApp_WithConstructorParams verifies that constructor params
+// from the deploy descriptor are passed through to the runtime's Deploy method.
+func TestHandleDeployApp_WithConstructorParams(t *testing.T) {
+	runtime := NewMockRuntime(testLogger)
+	executor := newTestExecutor(t, runtime)
+
+	wasmModule := []byte("mock-wasm-bytecode")
+	sum := sha256.Sum256(wasmModule)
+	wasmSHA := hex.EncodeToString(sum[:])
+	artifactID, err := common.BuildArtifactID(wasmSHA)
+	require.NoError(t, err)
+
+	// Build deploy descriptor with constructor params
+	constructorParams := json.RawMessage(`{"allowedTokens":["0xdead000000000000000000000000000000000001"]}`)
+	payload, err := json.Marshal(common.DeployDescriptor{
+		Mode:              common.DeployModeArtifactRef,
+		ArtifactID:        artifactID,
+		WasmSHA256:        wasmSHA,
+		ConstructorParams: constructorParams,
+	})
+	require.NoError(t, err)
+
+	req := &common.Request{
+		ProtocolVersion: 0,
+		ApplicationID:   common.NewApplicationId(1),
+		RequestID:       commontestutil.GenerateRandomRequestID(),
+		RequestType:     common.Deploy,
+		Payload:         payload,
+		MaxFeeValue:     common.NewBig(1000),
+		AssetAmount:     common.NewBig(0),
+	}
+
+	updatePayload, newAppState, err := executor.HandleDeployApp(context.Background(), req, nil, wasmModule)
+	require.NoError(t, err)
+	require.NotNil(t, updatePayload)
+	require.NotNil(t, newAppState)
+	require.Equal(t, uint8(0), updatePayload.ErrorCode)
+	require.Empty(t, updatePayload.ErrorMsg)
+}
