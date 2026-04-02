@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN, REQUEST_TYPE_DEPLOYAPP } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -63,9 +64,16 @@ describe('ProcessorEndpoint Test', function () {
           .connect(signers[2])
           .submitDeployRequest(0, '0x01', { value: minFeePerRequest });
 
-        await processorEndpoint.submitRequest(0, applicationId, 1, '0x02', 0, minFeePerRequest, {
-          value: minFeePerRequest,
-        });
+        await processorEndpoint.submitRequest(
+          0,
+          applicationId,
+          1,
+          '0x02',
+          ETH_TOKEN,
+          0,
+          minFeePerRequest,
+          { value: minFeePerRequest }
+        );
 
         await expect(
           processorEndpoint
@@ -95,9 +103,9 @@ describe('ProcessorEndpoint Test', function () {
 
         expect(stored.requestId).to.equal(requestId);
         expect(stored.protocolVersion).to.equal(protocolVersion);
-        expect(stored.requestType).to.equal(0); // DEPLOYAPP
+        expect(stored.requestType).to.equal(REQUEST_TYPE_DEPLOYAPP); 
         expect(stored.payload).to.equal(payload);
-        expect(stored.depositAmount).to.equal(0);
+        expect(stored.assetAmount).to.equal(0);
         expect(stored.maxFeeValue).to.equal(maxFeeValue);
         expect(stored.sender).to.equal(await signers[2].getAddress());
       });
@@ -126,9 +134,9 @@ describe('ProcessorEndpoint Test', function () {
         expect(processorBalanceAfter).to.equal(processorBalanceBefore + maxFeeValue);
 
         // appLockedFunds should remain 0 for deploys (no deposit, fees tracked globally)
-        const requests = await processorEndpoint.getPendingRequests();
-        const deployAppId = requests[0].applicationId;
-        expect(await processorEndpoint.appLockedFunds(deployAppId)).to.equal(0n);
+        const [pendingReq] = await processorEndpoint.getNextPendingRequest();
+        const deployAppId = pendingReq.applicationId;
+        expect(await processorEndpoint.appCustody(deployAppId, ETH_TOKEN)).to.equal(0n);
       });
 
       it('enqueues the deploy request as a pending request', async () => {
@@ -138,7 +146,7 @@ describe('ProcessorEndpoint Test', function () {
 
         const requests = await processorEndpoint.getPendingRequests();
         expect(requests.length).to.equal(1);
-        expect(requests[0].requestType).to.equal(0); // DEPLOYAPP
+        expect(requests[0].requestType).to.equal(REQUEST_TYPE_DEPLOYAPP); 
       });
     });
   });

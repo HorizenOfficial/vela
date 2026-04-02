@@ -9,17 +9,26 @@ interface IProcessorEndpoint {
   /// @notice Emitted when a refund is sent to a requester.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
+  /// @param tokenAddress Token address (0x0 = ETH).
   /// @param to Refund recipient.
   /// @param amount Refunded amount.
-  event Refund(uint64 indexed applicationId, bytes32 indexed requestId, address to, uint256 amount);
+  event Refund(
+    uint64 indexed applicationId,
+    bytes32 indexed requestId,
+    address tokenAddress,
+    address to,
+    uint256 amount
+  );
   /// @notice Emitted when a withdrawal is executed.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
+  /// @param tokenAddress Token address (0x0 = ETH).
   /// @param to Withdrawal recipient.
   /// @param amount Withdrawal amount.
   event Withdrawal(
     uint64 indexed applicationId,
     bytes32 indexed requestId,
+    address tokenAddress,
     address to,
     uint256 amount
   );
@@ -104,9 +113,10 @@ interface IProcessorEndpoint {
   /// @param newFeeCollector New fee collector address.
   event FeeCollectorUpdated(address newFeeCollector);
   /// @notice Emitted when a payment is withdrawn.
+  /// @param tokenAddress Token address (0x0 = ETH).
   /// @param payee Address of the payee.
   /// @param amount Amount withdrawn.
-  event PaymentWithdrawn(address indexed payee, uint256 amount);
+  event PaymentWithdrawn(address tokenAddress, address indexed payee, uint256 amount);
 
   /// @notice A zero address was supplied where not allowed.
   error AddressCantBeZero();
@@ -142,13 +152,16 @@ interface IProcessorEndpoint {
   error TransferFailed();
   /// @notice The provided request type is not allowed.
   error InvalidRequestType();
+  /// @notice The received ERC-20 amount does not match the expected amount.
+  error TransferAmountMismatch();
 
   /// @notice Submits a new request and enqueues it for processing.
   /// @param protocolVersion Protocol version.
   /// @param applicationId Application identifier.
   /// @param requestType Request type.
   /// @param payload Request payload.
-  /// @param depositAmount Value forwarded for app logic.
+  /// @param tokenAddress Token address (0x0 = ETH).
+  /// @param assetAmount Business asset amount.
   /// @param maxFeeValue Maximum fee reserved for processing.
   /// @return requestId Generated request id.
   function submitRequest(
@@ -156,7 +169,8 @@ interface IProcessorEndpoint {
     uint64 applicationId,
     Structs.RequestType requestType,
     bytes calldata payload,
-    uint256 depositAmount,
+    address tokenAddress,
+    uint256 assetAmount,
     uint256 maxFeeValue
   ) external payable returns (bytes32);
 
@@ -258,7 +272,8 @@ interface IProcessorEndpoint {
   /// @param applicationId Application identifier.
   /// @param requestType Request type.
   /// @param payload Request payload.
-  /// @param depositAmount Value forwarded for app logic.
+  /// @param tokenAddress Token address (0x0 = ETH).
+  /// @param assetAmount Business asset amount.
   /// @param idx Queue index.
   /// @return requestId Derived request id.
   function generateRequestId(
@@ -266,16 +281,35 @@ interface IProcessorEndpoint {
     uint64 applicationId,
     Structs.RequestType requestType,
     bytes calldata payload,
-    uint256 depositAmount,
+    address tokenAddress,
+    uint256 assetAmount,
     uint256 idx
   ) external pure returns (bytes32);
 
-  /// @notice Returns the locked funds for a given application (includes residual credit from prior requests).
+  /// @notice Returns the custody balance for a given application and token.
   /// @param applicationId Application identifier.
-  /// @return amount Current locked funds for the application.
-  function appLockedFunds(uint64 applicationId) external view returns (uint256);
+  /// @param tokenAddress Token address (0x0 = ETH).
+  /// @return amount Current custody balance.
+  function appCustody(uint64 applicationId, address tokenAddress) external view returns (uint256);
 
-  /// @notice Withdraws pending payments for a given payee.
+  /// @notice Returns the total custody balance across all applications for a given token.
+  /// @param tokenAddress Token address (0x0 = ETH).
+  /// @return amount Total custody balance.
+  function totalAppCustody(address tokenAddress) external view returns (uint256);
+
+  /// @notice Returns the pending claim balance for a given token and payee.
+  /// @param tokenAddress Token address (0x0 = ETH).
   /// @param payee Payee address.
-  function withdrawPayments(address payable payee) external;
+  /// @return amount Pending claim balance.
+  function pendingClaims(address tokenAddress, address payee) external view returns (uint256);
+
+  /// @notice Returns the total pending claims for a given token.
+  /// @param tokenAddress Token address (0x0 = ETH).
+  /// @return amount Total pending claims.
+  function totalPendingClaims(address tokenAddress) external view returns (uint256);
+
+  /// @notice Claims pending balance for a given token and payee.
+  /// @param tokenAddress Token address (0x0 = ETH).
+  /// @param payee Payee address.
+  function claim(address tokenAddress, address payable payee) external;
 }

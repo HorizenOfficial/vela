@@ -1,7 +1,11 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { BYTES32_ZERO, getRequestIdFromReceipt as getRequestIdFromReceiptBase } from '../util';
+import {
+  ETH_TOKEN,
+  BYTES32_ZERO,
+  getRequestIdFromReceipt as getRequestIdFromReceiptBase,
+} from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -37,6 +41,7 @@ describe('ProcessorEndpoint Test', function () {
         applicationId,
         REQUEST_TYPE,
         payload,
+        ETH_TOKEN,
         depositAmount,
         maxFeeValue,
         { value: depositAmount + maxFeeValue }
@@ -57,7 +62,7 @@ describe('ProcessorEndpoint Test', function () {
       expect(pending.length).to.equal(2);
       expect(pending[0].requestId).to.equal(first.requestId);
       expect(pending[1].requestId).to.equal(second.requestId);
-      expect(pending[1].depositAmount).to.equal(5n);
+      expect(pending[1].assetAmount).to.equal(5n);
 
       const [nextPending, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
       expect(success).to.equal(true);
@@ -84,7 +89,7 @@ describe('ProcessorEndpoint Test', function () {
       const senderABalanceAfterSubmit = await senderA.provider!.getBalance(
         await senderA.getAddress()
       );
-      const senderAPendingAmountBefore = await processorEndpoint.payments(
+      const senderAPendingAmountBefore = await processorEndpoint.pendingClaims(ETH_TOKEN,
         await senderA.getAddress()
       );
 
@@ -112,7 +117,7 @@ describe('ProcessorEndpoint Test', function () {
       const senderABalanceAfterComplete = await senderA.provider!.getBalance(
         await senderA.getAddress()
       );
-      const senderAPendingAmountAfter = await processorEndpoint.payments(
+      const senderAPendingAmountAfter = await processorEndpoint.pendingClaims(ETH_TOKEN,
         await senderA.getAddress()
       );
       expect(senderABalanceAfterComplete - senderABalanceAfterSubmit).to.equal(0n);
@@ -124,7 +129,7 @@ describe('ProcessorEndpoint Test', function () {
       const senderBBalanceAfterSubmit = await senderB.provider!.getBalance(
         await senderB.getAddress()
       );
-      const senderBPendingAfterSubmit = await processorEndpoint.payments(
+      const senderBPendingAfterSubmit = await processorEndpoint.pendingClaims(ETH_TOKEN,
         await senderB.getAddress()
       );
       // Fail second request via stateUpdate with errorCode
@@ -148,13 +153,13 @@ describe('ProcessorEndpoint Test', function () {
       const expectedRefundB = second.depositAmount + (second.maxFeeValue - minFeePerRequest);
       await expect(failTx)
         .to.emit(processorEndpoint, 'Refund')
-        .withArgs(applicationId, second.requestId, await senderB.getAddress(), expectedRefundB);
+        .withArgs(applicationId, second.requestId, ETH_TOKEN, await senderB.getAddress(), expectedRefundB);
       await expect(failTx).to.emit(processorEndpoint, 'RequestCompleted');
 
       const senderBBalanceAfterFail = await senderB.provider!.getBalance(
         await senderB.getAddress()
       );
-      const senderBPendingAmountAfter = await processorEndpoint.payments(
+      const senderBPendingAmountAfter = await processorEndpoint.pendingClaims(ETH_TOKEN,
         await senderB.getAddress()
       );
       expect(senderBBalanceAfterFail - senderBBalanceAfterSubmit).to.equal(0n);

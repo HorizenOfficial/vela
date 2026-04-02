@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN, REQUEST_TYPE_ASSOCIATEKEY, REQUEST_TYPE_DEANONYMIZATION, REQUEST_TYPE_DEPLOYAPP, REQUEST_TYPE_PROCESS } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -8,11 +9,6 @@ describe('ProcessorEndpoint Test', function () {
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let applicationId: bigint;
-
-  const REQUEST_TYPE_DEPLOYAPP = 0;
-  const REQUEST_TYPE_PROCESS = 1;
-  const REQUEST_TYPE_DEANONYMIZATION = 2;
-  const REQUEST_TYPE_ASSOCIATEKEY = 3;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
@@ -32,6 +28,7 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             REQUEST_TYPE_PROCESS,
             '0x01',
+            ETH_TOKEN,
             0,
             minFeePerRequest,
             {
@@ -48,6 +45,7 @@ describe('ProcessorEndpoint Test', function () {
             999,
             REQUEST_TYPE_PROCESS,
             '0x01',
+            ETH_TOKEN,
             0,
             minFeePerRequest,
             {
@@ -57,27 +55,48 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidApplicationId');
       });
 
-      it('reverts with InvalidValue when msg.value != depositAmount + maxFeeValue', async () => {
+      it('reverts with InvalidValue when msg.value != assetAmount + maxFeeValue', async () => {
         await expect(
-          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 1, 2, {
-            value: 2,
-          })
+          processorEndpoint.submitRequest(
+            0,
+            applicationId,
+            REQUEST_TYPE_PROCESS,
+            '0x01',
+            ETH_TOKEN,
+            1,
+            minFeePerRequest,
+            { value: minFeePerRequest }
+          )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
-      it('reverts with InvalidValue when msg.value is less than depositAmount + maxFeeValue', async () => {
+      it('reverts with InvalidValue when msg.value is less than assetAmount + maxFeeValue', async () => {
         await expect(
-          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 2, 2, {
-            value: 3,
-          })
+          processorEndpoint.submitRequest(
+            0,
+            applicationId,
+            REQUEST_TYPE_PROCESS,
+            '0x01',
+            ETH_TOKEN,
+            2,
+            minFeePerRequest,
+            { value: minFeePerRequest }
+          )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
-      it('reverts with InvalidValue when msg.value is greater than depositAmount + maxFeeValue', async () => {
+      it('reverts with InvalidValue when msg.value is greater than assetAmount + maxFeeValue', async () => {
         await expect(
-          processorEndpoint.submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', 1, 2, {
-            value: 4,
-          })
+          processorEndpoint.submitRequest(
+            0,
+            applicationId,
+            REQUEST_TYPE_PROCESS,
+            '0x01',
+            ETH_TOKEN,
+            1,
+            minFeePerRequest,
+            { value: minFeePerRequest + 2n }
+          )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
@@ -88,6 +107,7 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             REQUEST_TYPE_PROCESS,
             '0x01',
+            ETH_TOKEN,
             0,
             minFeePerRequest - 1n,
             { value: minFeePerRequest - 1n }
@@ -103,6 +123,7 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           REQUEST_TYPE_PROCESS,
           '0x01',
+          ETH_TOKEN,
           0,
           minFeePerRequest,
           { value: minFeePerRequest }
@@ -114,6 +135,7 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             REQUEST_TYPE_PROCESS,
             '0x02',
+            ETH_TOKEN,
             0,
             minFeePerRequest,
             {
@@ -130,6 +152,7 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             REQUEST_TYPE_ASSOCIATEKEY,
             '0x11',
+            ETH_TOKEN,
             0,
             minFeePerRequest,
             { value: minFeePerRequest }
@@ -144,6 +167,7 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             REQUEST_TYPE_DEANONYMIZATION,
             '0x01',
+            ETH_TOKEN,
             0,
             minFeePerRequest,
             { value: minFeePerRequest }
@@ -155,9 +179,16 @@ describe('ProcessorEndpoint Test', function () {
         await expect(
           processorEndpoint
             .connect(signers[2])
-            .submitRequest(0, applicationId, REQUEST_TYPE_DEPLOYAPP, '0x01', 0, minFeePerRequest, {
-              value: minFeePerRequest,
-            })
+            .submitRequest(
+              0,
+              applicationId,
+              REQUEST_TYPE_DEPLOYAPP,
+              '0x01',
+              ETH_TOKEN,
+              0,
+              minFeePerRequest,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestType');
       });
     });
@@ -167,7 +198,7 @@ describe('ProcessorEndpoint Test', function () {
         const protocolVersion = 0;
         const requestType = REQUEST_TYPE_PROCESS;
         const payload = '0x01';
-        const depositAmount = 5n;
+        const assetAmount = 5n;
         const maxFeeValue = minFeePerRequest;
 
         const tx = await processorEndpoint.submitRequest(
@@ -175,9 +206,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
 
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
@@ -191,7 +223,8 @@ describe('ProcessorEndpoint Test', function () {
         expect(stored.applicationId).to.equal(applicationId);
         expect(stored.requestType).to.equal(requestType);
         expect(stored.payload).to.equal(payload);
-        expect(stored.depositAmount).to.equal(depositAmount);
+        expect(stored.tokenAddress).to.equal(ETH_TOKEN);
+        expect(stored.assetAmount).to.equal(assetAmount);
         expect(stored.maxFeeValue).to.equal(maxFeeValue);
         expect(stored.sender).to.equal(await signers[0].getAddress());
       });
@@ -199,7 +232,7 @@ describe('ProcessorEndpoint Test', function () {
       it('updates balances when request includes a deposit and fee', async () => {
         const protocolVersion = 0;
         const requestType = REQUEST_TYPE_PROCESS;
-        const depositAmount = 100n;
+        const assetAmount = 100n;
         const maxFeeValue = minFeePerRequest;
 
         const processorBalanceBefore = await signers[0].provider!.getBalance(
@@ -214,9 +247,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x02',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         const receipt = await tx.wait();
         const gasCost = receipt.gasUsed * receipt.gasPrice;
@@ -229,14 +263,12 @@ describe('ProcessorEndpoint Test', function () {
         );
 
         expect(userBalanceAfter).to.equal(
-          userBalanceBefore - gasCost - (depositAmount + maxFeeValue)
+          userBalanceBefore - gasCost - (assetAmount + maxFeeValue)
         );
-        expect(processorBalanceAfter).to.equal(
-          processorBalanceBefore + depositAmount + maxFeeValue
-        );
+        expect(processorBalanceAfter).to.equal(processorBalanceBefore + assetAmount + maxFeeValue);
 
-        // appLockedFunds should increase by depositAmount only (fees tracked globally)
-        expect(await processorEndpoint.appLockedFunds(applicationId)).to.equal(depositAmount);
+        // appLockedFunds should increase by assetAmount only (fees tracked globally)
+        expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(assetAmount);
       });
 
       it('accepts non-deanonymization requests (PROCESS/ASSOCIATEKEY) and enqueues', async () => {
@@ -248,6 +280,7 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           REQUEST_TYPE_PROCESS,
           '0x02',
+          ETH_TOKEN,
           0,
           maxFeeValue,
           {
@@ -259,6 +292,7 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           REQUEST_TYPE_ASSOCIATEKEY,
           associatePayload,
+          ETH_TOKEN,
           0,
           maxFeeValue,
           { value: maxFeeValue }
@@ -276,6 +310,7 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           REQUEST_TYPE_PROCESS,
           '0x01',
+          ETH_TOKEN,
           0,
           minFeePerRequest,
           { value: minFeePerRequest }
@@ -293,6 +328,7 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           REQUEST_TYPE_ASSOCIATEKEY,
           payload,
+          ETH_TOKEN,
           0,
           minFeePerRequest,
           { value: minFeePerRequest }
@@ -310,6 +346,7 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           REQUEST_TYPE_ASSOCIATEKEY,
           payload,
+          ETH_TOKEN,
           0,
           minFeePerRequest,
           { value: minFeePerRequest }
@@ -331,6 +368,7 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             REQUEST_TYPE_DEANONYMIZATION,
             '0x01',
+            ETH_TOKEN,
             0,
             minFeePerRequest,
             {
