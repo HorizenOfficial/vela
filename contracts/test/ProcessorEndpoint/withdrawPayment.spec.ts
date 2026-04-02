@@ -63,17 +63,23 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         // Verify funds are in pending deposits
-        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,await fallbackFailure.getAddress());
+        let pendingAmount = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          await fallbackFailure.getAddress()
+        );
         expect(pendingAmount).eql(100n);
 
         // When someone tries to withdraw for FallbackFailure, it will fail
         // but the contract operation (stateUpdate with error) succeeded
         await expect(
-          processorEndpoint.claim(ETH_TOKEN,await fallbackFailure.getAddress())
+          processorEndpoint.claim(ETH_TOKEN, await fallbackFailure.getAddress())
         ).to.be.revertedWithCustomError(processorEndpoint, 'TransferFailed');
 
         // Funds remain in pending for FallbackFailure
-        pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,await fallbackFailure.getAddress());
+        pendingAmount = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          await fallbackFailure.getAddress()
+        );
         expect(pendingAmount).eql(100n);
       });
 
@@ -139,7 +145,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.applicationStateRoots(applicationId)).eql(newStateRoot);
 
         // Funds should be in pending for FallbackFailure
-        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,fallbackAddr);
+        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN, fallbackAddr);
         expect(pendingAmount).eql(50n);
       });
     });
@@ -183,7 +189,10 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         // Check pending amount for signer[2]
-        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,await signers[2].getAddress());
+        let pendingAmount = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          await signers[2].getAddress()
+        );
         expect(pendingAmount).eql(100n); // depositAmount + (maxFeeValue - minFeePerRequest) = 100 + 0 = 100
 
         // signer[3] (not the payee) can trigger withdrawal for signer[2]
@@ -197,7 +206,9 @@ describe('ProcessorEndpoint Test', function () {
         let balanceAfter = await ethers.provider.getBalance(await signers[2].getAddress());
 
         expect(balanceAfter).eql(balanceBefore + 100n);
-        expect(await processorEndpoint.pendingClaims(ETH_TOKEN,await signers[2].getAddress())).eql(0n);
+        expect(await processorEndpoint.pendingClaims(ETH_TOKEN, await signers[2].getAddress())).eql(
+          0n
+        );
 
         // withdrawPayments must not affect appLockedFunds (orthogonal systems)
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
@@ -205,7 +216,7 @@ describe('ProcessorEndpoint Test', function () {
 
       it('should not revert withdrawPayments if no pending amount', async function () {
         // This should not revert, just do nothing
-        await processorEndpoint.claim(ETH_TOKEN,await signers[5].getAddress());
+        await processorEndpoint.claim(ETH_TOKEN, await signers[5].getAddress());
       });
 
       it('should accumulate multiple credits for same address', async function () {
@@ -278,7 +289,10 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         // Check accumulated pending: 50 + 60 = 110
-        let pendingAmount = await processorEndpoint.pendingClaims(ETH_TOKEN,await signers[2].getAddress());
+        let pendingAmount = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          await signers[2].getAddress()
+        );
         expect(pendingAmount).eql(110n);
       });
     });

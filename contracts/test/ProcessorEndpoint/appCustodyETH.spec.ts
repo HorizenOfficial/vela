@@ -2,7 +2,13 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt, PROTOCOL_VERSION, REQUEST_TYPE_PROCESS } from '../util';
+import {
+  ETH_TOKEN,
+  BYTES32_ZERO,
+  getRequestIdFromReceipt,
+  PROTOCOL_VERSION,
+  REQUEST_TYPE_PROCESS,
+} from '../util';
 
 describe('ProcessorEndpoint — appCustody', function () {
   let processorEndpoint: any;

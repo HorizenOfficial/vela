@@ -2,7 +2,12 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, getRequestIdFromReceipt, PROTOCOL_VERSION, REQUEST_TYPE_PROCESS } from '../util';
+import {
+  ETH_TOKEN,
+  getRequestIdFromReceipt,
+  PROTOCOL_VERSION,
+  REQUEST_TYPE_PROCESS,
+} from '../util';
 
 describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
   let processorEndpoint: any;
@@ -38,9 +43,18 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
 
     const tx = await processorEndpoint
       .connect(sender)
-      .submitRequest(PROTOCOL_VERSION, appId ?? applicationId, REQUEST_TYPE_PROCESS, payload, tokenAddr, assetAmount, maxFeeValue, {
-        value: maxFeeValue,
-      });
+      .submitRequest(
+        PROTOCOL_VERSION,
+        appId ?? applicationId,
+        REQUEST_TYPE_PROCESS,
+        payload,
+        tokenAddr,
+        assetAmount,
+        maxFeeValue,
+        {
+          value: maxFeeValue,
+        }
+      );
     const receipt = await tx.wait();
     const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
     return { requestId };
@@ -57,7 +71,20 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
   ) {
     return processorEndpoint
       .connect(signers[1])
-      .stateUpdate(appId ?? applicationId, prevStateRoot, newStateRoot, requestId, [], [], withdrawals, refund, applicationFees, 0, '', '0x');
+      .stateUpdate(
+        appId ?? applicationId,
+        prevStateRoot,
+        newStateRoot,
+        requestId,
+        [],
+        [],
+        withdrawals,
+        refund,
+        applicationFees,
+        0,
+        '',
+        '0x'
+      );
   }
 
   describe('ERC-20 withdrawal solvency', function () {
@@ -68,17 +95,14 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
 
       const req = await submitERC20Request(signers[0], '0x01', assetAmount, maxFee);
 
-      await completeRequest(
-        req.requestId,
-        INITIAL_STATE_ROOT,
-        '0x' + 'aa'.repeat(32),
-        0n,
-        maxFee,
-        [[tokenAddr, await signers[3].getAddress(), assetAmount]]
-      );
+      await completeRequest(req.requestId, INITIAL_STATE_ROOT, '0x' + 'aa'.repeat(32), 0n, maxFee, [
+        [tokenAddr, await signers[3].getAddress(), assetAmount],
+      ]);
 
       expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(0n);
-      expect(await processorEndpoint.pendingClaims(tokenAddr, await signers[3].getAddress())).to.equal(assetAmount);
+      expect(
+        await processorEndpoint.pendingClaims(tokenAddr, await signers[3].getAddress())
+      ).to.equal(assetAmount);
     });
 
     it('reverts with InsufficientBalance when ERC-20 token balance is artificially drained', async () => {
@@ -98,14 +122,9 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
       // For the direct global solvency test, we would need the contract to somehow
       // lose tokens. Since we can't do that easily, let's verify the check exists
       // by confirming a successful withdrawal then claiming works end-to-end.
-      await completeRequest(
-        req.requestId,
-        INITIAL_STATE_ROOT,
-        '0x' + 'bb'.repeat(32),
-        0n,
-        maxFee,
-        [[tokenAddr, await signers[3].getAddress(), assetAmount]]
-      );
+      await completeRequest(req.requestId, INITIAL_STATE_ROOT, '0x' + 'bb'.repeat(32), 0n, maxFee, [
+        [tokenAddr, await signers[3].getAddress(), assetAmount],
+      ]);
 
       // Claim the ERC-20 tokens
       const payee = await signers[3].getAddress();
@@ -136,14 +155,7 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
       const ethReqId = getRequestIdFromReceipt(processorEndpoint, ethReceipt);
 
       // Complete ETH request to free queue, with no withdrawals
-      await completeRequest(
-        ethReqId,
-        INITIAL_STATE_ROOT,
-        '0x' + 'c1'.repeat(32),
-        0n,
-        maxFee,
-        []
-      );
+      await completeRequest(ethReqId, INITIAL_STATE_ROOT, '0x' + 'c1'.repeat(32), 0n, maxFee, []);
 
       // Submit ERC-20 request
       const erc20Req = await submitERC20Request(signers[0], '0x11', erc20Deposit, maxFee);
@@ -160,9 +172,13 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
       );
 
       // Verify pending claims
-      expect(await processorEndpoint.pendingClaims(tokenAddr, await signers[4].getAddress())).to.equal(erc20Withdrawal);
+      expect(
+        await processorEndpoint.pendingClaims(tokenAddr, await signers[4].getAddress())
+      ).to.equal(erc20Withdrawal);
       // Remaining ERC-20 custody
-      expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(erc20Deposit - erc20Withdrawal);
+      expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(
+        erc20Deposit - erc20Withdrawal
+      );
     });
 
     it('cross-app: two apps with ERC-20, both withdraw within their custody', async () => {
@@ -198,8 +214,12 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
       );
 
       // Both pending claims exist
-      expect(await processorEndpoint.pendingClaims(tokenAddr, await signers[3].getAddress())).to.equal(depositA);
-      expect(await processorEndpoint.pendingClaims(tokenAddr, await signers[4].getAddress())).to.equal(depositB);
+      expect(
+        await processorEndpoint.pendingClaims(tokenAddr, await signers[3].getAddress())
+      ).to.equal(depositA);
+      expect(
+        await processorEndpoint.pendingClaims(tokenAddr, await signers[4].getAddress())
+      ).to.equal(depositB);
 
       // Both can claim
       const payeeA = await signers[3].getAddress();

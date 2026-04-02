@@ -121,7 +121,9 @@ describe('ProcessorEndpoint Test', function () {
         const withdrawalAmount = 150n;
 
         await mockERC20.mint(await signers[0].getAddress(), assetAmount);
-        await mockERC20.connect(signers[0]).approve(await processorEndpoint.getAddress(), assetAmount);
+        await mockERC20
+          .connect(signers[0])
+          .approve(await processorEndpoint.getAddress(), assetAmount);
 
         const submitTx = await processorEndpoint.submitRequest(
           0,

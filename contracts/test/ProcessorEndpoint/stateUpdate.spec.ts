@@ -2,7 +2,13 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt, REQUEST_TYPE_PROCESS, PROTOCOL_VERSION } from '../util';
+import {
+  ETH_TOKEN,
+  BYTES32_ZERO,
+  getRequestIdFromReceipt,
+  REQUEST_TYPE_PROCESS,
+  PROTOCOL_VERSION,
+} from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
 describe('ProcessorEndpoint Test', function () {
@@ -531,11 +537,22 @@ describe('ProcessorEndpoint Test', function () {
         );
         const sender = await signers[0].getAddress();
         // With pull pattern, funds are credited to pending deposits
-        const senderPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(ETH_TOKEN,sender);
-        const balanceAPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalA);
-        const balanceBPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalB);
+        const senderPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          sender
+        );
+        const balanceAPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          withdrawalA
+        );
+        const balanceBPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          withdrawalB
+        );
 
-        expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(depositAmount);
+        expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(
+          depositAmount
+        );
 
         const withdrawalAAmount = 15n;
         const withdrawalBAmount = 5n;
@@ -581,12 +598,25 @@ describe('ProcessorEndpoint Test', function () {
           .to.emit(processorEndpoint, 'Withdrawal')
           .withArgs(applicationId, request.requestId, ETH_TOKEN, withdrawalB, withdrawalBAmount);
 
-        const senderPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(ETH_TOKEN,sender);
-        const balanceAPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalA);
-        const balanceBPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalB);
+        const senderPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          sender
+        );
+        const balanceAPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          withdrawalA
+        );
+        const balanceBPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          withdrawalB
+        );
         expect(senderPendingAmountAfterUpdate - senderPendingAmountAfterSubmit).to.equal(refund);
-        expect(balanceAPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(withdrawalAAmount);
-        expect(balanceBPendingAmountAfterUpdate - balanceBPendingAmountAfterSubmit).to.equal(withdrawalBAmount);
+        expect(balanceAPendingAmountAfterUpdate - balanceAPendingAmountAfterSubmit).to.equal(
+          withdrawalAAmount
+        );
+        expect(balanceBPendingAmountAfterUpdate - balanceBPendingAmountAfterSubmit).to.equal(
+          withdrawalBAmount
+        );
 
         // appLockedFunds: credited depositAmount(20), debited withdrawals(15+5) = 20, so should be 0
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);

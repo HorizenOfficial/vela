@@ -70,7 +70,10 @@ describe('ProcessorEndpoint Test', function () {
 
         const { requestId, applicationId: appId, maxFeeValue } = await submitBasicRequest('0x01');
         // With pull pattern, funds are credited to pending deposits
-        const collectorPendingAmountBefore = await processorEndpoint.pendingClaims(ETH_TOKEN,newCollector);
+        const collectorPendingAmountBefore = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          newCollector
+        );
 
         await processorEndpoint
           .connect(signers[1])
@@ -89,7 +92,10 @@ describe('ProcessorEndpoint Test', function () {
             '0x'
           );
 
-        const collectorPendingAmountAfter = await processorEndpoint.pendingClaims(ETH_TOKEN,newCollector);
+        const collectorPendingAmountAfter = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          newCollector
+        );
         expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(maxFeeValue);
       });
 
@@ -99,7 +105,10 @@ describe('ProcessorEndpoint Test', function () {
 
         const { requestId, applicationId: appId } = await submitBasicRequest('0x02');
         // With pull pattern, funds are credited to pending deposits
-        const collectorPendingAmountBefore = await processorEndpoint.pendingClaims(ETH_TOKEN,newCollector);
+        const collectorPendingAmountBefore = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          newCollector
+        );
 
         const currentStateRoot = await processorEndpoint.applicationStateRoots(appId);
         // Fail request via stateUpdate with errorCode
@@ -120,7 +129,10 @@ describe('ProcessorEndpoint Test', function () {
             '0x'
           );
 
-        const collectorPendingAmountAfter = await processorEndpoint.pendingClaims(ETH_TOKEN,newCollector);
+        const collectorPendingAmountAfter = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          newCollector
+        );
         expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(
           minFeePerRequest
         );
@@ -132,7 +144,10 @@ describe('ProcessorEndpoint Test', function () {
 
         const { requestId, applicationId: appId, maxFeeValue } = await submitBasicRequest('0x03');
         // With pull pattern, funds are credited to pending deposits
-        const collectorPendingAmountBefore = await processorEndpoint.pendingClaims(ETH_TOKEN,newCollector);
+        const collectorPendingAmountBefore = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          newCollector
+        );
 
         await processorEndpoint
           .connect(signers[1])
@@ -151,7 +166,10 @@ describe('ProcessorEndpoint Test', function () {
             '0x'
           );
 
-        const collectorPendingAmountAfter = await processorEndpoint.pendingClaims(ETH_TOKEN,newCollector);
+        const collectorPendingAmountAfter = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          newCollector
+        );
         expect(collectorPendingAmountAfter - collectorPendingAmountBefore).to.equal(maxFeeValue);
       });
     });

@@ -1,7 +1,13 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
-import { ETH_TOKEN, REQUEST_TYPE_ASSOCIATEKEY, REQUEST_TYPE_DEANONYMIZATION, REQUEST_TYPE_DEPLOYAPP, REQUEST_TYPE_PROCESS } from '../util';
+import {
+  ETH_TOKEN,
+  REQUEST_TYPE_ASSOCIATEKEY,
+  REQUEST_TYPE_DEANONYMIZATION,
+  REQUEST_TYPE_DEPLOYAPP,
+  REQUEST_TYPE_PROCESS,
+} from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;

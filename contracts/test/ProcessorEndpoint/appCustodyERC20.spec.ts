@@ -2,7 +2,12 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, getRequestIdFromReceipt, PROTOCOL_VERSION, REQUEST_TYPE_PROCESS } from '../util';
+import {
+  ETH_TOKEN,
+  getRequestIdFromReceipt,
+  PROTOCOL_VERSION,
+  REQUEST_TYPE_PROCESS,
+} from '../util';
 
 describe('ProcessorEndpoint — appCustody ERC-20', function () {
   let processorEndpoint: any;
@@ -116,8 +121,12 @@ describe('ProcessorEndpoint — appCustody ERC-20', function () {
 
       await submitERC20Request(signers[0], '0x01', assetAmount, minFeePerRequest);
 
-      expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(appCustodyBefore + assetAmount);
-      expect(await processorEndpoint.totalAppCustody(tokenAddr)).to.equal(totalAppCustodyBefore + assetAmount);
+      expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(
+        appCustodyBefore + assetAmount
+      );
+      expect(await processorEndpoint.totalAppCustody(tokenAddr)).to.equal(
+        totalAppCustodyBefore + assetAmount
+      );
     });
 
     it('does not affect ETH custody when depositing ERC-20', async () => {
@@ -127,7 +136,9 @@ describe('ProcessorEndpoint — appCustody ERC-20', function () {
 
       await submitERC20Request(signers[0], '0x01', assetAmount, minFeePerRequest);
 
-      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(appCustodyBefore);
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(
+        appCustodyBefore
+      );
       expect(await processorEndpoint.totalAppCustody(ETH_TOKEN)).to.equal(totalAppCustodyBefore);
     });
 
@@ -140,14 +151,9 @@ describe('ProcessorEndpoint — appCustody ERC-20', function () {
       expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(assetAmount);
 
       const withdrawalAmount = 60n;
-      await completeRequest(
-        req.requestId,
-        INITIAL_STATE_ROOT,
-        '0x' + 'ee'.repeat(32),
-        0n,
-        maxFee,
-        [[tokenAddr, await signers[3].getAddress(), withdrawalAmount]]
-      );
+      await completeRequest(req.requestId, INITIAL_STATE_ROOT, '0x' + 'ee'.repeat(32), 0n, maxFee, [
+        [tokenAddr, await signers[3].getAddress(), withdrawalAmount],
+      ]);
 
       expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(
         assetAmount - withdrawalAmount
