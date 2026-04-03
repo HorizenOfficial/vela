@@ -41,6 +41,7 @@ contract Structs {
     bytes32 requestId; //assigned automatically
     bytes payload;
     address sender; //assigned automatically
+    address facilitator; // address(0) for direct submissions, facilitator address for meta-tx
     uint64 applicationId;
     uint8 protocolVersion;
     RequestType requestType;

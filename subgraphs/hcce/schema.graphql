@@ -3,6 +3,7 @@ type RequestSubmitted @entity(immutable: true) {
   applicationId: BigInt!
   requestId: Bytes!
   sender: Bytes!
+  facilitator: Bytes!
   blockNumber: BigInt!
   blockTimestamp: BigInt!
 }

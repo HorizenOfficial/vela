@@ -36,7 +36,8 @@ interface IProcessorEndpoint {
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
   /// @param sender Request sender.
-  event RequestSubmitted(uint64 indexed applicationId, bytes32 requestId, address indexed sender);
+  /// @param facilitator Facilitator address (address(0) for direct submissions).
+  event RequestSubmitted(uint64 indexed applicationId, bytes32 requestId, address indexed sender, address facilitator);
   /// @notice Emitted when a new deploy request enters the queue.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
@@ -154,6 +155,12 @@ interface IProcessorEndpoint {
   error InvalidRequestType();
   /// @notice The received ERC-20 amount does not match the expected amount.
   error TransferAmountMismatch();
+  /// @notice The request authorization deadline has expired.
+  error DeadlineExpired();
+  /// @notice The recovered signer does not match the declared sender (used for facilitator requests).
+  error InvalidSigner();
+  /// @notice The deposit permit bytes are invalid or missing when required (used for facilitator requests).
+  error InvalidPermit();
 
   /// @notice Submits a new request and enqueues it for processing.
   /// @param protocolVersion Protocol version.
@@ -173,6 +180,38 @@ interface IProcessorEndpoint {
     uint256 assetAmount,
     uint256 maxFeeValue
   ) external payable returns (bytes32);
+
+  /// @notice Submits a request on behalf of a user (meta-transaction / facilitator pattern).
+  /// @dev The facilitator (msg.sender) pays gas and maxFeeValue in ETH.
+  ///      The user authorizes the request via an EIP-712 signature and the deposit via EIP-2612 permit.
+  /// @param sender User address (must match recovered signer from requestSignature).
+  /// @param protocolVersion Protocol version.
+  /// @param applicationId Application identifier.
+  /// @param requestType Request type (only ASSOCIATEKEY and PROCESS supported).
+  /// @param payload Request payload.
+  /// @param tokenAddress ERC-20 token address for business-asset deposit.
+  /// @param assetAmount Business asset deposit amount (0 if no deposit).
+  /// @param deadline Expiration timestamp for signatures.
+  /// @param requestSignature EIP-712 request authorization signature from the user.
+  /// @param depositPermit ABI-encoded EIP-2612 permit (v, r, s). Empty if assetAmount == 0.
+  /// @return requestId Generated request id.
+  function submitRequestFor(
+    address sender,
+    uint8 protocolVersion,
+    uint64 applicationId,
+    Structs.RequestType requestType,
+    bytes calldata payload,
+    address tokenAddress,
+    uint256 assetAmount,
+    uint256 deadline,
+    bytes calldata requestSignature,
+    bytes calldata depositPermit
+  ) external payable returns (bytes32);
+
+  /// @notice Returns the current facilitator nonce for a user.
+  /// @param user User address.
+  /// @return nonce Current nonce value.
+  function getFacilitatorNonce(address user) external view returns (uint256);
 
   /// @notice Submits a new deploy request and enqueues it for processing.
   /// @param protocolVersion Protocol version.

@@ -17,6 +17,7 @@ export function handleRequestSubmitted(event: RequestSubmittedEvent): void {
   entity.applicationId = event.params.applicationId;
   entity.requestId = event.params.requestId;
   entity.sender = event.params.sender;
+  entity.facilitator = event.params.facilitator;
   entity.blockNumber = event.block.number;
   entity.blockTimestamp = event.block.timestamp;
 
