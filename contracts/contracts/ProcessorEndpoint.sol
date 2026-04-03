@@ -5,6 +5,10 @@ import '@openzeppelin/contracts/access/AccessControl.sol';
 import '@openzeppelin/contracts/utils/ReentrancyGuard.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
+import '@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol';
+import '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
+import '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
+import '@openzeppelin/contracts/utils/Strings.sol';
 
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
@@ -14,7 +18,7 @@ import './Structs.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuard {
+contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuard, EIP712 {
   using SafeERC20 for IERC20;
 
   //constants
@@ -49,6 +53,15 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   uint256 public minFeePerRequest;
   address payable public feeCollector;
 
+  // EIP-712 typehash for facilitator request authorization
+  bytes32 public constant REQUEST_AUTHORIZATION_TYPEHASH =
+    keccak256(
+      'RequestAuthorization(address sender,uint8 protocolVersion,uint64 applicationId,uint8 requestType,bytes32 payloadHash,address tokenAddress,uint256 assetAmount,uint256 nonce,uint256 deadline)'
+    );
+
+  // Sequential nonces per user for facilitator replay protection
+  mapping(address => uint256) public facilitatorNonces;
+
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
     _;
@@ -70,9 +83,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     address updateStatusOperator,
     address admin,
     uint256 _minFeePerRequest
-  ) {
+  ) EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {
     if (
-      _teeAuthenticator == ITeeAuthenticator(address(0)) ||
+      address(_teeAuthenticator) == address(0) ||
       address(_authorityRegistry) == address(0) ||
       updateStatusOperator == address(0) ||
       admin == address(0)
@@ -155,6 +168,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       requestId: requestId,
       payload: payload,
       sender: msg.sender,
+      facilitator: address(0),
       applicationId: applicationId,
       protocolVersion: protocolVersion,
       requestType: requestType
@@ -168,9 +182,140 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     }
 
     //emit event
-    emit RequestSubmitted(applicationId, requestId, msg.sender);
+    emit RequestSubmitted(applicationId, requestId, msg.sender, address(0));
 
     return requestId;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function submitRequestFor(
+    address sender,
+    uint8 protocolVersion,
+    uint64 applicationId,
+    Structs.RequestType requestType,
+    bytes calldata payload,
+    address tokenAddress,
+    uint256 assetAmount,
+    uint256 deadline,
+    bytes calldata requestSignature,
+    bytes calldata depositPermit
+  )
+    external
+    payable
+    validProtocolVersion(protocolVersion)
+    validApplicationId(applicationId)
+    nonReentrant
+    returns (bytes32)
+  {
+    // 1. Only ASSOCIATEKEY and PROCESS are supported
+    if (
+      requestType != Structs.RequestType.ASSOCIATEKEY &&
+      requestType != Structs.RequestType.PROCESS
+    ) revert InvalidRequestType();
+
+    // 2. Verify deadline not expired
+    if (block.timestamp > deadline) revert DeadlineExpired();
+
+    // 3. Read current nonce and build EIP-712 hash
+    uint256 nonce = facilitatorNonces[sender];
+    bytes32 structHash = keccak256(
+      abi.encode(
+        REQUEST_AUTHORIZATION_TYPEHASH,
+        sender,
+        protocolVersion,
+        applicationId,
+        uint8(requestType),
+        keccak256(payload),
+        tokenAddress,
+        assetAmount,
+        nonce,
+        deadline
+      )
+    );
+    bytes32 digest = _hashTypedDataV4(structHash);
+
+    // 4. Recover user address from EIP-712 request signature and verify
+    address recoveredSigner = ECDSA.recover(digest, requestSignature);
+    if (recoveredSigner == address(0)) revert InvalidSignature();
+    if (recoveredSigner != sender) revert InvalidSigner();
+
+    // 5. Consume nonce (replay protection)
+    facilitatorNonces[sender] = nonce + 1;
+
+    // 6. Validate fee
+    uint256 maxFeeValue = msg.value;
+    if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
+
+    // 7. Validate token and handle deposit
+    if (assetAmount > 0) {
+      if (tokenAddress == ETH_TOKEN) revert InvalidValue();
+      if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
+
+      // Decode deposit permit and execute EIP-2612 permit + transferFrom
+      if (depositPermit.length != 96) revert InvalidPermit();
+      (uint8 v, bytes32 r, bytes32 s) = abi.decode(depositPermit, (uint8, bytes32, bytes32));
+
+      // Check current allowance before calling permit
+      IERC20 token = IERC20(tokenAddress);
+      if (token.allowance(sender, address(this)) < assetAmount) {
+        IERC20Permit(tokenAddress).permit(sender, address(this), assetAmount, deadline, v, r, s);
+      }
+
+      uint256 balanceBefore = token.balanceOf(address(this));
+      token.safeTransferFrom(sender, address(this), assetAmount);
+      uint256 received = token.balanceOf(address(this)) - balanceBefore;
+      if (received != assetAmount) revert TransferAmountMismatch();
+
+      appCustody[applicationId][tokenAddress] += assetAmount;
+      totalAppCustody[tokenAddress] += assetAmount;
+    }
+
+    // 8. Check queue size
+    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
+
+    // 9. Validate payload for ASSOCIATEKEY
+    if (requestType == Structs.RequestType.ASSOCIATEKEY) {
+      if (payload.length != 133 && payload.length != 226) revert InvalidPayload();
+    }
+
+    // 10. Create PendingRequest with sender = user (not msg.sender)
+    bytes32 requestId = generateRequestId(
+      sender,
+      applicationId,
+      requestType,
+      payload,
+      tokenAddress,
+      assetAmount,
+      _tail
+    );
+    requestById[requestId] = Structs.PendingRequest({
+      timestamp: block.timestamp,
+      tokenAddress: tokenAddress,
+      assetAmount: assetAmount,
+      maxFeeValue: maxFeeValue,
+      requestId: requestId,
+      payload: payload,
+      sender: sender,
+      facilitator: msg.sender,
+      applicationId: applicationId,
+      protocolVersion: protocolVersion,
+      requestType: requestType
+    });
+    _requestIdByOrder[_tail] = requestId;
+
+    unchecked {
+      ++_tail;
+    }
+
+    // 11. Emit event with user address
+    emit RequestSubmitted(applicationId, requestId, sender, msg.sender);
+
+    return requestId;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function getFacilitatorNonce(address user) external view returns (uint256) {
+    return facilitatorNonces[user];
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -207,6 +352,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       requestId: requestId,
       payload: payload,
       sender: msg.sender,
+      facilitator: address(0),
       applicationId: applicationId,
       protocolVersion: protocolVersion,
       requestType: requestType
@@ -369,6 +515,10 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     uint256 maxFeeValue = requestInfo.maxFeeValue;
     address payable sender = payable(requestInfo.sender);
+    // Fee refund recipient: facilitator if present, otherwise sender
+    address payable feeRecipient = requestInfo.facilitator != address(0)
+      ? payable(requestInfo.facilitator)
+      : sender;
 
     // Handle error case (signed error payload from TEE)
     if (errorCode != Structs.ErrorCode.NO_ERROR) {
@@ -385,25 +535,25 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       appCustody[applicationId][reqTokenAddress] -= assetAmount;
       totalAppCustody[reqTokenAddress] -= assetAmount;
 
-      // Refund business-asset deposit in its original token.
-      // Fee refund is always in ETH.
+      // Refund business-asset deposit in its original token to the user.
+      // Fee refund is always in ETH, routed to facilitator if present.
       uint256 feeRefund = requestInfo.maxFeeValue - minFeePerRequest;
       if (reqTokenAddress == ETH_TOKEN) {
-        // For ETH requests, combine asset + fee refund into a single ETH credit
+        // For ETH requests (only direct path, never facilitated)
         uint256 totalRefund = assetAmount + feeRefund;
         if (totalRefund > 0) {
           _asyncTransfer(ETH_TOKEN, sender, totalRefund);
           emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, totalRefund);
         }
       } else {
-        // For ERC-20 requests, asset refund in token, fee refund in ETH
+        // For ERC-20 requests, asset refund in token to user, fee refund in ETH to feeRecipient
         if (assetAmount > 0) {
           _asyncTransfer(reqTokenAddress, sender, assetAmount);
           emit Refund(applicationId, processedRequestId, reqTokenAddress, sender, assetAmount);
         }
         if (feeRefund > 0) {
-          _asyncTransfer(ETH_TOKEN, sender, feeRefund);
-          emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, feeRefund);
+          _asyncTransfer(ETH_TOKEN, feeRecipient, feeRefund);
+          emit Refund(applicationId, processedRequestId, ETH_TOKEN, feeRecipient, feeRefund);
         }
       }
 
@@ -482,10 +632,10 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     applicationStateRoots[applicationId] = newStateRoot;
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
-    //credit refund to sender's pending balance (pull pattern) — refund is always ETH
+    //credit refund to feeRecipient's pending balance (pull pattern) — refund is always ETH
     if (refund > 0) {
-      _asyncTransfer(ETH_TOKEN, sender, refund);
-      emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, refund);
+      _asyncTransfer(ETH_TOKEN, feeRecipient, refund);
+      emit Refund(applicationId, processedRequestId, ETH_TOKEN, feeRecipient, refund);
     }
 
     //credit withdrawals to receivers' pending balances
@@ -622,10 +772,8 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     uint256 assetAmount,
     uint256 idx
   ) public pure returns (bytes32) {
-    bytes32 requestId = keccak256(
+    return keccak256(
       abi.encode(sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx)
     );
-
-    return requestId;
   }
 }
