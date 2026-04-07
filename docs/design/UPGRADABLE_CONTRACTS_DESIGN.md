@@ -275,11 +275,6 @@ The `@openzeppelin/hardhat-upgrades` plugin provides:
 ```typescript
 import '@openzeppelin/hardhat-upgrades';
 ```
-
-### CI Storage Layout Check
-
-Add a test (or a dedicated script) that calls `upgrades.validateUpgrade` with the old and new implementation factories. This check is purely static and does not require a running node. It should gate every PR that touches an upgradable contract.
-
 ---
 
 ## Script Changes
@@ -423,6 +418,6 @@ Same pattern as above.
 
 ---
 
-## Note on Upgrade Key Management
+## Note
 
 In UUPS the EIP-1967 admin slot is not used; there is no separate `ProxyAdmin` contract. Upgrade authority is enforced entirely by `_authorizeUpgrade` inside the implementation, which restricts the call to the owner or `ADMIN` role depending on the contract. The account holding that role is therefore the sole key that can push a new implementation. In production it must be held in a multisig or hardware wallet.
