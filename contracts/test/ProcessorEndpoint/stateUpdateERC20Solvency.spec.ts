@@ -181,6 +181,144 @@ describe('ProcessorEndpoint — stateUpdate ERC-20 solvency', function () {
       );
     });
 
+    it('succeeds with multiple withdrawals across different tokens including duplicate token entries', async () => {
+      const tokenAddrA = await mockERC20.getAddress();
+
+      // Deploy a second ERC-20 token
+      const MockERC20Factory = await ethers.getContractFactory('MockERC20');
+      const mockERC20B = await MockERC20Factory.deploy('Token B', 'TKB', 18);
+      const tokenAddrB = await mockERC20B.getAddress();
+      await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddrB);
+
+      const maxFee = minFeePerRequest;
+      const depositA1 = 300n;
+      const depositB = 200n;
+      const depositA2 = 100n;
+
+      // R1: deposit tokenA (300), complete with no withdrawals
+      const reqA1 = await submitERC20Request(signers[0], '0x30', depositA1, maxFee);
+      const stateRoot1 = '0x' + 'e1'.repeat(32);
+      await completeRequest(reqA1.requestId, INITIAL_STATE_ROOT, stateRoot1, 0n, maxFee, []);
+
+      // R2: deposit tokenB (200), complete with no withdrawals
+      await mockERC20B.mint(await signers[0].getAddress(), depositB);
+      await mockERC20B.connect(signers[0]).approve(await processorEndpoint.getAddress(), depositB);
+      const txB = await processorEndpoint
+        .connect(signers[0])
+        .submitRequest(
+          PROTOCOL_VERSION,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x31',
+          tokenAddrB,
+          depositB,
+          maxFee,
+          { value: maxFee }
+        );
+      const receiptB = await txB.wait();
+      const reqIdB = getRequestIdFromReceipt(processorEndpoint, receiptB);
+      const stateRoot2 = '0x' + 'e2'.repeat(32);
+      await completeRequest(reqIdB, stateRoot1, stateRoot2, 0n, maxFee, []);
+
+      // R3: deposit tokenA (100), complete with multi-token withdrawals
+      // appCustody: tokenA = 400, tokenB = 200
+      const reqA2 = await submitERC20Request(signers[0], '0x32', depositA2, maxFee);
+
+      const receiver1 = await signers[3].getAddress();
+      const receiver2 = await signers[4].getAddress();
+      const receiver3 = await signers[5].getAddress();
+
+      const withdrawalA1 = 150n; // tokenA to receiver1
+      const withdrawalB = 200n; // tokenB to receiver2
+      const withdrawalA2 = 100n; // tokenA to receiver3 (duplicate token)
+
+      const stateRoot3 = '0x' + 'e3'.repeat(32);
+      await completeRequest(reqA2.requestId, stateRoot2, stateRoot3, 0n, maxFee, [
+        [tokenAddrA, receiver1, withdrawalA1],
+        [tokenAddrB, receiver2, withdrawalB],
+        [tokenAddrA, receiver3, withdrawalA2],
+      ]);
+
+      // Verify custody: tokenA = 400 - 150 - 100 = 150, tokenB = 0
+      expect(await processorEndpoint.appCustody(applicationId, tokenAddrA)).to.equal(150n);
+      expect(await processorEndpoint.appCustody(applicationId, tokenAddrB)).to.equal(0n);
+
+      // Verify pending claims
+      expect(await processorEndpoint.pendingClaims(tokenAddrA, receiver1)).to.equal(withdrawalA1);
+      expect(await processorEndpoint.pendingClaims(tokenAddrB, receiver2)).to.equal(withdrawalB);
+      expect(await processorEndpoint.pendingClaims(tokenAddrA, receiver3)).to.equal(withdrawalA2);
+
+      // Verify all claims are redeemable
+      await processorEndpoint.claim(tokenAddrA, receiver1);
+      await processorEndpoint.claim(tokenAddrB, receiver2);
+      await processorEndpoint.claim(tokenAddrA, receiver3);
+
+      expect(await mockERC20.balanceOf(receiver1)).to.equal(withdrawalA1);
+      expect(await mockERC20B.balanceOf(receiver2)).to.equal(withdrawalB);
+      expect(await mockERC20.balanceOf(receiver3)).to.equal(withdrawalA2);
+    });
+
+    it('reverts when duplicate-token withdrawals exceed app custody', async () => {
+      const tokenAddrA = await mockERC20.getAddress();
+
+      // Deploy a second ERC-20 token
+      const MockERC20Factory = await ethers.getContractFactory('MockERC20');
+      const mockERC20B = await MockERC20Factory.deploy('Token B', 'TKB', 18);
+      const tokenAddrB = await mockERC20B.getAddress();
+      await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddrB);
+
+      const maxFee = minFeePerRequest;
+      const depositA1 = 300n;
+      const depositB = 200n;
+      const depositA2 = 100n;
+
+      // R1: deposit tokenA (300), complete with no withdrawals
+      const reqA1 = await submitERC20Request(signers[0], '0x40', depositA1, maxFee);
+      const stateRoot1 = '0x' + 'f1'.repeat(32);
+      await completeRequest(reqA1.requestId, INITIAL_STATE_ROOT, stateRoot1, 0n, maxFee, []);
+
+      // R2: deposit tokenB (200), complete with no withdrawals
+      await mockERC20B.mint(await signers[0].getAddress(), depositB);
+      await mockERC20B.connect(signers[0]).approve(await processorEndpoint.getAddress(), depositB);
+      const txB = await processorEndpoint
+        .connect(signers[0])
+        .submitRequest(
+          PROTOCOL_VERSION,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x41',
+          tokenAddrB,
+          depositB,
+          maxFee,
+          { value: maxFee }
+        );
+      const receiptB = await txB.wait();
+      const reqIdB = getRequestIdFromReceipt(processorEndpoint, receiptB);
+      const stateRoot2 = '0x' + 'f2'.repeat(32);
+      await completeRequest(reqIdB, stateRoot1, stateRoot2, 0n, maxFee, []);
+
+      // R3: deposit tokenA (100), complete with multi-token withdrawals
+      // appCustody: tokenA = 400, tokenB = 200
+      const reqA2 = await submitERC20Request(signers[0], '0x42', depositA2, maxFee);
+
+      const receiver1 = await signers[3].getAddress();
+      const receiver2 = await signers[4].getAddress();
+      const receiver3 = await signers[5].getAddress();
+
+      const withdrawalA1 = 150n; // tokenA to receiver1
+      const withdrawalB = 200n; // tokenB to receiver2
+      const withdrawalA2 = 300n; // tokenA to receiver3 — total tokenA withdrawal 450 > 400 custody
+
+      const stateRoot3 = '0x' + 'f3'.repeat(32);
+      await expect(
+        completeRequest(reqA2.requestId, stateRoot2, stateRoot3, 0n, maxFee, [
+          [tokenAddrA, receiver1, withdrawalA1],
+          [tokenAddrB, receiver2, withdrawalB],
+          [tokenAddrA, receiver3, withdrawalA2],
+        ])
+      ).to.be.revertedWithCustomError(processorEndpoint, 'InsufficientAppBalance');
+    });
+
     it('cross-app: two apps with ERC-20, both withdraw within their custody', async () => {
       const tokenAddr = await mockERC20.getAddress();
       let appIdB: bigint;

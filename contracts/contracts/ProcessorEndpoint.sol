@@ -444,6 +444,10 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     uint256 i;
     uint256 withdrawalsLength = withdrawalRequests.length;
     uint256 ethWithdrawalSum;
+    // Accumulate per-token ERC-20 withdrawal sums for a single post-loop solvency check
+    address[] memory erc20Tokens = new address[](withdrawalsLength);
+    uint256[] memory erc20Sums = new uint256[](withdrawalsLength);
+    uint256 erc20TokenCount;
     while (i < withdrawalsLength) {
       address wToken = withdrawalRequests[i].tokenAddress;
       uint256 wAmount = withdrawalRequests[i].amount;
@@ -458,12 +462,41 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       if (wToken == ETH_TOKEN) {
         ethWithdrawalSum += wAmount;
       } else {
-        // Per-token solvency: contract must hold enough ERC-20 to cover all obligations
-        if (
-          IERC20(wToken).balanceOf(address(this)) <
-          totalAppCustody[wToken] + totalPendingClaims[wToken] + wAmount
-        ) revert InsufficientBalance();
+        bool found;
+        uint256 j;
+        while (j < erc20TokenCount) {
+          if (erc20Tokens[j] == wToken) {
+            erc20Sums[j] += wAmount;
+            found = true;
+            break;
+          }
+          unchecked {
+            ++j;
+          }
+        }
+        if (!found) {
+          erc20Tokens[erc20TokenCount] = wToken;
+          erc20Sums[erc20TokenCount] = wAmount;
+          unchecked {
+            ++erc20TokenCount;
+          }
+        }
       }
+      unchecked {
+        ++i;
+      }
+    }
+
+    // Post-loop ERC-20 solvency: one balanceOf call per unique token.
+    // totalAppCustody is already decremented; totalPendingClaims not yet incremented,
+    // so we add the withdrawal sum to account for the in-flight credits.
+    i = 0;
+    while (i < erc20TokenCount) {
+      address token = erc20Tokens[i];
+      if (
+        IERC20(token).balanceOf(address(this)) <
+        totalAppCustody[token] + totalPendingClaims[token] + erc20Sums[i]
+      ) revert InsufficientBalance();
       unchecked {
         ++i;
       }
