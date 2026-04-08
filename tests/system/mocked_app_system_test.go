@@ -17,9 +17,9 @@ import (
 )
 
 func TestDeployApp(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime", log1, log2)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Start executor
@@ -68,9 +68,9 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime", log1, log2)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	require.NoError(t, suite.StartExecutor())

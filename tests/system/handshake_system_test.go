@@ -15,8 +15,8 @@ import (
 )
 
 func TestHandshakeFailureSystem(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
 	// 1. Create a manager config with a mock data layer
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
@@ -28,7 +28,7 @@ func TestHandshakeFailureSystem(t *testing.T) {
 	// find anything stored there, will create a new keyset but it will fail storing it in datalayer
 	var keySet *executor.EnclaveKeySet = nil
 	var recoveryData *common.EnclaveKeySetRecovery = nil
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "mock-runtime", mgrConfig, executorConfig, keySet, recoveryData, log1, log2)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "mock-runtime", mgrConfig, executorConfig, keySet, recoveryData, mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 3. Get the mock data layer and configure it to fail
