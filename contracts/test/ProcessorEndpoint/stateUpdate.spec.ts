@@ -573,13 +573,13 @@ describe('ProcessorEndpoint Test', function () {
         expect(eventPayloads).to.have.members(['0xaa', '0xbb']);
         await expect(tx)
           .to.emit(processorEndpoint, 'Refund')
-          .withArgs(applicationId, request.requestId, ETH_TOKEN, sender, refund);
+          .withArgs(applicationId, request.requestId, sender, ETH_TOKEN, refund);
         await expect(tx)
           .to.emit(processorEndpoint, 'Withdrawal')
-          .withArgs(applicationId, request.requestId, ETH_TOKEN, withdrawalA, withdrawalAAmount);
+          .withArgs(applicationId, request.requestId, withdrawalA, ETH_TOKEN, withdrawalAAmount);
         await expect(tx)
           .to.emit(processorEndpoint, 'Withdrawal')
-          .withArgs(applicationId, request.requestId, ETH_TOKEN, withdrawalB, withdrawalBAmount);
+          .withArgs(applicationId, request.requestId, withdrawalB, ETH_TOKEN, withdrawalBAmount);
 
         const senderPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(ETH_TOKEN,sender);
         const balanceAPendingAmountAfterUpdate = await processorEndpoint.pendingClaims(ETH_TOKEN,withdrawalA);

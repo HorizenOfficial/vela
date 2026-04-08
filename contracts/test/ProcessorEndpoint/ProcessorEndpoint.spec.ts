@@ -152,7 +152,7 @@ describe('ProcessorEndpoint Test', function () {
       const expectedRefundB = second.depositAmount + (second.maxFeeValue - minFeePerRequest);
       await expect(failTx)
         .to.emit(processorEndpoint, 'Refund')
-        .withArgs(applicationId, second.requestId, ETH_TOKEN, await senderB.getAddress(), expectedRefundB);
+        .withArgs(applicationId, second.requestId, await senderB.getAddress(), ETH_TOKEN, expectedRefundB);
       await expect(failTx).to.emit(processorEndpoint, 'RequestCompleted');
 
       const senderBBalanceAfterFail = await senderB.provider!.getBalance(
