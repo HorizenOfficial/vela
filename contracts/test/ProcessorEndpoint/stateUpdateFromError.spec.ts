@@ -2,7 +2,13 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt, PROTOCOL_VERSION, REQUEST_TYPE_PROCESS } from '../util';
+import {
+  ETH_TOKEN,
+  BYTES32_ZERO,
+  getRequestIdFromReceipt,
+  PROTOCOL_VERSION,
+  REQUEST_TYPE_PROCESS,
+} from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
 describe('ProcessorEndpoint Test', function () {
@@ -25,9 +31,18 @@ describe('ProcessorEndpoint Test', function () {
     const fee = maxFeeValue ?? minFeePerRequest;
     const tx = await processorEndpoint
       .connect(sender)
-      .submitRequest(PROTOCOL_VERSION, applicationId, REQUEST_TYPE_PROCESS, payload, ETH_TOKEN, 0, fee, {
-        value: fee,
-      });
+      .submitRequest(
+        PROTOCOL_VERSION,
+        applicationId,
+        REQUEST_TYPE_PROCESS,
+        payload,
+        ETH_TOKEN,
+        0,
+        fee,
+        {
+          value: fee,
+        }
+      );
     const receipt = await tx.wait();
     return { requestId: getRequestIdFromReceipt(processorEndpoint, receipt), maxFeeValue: fee };
   }
@@ -388,10 +403,13 @@ describe('ProcessorEndpoint Test', function () {
         const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
 
         // After submit: appLockedFunds should equal depositAmount only (fees tracked globally)
-        expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(depositAmount);
+        expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(
+          depositAmount
+        );
 
         // With pull pattern, funds are credited to pending deposits
-        const senderPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(ETH_TOKEN,
+        const senderPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
           await sender.getAddress()
         );
 
@@ -403,7 +421,8 @@ describe('ProcessorEndpoint Test', function () {
           .to.emit(processorEndpoint, 'Refund')
           .withArgs(applicationId, requestId, await sender.getAddress(), ETH_TOKEN, expectedRefund);
 
-        const senderPendingAmountAfterComplete = await processorEndpoint.pendingClaims(ETH_TOKEN,
+        const senderPendingAmountAfterComplete = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
           await sender.getAddress()
         );
         expect(senderPendingAmountAfterComplete - senderPendingAmountAfterSubmit).to.equal(
@@ -437,7 +456,8 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
 
         // With pull pattern, funds are credited to pending deposits
-        const senderPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(ETH_TOKEN,
+        const senderPendingAmountAfterSubmit = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
           await sender.getAddress()
         );
 
@@ -447,7 +467,8 @@ describe('ProcessorEndpoint Test', function () {
           .to.emit(processorEndpoint, 'RequestCompleted')
           .withArgs(applicationId, requestId, minFeePerRequest, 1, 1, 'err');
 
-        const senderPendingAmountAfterFail = await processorEndpoint.pendingClaims(ETH_TOKEN,
+        const senderPendingAmountAfterFail = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
           await sender.getAddress()
         );
         const expectedRefund = maxFeeValue - minFeePerRequest;

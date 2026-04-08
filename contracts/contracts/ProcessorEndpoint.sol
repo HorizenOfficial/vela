@@ -118,7 +118,6 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     //check queue size
     if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
-
     if (tokenAddress == ETH_TOKEN) {
       if (msg.value != assetAmount + maxFeeValue) revert InvalidValue();
     } else {

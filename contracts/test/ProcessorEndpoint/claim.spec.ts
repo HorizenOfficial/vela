@@ -216,16 +216,34 @@ describe('ProcessorEndpoint Test', function () {
       it('accumulates multiple credits for same address', async () => {
         let submitTx = await processorEndpoint
           .connect(signers[2])
-          .submitRequest(protocolVersion, applicationId, 1, '0x01', ETH_TOKEN, 50, minFeePerRequest, {
-            value: 50n + minFeePerRequest,
-          });
+          .submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            '0x01',
+            ETH_TOKEN,
+            50,
+            minFeePerRequest,
+            {
+              value: 50n + minFeePerRequest,
+            }
+          );
         await submitTx.wait();
 
         submitTx = await processorEndpoint
           .connect(signers[2])
-          .submitRequest(protocolVersion, applicationId, 1, '0x02', ETH_TOKEN, 60, minFeePerRequest, {
-            value: 60n + minFeePerRequest,
-          });
+          .submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            '0x02',
+            ETH_TOKEN,
+            60,
+            minFeePerRequest,
+            {
+              value: 60n + minFeePerRequest,
+            }
+          );
         await submitTx.wait();
 
         let currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
@@ -283,7 +301,9 @@ describe('ProcessorEndpoint Test', function () {
         const withdrawalAmount = 150n;
 
         await mockERC20.mint(await signers[0].getAddress(), assetAmount);
-        await mockERC20.connect(signers[0]).approve(await processorEndpoint.getAddress(), assetAmount);
+        await mockERC20
+          .connect(signers[0])
+          .approve(await processorEndpoint.getAddress(), assetAmount);
 
         const submitTx = await processorEndpoint.submitRequest(
           0,

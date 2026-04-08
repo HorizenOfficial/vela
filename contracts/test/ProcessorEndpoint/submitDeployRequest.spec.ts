@@ -103,7 +103,7 @@ describe('ProcessorEndpoint Test', function () {
 
         expect(stored.requestId).to.equal(requestId);
         expect(stored.protocolVersion).to.equal(protocolVersion);
-        expect(stored.requestType).to.equal(REQUEST_TYPE_DEPLOYAPP); 
+        expect(stored.requestType).to.equal(REQUEST_TYPE_DEPLOYAPP);
         expect(stored.payload).to.equal(payload);
         expect(stored.assetAmount).to.equal(0);
         expect(stored.maxFeeValue).to.equal(maxFeeValue);
@@ -146,7 +146,7 @@ describe('ProcessorEndpoint Test', function () {
 
         const requests = await processorEndpoint.getPendingRequests();
         expect(requests.length).to.equal(1);
-        expect(requests[0].requestType).to.equal(REQUEST_TYPE_DEPLOYAPP); 
+        expect(requests[0].requestType).to.equal(REQUEST_TYPE_DEPLOYAPP);
       });
     });
   });
