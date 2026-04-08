@@ -9,8 +9,8 @@ interface IProcessorEndpoint {
   /// @notice Emitted when a refund is sent to a requester.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
-  /// @param tokenAddress Token address (0x0 = ETH).
   /// @param to Refund recipient.
+  /// @param tokenAddress Token address (0x0 = ETH).
   /// @param amount Refunded amount.
   event Refund(
     uint64 indexed applicationId,
@@ -22,8 +22,8 @@ interface IProcessorEndpoint {
   /// @notice Emitted when a withdrawal is executed.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
-  /// @param tokenAddress Token address (0x0 = ETH).
   /// @param to Withdrawal recipient.
+  /// @param tokenAddress Token address (0x0 = ETH).
   /// @param amount Withdrawal amount.
   event Withdrawal(
     uint64 indexed applicationId,
