@@ -43,6 +43,12 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   // Per-app, per-token custody tracking for solvency isolation.
   // Credited on submitRequest (assetAmount only; fees are tracked globally),
   // debited on stateUpdate: success path (withdrawals), error path (assetAmount).
+  // Fees are self-balancing per request (refund + applicationFees == maxFeeValue)
+  // so global balance checks are sufficient for the fee portion.
+  // If an app's withdrawals are less than its deposits,
+  // the residual accumulates here as credit available to future requests.
+  // Note: There is currently no mechanism to recover residual funds from decommissioned
+  // apps.
   mapping(uint64 => mapping(address => uint256)) public appCustody;
   mapping(address => uint256) public totalAppCustody;
 
@@ -109,6 +115,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     //check values
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
+    //check queue size
+    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
+
 
     if (tokenAddress == ETH_TOKEN) {
       if (msg.value != assetAmount + maxFeeValue) revert InvalidValue();
@@ -123,9 +132,6 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       uint256 received = token.balanceOf(address(this)) - balanceBefore;
       if (received != assetAmount) revert TransferAmountMismatch();
     }
-
-    //check queue size
-    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
     if (requestType == Structs.RequestType.ASSOCIATEKEY) {
       //if requestype is associatekey, the payload must be 133 bytes (key only) or 226 bytes (key + encrypted seed)
@@ -443,8 +449,13 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       address wToken = withdrawalRequests[i].tokenAddress;
       uint256 wAmount = withdrawalRequests[i].amount;
       if (wAmount > appCustody[applicationId][wToken]) revert InsufficientAppBalance();
-      appCustody[applicationId][wToken] -= wAmount;
-      totalAppCustody[wToken] -= wAmount;
+      unchecked {
+        appCustody[applicationId][wToken] -= wAmount;
+      }
+      if (wAmount > totalAppCustody[wToken]) revert InsufficientBalance();
+      unchecked {
+        totalAppCustody[wToken] -= wAmount;
+      }
       if (wToken == ETH_TOKEN) {
         ethWithdrawalSum += wAmount;
       } else {
