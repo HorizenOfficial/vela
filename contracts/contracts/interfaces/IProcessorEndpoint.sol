@@ -15,8 +15,8 @@ interface IProcessorEndpoint {
   event Refund(
     uint64 indexed applicationId,
     bytes32 indexed requestId,
+    address indexed to,
     address tokenAddress,
-    address to,
     uint256 amount
   );
   /// @notice Emitted when a withdrawal is executed.
@@ -28,8 +28,8 @@ interface IProcessorEndpoint {
   event Withdrawal(
     uint64 indexed applicationId,
     bytes32 indexed requestId,
+    address indexed to,
     address tokenAddress,
-    address to,
     uint256 amount
   );
   /// @notice Emitted when a new request enters the queue.

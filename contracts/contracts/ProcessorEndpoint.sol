@@ -393,17 +393,17 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         uint256 totalRefund = assetAmount + feeRefund;
         if (totalRefund > 0) {
           _asyncTransfer(ETH_TOKEN, sender, totalRefund);
-          emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, totalRefund);
+          emit Refund(applicationId, processedRequestId, sender, ETH_TOKEN, totalRefund);
         }
       } else {
         // For ERC-20 requests, asset refund in token, fee refund in ETH
         if (assetAmount > 0) {
           _asyncTransfer(reqTokenAddress, sender, assetAmount);
-          emit Refund(applicationId, processedRequestId, reqTokenAddress, sender, assetAmount);
+          emit Refund(applicationId, processedRequestId, sender, reqTokenAddress, assetAmount);
         }
         if (feeRefund > 0) {
           _asyncTransfer(ETH_TOKEN, sender, feeRefund);
-          emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, feeRefund);
+          emit Refund(applicationId, processedRequestId, sender, ETH_TOKEN, feeRefund);
         }
       }
 
@@ -485,7 +485,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     //credit refund to sender's pending balance (pull pattern) — refund is always ETH
     if (refund > 0) {
       _asyncTransfer(ETH_TOKEN, sender, refund);
-      emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, refund);
+      emit Refund(applicationId, processedRequestId, sender, ETH_TOKEN, refund);
     }
 
     //credit withdrawals to receivers' pending balances
@@ -499,8 +499,8 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       emit Withdrawal(
         applicationId,
         processedRequestId,
-        withdrawalRequests[i].tokenAddress,
         withdrawalRequests[i].receiver,
+        withdrawalRequests[i].tokenAddress,
         withdrawalRequests[i].amount
       );
       unchecked {
