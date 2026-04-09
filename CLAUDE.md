@@ -136,6 +136,8 @@ Versioned LevelDB with atomic transactions and rollback support:
 
 **Contract Bindings:** Generated via `go generate`, committed to repo. CI verifies bindings are up-to-date. If you modify contracts, regenerate and commit.
 
+**File Formatting:** If you modify contracts or TypeScript files, run `npm run format` after any modification to keep the correct formatting.
+
 **Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
 
 **Configuration:** Environment variables with `.conf` file fallbacks. Key configs:

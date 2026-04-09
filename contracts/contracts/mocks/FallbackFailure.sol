@@ -23,7 +23,7 @@ contract FallbackFailure {
     uint256 assetAmount,
     uint256 maxFeeValue
   ) external payable {
-    processorEndpoint.submitRequest{value: assetAmount + maxFeeValue}(
+    processorEndpoint.submitRequest{value: msg.value}(
       protocolVersion,
       applicationId,
       requestType,

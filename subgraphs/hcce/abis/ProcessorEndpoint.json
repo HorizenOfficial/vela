@@ -326,7 +326,7 @@
         "type": "bytes32"
       },
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "address",
         "name": "tokenAddress",
         "type": "address"
@@ -335,6 +335,12 @@
         "indexed": false,
         "internalType": "address",
         "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "tokenAddress",
         "type": "address"
       },
       {
@@ -613,7 +619,7 @@
         "type": "bytes32"
       },
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "address",
         "name": "tokenAddress",
         "type": "address"
@@ -622,6 +628,12 @@
         "indexed": false,
         "internalType": "address",
         "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "tokenAddress",
         "type": "address"
       },
       {
