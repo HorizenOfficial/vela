@@ -19,15 +19,17 @@ contract FallbackFailure {
     uint64 applicationId,
     Structs.RequestType requestType,
     bytes calldata payload,
-    uint256 value,
+    address tokenAddress,
+    uint256 assetAmount,
     uint256 maxFeeValue
   ) external payable {
-    processorEndpoint.submitRequest{value: value + maxFeeValue}(
+    processorEndpoint.submitRequest{value: msg.value}(
       protocolVersion,
       applicationId,
       requestType,
       payload,
-      value,
+      tokenAddress,
+      assetAmount,
       maxFeeValue
     );
   }

@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { BYTES32_ZERO, getRandomHexString } from '../util';
+import { ETH_TOKEN, BYTES32_ZERO, getRandomHexString } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 import {
   deployNoAttestationTeeAuthenticatorEmptyFixture,
@@ -20,8 +20,8 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         events: ['0x01'],
         eventSubTypes: ['subtype'],
         withdrawalRequests: [
-          [addr1, 50],
-          [addr2, 50],
+          [ETH_TOKEN, addr1, 50],
+          [ETH_TOKEN, addr2, 50],
         ],
         refundAmount: 0,
         applicationFee: 0,

@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -42,7 +43,7 @@ describe('ProcessorEndpoint Test', function () {
         const protocolVersion = 0;
         const requestType = 1;
         const payload = '0x01';
-        const depositAmount = 0n;
+        const assetAmount = 0n;
         const maxFeeValue = minFeePerRequest;
 
         await processorEndpoint.submitRequest(
@@ -50,18 +51,20 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         await processorEndpoint.submitRequest(
           protocolVersion,
           applicationId,
           requestType,
           '0x02',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
 
         await processorEndpoint.connect(signers[2]).updateQueueThreshold(1);
@@ -72,9 +75,10 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             requestType,
             '0x03',
-            depositAmount,
+            ETH_TOKEN,
+            assetAmount,
             maxFeeValue,
-            { value: depositAmount + maxFeeValue }
+            { value: assetAmount + maxFeeValue }
           )
         ).to.be.revertedWithCustomError(processorEndpoint, 'QueueThresholdExceeded');
       });

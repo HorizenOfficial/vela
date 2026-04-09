@@ -136,6 +136,8 @@ Versioned LevelDB with atomic transactions and rollback support:
 
 **Contract Bindings:** Generated via `go generate`, committed to repo. CI verifies bindings are up-to-date. If you modify contracts, regenerate and commit.
 
+**File Formatting:** If you modify contracts or TypeScript files, run `npm run format` after any modification to keep the correct formatting.
+
 **Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
 
 **Configuration:** Environment variables with `.conf` file fallbacks. Key configs:
@@ -144,6 +146,8 @@ Versioned LevelDB with atomic transactions and rollback support:
 - `CHAIN_PROCESSOR_ADDRESS` / `CHAIN_TEEAUTHENTICATOR_ADDRESS`
 
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
+
+**User Signatures:** When a signature is provided by an external user (e.g. via a wallet), it must be compatible with MetaMask's `personal_sign` format. This means the message is prefixed with `\x19Ethereum Signed Message:\n<length of message>` before hashing and signing. Both Go verification code and Solidity `ecrecover` usage must account for this prefix.
 
 ## Code Review Guidelines
 
