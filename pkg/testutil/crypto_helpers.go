@@ -183,6 +183,10 @@ func (c *CryptoHelper) CreateTokenDepositRequest(appID common.ApplicationIdType,
 }
 
 // CreateTokenWithdrawalRequest creates an encrypted withdrawal request for a specific token.
+// TODO: The payload is built as an untyped map[string]interface{} because crypto_helpers
+// is app-agnostic (different WASM apps may have different payload formats). If this
+// helper becomes app-specific, consider using the typed WithdrawInstruction struct to
+// get compile-time safety on JSON field names.
 func (c *CryptoHelper) CreateTokenWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, tokenAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	withdrawInstruction := map[string]interface{}{
 		"type": "withdraw",
