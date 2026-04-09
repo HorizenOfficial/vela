@@ -216,7 +216,15 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     // 2. Verify deadline not expired
     if (block.timestamp > deadline) revert DeadlineExpired();
 
-    // 3. Read current nonce and build EIP-712 hash
+    // 3. Check queue size
+    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
+
+    // 4. Validate payload for ASSOCIATEKEY
+    if (requestType == Structs.RequestType.ASSOCIATEKEY) {
+      if (payload.length != 133 && payload.length != 226) revert InvalidPayload();
+    }
+
+    // 5. Read current nonce and build EIP-712 hash
     uint256 nonce = facilitatorNonces[sender];
     bytes32 structHash = keccak256(
       abi.encode(
@@ -234,19 +242,19 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     );
     bytes32 digest = _hashTypedDataV4(structHash);
 
-    // 4. Recover user address from EIP-712 request signature and verify
+    // 6. Recover user address from EIP-712 request signature and verify
     address recoveredSigner = ECDSA.recover(digest, requestSignature);
     if (recoveredSigner == address(0)) revert InvalidSignature();
     if (recoveredSigner != sender) revert InvalidSigner();
 
-    // 5. Consume nonce (replay protection)
+    // 7. Consume nonce (replay protection)
     facilitatorNonces[sender] = nonce + 1;
 
-    // 6. Validate fee
+    // 8. Validate fee
     uint256 maxFeeValue = msg.value;
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
 
-    // 7. Validate token and handle deposit
+    // 9. Validate token and handle deposit
     if (assetAmount > 0) {
       if (tokenAddress == ETH_TOKEN) revert InvalidValue();
       if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
@@ -268,14 +276,6 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
       appCustody[applicationId][tokenAddress] += assetAmount;
       totalAppCustody[tokenAddress] += assetAmount;
-    }
-
-    // 8. Check queue size
-    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
-
-    // 9. Validate payload for ASSOCIATEKEY
-    if (requestType == Structs.RequestType.ASSOCIATEKEY) {
-      if (payload.length != 133 && payload.length != 226) revert InvalidPayload();
     }
 
     // 10. Create PendingRequest with sender = user (not msg.sender)
