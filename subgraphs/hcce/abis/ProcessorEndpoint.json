@@ -328,12 +328,6 @@
       {
         "indexed": true,
         "internalType": "address",
-        "name": "tokenAddress",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "address",
         "name": "to",
         "type": "address"
       },
@@ -620,12 +614,6 @@
       },
       {
         "indexed": true,
-        "internalType": "address",
-        "name": "tokenAddress",
-        "type": "address"
-      },
-      {
-        "indexed": false,
         "internalType": "address",
         "name": "to",
         "type": "address"
