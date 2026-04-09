@@ -684,7 +684,7 @@ describe('ProcessorEndpoint Test', function () {
         // Refund event should target the facilitator
         await expect(failTx)
           .to.emit(processorEndpoint, 'Refund')
-          .withArgs(applicationId, requestId, ETH_TOKEN, facilitatorAddr, expectedFeeRefund);
+          .withArgs(applicationId, requestId, facilitatorAddr, ETH_TOKEN, expectedFeeRefund);
 
         // Facilitator's pending claims should increase by the fee refund
         const facilitatorPendingAfter = await processorEndpoint.pendingClaims(ETH_TOKEN, facilitatorAddr);
@@ -739,13 +739,13 @@ describe('ProcessorEndpoint Test', function () {
 
         const expectedFeeRefund = maxFeeValue - minFeePerRequest;
 
-        // Asset refund event targets feeRecipient in the event but _asyncTransfer goes to sender
+        // Asset refund event and _asyncTransfer goes to sender
         await expect(failTx)
           .to.emit(processorEndpoint, 'Refund')
-          .withArgs(applicationId, requestId, tokenAddr, facilitatorAddr, assetAmount);
+          .withArgs(applicationId, requestId, senderAddr, tokenAddr, assetAmount);
         await expect(failTx)
           .to.emit(processorEndpoint, 'Refund')
-          .withArgs(applicationId, requestId, ETH_TOKEN, facilitatorAddr, expectedFeeRefund);
+          .withArgs(applicationId, requestId, facilitatorAddr, ETH_TOKEN, expectedFeeRefund);
 
         // ERC-20 asset refund credited to sender (pull pattern)
         const senderTokenPendingAfter = await processorEndpoint.pendingClaims(tokenAddr, senderAddr);
@@ -789,7 +789,7 @@ describe('ProcessorEndpoint Test', function () {
         const expectedFeeRefund = maxFeeValue - minFeePerRequest;
         await expect(failTx)
           .to.emit(processorEndpoint, 'Refund')
-          .withArgs(applicationId, requestId, ETH_TOKEN, facilitatorAddr, expectedFeeRefund);
+          .withArgs(applicationId, requestId, facilitatorAddr, ETH_TOKEN, expectedFeeRefund);
 
         const facilitatorPendingAfter = await processorEndpoint.pendingClaims(ETH_TOKEN, facilitatorAddr);
         expect(facilitatorPendingAfter - facilitatorPendingBefore).to.equal(expectedFeeRefund);
