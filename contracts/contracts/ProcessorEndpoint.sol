@@ -538,18 +538,24 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       // Refund business-asset deposit in its original token to the user.
       // Fee refund is always in ETH, routed to facilitator if present.
       uint256 feeRefund = requestInfo.maxFeeValue - minFeePerRequest;
-      if (reqTokenAddress == ETH_TOKEN) {
-        // For ETH requests (only direct path, never facilitated)
-        uint256 totalRefund = assetAmount + feeRefund;
-        if (totalRefund > 0) {
+      if (reqTokenAddress == ETH_TOKEN) {        
+        if (assetAmount > 0) {
+          // ETH requests that moved also assets: only direct path, never facilitated => refund all to the sender
+          uint256 totalRefund = assetAmount + feeRefund;
           _asyncTransfer(ETH_TOKEN, sender, totalRefund);
           emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, totalRefund);
+        }else{
+          // ETH requests with ETH used only for fee: fee refund in ETH to feeRecipient
+          if (feeRefund > 0) {
+            _asyncTransfer(ETH_TOKEN, feeRecipient, feeRefund);
+            emit Refund(applicationId, processedRequestId, ETH_TOKEN, feeRecipient, feeRefund);
+          } 
         }
       } else {
         // For ERC-20 requests, asset refund in token to user, fee refund in ETH to feeRecipient
         if (assetAmount > 0) {
           _asyncTransfer(reqTokenAddress, sender, assetAmount);
-          emit Refund(applicationId, processedRequestId, reqTokenAddress, sender, assetAmount);
+          emit Refund(applicationId, processedRequestId, reqTokenAddress, feeRecipient, assetAmount);
         }
         if (feeRefund > 0) {
           _asyncTransfer(ETH_TOKEN, feeRecipient, feeRefund);
