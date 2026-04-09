@@ -362,10 +362,11 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 // getOrLoadModule (used by Deposit/ProcessRequest) depends on loadModuleUnlocked to
 // compile and cache modules for subsequent requests.
 //
-// A future refactor should separate module compilation/instantiation from guest function
-// invocation, so that getOrLoadModule only compiles and instantiates without calling any
-// guest function. This would eliminate the unnecessary load_module guest call during
-// cache warm-up and cleanly separate the two concerns.
+// TODO: Refactor to extract shared module setup (compile, instantiate, WASI config) into
+// a compileAndInstantiate helper. Currently deployUnlocked and loadModuleUnlocked duplicate
+// ~60 lines of identical boilerplate. This would also let getOrLoadModule compile and
+// instantiate without calling any guest function, eliminating the unnecessary load_module
+// guest call during cache warm-up.
 func (r *WasmtimeRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()

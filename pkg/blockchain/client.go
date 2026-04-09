@@ -346,9 +346,14 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 
 	// Pack the transaction data using the generated binding
 	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, tokenAddress, assetAmount, maxFeeValue)
-	// Set the value for the transaction (msg.value)
-	// TODO(ERC-20): For ERC-20 requests (tokenAddress != 0x0), msg.value should be maxFeeValue only.
-	c.account.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	// Set the value for the transaction (msg.value).
+	// For ETH requests: msg.value = assetAmount + maxFeeValue (carries both business asset and fee).
+	// For ERC-20 requests: msg.value = maxFeeValue only (business asset arrives via transferFrom).
+	if tokenAddress == (ethCommon.Address{}) {
+		c.account.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	} else {
+		c.account.Value = new(big.Int).Set(maxFeeValue)
+	}
 
 	// Send the transaction
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)

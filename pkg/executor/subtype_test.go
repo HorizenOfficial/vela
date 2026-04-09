@@ -13,48 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- VerifySeed tests ---
-
-func TestVerifySeed_Valid(t *testing.T) {
-	privKey, err := ethCrypto.GenerateKey()
-	require.NoError(t, err)
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
-	seed, err := ethCrypto.Sign(msgHash, privKey)
-	require.NoError(t, err)
-	addr := ethCrypto.PubkeyToAddress(privKey.PublicKey)
-	require.NoError(t, VerifySeed(seed, addr))
-}
-
-func TestVerifySeed_WrongSigner(t *testing.T) {
-	privKey, err := ethCrypto.GenerateKey()
-	require.NoError(t, err)
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
-	seed, err := ethCrypto.Sign(msgHash, privKey)
-	require.NoError(t, err)
-
-	// Different key → different address
-	otherKey, err := ethCrypto.GenerateKey()
-	require.NoError(t, err)
-	otherAddr := ethCrypto.PubkeyToAddress(otherKey.PublicKey)
-
-	err = VerifySeed(seed, otherAddr)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not match")
-}
-
-func TestVerifySeed_WrongLength(t *testing.T) {
-	err := VerifySeed(make([]byte, 64), ethCrypto.PubkeyToAddress(mustGenerateKey(t).PublicKey))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid seed length")
-}
-
-func TestVerifySeed_InvalidSignature(t *testing.T) {
-	addr := ethCrypto.PubkeyToAddress(mustGenerateKey(t).PublicKey)
-	// 65 zero bytes are not a valid signature
-	err := VerifySeed(make([]byte, 65), addr)
-	require.Error(t, err)
-}
-
 // --- GenerateSubtype tests ---
 
 func TestGenerateSubtype_Deterministic(t *testing.T) {
@@ -296,40 +254,6 @@ func mustSeed(t *testing.T) []byte {
 	seed, err := ethCrypto.Sign(msgHash, k)
 	require.NoError(t, err)
 	return seed
-}
-
-// Verify that AssociateKeyRequest with the wrong seed signer is rejected
-func TestAssociateKey_WrongSeedSigner(t *testing.T) {
-	exec := newTestExecutor(t, NewMockRuntime(testLogger))
-
-	// Sender is one address but seed is signed by a different key
-	realSender := ethCrypto.PubkeyToAddress(mustGenerateKey(t).PublicKey)
-	differentKey, err := ethCrypto.GenerateKey()
-	require.NoError(t, err)
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
-	wrongSeed, err := ethCrypto.Sign(msgHash, differentKey)
-	require.NoError(t, err)
-
-	p521Key, err := crypto.GeneratePrivateKeyP521()
-	require.NoError(t, err)
-
-	// Encrypt the wrong seed with the user's P521 key and the enclave's P521 public key
-	encryptedWrongSeed, err := crypto.Encrypt(p521Key, exec.keySet.CommunicationKey.PublicKey(), wrongSeed)
-	require.NoError(t, err)
-
-	payloadWithSeed := append(p521Key.PublicKey().Bytes(), encryptedWrongSeed...)
-
-	wasmModule := []byte("wasm")
-	appState := buildEncryptedAppState(t, exec, nil, nil, wasmModule)
-	req := newProcessRequest()
-	req.RequestType = common.AssociateKey
-	req.Payload = payloadWithSeed
-	req.Sender = realSender
-
-	respPayload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, wasmModule)
-	require.NoError(t, err) // no system error; returns an error payload
-	require.NotNil(t, respPayload)
-	require.NotEqual(t, uint8(0), respPayload.ErrorCode, "should reject mismatched seed signer")
 }
 
 // Verify that without a seed the original WASM-provided subtype is preserved

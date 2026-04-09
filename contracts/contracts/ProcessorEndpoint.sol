@@ -47,6 +47,12 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   // Per-app, per-token custody tracking for solvency isolation.
   // Credited on submitRequest (assetAmount only; fees are tracked globally),
   // debited on stateUpdate: success path (withdrawals), error path (assetAmount).
+  // Fees are self-balancing per request (refund + applicationFees == maxFeeValue)
+  // so global balance checks are sufficient for the fee portion.
+  // If an app's withdrawals are less than its deposits,
+  // the residual accumulates here as credit available to future requests.
+  // Note: There is currently no mechanism to recover residual funds from decommissioned
+  // apps.
   mapping(uint64 => mapping(address => uint256)) public appCustody;
   mapping(address => uint256) public totalAppCustody;
 
@@ -122,6 +128,8 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     //check values
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
+    //check queue size
+    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
     if (tokenAddress == ETH_TOKEN) {
       if (msg.value != assetAmount + maxFeeValue) revert InvalidValue();
@@ -136,9 +144,6 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       uint256 received = token.balanceOf(address(this)) - balanceBefore;
       if (received != assetAmount) revert TransferAmountMismatch();
     }
-
-    //check queue size
-    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
     if (requestType == Structs.RequestType.ASSOCIATEKEY) {
       //if requestype is associatekey, the payload must be 133 bytes (key only) or 226 bytes (key + encrypted seed)
@@ -543,23 +548,23 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
           // ETH requests that moved also assets: only direct path, never facilitated => refund all to the sender
           uint256 totalRefund = assetAmount + feeRefund;
           _asyncTransfer(ETH_TOKEN, sender, totalRefund);
-          emit Refund(applicationId, processedRequestId, ETH_TOKEN, sender, totalRefund);
+          emit Refund(applicationId, processedRequestId, sender, ETH_TOKEN,totalRefund);
         }else{
           // ETH requests with ETH used only for fee: fee refund in ETH to feeRecipient
           if (feeRefund > 0) {
             _asyncTransfer(ETH_TOKEN, feeRecipient, feeRefund);
-            emit Refund(applicationId, processedRequestId, ETH_TOKEN, feeRecipient, feeRefund);
+            emit Refund(applicationId, processedRequestId, feeRecipient, ETH_TOKEN, feeRefund);
           } 
         }
       } else {
         // For ERC-20 requests, asset refund in token to user, fee refund in ETH to feeRecipient
         if (assetAmount > 0) {
           _asyncTransfer(reqTokenAddress, sender, assetAmount);
-          emit Refund(applicationId, processedRequestId, reqTokenAddress, feeRecipient, assetAmount);
+          emit Refund(applicationId, processedRequestId, feeRecipient, reqTokenAddress,assetAmount);
         }
         if (feeRefund > 0) {
           _asyncTransfer(ETH_TOKEN, feeRecipient, feeRefund);
-          emit Refund(applicationId, processedRequestId, ETH_TOKEN, feeRecipient, feeRefund);
+          emit Refund(applicationId, processedRequestId, feeRecipient, ETH_TOKEN, feeRefund);
         }
       }
 
@@ -595,21 +600,59 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     uint256 i;
     uint256 withdrawalsLength = withdrawalRequests.length;
     uint256 ethWithdrawalSum;
+    // Accumulate per-token ERC-20 withdrawal sums for a single post-loop solvency check
+    address[] memory erc20Tokens = new address[](withdrawalsLength);
+    uint256[] memory erc20Sums = new uint256[](withdrawalsLength);
+    uint256 erc20TokenCount;
     while (i < withdrawalsLength) {
       address wToken = withdrawalRequests[i].tokenAddress;
       uint256 wAmount = withdrawalRequests[i].amount;
       if (wAmount > appCustody[applicationId][wToken]) revert InsufficientAppBalance();
-      appCustody[applicationId][wToken] -= wAmount;
-      totalAppCustody[wToken] -= wAmount;
+      unchecked {
+        appCustody[applicationId][wToken] -= wAmount;
+      }
+      if (wAmount > totalAppCustody[wToken]) revert InsufficientBalance();
+      unchecked {
+        totalAppCustody[wToken] -= wAmount;
+      }
       if (wToken == ETH_TOKEN) {
         ethWithdrawalSum += wAmount;
       } else {
-        // Per-token solvency: contract must hold enough ERC-20 to cover all obligations
-        if (
-          IERC20(wToken).balanceOf(address(this)) <
-          totalAppCustody[wToken] + totalPendingClaims[wToken] + wAmount
-        ) revert InsufficientBalance();
+        bool found;
+        uint256 j;
+        while (j < erc20TokenCount) {
+          if (erc20Tokens[j] == wToken) {
+            erc20Sums[j] += wAmount;
+            found = true;
+            break;
+          }
+          unchecked {
+            ++j;
+          }
+        }
+        if (!found) {
+          erc20Tokens[erc20TokenCount] = wToken;
+          erc20Sums[erc20TokenCount] = wAmount;
+          unchecked {
+            ++erc20TokenCount;
+          }
+        }
       }
+      unchecked {
+        ++i;
+      }
+    }
+
+    // Post-loop ERC-20 solvency: one balanceOf call per unique token.
+    // totalAppCustody is already decremented; totalPendingClaims not yet incremented,
+    // so we add the withdrawal sum to account for the in-flight credits.
+    i = 0;
+    while (i < erc20TokenCount) {
+      address token = erc20Tokens[i];
+      if (
+        IERC20(token).balanceOf(address(this)) <
+        totalAppCustody[token] + totalPendingClaims[token] + erc20Sums[i]
+      ) revert InsufficientBalance();
       unchecked {
         ++i;
       }
@@ -641,7 +684,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     //credit refund to feeRecipient's pending balance (pull pattern) — refund is always ETH
     if (refund > 0) {
       _asyncTransfer(ETH_TOKEN, feeRecipient, refund);
-      emit Refund(applicationId, processedRequestId, ETH_TOKEN, feeRecipient, refund);
+      emit Refund(applicationId, processedRequestId, feeRecipient, ETH_TOKEN, refund);
     }
 
     //credit withdrawals to receivers' pending balances
@@ -655,8 +698,8 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       emit Withdrawal(
         applicationId,
         processedRequestId,
-        withdrawalRequests[i].tokenAddress,
         withdrawalRequests[i].receiver,
+        withdrawalRequests[i].tokenAddress,
         withdrawalRequests[i].amount
       );
       unchecked {

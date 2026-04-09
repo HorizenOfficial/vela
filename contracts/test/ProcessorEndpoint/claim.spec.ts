@@ -108,6 +108,186 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint.connect(signers[0]).claim(ETH_TOKEN, payee);
         expect(await processorEndpoint.pendingClaims(ETH_TOKEN, payee)).to.equal(0n);
       });
+
+      it('prevents griefing by contracts that reject ETH transfers', async () => {
+        const FallbackFailure = await ethers.getContractFactory('FallbackFailure');
+        const fallbackFailure = await FallbackFailure.deploy();
+
+        await fallbackFailure.insertRequestOnProcessorEndpoint(
+          processorEndpoint.getAddress(),
+          protocolVersion,
+          applicationId,
+          1,
+          '0x01',
+          ETH_TOKEN,
+          100,
+          minFeePerRequest,
+          { value: 100n + minFeePerRequest }
+        );
+
+        const [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
+
+        const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            currentStateRoot,
+            currentStateRoot,
+            currentPendingRequest.requestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'Test',
+            '0x'
+          );
+
+        const fallbackAddr = await fallbackFailure.getAddress();
+        expect(await processorEndpoint.pendingClaims(ETH_TOKEN, fallbackAddr)).to.equal(100n);
+
+        await expect(
+          processorEndpoint.claim(ETH_TOKEN, fallbackAddr)
+        ).to.be.revertedWithCustomError(processorEndpoint, 'TransferFailed');
+
+        // Funds remain in pending
+        expect(await processorEndpoint.pendingClaims(ETH_TOKEN, fallbackAddr)).to.equal(100n);
+      });
+
+      it('allows stateUpdate to succeed even with contract receiver that rejects ETH', async () => {
+        const FallbackFailure = await ethers.getContractFactory('FallbackFailure');
+        const fallbackFailure = await FallbackFailure.deploy();
+        const fallbackAddr = await fallbackFailure.getAddress();
+
+        const submitTx = await processorEndpoint.submitRequest(
+          protocolVersion,
+          applicationId,
+          1,
+          '0x01',
+          ETH_TOKEN,
+          100,
+          minFeePerRequest,
+          { value: 100n + minFeePerRequest }
+        );
+        await submitTx.wait();
+
+        const initialStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
+        const [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
+        const newStateRoot = '0x1234000000000000000000000000000000000000000000000000000000000000';
+
+        const { ethSignStateUpdate } = await import('../../scripts/util');
+        const signature = await ethSignStateUpdate(
+          signers[0],
+          applicationId,
+          initialStateRoot,
+          newStateRoot,
+          currentPendingRequest.requestId,
+          [],
+          [],
+          [[ETH_TOKEN, fallbackAddr, 50]],
+          0,
+          minFeePerRequest
+        );
+
+        const updateTx = await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            initialStateRoot,
+            newStateRoot,
+            currentPendingRequest.requestId,
+            [],
+            [],
+            [[ETH_TOKEN, fallbackAddr, 50]],
+            0,
+            minFeePerRequest,
+            0,
+            '',
+            signature
+          );
+        await updateTx.wait();
+
+        expect(await processorEndpoint.applicationStateRoots(applicationId)).to.equal(newStateRoot);
+        expect(await processorEndpoint.pendingClaims(ETH_TOKEN, fallbackAddr)).to.equal(50n);
+      });
+
+      it('accumulates multiple credits for same address', async () => {
+        let submitTx = await processorEndpoint
+          .connect(signers[2])
+          .submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            '0x01',
+            ETH_TOKEN,
+            50,
+            minFeePerRequest,
+            {
+              value: 50n + minFeePerRequest,
+            }
+          );
+        await submitTx.wait();
+
+        submitTx = await processorEndpoint
+          .connect(signers[2])
+          .submitRequest(
+            protocolVersion,
+            applicationId,
+            1,
+            '0x02',
+            ETH_TOKEN,
+            60,
+            minFeePerRequest,
+            {
+              value: 60n + minFeePerRequest,
+            }
+          );
+        await submitTx.wait();
+
+        let currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
+        const [req1] = await processorEndpoint.getNextPendingRequest();
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            currentStateRoot,
+            currentStateRoot,
+            req1.requestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'Test',
+            '0x'
+          );
+
+        currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
+        const [req2] = await processorEndpoint.getNextPendingRequest();
+        await processorEndpoint
+          .connect(signers[1])
+          .stateUpdate(
+            applicationId,
+            currentStateRoot,
+            currentStateRoot,
+            req2.requestId,
+            [],
+            [],
+            [],
+            0,
+            0,
+            1,
+            'Test',
+            '0x'
+          );
+
+        // 50 + 60 = 110
+        const payee = await signers[2].getAddress();
+        expect(await processorEndpoint.pendingClaims(ETH_TOKEN, payee)).to.equal(110n);
+      });
     });
 
     describe('ERC-20 claims', function () {

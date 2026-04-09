@@ -45,13 +45,27 @@ type hostWithdrawalEvent struct {
 var deployRequestSender = ethCommon.HexToAddress("0x1000000000000000000000000000000000000001")
 
 // getTestLogger creates a new logger instance for every test
-func getTestLogger(t *testing.T, useNetwork bool) logger.Logger {
-	return logger.NewLogger(&logger.Config{
+func consoleLogConfig() *logger.Config {
+	return &logger.Config{
 		Kind:         "zerolog",
 		ConsoleLevel: "info",
 		Console:      true,
 		ConsoleColor: false,
-	})
+	}
+}
+
+// networkLogConfig returns a zeronetwork logger config.
+// The suite injects the correct log-server port into RemoteLogParams
+// before creating the logger, so no hardcoded port is needed here.
+func networkLogConfig() *logger.Config {
+	return &logger.Config{
+		Kind:             "zeronetwork",
+		ConsoleLevel:     "info",
+		Console:          true,
+		ConsoleColor:     false,
+		RemoteLogNetwork: "tcp",
+		NetworkLevel:     "trace",
+	}
 }
 
 func TestMain(m *testing.M) {
@@ -204,8 +218,8 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	log := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
+	logCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)
@@ -302,14 +316,14 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 }
 
 func TestExecutorManagerStart(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
 
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, log1, log2)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// Start services
@@ -320,9 +334,9 @@ func TestExecutorManagerStart(t *testing.T) {
 }
 
 func TestDeploySimpleApp(t *testing.T) {
-	log := getTestLogger(t, true)
+	logCfg := consoleLogConfig()
 	// we use for both mgr and executor the remote network logger
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -339,9 +353,9 @@ func TestDeploySimpleApp(t *testing.T) {
 
 // this will be modified when we support an app id other that "1"
 func TestDeploySimpleAppNegativeCase(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log1, log2)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -389,8 +403,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 }
 
 func TestSimpleAppCompareAction(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
@@ -417,7 +431,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	ctx := context.Background()
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, log1, log2)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -597,14 +611,14 @@ func TestSimpleAppCompareAction(t *testing.T) {
 }
 
 func TestSimpleApp_NegativeScenarios(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 	timeout_value := 10 * time.Second
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log1, log2)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -829,8 +843,8 @@ func TestSimpleAppERC20DepositAndWithdraw(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	log := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
+	logCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)
@@ -956,8 +970,8 @@ func TestSimpleAppETHOnlyRejectsERC20Deposit(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	log := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
+	logCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)

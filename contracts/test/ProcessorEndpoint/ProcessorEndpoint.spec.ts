@@ -157,8 +157,8 @@ describe('ProcessorEndpoint Test', function () {
         .withArgs(
           applicationId,
           second.requestId,
-          ETH_TOKEN,
           await senderB.getAddress(),
+          ETH_TOKEN,
           expectedRefundB
         );
       await expect(failTx).to.emit(processorEndpoint, 'RequestCompleted');

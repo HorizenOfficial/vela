@@ -45,17 +45,20 @@ type SystemTestSuite struct {
 	log                logger.Logger
 }
 
-func NewSystemTestSuite(t *testing.T, appType string, mgrLog logger.Logger, excLog logger.Logger) *SystemTestSuite {
-	// log is passed from outside, the log settings in the manager configuration does not affect it.
+// NewSystemTestSuite creates a self-contained system test suite.
+// It accepts logger configs (not logger instances) so the suite can inject the
+// ephemeral log-server port into RemoteLogParams before creating the loggers.
+// This guarantees zeronetwork loggers connect to the correct address, and
+// console/file loggers simply ignore the injected params.
+func NewSystemTestSuite(t *testing.T, appType string, mgrLogCfg *logger.Config, excLogCfg *logger.Config) *SystemTestSuite {
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
-	// For tests, always use Type 0 (no KMS dependencies needed)
 	ctx := context.Background()
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
 	require.NoError(t, err)
-	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLog, excLog)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLogCfg, excLogCfg)
 }
 
 func NewSystemTestSuiteWithConfigs(
@@ -65,29 +68,41 @@ func NewSystemTestSuiteWithConfigs(
 	execConfig *executor.Config,
 	keySet *executor.EnclaveKeySet,
 	recoveryData *common.EnclaveKeySetRecovery,
-	mgrLog logger.Logger,
-	excLog logger.Logger,
+	mgrLogCfg *logger.Config,
+	excLogCfg *logger.Config,
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Tests run over local TCP, so assign dedicated ephemeral ports to avoid cross-package collisions.
+	// Assign ephemeral ports for executor, admin, and log server
+	// to avoid cross-test collisions.
 	executorPort := mustGetFreeTCPPort(t)
-	logServerPort := mustGetFreeTCPPort(t)
 	adminPort := mustGetFreeTCPPort(t)
+	logServerPort := mustGetFreeTCPPort(t)
 
 	tcpParams := common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: executorPort}
 	execConfig.ChannelParams = tcpParams
 	execConfig.ChannelType = "tcp"
 	mgrConfig.ChannelParams = tcpParams
 	mgrConfig.ChannelType = "tcp"
-	execConfig.LogChannelParams = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: logServerPort}
-	mgrConfig.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: logServerPort}
+	logServerAddr := common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: logServerPort}
+	execConfig.LogChannelParams = logServerAddr
+	mgrConfig.LogServerTCPAddress = logServerAddr
 	mgrConfig.AdminChannelParams = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: adminPort}
+
+	// Inject the log-server address into the logger configs so that
+	// zeronetwork loggers connect to the correct ephemeral port.
+	// Console/file loggers ignore RemoteLogParams harmlessly.
+	mgrLogCfg.RemoteLogParams = logServerAddr
+	mgrLogCfg.RemoteLogNetwork = "tcp"
+	excLogCfg.RemoteLogParams = logServerAddr
+	excLogCfg.RemoteLogNetwork = "tcp"
+	mgrLog := logger.NewLogger(mgrLogCfg)
+	excLog := logger.NewLogger(excLogCfg)
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
+	factory := communication.NewTCPConnectionFactory(mgrConfig.ChannelParams.(common.TcpChannelConnectionParams).Url())
 	executorClient := communication.NewClient(factory, commParams, mgrLog)
 
 	// Create manager

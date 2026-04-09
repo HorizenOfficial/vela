@@ -505,7 +505,7 @@ describe('ProcessorEndpoint Test', function () {
 
         await expect(failTx)
           .to.emit(processorEndpoint, 'Refund')
-          .withArgs(applicationId, requestId, ETH_TOKEN, await sender.getAddress(), expectedRefund);
+          .withArgs(applicationId, requestId, await sender.getAddress(), ETH_TOKEN, expectedRefund);
 
         const senderPendingAmountAfterComplete = await processorEndpoint.pendingClaims(
           ETH_TOKEN,
