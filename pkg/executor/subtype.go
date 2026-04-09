@@ -7,36 +7,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-
-	ethCommon "github.com/ethereum/go-ethereum/common"
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 )
 
-// SubtypeKeyMessage is the message the user signs with their secp256k1 key to produce a seed.
+// SubtypeKeyMessage is the message used to derive a seed.
 // Change this string to rotate all user subtype sets.
 const SubtypeKeyMessage = "subtype-key-v1"
 
 // DefaultSubtypeN is the number of possible subtypes per user (anonymity set size).
 const DefaultSubtypeN = 50
-
-// VerifySeed verifies that seed is a valid secp256k1 signature of
-// keccak256(SubtypeKeyMessage) produced by signer.
-// seed must be 65 bytes in [R || S || V] format with V in {0, 1}.
-func VerifySeed(seed []byte, signer ethCommon.Address) error {
-	if len(seed) != 65 {
-		return fmt.Errorf("invalid seed length: expected 65, got %d", len(seed))
-	}
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
-	recoveredPub, err := ethCrypto.SigToPub(msgHash, seed)
-	if err != nil {
-		return fmt.Errorf("failed to recover public key from seed: %w", err)
-	}
-	recoveredAddr := ethCrypto.PubkeyToAddress(*recoveredPub)
-	if recoveredAddr != signer {
-		return fmt.Errorf("seed verification failed: recovered address %s does not match sender %s", recoveredAddr.Hex(), signer.Hex())
-	}
-	return nil
-}
 
 // GenerateSubtype returns "0x" + hex(HMAC-SHA256(key=seed, data=[]byte{index})).
 // index should be in the range [1, N].

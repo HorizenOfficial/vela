@@ -649,13 +649,6 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 					apperrors.New(apperrors.CodeParsingKeyError, "seed decryption failed"))
 				return errorPayload, nil, nil, err
 			}
-			if err := VerifySeed(seed, req.Sender); err != nil {
-				e.log.Error("Executor: seed verification failed for request %s: %v", req.RequestID, err)
-				errorPayload, err := e.processErrorResponse(req,
-					appState.StateRoot,
-					apperrors.New(apperrors.CodeParsingKeyError, "seed verification failed"))
-				return errorPayload, nil, nil, err
-			}
 			if err := appData.AddSeed(req.Sender, seed); err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to add seed for request %s: %w", req.RequestID, err)
 			}
