@@ -37,7 +37,7 @@ interface IProcessorEndpoint {
   /// @param requestId Request identifier.
   /// @param sender Request sender.
   /// @param facilitator Facilitator address (address(0) for direct submissions).
-  event RequestSubmitted(uint64 indexed applicationId, bytes32 requestId, address indexed sender, address facilitator);
+  event RequestSubmitted(uint64 indexed applicationId, bytes32 indexed requestId, address indexed sender, address facilitator);
   /// @notice Emitted when a new deploy request enters the queue.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.

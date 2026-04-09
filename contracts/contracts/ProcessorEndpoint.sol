@@ -560,7 +560,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         // For ERC-20 requests, asset refund in token to user, fee refund in ETH to feeRecipient
         if (assetAmount > 0) {
           _asyncTransfer(reqTokenAddress, sender, assetAmount);
-          emit Refund(applicationId, processedRequestId, feeRecipient, reqTokenAddress,assetAmount);
+          emit Refund(applicationId, processedRequestId, sender, reqTokenAddress,assetAmount);
         }
         if (feeRefund > 0) {
           _asyncTransfer(ETH_TOKEN, feeRecipient, feeRefund);

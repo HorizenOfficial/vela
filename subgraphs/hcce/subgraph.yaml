@@ -25,7 +25,7 @@ dataSources:
         - name: ProcessorEndpoint
           file: ./abis/ProcessorEndpoint.json
       eventHandlers:
-        - event: RequestSubmitted(indexed uint64,bytes32,indexed address,address)
+        - event: RequestSubmitted(indexed uint64,indexed bytes32,indexed address,address)
           handler: handleRequestSubmitted
         - event: RequestCompleted(indexed uint64,indexed bytes32,uint256,uint8,uint8,string)
           handler: handleRequestCompleted
