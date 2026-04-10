@@ -480,6 +480,35 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
+      it('reverts with InvalidValue when assetAmount is 0 and tokenAddress is not ETH', async () => {
+        const MockERC20Permit = await ethers.getContractFactory('MockERC20Permit');
+        const token = await MockERC20Permit.deploy('Permit Token', 'PMT', 18);
+        const tokenAddr = await token.getAddress();
+
+        const params = await buildRequestParams({
+          tokenAddress: tokenAddr,
+          assetAmount: 0n,
+        });
+
+        await expect(
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
+      });
+
       it('reverts with TokenNotAllowed when token is not allowlisted', async () => {
         const MockERC20Permit = await ethers.getContractFactory('MockERC20Permit');
         const unlisted = await MockERC20Permit.deploy('Unlisted', 'UNL', 18);

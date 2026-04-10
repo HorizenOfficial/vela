@@ -236,6 +236,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
 
     // 9. Validate token and handle deposit
+    if (assetAmount == 0 && tokenAddress != ETH_TOKEN) revert InvalidValue();
     if (assetAmount > 0) {
       if (tokenAddress == ETH_TOKEN) revert InvalidValue();
       if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
