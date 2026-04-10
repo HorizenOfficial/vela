@@ -62,6 +62,18 @@ func (s stubSubgraphClient) GetDeployRequestCompletedByID(ctx context.Context, i
 	return s.GetRequestCompletedByID(ctx, id)
 }
 
+func (stubSubgraphClient) GetRefunds(context.Context, common.ApplicationIdType, *common.RequestIdType, int) ([]subgraph.OnChainRefund, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetWithdrawals(context.Context, common.ApplicationIdType, *common.RequestIdType, int) ([]subgraph.OnChainWithdrawal, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetClaimsExecuted(context.Context, ethCommon.Address, *ethCommon.Address, int) ([]subgraph.ClaimExecuted, error) {
+	return nil, nil
+}
+
 func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time, eventFn func(context.Context, common.RequestIdType) (*subgraph.RequestCompleted, error)) *AuthorityService {
 	t.Helper()
 	dir := t.TempDir()

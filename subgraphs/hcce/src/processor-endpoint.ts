@@ -5,8 +5,24 @@ import {
   UserEvent as UserEventEvent,
   DeployRequestSubmitted as DeployRequestSubmittedEvent,
   DeployRequestCompleted as DeployRequestCompletedEvent,
+  Refund as RefundEvent,
+  Withdrawal as WithdrawalEvent,
+  PaymentWithdrawn as PaymentWithdrawnEvent,
+  TokenAllowed as TokenAllowedEvent,
+  TokenRemoved as TokenRemovedEvent,
 } from "../generated/ProcessorEndpoint/ProcessorEndpoint";
-import { RequestSubmitted, RequestCompleted, UserEvent, DeployRequestCompleted, DeployRequestSubmitted } from "../generated/schema";
+import {
+  RequestSubmitted,
+  RequestCompleted,
+  UserEvent,
+  DeployRequestCompleted,
+  DeployRequestSubmitted,
+  OnChainRefund,
+  OnChainWithdrawal,
+  ClaimExecuted,
+  TokenAllowed,
+  TokenRemoved,
+} from "../generated/schema";
 
 const SORT_BASE = BigInt.fromI64(1000000000000);
 
@@ -79,6 +95,76 @@ export function handleDeployRequestCompleted(event: DeployRequestCompletedEvent)
   entity.status = event.params.status;
   entity.errorCode = event.params.errorCode;
   entity.errorMessage = event.params.errorMessage;
+  entity.blockNumber = event.block.number;
+  entity.blockTimestamp = event.block.timestamp;
+
+  entity.save();
+}
+
+export function handleRefund(event: RefundEvent): void {
+  let entity = new OnChainRefund(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  );
+
+  entity.applicationId = event.params.applicationId;
+  entity.requestId = event.params.requestId;
+  entity.to = event.params.to;
+  entity.tokenAddress = event.params.tokenAddress;
+  entity.amount = event.params.amount;
+  entity.blockNumber = event.block.number;
+  entity.blockTimestamp = event.block.timestamp;
+
+  entity.save();
+}
+
+export function handleWithdrawal(event: WithdrawalEvent): void {
+  let entity = new OnChainWithdrawal(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  );
+
+  entity.applicationId = event.params.applicationId;
+  entity.requestId = event.params.requestId;
+  entity.to = event.params.to;
+  entity.tokenAddress = event.params.tokenAddress;
+  entity.amount = event.params.amount;
+  entity.blockNumber = event.block.number;
+  entity.blockTimestamp = event.block.timestamp;
+
+  entity.save();
+}
+
+export function handlePaymentWithdrawn(event: PaymentWithdrawnEvent): void {
+  let entity = new ClaimExecuted(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  );
+
+  entity.tokenAddress = event.params.tokenAddress;
+  entity.payee = event.params.payee;
+  entity.amount = event.params.amount;
+  entity.blockNumber = event.block.number;
+  entity.blockTimestamp = event.block.timestamp;
+
+  entity.save();
+}
+
+export function handleTokenAllowed(event: TokenAllowedEvent): void {
+  let entity = new TokenAllowed(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  );
+
+  entity.token = event.params.token;
+  entity.blockNumber = event.block.number;
+  entity.blockTimestamp = event.block.timestamp;
+
+  entity.save();
+}
+
+export function handleTokenRemoved(event: TokenRemovedEvent): void {
+  let entity = new TokenRemoved(
+    event.transaction.hash.concatI32(event.logIndex.toI32())
+  );
+
+  entity.token = event.params.token;
   entity.blockNumber = event.block.number;
   entity.blockTimestamp = event.block.timestamp;
 

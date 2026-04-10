@@ -51,3 +51,48 @@ type DeployRequestCompleted @entity(immutable: true) {
   blockNumber: BigInt!
   blockTimestamp: BigInt!
 }
+
+type OnChainRefund @entity(immutable: true) {
+  id: Bytes!
+  applicationId: BigInt!
+  requestId: Bytes!
+  to: Bytes!
+  tokenAddress: Bytes!
+  amount: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type OnChainWithdrawal @entity(immutable: true) {
+  id: Bytes!
+  applicationId: BigInt!
+  requestId: Bytes!
+  to: Bytes!
+  tokenAddress: Bytes!
+  amount: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type ClaimExecuted @entity(immutable: true) {
+  id: Bytes!
+  tokenAddress: Bytes!
+  payee: Bytes!
+  amount: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type TokenAllowed @entity(immutable: true) {
+  id: Bytes!
+  token: Bytes!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type TokenRemoved @entity(immutable: true) {
+  id: Bytes!
+  token: Bytes!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
