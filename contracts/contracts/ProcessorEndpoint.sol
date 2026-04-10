@@ -138,11 +138,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       if (assetAmount == 0) revert InvalidValue();
       if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
       // Pull ERC-20 tokens with balance-before/after check
-      IERC20 token = IERC20(tokenAddress);
-      uint256 balanceBefore = token.balanceOf(address(this));
-      token.safeTransferFrom(msg.sender, address(this), assetAmount);
-      uint256 received = token.balanceOf(address(this)) - balanceBefore;
-      if (received != assetAmount) revert TransferAmountMismatch();
+      _pullERC20(tokenAddress, msg.sender, assetAmount);
     }
 
     if (requestType == Structs.RequestType.ASSOCIATEKEY) {
@@ -155,41 +151,22 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       }
     }
 
-    //create request
-    bytes32 requestId = generateRequestId(
-      msg.sender,
-      applicationId,
-      requestType,
-      payload,
-      tokenAddress,
-      assetAmount,
-      _tail
-    );
-    requestById[requestId] = Structs.PendingRequest({
-      timestamp: block.timestamp,
-      tokenAddress: tokenAddress,
-      assetAmount: assetAmount,
-      maxFeeValue: maxFeeValue,
-      requestId: requestId,
-      payload: payload,
-      sender: msg.sender,
-      facilitator: address(0),
-      applicationId: applicationId,
-      protocolVersion: protocolVersion,
-      requestType: requestType
-    });
-    _requestIdByOrder[_tail] = requestId;
     appCustody[applicationId][tokenAddress] += assetAmount;
     totalAppCustody[tokenAddress] += assetAmount;
 
-    unchecked {
-      ++_tail;
-    }
-
-    //emit event
-    emit RequestSubmitted(applicationId, requestId, msg.sender, address(0));
-
-    return requestId;
+    //create request and enqueue
+    return
+      _enqueueRequest(
+        msg.sender,
+        address(0),
+        protocolVersion,
+        applicationId,
+        requestType,
+        payload,
+        tokenAddress,
+        assetAmount,
+        maxFeeValue
+      );
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -214,8 +191,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   {
     // 1. Only ASSOCIATEKEY and PROCESS are supported
     if (
-      requestType != Structs.RequestType.ASSOCIATEKEY &&
-      requestType != Structs.RequestType.PROCESS
+      requestType != Structs.RequestType.ASSOCIATEKEY && requestType != Structs.RequestType.PROCESS
     ) revert InvalidRequestType();
 
     // 2. Verify deadline not expired
@@ -274,48 +250,25 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         IERC20Permit(tokenAddress).permit(sender, address(this), assetAmount, deadline, v, r, s);
       }
 
-      uint256 balanceBefore = token.balanceOf(address(this));
-      token.safeTransferFrom(sender, address(this), assetAmount);
-      uint256 received = token.balanceOf(address(this)) - balanceBefore;
-      if (received != assetAmount) revert TransferAmountMismatch();
+      _pullERC20(tokenAddress, sender, assetAmount);
 
       appCustody[applicationId][tokenAddress] += assetAmount;
       totalAppCustody[tokenAddress] += assetAmount;
     }
 
-    // 10. Create PendingRequest with sender = user (not msg.sender)
-    bytes32 requestId = generateRequestId(
-      sender,
-      applicationId,
-      requestType,
-      payload,
-      tokenAddress,
-      assetAmount,
-      _tail
-    );
-    requestById[requestId] = Structs.PendingRequest({
-      timestamp: block.timestamp,
-      tokenAddress: tokenAddress,
-      assetAmount: assetAmount,
-      maxFeeValue: maxFeeValue,
-      requestId: requestId,
-      payload: payload,
-      sender: sender,
-      facilitator: msg.sender,
-      applicationId: applicationId,
-      protocolVersion: protocolVersion,
-      requestType: requestType
-    });
-    _requestIdByOrder[_tail] = requestId;
-
-    unchecked {
-      ++_tail;
-    }
-
-    // 11. Emit event with user address
-    emit RequestSubmitted(applicationId, requestId, sender, msg.sender);
-
-    return requestId;
+    // 10. Create PendingRequest with sender = user (not msg.sender) and enqueue
+    return
+      _enqueueRequest(
+        sender,
+        msg.sender,
+        protocolVersion,
+        applicationId,
+        requestType,
+        payload,
+        tokenAddress,
+        assetAmount,
+        maxFeeValue
+      );
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -371,6 +324,57 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     //emit event
     emit DeployRequestSubmitted(applicationId, requestId, msg.sender);
 
+    return requestId;
+  }
+
+  function _pullERC20(address tokenAddress, address from, uint256 amount) internal {
+    IERC20 token = IERC20(tokenAddress);
+    uint256 balanceBefore = token.balanceOf(address(this));
+    token.safeTransferFrom(from, address(this), amount);
+    uint256 received = token.balanceOf(address(this)) - balanceBefore;
+    if (received != amount) revert TransferAmountMismatch();
+  }
+
+  function _enqueueRequest(
+    address sender,
+    address facilitator,
+    uint8 protocolVersion,
+    uint64 applicationId,
+    Structs.RequestType requestType,
+    bytes calldata payload,
+    address tokenAddress,
+    uint256 assetAmount,
+    uint256 maxFeeValue
+  ) internal returns (bytes32) {
+    bytes32 requestId = generateRequestId(
+      sender,
+      applicationId,
+      requestType,
+      payload,
+      tokenAddress,
+      assetAmount,
+      _tail
+    );
+    requestById[requestId] = Structs.PendingRequest({
+      timestamp: block.timestamp,
+      tokenAddress: tokenAddress,
+      assetAmount: assetAmount,
+      maxFeeValue: maxFeeValue,
+      requestId: requestId,
+      payload: payload,
+      sender: sender,
+      facilitator: facilitator,
+      applicationId: applicationId,
+      protocolVersion: protocolVersion,
+      requestType: requestType
+    });
+    _requestIdByOrder[_tail] = requestId;
+
+    unchecked {
+      ++_tail;
+    }
+
+    emit RequestSubmitted(applicationId, requestId, sender, facilitator);
     return requestId;
   }
 
@@ -543,24 +547,24 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       // Refund business-asset deposit in its original token to the user.
       // Fee refund is always in ETH, routed to facilitator if present.
       uint256 feeRefund = requestInfo.maxFeeValue - minFeePerRequest;
-      if (reqTokenAddress == ETH_TOKEN) {        
+      if (reqTokenAddress == ETH_TOKEN) {
         if (assetAmount > 0) {
           // ETH requests that moved also assets: only direct path, never facilitated => refund all to the sender
           uint256 totalRefund = assetAmount + feeRefund;
           _asyncTransfer(ETH_TOKEN, sender, totalRefund);
-          emit Refund(applicationId, processedRequestId, sender, ETH_TOKEN,totalRefund);
-        }else{
+          emit Refund(applicationId, processedRequestId, sender, ETH_TOKEN, totalRefund);
+        } else {
           // ETH requests with ETH used only for fee: fee refund in ETH to feeRecipient
           if (feeRefund > 0) {
             _asyncTransfer(ETH_TOKEN, feeRecipient, feeRefund);
             emit Refund(applicationId, processedRequestId, feeRecipient, ETH_TOKEN, feeRefund);
-          } 
+          }
         }
       } else {
         // For ERC-20 requests, asset refund in token to user, fee refund in ETH to feeRecipient
         if (assetAmount > 0) {
           _asyncTransfer(reqTokenAddress, sender, assetAmount);
-          emit Refund(applicationId, processedRequestId, sender, reqTokenAddress,assetAmount);
+          emit Refund(applicationId, processedRequestId, sender, reqTokenAddress, assetAmount);
         }
         if (feeRefund > 0) {
           _asyncTransfer(ETH_TOKEN, feeRecipient, feeRefund);
@@ -821,8 +825,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     uint256 assetAmount,
     uint256 idx
   ) public pure returns (bytes32) {
-    return keccak256(
-      abi.encode(sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx)
-    );
+    return
+      keccak256(
+        abi.encode(sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx)
+      );
   }
 }

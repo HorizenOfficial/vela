@@ -143,27 +143,29 @@ describe('ProcessorEndpoint Test', function () {
     facilitator = signers[3];
   });
 
-  async function buildRequestParams(overrides: Partial<{
-    sender: string;
-    protocolVersion: number;
-    applicationId: bigint;
-    requestType: number;
-    payload: string;
-    tokenAddress: string;
-    assetAmount: bigint;
-    deadline: bigint;
-    nonce: bigint;
-    signer: Signer;
-  }> = {}) {
-    const sender = overrides.sender ?? await user.getAddress();
+  async function buildRequestParams(
+    overrides: Partial<{
+      sender: string;
+      protocolVersion: number;
+      applicationId: bigint;
+      requestType: number;
+      payload: string;
+      tokenAddress: string;
+      assetAmount: bigint;
+      deadline: bigint;
+      nonce: bigint;
+      signer: Signer;
+    }> = {}
+  ) {
+    const sender = overrides.sender ?? (await user.getAddress());
     const protocolVersion = overrides.protocolVersion ?? 0;
     const appId = overrides.applicationId ?? applicationId;
     const requestType = overrides.requestType ?? REQUEST_TYPE_PROCESS;
     const payload = overrides.payload ?? '0x01';
     const tokenAddress = overrides.tokenAddress ?? ETH_TOKEN;
     const assetAmount = overrides.assetAmount ?? 0n;
-    const deadline = overrides.deadline ?? await getDeadline();
-    const nonce = overrides.nonce ?? await processorEndpoint.getFacilitatorNonce(sender);
+    const deadline = overrides.deadline ?? (await getDeadline());
+    const nonce = overrides.nonce ?? (await processorEndpoint.getFacilitatorNonce(sender));
     const signerToUse = overrides.signer ?? user;
 
     const contractAddress = await processorEndpoint.getAddress();
@@ -199,19 +201,21 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams({ protocolVersion: 1 });
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidProtocolVersion');
       });
 
@@ -219,19 +223,21 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams({ applicationId: 999n });
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidApplicationId');
       });
 
@@ -239,19 +245,21 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams({ requestType: REQUEST_TYPE_DEPLOYAPP });
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestType');
       });
 
@@ -259,19 +267,21 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams({ requestType: REQUEST_TYPE_DEANONYMIZATION });
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestType');
       });
 
@@ -281,19 +291,21 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams({ deadline: pastDeadline });
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'DeadlineExpired');
       });
 
@@ -315,19 +327,21 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams();
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'QueueThresholdExceeded');
       });
 
@@ -338,19 +352,21 @@ describe('ProcessorEndpoint Test', function () {
         });
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
       });
 
@@ -359,19 +375,21 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams({ signer: facilitator });
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidSigner');
       });
 
@@ -379,23 +397,9 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams();
 
         // First call succeeds
-        await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
-
-        // Replay with same signature (nonce already consumed)
-        await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
+        await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
             params.sender,
             params.protocolVersion,
             params.applicationId,
@@ -407,7 +411,25 @@ describe('ProcessorEndpoint Test', function () {
             params.requestSignature,
             params.depositPermit,
             { value: minFeePerRequest }
-          )
+          );
+
+        // Replay with same signature (nonce already consumed)
+        await expect(
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidSigner');
       });
 
@@ -415,19 +437,21 @@ describe('ProcessorEndpoint Test', function () {
         const params = await buildRequestParams();
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest - 1n }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest - 1n }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'FeeValueBelowMinimum');
       });
 
@@ -438,19 +462,21 @@ describe('ProcessorEndpoint Test', function () {
         });
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidValue');
       });
 
@@ -462,7 +488,13 @@ describe('ProcessorEndpoint Test', function () {
         const deadline = await getDeadline();
 
         await unlisted.mint(await user.getAddress(), assetAmount);
-        const depositPermit = await signERC20Permit(user, unlisted, await processorEndpoint.getAddress(), assetAmount, deadline);
+        const depositPermit = await signERC20Permit(
+          user,
+          unlisted,
+          await processorEndpoint.getAddress(),
+          assetAmount,
+          deadline
+        );
 
         const params = await buildRequestParams({
           tokenAddress: unlistedAddr,
@@ -472,19 +504,21 @@ describe('ProcessorEndpoint Test', function () {
         params.depositPermit = depositPermit;
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'TokenNotAllowed');
       });
 
@@ -504,7 +538,32 @@ describe('ProcessorEndpoint Test', function () {
         params.depositPermit = '0x1234'; // invalid length
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPermit');
+      });
+    });
+
+    describe('happy paths', function () {
+      it('submits a PROCESS request with no deposit and emits RequestSubmitted', async () => {
+        const params = await buildRequestParams();
+
+        const tx = await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
             params.sender,
             params.protocolVersion,
             params.applicationId,
@@ -516,28 +575,7 @@ describe('ProcessorEndpoint Test', function () {
             params.requestSignature,
             params.depositPermit,
             { value: minFeePerRequest }
-          )
-        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPermit');
-      });
-    });
-
-    describe('happy paths', function () {
-      it('submits a PROCESS request with no deposit and emits RequestSubmitted', async () => {
-        const params = await buildRequestParams();
-
-        const tx = await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+          );
 
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
         const receipt = await tx.wait();
@@ -556,19 +594,21 @@ describe('ProcessorEndpoint Test', function () {
       it('stores correct request data with sender=user and facilitator=msg.sender', async () => {
         const params = await buildRequestParams();
 
-        const tx = await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+        const tx = await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         const receipt = await tx.wait();
         const requestSubmittedLog = receipt.logs.find((log: any) => {
@@ -596,19 +636,21 @@ describe('ProcessorEndpoint Test', function () {
         const nonceBefore = await processorEndpoint.getFacilitatorNonce(userAddr);
 
         const params = await buildRequestParams();
-        await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+        await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         const nonceAfter = await processorEndpoint.getFacilitatorNonce(userAddr);
         expect(nonceAfter).to.equal(nonceBefore + 1n);
@@ -621,19 +663,21 @@ describe('ProcessorEndpoint Test', function () {
           payload,
         });
 
-        const tx = await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+        const tx = await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
       });
@@ -645,19 +689,21 @@ describe('ProcessorEndpoint Test', function () {
           payload,
         });
 
-        const tx = await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+        const tx = await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
       });
@@ -666,19 +712,21 @@ describe('ProcessorEndpoint Test', function () {
         const maxFeeValue = minFeePerRequest + 500n;
         const params = await buildRequestParams();
 
-        const tx = await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: maxFeeValue }
-        );
+        const tx = await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: maxFeeValue }
+          );
 
         const receipt = await tx.wait();
         const requestSubmittedLog = receipt.logs.find((log: any) => {
@@ -698,19 +746,21 @@ describe('ProcessorEndpoint Test', function () {
         const sizeBefore = await processorEndpoint.getPendingRequestsSize();
 
         const params = await buildRequestParams();
-        await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+        await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         const sizeAfter = await processorEndpoint.getPendingRequestsSize();
         expect(sizeAfter).to.equal(sizeBefore + 1n);
@@ -720,34 +770,38 @@ describe('ProcessorEndpoint Test', function () {
         const facilitator2 = signers[4];
 
         const params1 = await buildRequestParams();
-        await processorEndpoint.connect(facilitator).submitRequestFor(
-          params1.sender,
-          params1.protocolVersion,
-          params1.applicationId,
-          params1.requestType,
-          params1.payload,
-          params1.tokenAddress,
-          params1.assetAmount,
-          params1.deadline,
-          params1.requestSignature,
-          params1.depositPermit,
-          { value: minFeePerRequest }
-        );
+        await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params1.sender,
+            params1.protocolVersion,
+            params1.applicationId,
+            params1.requestType,
+            params1.payload,
+            params1.tokenAddress,
+            params1.assetAmount,
+            params1.deadline,
+            params1.requestSignature,
+            params1.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         const params2 = await buildRequestParams({ payload: '0x02' });
-        await processorEndpoint.connect(facilitator2).submitRequestFor(
-          params2.sender,
-          params2.protocolVersion,
-          params2.applicationId,
-          params2.requestType,
-          params2.payload,
-          params2.tokenAddress,
-          params2.assetAmount,
-          params2.deadline,
-          params2.requestSignature,
-          params2.depositPermit,
-          { value: minFeePerRequest }
-        );
+        await processorEndpoint
+          .connect(facilitator2)
+          .submitRequestFor(
+            params2.sender,
+            params2.protocolVersion,
+            params2.applicationId,
+            params2.requestType,
+            params2.payload,
+            params2.tokenAddress,
+            params2.assetAmount,
+            params2.deadline,
+            params2.requestSignature,
+            params2.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(2n);
       });
@@ -759,7 +813,9 @@ describe('ProcessorEndpoint Test', function () {
       beforeEach(async function () {
         const MockERC20Permit = await ethers.getContractFactory('MockERC20Permit');
         mockERC20Permit = await MockERC20Permit.deploy('Permit Token', 'PMT', 18);
-        await processorEndpoint.connect(signers[2]).addAllowedToken(await mockERC20Permit.getAddress());
+        await processorEndpoint
+          .connect(signers[2])
+          .addAllowedToken(await mockERC20Permit.getAddress());
       });
 
       it('transfers ERC-20 via permit and stores request correctly', async () => {
@@ -769,7 +825,13 @@ describe('ProcessorEndpoint Test', function () {
         const processorAddr = await processorEndpoint.getAddress();
 
         await mockERC20Permit.mint(await user.getAddress(), assetAmount);
-        const depositPermit = await signERC20Permit(user, mockERC20Permit, processorAddr, assetAmount, deadline);
+        const depositPermit = await signERC20Permit(
+          user,
+          mockERC20Permit,
+          processorAddr,
+          assetAmount,
+          deadline
+        );
 
         const params = await buildRequestParams({
           tokenAddress: tokenAddr,
@@ -780,19 +842,21 @@ describe('ProcessorEndpoint Test', function () {
 
         const tokenBalanceBefore = await mockERC20Permit.balanceOf(processorAddr);
 
-        const tx = await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+        const tx = await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
 
@@ -806,7 +870,13 @@ describe('ProcessorEndpoint Test', function () {
         const deadline = await getDeadline();
 
         await mockERC20Permit.mint(await user.getAddress(), assetAmount);
-        const depositPermit = await signERC20Permit(user, mockERC20Permit, await processorEndpoint.getAddress(), assetAmount, deadline);
+        const depositPermit = await signERC20Permit(
+          user,
+          mockERC20Permit,
+          await processorEndpoint.getAddress(),
+          assetAmount,
+          deadline
+        );
 
         const params = await buildRequestParams({
           tokenAddress: tokenAddr,
@@ -815,19 +885,21 @@ describe('ProcessorEndpoint Test', function () {
         });
         params.depositPermit = depositPermit;
 
-        await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+        await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(assetAmount);
         expect(await processorEndpoint.totalAppCustody(tokenAddr)).to.equal(assetAmount);
@@ -856,19 +928,21 @@ describe('ProcessorEndpoint Test', function () {
         });
         params.depositPermit = dummyPermit;
 
-        const tx = await processorEndpoint.connect(facilitator).submitRequestFor(
-          params.sender,
-          params.protocolVersion,
-          params.applicationId,
-          params.requestType,
-          params.payload,
-          params.tokenAddress,
-          params.assetAmount,
-          params.deadline,
-          params.requestSignature,
-          params.depositPermit,
-          { value: minFeePerRequest }
-        );
+        const tx = await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            params.requestSignature,
+            params.depositPermit,
+            { value: minFeePerRequest }
+          );
 
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
         expect(await mockERC20Permit.balanceOf(processorAddr)).to.equal(assetAmount);
@@ -901,19 +975,21 @@ describe('ProcessorEndpoint Test', function () {
         params.depositPermit = dummyPermit;
 
         await expect(
-          processorEndpoint.connect(facilitator).submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          )
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
         ).to.be.revertedWithCustomError(processorEndpoint, 'TransferAmountMismatch');
       });
     });
