@@ -11,15 +11,15 @@ import (
 
 // --- High-Level Application Logic ---
 
-// zeroAddressHex is the hex representation of the zero address (ETH)
-var zeroAddressHex = (types.Address{}).Hex()
+// ethTokenHex is the hex representation of the ETH token address (zero address).
+var ethTokenHex = (types.Address{}).Hex()
 
 // Deploy initializes the application state from constructor parameters.
 // The AllowedTokens list specifies which tokens the app accepts; ETH (0x0) is always allowed.
 func Deploy(appId int64, paramsJSON string) types.DeployResult {
 	allowedTokens := make(map[string]bool)
 	// ETH is always allowed
-	allowedTokens[zeroAddressHex] = true
+	allowedTokens[ethTokenHex] = true
 
 	if paramsJSON != "" {
 		var params DeployParams
@@ -60,7 +60,7 @@ func LoadModule(appId int64) types.LoadModuleResult {
 	initialState := &ApplicationInternalState{
 		AppID:         uint64(appId),
 		Accounts:      make(map[string]*AccountState),
-		AllowedTokens: map[string]bool{zeroAddressHex: true},
+		AllowedTokens: map[string]bool{ethTokenHex: true},
 	}
 	stateJSON, err := json.Marshal(initialState)
 	if err != nil {
@@ -222,9 +222,14 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 			targetAddressHex := targetAddress.Hex()
 
 			// Determine which token to compare (defaults to ETH)
-			tokenHex := zeroAddressHex
+			tokenHex := ethTokenHex
 			if instructions.CompareAccounts.TokenAddress != (types.Address{}) {
 				tokenHex = instructions.CompareAccounts.TokenAddress.Hex()
+			}
+
+			// Validate token against app allowlist
+			if !currentState.AllowedTokens[tokenHex] {
+				return types.ProcessResult{Error: fmt.Sprintf("Token %s is not allowed for comparison", tokenHex)}
 			}
 
 			// Validate accounts to be compared
@@ -251,7 +256,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 
 			}
 
-			sentence := sender.Hex() + " is " + cmp + " " + targetAddress.Hex()
+			sentence := sender.Hex() + " is " + cmp + " " + targetAddress.Hex() + " (token: " + tokenHex + ")"
 
 			// Create action event
 			eventData := map[string]interface{}{
@@ -312,10 +317,11 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 
 			// Create event for sender
 			withdrawEventData := WithdrawalEvent{
-				Type:    "withdrawal",
-				To:      instructions.Withdraw.To,
-				Amount:  instructions.Withdraw.Amount,
-				Balance: senderBalance,
+				Type:         "withdrawal",
+				To:           instructions.Withdraw.To,
+				TokenAddress: instructions.Withdraw.TokenAddress,
+				Amount:       instructions.Withdraw.Amount,
+				Balance:      senderBalance,
 			}
 			withdrawEventDataBytes, err := json.Marshal(withdrawEventData)
 			if err != nil {
@@ -332,7 +338,8 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 		case "deanonymize":
 			// Generate deanonymization report
 			report := DeanonymizationReport{
-				Accounts: currentState.Accounts,
+				Accounts:      currentState.Accounts,
+				AllowedTokens: currentState.AllowedTokens,
 			}
 
 			// Add optional tag from payload

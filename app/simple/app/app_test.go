@@ -901,7 +901,7 @@ func TestDeploy_EmptyParams(t *testing.T) {
 	require.Equal(t, testAppId, state.AppID)
 	require.Empty(t, state.Accounts)
 	// ETH is always allowed
-	require.True(t, state.AllowedTokens[zeroAddressHex])
+	require.True(t, state.AllowedTokens[ethTokenHex])
 }
 
 func TestDeploy_WithAllowedTokens(t *testing.T) {
@@ -914,7 +914,7 @@ func TestDeploy_WithAllowedTokens(t *testing.T) {
 	require.NoError(t, err)
 
 	// Both ETH and the ERC-20 token should be allowed
-	require.True(t, state.AllowedTokens[zeroAddressHex])
+	require.True(t, state.AllowedTokens[ethTokenHex])
 	require.True(t, state.AllowedTokens[erc20TokenAddr.Hex()])
 }
 
@@ -939,7 +939,7 @@ func TestDepositFunds_AcceptsAllowlistedERC20Token(t *testing.T) {
 	state := ApplicationInternalState{
 		AppID:         testAppId,
 		Accounts:      make(map[string]*AccountState),
-		AllowedTokens: map[string]bool{zeroAddressHex: true, erc20TokenAddr.Hex(): true},
+		AllowedTokens: map[string]bool{ethTokenHex: true, erc20TokenAddr.Hex(): true},
 	}
 	stateBytes, err := json.Marshal(state)
 	require.NoError(t, err)
@@ -958,7 +958,7 @@ func TestDepositFunds_AcceptsAllowlistedERC20Token(t *testing.T) {
 	require.Equal(t, 0, depositAmount.Cmp(*tokenBal))
 
 	// ETH balance should not exist (no ETH deposit was made)
-	ethBal := newState.Accounts[user1Address.Hex()].Balances[zeroAddressHex]
+	ethBal := newState.Accounts[user1Address.Hex()].Balances[ethTokenHex]
 	require.Nil(t, ethBal)
 }
 
@@ -967,7 +967,7 @@ func TestDepositFunds_MultiTokenBalancesAreIndependent(t *testing.T) {
 	state := ApplicationInternalState{
 		AppID:         testAppId,
 		Accounts:      make(map[string]*AccountState),
-		AllowedTokens: map[string]bool{zeroAddressHex: true, erc20TokenAddr.Hex(): true},
+		AllowedTokens: map[string]bool{ethTokenHex: true, erc20TokenAddr.Hex(): true},
 	}
 	stateBytes, err := json.Marshal(state)
 	require.NoError(t, err)
@@ -988,7 +988,7 @@ func TestDepositFunds_MultiTokenBalancesAreIndependent(t *testing.T) {
 
 	acct := newState.Accounts[user1Address.Hex()]
 	require.NotNil(t, acct)
-	require.Equal(t, 0, ethAmount.Cmp(*acct.Balances[zeroAddressHex]))
+	require.Equal(t, 0, ethAmount.Cmp(*acct.Balances[ethTokenHex]))
 	require.Equal(t, 0, erc20Amount.Cmp(*acct.Balances[erc20TokenAddr.Hex()]))
 }
 
@@ -1009,12 +1009,12 @@ func TestProcessRequest_WithdrawTokenAwareWithdrawal(t *testing.T) {
 			user1Address.Hex(): {
 				Address: user1Address,
 				Balances: map[string]*types.Uint256{
-					zeroAddressHex:       types.NewUint256(1000),
+					ethTokenHex:       types.NewUint256(1000),
 					erc20TokenAddr.Hex(): types.NewUint256(500),
 				},
 			},
 		},
-		AllowedTokens: map[string]bool{zeroAddressHex: true, erc20TokenAddr.Hex(): true},
+		AllowedTokens: map[string]bool{ethTokenHex: true, erc20TokenAddr.Hex(): true},
 	}
 	stateBytes, err := json.Marshal(state)
 	require.NoError(t, err)
@@ -1036,5 +1036,5 @@ func TestProcessRequest_WithdrawTokenAwareWithdrawal(t *testing.T) {
 	require.NoError(t, err)
 	acct := newState.Accounts[user1Address.Hex()]
 	require.Equal(t, 0, types.NewUint256(300).Cmp(*acct.Balances[erc20TokenAddr.Hex()]))
-	require.Equal(t, 0, types.NewUint256(1000).Cmp(*acct.Balances[zeroAddressHex]))
+	require.Equal(t, 0, types.NewUint256(1000).Cmp(*acct.Balances[ethTokenHex]))
 }

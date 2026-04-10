@@ -51,8 +51,9 @@ type PayloadInstructions struct {
 
 // DeanonymizationReport represents the structure of the deanonymization report.
 type DeanonymizationReport struct {
-	Tag      string                   `json:"tag,omitempty"`
-	Accounts map[string]*AccountState `json:"accounts"`
+	Tag           string                   `json:"tag,omitempty"`
+	Accounts      map[string]*AccountState `json:"accounts"`
+	AllowedTokens map[string]bool          `json:"allowedTokens"`
 }
 
 type DepositEvent struct {
@@ -79,5 +80,10 @@ type RecipientEvent struct {
 	Nonce   uint64         `json:"nonce"`
 }
 
-// WithdrawalEvent has the same structure as SenderEvent
-type WithdrawalEvent SenderEvent
+type WithdrawalEvent struct {
+	Type         string         `json:"type"`
+	To           types.Address  `json:"to"`
+	TokenAddress types.Address  `json:"tokenAddress"`
+	Amount       *types.Uint256 `json:"amount"`
+	Balance      *types.Uint256 `json:"balance"`
+}
