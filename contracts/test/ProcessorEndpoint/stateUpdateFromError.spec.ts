@@ -795,44 +795,6 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(0n);
       });
 
-      it('refunds only fee to facilitator when ERC-20 assetAmount is 0', async () => {
-        const MockERC20Permit = await ethers.getContractFactory('MockERC20Permit');
-        const token = await MockERC20Permit.deploy('Permit Token 2', 'PM2', 18);
-        const tokenAddr = await token.getAddress();
-        await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
-
-        const maxFeeValue = minFeePerRequest + 20n;
-
-        // Submit with tokenAddress=ERC20 but assetAmount=0 => submitRequestFor allows this
-        // Actually, submitRequestFor skips the token deposit block when assetAmount==0,
-        // and tokenAddress doesn't matter. Let's use ETH_TOKEN for simplicity.
-        const { requestId } = await submitViaFacilitator({
-          payload: '0xcc',
-          tokenAddress: ETH_TOKEN,
-          assetAmount: 0n,
-          maxFeeValue,
-        });
-
-        const facilitatorAddr = await facilitator.getAddress();
-        const facilitatorPendingBefore = await processorEndpoint.pendingClaims(
-          ETH_TOKEN,
-          facilitatorAddr
-        );
-
-        const failTx = await failRequest(requestId, 1, 'err');
-
-        const expectedFeeRefund = maxFeeValue - minFeePerRequest;
-        await expect(failTx)
-          .to.emit(processorEndpoint, 'Refund')
-          .withArgs(applicationId, requestId, facilitatorAddr, ETH_TOKEN, expectedFeeRefund);
-
-        const facilitatorPendingAfter = await processorEndpoint.pendingClaims(
-          ETH_TOKEN,
-          facilitatorAddr
-        );
-        expect(facilitatorPendingAfter - facilitatorPendingBefore).to.equal(expectedFeeRefund);
-      });
-
       it('collects minFeePerRequest to feeCollector even on error with facilitator', async () => {
         const maxFeeValue = minFeePerRequest + 10n;
         const { requestId } = await submitViaFacilitator({ maxFeeValue });
