@@ -11,6 +11,92 @@ import {
 } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
+// EIP-712 helpers for submitRequestFor
+const EIP712_DOMAIN_NAME = 'Vela';
+const EIP712_DOMAIN_VERSION = '0';
+
+async function signRequestAuthorization(
+  signer: Signer,
+  contractAddress: string,
+  chainId: bigint,
+  params: {
+    sender: string;
+    protocolVersion: number;
+    applicationId: bigint;
+    requestType: number;
+    payload: string;
+    tokenAddress: string;
+    assetAmount: bigint;
+    nonce: bigint;
+    deadline: bigint;
+  }
+): Promise<string> {
+  const domain = {
+    name: EIP712_DOMAIN_NAME,
+    version: EIP712_DOMAIN_VERSION,
+    chainId,
+    verifyingContract: contractAddress,
+  };
+  const types = {
+    RequestAuthorization: [
+      { name: 'sender', type: 'address' },
+      { name: 'protocolVersion', type: 'uint8' },
+      { name: 'applicationId', type: 'uint64' },
+      { name: 'requestType', type: 'uint8' },
+      { name: 'payloadHash', type: 'bytes32' },
+      { name: 'tokenAddress', type: 'address' },
+      { name: 'assetAmount', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
+    ],
+  };
+  const value = {
+    sender: params.sender,
+    protocolVersion: params.protocolVersion,
+    applicationId: params.applicationId,
+    requestType: params.requestType,
+    payloadHash: ethers.keccak256(params.payload),
+    tokenAddress: params.tokenAddress,
+    assetAmount: params.assetAmount,
+    nonce: params.nonce,
+    deadline: params.deadline,
+  };
+  return signer.signTypedData(domain, types, value);
+}
+
+async function signERC20Permit(
+  signer: Signer,
+  tokenContract: any,
+  spender: string,
+  value: bigint,
+  deadline: bigint
+): Promise<string> {
+  const owner = await signer.getAddress();
+  const tokenAddress = await tokenContract.getAddress();
+  const nonce = await tokenContract.nonces(owner);
+  const name = await tokenContract.name();
+  const chainId = (await ethers.provider.getNetwork()).chainId;
+  const domain = {
+    name,
+    version: '1',
+    chainId,
+    verifyingContract: tokenAddress,
+  };
+  const types = {
+    Permit: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+      { name: 'value', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
+    ],
+  };
+  const permitValue = { owner, spender, value, nonce, deadline };
+  const sig = await signer.signTypedData(domain, types, permitValue);
+  const { v, r, s } = ethers.Signature.from(sig);
+  return ethers.AbiCoder.defaultAbiCoder().encode(['uint8', 'bytes32', 'bytes32'], [v, r, s]);
+}
+
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
@@ -519,6 +605,225 @@ describe('ProcessorEndpoint Test', function () {
 
         await expect(failTx).to.emit(processorEndpoint, 'DeployRequestCompleted');
         expect(await processorEndpoint.availableDeploySlots()).to.equal(slotsBefore);
+      });
+    });
+
+    describe('fee refund with facilitator', function () {
+      let user: Signer;
+      let facilitator: Signer;
+      let chainId: bigint;
+
+      beforeEach(async function () {
+        user = signers[0];
+        facilitator = signers[3];
+        chainId = (await ethers.provider.getNetwork()).chainId;
+      });
+
+      async function submitViaFacilitator(
+        overrides: {
+          payload?: string;
+          tokenAddress?: string;
+          assetAmount?: bigint;
+          maxFeeValue?: bigint;
+          depositPermit?: string;
+          deadline?: bigint;
+        } = {}
+      ) {
+        const payload = overrides.payload ?? '0xaa';
+        const tokenAddress = overrides.tokenAddress ?? ETH_TOKEN;
+        const assetAmount = overrides.assetAmount ?? 0n;
+        const maxFeeValue = overrides.maxFeeValue ?? minFeePerRequest;
+        const deadline =
+          overrides.deadline ??
+          BigInt((await ethers.provider.getBlock('latest'))!.timestamp) + 3600n;
+        const contractAddress = await processorEndpoint.getAddress();
+        const senderAddr = await user.getAddress();
+        const nonce = await processorEndpoint.getFacilitatorNonce(senderAddr);
+
+        const requestSignature = await signRequestAuthorization(user, contractAddress, chainId, {
+          sender: senderAddr,
+          protocolVersion: PROTOCOL_VERSION,
+          applicationId,
+          requestType: REQUEST_TYPE_PROCESS,
+          payload,
+          tokenAddress,
+          assetAmount,
+          nonce,
+          deadline,
+        });
+
+        const depositPermit = overrides.depositPermit ?? '0x';
+
+        const tx = await processorEndpoint
+          .connect(facilitator)
+          .submitRequestFor(
+            senderAddr,
+            PROTOCOL_VERSION,
+            applicationId,
+            REQUEST_TYPE_PROCESS,
+            payload,
+            tokenAddress,
+            assetAmount,
+            deadline,
+            requestSignature,
+            depositPermit,
+            { value: maxFeeValue }
+          );
+        const receipt = await tx.wait();
+        const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
+        return { requestId, maxFeeValue };
+      }
+
+      it('refunds fee to facilitator (not sender) on error when assetAmount is 0', async () => {
+        const maxFeeValue = minFeePerRequest + 50n;
+        const { requestId } = await submitViaFacilitator({ maxFeeValue });
+
+        const facilitatorAddr = await facilitator.getAddress();
+        const senderAddr = await user.getAddress();
+        const facilitatorPendingBefore = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          facilitatorAddr
+        );
+        const senderPendingBefore = await processorEndpoint.pendingClaims(ETH_TOKEN, senderAddr);
+
+        const failTx = await failRequest(requestId, 1, 'err');
+
+        const expectedFeeRefund = maxFeeValue - minFeePerRequest;
+
+        // Refund event should target the facilitator
+        await expect(failTx)
+          .to.emit(processorEndpoint, 'Refund')
+          .withArgs(applicationId, requestId, facilitatorAddr, ETH_TOKEN, expectedFeeRefund);
+
+        // Facilitator's pending claims should increase by the fee refund
+        const facilitatorPendingAfter = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          facilitatorAddr
+        );
+        expect(facilitatorPendingAfter - facilitatorPendingBefore).to.equal(expectedFeeRefund);
+
+        // Sender's pending claims should NOT change
+        const senderPendingAfter = await processorEndpoint.pendingClaims(ETH_TOKEN, senderAddr);
+        expect(senderPendingAfter).to.equal(senderPendingBefore);
+      });
+
+      it('no refund event emitted when feeRefund is 0 (maxFeeValue == minFeePerRequest)', async () => {
+        const { requestId } = await submitViaFacilitator({ maxFeeValue: minFeePerRequest });
+
+        const failTx = await failRequest(requestId, 1, 'err');
+
+        // Should emit RequestCompleted but not Refund
+        await expect(failTx).to.emit(processorEndpoint, 'RequestCompleted');
+        await expect(failTx).to.not.emit(processorEndpoint, 'Refund');
+      });
+
+      it('refunds ERC-20 asset to sender and fee to facilitator on error', async () => {
+        const MockERC20Permit = await ethers.getContractFactory('MockERC20Permit');
+        const token = await MockERC20Permit.deploy('Permit Token', 'PMT', 18);
+        const tokenAddr = await token.getAddress();
+        await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
+
+        const assetAmount = 200n;
+        const maxFeeValue = minFeePerRequest + 30n;
+        const deadline = BigInt((await ethers.provider.getBlock('latest'))!.timestamp) + 3600n;
+        const processorAddr = await processorEndpoint.getAddress();
+
+        await token.mint(await user.getAddress(), assetAmount);
+        const depositPermit = await signERC20Permit(
+          user,
+          token,
+          processorAddr,
+          assetAmount,
+          deadline
+        );
+
+        const { requestId } = await submitViaFacilitator({
+          payload: '0xbb',
+          tokenAddress: tokenAddr,
+          assetAmount,
+          maxFeeValue,
+          depositPermit,
+          deadline,
+        });
+
+        const senderAddr = await user.getAddress();
+        const facilitatorAddr = await facilitator.getAddress();
+
+        const senderTokenPendingBefore = await processorEndpoint.pendingClaims(
+          tokenAddr,
+          senderAddr
+        );
+        const facilitatorEthPendingBefore = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          facilitatorAddr
+        );
+        const senderEthPendingBefore = await processorEndpoint.pendingClaims(ETH_TOKEN, senderAddr);
+
+        const failTx = await failRequest(requestId, 1, 'err');
+
+        const expectedFeeRefund = maxFeeValue - minFeePerRequest;
+
+        // Asset refund event and _asyncTransfer goes to sender
+        await expect(failTx)
+          .to.emit(processorEndpoint, 'Refund')
+          .withArgs(applicationId, requestId, senderAddr, tokenAddr, assetAmount);
+        await expect(failTx)
+          .to.emit(processorEndpoint, 'Refund')
+          .withArgs(applicationId, requestId, facilitatorAddr, ETH_TOKEN, expectedFeeRefund);
+
+        // ERC-20 asset refund credited to sender (pull pattern)
+        const senderTokenPendingAfter = await processorEndpoint.pendingClaims(
+          tokenAddr,
+          senderAddr
+        );
+        expect(senderTokenPendingAfter - senderTokenPendingBefore).to.equal(assetAmount);
+
+        // ETH fee refund credited to facilitator
+        const facilitatorEthPendingAfter = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          facilitatorAddr
+        );
+        expect(facilitatorEthPendingAfter - facilitatorEthPendingBefore).to.equal(
+          expectedFeeRefund
+        );
+
+        // Sender ETH pending should NOT change (fee refund goes to facilitator)
+        const senderEthPendingAfter = await processorEndpoint.pendingClaims(ETH_TOKEN, senderAddr);
+        expect(senderEthPendingAfter).to.equal(senderEthPendingBefore);
+
+        // appCustody debited
+        expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(0n);
+      });
+
+      it('collects minFeePerRequest to feeCollector even on error with facilitator', async () => {
+        const maxFeeValue = minFeePerRequest + 10n;
+        const { requestId } = await submitViaFacilitator({ maxFeeValue });
+
+        const feeCollectorAddr = await processorEndpoint.feeCollector();
+        const feeCollectorPendingBefore = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          feeCollectorAddr
+        );
+
+        await failRequest(requestId, 1, 'err');
+
+        const feeCollectorPendingAfter = await processorEndpoint.pendingClaims(
+          ETH_TOKEN,
+          feeCollectorAddr
+        );
+        expect(feeCollectorPendingAfter - feeCollectorPendingBefore).to.equal(minFeePerRequest);
+      });
+
+      it('emits RequestCompleted FAILED with correct args for facilitator request', async () => {
+        const maxFeeValue = minFeePerRequest + 15n;
+        const { requestId } = await submitViaFacilitator({ maxFeeValue });
+
+        const failTx = await failRequest(requestId, 1, 'err');
+
+        // RequestResult.FAILED = 1, ErrorCode.UNKNOWN = 1
+        await expect(failTx)
+          .to.emit(processorEndpoint, 'RequestCompleted')
+          .withArgs(applicationId, requestId, minFeePerRequest, 1, 1, 'err');
       });
     });
   });

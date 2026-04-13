@@ -63,7 +63,39 @@
   },
   {
     "inputs": [],
+    "name": "DeadlineExpired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "DeployerNotAllowed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ECDSAInvalidSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "length",
+        "type": "uint256"
+      }
+    ],
+    "name": "ECDSAInvalidSignatureLength",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "s",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ECDSAInvalidSignatureS",
     "type": "error"
   },
   {
@@ -93,6 +125,11 @@
   },
   {
     "inputs": [],
+    "name": "InvalidPermit",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidProtocolVersion",
     "type": "error"
   },
@@ -108,7 +145,17 @@
   },
   {
     "inputs": [],
+    "name": "InvalidShortString",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidSigner",
     "type": "error"
   },
   {
@@ -150,6 +197,17 @@
       }
     ],
     "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "str",
+        "type": "string"
+      }
+    ],
+    "name": "StringTooLong",
     "type": "error"
   },
   {
@@ -238,6 +296,12 @@
       }
     ],
     "name": "DeployRequestSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [],
+    "name": "EIP712DomainChanged",
     "type": "event"
   },
   {
@@ -419,7 +483,7 @@
         "type": "uint64"
       },
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "bytes32",
         "name": "requestId",
         "type": "bytes32"
@@ -428,6 +492,12 @@
         "indexed": true,
         "internalType": "address",
         "name": "sender",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "facilitator",
         "type": "address"
       }
     ],
@@ -688,6 +758,19 @@
   },
   {
     "inputs": [],
+    "name": "REQUEST_AUTHORIZATION_TYPEHASH",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "UPDATE_STATUS_ROLE",
     "outputs": [
       {
@@ -833,6 +916,68 @@
   },
   {
     "inputs": [],
+    "name": "eip712Domain",
+    "outputs": [
+      {
+        "internalType": "bytes1",
+        "name": "fields",
+        "type": "bytes1"
+      },
+      {
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "version",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "chainId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "verifyingContract",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "salt",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "extensions",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "facilitatorNonces",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "feeCollector",
     "outputs": [
       {
@@ -894,6 +1039,25 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getFacilitatorNonce",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "getNextPendingRequest",
     "outputs": [
@@ -932,6 +1096,11 @@
           {
             "internalType": "address",
             "name": "sender",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "facilitator",
             "type": "address"
           },
           {
@@ -1010,6 +1179,11 @@
             "type": "address"
           },
           {
+            "internalType": "address",
+            "name": "facilitator",
+            "type": "address"
+          },
+          {
             "internalType": "uint64",
             "name": "applicationId",
             "type": "uint64"
@@ -1083,6 +1257,11 @@
           {
             "internalType": "address",
             "name": "sender",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "facilitator",
             "type": "address"
           },
           {
@@ -1393,6 +1572,11 @@
         "type": "address"
       },
       {
+        "internalType": "address",
+        "name": "facilitator",
+        "type": "address"
+      },
+      {
         "internalType": "uint64",
         "name": "applicationId",
         "type": "uint64"
@@ -1577,6 +1761,70 @@
       }
     ],
     "name": "submitRequest",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "protocolVersion",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
+      },
+      {
+        "internalType": "enum Structs.RequestType",
+        "name": "requestType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes",
+        "name": "payload",
+        "type": "bytes"
+      },
+      {
+        "internalType": "address",
+        "name": "tokenAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "assetAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "requestSignature",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes",
+        "name": "depositPermit",
+        "type": "bytes"
+      }
+    ],
+    "name": "submitRequestFor",
     "outputs": [
       {
         "internalType": "bytes32",

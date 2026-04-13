@@ -74,6 +74,8 @@ type Request struct {
 	Timestamp *Big `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
+	// Facilitator is the address of the facilitator (zero address for direct submissions)
+	Facilitator ethCommon.Address `json:"facilitator"`
 	// TokenAddress is the address of the business asset token (0x0 = ETH)
 	TokenAddress ethCommon.Address `json:"tokenAddress"`
 	// AssetAmount is the business asset amount (replaces DepositAmount)
