@@ -123,14 +123,45 @@ async function deploy() {
   console.log(`  update status operator (manager address): ${process.env.UPDATE_STATUS_OPERATOR!}`);
   console.log(`  admin / bootstrap deployer: ${process.env.ADMIN!}`);
 
+  // 5) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
+  //    Must be deployed AFTER ProcessorEndpoint so that its CREATE address
+  //    stays stable across runs (deterministic on deployer nonce).
+  //    Requires the deployer to hold the ADMIN role on ProcessorEndpoint,
+  //    which is the case when DEPLOYER_PRIVATE_KEY corresponds to ADMIN.
+  let mockErc20Addr = '';
+  if (process.env.DEPLOY_MOCK_ERC20 === 'true') {
+    const name = process.env.MOCK_ERC20_NAME || 'MockToken';
+    const symbol = process.env.MOCK_ERC20_SYMBOL || 'MOCK';
+    const decimals = parseInt(process.env.MOCK_ERC20_DECIMALS || '18', 10);
+
+    const MockERC20 = await ethers.getContractFactory('MockERC20');
+    const mockErc20 = await MockERC20.deploy(name, symbol, decimals);
+    await mockErc20.deploymentTransaction()!.wait();
+    mockErc20Addr = await mockErc20.getAddress();
+    console.log(`MockERC20`);
+    console.log(`  contract address: ${mockErc20Addr}`);
+    console.log(`  name / symbol / decimals: ${name} / ${symbol} / ${decimals}`);
+
+    // Allowlist the MockERC20 on ProcessorEndpoint.
+    // The deployer signer must have the ADMIN role (granted to process.env.ADMIN
+    // in the ProcessorEndpoint constructor).
+    const tx = await processorEndpoint.addAllowedToken(mockErc20Addr);
+    await tx.wait();
+    console.log(`  allowlisted on ProcessorEndpoint`);
+  }
+
   // Write deployed addresses to file if DEPLOY_OUTPUT_DIR is set
   const outputDir = process.env.DEPLOY_OUTPUT_DIR;
   if (outputDir) {
-    const envContent = [
+    const lines = [
       `CHAIN_PROCESSOR_ADDRESS=${processorEndpointAddr}`,
       `CHAIN_TEEAUTHENTICATOR_ADDRESS=${teeAuthenticatorAddr}`,
-      '',
-    ].join('\n');
+    ];
+    if (mockErc20Addr !== '') {
+      lines.push(`CHAIN_MOCK_ERC20_ADDRESS=${mockErc20Addr}`);
+    }
+    lines.push('');
+    const envContent = lines.join('\n');
     fs.mkdirSync(outputDir, { recursive: true });
     fs.writeFileSync(path.join(outputDir, 'deployed_addresses.env'), envContent);
     console.log(

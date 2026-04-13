@@ -204,6 +204,11 @@ services:
       - TEE_PUB_P521=${TEE_PUB_P521}
       - MIN_FEE_PER_REQUEST=${MIN_FEE_PER_REQUEST}
       - DEPLOY_OUTPUT_DIR=/deploy-data
+      # Optional: deploy a MockERC20 and allowlist it on ProcessorEndpoint (dev/test only).
+      - DEPLOY_MOCK_ERC20=${DEPLOY_MOCK_ERC20:-}
+      - MOCK_ERC20_NAME=${MOCK_ERC20_NAME:-}
+      - MOCK_ERC20_SYMBOL=${MOCK_ERC20_SYMBOL:-}
+      - MOCK_ERC20_DECIMALS=${MOCK_ERC20_DECIMALS:-}
     networks:
       pes_network:
     volumes:
