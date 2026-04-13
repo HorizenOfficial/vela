@@ -41,16 +41,23 @@ Operations performed:
 
 ### `adminResetApps(uint64[] calldata appIds)`
 
-Resets state roots and locked funds for the supplied application IDs. The caller must provide the list of active app IDs explicitly to avoid unbounded on-chain iteration.
+Resets state roots and locked funds for the supplied application IDs, **and also calls `adminReset()` internally**, so the queue and deploy slots are cleared in the same transaction. The caller must provide the list of active app IDs explicitly to avoid unbounded on-chain iteration.
 
-Operations performed for each `appId` in the list:
+Operations performed:
 
-1. Sets `applicationStateRoots[appId]` to `bytes32(0)`.
-2. Sets `appLockedFunds[appId]` to `0`.
+1. Calls `adminReset()` (clears the pending request queue and resets `availableDeploySlots`).
+2. For each `appId` in the list:
+   - Sets `applicationStateRoots[appId]` to `bytes32(0)`.
+   - Sets `appLockedFunds[appId]` to `0`.
+
+> **Data layer note:** After calling `adminResetApps`, the corresponding off-chain data layer entries for each cleared app ID must also be removed. If the same app ID is reused in a subsequent deploy and the old data layer entries are still present, the new deployment will fail because it will find pre-existing state that does not match the freshly cleared on-chain root.
 
 ### What Is Not Reset
 
-Both functions intentionally leave `payments` and `_totalDeposits` untouched. These represent funds already owed to users. If a full balance wipe is also needed (e.g. for a completely fresh testnet with no real value at stake), it must be done separately and only after all pending payments have been withdrawn.
+Both functions intentionally leave the following fields untouched:
+
+- **`payments` and `_totalDeposits`** — These represent funds already owed to users. If a full balance wipe is also needed (e.g. for a completely fresh testnet with no real value at stake), it must be done separately and only after all pending payments have been withdrawn.
+- **`maxQueueSize` and `maxNumOfApplications`** — These are configuration parameters set at deployment time and are not considered part of the mutable state that a reset targets. They remain unchanged so that the system continues to operate under the same capacity limits after the reset.
 
 ---
 
@@ -68,7 +75,11 @@ if (resetOperator != address(0)) {
 /// @notice Resets the queue and deploy slots.
 /// @dev    Does not clear pending payment balances.
 ///         Unreachable when RESET_OPERATOR was initialised as address(0).
-function adminReset() external onlyRole(RESET_OPERATOR) {
+function adminReset() public onlyRole(RESET_OPERATOR) {
+    _resetQueue();
+}
+
+function _resetQueue() internal {
     uint256 i = _head;
     uint256 tail = _tail;
     while (i < tail) {
@@ -82,9 +93,11 @@ function adminReset() external onlyRole(RESET_OPERATOR) {
     availableDeploySlots = maxNumOfApplications;
 }
 
-/// @notice Resets state roots and locked funds for the given application IDs.
+/// @notice Resets state roots and locked funds for the given application IDs,
+///         and also clears the queue in the same transaction.
 ///         Unreachable when RESET_OPERATOR was initialised as address(0).
 function adminResetApps(uint64[] calldata appIds) external onlyRole(RESET_OPERATOR) {
+    _resetQueue();
     uint256 length = appIds.length;
     uint256 i;
     while (i < length) {
