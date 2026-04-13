@@ -19,6 +19,10 @@ services:
   kms-proxy:
     image: horizen/kms-proxy
     container_name: horizen-kms-proxy
+    # Opt-in: the kms-proxy only starts when the "kms" compose profile is
+    # active. Required in production (EXECUTOR_KEYSET_RECOVERY_TYPE=1).
+    # Activate with COMPOSE_PROFILES=kms (or `docker compose --profile kms ...`).
+    profiles: ["kms"]
     restart: always
     privileged: true
     devices:
