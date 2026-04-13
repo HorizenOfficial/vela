@@ -19,8 +19,9 @@ type MsgToSignBuilder struct {
 }
 
 type withdrawalTuple struct {
-	Receiver ethCommon.Address
-	Amount   *big.Int
+	TokenAddress ethCommon.Address
+	Receiver     ethCommon.Address
+	Amount       *big.Int
 }
 
 func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
@@ -38,6 +39,7 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	eventSubTypesArgs := abi.Arguments{{Type: stringArrayType}}
 
 	WithdrawalRequestArrayType, err := abi.NewType("tuple[]", "", []abi.ArgumentMarshaling{
+		{Name: "tokenAddress", Type: "address"},
 		{Name: "receiver", Type: "address"},
 		{Name: "amount", Type: "uint256"},
 	})
@@ -113,8 +115,9 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 		amount := withdrawal.Amount.ToInt()
 
 		withdrawals[i] = withdrawalTuple{
-			Receiver: withdrawal.DestinationAddress,
-			Amount:   amount,
+			TokenAddress: withdrawal.TokenAddress,
+			Receiver:     withdrawal.DestinationAddress,
+			Amount:       amount,
 		}
 	}
 

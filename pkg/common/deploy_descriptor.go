@@ -7,20 +7,21 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 )
+
+// Re-export shared deploy descriptor types from vela-common-go so that existing
+// callers (import "github.com/HorizenOfficial/vela/pkg/common") continue to compile.
+type ConstructorParams = velacommon.ConstructorParams
+type DeployDescriptor = velacommon.DeployDescriptor
+
+const DeployModeArtifactRef = velacommon.DeployModeArtifactRef
 
 const (
-	DeployModeArtifactRef = "artifact_ref"
-	artifactIDPrefix      = "sha256:"
-	sha256HexLength       = 64
+	artifactIDPrefix = "sha256:"
+	sha256HexLength  = 64
 )
-
-// DeployDescriptor defines the v1 deploy payload contract stored in Request.Payload.
-type DeployDescriptor struct {
-	Mode       string `json:"mode"`
-	ArtifactID string `json:"artifactId"`
-	WasmSHA256 string `json:"wasmSha256"`
-}
 
 // DecodeDeployDescriptorStrict decodes deploy descriptor JSON with unknown-field rejection and full validation.
 func DecodeDeployDescriptorStrict(payload []byte) (*DeployDescriptor, error) {
@@ -42,15 +43,15 @@ func DecodeDeployDescriptorStrict(payload []byte) (*DeployDescriptor, error) {
 		return nil, errors.New("invalid deploy descriptor JSON: trailing data")
 	}
 
-	if err := descriptor.Validate(); err != nil {
+	if err := ValidateDeployDescriptor(&descriptor); err != nil {
 		return nil, err
 	}
 
 	return &descriptor, nil
 }
 
-// Validate checks descriptor-level schema and consistency rules.
-func (d *DeployDescriptor) Validate() error {
+// ValidateDeployDescriptor checks descriptor-level schema and consistency rules.
+func ValidateDeployDescriptor(d *DeployDescriptor) error {
 	if d == nil {
 		return errors.New("deploy descriptor is nil")
 	}

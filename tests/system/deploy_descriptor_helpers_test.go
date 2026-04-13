@@ -17,7 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func uploadArtifactAndBuildDescriptorPayload(t *testing.T, suite *testutil.SystemTestSuite, wasmBytecode []byte) []byte {
+// uploadArtifactAndBuildDescriptorPayloadWithParams uploads a WASM artifact and builds
+// a deploy descriptor with optional constructor params.
+func uploadArtifactAndBuildDescriptorPayloadWithParams(t *testing.T, suite *testutil.SystemTestSuite, wasmBytecode []byte, constructorParams json.RawMessage) []byte {
 	t.Helper()
 
 	store, err := deployartifact.NewStore(suite.GetArtifactsPath())
@@ -49,11 +51,18 @@ func uploadArtifactAndBuildDescriptorPayload(t *testing.T, suite *testutil.Syste
 	require.Equal(t, localArtifactID, uploadResp.ArtifactID)
 
 	descriptor := common.DeployDescriptor{
-		Mode:       common.DeployModeArtifactRef,
-		ArtifactID: uploadResp.ArtifactID,
-		WasmSHA256: uploadResp.WasmSHA256,
+		Mode:              common.DeployModeArtifactRef,
+		ArtifactID:        uploadResp.ArtifactID,
+		WasmSHA256:        uploadResp.WasmSHA256,
+		ConstructorParams: constructorParams,
 	}
 	payload, err := json.Marshal(descriptor)
 	require.NoError(t, err)
 	return payload
+}
+
+// uploadArtifactAndBuildDescriptorPayload uploads a WASM artifact and builds
+// a deploy descriptor without constructor params.
+func uploadArtifactAndBuildDescriptorPayload(t *testing.T, suite *testutil.SystemTestSuite, wasmBytecode []byte) []byte {
+	return uploadArtifactAndBuildDescriptorPayloadWithParams(t, suite, wasmBytecode, nil)
 }

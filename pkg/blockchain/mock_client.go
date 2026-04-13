@@ -129,7 +129,7 @@ func (c *MockClient) SendRequestToChain(ctx context.Context, req *common.Request
 }
 
 // SubmitRequest submits a request to the blockchain according to the official interface
-func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
+func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, tokenAddress ethCommon.Address, assetAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
 
 	//prepare request
 	req := &common.Request{
@@ -137,7 +137,8 @@ func (c *MockClient) SubmitRequest(ctx context.Context, protocolVersion uint8, a
 		ApplicationID:   applicationId,
 		RequestType:     requestType,
 		Payload:         payload,
-		DepositAmount:   common.ToBig(depositAmount),
+		TokenAddress:    tokenAddress,
+		AssetAmount:     common.ToBig(assetAmount),
 		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}
 
@@ -156,7 +157,8 @@ func (c *MockClient) SubmitDeployRequest(ctx context.Context, protocolVersion ui
 		ProtocolVersion: protocolVersion,
 		RequestType:     common.Deploy,
 		Payload:         payload,
-		DepositAmount:   common.ToBig(big.NewInt(0)),
+		TokenAddress:    ethCommon.Address{},
+		AssetAmount:     common.ToBig(big.NewInt(0)),
 		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}
 
@@ -374,11 +376,11 @@ func (c *MockClient) GetDeanonymizationReport(ctx context.Context, reportID comm
 	return report, nil
 }
 
-func (c *MockClient) GetPendingPayments(_ context.Context, _ ethCommon.Address) (*big.Int, error) {
+func (c *MockClient) GetPendingClaims(_ context.Context, _ ethCommon.Address, _ ethCommon.Address) (*big.Int, error) {
 	return big.NewInt(0), nil
 }
 
-func (c *MockClient) WithdrawPayments(_ context.Context, _ ethCommon.Address) error {
+func (c *MockClient) Claim(_ context.Context, _ ethCommon.Address, _ ethCommon.Address) error {
 	return nil
 }
 

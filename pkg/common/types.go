@@ -8,24 +8,24 @@ import (
 	"strings"
 	"time"
 
-	ccecommon "github.com/HorizenOfficial/vela-common-go/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // Type aliases for types that moved to vela-common-go/common.
-type ApplicationIdType = ccecommon.ApplicationIdType
-type RequestIdType = ccecommon.RequestIdType
-type RequestResultStatus = ccecommon.RequestResultStatus
+type ApplicationIdType = velacommon.ApplicationIdType
+type RequestIdType = velacommon.RequestIdType
+type RequestResultStatus = velacommon.RequestResultStatus
 
 const (
-	RequestResultOK      = ccecommon.RequestResultOK
-	RequestResultFailed  = ccecommon.RequestResultFailed
-	RequestResultUnknown = ccecommon.RequestResultUnknown
+	RequestResultOK      = velacommon.RequestResultOK
+	RequestResultFailed  = velacommon.RequestResultFailed
+	RequestResultUnknown = velacommon.RequestResultUnknown
 )
 
 func NewApplicationId(id uint64) ApplicationIdType {
-	return ccecommon.NewApplicationId(id)
+	return velacommon.NewApplicationId(id)
 }
 
 // RequestType represents the type of request being sent to the TEE
@@ -74,9 +74,11 @@ type Request struct {
 	Timestamp *Big `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
-	// DepositAmount is the optional deposit value in WEI
-	DepositAmount *Big `json:"depositAmount"`
-	// MaxFeeValue is the maximum fee value reserved for fee payment
+	// TokenAddress is the address of the business asset token (0x0 = ETH)
+	TokenAddress ethCommon.Address `json:"tokenAddress"`
+	// AssetAmount is the business asset amount (replaces DepositAmount)
+	AssetAmount *Big `json:"assetAmount"`
+	// MaxFeeValue is the maximum fee value reserved for fee payment (always ETH)
 	MaxFeeValue *Big `json:"maxFeeValue"`
 }
 
@@ -85,8 +87,13 @@ func (r *Request) Validate() error {
 		return err
 	}
 
-	if err := validateBigInt("depositAmount", r.DepositAmount.ToInt(), true); err != nil {
+	if err := validateBigInt("assetAmount", r.AssetAmount.ToInt(), true); err != nil {
 		return err
+	}
+
+	// If assetAmount is zero, tokenAddress must be the zero address
+	if r.AssetAmount.ToInt().Sign() == 0 && r.TokenAddress != (ethCommon.Address{}) {
+		return fmt.Errorf("tokenAddress must be zero address when assetAmount is zero")
 	}
 
 	if err := validateBigInt("maxFeeValue", r.MaxFeeValue.ToInt(), true); err != nil {
@@ -114,9 +121,11 @@ func (e Event) String() string {
 
 // Withdrawal represents a withdrawal from the system
 type Withdrawal struct {
+	// TokenAddress is the address of the token to withdraw (0x0 = ETH)
+	TokenAddress ethCommon.Address `json:"tokenAddress"`
 	// DestinationAddress is the address to send the funds to
 	DestinationAddress ethCommon.Address `json:"destinationAddress"`
-	// Amount is the amount to withdraw in WEI
+	// Amount is the amount to withdraw
 	Amount *Big `json:"amount"`
 }
 

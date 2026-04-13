@@ -92,7 +92,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User1 Deposits funds
 	deposit1Amount := big.NewInt(1000)
-	depositState1Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), deposit1Amount, initialStateBytes, wasmBytes)
+	depositState1Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, deposit1Amount, initialStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
@@ -102,11 +102,11 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(depositState1Bytes, &depositState)
 	require.NoError(t, err)
 	require.Len(t, depositState.Accounts, 1)
-	require.Equal(t, deposit1Amount.String(), depositState.Accounts[user1Address.Hex()].Balance.String())
+	require.Equal(t, deposit1Amount.String(), depositState.Accounts[user1Address.Hex()].Balances["0x0000000000000000000000000000000000000000"].String())
 
 	// 2. User2 Deposits funds (more than previous user)
 	deposit2Amount := big.NewInt(2000)
-	depositState2Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), deposit2Amount, depositState1Bytes, wasmBytes)
+	depositState2Bytes, depositEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, deposit2Amount, depositState1Bytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState2Bytes)
 	require.Len(t, depositEvents, 1)
@@ -115,7 +115,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(depositState2Bytes, &depositState)
 	require.NoError(t, err)
 	require.Len(t, depositState.Accounts, 2)
-	require.Equal(t, deposit2Amount.String(), depositState.Accounts[user2Address.Hex()].Balance.String())
+	require.Equal(t, deposit2Amount.String(), depositState.Accounts[user2Address.Hex()].Balances["0x0000000000000000000000000000000000000000"].String())
 
 	// 3. Process a withdraw request for user1
 	withdrawAmount := big.NewInt(200)
@@ -142,7 +142,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	diffBalance := new(big.Int).Sub(deposit1Amount, withdrawAmount)
-	require.Equal(t, diffBalance.String(), withdrawState.Accounts[user1Address.Hex()].Balance.String())
+	require.Equal(t, diffBalance.String(), withdrawState.Accounts[user1Address.Hex()].Balances["0x0000000000000000000000000000000000000000"].String())
 
 	require.Equal(t, ethCommon.Address(recipient1Address), withdrawals[0].DestinationAddress)
 	require.Equal(t, withdrawAmount, withdrawals[0].Amount.ToInt())
@@ -245,10 +245,10 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 	// 2. Create a populated state for testing
 	// User1 deposits 1000
-	populatedStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), initialStateBytes, wasmBytes)
+	populatedStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), initialStateBytes, wasmBytes)
 	require.Nil(t, err)
 	// User2 deposits 500
-	populatedStateBytes, _, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), big.NewInt(500), populatedStateBytes, wasmBytes)
+	populatedStateBytes, _, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, big.NewInt(500), populatedStateBytes, wasmBytes)
 	require.Nil(t, err)
 
 	// --- Test Cases ---
@@ -356,7 +356,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	t.Run("deposit with nil state", func(t *testing.T) {
 		// This should fail inside the wasm module because a nil state is not valid JSON.
 		// This test verifies that the runtime correctly handles passing a nil slice to wasm.
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), nil, wasmBytes)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), nil, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -397,7 +397,7 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 
 	// For other functions, the error will come from getOrLoadModule -> LoadModule
 	t.Run("deposit with nil wasm", func(t *testing.T) {
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), initialStateBytes, nil)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
@@ -422,7 +422,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	invalidState := []byte("{invalid-state}")
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(1000), invalidState, wasmBytes)
+		_, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -471,7 +471,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				require.NoError(t, err)
 
 				runtimeMutex.Lock()
-				newStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), depositAmount, stateBytes, wasmBytes)
+				newStateBytes, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), ethCommon.Address{}, depositAmount, stateBytes, wasmBytes)
 				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
 				stateBytes = newStateBytes
 				runtimeMutex.Unlock()
@@ -555,7 +555,7 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after LoadModule")
 
 	// Deposit: exercises SerializeAndWriteResult for DepositResult (with events)
-	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(5000), stateBytes, wasmBytes)
+	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(5000), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after Deposit")
 
@@ -575,7 +575,7 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (withdraw)")
 
 	// Deposit a second user so we can compare
-	stateBytes, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), big.NewInt(3000), stateBytes, wasmBytes)
+	stateBytes, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, big.NewInt(3000), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after second Deposit")
 
@@ -620,7 +620,7 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 	require.NoError(t, err)
 
 	// Deposit so user1 has a balance
-	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(100), stateBytes, wasmBytes)
+	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(100), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after initial deposit")
 
@@ -646,7 +646,7 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for non-existent account")
 
 	// Trigger error: invalid state
-	_, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), big.NewInt(100), []byte("{bad-json}"), wasmBytes)
+	_, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(100), []byte("{bad-json}"), wasmBytes)
 	require.NotNil(t, failure, "expected error for invalid state")
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for invalid state")
 }
@@ -670,7 +670,7 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 		addr, err := types.HexToAddress(fmt.Sprintf("0xadd%037d", i))
 		require.NoError(t, err)
 
-		newState, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(addr), big.NewInt(int64(1000+i)), stateBytes, wasmBytes)
+		newState, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(addr), ethCommon.Address{}, big.NewInt(int64(1000+i)), stateBytes, wasmBytes)
 		require.Nil(t, failure, "deposit failed for account %d", i)
 		stateBytes = newState
 	}
@@ -703,4 +703,192 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 
 	// Verify no memory leaked despite the large allocation
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after large result round-trip")
+}
+
+// --- ERC-20 integration tests ---
+// These tests verify that token-aware operations cross the host→guest WASM memory boundary correctly.
+
+var (
+	erc20TokenAddress, _ = types.HexToAddress("0xdead000000000000000000000000000000000001")
+	ethZeroAddress       = types.Address{}
+	ethZeroAddressHex    = ethZeroAddress.Hex()
+)
+
+// TestDeployWithConstructorParams verifies the deploy export receives constructor params
+// through WASM memory and initializes the app state with a token allowlist.
+func TestDeployWithConstructorParams(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+	ctx := context.Background()
+
+	// Deploy with an ERC-20 token in the allowlist
+	params := fmt.Sprintf(`{"allowedTokens":["%s"]}`, erc20TokenAddress.Hex())
+	stateBytes, fuel, err := runtime.Deploy(ctx, appId, []byte(params), wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
+
+	var state app.ApplicationInternalState
+	err = json.Unmarshal(stateBytes, &state)
+	require.NoError(t, err)
+	require.Equal(t, appId, common.NewApplicationId(state.AppID))
+	require.Empty(t, state.Accounts)
+	// Both ETH and the ERC-20 token should be in the allowlist
+	require.True(t, state.AllowedTokens[ethZeroAddressHex], "ETH should always be allowed")
+	require.True(t, state.AllowedTokens[erc20TokenAddress.Hex()], "ERC-20 token should be allowed")
+}
+
+// TestDeployWithEmptyParams verifies deploy works with no constructor params (ETH-only app).
+func TestDeployWithEmptyParams(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+	ctx := context.Background()
+
+	stateBytes, fuel, err := runtime.Deploy(ctx, appId, []byte(""), wasmBytes)
+	require.NoError(t, err)
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
+
+	var state app.ApplicationInternalState
+	err = json.Unmarshal(stateBytes, &state)
+	require.NoError(t, err)
+	require.True(t, state.AllowedTokens[ethZeroAddressHex], "ETH should always be allowed")
+	require.Len(t, state.AllowedTokens, 1, "only ETH should be allowed")
+}
+
+// TestERC20DepositThroughWasm verifies that the tokenAddress bytes cross the
+// host→guest WASM memory boundary correctly and the per-token balance is credited.
+func TestERC20DepositThroughWasm(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+	ctx := context.Background()
+
+	// Deploy with ERC-20 token allowed
+	params := fmt.Sprintf(`{"allowedTokens":["%s"]}`, erc20TokenAddress.Hex())
+	stateBytes, _, err := runtime.Deploy(ctx, appId, []byte(params), wasmBytes)
+	require.NoError(t, err)
+
+	// Deposit ERC-20 token
+	depositAmount := big.NewInt(500)
+	newStateBytes, events, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address(erc20TokenAddress), depositAmount, stateBytes, wasmBytes)
+	require.Nil(t, failure)
+	require.NotNil(t, newStateBytes)
+	require.Len(t, events, 1)
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
+
+	var state app.ApplicationInternalState
+	err = json.Unmarshal(newStateBytes, &state)
+	require.NoError(t, err)
+
+	// ERC-20 balance should be credited
+	acct := state.Accounts[user1Address.Hex()]
+	require.NotNil(t, acct)
+	require.Equal(t, depositAmount.String(), acct.Balances[erc20TokenAddress.Hex()].String())
+	// ETH balance should not exist
+	require.Nil(t, acct.Balances[ethZeroAddressHex])
+}
+
+// TestERC20DepositRejectedForNonAllowlistedToken verifies that depositing a token
+// not in the app's allowlist returns an error through the WASM boundary.
+func TestERC20DepositRejectedForNonAllowlistedToken(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+	ctx := context.Background()
+
+	// Deploy ETH-only (no ERC-20 in allowlist)
+	stateBytes, _, err := runtime.Deploy(ctx, appId, []byte(""), wasmBytes)
+	require.NoError(t, err)
+
+	// Attempt to deposit an ERC-20 token
+	depositAmount := big.NewInt(100)
+	_, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address(erc20TokenAddress), depositAmount, stateBytes, wasmBytes)
+	require.NotNil(t, failure, "deposit of non-allowlisted token should fail")
+}
+
+// TestERC20WithdrawalThroughWasm verifies token-aware withdrawals survive
+// the guest→host JSON serialization and carry the correct TokenAddress.
+func TestERC20WithdrawalThroughWasm(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+	ctx := context.Background()
+
+	// Deploy with ERC-20 token allowed
+	params := fmt.Sprintf(`{"allowedTokens":["%s"]}`, erc20TokenAddress.Hex())
+	stateBytes, _, err := runtime.Deploy(ctx, appId, []byte(params), wasmBytes)
+	require.NoError(t, err)
+
+	// Deposit ERC-20 token
+	depositAmount := big.NewInt(1000)
+	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address(erc20TokenAddress), depositAmount, stateBytes, wasmBytes)
+	require.Nil(t, failure)
+
+	// Withdraw 300 of ERC-20 token to recipient
+	withdrawAmount := big.NewInt(300)
+	withdrawInstruction := app.WithdrawInstruction{
+		To:           recipient1Address,
+		TokenAddress: erc20TokenAddress,
+		Amount:       new(types.Uint256).SetBytes(withdrawAmount.Bytes()),
+	}
+	payload := app.PayloadInstructions{
+		Type:     "withdraw",
+		Withdraw: &withdrawInstruction,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	newStateBytes, events, withdrawals, _, fuel, processFailure := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
+	require.Nil(t, processFailure)
+	require.NotNil(t, newStateBytes)
+	require.Len(t, events, 1)
+	require.Len(t, withdrawals, 1)
+	require.Equal(t, 0, fuel.Cmp(big.NewInt(50)))
+
+	// Verify withdrawal carries the correct token address
+	require.Equal(t, ethCommon.Address(erc20TokenAddress), withdrawals[0].TokenAddress)
+	require.Equal(t, ethCommon.Address(recipient1Address), withdrawals[0].DestinationAddress)
+	require.Equal(t, withdrawAmount, withdrawals[0].Amount.ToInt())
+
+	// Verify ERC-20 balance was debited
+	var state app.ApplicationInternalState
+	err = json.Unmarshal(newStateBytes, &state)
+	require.NoError(t, err)
+	expectedBalance := new(big.Int).Sub(depositAmount, withdrawAmount)
+	require.Equal(t, expectedBalance.String(), state.Accounts[user1Address.Hex()].Balances[erc20TokenAddress.Hex()].String())
+}
+
+// TestMixedETHAndERC20Deposits verifies that ETH and ERC-20 deposits are tracked independently
+// when both cross the WASM boundary.
+func TestMixedETHAndERC20Deposits(t *testing.T) {
+	wasmBytes := buildAndLoadWasmModule(t)
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+	ctx := context.Background()
+
+	// Deploy with ERC-20 token allowed
+	params := fmt.Sprintf(`{"allowedTokens":["%s"]}`, erc20TokenAddress.Hex())
+	stateBytes, _, err := runtime.Deploy(ctx, appId, []byte(params), wasmBytes)
+	require.NoError(t, err)
+
+	// Deposit ETH
+	ethAmount := big.NewInt(1000)
+	stateBytes, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, ethAmount, stateBytes, wasmBytes)
+	require.Nil(t, failure)
+
+	// Deposit ERC-20
+	erc20Amount := big.NewInt(500)
+	stateBytes, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address(erc20TokenAddress), erc20Amount, stateBytes, wasmBytes)
+	require.Nil(t, failure)
+
+	// Verify both balances are independent
+	var state app.ApplicationInternalState
+	err = json.Unmarshal(stateBytes, &state)
+	require.NoError(t, err)
+
+	acct := state.Accounts[user1Address.Hex()]
+	require.NotNil(t, acct)
+	require.Equal(t, ethAmount.String(), acct.Balances[ethZeroAddressHex].String())
+	require.Equal(t, erc20Amount.String(), acct.Balances[erc20TokenAddress.Hex()].String())
 }

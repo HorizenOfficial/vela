@@ -350,6 +350,154 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	return loadResult.State, loadResult.Fuel.ToInt(), nil
 }
 
+// Deploy loads a WASM module and initializes it with constructor parameters.
+// The guest export is deploy(appId, paramsPtr, paramsLen) -> resultPtr.
+//
+// This method is the deploy-time entry point: it compiles the module, calls the guest's
+// deploy function with constructor params, and returns the initial application state.
+//
+// NOTE on LoadModule vs Deploy:
+// Deploy is used at deploy time to initialize the app state with constructor parameters.
+// LoadModule is no longer used for deploy-time initialization but is retained because
+// getOrLoadModule (used by Deposit/ProcessRequest) depends on loadModuleUnlocked to
+// compile and cache modules for subsequent requests.
+//
+// TODO: Refactor to extract shared module setup (compile, instantiate, WASI config) into
+// a compileAndInstantiate helper. Currently deployUnlocked and loadModuleUnlocked duplicate
+// ~60 lines of identical boilerplate. This would also let getOrLoadModule compile and
+// instantiate without calling any guest function, eliminating the unnecessary load_module
+// guest call during cache warm-up.
+func (r *WasmtimeRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	return r.deployUnlocked(ctx, appId, constructorParams, wasm)
+}
+
+// deployUnlocked contains the core logic for deploying a module with constructor params, without locking.
+// This method should only be called when a lock is already held.
+func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
+	r.log.Info("Wasmtime Runtime: Deploying WASM module for application %d (wasm size: %d bytes, params size: %d bytes)", appId, len(wasm), len(constructorParams))
+	wasmAppId, err := ToWasmType(appId)
+	if err != nil {
+		return nil, big.NewInt(0), err
+	}
+
+	// Compile the WASM module
+	module, err := wasmtime.NewModule(r.engine, wasm)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to compile WASM module: %w", err)
+	}
+
+	// Create a per-module store
+	store := wasmtime.NewStore(r.engine)
+	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
+	}
+
+	success := false
+	defer func() {
+		if !success && cleanupLogPipes != nil {
+			cleanupLogPipes()
+		}
+	}()
+
+	// Create WASI configuration and linker for TinyGo WASI imports
+	linker := wasmtime.NewLinker(r.engine)
+	err = linker.DefineWasi()
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
+	}
+
+	// Instantiate the module using the module-specific store
+	instance, err := linker.Instantiate(store, module)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to instantiate WASM module: %w", err)
+	}
+
+	// Get the memory export
+	memoryExport := instance.GetExport(store, "memory")
+	if memoryExport == nil {
+		return nil, big.NewInt(0), fmt.Errorf("memory export not found in WASM module")
+	}
+
+	memory := memoryExport.Memory()
+	if memory == nil {
+		return nil, big.NewInt(0), fmt.Errorf("memory export is not a memory")
+	}
+
+	// Get the deploy function
+	deployFunc := instance.GetFunc(store, "deploy")
+	if deployFunc == nil {
+		return nil, big.NewInt(0), fmt.Errorf("deploy function not found in WASM module")
+	}
+
+	// Get the deallocate function (optional, but recommended for memory management)
+	deallocateFunc := instance.GetFunc(store, "deallocate")
+
+	appModule := &ApplicationModule{
+		store:      store,
+		module:     module,
+		instance:   instance,
+		memory:     memory,
+		deallocate: deallocateFunc,
+		cleanupFds: cleanupLogPipes,
+	}
+
+	// Write constructor params to guest memory
+	if constructorParams == nil {
+		constructorParams = []byte{}
+	}
+	paramsPtr, err := r.writeToMemory(appModule, constructorParams)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to write constructor params to memory: %w", err)
+	}
+	if appModule.deallocate != nil && paramsPtr != 0 {
+		defer func() { _, _ = appModule.deallocate.Call(appModule.store, paramsPtr, int32(len(constructorParams))) }()
+	}
+
+	// Guest ABI: deploy(appId, paramsPtr, paramsLen)
+	result, err := deployFunc.Call(store, wasmAppId, paramsPtr, int32(len(constructorParams)))
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to call deploy: %w", err)
+	}
+
+	// Extract the result bytes
+	resultBytes, err := r.extractResultBytes(result, appModule)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to extract deploy result bytes: %w", err)
+	}
+
+	r.log.Debug("Wasmtime Runtime: Raw result from WASM deploy: %s", string(resultBytes))
+
+	// Deserialize the result
+	var deployResult appCommon.DeployResult
+	if err := json.Unmarshal(resultBytes, &deployResult); err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to unmarshal deploy result: %w", err)
+	}
+
+	if deployResult.Error != "" {
+		return nil, big.NewInt(0), fmt.Errorf("failed to deploy module: %s", deployResult.Error)
+	}
+
+	success = true // Disables the deferred cleanup
+
+	// A module for this appId should not exist at deploy time. If it does,
+	// it indicates a duplicate deploy or an unexpected state.
+	if _, exists := r.modules[appId]; exists {
+		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
+	}
+
+	// Store the module in the runtime registry and update LRU
+	r.modules[appId] = appModule
+	r.touchModule(appId)
+	r.evictIfNeeded()
+	r.log.Info("Wasmtime Runtime: Successfully deployed WASM module for application %d", appId)
+
+	return deployResult.State, deployResult.Fuel.ToInt(), nil
+}
+
 // -----------------------------
 // Public operations (Deposit, ProcessRequest, ...)
 //
@@ -357,9 +505,9 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 // are deallocated after the guest call by using defer cleanup.
 // -----------------------------
 
-// Deposit processes a deposit
-func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	r.log.Info("Wasmtime Runtime: Processing deposit for application %d (value: %v wei for sender: %v)", appId, depositAmount, sender)
+// Deposit processes a deposit with token awareness (tokenAddress = 0x0 for ETH)
+func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
+	r.log.Info("Wasmtime Runtime: Processing deposit for application %d (token: %v, value: %v wei for sender: %v)", appId, tokenAddress, depositAmount, sender)
 
 	if depositAmount == nil {
 		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be nil")
@@ -393,6 +541,15 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, senderPtr, int32(len(senderBytes))) }()
 	}
 
+	tokenBytes := tokenAddress.Bytes()
+	tokenPtr, err := r.writeToMemory(appModule, tokenBytes)
+	if err != nil {
+		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write token address to memory: %v", err))
+	}
+	if appModule.deallocate != nil && tokenPtr != 0 {
+		defer func() { _, _ = appModule.deallocate.Call(appModule.store, tokenPtr, int32(len(tokenBytes))) }()
+	}
+
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
 		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
@@ -410,8 +567,8 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 		defer func() { _, _ = appModule.deallocate.Call(appModule.store, valuePtr, int32(len(valueBytes))) }()
 	}
 
-	// Wasm supports only int64, so we cast appId to int64
-	result, err := depositFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
+	// Guest ABI: deposit(appId, senderPtr, senderLen, tokenPtr, tokenLen, valuePtr, valueLen, statePtr, stateLen)
+	result, err := depositFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), tokenPtr, int32(len(tokenBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, fmt.Sprintf("failed to call deposit: %v", err)) // TODO some standard way of getting errors here?
 	}

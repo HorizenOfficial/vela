@@ -127,102 +127,85 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 		Payload:       payload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		AssetAmount:   common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
 		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
-// CreateDepositRequest creates an encrypted deposit request
+// CreateDepositRequest creates an encrypted ETH deposit request.
+// Convenience wrapper around CreateTokenDepositRequest with tokenAddress = 0x0.
 func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, depositAmount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	return c.CreateTokenDepositRequest(appID, requestID, sender, ethCommon.Address{}, depositAmount, receiverPubKey)
+}
+
+// CreateWithdrawalRequest creates an encrypted ETH withdrawal request.
+// Convenience wrapper around CreateTokenWithdrawalRequest with tokenAddress = 0x0.
+func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	return c.CreateTokenWithdrawalRequest(appID, requestID, sender, destinationAddress, ethCommon.Address{}, amount, receiverPubKey)
+}
+
+// encryptAndBuildRequest encrypts a payload and builds a common.Request.
+// Shared by all request-creation helpers that follow the standard encrypt-then-submit pattern.
+func (c *CryptoHelper) encryptAndBuildRequest(
+	appID common.ApplicationIdType, requestID common.RequestIdType,
+	requestType common.RequestType, sender ethCommon.Address,
+	payload []byte, tokenAddress ethCommon.Address, assetAmount *common.Big,
+	receiverPubKey *cryptotypes.PublicKeyP521,
+) (*common.Request, error) {
 	senderKey, err := c.GetUserKey(sender)
 	if err != nil {
 		return nil, err
 	}
 
-	// For deposit, payload can be empty since deposit is handled through the Value field
-	payload := []byte{}
-
-	// Encrypt payload (even empty payload needs to be encrypted)
 	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt deposit payload: %w", err)
+		return nil, fmt.Errorf("failed to encrypt payload: %w", err)
 	}
 
 	return &common.Request{
 		ApplicationID: appID,
 		RequestID:     requestID,
-		RequestType:   common.Process,
+		RequestType:   requestType,
 		Payload:       encryptedPayload,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.ToBig(depositAmount),
+		AssetAmount:   assetAmount,
+		TokenAddress:  tokenAddress,
 		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
 
-// CreateWithdrawalRequest creates an encrypted withdrawal request
-func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	senderKey, err := c.GetUserKey(sender)
-	if err != nil {
-		return nil, err
-	}
+// CreateTokenDepositRequest creates an encrypted deposit request for a specific token.
+// tokenAddress = 0x0 for ETH, non-zero for ERC-20.
+func (c *CryptoHelper) CreateTokenDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
+	return c.encryptAndBuildRequest(appID, requestID, common.Process, sender, []byte{}, tokenAddress, common.ToBig(depositAmount), receiverPubKey)
+}
 
-	// Create withdrawal instruction
+// CreateTokenWithdrawalRequest creates an encrypted withdrawal request for a specific token.
+// TODO: The payload is built as an untyped map[string]interface{} because crypto_helpers
+// is app-agnostic (different WASM apps may have different payload formats). If this
+// helper becomes app-specific, consider using the typed WithdrawInstruction struct to
+// get compile-time safety on JSON field names.
+func (c *CryptoHelper) CreateTokenWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, tokenAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
 	withdrawInstruction := map[string]interface{}{
 		"type": "withdraw",
 		"withdraw": map[string]interface{}{
-			"to":     destinationAddress,
-			"amount": amount,
+			"to":           destinationAddress,
+			"tokenAddress": tokenAddress,
+			"amount":       amount,
 		},
 	}
-
 	payload, err := json.Marshal(withdrawInstruction)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal withdrawal instruction: %w", err)
 	}
-
-	// Encrypt payload
-	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt withdrawal payload: %w", err)
-	}
-
-	return &common.Request{
-		ApplicationID: appID,
-		RequestID:     requestID,
-		RequestType:   common.Process,
-		Payload:       encryptedPayload,
-		Sender:        sender,
-		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0), // No deposit for withdrawal
-		MaxFeeValue:   common.NewBig(100),
-	}, nil
+	return c.encryptAndBuildRequest(appID, requestID, common.Process, sender, payload, ethCommon.Address{}, common.NewBig(0), receiverPubKey)
 }
 
-// CreateDeanonymizationRequest creates an encrypted deanonymization request
+// CreateDeanonymizationRequest creates an encrypted deanonymization request.
 func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	senderKey, err := c.GetUserKey(sender)
-	if err != nil {
-		return nil, err
-	}
-
-	// For deanonymization, payload can contain specific query parameters
-	// Encrypt payload
-	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt deanonymization payload: %w", err)
-	}
-
-	return &common.Request{
-		ApplicationID: appID,
-		RequestID:     requestID,
-		RequestType:   common.Deanonymize,
-		Payload:       encryptedPayload,
-		Sender:        sender,
-		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
-		MaxFeeValue:   common.NewBig(100),
-	}, nil
+	return c.encryptAndBuildRequest(appID, requestID, common.Deanonymize, sender, payload, ethCommon.Address{}, common.NewBig(0), receiverPubKey)
 }
 
 // DecryptEvent decrypts an event using the user's private key
@@ -255,29 +238,9 @@ func (c *CryptoHelper) DecryptDeanonymizationReport(userID ethCommon.Address, re
 	return decryptedReport, nil
 }
 
-// CreateProcessRequest creates an encrypted process request with a raw payload
+// CreateProcessRequest creates an encrypted process request with a raw payload.
 func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	senderKey, err := c.GetUserKey(sender)
-	if err != nil {
-		return nil, err
-	}
-
-	// Encrypt payload
-	encryptedPayload, err := crypto.Encrypt(senderKey, receiverPubKey, payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt process payload: %w", err)
-	}
-
-	return &common.Request{
-		ApplicationID: appID,
-		RequestID:     requestID,
-		RequestType:   common.Process,
-		Payload:       encryptedPayload,
-		Sender:        sender,
-		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
-		MaxFeeValue:   common.NewBig(100),
-	}, nil
+	return c.encryptAndBuildRequest(appID, requestID, common.Process, sender, payload, ethCommon.Address{}, common.NewBig(0), receiverPubKey)
 }
 
 func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *cryptotypes.PublicKeySecp256k1) error {
