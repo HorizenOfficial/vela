@@ -47,7 +47,7 @@ func Deploy(appId int64, paramsJSON string) types.DeployResult {
 		}
 	}
 	fuel := types.NewUint256(5)
-	utils.LogDebug("Deploy: appId=%d, allowedTokens=%d, stateSize=%d, fuel=%v", appId, len(allowedTokens), len(stateJSON), fuel)
+	utils.LogDebug("Deploy: appId=%d, allowedTokens=%d, stateSize=%d, fuel=%v", uint64(appId), len(allowedTokens), len(stateJSON), fuel)
 	return types.DeployResult{
 		State: stateJSON,
 		Fuel:  fuel,
@@ -70,7 +70,7 @@ func LoadModule(appId int64) types.LoadModuleResult {
 		}
 	}
 	fuel := types.NewUint256(5)
-	utils.LogDebug("LoadModule: appId=%d, stateSize=%d, fuel=%v", appId, len(stateJSON), fuel)
+	utils.LogDebug("LoadModule: appId=%d, stateSize=%d, fuel=%v", uint64(appId), len(stateJSON), fuel)
 	return types.LoadModuleResult{
 		State: stateJSON,
 		Fuel:  fuel,
