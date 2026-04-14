@@ -629,11 +629,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload[:keyOnlyPayloadSize])
 		if err != nil {
-			e.log.Error("Executor: failed to parse keyP521 in request payload: %v", err)
-			errorPayload, err := e.processErrorResponse(req,
-				appState.StateRoot,
-				apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload"))
-			return errorPayload, nil, nil, err
+			errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
+				apperrors.CodeParsingKeyError,
+				"failed to parse keyP521 in request payload", err)
+			return errorPayload, nil, nil, respErr
 		}
 
 		appData.AddKey(req.Sender, *keyToAssociate)
@@ -643,11 +642,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			encryptedSeed := req.Payload[keyOnlyPayloadSize:keyWithEncryptedSeedPayloadSize]
 			seed, err := crypto.Decrypt(keyToAssociate, &e.keySet.CommunicationKey, encryptedSeed)
 			if err != nil {
-				e.log.Error("Executor: seed decryption failed for request %s: %v", req.RequestID, err)
-				errorPayload, err := e.processErrorResponse(req,
-					appState.StateRoot,
-					apperrors.New(apperrors.CodeParsingKeyError, "seed decryption failed"))
-				return errorPayload, nil, nil, err
+				errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
+					apperrors.CodeParsingKeyError,
+					"seed decryption failed", err)
+				return errorPayload, nil, nil, respErr
 			}
 			if err := appData.AddSeed(req.Sender, seed); err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to add seed for request %s: %w", req.RequestID, err)
@@ -733,8 +731,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	//serialize the new app data
 	newAppData, err := appData.Serialize()
 	if err != nil {
-		errorPayload, err := e.processErrorResponse(req, appState.StateRoot, apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new app data"))
-		return errorPayload, nil, nil, err
+		errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
+			apperrors.CodeAppDataSerializationFailure,
+			"failed to serialize new app data", err)
+		return errorPayload, nil, nil, respErr
 	}
 
 	// Encrypt the new app data and events
@@ -851,12 +851,10 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	descriptor, err := common.DecodeDeployDescriptorStrict(req.Payload)
 	if err != nil {
-		errorPayload, err := e.processErrorResponse(
-			req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeInternalFallback, deployDescriptorFailureMsg),
-		)
-		return errorPayload, nil, err
+		errorPayload, respErr := e.errorResponse(req, emptyStateRoot,
+			apperrors.CodeInternalFallback,
+			deployDescriptorFailureMsg, err)
+		return errorPayload, nil, respErr
 	}
 
 	if len(wasmModule) == 0 {
@@ -876,11 +874,14 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Deploy the module with constructor params and get initial state
 	initialAppState, fuel, err := e.runtime.Deploy(ctx, req.ApplicationID, descriptor.ConstructorParams, wasmModule)
 	if err != nil {
-
-		errorPayload, err := e.processErrorResponse(req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg))
-		return errorPayload, nil, err
+		// The runtime's error message carries the specific failure mode
+		// (compile failure, invalid guest result, JSON parse error, etc.).
+		// errorResponse logs it locally and folds it into the signed-payload
+		// message so downstream consumers see more than just the error code.
+		errorPayload, respErr := e.errorResponse(req, emptyStateRoot,
+			apperrors.CodeFailedLoadingOrGettingModule,
+			deployLoadFailureMsg, err)
+		return errorPayload, nil, respErr
 	}
 
 	// Check if there is enough ETH to cover the fuel costs
@@ -913,10 +914,10 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	//serialize the new app data
 	initialAppDataBytes, err := initialAppData.Serialize()
 	if err != nil {
-		errorPayload, err := e.processErrorResponse(req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new app data"))
-		return errorPayload, nil, err
+		errorPayload, respErr := e.errorResponse(req, emptyStateRoot,
+			apperrors.CodeAppDataSerializationFailure,
+			"failed to serialize new app data", err)
+		return errorPayload, nil, respErr
 	}
 	// Create app data root hash
 	initialAppDataRoot := sha256.Sum256(initialAppDataBytes)
@@ -1024,6 +1025,27 @@ func (e *StatelessExecutor) processErrorResponse(req *common.Request, stateRoot 
 	}
 	e.log.Info("Executor: Returning signed error payload for request %s (error code: %d)", req.RequestID, payload.ErrorCode)
 	return payload, nil
+}
+
+// errorResponse builds a signed error response from a failure code + base
+// message, optionally folding an underlying cause into both the Executor log
+// and the payload message. It exists so call sites don't have to remember to
+// log AND wrap the cause every time they construct an apperrors.RequestFailure.
+//
+// When cause is nil, this is equivalent to processErrorResponse with
+// apperrors.New(code, baseMsg). When cause is non-nil, it:
+//   1. logs the cause at Error level with request/app context, and
+//   2. appends ": <cause>" to baseMsg in the signed payload so downstream
+//      consumers (wallet, subgraph) see the specific failure, not just the
+//      generic error code category.
+func (e *StatelessExecutor) errorResponse(req *common.Request, stateRoot [32]byte, code apperrors.FailureCode, baseMsg string, cause error) (*common.UpdatePayload, error) {
+	msg := baseMsg
+	if cause != nil {
+		e.log.Error("Executor: request %s (app %d) failed (%s): %v",
+			req.RequestID, req.ApplicationID, code.Code, cause)
+		msg = fmt.Sprintf("%s: %v", baseMsg, cause)
+	}
+	return e.processErrorResponse(req, stateRoot, apperrors.New(code, msg))
 }
 
 // signUpdatePayload signs the update payload to produce an attestation

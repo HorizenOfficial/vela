@@ -115,7 +115,11 @@ func TestHandleDeployApp_InvalidDescriptor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updatePayload)
 	require.Equal(t, uint8(apperrors.CodeInternalFallback.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to deploy application", updatePayload.ErrorMsg)
+	// errorResponse now appends the underlying decode error to the base message
+	// (e.g. "failed to deploy application: invalid character 'o' ...").
+	// Assert the base message is present; the exact suffix is
+	// implementation-dependent on the json package.
+	require.Contains(t, updatePayload.ErrorMsg, "failed to deploy application")
 	require.Equal(t, [32]byte{}, updatePayload.PrevStateRoot)
 	require.Equal(t, [32]byte{}, updatePayload.NewStateRoot)
 }
