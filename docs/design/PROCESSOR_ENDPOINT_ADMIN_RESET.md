@@ -6,6 +6,8 @@ During development and on testnets it may be necessary to restart the system fro
 
 Passing `address(0)` as the `RESET_OPERATOR` at deploy time disables the feature permanently for that deployment, which is the expected value in production.
 
+> **Note:** `adminResetApps` accepts an explicit list of ERC-20 token addresses. Before zeroing custody, it transfers all accumulated ETH and ERC-20 balances locked in the supplied app IDs directly to the caller (`msg.sender`). This prevents permanent fund loss during a reset.
+
 ---
 
 ## Design
@@ -36,21 +38,28 @@ Clears the pending request queue and resets deploy slot accounting.
 Operations performed:
 
 1. Deletes every pending request from `requestById` and `_requestIdByOrder` by iterating from `_head` to `_tail`.
-2. Resets `_head` and `_tail` to `0`.
-3. Resets `availableDeploySlots` to `maxNumOfApplications`.
+2. Sets `_tail = _head` (the queue is now empty; the head index is not re-anchored to zero).
+3. For each `DEPLOYAPP` request removed from the queue, increments `availableDeploySlots` by one. Already-deployed applications are not affected — their deploy slots remain consumed.
 
-### `adminResetApps(uint64[] calldata appIds)`
+### `adminResetApps(uint64[] calldata appIds, address[] calldata erc20Tokens)`
 
-Resets state roots and locked funds for the supplied application IDs, **and also calls `adminReset()` internally**, so the queue and deploy slots are cleared in the same transaction. The caller must provide the list of active app IDs explicitly to avoid unbounded on-chain iteration.
+Resets state roots and locked funds for the supplied application IDs, **and also calls `adminReset()` internally**, so the queue and deploy slots are cleared in the same transaction. Before zeroing any custody, it recovers all locked ETH and ERC-20 balances by transferring them to `msg.sender`. The caller must provide the list of active app IDs and the list of ERC-20 token addresses to rescue; both are explicit to avoid unbounded on-chain iteration.
 
 Operations performed:
 
-1. Calls `adminReset()` (clears the pending request queue and resets `availableDeploySlots`).
-2. For each `appId` in the list:
-   - Sets `applicationStateRoots[appId]` to `bytes32(0)`.
-   - Sets `appLockedFunds[appId]` to `0`.
+1. Calls `_resetQueue()` (clears the pending request queue; `availableDeploySlots` is incremented only for pending `DEPLOYAPP` requests removed).
+2. Iterates over `appIds`. For each `appId`:
+   - Accumulates ETH custody (`appCustody[appId][address(0)]`) into `totalEth`, decrements `totalAppCustody[address(0)]`, and zeroes `appCustody[appId][address(0)]`.
+   - For each token in `erc20Tokens`, accumulates its custody (`appCustody[appId][token]`) into a per-token running total, decrements `totalAppCustody[token]`, and zeroes `appCustody[appId][token]`.
+   - If `applicationStateRoots[appId]` is non-zero, clears it and increments `availableDeploySlots` by one (the deploy slot is freed).
+3. Transfers the accumulated `totalEth` to `msg.sender` in a single `call`.
+4. For each token in `erc20Tokens`, transfers the accumulated total to `msg.sender` via `safeTransfer`.
+
+State changes are completed before any external transfer (checks-effects-interactions). ETH and ERC-20 totals are accumulated across all apps so that each asset requires exactly one transfer call regardless of how many app IDs are supplied.
 
 > **Data layer note:** After calling `adminResetApps`, the corresponding off-chain data layer entries for each cleared app ID must also be removed. If the same app ID is reused in a subsequent deploy and the old data layer entries are still present, the new deployment will fail because it will find pre-existing state that does not match the freshly cleared on-chain root.
+
+> **Subgraph note:** The subgraph indexes on-chain events and has no automatic awareness of an on-chain reset. After a full reset, the subgraph should also be reset or redeployed (starting from block 0 or the new deployment block); otherwise off-chain clients may surface events and application state that no longer exist on-chain.
 
 ### What Is Not Reset
 
@@ -82,28 +91,82 @@ function adminReset() public onlyRole(RESET_OPERATOR) {
 function _resetQueue() internal {
     uint256 i = _head;
     uint256 tail = _tail;
+    uint256 freedDeploySlots;
     while (i < tail) {
+        if (requestById[_requestIdByOrder[i]].requestType == Structs.RequestType.DEPLOYAPP) {
+            unchecked { ++freedDeploySlots; }
+        }
         delete requestById[_requestIdByOrder[i]];
         delete _requestIdByOrder[i];
         unchecked { ++i; }
     }
-    _head = 0;
-    _tail = 0;
-
-    availableDeploySlots = maxNumOfApplications;
+    _tail = _head; // empty the queue without re-anchoring _head to zero
+    unchecked { availableDeploySlots += freedDeploySlots; }
 }
 
 /// @notice Resets state roots and locked funds for the given application IDs,
-///         and also clears the queue in the same transaction.
+///         clears the queue in the same transaction, and rescues all locked ETH
+///         and ERC-20 balances by transferring them to the caller.
 ///         Unreachable when RESET_OPERATOR was initialised as address(0).
-function adminResetApps(uint64[] calldata appIds) external onlyRole(RESET_OPERATOR) {
+function adminResetApps(
+    uint64[] calldata appIds,
+    address[] calldata erc20Tokens
+) external onlyRole(RESET_OPERATOR) nonReentrant {
     _resetQueue();
-    uint256 length = appIds.length;
+
+    uint256 appCount  = appIds.length;
+    uint256 tokenCount = erc20Tokens.length;
+    uint256 totalEth;
+    uint256[] memory tokenTotals = new uint256[](tokenCount);
+
+    // --- Effects: zero out all custody and state roots ---
     uint256 i;
-    while (i < length) {
-        applicationStateRoots[appIds[i]] = bytes32(0);
-        appLockedFunds[appIds[i]] = 0;
+    while (i < appCount) {
+        uint64 appId = appIds[i];
+
+        // Accumulate ETH custody
+        uint256 ethAmt = appCustody[appId][address(0)];
+        if (ethAmt > 0) {
+            totalEth += ethAmt;
+            totalAppCustody[address(0)] -= ethAmt;
+            appCustody[appId][address(0)] = 0;
+        }
+
+        // Accumulate ERC-20 custody per token
+        uint256 j;
+        while (j < tokenCount) {
+            uint256 amt = appCustody[appId][erc20Tokens[j]];
+            if (amt > 0) {
+                tokenTotals[j] += amt;
+                totalAppCustody[erc20Tokens[j]] -= amt;
+                appCustody[appId][erc20Tokens[j]] = 0;
+            }
+            unchecked { ++j; }
+        }
+
+        // Clear app state root and free deploy slot
+        if (applicationStateRoots[appId] != bytes32(0)) {
+            applicationStateRoots[appId] = bytes32(0);
+            unchecked { ++availableDeploySlots; }
+        }
+
         unchecked { ++i; }
+    }
+
+    // --- Interactions: transfer accumulated balances to caller ---
+    address payable recipient = payable(msg.sender);
+
+    if (totalEth > 0) {
+        (bool ok, ) = recipient.call{value: totalEth}('');
+        if (!ok) revert TransferFailed();
+    }
+
+    uint256 j;
+    while (j < tokenCount) {
+        if (tokenTotals[j] > 0) {
+            IERC20(erc20Tokens[j]).safeTransfer(recipient, tokenTotals[j]);
+        }
+        unchecked { ++j; }
     }
 }
 ```
@@ -132,10 +195,11 @@ Required environment variables:
 |----------|-------------|
 | `PROCESSOR_ENDPOINT` | Address of the deployed contract (proxy address if using the upgrade pattern). |
 | `APP_IDS` | Comma-separated list of `uint64` application IDs whose state roots and locked funds should be cleared. |
+| `ERC20_TOKENS` | Comma-separated list of ERC-20 token addresses whose per-app custody should be rescued and transferred to the signer. May be empty if the deployment is ETH-only. |
 
 The script flow:
 
 1. Attach to `ProcessorEndpoint` at `PROCESSOR_ENDPOINT`.
-2. Call `adminReset()` to drain the queue and reset `availableDeploySlots`.
-3. If `APP_IDS` is set and non-empty, parse it and call `adminResetApps(appIds)`.
-4. Print confirmation of each step and the resulting queue size (expected: 0).
+2. Call `adminReset()` to drain the queue and reclaim deploy slots for pending deploy requests.
+3. If `APP_IDS` is set and non-empty, parse it and call `adminResetApps(appIds, erc20Tokens)` (passing `erc20Tokens` from `ERC20_TOKENS`, defaulting to `[]` if unset). All locked ETH and ERC-20 balances are transferred to the signer's address.
+4. Print confirmation of each step, the resulting queue size (expected: 0), and the amounts recovered per asset.

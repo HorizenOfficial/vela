@@ -171,7 +171,7 @@ All three contracts must apply the same mechanical transformation:
 
 1. Replace standard OpenZeppelin base contracts with their `*Upgradeable` variants.
 2. Remove constructor arguments; the constructor body must only call `_disableInitializers()`.
-3. Add an `initialize(...)` function with the `initializer` modifier that performs all previous constructor logic.
+3. Add an `initialize(...)` function with the `initializer` modifier that performs all previous constructor logic. **Important:** inline state-variable initializers (e.g. `uint256 public maxNumOfApplications = 10;`) are part of the constructor in plain contracts but are **not** executed by the proxy. Every such default value must be moved inside `initialize()` explicitly.
 4. Inherit from `UUPSUpgradeable` and implement `_authorizeUpgrade`.
 5. Add `uint256[50] private __gap` at the end of their own storage variables.
 
@@ -421,3 +421,5 @@ Same pattern as above.
 ## Note
 
 In UUPS the EIP-1967 admin slot is not used; there is no separate `ProxyAdmin` contract. Upgrade authority is enforced entirely by `_authorizeUpgrade` inside the implementation, which restricts the call to the owner or `ADMIN` role depending on the contract. The account holding that role is therefore the sole key that can push a new implementation. In production it must be held in a multisig or hardware wallet.
+
+Consider wrapping the upgrade authority in an [`OpenZeppelin TimelockController`](https://docs.openzeppelin.com/contracts/5.x/api/governance#TimelockController): without a timelock, a compromised multisig can push a malicious implementation instantly. A timelock introduces a mandatory delay between a proposed upgrade and its execution, giving users time to review the change and withdraw funds if the upgrade looks suspicious.
