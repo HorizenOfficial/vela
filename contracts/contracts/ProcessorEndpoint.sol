@@ -482,8 +482,8 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     bytes32 prevStateRoot,
     bytes32 newStateRoot,
     bytes32 processedRequestId,
-    bytes[] calldata events,
-    string[] calldata eventSubTypes,
+    Structs.EventData calldata userEventData,
+    Structs.EventData calldata appEventData,
     Structs.WithdrawalRequest[] calldata withdrawalRequests,
     uint256 refund,
     uint256 applicationFees,
@@ -501,9 +501,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     //check prev state root
     if (prevStateRoot != applicationStateRoots[applicationId]) revert InvalidStateRoot();
 
-    uint256 eventsLength = events.length;
-    uint256 eventSubTypesLength = eventSubTypes.length;
-    if (eventsLength != eventSubTypesLength) revert InvalidPayload();
+    uint256 eventsLength = userEventData.events.length;
+    if (eventsLength != userEventData.subTypes.length) revert InvalidPayload();
+
+    uint256 appEventsLength = appEventData.events.length;
+    if (appEventsLength != appEventData.subTypes.length) revert InvalidPayload();
 
     //check signature
     Structs.SignatureParams memory sigParams = Structs.SignatureParams({
@@ -511,8 +513,8 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       prevStateRoot: prevStateRoot,
       newStateRoot: newStateRoot,
       processedRequestId: processedRequestId,
-      events: events,
-      eventSubTypes: eventSubTypes,
+      userEvents: userEventData,
+      appEvents: appEventData,
       withdrawalRequests: withdrawalRequests,
       refundAmount: refund,
       applicationFee: applicationFees,
@@ -534,7 +536,8 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     if (errorCode != Structs.ErrorCode.NO_ERROR) {
       // For errors: state unchanged (prevStateRoot == newStateRoot), no events, no withdrawals
       // Refund user (minus minimum fee) and collect minimum fee
-      if (eventsLength != 0 || withdrawalRequests.length != 0) revert InvalidPayload();
+      if (eventsLength != 0 || appEventsLength != 0 || withdrawalRequests.length != 0)
+        revert InvalidPayload();
       if (applicationStateRoots[applicationId] != newStateRoot) revert InvalidStateRoot();
 
       // Per-app per-token solvency check, then ETH balance check for fee outflow.
@@ -670,7 +673,26 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     //emit encrypted event
     i = 0;
     while (i < eventsLength) {
-      emit UserEvent(applicationId, processedRequestId, eventSubTypes[i], events[i]);
+      emit UserEvent(
+        applicationId,
+        processedRequestId,
+        userEventData.subTypes[i],
+        userEventData.events[i]
+      );
+      unchecked {
+        ++i;
+      }
+    }
+
+    //emit app event
+    i = 0;
+    while (i < appEventsLength) {
+      emit AppEvent(
+        applicationId,
+        processedRequestId,
+        appEventData.subTypes[i],
+        appEventData.events[i]
+      );
       unchecked {
         ++i;
       }

@@ -18,20 +18,22 @@ type LoadModuleResult struct {
 
 // DepositResult represents the result of a deposit operation
 type DepositResult struct {
-	State  []byte              `json:"state"`
-	Events []common.PlainEvent `json:"events"`
-	Fuel   *common.Big         `json:"fuel"`
-	Error  string              `json:"error,omitempty"`
+	State     []byte                 `json:"state"`
+	Events    []common.PlainEvent    `json:"events"`
+	AppEvents []common.AppEvent `json:"appEvents"`
+	Fuel      *common.Big            `json:"fuel"`
+	Error     string                 `json:"error,omitempty"`
 }
 
 // ProcessResult represents the result of a process request operation
 type ProcessResult struct {
-	State       []byte              `json:"state"`
-	Events      []common.PlainEvent `json:"events"`
-	Withdrawals []common.Withdrawal `json:"withdrawals"`
-	Report      []byte              `json:"report,omitempty"` // Optional deanonymization report
-	Fuel        *common.Big         `json:"fuel"`
-	Error       string              `json:"error,omitempty"`
+	State       []byte                 `json:"state"`
+	Events      []common.PlainEvent    `json:"events"`
+	AppEvents   []common.AppEvent `json:"appEvents"`
+	Withdrawals []common.Withdrawal    `json:"withdrawals"`
+	Report      []byte                 `json:"report,omitempty"` // Optional deanonymization report
+	Fuel        *common.Big            `json:"fuel"`
+	Error       string                 `json:"error,omitempty"`
 }
 
 // DeployResult represents the result of a deploy operation

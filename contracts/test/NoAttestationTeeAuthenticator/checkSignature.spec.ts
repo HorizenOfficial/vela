@@ -17,8 +17,8 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         prevStateRoot: BYTES32_ZERO,
         newStateRoot: NEW_STATE_ROOT,
         processedRequestId: REQUEST_ID,
-        events: ['0x01'],
-        eventSubTypes: ['subtype'],
+        userEvents: { events: ['0x01'], subTypes: ['subtype'] },
+        appEvents: { events: ['0xca', '0xfe'], subTypes: ['app_sub1', 'app_sub2'] },
         withdrawalRequests: [
           [ETH_TOKEN, addr1, 50],
           [ETH_TOKEN, addr2, 50],
@@ -64,13 +64,15 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           payload.prevStateRoot,
           payload.newStateRoot,
           payload.processedRequestId,
-          payload.events,
-          payload.eventSubTypes,
+          payload.userEvents.events,
+          payload.userEvents.subTypes,
           payload.withdrawalRequests,
           payload.refundAmount,
           payload.applicationFee,
           payload.errorCode,
-          payload.errorMsg
+          payload.errorMsg,
+          payload.appEvents.events,
+          payload.appEvents.subTypes
         );
 
         const res = await teeAuthenticator.checkSignature(payload, signature);
@@ -89,13 +91,15 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           payload.prevStateRoot,
           payload.newStateRoot,
           payload.processedRequestId,
-          payload.events,
-          payload.eventSubTypes,
+          payload.userEvents.events,
+          payload.userEvents.subTypes,
           payload.withdrawalRequests,
           payload.refundAmount,
           payload.applicationFee,
           payload.errorCode,
-          payload.errorMsg
+          payload.errorMsg,
+          payload.appEvents.events,
+          payload.appEvents.subTypes
         );
 
         const res = await teeAuthenticator.checkSignature(payload, signature);

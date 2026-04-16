@@ -35,11 +35,18 @@ func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Addre
 
 func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload) bool {
 
-	events := make([][]byte, len(payload.Events))
-	eventSubTypes := make([]string, len(payload.Events))
+	userEvents := make([][]byte, len(payload.Events))
+	userEventSubTypes := make([]string, len(payload.Events))
 	for i, event := range payload.Events {
-		events[i] = event.EncryptedData
-		eventSubTypes[i] = event.EventSubType
+		userEvents[i] = event.EncryptedData
+		userEventSubTypes[i] = event.EventSubType
+	}
+
+	appEvents := make([][]byte, len(payload.AppEvents))
+	appEventSubTypes := make([]string, len(payload.AppEvents))
+	for i, appEvent := range payload.AppEvents {
+		appEvents[i] = appEvent.Data
+		appEventSubTypes[i] = appEvent.EventSubType
 	}
 
 	withdrawals := make([]tee.StructsWithdrawalRequest, len(payload.Withdrawals))
@@ -57,8 +64,14 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 		PrevStateRoot:      payload.PrevStateRoot,
 		NewStateRoot:       payload.NewStateRoot,
 		ProcessedRequestId: payload.RequestID,
-		Events:             events,
-		EventSubTypes:      eventSubTypes,
+		UserEvents: tee.StructsEventData{
+			Events:   userEvents,
+			SubTypes: userEventSubTypes,
+		},
+		AppEvents: tee.StructsEventData{
+			Events:   appEvents,
+			SubTypes: appEventSubTypes,
+		},
 		WithdrawalRequests: withdrawals,
 		RefundAmount:       payload.RefundAmount.ToInt(),
 		ApplicationFee:     payload.ApplicationFee.ToInt(),

@@ -52,14 +52,19 @@ contract Structs {
     address payable receiver;
     uint256 amount;
   }
+  struct EventData {
+    bytes[] events;
+    string[] subTypes;
+  }
+
   // Parameters for TEE signature verification
   struct SignatureParams {
     uint64 applicationId;
     bytes32 prevStateRoot;
     bytes32 newStateRoot;
     bytes32 processedRequestId;
-    bytes[] events;
-    string[] eventSubTypes;
+    EventData userEvents;
+    EventData appEvents;
     WithdrawalRequest[] withdrawalRequests;
     uint256 refundAmount;
     uint256 applicationFee;

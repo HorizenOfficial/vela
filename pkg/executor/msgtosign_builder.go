@@ -76,6 +76,8 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 		{Type: bytes32Type},
 		{Type: bytes32Type},
 		{Type: bytes32Type},
+		{Type: bytes32Type},
+		{Type: bytes32Type},
 		{Type: uint256Type},
 		{Type: uint256Type},
 		{Type: uint8Type},
@@ -109,6 +111,27 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	eventSubTypesHash := ethCrypto.Keccak256(encodedEventSubTypes)
 	var eventSubTypesArr [32]byte = [32]byte(eventSubTypesHash)
 
+	appEvents := make([][]byte, len(updatePayload.AppEvents))
+	appEventSubTypes := make([]string, len(updatePayload.AppEvents))
+	for i, appEvent := range updatePayload.AppEvents {
+		appEvents[i] = appEvent.Data
+		appEventSubTypes[i] = appEvent.EventSubType
+	}
+
+	encodedAppEvents, err := b.eventsArgs.Pack(appEvents)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode app events: %w", err)
+	}
+	appEventsHash := ethCrypto.Keccak256(encodedAppEvents)
+	var appEventsArr [32]byte = [32]byte(appEventsHash)
+
+	encodedAppEventSubTypes, err := b.eventSubTypesArgs.Pack(appEventSubTypes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode app event subtypes: %w", err)
+	}
+	appEventSubTypesHash := ethCrypto.Keccak256(encodedAppEventSubTypes)
+	var appEventSubTypesArr [32]byte = [32]byte(appEventSubTypesHash)
+
 	withdrawals := make([]withdrawalTuple, len(updatePayload.Withdrawals))
 
 	for i, withdrawal := range updatePayload.Withdrawals {
@@ -135,6 +158,8 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 		updatePayload.RequestID,
 		eventArr,
 		eventSubTypesArr,
+		appEventsArr,
+		appEventSubTypesArr,
 		withdrawalArr,
 		updatePayload.RefundAmount.ToInt(),
 		updatePayload.ApplicationFee.ToInt(),

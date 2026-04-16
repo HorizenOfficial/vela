@@ -141,8 +141,10 @@ type UpdatePayload struct {
 	PrevStateRoot [32]byte `json:"prevStateRoot"`
 	// NewStateRoot is the new state root
 	NewStateRoot [32]byte `json:"newStateRoot"`
-	// Events is a list of events to emit
+	// Events is a list of encrypted user events to emit
 	Events []Event `json:"events"`
+	// AppEvents is a list of application-level (non-encrypted) events to emit
+	AppEvents []AppEvent `json:"appEvents"`
 	// Withdrawals is a list of withdrawals to execute
 	Withdrawals []Withdrawal `json:"withdrawals"`
 	// Signature is the TEE signature
@@ -155,7 +157,6 @@ type UpdatePayload struct {
 	ErrorCode uint8 `json:"errorCode"`
 	// ErrorMsg is the error message (empty for success)
 	ErrorMsg string `json:"errorMsg"`
-
 }
 
 // ApplicationState represents the state of an application
@@ -201,6 +202,14 @@ type PlainEvent struct {
 	// EventSubType is the optional subtype used for filtering
 	EventSubType string `json:"eventSubType"`
 	// Data is the encrypted event data
+	Data []byte `json:"data"`
+}
+
+// AppEvent represents an application-level event (not encrypted, not user-directed).
+type AppEvent struct {
+	// EventSubType is the subtype used for filtering
+	EventSubType string `json:"eventSubType"`
+	// Data is the unencrypted event data
 	Data []byte `json:"data"`
 }
 

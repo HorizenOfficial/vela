@@ -12,11 +12,19 @@ export async function ethSignStateUpdate(
   refund: number | BigNumberish,
   applicationFees: number | BigNumberish,
   errorCode: number = 0,
-  errorMsg: string = ''
+  errorMsg: string = '',
+  appEvents: string[] = [],
+  appEventSubTypes: string[] = []
 ): Promise<string> {
   const eventsHash = ethers.keccak256(AbiCoder.defaultAbiCoder().encode(['bytes[]'], [events]));
   const eventSubTypesHash = ethers.keccak256(
     AbiCoder.defaultAbiCoder().encode(['string[]'], [eventSubTypes])
+  );
+  const appEventsHash = ethers.keccak256(
+    AbiCoder.defaultAbiCoder().encode(['bytes[]'], [appEvents])
+  );
+  const appEventSubTypesHash = ethers.keccak256(
+    AbiCoder.defaultAbiCoder().encode(['string[]'], [appEventSubTypes])
   );
   const withdrawalRequestsHash = ethers.keccak256(
     AbiCoder.defaultAbiCoder().encode(
@@ -28,6 +36,8 @@ export async function ethSignStateUpdate(
   const encoded = AbiCoder.defaultAbiCoder().encode(
     [
       'uint64',
+      'bytes32',
+      'bytes32',
       'bytes32',
       'bytes32',
       'bytes32',
@@ -46,6 +56,8 @@ export async function ethSignStateUpdate(
       processedRequestId,
       eventsHash,
       eventSubTypesHash,
+      appEventsHash,
+      appEventSubTypesHash,
       withdrawalRequestsHash,
       refund,
       applicationFees,

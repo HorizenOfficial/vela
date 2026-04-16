@@ -3,6 +3,7 @@ import {
   RequestSubmitted as RequestSubmittedEvent,
   RequestCompleted as RequestCompletedEvent,
   UserEvent as UserEventEvent,
+  AppEvent as AppEventEvent,
   DeployRequestSubmitted as DeployRequestSubmittedEvent,
   DeployRequestCompleted as DeployRequestCompletedEvent,
   Refund as RefundEvent,
@@ -15,6 +16,7 @@ import {
   RequestSubmitted,
   RequestCompleted,
   UserEvent,
+  AppEvent,
   DeployRequestCompleted,
   DeployRequestSubmitted,
   OnChainRefund,
@@ -72,6 +74,22 @@ export function handleUserEvent(event: UserEventEvent): void {
   entity.save();
 }
 
+
+export function handleAppEvent(event: AppEventEvent): void {
+  const id = event.transaction.hash.concatI32(event.logIndex.toI32()).toHex();
+  let entity = new AppEvent(id);
+
+  entity.applicationId = event.params.applicationId;
+  entity.requestId = event.params.requestId;
+  entity.eventSubType = event.params.eventSubType;
+  entity.data = event.params.data;
+  entity.blockNumber = event.block.number;
+  entity.logIndex = event.logIndex;
+  entity.sortKey = event.block.number.times(SORT_BASE).plus(event.logIndex);
+  entity.blockTimestamp = event.block.timestamp;
+
+  entity.save();
+}
 
 export function handleDeployRequestSubmitted(event: DeployRequestSubmittedEvent): void {
   const id = event.transaction.hash.concatI32(event.logIndex.toI32()).toHex();

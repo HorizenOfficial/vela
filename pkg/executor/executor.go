@@ -586,15 +586,17 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
+	var depositAppEvents []common.AppEvent
 	var totalFuel *big.Int = big.NewInt(0)
 	if req.AssetAmount.ToInt().Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
+		newState, depEvents, depAppEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req, appState.StateRoot, failure)
 			return errorPayload, nil, nil, err
 		}
 		tempState = newState
 		depositEvents = depEvents
+		depositAppEvents = depAppEvents
 		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		e.log.Info("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
@@ -612,6 +614,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	var events []common.PlainEvent
+	var appEvents []common.AppEvent
 	var withdrawals []common.Withdrawal
 	var reportData []byte
 
@@ -666,7 +669,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
+		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req,
 				appState.StateRoot,
@@ -675,6 +678,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 		tempState = newState
 		events = reqEvents
+		appEvents = reqAppEvents
 		withdrawals = reqWithdrawals
 		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 
@@ -745,6 +749,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
+	appEvents = append(depositAppEvents, appEvents...)
 	encryptedEvents, failure, err := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore(), appData.GetEventSeedStore())
 	if failure != nil {
 		errorPayload, err := e.processErrorResponse(req,
@@ -771,6 +776,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		PrevStateRoot:  appState.StateRoot,
 		NewStateRoot:   newStateRoot,
 		Events:         encryptedEvents,
+		AppEvents:      appEvents,
 		Withdrawals:    withdrawals,
 		RefundAmount:   common.ToBig(refundAmount),
 		ApplicationFee: common.ToBig(applicationFee),
