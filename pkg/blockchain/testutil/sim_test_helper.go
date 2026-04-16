@@ -192,7 +192,7 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 		teeSigner = &teeSignerAddress
 	}
 	if teePubSecp521r1 == nil {
-		//generate mock secp251r1 pk
+		//generate mock secp521r1 pk
 		teePubSecp521r1 = make([]byte, 133)
 	}
 	helper.setupContracts(useMockContracts, teeSigner, teePubSecp521r1)

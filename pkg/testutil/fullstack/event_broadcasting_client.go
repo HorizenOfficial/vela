@@ -16,6 +16,7 @@ import (
 //   - track request completion (for AssertRequestCompleted)
 //   - store update payloads (for GetRequestUpdatePayload)
 //   - accumulate withdrawals (for WaitForWithdrawal)
+//   - notify the InProcessSubgraph via the onStateUpdate callback
 //
 // All other Client methods are delegated to the underlying client unchanged.
 type eventBroadcastingClient struct {
@@ -24,10 +25,15 @@ type eventBroadcastingClient struct {
 	mu             sync.Mutex
 	eventChannel   chan<- interface{}
 	pendingIDs     map[common.RequestIdType]struct{}
+	deployIDs      map[common.RequestIdType]struct{} // tracks which requests are deploy requests
 	completedIDs   map[common.RequestIdType]struct{}
 	failedIDs      map[common.RequestIdType]struct{}
 	updatePayloads map[common.RequestIdType]*common.UpdatePayload
 	withdrawals    map[common.ApplicationIdType][]common.Withdrawal
+
+	// onStateUpdate is called after each successful SubmitStateUpdate.
+	// Used by InProcessSubgraph to record data for wallet queries.
+	onStateUpdate func(update *common.UpdatePayload, isDeploy bool)
 }
 
 func newEventBroadcastingClient(inner blockchain.Client, eventCh chan<- interface{}) *eventBroadcastingClient {
@@ -35,6 +41,7 @@ func newEventBroadcastingClient(inner blockchain.Client, eventCh chan<- interfac
 		Client:         inner,
 		eventChannel:   eventCh,
 		pendingIDs:     make(map[common.RequestIdType]struct{}),
+		deployIDs:      make(map[common.RequestIdType]struct{}),
 		completedIDs:   make(map[common.RequestIdType]struct{}),
 		failedIDs:      make(map[common.RequestIdType]struct{}),
 		updatePayloads: make(map[common.RequestIdType]*common.UpdatePayload),
@@ -43,10 +50,15 @@ func newEventBroadcastingClient(inner blockchain.Client, eventCh chan<- interfac
 }
 
 // markPending registers a request as pending so AssertRequestCompleted can track it.
-func (c *eventBroadcastingClient) markPending(requestID common.RequestIdType) {
+// isDeploy indicates whether this is a deploy request (needed by the subgraph to
+// route to the correct completion map).
+func (c *eventBroadcastingClient) markPending(requestID common.RequestIdType, isDeploy bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pendingIDs[requestID] = struct{}{}
+	if isDeploy {
+		c.deployIDs[requestID] = struct{}{}
+	}
 }
 
 // SubmitStateUpdate delegates to the real client and then records the result
@@ -64,9 +76,16 @@ func (c *eventBroadcastingClient) SubmitStateUpdate(ctx context.Context, update 
 	// Remove from pending
 	delete(c.pendingIDs, update.RequestID)
 
+	// Check if this was a deploy request
+	_, isDeploy := c.deployIDs[update.RequestID]
+
 	if update.ErrorCode != 0 {
 		// Mark as failed
 		c.failedIDs[update.RequestID] = struct{}{}
+		// Still notify the subgraph so it records the failure
+		if c.onStateUpdate != nil {
+			c.onStateUpdate(update, isDeploy)
+		}
 		return nil
 	}
 
@@ -91,6 +110,11 @@ func (c *eventBroadcastingClient) SubmitStateUpdate(ctx context.Context, update 
 			c.withdrawals[update.ApplicationID],
 			update.Withdrawals...,
 		)
+	}
+
+	// Notify the in-process subgraph
+	if c.onStateUpdate != nil {
+		c.onStateUpdate(update, isDeploy)
 	}
 
 	return nil

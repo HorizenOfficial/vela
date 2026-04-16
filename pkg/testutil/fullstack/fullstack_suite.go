@@ -2,13 +2,13 @@ package fullstack
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"math/big"
 	"testing"
 	"time"
 
-	"crypto/ecdsa"
-
+	"github.com/HorizenOfficial/vela-common-go/subgraph"
 	"github.com/HorizenOfficial/vela/pkg/blockchain"
 	blockchainTestutil "github.com/HorizenOfficial/vela/pkg/blockchain/testutil"
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -32,6 +32,7 @@ type FullStackSystemTestSuite struct {
 	*testutil.TestSuiteCore                                     // shared infrastructure
 	simHelper     *blockchainTestutil.SimTestHelper              // simulated chain + contracts
 	wrappedClient *eventBroadcastingClient                      // intercepts SubmitStateUpdate
+	subgraphImpl  *InProcessSubgraph                            // in-process subgraph for wallet queries
 	userAccounts  map[ethCommon.Address]*bind.TransactOpts       // funded test accounts
 }
 
@@ -69,9 +70,15 @@ func NewFullStackSystemTestSuiteWithConfigs(
 		simHelper.ManagerAccount,
 	)
 
+	// Create in-process subgraph
+	subgraphImpl := NewInProcessSubgraph()
+
 	// Create event channel and wrap the client
 	eventChannel := make(chan interface{}, 100)
 	wrappedClient := newEventBroadcastingClient(realClient, eventChannel)
+
+	// Wire the subgraph to receive state updates from the manager
+	wrappedClient.onStateUpdate = subgraphImpl.RecordStateUpdate
 
 	// Reduce blockchain polling interval for faster test execution
 	mgrConfig.BlockchainPollingInterval = 1
@@ -87,6 +94,7 @@ func NewFullStackSystemTestSuiteWithConfigs(
 		TestSuiteCore: core,
 		simHelper:     simHelper,
 		wrappedClient: wrappedClient,
+		subgraphImpl:  subgraphImpl,
 		userAccounts:  make(map[ethCommon.Address]*bind.TransactOpts),
 	}
 }
@@ -177,7 +185,7 @@ func (s *FullStackSystemTestSuite) SubmitRequest(req *common.Request) error {
 	}
 
 	// Register as pending in the wrapper for completion tracking
-	s.wrappedClient.markPending(req.RequestID)
+	s.wrappedClient.markPending(req.RequestID, req.RequestType == common.Deploy)
 
 	return nil
 }
@@ -254,6 +262,12 @@ func (s *FullStackSystemTestSuite) GetDeployerAddress() ethCommon.Address {
 		s.userAccounts[addr] = s.simHelper.Deployer
 	}
 	return addr
+}
+
+// GetSubgraphClient returns the in-process subgraph as a subgraph.Client interface.
+// Pass this to wallet commands that need subgraph queries (getprivatebalance, etc.).
+func (s *FullStackSystemTestSuite) GetSubgraphClient() subgraph.Client {
+	return s.subgraphImpl
 }
 
 // GetSimTestHelper returns the underlying SimTestHelper for advanced test-side operations.
