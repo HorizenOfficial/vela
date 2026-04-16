@@ -61,6 +61,14 @@ func (c *CryptoHelper) GenerateUserSigningKey(userID ethCommon.Address) (*crypto
 	return privKey, nil
 }
 
+// RegisterUserSigningKey registers an externally-created secp256k1 signing key
+// for the given address. Use this in fullstack tests where the key is created by
+// FullStackSystemTestSuite.CreateFundedAccount and needs to be associated with
+// the CryptoHelper for seed computation and payload encryption.
+func (c *CryptoHelper) RegisterUserSigningKey(userID ethCommon.Address, key *cryptotypes.PrivateKeySecp256k1) {
+	c.userSigningKeys[userID] = key
+}
+
 // GenerateUserIdentity generates a secp256k1 signing key and returns the Ethereum address
 // derived from it. The user address MUST match the signing key for VerifySeed to pass.
 // Use this instead of hardcoded addresses when the user will call AssociateKey.

@@ -326,6 +326,17 @@ func (s *SimTestHelper) GetRequestSubmittedEvent(tx *ethTypes.Transaction) *proc
 	return &event
 }
 
+func (s *SimTestHelper) GetDeployRequestSubmittedEvent(tx *ethTypes.Transaction) *processorendpoint.ProcessorEndpointDeployRequestSubmitted {
+	receipt, err := s.GetTxReceipt(tx)
+	require.NoError(s.t, err, "error getting transaction receipt")
+	require.GreaterOrEqual(s.t, len(receipt.Logs), 1, "There should be at least one log for DeployRequestSubmitted")
+	event := processorendpoint.ProcessorEndpointDeployRequestSubmitted{}
+	err = s.processEndpointInstance.UnpackLog(&event,
+		processorendpoint.ProcessorEndpointDeployRequestSubmittedEventName, *receipt.Logs[0])
+	require.NoError(s.t, err, "error unpacking DeployRequestSubmittedEvent")
+	return &event
+}
+
 func (s *SimTestHelper) Close() {
 	if s.sim != nil {
 		err := s.sim.Close()
