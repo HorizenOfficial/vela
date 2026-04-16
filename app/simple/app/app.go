@@ -161,6 +161,22 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 		Data:         eventDataBytes,
 	}}
 
+	// App-level event: visible to everyone (not encrypted)
+	appEventData := DepositAppEvent{
+		Type:         "deposit_received",
+		TokenAddress: *tokenPtr,
+		Amount:       value,
+	}
+	appEventDataBytes, err := json.Marshal(appEventData)
+	if err != nil {
+		utils.LogError("DepositFunds: failed to serialize app event data: %v", err)
+		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize app event data: %+v, err: %v", appEventData, err)}
+	}
+	appEvents := []types.AppEvent{{
+		EventSubType: "deposit_received",
+		Data:         appEventDataBytes,
+	}}
+
 	// Serialize the updated state
 	newStateBytes, err := json.Marshal(&currentState)
 	if err != nil {
@@ -168,9 +184,9 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
 	fuel := types.NewUint256(35)
-	utils.LogDebug("DepositFunds: sender=%s, token=%s, value=%v, newBalance=%v, eventsCount=%d, stateSize=%d, fuel=%v",
-		senderHex, tokenHex, value, balance, len(events), len(newStateBytes), fuel)
-	return types.DepositResult{State: newStateBytes, Events: events, Fuel: fuel}
+	utils.LogDebug("DepositFunds: sender=%s, token=%s, value=%v, newBalance=%v, eventsCount=%d, appEventsCount=%d, stateSize=%d, fuel=%v",
+		senderHex, tokenHex, value, balance, len(events), len(appEvents), len(newStateBytes), fuel)
+	return types.DepositResult{State: newStateBytes, Events: events, AppEvents: appEvents, Fuel: fuel}
 }
 
 func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, stateJSON string) types.ProcessResult {

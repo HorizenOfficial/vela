@@ -92,10 +92,12 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User1 Deposits funds
 	deposit1Amount := big.NewInt(1000)
-	depositState1Bytes, depositEvents, _, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, deposit1Amount, initialStateBytes, wasmBytes)
+	depositState1Bytes, depositEvents, depositAppEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, deposit1Amount, initialStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
+	require.Len(t, depositAppEvents, 1)
+	require.Equal(t, "deposit_received", depositAppEvents[0].EventSubType)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
 
 	var depositState app.ApplicationInternalState
