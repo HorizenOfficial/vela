@@ -50,6 +50,19 @@ type TestSuiteCore struct {
 	log                logger.Logger
 }
 
+// EnableReports marks the manager config so NewTestSuiteCore will provision a
+// temporary deanonymization-report directory during construction. Call this
+// BEFORE NewTestSuiteCore. The actual path is then available via
+// GetReportsPath() on the returned core.
+//
+// The mock suite does not call this; the fullstack suite calls it so the
+// in-process authority service and manager can share the same reports dir.
+func EnableReports(mgrConfig *manager.Config) {
+	if mgrConfig.DeanonymizationReportPath == "" {
+		mgrConfig.DeanonymizationReportPath = "fullstack-reports-placeholder"
+	}
+}
+
 // NewTestSuiteCore builds the infrastructure shared by both mock and fullstack suites.
 // The caller provides the blockchain client implementation (MockClient or real BlockChainClient).
 func NewTestSuiteCore(

@@ -24,6 +24,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ChainID is the chain ID used by the simulated backend. Exposed so tests can
+// pass it to signature-building helpers that must match what the authority
+// service enforces on /getreport.
+var ChainID = params.AllDevChainProtocolChanges.ChainID
+
 // FullStackSystemTestSuite is the real-chain system test suite. It uses a
 // go-ethereum simulated.Backend via SimTestHelper for real contract interactions.
 // Requests are submitted on-chain, the manager polls the chain and processes them,
@@ -33,6 +38,7 @@ type FullStackSystemTestSuite struct {
 	simHelper     *blockchainTestutil.SimTestHelper              // simulated chain + contracts
 	wrappedClient *eventBroadcastingClient                      // intercepts SubmitStateUpdate
 	subgraphImpl  *InProcessSubgraph                            // in-process subgraph for wallet queries
+	authority     *InProcessAuthority                           // in-process authority HTTP service
 	userAccounts  map[ethCommon.Address]*bind.TransactOpts       // funded test accounts
 }
 
@@ -83,6 +89,10 @@ func NewFullStackSystemTestSuiteWithConfigs(
 	// Reduce blockchain polling interval for faster test execution
 	mgrConfig.BlockchainPollingInterval = 1
 
+	// Enable reports so the manager writes deanonymization reports into a temp
+	// dir that the in-process authority service can read from.
+	testutil.EnableReports(mgrConfig)
+
 	// Build the shared core infrastructure, passing the wrapped client as blockchain.Client
 	core := testutil.NewTestSuiteCore(t, appType, mgrConfig, execConfig, wrappedClient, keySet, recoveryData, mgrLogCfg, excLogCfg)
 
@@ -90,11 +100,16 @@ func NewFullStackSystemTestSuiteWithConfigs(
 	// the one connected to the wrappedClient
 	core.SetEventChannel(eventChannel)
 
+	// Start the in-process authority service. It shares the reports dir with
+	// the manager and queries the in-process subgraph for completion status.
+	authority := NewInProcessAuthority(t, ChainID.Uint64(), core.GetReportsPath(), subgraphImpl)
+
 	return &FullStackSystemTestSuite{
 		TestSuiteCore: core,
 		simHelper:     simHelper,
 		wrappedClient: wrappedClient,
 		subgraphImpl:  subgraphImpl,
+		authority:     authority,
 		userAccounts:  make(map[ethCommon.Address]*bind.TransactOpts),
 	}
 }
@@ -270,14 +285,57 @@ func (s *FullStackSystemTestSuite) GetSubgraphClient() subgraph.Client {
 	return s.subgraphImpl
 }
 
+// GetSubgraph returns the concrete *InProcessSubgraph, giving tests access to
+// helpers not part of the subgraph.Client interface (e.g. InjectRequestCompleted
+// used by the authority smoke test).
+func (s *FullStackSystemTestSuite) GetSubgraph() *InProcessSubgraph {
+	return s.subgraphImpl
+}
+
+// GetAuthorityServiceURL returns the base URL of the in-process authority
+// service (e.g. http://127.0.0.1:xxxxx). Use with wallet requestreport/downloadreport.
+func (s *FullStackSystemTestSuite) GetAuthorityServiceURL() string {
+	return s.authority.URL()
+}
+
+// GetAuthorityAddress returns the Ethereum address of the in-process authority.
+// When tests write synthetic DeanonymizationReport files, the Authority field
+// must equal this address for /getreport to succeed.
+func (s *FullStackSystemTestSuite) GetAuthorityAddress() ethCommon.Address {
+	return s.authority.AuthorityAddress()
+}
+
+// GetAuthorityKey returns the secp256k1 private key matching GetAuthorityAddress.
+// Tests use it to sign /getreport challenges.
+func (s *FullStackSystemTestSuite) GetAuthorityKey() *ecdsa.PrivateKey {
+	return s.authority.AuthorityKey()
+}
+
+// RegisterAuthority allowlists the in-process authority for the given application
+// on-chain via DefaultAuthority.addAllowedAuthority. Call after DeployApp;
+// required before any wallet flow that submits an on-chain Deanonymize request
+// (the ProcessorEndpoint contract checks this allowlist).
+//
+// Not needed for direct HTTP tests against /nonce and /getreport — those paths
+// only verify the signature against the report file and subgraph state.
+func (s *FullStackSystemTestSuite) RegisterAuthority(appID common.ApplicationIdType) {
+	tx := s.simHelper.AddAuthority(new(big.Int).SetUint64(uint64(appID)), s.authority.AuthorityAddress())
+	s.simHelper.WaitMined(tx)
+}
+
 // GetSimTestHelper returns the underlying SimTestHelper for advanced test-side operations.
 func (s *FullStackSystemTestSuite) GetSimTestHelper() *blockchainTestutil.SimTestHelper {
 	return s.simHelper
 }
 
-// Cleanup tears down the fullstack suite: stops manager/executor, cleans temp
-// dirs, and closes the simulated backend.
+// Cleanup tears down the fullstack suite: stops the authority service, manager,
+// executor, cleans temp dirs, and closes the simulated backend.
 func (s *FullStackSystemTestSuite) Cleanup() error {
+	if s.authority != nil {
+		if err := s.authority.Close(); err != nil {
+			return err
+		}
+	}
 	s.CleanupCore()
 	s.simHelper.Close()
 	return nil

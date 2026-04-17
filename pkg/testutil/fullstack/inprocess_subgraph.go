@@ -93,6 +93,26 @@ func (s *InProcessSubgraph) RecordStateUpdate(update *common.UpdatePayload, isDe
 	}
 }
 
+// InjectRequestCompleted inserts a synthetic RequestCompleted record directly
+// into the in-memory store, bypassing the usual RecordStateUpdate path. Used by
+// tests that need to exercise downstream consumers (e.g. the authority service's
+// /getreport handler, which queries the subgraph for completion status) without
+// driving a real request through manager/executor.
+func (s *InProcessSubgraph) InjectRequestCompleted(appID velacommon.ApplicationIdType, requestID velacommon.RequestIdType, status velacommon.RequestResultStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	blockNumber := s.nextBlockNumber
+	s.nextBlockNumber++
+
+	s.requestCompletions[requestID] = &subgraph.RequestCompleted{
+		ApplicationID: appID,
+		RequestID:     requestID,
+		Status:        status,
+		BlockNumber:   blockNumber,
+	}
+}
+
 // --- subgraph.Client implementation ---
 
 func (s *InProcessSubgraph) HealthCheck(_ context.Context) error {
