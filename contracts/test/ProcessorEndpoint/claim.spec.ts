@@ -186,6 +186,8 @@ describe('ProcessorEndpoint Test', function () {
           currentPendingRequest.requestId,
           [],
           [],
+          [],
+          [],
           [[ETH_TOKEN, fallbackAddr, 50]],
           0,
           minFeePerRequest

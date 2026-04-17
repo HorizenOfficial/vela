@@ -247,9 +247,9 @@
       },
       {
         "indexed": true,
-        "internalType": "string",
+        "internalType": "bytes32",
         "name": "eventSubType",
-        "type": "string"
+        "type": "bytes32"
       },
       {
         "indexed": false,
@@ -684,9 +684,9 @@
       },
       {
         "indexed": true,
-        "internalType": "string",
+        "internalType": "bytes32",
         "name": "eventSubType",
-        "type": "string"
+        "type": "bytes32"
       },
       {
         "indexed": false,
@@ -1674,9 +1674,9 @@
             "type": "bytes[]"
           },
           {
-            "internalType": "string[]",
+            "internalType": "bytes32[]",
             "name": "subTypes",
-            "type": "string[]"
+            "type": "bytes32[]"
           }
         ],
         "internalType": "struct Structs.EventData",
@@ -1691,9 +1691,9 @@
             "type": "bytes[]"
           },
           {
-            "internalType": "string[]",
+            "internalType": "bytes32[]",
             "name": "subTypes",
-            "type": "string[]"
+            "type": "bytes32[]"
           }
         ],
         "internalType": "struct Structs.EventData",

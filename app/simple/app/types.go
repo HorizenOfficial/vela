@@ -81,7 +81,6 @@ type RecipientEvent struct {
 }
 
 type DepositAppEvent struct {
-	Type         string         `json:"type"`
 	TokenAddress types.Address  `json:"tokenAddress"`
 	Amount       *types.Uint256 `json:"amount"`
 }

@@ -67,6 +67,8 @@ export async function deployProcessorEndpointFixture() {
         [],
         [],
         [],
+        [],
+        [],
         0,
         minFeePerRequest
       );

@@ -436,10 +436,10 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		return fmt.Errorf("client not configured for signing transactions")
 	}
 	userEvents := make([][]byte, len(update.Events))
-	userEventSubTypes := make([]string, len(update.Events))
+	userEventSubTypes := make([][32]byte, len(update.Events))
 	for i, event := range update.Events {
 		userEvents[i] = event.EncryptedData
-		userEventSubTypes[i] = event.EventSubType
+		copy(userEventSubTypes[i][:], event.EventSubType)
 	}
 	userEventData := processorendpoint.StructsEventData{
 		Events:   userEvents,
@@ -447,10 +447,10 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	}
 
 	appEvents := make([][]byte, len(update.AppEvents))
-	appEventSubTypes := make([]string, len(update.AppEvents))
+	appEventSubTypes := make([][32]byte, len(update.AppEvents))
 	for i, appEvent := range update.AppEvents {
 		appEvents[i] = appEvent.Data
-		appEventSubTypes[i] = appEvent.EventSubType
+		copy(appEventSubTypes[i][:], appEvent.EventSubType)
 	}
 	appEventData := processorendpoint.StructsEventData{
 		Events:   appEvents,

@@ -353,6 +353,8 @@ describe('ProcessorEndpoint Test', function () {
           [],
           [],
           [],
+          [],
+          [],
           0,
           fixture.minFeePerRequest
         );
@@ -396,7 +398,9 @@ describe('ProcessorEndpoint Test', function () {
           '0x' + '77'.repeat(32),
           request.requestId,
           events,
-          ['typeA'],
+          [ethers.encodeBytes32String('typeA')],
+          [],
+          [],
           [],
           0,
           fixture.minFeePerRequest
@@ -410,7 +414,7 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '77'.repeat(32),
               request.requestId,
-              { events: events, subTypes: ['typeB'] },
+              { events: events, subTypes: [ethers.encodeBytes32String('typeB')] },
               { events: [], subTypes: [] },
               [],
               0,
@@ -528,6 +532,8 @@ describe('ProcessorEndpoint Test', function () {
           [],
           [],
           [],
+          [],
+          [],
           0,
           fixture.minFeePerRequest
         );
@@ -599,7 +605,10 @@ describe('ProcessorEndpoint Test', function () {
           INITIAL_STATE_ROOT,
           '0x' + 'ff'.repeat(32),
           request.requestId,
-          { events: ['0xaa', '0xbb'], subTypes: ['A', 'B'] },
+          {
+            events: ['0xaa', '0xbb'],
+            subTypes: [ethers.encodeBytes32String('A'), ethers.encodeBytes32String('B')],
+          },
           { events: [], subTypes: [] },
           [
             [ETH_TOKEN, withdrawalA, withdrawalAAmount],
@@ -623,7 +632,10 @@ describe('ProcessorEndpoint Test', function () {
         });
         const eventPayloads = userEvents.map((event: any) => event.args.encryptedData);
         expect(userEvents.length).to.equal(2);
-        expect(eventSubTypes).to.have.members([ethers.id('A'), ethers.id('B')]);
+        expect(eventSubTypes).to.have.members([
+          ethers.encodeBytes32String('A'),
+          ethers.encodeBytes32String('B'),
+        ]);
         expect(eventPayloads).to.have.members(['0xaa', '0xbb']);
         await expect(tx)
           .to.emit(processorEndpoint, 'Refund')
@@ -668,22 +680,23 @@ describe('ProcessorEndpoint Test', function () {
           minFeePerRequest
         );
 
-        const tx = await processorEndpoint
-          .connect(signers[1])
-          .stateUpdate(
-            applicationId,
-            INITIAL_STATE_ROOT,
-            '0x' + '10'.repeat(32),
-            request.requestId,
-            { events: ['0x11', '0x22'], subTypes: ['type1', 'type2'] },
-            { events: [], subTypes: [] },
-            [],
-            0,
-            minFeePerRequest,
-            0,
-            '',
-            '0x'
-          );
+        const tx = await processorEndpoint.connect(signers[1]).stateUpdate(
+          applicationId,
+          INITIAL_STATE_ROOT,
+          '0x' + '10'.repeat(32),
+          request.requestId,
+          {
+            events: ['0x11', '0x22'],
+            subTypes: [ethers.encodeBytes32String('type1'), ethers.encodeBytes32String('type2')],
+          },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
 
         const receipt = await tx.wait();
         const userEvents = getUserEvents(processorEndpoint, receipt);
@@ -693,7 +706,10 @@ describe('ProcessorEndpoint Test', function () {
         });
         const eventPayloads = userEvents.map((event: any) => event.args.encryptedData);
         expect(userEvents.length).to.equal(2);
-        expect(eventSubTypes).to.have.members([ethers.id('type1'), ethers.id('type2')]);
+        expect(eventSubTypes).to.have.members([
+          ethers.encodeBytes32String('type1'),
+          ethers.encodeBytes32String('type2'),
+        ]);
         expect(eventPayloads).to.have.members(['0x11', '0x22']);
       });
 
@@ -766,22 +782,26 @@ describe('ProcessorEndpoint Test', function () {
           minFeePerRequest
         );
 
-        const tx = await processorEndpoint
-          .connect(signers[1])
-          .stateUpdate(
-            applicationId,
-            INITIAL_STATE_ROOT,
-            '0x' + '16'.repeat(32),
-            request.requestId,
-            { events: [], subTypes: [] },
-            { events: ['0x33', '0x44'], subTypes: ['appType1', 'appType2'] },
-            [],
-            0,
-            minFeePerRequest,
-            0,
-            '',
-            '0x'
-          );
+        const tx = await processorEndpoint.connect(signers[1]).stateUpdate(
+          applicationId,
+          INITIAL_STATE_ROOT,
+          '0x' + '16'.repeat(32),
+          request.requestId,
+          { events: [], subTypes: [] },
+          {
+            events: ['0x33', '0x44'],
+            subTypes: [
+              ethers.encodeBytes32String('appType1'),
+              ethers.encodeBytes32String('appType2'),
+            ],
+          },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
 
         const receipt = await tx.wait();
         const appEvents = getAppEvents(processorEndpoint, receipt);
@@ -791,7 +811,10 @@ describe('ProcessorEndpoint Test', function () {
         });
         const eventPayloads = appEvents.map((event: any) => event.args.data);
         expect(appEvents.length).to.equal(2);
-        expect(eventSubTypes).to.have.members([ethers.id('appType1'), ethers.id('appType2')]);
+        expect(eventSubTypes).to.have.members([
+          ethers.encodeBytes32String('appType1'),
+          ethers.encodeBytes32String('appType2'),
+        ]);
         expect(eventPayloads).to.have.members(['0x33', '0x44']);
       });
 
@@ -813,7 +836,7 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               request.requestId,
               { events: [], subTypes: [] },
-              { events: ['0xdeadbeef'], subTypes: ['subtype'] },
+              { events: ['0xdeadbeef'], subTypes: [ethers.encodeBytes32String('subtype')] },
               [],
               0,
               0,

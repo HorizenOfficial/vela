@@ -54,7 +54,7 @@ contract Structs {
   }
   struct EventData {
     bytes[] events;
-    string[] subTypes;
+    bytes32[] subTypes;
   }
 
   // Parameters for TEE signature verification

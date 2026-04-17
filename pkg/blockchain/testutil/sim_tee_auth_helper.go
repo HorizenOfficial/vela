@@ -36,17 +36,17 @@ func NewSimTeeAuthenticatorHelper(t *testing.T, teeSignerAddress ethCommon.Addre
 func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload) bool {
 
 	userEvents := make([][]byte, len(payload.Events))
-	userEventSubTypes := make([]string, len(payload.Events))
+	userEventSubTypes := make([][32]byte, len(payload.Events))
 	for i, event := range payload.Events {
 		userEvents[i] = event.EncryptedData
-		userEventSubTypes[i] = event.EventSubType
+		copy(userEventSubTypes[i][:], event.EventSubType)
 	}
 
 	appEvents := make([][]byte, len(payload.AppEvents))
-	appEventSubTypes := make([]string, len(payload.AppEvents))
+	appEventSubTypes := make([][32]byte, len(payload.AppEvents))
 	for i, appEvent := range payload.AppEvents {
 		appEvents[i] = appEvent.Data
-		appEventSubTypes[i] = appEvent.EventSubType
+		copy(appEventSubTypes[i][:], appEvent.EventSubType)
 	}
 
 	withdrawals := make([]tee.StructsWithdrawalRequest, len(payload.Withdrawals))

@@ -206,6 +206,7 @@ type PlainEvent struct {
 }
 
 // AppEvent represents an application-level event (not encrypted, not user-directed).
+// (note: we don't use the 'Plain' suffix here because there is not an encrypted version)
 type AppEvent struct {
 	// EventSubType is the subtype used for filtering
 	EventSubType string `json:"eventSubType"`

@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+import { ethers } from 'ethers';
 import { ETH_TOKEN, BYTES32_ZERO, getRandomHexString } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 import {
@@ -17,8 +18,14 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         prevStateRoot: BYTES32_ZERO,
         newStateRoot: NEW_STATE_ROOT,
         processedRequestId: REQUEST_ID,
-        userEvents: { events: ['0x01'], subTypes: ['subtype'] },
-        appEvents: { events: ['0xca', '0xfe'], subTypes: ['app_sub1', 'app_sub2'] },
+        userEvents: { events: ['0x01'], subTypes: [ethers.encodeBytes32String('subtype')] },
+        appEvents: {
+          events: ['0xca', '0xfe'],
+          subTypes: [
+            ethers.encodeBytes32String('app_sub1'),
+            ethers.encodeBytes32String('app_sub2'),
+          ],
+        },
         withdrawalRequests: [
           [ETH_TOKEN, addr1, 50],
           [ETH_TOKEN, addr2, 50],
@@ -66,13 +73,13 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           payload.processedRequestId,
           payload.userEvents.events,
           payload.userEvents.subTypes,
+          payload.appEvents.events,
+          payload.appEvents.subTypes,
           payload.withdrawalRequests,
           payload.refundAmount,
           payload.applicationFee,
           payload.errorCode,
-          payload.errorMsg,
-          payload.appEvents.events,
-          payload.appEvents.subTypes
+          payload.errorMsg
         );
 
         const res = await teeAuthenticator.checkSignature(payload, signature);
@@ -93,13 +100,13 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           payload.processedRequestId,
           payload.userEvents.events,
           payload.userEvents.subTypes,
+          payload.appEvents.events,
+          payload.appEvents.subTypes,
           payload.withdrawalRequests,
           payload.refundAmount,
           payload.applicationFee,
           payload.errorCode,
-          payload.errorMsg,
-          payload.appEvents.events,
-          payload.appEvents.subTypes
+          payload.errorMsg
         );
 
         const res = await teeAuthenticator.checkSignature(payload, signature);

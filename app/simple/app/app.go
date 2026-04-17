@@ -163,7 +163,6 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 
 	// App-level event: visible to everyone (not encrypted)
 	appEventData := DepositAppEvent{
-		Type:         "deposit_received",
 		TokenAddress: *tokenPtr,
 		Amount:       value,
 	}

@@ -94,7 +94,7 @@ interface IProcessorEndpoint {
   event UserEvent(
     uint64 indexed applicationId,
     bytes32 indexed requestId,
-    string indexed eventSubType,
+    bytes32 indexed eventSubType,
     bytes encryptedData
   );
   /// @notice Emitted for application-level (non-encrypted) events.
@@ -105,7 +105,7 @@ interface IProcessorEndpoint {
   event AppEvent(
     uint64 indexed applicationId,
     bytes32 indexed requestId,
-    string indexed eventSubType,
+    bytes32 indexed eventSubType,
     bytes data
   );
   /// @notice Emitted when the state root is updated.
