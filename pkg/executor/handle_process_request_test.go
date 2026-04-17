@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
@@ -43,6 +45,35 @@ func buildEncryptedAppState(t *testing.T, exec *StatelessExecutor, userAddr *eth
 
 	appState := []byte(`{"appId":1,"accounts":{},"nonce":0}`)
 	ad := appdata.NewAppData(appState)
+	ad.SetWasmFingerprint(sha256.Sum256(moduleForFingerprint))
+	if userAddr != nil && userKey != nil {
+		ad.AddKey(*userAddr, *userKey)
+	}
+
+	serialized, err := ad.Serialize()
+	require.NoError(t, err)
+
+	encrypted, err := crypto.EncryptWithAES(exec.keySet.StateKey, serialized)
+	require.NoError(t, err)
+
+	stateRoot := sha256.Sum256(serialized)
+	return &common.ApplicationState{
+		ApplicationID:  common.NewApplicationId(1),
+		StateRoot:      stateRoot,
+		EncryptedState: encrypted,
+	}
+}
+
+// buildEncryptedAppStateFromJSON creates a valid encrypted ApplicationState from a JSON state string.
+func buildEncryptedAppStateFromJSON(t *testing.T, exec *StatelessExecutor, stateJSON string, userAddr *ethCommon.Address, userKey *cryptotypes.PublicKeyP521, wasmModule ...[]byte) *common.ApplicationState {
+	t.Helper()
+
+	moduleForFingerprint := []byte("wasm")
+	if len(wasmModule) > 0 {
+		moduleForFingerprint = wasmModule[0]
+	}
+
+	ad := appdata.NewAppData([]byte(stateJSON))
 	ad.SetWasmFingerprint(sha256.Sum256(moduleForFingerprint))
 	if userAddr != nil && userKey != nil {
 		ad.AddKey(*userAddr, *userKey)
@@ -610,16 +641,44 @@ func TestHandleProcessRequest_Process_Success(t *testing.T) {
 	exec := newTestExecutor(t, runtime)
 
 	sender := ethCommon.HexToAddress("0x3333333333333333333333333333333333333333")
-	userKey, err := crypto.GeneratePrivateKeyP521()
+	recipient := ethCommon.HexToAddress("0x5555555555555555555555555555555555555555")
+	senderKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+	recipientKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err)
 
-	appState := buildEncryptedAppState(t, exec, &sender, userKey.PublicKey())
+	// Build state with sender having a balance so the transfer succeeds.
+	// Register both sender and recipient keys so event encryption works.
+	initialState := fmt.Sprintf(`{"appId":1,"accounts":{"%s":{"address":"%s","balance":"0x3e8"}},"nonce":0}`,
+		strings.ToLower(sender.Hex()), strings.ToLower(sender.Hex()))
+	ad := appdata.NewAppData([]byte(initialState))
+	ad.SetWasmFingerprint(sha256.Sum256([]byte("wasm")))
+	ad.AddKey(sender, *senderKey.PublicKey())
+	ad.AddKey(recipient, *recipientKey.PublicKey())
+	serialized, err := ad.Serialize()
+	require.NoError(t, err)
+	encrypted, err := crypto.EncryptWithAES(exec.keySet.StateKey, serialized)
+	require.NoError(t, err)
+	stateRoot := sha256.Sum256(serialized)
+	appState := &common.ApplicationState{
+		ApplicationID:  common.NewApplicationId(1),
+		StateRoot:      stateRoot,
+		EncryptedState: encrypted,
+	}
 
-	// Empty instructions - MockRuntime will just pass through with no state change
-	encrypted := encryptPayload(t, userKey, exec.keySet.CommunicationKey.PublicKey(), []byte("{}"))
+	// Transfer payload — MockRuntime produces 2 UserEvents + 1 AppEvent for transfers
+	transferPayload, err := json.Marshal(testPayloadInstructions{
+		Type: "transfer",
+		Transfer: &testTransferInstruction{
+			To:     recipient,
+			Amount: common.NewBig(100),
+		},
+	})
+	require.NoError(t, err)
+	encryptedPayload := encryptPayload(t, senderKey, exec.keySet.CommunicationKey.PublicKey(), transferPayload)
 
 	req := newProcessRequest()
-	req.Payload = encrypted
+	req.Payload = encryptedPayload
 	req.Sender = sender
 
 	payload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
@@ -635,6 +694,14 @@ func TestHandleProcessRequest_Process_Success(t *testing.T) {
 	require.Equal(t, payload.NewStateRoot, newAppState.StateRoot)
 	require.Len(t, payload.Signature, 65)
 	require.NotEmpty(t, newAppState.EncryptedState)
+
+	// Verify encrypted UserEvents are present (2 for transfer: sender + recipient)
+	require.Len(t, payload.Events, 2, "transfer should produce 2 encrypted UserEvents")
+
+	// Verify AppEvents are present and not encrypted
+	require.Len(t, payload.AppEvents, 1, "transfer should produce 1 AppEvent")
+	require.Equal(t, "transfer", payload.AppEvents[0].EventSubType)
+	require.NotEmpty(t, payload.AppEvents[0].Data)
 
 	// RefundAmount + ApplicationFee == MaxFeeValue
 	refund := payload.RefundAmount.ToInt()

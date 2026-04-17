@@ -149,6 +149,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 	nonce := currentState.Nonce
 
 	var events []common.PlainEvent
+	var appEvents []common.AppEvent
 	var withdrawals []common.Withdrawal
 	var report []byte
 
@@ -210,6 +211,13 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			}
 			events = append(events, senderEvent, recipientEvent)
 
+			// App-level event for the transfer (non-encrypted, visible to everyone)
+			appEvents = append(appEvents, common.AppEvent{
+				EventSubType: "transfer",
+				Data: []byte(fmt.Sprintf(`{"from":"%s","to":"%s","amount":"0x%s"}`,
+					sender, to, amount.ToInt().Text(16))),
+			})
+
 		case "withdraw":
 			withdraw := instructions.Withdraw
 			if withdraw == nil {
@@ -269,8 +277,8 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 		return nil, nil, nil, nil, nil, r.fuel, apperrors.New(apperrors.CodeJsonMarshalError, "failed to serialize new state")
 	}
 
-	r.log.Info("Mock Runtime: Successfully processed request for application %d, generated %d events and %d withdrawals", appId, len(events), len(withdrawals))
-	return newStateBytes, events, nil, withdrawals, report, r.fuel, nil
+	r.log.Info("Mock Runtime: Successfully processed request for application %d, generated %d events, %d appEvents and %d withdrawals", appId, len(events), len(appEvents), len(withdrawals))
+	return newStateBytes, events, appEvents, withdrawals, report, r.fuel, nil
 }
 
 // Close closes the mock runtime and cleans up resources
