@@ -3,100 +3,117 @@
 WASM applications can produce a new type of event: **AppEvent**.
 
 - Not directed to a specific user — data is **not encrypted** by the executor
-- Has an indexed `eventSubType` field: copied as-is in the emitted event, no seed override in the executor
+- Has an indexed `eventSubType` field of type `bytes32`: stored as-is in log topics (no hashing), readable for short strings (<=32 chars)
 - Supported in both `ProcessRequest` and `DepositFunds` operations
 
 ## Smart Contract Changes
 
 ### IProcessorEndpoint.sol
 
-Add the new event:
+New event (alongside existing `UserEvent`):
 
 ```solidity
 event AppEvent(
     uint64 indexed applicationId,
     bytes32 indexed requestId,
-    string indexed eventSubType,
+    bytes32 indexed eventSubType,
     bytes data
 );
 ```
 
-Note: `string indexed` is stored as `keccak256(value)` in log topics (same as `UserEvent`).
-
-### ProcessorEndpoint.sol
-
-In function `stateUpdate`, add new parameters:
-
-```solidity
-bytes[] calldata appEvents,
-string[] calldata appEventSubTypes
-```
-
-Validation (same rules as `UserEvent`):
-- `appEvents.length == appEventSubTypes.length` — otherwise `revert InvalidPayload()`
-- When `errorCode != NO_ERROR`, `appEvents` must be empty — otherwise `revert InvalidPayload()`
-
-Emit events in a loop (same pattern as `UserEvent`):
-
-```solidity
-i = 0;
-while (i < appEventsLength) {
-    emit AppEvent(applicationId, processedRequestId, appEventSubTypes[i], appEvents[i]);
-    unchecked { ++i; }
-}
-```
+Note: both `UserEvent` and `AppEvent` use `bytes32 indexed eventSubType` (not `string indexed`). This saves gas (no keccak256 on-chain) and preserves the value in log topics for short strings. If an app needs longer messages, it can put the hash in `eventSubType` and the full message in `data`.
 
 ### Structs.sol
 
-Add `appEvents` and `appEventSubTypes` as separate fields in `SignatureParams` (same approach as `events` / `eventSubTypes`):
+New struct for grouping event data (used by both user events and app events):
 
 ```solidity
-struct SignatureParams {
-    // ... existing fields ...
+struct EventData {
     bytes[] events;
-    string[] eventSubTypes;
-    bytes[] appEvents;          // new
-    string[] appEventSubTypes;  // new
-    // ... existing fields ...
+    bytes32[] subTypes;
 }
 ```
 
+`SignatureParams` uses `EventData` for both event types:
+
+```solidity
+struct SignatureParams {
+    uint64 applicationId;
+    bytes32 prevStateRoot;
+    bytes32 newStateRoot;
+    bytes32 processedRequestId;
+    EventData userEvents;
+    EventData appEvents;
+    WithdrawalRequest[] withdrawalRequests;
+    uint256 refundAmount;
+    uint256 applicationFee;
+    ErrorCode errorCode;
+    string errorMsg;
+}
+```
+
+### ProcessorEndpoint.sol
+
+`stateUpdate` function signature uses `EventData` structs to avoid stack-too-deep:
+
+```solidity
+function stateUpdate(
+    uint64 applicationId,
+    bytes32 prevStateRoot,
+    bytes32 newStateRoot,
+    bytes32 processedRequestId,
+    Structs.EventData calldata userEventData,
+    Structs.EventData calldata appEventData,
+    Structs.WithdrawalRequest[] calldata withdrawalRequests,
+    uint256 refund,
+    uint256 applicationFees,
+    Structs.ErrorCode errorCode,
+    string calldata errorMsg,
+    bytes calldata signature
+) external;
+```
+
+Validation (same rules for both user and app events):
+- `events.length == subTypes.length` — otherwise `revert InvalidPayload()`
+- When `errorCode != NO_ERROR`, both event arrays must be empty — otherwise `revert InvalidPayload()`
+
 ### AbstractTeeAuthenticator.sol
 
-Include `appEvents` and `appEventSubTypes` in the signed hash within `checkSignature`.
+`checkSignature` hashes each `EventData` component separately:
+
+```solidity
+bytes32 userEventsHash = keccak256(abi.encode(params.userEvents.events));
+bytes32 userEventSubTypesHash = keccak256(abi.encode(params.userEvents.subTypes));
+bytes32 appEventsHash = keccak256(abi.encode(params.appEvents.events));
+bytes32 appEventSubTypesHash = keccak256(abi.encode(params.appEvents.subTypes));
+```
+
+Message hash includes all four hashes between `processedRequestId` and `withdrawalRequestsHash`.
 
 ## Go Changes
 
 ### pkg/common/types.go
 
-Add a new struct (distinct from `PlainEvent`, no `UserID` field since AppEvent is not user-directed):
+`AppEvent` struct (no `UserID` since it's not user-directed):
 
 ```go
-type PlainAppEvent struct {
+type AppEvent struct {
     EventSubType string `json:"eventSubType"`
     Data         []byte `json:"data"`
 }
 ```
 
+`UpdatePayload` includes `AppEvents []AppEvent`.
+
 ### pkg/wasm/common/types.go
 
-Add `AppEvents` field to both result structs:
+`AppEvents` field added to `DepositResult` and `ProcessResult`:
 
 ```go
-type ProcessResult struct {
-    State       []byte              `json:"state"`
-    Events      []common.PlainEvent `json:"events"`
-    AppEvents   []common.PlainAppEvent `json:"appEvents"`
-    Withdrawals []common.Withdrawal `json:"withdrawals"`
-    Report      []byte              `json:"report,omitempty"`
-    Fuel        *common.Big         `json:"fuel"`
-    Error       string              `json:"error,omitempty"`
-}
-
 type DepositResult struct {
     State     []byte                 `json:"state"`
     Events    []common.PlainEvent    `json:"events"`
-    AppEvents []common.PlainAppEvent `json:"appEvents"`
+    AppEvents []common.AppEvent      `json:"appEvents"`
     Fuel      *common.Big            `json:"fuel"`
     Error     string                 `json:"error,omitempty"`
 }
@@ -104,25 +121,47 @@ type DepositResult struct {
 
 ### pkg/executor/
 
-- Propagate `AppEvents` from WASM result through the execution pipeline
-- AppEvent data is **not encrypted** (unlike UserEvent)
-- Include `appEvents` and `appEventSubTypes` in the signed payload for `stateUpdate`
+- `Runtime` interface: `Deposit` and `ProcessRequest` return `[]common.AppEvent` as additional return value
+- AppEvent data is **not encrypted** (passed through as-is, unlike UserEvent)
+- `MsgToSignBuilder`: converts `EventSubType` string to `[32]byte` (right-padded) for ABI encoding as `bytes32[]`
+- Inline comments on `msgArgs` and `values` slices for ordering verification against Solidity
 
-### pkg/manager/
+### pkg/blockchain/client.go
 
-- Pass `appEvents` and `appEventSubTypes` to `stateUpdate` contract call
+`SubmitStateUpdate` constructs `StructsEventData` for both user events and app events, converting `EventSubType` strings to `[32]byte`.
 
-## WASM Guest Changes
+### pkg/executor/msgtosign_builder.go
 
-### app/simple/
+`ethSignStateUpdate` uses `bytes32[]` ABI type for event subtypes (not `string[]`). `appEvents` and `appEventSubTypes` are required parameters (not optional with defaults) to prevent silent signing mismatches.
 
-Update the simple app to demonstrate AppEvent emission by populating `AppEvents` in `ProcessResult` and `DepositResult`.
+## vela-common-go Changes
+
+### wasm/types/common.go
+
+New guest-side struct:
+
+```go
+type AppEvent struct {
+    EventSubType string `json:"eventSubType"`
+    Data         []byte `json:"data"`
+}
+```
+
+### wasm/types/results.go
+
+`AppEvents []AppEvent` added to `DepositResult` and `ProcessResult`.
+
+## vela-common-ts Changes
+
+- **Typechain types**: regenerated with `bytes32 indexed eventSubType`, `bytes32[] subTypes`, `EventData` struct, and `AppEvent` event
+- **`blockchain/client.ts`**: added `getAppEvents(fromBlock, toBlock, applicationId, requestId, eventSubType)` method. `eventSubType` filter must be a bytes32 hex value (`ethers.encodeBytes32String()` to convert)
+- **`subgraph/types.ts`**: added `AppEvent` interface and `getAppEvents` method to `SubgraphClient`
+- **`subgraph/client.ts`**: implemented `getAppEvents` GraphQL query (same pattern as `getUserEvents`, with `data` instead of `encryptedData`)
+- **`subgraph/mock.ts`**: added `withAppEvents` and `getAppEvents` to mock client
 
 ## Subgraph Changes
 
 ### subgraphs/hcce/schema.graphql
-
-Add new entity (same structure as `UserEvent`, with `data` instead of `encryptedData`):
 
 ```graphql
 type AppEvent @entity(immutable: true) {
@@ -138,61 +177,36 @@ type AppEvent @entity(immutable: true) {
 }
 ```
 
-No explicit relationships with other entities — linked via query on `applicationId` / `requestId` (same as `UserEvent`).
-
 ### subgraphs/hcce/subgraph.yaml
 
-Add event mapping:
-
 ```yaml
-- event: AppEvent(indexed uint64,indexed bytes32,indexed string,bytes)
+- event: AppEvent(indexed uint64,indexed bytes32,indexed bytes32,bytes)
   handler: handleAppEvent
 ```
 
 ### subgraphs/hcce/src/processor-endpoint.ts
 
-Add handler following the same pattern as `handleUserEvent`:
-
-```typescript
-export function handleAppEvent(event: AppEventEvent): void {
-    const id = event.transaction.hash.concatI32(event.logIndex.toI32()).toHex();
-    let entity = new AppEvent(id);
-    entity.applicationId = event.params.applicationId;
-    entity.requestId = event.params.requestId;
-    entity.eventSubType = event.params.eventSubType;
-    entity.data = event.params.data;
-    entity.blockNumber = event.block.number;
-    entity.logIndex = event.logIndex;
-    entity.sortKey = event.block.number.times(SORT_BASE).plus(event.logIndex);
-    entity.blockTimestamp = event.block.timestamp;
-    entity.save();
-}
-```
+Handler follows the same pattern as `handleUserEvent`.
 
 ## Test Changes
 
-### contracts/test/
+### Hardhat tests (234 passing)
 
-Update Hardhat tests to cover:
-- `stateUpdate` with AppEvents (happy path, single and multiple events)
-- Validation: mismatched `appEvents` / `appEventSubTypes` array lengths → `InvalidPayload`
-- Validation: non-empty `appEvents` with `errorCode != NO_ERROR` → `InvalidPayload`
-- Signature verification includes `appEvents` and `appEventSubTypes`
-- Empty `appEvents` arrays (backward-compatible calls)
+- All `stateUpdate` calls updated to use `EventData` structs
+- Event subtype assertions use `ethers.encodeBytes32String()` (not `ethers.id()`)
+- `ethSignStateUpdate`: `appEvents`/`appEventSubTypes` are required params (before `withdrawalRequests`)
+- New tests: appEventData length mismatch, AppEvent emission, appEventData non-empty on error path
+- `checkSignature.spec.ts`: tests with non-empty appEvents in payload
 
-### Go tests (pkg/)
+### Go unit tests
 
-- **pkg/executor/**: test that AppEvents from WASM result are propagated without encryption in the update payload
-- **pkg/manager/**: test that `appEvents` and `appEventSubTypes` are correctly passed to `stateUpdate` contract call
-- **pkg/wasm/**: test deserialization of `ProcessResult` and `DepositResult` with `AppEvents` field
+- `MockRuntime.ProcessRequest` emits an AppEvent on transfer
+- `TestHandleProcessRequest_Process_Success`: verifies AppEvents propagate through executor pipeline (2 UserEvents + 1 AppEvent for transfer)
+- `TestCheckSignature`: verifies Go-side signature matches Solidity contract (covers AppEvents in hash)
 
-### subgraphs/hcce/
+### System integration tests
 
-Update subgraph tests to verify `AppEvent` entity creation and field mapping.
-
-### tests/ (integration)
-
-Update system integration tests to cover end-to-end AppEvent flow.
+- `TestSimpleAppDepositEmitsAppEvent`: end-to-end test verifying AppEvent presence in UpdatePayload after deposit
 
 ## Event Ordering
 
