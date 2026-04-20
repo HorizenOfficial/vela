@@ -65,8 +65,17 @@ func NewFullStackSystemTestSuiteWithConfigs(
 	mgrLogCfg *logger.Config,
 	excLogCfg *logger.Config,
 ) *FullStackSystemTestSuite {
+	// Deploy the mock TEE authenticator pre-populated with the executor's real
+	// signing address and P521 communication pubkey. The MockTeeAuthenticator
+	// has no setter (its constructor is the only way to set pubSecp521r1), so
+	// the contract state must be correct from construction. Without this,
+	// GetTeePublicKey returns 133 zero bytes and wallet flows that encrypt
+	// payloads (RegisterUser, Deposit) fail with "invalid public key".
+	teeSignerAddr := ethCrypto.PubkeyToAddress(*keySet.SigningKey.PublicKey().PublicKey)
+	teePubKeyBytes := keySet.CommunicationKey.PublicKey().Bytes()
+
 	// Create SimTestHelper with auto-mining enabled (mines every 1s)
-	simHelper := blockchainTestutil.NewSimTestHelper(t, true, true, nil, nil)
+	simHelper := blockchainTestutil.NewSimTestHelper(t, true, true, &teeSignerAddr, teePubKeyBytes)
 
 	// Create a real BlockChainClient connected to the simulated backend
 	realClient := blockchain.SetupNewBlockChainClientConnected(
@@ -100,9 +109,10 @@ func NewFullStackSystemTestSuiteWithConfigs(
 	// the one connected to the wrappedClient
 	core.SetEventChannel(eventChannel)
 
-	// Start the in-process authority service. It shares the reports dir with
-	// the manager and queries the in-process subgraph for completion status.
-	authority := NewInProcessAuthority(t, ChainID.Uint64(), core.GetReportsPath(), subgraphImpl)
+	// Start the in-process authority service. It shares reports and artifacts
+	// dirs with the manager (so wallet-uploaded WASM lands where the manager
+	// reads from) and queries the in-process subgraph for completion status.
+	authority := NewInProcessAuthority(t, ChainID.Uint64(), core.GetReportsPath(), core.GetArtifactsPath(), subgraphImpl)
 
 	return &FullStackSystemTestSuite{
 		TestSuiteCore: core,
@@ -161,6 +171,15 @@ func (s *FullStackSystemTestSuite) GetTransactOpts(addr ethCommon.Address) (*bin
 	return opts, nil
 }
 
+// HasAccount reports whether the given address has been registered and funded
+// via CreateFundedAccount / RegisterAccount. Unambiguous boolean — use this
+// instead of error-testing GetTransactOpts when the caller only wants to
+// branch on registration state.
+func (s *FullStackSystemTestSuite) HasAccount(addr ethCommon.Address) bool {
+	_, exists := s.userAccounts[addr]
+	return exists
+}
+
 // SubmitRequest submits a request on-chain via the simulated backend.
 // Unlike the mock suite, the contract assigns the requestID (and applicationID
 // for deploy requests). This method updates req.RequestID and req.ApplicationID
@@ -200,7 +219,7 @@ func (s *FullStackSystemTestSuite) SubmitRequest(req *common.Request) error {
 	}
 
 	// Register as pending in the wrapper for completion tracking
-	s.wrappedClient.markPending(req.RequestID, req.RequestType == common.Deploy)
+	s.wrappedClient.markPending(req.RequestID)
 
 	return nil
 }
@@ -285,6 +304,15 @@ func (s *FullStackSystemTestSuite) GetSubgraphClient() subgraph.Client {
 	return s.subgraphImpl
 }
 
+// GetBlockchainClient returns the event-broadcasting blockchain client wired to
+// the simulated backend. Pass this into wallet command constructors so they
+// share the same chain view as the manager — requests submitted here land in
+// the same pool the manager polls, and the wrapper intercepts SubmitStateUpdate
+// (manager → chain) to feed the in-process subgraph.
+func (s *FullStackSystemTestSuite) GetBlockchainClient() blockchain.Client {
+	return s.wrappedClient
+}
+
 // GetSubgraph returns the concrete *InProcessSubgraph, giving tests access to
 // helpers not part of the subgraph.Client interface (e.g. InjectRequestCompleted
 // used by the authority smoke test).
@@ -309,6 +337,14 @@ func (s *FullStackSystemTestSuite) GetAuthorityAddress() ethCommon.Address {
 // Tests use it to sign /getreport challenges.
 func (s *FullStackSystemTestSuite) GetAuthorityKey() *ecdsa.PrivateKey {
 	return s.authority.AuthorityKey()
+}
+
+// GrantDeployerRole grants the ProcessorEndpoint DEPLOYER_ROLE to addr so it
+// can submit deploy requests on its own behalf. Used by the wallet driver to
+// authorize a freshly-created user account to deploy applications.
+func (s *FullStackSystemTestSuite) GrantDeployerRole(addr ethCommon.Address) {
+	tx := s.simHelper.GrantDeployerRole(addr)
+	s.simHelper.WaitMined(tx)
 }
 
 // RegisterAuthority allowlists the in-process authority for the given application

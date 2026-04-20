@@ -11,12 +11,13 @@ import (
 )
 
 // eventBroadcastingClient wraps a real blockchain.Client (typically a BlockChainClient
-// connected to the simulated backend) and intercepts SubmitStateUpdate to:
-//   - broadcast events to the suite's eventChannel
-//   - track request completion (for AssertRequestCompleted)
-//   - store update payloads (for GetRequestUpdatePayload)
-//   - accumulate withdrawals (for WaitForWithdrawal)
-//   - notify the InProcessSubgraph via the onStateUpdate callback
+// connected to the simulated backend) and intercepts:
+//   - GetNextPendingRequest — to cache each request's RequestType, so
+//     SubmitStateUpdate can classify the completion the same way the contract
+//     does (DeployRequestCompleted vs RequestCompleted).
+//   - SubmitStateUpdate — to broadcast events, track completions, store
+//     update payloads, accumulate withdrawals, and notify the in-process
+//     subgraph.
 //
 // All other Client methods are delegated to the underlying client unchanged.
 type eventBroadcastingClient struct {
@@ -25,7 +26,7 @@ type eventBroadcastingClient struct {
 	mu             sync.Mutex
 	eventChannel   chan<- interface{}
 	pendingIDs     map[common.RequestIdType]struct{}
-	deployIDs      map[common.RequestIdType]struct{} // tracks which requests are deploy requests
+	requestTypes   map[common.RequestIdType]common.RequestType // cached from GetNextPendingRequest
 	completedIDs   map[common.RequestIdType]struct{}
 	failedIDs      map[common.RequestIdType]struct{}
 	updatePayloads map[common.RequestIdType]*common.UpdatePayload
@@ -41,7 +42,7 @@ func newEventBroadcastingClient(inner blockchain.Client, eventCh chan<- interfac
 		Client:         inner,
 		eventChannel:   eventCh,
 		pendingIDs:     make(map[common.RequestIdType]struct{}),
-		deployIDs:      make(map[common.RequestIdType]struct{}),
+		requestTypes:   make(map[common.RequestIdType]common.RequestType),
 		completedIDs:   make(map[common.RequestIdType]struct{}),
 		failedIDs:      make(map[common.RequestIdType]struct{}),
 		updatePayloads: make(map[common.RequestIdType]*common.UpdatePayload),
@@ -49,16 +50,30 @@ func newEventBroadcastingClient(inner blockchain.Client, eventCh chan<- interfac
 	}
 }
 
-// markPending registers a request as pending so AssertRequestCompleted can track it.
-// isDeploy indicates whether this is a deploy request (needed by the subgraph to
-// route to the correct completion map).
-func (c *eventBroadcastingClient) markPending(requestID common.RequestIdType, isDeploy bool) {
+// markPending registers a request as pending so AssertRequestCompleted can
+// track it. Request-type tracking is populated automatically via
+// GetNextPendingRequest — callers do not need to supply it.
+func (c *eventBroadcastingClient) markPending(requestID common.RequestIdType) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pendingIDs[requestID] = struct{}{}
-	if isDeploy {
-		c.deployIDs[requestID] = struct{}{}
+}
+
+// GetNextPendingRequest delegates to the real client and caches the request's
+// RequestType so SubmitStateUpdate can later classify the completion
+// canonically (matches the contract's own DeployRequestCompleted vs
+// RequestCompleted emission logic).
+func (c *eventBroadcastingClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error) {
+	req, stateRoot, err := c.Client.GetNextPendingRequest(ctx)
+	if err != nil {
+		return req, stateRoot, err
 	}
+	if req != nil {
+		c.mu.Lock()
+		c.requestTypes[req.RequestID] = req.RequestType
+		c.mu.Unlock()
+	}
+	return req, stateRoot, nil
 }
 
 // SubmitStateUpdate delegates to the real client and then records the result
@@ -76,8 +91,12 @@ func (c *eventBroadcastingClient) SubmitStateUpdate(ctx context.Context, update 
 	// Remove from pending
 	delete(c.pendingIDs, update.RequestID)
 
-	// Check if this was a deploy request
-	_, isDeploy := c.deployIDs[update.RequestID]
+	// Classify using the cached RequestType (captured from GetNextPendingRequest).
+	// Matches the contract's DeployRequestCompleted vs RequestCompleted emission
+	// logic at ProcessorEndpoint.sol:401.
+	reqType, ok := c.requestTypes[update.RequestID]
+	isDeploy := ok && reqType == common.Deploy
+	delete(c.requestTypes, update.RequestID)
 
 	if update.ErrorCode != 0 {
 		// Mark as failed

@@ -2,9 +2,7 @@ package fullstack
 
 import (
 	"crypto/ecdsa"
-	"fmt"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -18,36 +16,35 @@ import (
 
 // InProcessAuthority runs an AuthorityService HTTP server on an ephemeral
 // port backed by an httptest.Server. It generates a fresh secp256k1 key pair
-// that tests use when signing /getreport challenges, and owns a temp dir for
-// the deploy-artifact store required by NewAuthorityService.
+// that tests use when signing /getreport challenges.
 //
-// The reports directory is supplied by the caller (the fullstack suite) so the
-// manager and authority service share the same filesystem path for
-// deanonymization reports.
+// The reports and artifacts paths are supplied by the caller (the fullstack
+// suite) so the manager and authority service share the same filesystem dirs.
+// This matters for DeployApp: the wallet uploads WASM via the authority
+// service's /deploy/upload endpoint, and the manager fetches it from the
+// shared artifacts dir.
 type InProcessAuthority struct {
-	server           *httptest.Server
-	authorityKey     *ecdsa.PrivateKey
-	authorityAddr    ethCommon.Address
-	artifactsDir     string
+	server        *httptest.Server
+	authorityKey  *ecdsa.PrivateKey
+	authorityAddr ethCommon.Address
 }
 
 // NewInProcessAuthority builds and starts an authority service on an ephemeral
-// port. Call Close() to shut down and remove the artifacts temp dir.
+// port. The server is shut down by Close().
 //
-//   - chainID      — the chain ID the service will enforce on /getreport requests
-//     (must match what the wallet/test signs).
-//   - reportsPath  — filesystem path where DeanonymizationReport JSON files live.
-//     The manager writes them here; the authority service reads them.
-//   - sg           — subgraph client used by /getreport to confirm on-chain
-//     completion before serving the report.
-func NewInProcessAuthority(t *testing.T, chainID uint64, reportsPath string, sg subgraph.Client) *InProcessAuthority {
+//   - chainID       — enforced on /getreport requests (must match what the
+//     wallet/test signs).
+//   - reportsPath   — filesystem path shared with the manager; manager writes
+//     DeanonymizationReport JSON files here, authority reads them.
+//   - artifactsPath — filesystem path shared with the manager; /deploy/upload
+//     writes WASM artifacts here, manager reads them on deploy processing.
+//   - sg            — subgraph client used by /getreport to confirm on-chain
+//     completion.
+func NewInProcessAuthority(t *testing.T, chainID uint64, reportsPath, artifactsPath string, sg subgraph.Client) *InProcessAuthority {
 	t.Helper()
 
 	authorityKey, err := ethCrypto.GenerateKey()
 	require.NoError(t, err, "failed to generate authority key")
-
-	artifactsDir, err := os.MkdirTemp("", "fullstack-authority-artifacts")
-	require.NoError(t, err)
 
 	testLogger := logger.NewLogger(&logger.Config{
 		Kind:         "zerolog",
@@ -59,7 +56,7 @@ func NewInProcessAuthority(t *testing.T, chainID uint64, reportsPath string, sg 
 		chainID,
 		300*time.Second,
 		reportsPath,
-		artifactsDir,
+		artifactsPath,
 		0, // unlimited upload size
 		sg,
 		testLogger,
@@ -72,7 +69,6 @@ func NewInProcessAuthority(t *testing.T, chainID uint64, reportsPath string, sg 
 		server:        server,
 		authorityKey:  authorityKey,
 		authorityAddr: ethCrypto.PubkeyToAddress(authorityKey.PublicKey),
-		artifactsDir:  artifactsDir,
 	}
 }
 
@@ -94,15 +90,11 @@ func (a *InProcessAuthority) AuthorityKey() *ecdsa.PrivateKey {
 	return a.authorityKey
 }
 
-// Close stops the HTTP server and removes the artifacts temp dir.
+// Close stops the HTTP server. Reports and artifacts paths are owned by the
+// suite's core (manager), which cleans them up — Close() does not touch them.
 func (a *InProcessAuthority) Close() error {
 	if a.server != nil {
 		a.server.Close()
-	}
-	if a.artifactsDir != "" {
-		if err := os.RemoveAll(a.artifactsDir); err != nil {
-			return fmt.Errorf("failed to remove artifacts dir: %w", err)
-		}
 	}
 	return nil
 }

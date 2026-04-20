@@ -379,6 +379,25 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 	return signedTx
 }
 
+// GrantDeployerRole grants the ProcessorEndpoint's DEPLOYER_ROLE to addr.
+// Must be called from the ADMIN (set to s.Deployer in the constructor).
+// Used by the wallet driver so a user's secp key can submit deploy requests.
+func (s *SimTestHelper) GrantDeployerRole(addr ethCommon.Address) *ethTypes.Transaction {
+	roleHash, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackDEPLOYERROLE(),
+		s.processEndpointContract.UnpackDEPLOYERROLE)
+	require.NoError(s.t, err, "failed to read DEPLOYER_ROLE")
+
+	tx, err := bind.Transact(
+		s.processEndpointInstance,
+		s.Deployer,
+		s.processEndpointContract.PackGrantRole(roleHash, addr),
+	)
+	require.NoError(s.t, err, "failed to grant DEPLOYER_ROLE")
+	return tx
+}
+
 func (s *SimTestHelper) AddAuthority(applicationId *big.Int, newAuthority ethCommon.Address) *ethTypes.Transaction {
     defaultAuthContract := defaultauthority.NewDefaultAuthority()
     defaultAuthInstance := defaultAuthContract.Instance(s.Client(), s.DefaultAuthorityAddress)
