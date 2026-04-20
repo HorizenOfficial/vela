@@ -1004,6 +1004,7 @@ func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32
 		PrevStateRoot:  stateRoot,
 		NewStateRoot:   stateRoot,        // State unchanged on error
 		Events:         nil,              // Empty events on error
+		AppEvents:      nil,              // Empty appevents on error
 		Withdrawals:    nil,              // Empty withdrawals on error
 		RefundAmount:   req.MaxFeeValue,  // Refund and fees are calculated on chain
 		ApplicationFee: common.NewBig(0), // No application fee on error, but the actual fee handling is done on chain
@@ -1040,10 +1041,10 @@ func (e *StatelessExecutor) processErrorResponse(req *common.Request, stateRoot 
 //
 // When cause is nil, this is equivalent to processErrorResponse with
 // apperrors.New(code, baseMsg). When cause is non-nil, it:
-//   1. logs the cause at Error level with request/app context, and
-//   2. appends ": <cause>" to baseMsg in the signed payload so downstream
-//      consumers (wallet, subgraph) see the specific failure, not just the
-//      generic error code category.
+//  1. logs the cause at Error level with request/app context, and
+//  2. appends ": <cause>" to baseMsg in the signed payload so downstream
+//     consumers (wallet, subgraph) see the specific failure, not just the
+//     generic error code category.
 func (e *StatelessExecutor) errorResponse(req *common.Request, stateRoot [32]byte, code apperrors.FailureCode, baseMsg string, cause error) (*common.UpdatePayload, error) {
 	msg := baseMsg
 	if cause != nil {
