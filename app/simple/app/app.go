@@ -157,7 +157,7 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 
 	events := []types.PlainEvent{{
 		UserID:       *senderPtr,
-		EventSubType: "deposit",
+		EventSubType: SubTypeFromString("deposit"),
 		Data:         eventDataBytes,
 	}}
 
@@ -172,7 +172,7 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize app event data: %+v, err: %v", appEventData, err)}
 	}
 	appEvents := []types.AppEvent{{
-		EventSubType: "deposit_received",
+		EventSubType: SubTypeFromString("deposit_received"),
 		Data:         appEventDataBytes,
 	}}
 
@@ -286,7 +286,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 
 			events = append(events, types.PlainEvent{
 				UserID:       sender,
-				EventSubType: "compare_accounts",
+				EventSubType: SubTypeFromString("compare_accounts"),
 				Data:         eventDataBytes,
 			})
 
@@ -346,7 +346,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 
 			events = append(events, types.PlainEvent{
 				UserID:       sender,
-				EventSubType: "withdrawal",
+				EventSubType: SubTypeFromString("withdrawal"),
 				Data:         withdrawEventDataBytes,
 			})
 

@@ -700,7 +700,7 @@ func TestHandleProcessRequest_Process_Success(t *testing.T) {
 
 	// Verify AppEvents are present and not encrypted
 	require.Len(t, payload.AppEvents, 1, "transfer should produce 1 AppEvent")
-	require.Equal(t, "transfer", payload.AppEvents[0].EventSubType)
+	require.Equal(t, mockSubtypeTransfer, payload.AppEvents[0].EventSubType)
 	require.NotEmpty(t, payload.AppEvents[0].Data)
 
 	// RefundAmount + ApplicationFee == MaxFeeValue

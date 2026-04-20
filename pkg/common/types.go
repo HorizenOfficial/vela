@@ -110,15 +110,15 @@ type Event struct {
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
 	UserID ethCommon.Address `json:"userId"`
-	// EventSubType is the optional subtype used for filtering
-	EventSubType string `json:"eventSubType"`
+	// EventSubType is the optional subtype used for filtering (bytes32 on-chain)
+	EventSubType [32]byte `json:"eventSubType"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`
 }
 
 func (e Event) String() string {
-	return fmt.Sprintf("Event{ApplicationID: %d, UserID: %s, EventSubType: %s, EncryptedData: %s}",
-		e.ApplicationID, e.UserID.Hex(), e.EventSubType, hex.EncodeToString(e.EncryptedData))
+	return fmt.Sprintf("Event{ApplicationID: %d, UserID: %s, EventSubType: 0x%s, EncryptedData: %s}",
+		e.ApplicationID, e.UserID.Hex(), hex.EncodeToString(e.EventSubType[:]), hex.EncodeToString(e.EncryptedData))
 }
 
 // Withdrawal represents a withdrawal from the system
@@ -199,8 +199,8 @@ type DecryptedReport struct {
 type PlainEvent struct {
 	// UserID is the address of the user associated with the event
 	UserID ethCommon.Address `json:"userId"`
-	// EventSubType is the optional subtype used for filtering
-	EventSubType string `json:"eventSubType"`
+	// EventSubType is the optional subtype used for filtering (bytes32 on-chain)
+	EventSubType [32]byte `json:"eventSubType"`
 	// Data is the encrypted event data
 	Data []byte `json:"data"`
 }
@@ -208,8 +208,8 @@ type PlainEvent struct {
 // AppEvent represents an application-level event (not encrypted, not user-directed).
 // (note: we don't use the 'Plain' suffix here because there is not an encrypted version)
 type AppEvent struct {
-	// EventSubType is the subtype used for filtering
-	EventSubType string `json:"eventSubType"`
+	// EventSubType is the subtype used for filtering (bytes32 on-chain)
+	EventSubType [32]byte `json:"eventSubType"`
 	// Data is the unencrypted event data
 	Data []byte `json:"data"`
 }

@@ -12,6 +12,16 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/logger"
 )
 
+// Fixed subtypes emitted by the mock runtime. Values are arbitrary — tests
+// compare against these constants rather than human-readable tags.
+var (
+	mockSubtypeDeposit          = [32]byte{0x01}
+	mockSubtypeTransferSent     = [32]byte{0x02}
+	mockSubtypeTransferReceived = [32]byte{0x03}
+	mockSubtypeTransfer         = [32]byte{0x04}
+	mockSubtypeWithdrawal       = [32]byte{0x05}
+)
+
 // Local mirror types used in tests to avoid importing wasm-go/app
 
 type testAccountState struct {
@@ -121,7 +131,7 @@ func (r *MockRuntime) Deposit(ctx context.Context, appId common.ApplicationIdTyp
 
 		depositEvent := common.PlainEvent{
 			UserID:       sender,
-			EventSubType: "deposit",
+			EventSubType: mockSubtypeDeposit,
 			Data:         []byte(fmt.Sprintf(`{"type":"deposit","amount":"0x%s","balance":"0x%s","nonce":%d}`, depositAmount.Text(16), balance.Text(16), nonce)),
 		}
 		events = append(events, depositEvent)
@@ -199,13 +209,13 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			// Events
 			senderEvent := common.PlainEvent{
 				UserID:       sender,
-				EventSubType: "transfer_sent",
+				EventSubType: mockSubtypeTransferSent,
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_sent","to":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
 					to, amount.ToInt().Text(16), senderAcct.Balance.ToInt().Text(16), nonce)),
 			}
 			recipientEvent := common.PlainEvent{
 				UserID:       to,
-				EventSubType: "transfer_received",
+				EventSubType: mockSubtypeTransferReceived,
 				Data: []byte(fmt.Sprintf(`{"type":"transfer_received","from":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
 					sender, amount.ToInt().Text(16), recipientAcct.Balance.ToInt().Text(16), nonce)),
 			}
@@ -213,7 +223,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 
 			// App-level event for the transfer (non-encrypted, visible to everyone)
 			appEvents = append(appEvents, common.AppEvent{
-				EventSubType: "transfer",
+				EventSubType: mockSubtypeTransfer,
 				Data: []byte(fmt.Sprintf(`{"from":"%s","to":"%s","amount":"0x%s"}`,
 					sender, to, amount.ToInt().Text(16))),
 			})
@@ -243,7 +253,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 
 			withdrawEvent := common.PlainEvent{
 				UserID:       sender,
-				EventSubType: "withdrawal",
+				EventSubType: mockSubtypeWithdrawal,
 				Data: []byte(fmt.Sprintf(`{"type":"withdrawal","to":"%s","amount":"0x%s","balance":"0x%s","nonce":%d}`,
 					to, amount.ToInt().Text(16), senderAcct.Balance.ToInt().Text(16), nonce)),
 			}

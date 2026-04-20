@@ -97,7 +97,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
 	require.Len(t, depositAppEvents, 1)
-	require.Equal(t, "deposit_received", depositAppEvents[0].EventSubType)
+	require.Equal(t, app.SubTypeFromString("deposit_received"), depositAppEvents[0].EventSubType)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
 
 	var depositState app.ApplicationInternalState

@@ -95,7 +95,7 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	eventSubTypes := make([][32]byte, len(updatePayload.Events))
 	for i, event := range updatePayload.Events {
 		events[i] = event.EncryptedData
-		copy(eventSubTypes[i][:], event.EventSubType)
+		eventSubTypes[i] = event.EventSubType
 	}
 
 	encodedEvents, err := b.eventsArgs.Pack(events)
@@ -116,7 +116,7 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	appEventSubTypes := make([][32]byte, len(updatePayload.AppEvents))
 	for i, appEvent := range updatePayload.AppEvents {
 		appEvents[i] = appEvent.Data
-		copy(appEventSubTypes[i][:], appEvent.EventSubType)
+		appEventSubTypes[i] = appEvent.EventSubType
 	}
 
 	encodedAppEvents, err := b.eventsArgs.Pack(appEvents)

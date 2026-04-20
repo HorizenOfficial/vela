@@ -439,7 +439,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	userEventSubTypes := make([][32]byte, len(update.Events))
 	for i, event := range update.Events {
 		userEvents[i] = event.EncryptedData
-		copy(userEventSubTypes[i][:], event.EventSubType)
+		userEventSubTypes[i] = event.EventSubType
 	}
 	userEventData := processorendpoint.StructsEventData{
 		Events:   userEvents,
@@ -450,7 +450,7 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	appEventSubTypes := make([][32]byte, len(update.AppEvents))
 	for i, appEvent := range update.AppEvents {
 		appEvents[i] = appEvent.Data
-		copy(appEventSubTypes[i][:], appEvent.EventSubType)
+		appEventSubTypes[i] = appEvent.EventSubType
 	}
 	appEventData := processorendpoint.StructsEventData{
 		Events:   appEvents,

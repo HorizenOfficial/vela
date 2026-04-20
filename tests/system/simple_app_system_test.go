@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	simpleapp "github.com/HorizenOfficial/vela/app/simple/app"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
@@ -505,7 +506,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NotEmpty(t, updatePayload.Events, "no events found for request")
 
 	// Find the action event by matching user1's privacy-preserving subtype set
-	user1SubtypeSet := make(map[string]struct{})
+	user1SubtypeSet := make(map[[32]byte]struct{})
 	for _, st := range executor.AllSubtypes(user1Seed, executor.DefaultSubtypeN) {
 		user1SubtypeSet[st] = struct{}{}
 	}
@@ -1045,6 +1046,6 @@ func TestSimpleAppDepositEmitsAppEvent(t *testing.T) {
 
 	// Verify the AppEvent is present in the payload
 	require.NotEmpty(t, payload.AppEvents, "deposit should produce at least one AppEvent")
-	require.Equal(t, "deposit_received", payload.AppEvents[0].EventSubType)
+	require.Equal(t, simpleapp.SubTypeFromString("deposit_received"), payload.AppEvents[0].EventSubType)
 	require.NotEmpty(t, payload.AppEvents[0].Data, "AppEvent data should not be empty")
 }

@@ -3,7 +3,7 @@
 WASM applications can produce a new type of event: **AppEvent**.
 
 - Not directed to a specific user — data is **not encrypted** by the executor
-- Has an indexed `eventSubType` field of type `bytes32`: stored as-is in log topics (no hashing), readable for short strings (<=32 chars)
+- Has an indexed `eventSubType` field of type `bytes32`: stored as-is in log topics (no hashing), readable for short ASCII tags (≤32 bytes). Represented as `[32]byte` end-to-end (host, guest, signature hash, ABI) — no ASCII/hex re-encoding in between.
 - Supported in both `ProcessRequest` and `DepositFunds` operations
 
 ## Smart Contract Changes
@@ -94,14 +94,27 @@ Message hash includes all four hashes between `processedRequestId` and `withdraw
 
 ### pkg/common/types.go
 
-`AppEvent` struct (no `UserID` since it's not user-directed):
+`AppEvent` struct (no `UserID` since it's not user-directed). `EventSubType` is
+stored as `[32]byte` on both host and guest sides, matching the on-chain
+`bytes32` type exactly — no ASCII-to-bytes32 truncation at the serialization
+boundary.
 
 ```go
 type AppEvent struct {
-    EventSubType string `json:"eventSubType"`
-    Data         []byte `json:"data"`
+    EventSubType [32]byte `json:"eventSubType"`
+    Data         []byte   `json:"data"`
 }
 ```
+
+`Event` and `PlainEvent` use the same `[32]byte` representation for
+`EventSubType`.
+
+The framework provides no built-in string→bytes32 helper. How subtype bytes
+are produced is a per-application policy: short readable tags packed with
+`copy(b[:], s)` (as SimpleApp does via its own `app.SubTypeFromString`),
+keccak256 hashes, enumerated constants, or anti-linkability subtypes derived
+from a user seed (see `pkg/executor/subtype.go`) are all valid — apps just
+need to be consistent between producer and filter.
 
 `UpdatePayload` includes `AppEvents []AppEvent`.
 
@@ -123,29 +136,50 @@ type DepositResult struct {
 
 - `Runtime` interface: `Deposit` and `ProcessRequest` return `[]common.AppEvent` as additional return value
 - AppEvent data is **not encrypted** (passed through as-is, unlike UserEvent)
-- `MsgToSignBuilder`: converts `EventSubType` string to `[32]byte` (right-padded) for ABI encoding as `bytes32[]`
+- `MsgToSignBuilder`: uses `EventSubType` directly as `[32]byte` for ABI encoding as `bytes32[]` — no string/bytes32 conversion at the hashing boundary
 - Inline comments on `msgArgs` and `values` slices for ordering verification against Solidity
 
 ### pkg/blockchain/client.go
 
-`SubmitStateUpdate` constructs `StructsEventData` for both user events and app events, converting `EventSubType` strings to `[32]byte`.
+`SubmitStateUpdate` constructs `StructsEventData` for both user events and app events, passing `EventSubType` ([32]byte) straight into the `bytes32[]` ABI field.
 
 ### pkg/executor/msgtosign_builder.go
 
 `ethSignStateUpdate` uses `bytes32[]` ABI type for event subtypes (not `string[]`). `appEvents` and `appEventSubTypes` are required parameters (not optional with defaults) to prevent silent signing mismatches.
 
+### pkg/executor/subtype.go
+
+`GenerateSubtype` / `AllSubtypes` / `GenerateRandomSubtype` return the raw 32
+bytes of the HMAC-SHA256 digest (`[32]byte`). They used to return `"0x" + hex`
+strings, which — when copied into a `[32]byte` on the blockchain boundary —
+were silently truncated to 32 ASCII characters, losing ~17 bytes of entropy
+and writing the ASCII hex representation on-chain instead of the digest.
+
 ## vela-common-go Changes
 
 ### wasm/types/common.go
 
-New guest-side struct:
+Guest-side structs use `[32]byte` for `EventSubType`, mirroring the host side
+(they serialize to the same JSON as `[32]byte` on both sides, so the
+host/guest JSON round-trip stays symmetric):
 
 ```go
+type PlainEvent struct {
+    UserID       Address  `json:"userId"`
+    EventSubType [32]byte `json:"eventSubType"`
+    Data         []byte   `json:"data"`
+}
+
 type AppEvent struct {
-    EventSubType string `json:"eventSubType"`
-    Data         []byte `json:"data"`
+    EventSubType [32]byte `json:"eventSubType"`
+    Data         []byte   `json:"data"`
 }
 ```
+
+The guest framework package also provides no subtype-encoding helper; apps
+own that policy. SimpleApp defines its own `app.SubTypeFromString` (in
+`app/simple/app/subtype.go`) that packs up to 32 ASCII bytes left-aligned.
+Other apps are free to pick a different encoding (e.g. keccak256).
 
 ### wasm/types/results.go
 
