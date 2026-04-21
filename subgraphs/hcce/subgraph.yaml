@@ -35,9 +35,9 @@ dataSources:
           handler: handleRequestSubmitted
         - event: RequestCompleted(indexed uint64,indexed bytes32,uint256,uint8,uint8,string)
           handler: handleRequestCompleted
-        - event: UserEvent(indexed uint64,indexed bytes32,indexed string,bytes)
+        - event: UserEvent(indexed uint64,indexed bytes32,indexed bytes32,bytes)
           handler: handleUserEvent
-        - event: AppEvent(indexed uint64,indexed bytes32,indexed string,bytes)
+        - event: AppEvent(indexed uint64,indexed bytes32,indexed bytes32,bytes)
           handler: handleAppEvent
         - event: DeployRequestSubmitted(indexed uint64,bytes32,indexed address)
           handler: handleDeployRequestSubmitted
