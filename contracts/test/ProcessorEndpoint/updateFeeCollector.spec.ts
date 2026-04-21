@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { Signer } from 'ethers';
+import { ethers, Signer } from 'ethers';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 import { ADDRESS_ZERO, ETH_TOKEN } from '../util';
 
@@ -82,8 +82,8 @@ describe('ProcessorEndpoint Test', function () {
             INITIAL_STATE_ROOT,
             '0x' + '01'.repeat(32),
             requestId,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             maxFeeValue,
@@ -119,8 +119,8 @@ describe('ProcessorEndpoint Test', function () {
             currentStateRoot,
             currentStateRoot,
             requestId,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             0,
@@ -156,8 +156,8 @@ describe('ProcessorEndpoint Test', function () {
             INITIAL_STATE_ROOT,
             '0x1000000000000000000000000000000000000000000000000000000000000000',
             requestId,
-            ['0x'],
-            [''],
+            { events: ['0x'], subTypes: [ethers.encodeBytes32String('')] },
+            { events: [], subTypes: [] },
             [],
             0,
             maxFeeValue,

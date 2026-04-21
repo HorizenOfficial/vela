@@ -80,6 +80,11 @@ type RecipientEvent struct {
 	Nonce   uint64         `json:"nonce"`
 }
 
+type DepositAppEvent struct {
+	TokenAddress types.Address  `json:"tokenAddress"`
+	Amount       *types.Uint256 `json:"amount"`
+}
+
 type WithdrawalEvent struct {
 	Type         string         `json:"type"`
 	To           types.Address  `json:"to"`

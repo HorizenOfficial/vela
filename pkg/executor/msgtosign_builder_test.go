@@ -19,7 +19,7 @@ func TestMsgToSignBuilder_IncludesEventSubType(t *testing.T) {
 		RequestID:      common.RequestIdType{},
 		PrevStateRoot:  [32]byte{1},
 		NewStateRoot:   [32]byte{2},
-		Events:         []common.Event{{EventSubType: "a", EncryptedData: []byte{0x01}}},
+		Events:         []common.Event{{EventSubType: [32]byte{'a'}, EncryptedData: []byte{0x01}}},
 		Withdrawals:    nil,
 		RefundAmount:   common.NewBig(0),
 		ApplicationFee: common.NewBig(0),
@@ -30,7 +30,7 @@ func TestMsgToSignBuilder_IncludesEventSubType(t *testing.T) {
 
 	// Change only the subtype; hash must change.
 	changed := *base
-	changed.Events = []common.Event{{EventSubType: "b", EncryptedData: []byte{0x01}}}
+	changed.Events = []common.Event{{EventSubType: [32]byte{'b'}, EncryptedData: []byte{0x01}}}
 
 	h2, err := builder.BuildMsgHash(&changed)
 	require.NoError(t, err)

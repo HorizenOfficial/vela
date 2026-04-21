@@ -67,6 +67,8 @@ export async function deployProcessorEndpointFixture() {
         [],
         [],
         [],
+        [],
+        [],
         0,
         minFeePerRequest
       );
@@ -79,8 +81,8 @@ export async function deployProcessorEndpointFixture() {
         BYTES32_ZERO,
         INITIAL_STATE_ROOT,
         requestId,
-        [],
-        [],
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
         [],
         0,
         minFeePerRequest,

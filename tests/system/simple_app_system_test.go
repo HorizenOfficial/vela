@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	simpleapp "github.com/HorizenOfficial/vela/app/simple/app"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
@@ -505,7 +506,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NotEmpty(t, updatePayload.Events, "no events found for request")
 
 	// Find the action event by matching user1's privacy-preserving subtype set
-	user1SubtypeSet := make(map[string]struct{})
+	user1SubtypeSet := make(map[[32]byte]struct{})
 	for _, st := range executor.AllSubtypes(user1Seed, executor.DefaultSubtypeN) {
 		user1SubtypeSet[st] = struct{}{}
 	}
@@ -1005,4 +1006,46 @@ func TestSimpleAppETHOnlyRejectsERC20Deposit(t *testing.T) {
 	err = suite.AssertRequestCompleted(reqID, timeout)
 	require.Error(t, err, "ERC-20 deposit to ETH-only app should fail")
 	require.Contains(t, err.Error(), "has failed")
+}
+
+// TestSimpleAppDepositEmitsAppEvent verifies that a deposit produces an AppEvent
+// in the UpdatePayload (non-encrypted, application-level event).
+func TestSimpleAppDepositEmitsAppEvent(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	logCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
+	defer suite.Cleanup()
+
+	wasmBytecode := buildAndLoadWasmModule(t)
+
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	appID := common.NewApplicationId(1)
+	timeout := 100 * time.Second
+	cryptoHelper := testutil.NewCryptoHelper()
+
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
+
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+	registerUserKey(t, suite, cryptoHelper, appID, userAddress, executorPubKey, timeout)
+
+	// Deposit and retrieve the update payload
+	depositReqID := commontestutil.GenerateRandomRequestID()
+	depositToSimpleApp(t, suite, cryptoHelper, appID, depositReqID, userAddress, big.NewInt(1000000000000000000))
+
+	payload, err := suite.GetRequestUpdatePayload(depositReqID)
+	require.NoError(t, err)
+
+	// Verify the AppEvent is present in the payload
+	require.NotEmpty(t, payload.AppEvents, "deposit should produce at least one AppEvent")
+	require.Equal(t, simpleapp.SubTypeFromString("deposit_received"), payload.AppEvents[0].EventSubType)
+	require.NotEmpty(t, payload.AppEvents[0].Data, "AppEvent data should not be empty")
 }
