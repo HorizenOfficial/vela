@@ -23,6 +23,20 @@ import (
 //go:generate mkdir -p ./contracts/authority
 //go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/AuthorityRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/AuthorityRegistryAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/AuthorityRegistryAbi/combined.json --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
+// MockERC20 binding pipeline deviates from the --combined-json pattern used by
+// the other contracts above. MockERC20 declares `is ERC20, ERC20Permit`, and
+// both parents inherit OpenZeppelin's EIP712. With --combined-json, abigen
+// emits a top-level Eip712DomainOutput struct for every contract that exposes
+// eip712Domain(), which produces a duplicate-declaration compile error. The
+// --exc flag also doesn't filter these out.
+//
+// Passing solc's per-contract .abi + .bin to abigen isolates MockERC20's own
+// interface — no parent-contract types are generated, no collision, and the
+// output is ~1/5 the size. No pre-processing step, so `go generate` stays
+// idempotent and CI-friendly.
+//go:generate mkdir -p ./contracts/mockerc20
+//go:generate solc --via-ir --abi --bin ../../contracts/contracts/mocks/MockERC20.sol --base-path ../.. --include-path ../../contracts/node_modules -o ../../contract_abis/MockERC20Abi --overwrite
+//go:generate abigen --v2 --abi ../../contract_abis/MockERC20Abi/MockERC20.abi --bin ../../contract_abis/MockERC20Abi/MockERC20.bin --pkg mockerc20 --type MockERC20 --out ./contracts/mockerc20/MockERC20.go
 
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {

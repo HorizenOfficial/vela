@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/authority"
 	defaultauthority "github.com/HorizenOfficial/vela/pkg/blockchain/contracts/defaultauthoritychecker"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mockerc20"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mocktee"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/noattestationtee"
@@ -31,6 +32,14 @@ type SimTestHelper struct {
 
 	processEndpointContract *processorendpoint.ProcessorEndpoint
 	processEndpointInstance *bind.BoundContract
+
+	// MockERC20 is populated by DeployMockERC20 and remains the zero value if
+	// the test never deploys one. Only one MockERC20 per SimTestHelper — tests
+	// that need multiple tokens should call DeployMockERC20 multiple times and
+	// track the returned addresses themselves.
+	MockERC20Address  ethCommon.Address
+	mockERC20Contract *mockerc20.MockERC20
+	mockERC20Instance *bind.BoundContract
 
 	ProcessorContractAddress ethCommon.Address
 	TeeSignerAddress         ethCommon.Address
@@ -244,7 +253,15 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 		panic("Unsupported request type")
 	}
 
-	sender.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	// msg.value differs by token: ETH requests carry assetAmount + maxFeeValue
+	// (business asset + fee in the same tx); ERC-20 requests carry maxFeeValue
+	// only (business asset arrives via the contract's transferFrom pull).
+	// Mirrors the check in ProcessorEndpoint.submitRequest.
+	if tokenAddress == (ethCommon.Address{}) {
+		sender.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	} else {
+		sender.Value = new(big.Int).Set(maxFeeValue)
+	}
 	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, tokenAddress, assetAmount, maxFeeValue))
 	require.NoError(s.t, err, "failed to submit transaction")
 	sender.Value = big.NewInt(0)
@@ -414,4 +431,124 @@ func (s *SimTestHelper) AddAuthority(applicationId *big.Int, newAuthority ethCom
 
 func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelper {
 	return NewSimTeeAuthenticatorHelper(s.t, s.TeeSignerAddress, s.sim.Client())
+}
+
+// --- MockERC20 infrastructure ---
+
+// DeployMockERC20 deploys a MockERC20 token contract on the simulated chain
+// and stores its binding on the helper. Subsequent MintERC20 / ApproveERC20
+// calls target this deployed instance. Returns the deployed token address.
+//
+// The mock's mint is permissionless and decimals are caller-chosen, so a
+// single call is enough to stage any ERC-20 scenario. Tests needing multiple
+// distinct tokens call this multiple times and track the returned addresses.
+func (s *SimTestHelper) DeployMockERC20(name, symbol string, decimals uint8) ethCommon.Address {
+	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
+	contract := mockerc20.NewMockERC20()
+	deployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&mockerc20.MockERC20MetaData},
+		Inputs:    map[string][]byte{mockerc20.MockERC20MetaData.ID: contract.PackConstructor(name, symbol, decimals)},
+	}
+	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
+	require.NoError(s.t, err, "failed to deploy MockERC20")
+
+	addr := deployRes.Addresses[mockerc20.MockERC20MetaData.ID]
+	tx := deployRes.Txs[mockerc20.MockERC20MetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
+	require.NoError(s.t, err, "MockERC20 deployment not mined")
+
+	s.MockERC20Address = addr
+	s.mockERC20Contract = contract
+	s.mockERC20Instance = contract.Instance(s.sim.Client(), addr)
+	return addr
+}
+
+// MintERC20 mints `amount` tokens of the deployed MockERC20 to `to`. The
+// mock's mint is permissionless; the Deployer account is used as msg.sender
+// for consistency with other admin-style helpers.
+func (s *SimTestHelper) MintERC20(to ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
+	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before MintERC20")
+	tx, err := bind.Transact(
+		s.mockERC20Instance,
+		s.Deployer,
+		s.mockERC20Contract.PackMint(to, amount),
+	)
+	require.NoError(s.t, err, "failed to mint ERC-20")
+	return tx
+}
+
+// ApproveERC20 calls MockERC20.approve(spender, amount) from `owner`. The
+// ProcessorEndpoint contract uses the resulting allowance to pull tokens via
+// transferFrom when the user later calls submitRequest with an ERC-20
+// assetAmount (option A of the Phase 5 flow: pre-approve, then deposit).
+func (s *SimTestHelper) ApproveERC20(owner *bind.TransactOpts, spender ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
+	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before ApproveERC20")
+	tx, err := bind.Transact(
+		s.mockERC20Instance,
+		owner,
+		s.mockERC20Contract.PackApprove(spender, amount),
+	)
+	require.NoError(s.t, err, "failed to approve ERC-20")
+	return tx
+}
+
+// BalanceOfERC20 reads the caller-visible balance for `account` on the deployed
+// MockERC20. Useful for end-to-end assertions (e.g. confirming that a
+// ClaimPendingPayments moved tokens back to the user).
+func (s *SimTestHelper) BalanceOfERC20(account ethCommon.Address) *big.Int {
+	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before BalanceOfERC20")
+	bal, err := bind.Call(
+		s.mockERC20Instance,
+		&bind.CallOpts{Pending: false},
+		s.mockERC20Contract.PackBalanceOf(account),
+		s.mockERC20Contract.UnpackBalanceOf,
+	)
+	require.NoError(s.t, err, "failed to read ERC-20 balance")
+	return bal
+}
+
+// --- ProcessorEndpoint ERC-20-adjacent helpers ---
+
+// AddAllowedToken allowlists `tokenAddress` for ERC-20 deposits on the
+// ProcessorEndpoint. Must be called before any submitRequest that targets the
+// token, or the contract reverts with TokenNotAllowed. Uses the Deployer
+// account (holder of the ADMIN role from the constructor).
+func (s *SimTestHelper) AddAllowedToken(tokenAddress ethCommon.Address) *ethTypes.Transaction {
+	tx, err := bind.Transact(
+		s.processEndpointInstance,
+		s.Deployer,
+		s.processEndpointContract.PackAddAllowedToken(tokenAddress),
+	)
+	require.NoError(s.t, err, "failed to add allowed token")
+	return tx
+}
+
+// GetPendingClaims reads pendingClaims[tokenAddress][payee] on the
+// ProcessorEndpoint. Accumulates token refunds on state-update failures and
+// withdrawal outputs; cleared to zero by Claim.
+func (s *SimTestHelper) GetPendingClaims(tokenAddress, payee ethCommon.Address) *big.Int {
+	amount, err := bind.Call(
+		s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackPendingClaims(tokenAddress, payee),
+		s.processEndpointContract.UnpackPendingClaims,
+	)
+	require.NoError(s.t, err, "failed to read pendingClaims")
+	return amount
+}
+
+// Claim pulls any pending amount of `tokenAddress` for `payee` out of the
+// ProcessorEndpoint and into the payee's balance. Payable by any caller; the
+// Deployer account is used here so tests don't need to thread TransactOpts
+// through for every test-side claim. For user-initiated claims, the wallet
+// driver calls BlockChainClient.Claim from the user's own account.
+func (s *SimTestHelper) Claim(tokenAddress, payee ethCommon.Address) *ethTypes.Transaction {
+	tx, err := bind.Transact(
+		s.processEndpointInstance,
+		s.Deployer,
+		s.processEndpointContract.PackClaim(tokenAddress, payee),
+	)
+	require.NoError(s.t, err, "failed to claim pending payments")
+	return tx
 }
