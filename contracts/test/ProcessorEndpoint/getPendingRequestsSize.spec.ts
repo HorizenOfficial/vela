@@ -1,14 +1,17 @@
 import { expect } from 'chai';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     processorEndpoint = await fixture.deployProcessorEndpoint();
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   describe('getPendingRequestsSize', function () {
@@ -22,10 +25,9 @@ describe('ProcessorEndpoint Test', function () {
     describe('happy paths', function () {
       it('returns tail - head when queue has pending requests', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const payload = '0x01';
-        const depositAmount = 0n;
+        const assetAmount = 0n;
         const maxFeeValue = minFeePerRequest;
 
         await processorEndpoint.submitRequest(
@@ -33,9 +35,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
 
         let size = await processorEndpoint.getPendingRequestsSize();
@@ -46,9 +49,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x02',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
 
         size = await processorEndpoint.getPendingRequestsSize();

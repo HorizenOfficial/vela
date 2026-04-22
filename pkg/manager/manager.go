@@ -18,15 +18,9 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/HorizenOfficial/vela/pkg/storage"
 	storageErrors "github.com/HorizenOfficial/vela/pkg/storage/errors"
+	"github.com/HorizenOfficial/vela/pkg/version"
 )
 
-// Version is the current version of the manager
-const Version = "0.1.0"
-
-// As of now we support only one app having this ID
-var (
-	admittedAppID = common.NewApplicationId(1)
-)
 
 type ExecutorHandShake struct {
 	isComplete chan struct{}
@@ -63,7 +57,7 @@ func NewSecureProcessorManager(config *Config, blockchainClient blockchain.Clien
 		executorHandShake: &ExecutorHandShake{
 			isComplete: make(chan struct{}),
 		},
-		log:          log,
+		log:           log,
 		fatalErrChan: make(chan error, 1), // buffered to avoid blocking
 	}
 	// Set up the executor client
@@ -132,10 +126,27 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 		return fmt.Errorf("manager is already running")
 	}
 
+	m.log.Info("Manager: startup sequence begin")
+
+	// Start the admin command server early so operators can connect even while
+	// the executor handshake or blockchain connection is still in progress.
+	if m.adminServer != nil {
+		adminParams := m.config.AdminChannelParams.(common.TcpChannelConnectionParams)
+		m.log.Info("Manager: starting admin command server on %s", adminParams.Url())
+		if err := m.adminServer.Start(ctx, "Manager"); err != nil {
+			m.log.Warn("Manager: failed to start admin server: %v", err)
+			// Don't fail startup if admin server fails - it's not critical
+		} else {
+			m.log.Info("Manager: admin command server started")
+		}
+	}
+
 	// Connect to the executor
+	m.log.Info("Manager: connecting to executor...")
 	if err := m.executorClient.Connect(ctx, "Manager"); err != nil {
 		return fmt.Errorf("failed to connect to executor: %w", err)
 	}
+	m.log.Info("Manager: connected to executor")
 
 	// The handshake ensures the executor has a valid keyset before the manager starts
 	// processing any requests from the blockchain, which rely on this keyset for cryptographic operations.
@@ -150,26 +161,20 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 		return fmt.Errorf("Manager: executor handshake failed: %w", err)
 	}
 
-	// Connect to the blockchain
+	// Attempt initial blockchain connection. If it fails, the manager still
+	// starts — the polling loop will retry on every tick until connected.
+	m.log.Info("Manager: connecting to blockchain node at %s...", m.config.RpcURL)
 	if err := m.blockchainClient.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to blockchain node: %w", err)
+		m.log.Warn("Manager: initial blockchain connect failed (will retry during polling): %v", err)
+	} else {
+		m.log.Info("Manager: connected to blockchain node")
 	}
 
 	// Start the blockchain polling loop in a goroutine
 	m.wg.Add(1)
 	go m.pollBlockchain(ctx)
 
-	// Start the admin command server if configured
-	if m.adminServer != nil {
-		adminParams := m.config.AdminChannelParams.(common.TcpChannelConnectionParams)
-		m.log.Info("Manager: Starting admin command server on %s", adminParams.Url())
-		if err := m.adminServer.Start(ctx, "Manager"); err != nil {
-			m.log.Warn("Manager: Failed to start admin server: %v", err)
-			// Don't fail startup if admin server fails - it's not critical
-		}
-	}
-
-	m.log.Info("Manager: starting - Ethereum address: " + m.config.PrivateKey.PublicKey().Address())
+	m.log.Info("Manager: startup sequence complete - Ethereum address: %s", m.config.PrivateKey.PublicKey().Address())
 
 	m.isRunning = true
 	return nil
@@ -269,24 +274,189 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 	return nil
 }
 
-// ExecuteCommand implements admin.AdminCmdHandler interface.
+// forwardToExecutor sends an admin command to the executor via the existing
+// communication channel (ForwardAdminCommand) and returns the response data.
+func (m *SecureProcessorManager) forwardToExecutor(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	return m.executorClient.ForwardAdminCommand(ctx, cmdType, data)
+}
+
+// forwardSetLogLevel forwards a SetLogLevel command to the executor only.
+func (m *SecureProcessorManager) forwardSetLogLevel(ctx context.Context, level string) (*admin.SetLogLevelResponse, error) {
+	fwdData, err := json.Marshal(admin.SetLogLevelRequest{Level: level})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build executor request: %v", err)
+	}
+	execData, execErr := m.forwardToExecutor(ctx, admin.AdminCmdSetLogLevel, fwdData)
+	if execErr != nil {
+		return nil, execErr
+	}
+	var execResp admin.SetLogLevelResponse
+	if unmarshalErr := json.Unmarshal(execData, &execResp); unmarshalErr != nil {
+		return nil, fmt.Errorf("failed to parse executor response: %v", unmarshalErr)
+	}
+	return &execResp, nil
+}
+
+// forwardGetLogLevel forwards a GetLogLevel command to the executor only.
+func (m *SecureProcessorManager) forwardGetLogLevel(ctx context.Context) (string, error) {
+	execData, execErr := m.forwardToExecutor(ctx, admin.AdminCmdGetLogLevel, nil)
+	if execErr != nil {
+		return "", execErr
+	}
+	var execLevel string
+	if err := json.Unmarshal(execData, &execLevel); err != nil {
+		return "", fmt.Errorf("failed to parse executor log level: %v", err)
+	}
+	return execLevel, nil
+}
+
+// forwardGetVersion forwards a GetVersion command to the executor only.
+func (m *SecureProcessorManager) forwardGetVersion(ctx context.Context) (string, error) {
+	execData, err := m.forwardToExecutor(ctx, admin.AdminCmdGetVersion, nil)
+	if err != nil {
+		return "", err
+	}
+	var v string
+	if err := json.Unmarshal(execData, &v); err != nil {
+		return "", fmt.Errorf("failed to parse executor version: %v", err)
+	}
+	return v, nil
+}
+
+// ExecuteCommand processes an admin command and returns the result.
+// Supported commands: KeyAttestation, GetVersion, SetLogLevel, GetLogLevel.
+// KeyAttestation is always forwarded to the Executor.
+// For GetVersion/SetLogLevel/GetLogLevel, msg.Target controls routing:
+//   - "manager": applied locally only
+//   - "executor": forwarded to Executor only
+//   - "all" or "": applied locally AND forwarded to Executor (aggregated response)
 func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.AdminMessage) (interface{}, error) {
+	// Validate and default the target once, before dispatching.
+	if err := admin.ValidateTarget(msg.Target); err != nil {
+		return nil, err
+	}
+	target := msg.Target
+	if target == "" {
+		m.log.Warn("Manager: %s received without target, defaulting to 'all' (applies to both manager and executor)", msg.Type)
+		target = admin.TargetAll
+	}
+
 	switch msg.Type {
 	case admin.KeyAttestationRequestMessage:
-		m.log.Info("Manager: KeyAttestation command received, forwarding to executor")
-		return m.executorClient.SendKeyAttestationRequest(ctx)
-	case admin.GetVersionRequestMessage:
-		return m.GetVersion(ctx)
-	case admin.SetLogLevelRequestMessage:
-		var req struct {
-			Level string `json:"level"`
+		if target != admin.TargetExecutor && target != admin.TargetAll {
+			return nil, fmt.Errorf("key_attestation is only supported on the executor; valid targets: '%s', '%s'", admin.TargetExecutor, admin.TargetAll)
 		}
+		m.log.Info("Manager: KeyAttestation command received, forwarding to executor")
+		respData, err := m.forwardToExecutor(ctx, admin.AdminCmdKeyAttestation, msg.Data)
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(respData), nil
+
+	case admin.GetVersionRequestMessage:
+		if target == admin.TargetExecutor {
+			return m.forwardGetVersion(ctx)
+		}
+		if target == admin.TargetAll {
+			resp := admin.AggregatedGetVersionResponse{}
+			mgrVersion, mgrErr := m.GetVersion(ctx)
+			if mgrErr != nil {
+				resp.ManagerError = mgrErr.Error()
+			} else {
+				resp.Manager = mgrVersion
+			}
+			execVersion, execErr := m.forwardGetVersion(ctx)
+			if execErr != nil {
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = execVersion
+			}
+			return resp, nil
+		}
+		return m.GetVersion(ctx)
+
+	case admin.SetLogLevelRequestMessage:
+		if msg.Data == nil || string(msg.Data) == "null" {
+			return nil, fmt.Errorf("missing request data for set_log_level")
+		}
+		var req admin.SetLogLevelRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, fmt.Errorf("invalid request data: %w", err)
 		}
-		return m.SetLogLevel(ctx, req.Level)
+
+		if target == admin.TargetExecutor {
+			return m.forwardSetLogLevel(ctx, req.Level)
+		}
+
+		if target == admin.TargetAll {
+			resp := admin.AggregatedSetLogLevelResponse{}
+			mgrResult, mgrErr := m.SetLogLevel(ctx, req.Level)
+			if mgrErr != nil {
+				resp.ManagerError = mgrErr.Error()
+			} else {
+				resp.Manager = mgrResult.Level
+			}
+
+			execResp, execErr := m.forwardSetLogLevel(ctx, req.Level)
+			if execErr != nil {
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = execResp.Level
+			}
+
+			return resp, nil
+		}
+
+		result, err := m.SetLogLevel(ctx, req.Level)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+
 	case admin.GetLogLevelRequestMessage:
+		if target == admin.TargetExecutor {
+			execLevel, err := m.forwardGetLogLevel(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return execLevel, nil
+		}
+
+		if target == admin.TargetAll {
+			resp := admin.AggregatedGetLogLevelResponse{}
+			mgrLevel, mgrErr := m.GetLogLevel(ctx)
+			if mgrErr != nil {
+				resp.ManagerError = mgrErr.Error()
+			} else {
+				resp.Manager = mgrLevel
+			}
+
+			execLevel, execErr := m.forwardGetLogLevel(ctx)
+			if execErr != nil {
+				resp.ExecutorError = execErr.Error()
+			} else {
+				resp.Executor = execLevel
+			}
+
+			return resp, nil
+		}
+
 		return m.GetLogLevel(ctx)
+
+	case admin.SetWasmCacheSizeRequestMessage, admin.GetWasmCacheSizeRequestMessage:
+		if target != admin.TargetExecutor && target != admin.TargetAll {
+			return nil, fmt.Errorf("%s is only supported on the executor; valid targets: '%s', '%s'", msg.Type, admin.TargetExecutor, admin.TargetAll)
+		}
+		cmdType := admin.AdminCmdSetWasmCacheSize
+		if msg.Type == admin.GetWasmCacheSizeRequestMessage {
+			cmdType = admin.AdminCmdGetWasmCacheSize
+		}
+		respData, err := m.forwardToExecutor(ctx, cmdType, msg.Data)
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(respData), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported command type: %v", msg.Type)
 	}
@@ -294,29 +464,18 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 
 // GetVersion returns the current version of the manager.
 func (m *SecureProcessorManager) GetVersion(ctx context.Context) (string, error) {
-	m.log.Info("Manager: GetVersion command received")
-	return Version, nil
+	m.log.Info("Manager: GetVersion command received, returning version %s", version.Version)
+	return version.Version, nil
 }
 
 // SetLogLevel changes the manager's log level at runtime.
-func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (interface{}, error) {
-	m.log.Info("Manager: SetLogLevel command received, level=%s", level)
-	if level == "" {
-		return nil, fmt.Errorf("invalid log level: level must not be empty")
-	}
-	if err := m.log.SetLevel(level); err != nil {
-		return nil, fmt.Errorf("invalid log level '%s': %v", level, err)
-	}
-	return struct {
-		Success bool   `json:"success"`
-		Level   string `json:"level"`
-	}{Success: true, Level: level}, nil
+func (m *SecureProcessorManager) SetLogLevel(ctx context.Context, level string) (admin.SetLogLevelResponse, error) {
+	return admin.HandleSetLogLevel(m.log, "Manager", level)
 }
 
 // GetLogLevel returns the current log level of the manager.
 func (m *SecureProcessorManager) GetLogLevel(ctx context.Context) (string, error) {
-	m.log.Info("Manager: GetLogLevel command received")
-	return m.log.GetLevel(), nil
+	return admin.HandleGetLogLevel(m.log, "Manager")
 }
 
 // pollBlockchain polls the blockchain for new requests
@@ -349,8 +508,20 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 
 // processRequestFromChain retrieves the next pending request from the blockchain and processes it
 func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	// Attempt blockchain (re)connect before acquiring the manager lock.
+	// Connect has its own internal mutex and may block for up to the
+	// configured connect timeout; holding m.mu.RLock during that period
+	// would delay Stop().
+	if !m.blockchainClient.IsConnected() {
+		if err := m.blockchainClient.Connect(ctx); err != nil {
+			m.log.Warn("Manager: blockchain not connected, retrying next poll: %v", err)
+			return nil
+		}
+		m.log.Info("Manager: connected to blockchain node at %s", m.config.RpcURL)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if !m.isRunning {
 		m.log.Warn("Manager is not started yet, skipping")
@@ -364,20 +535,26 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		return nil
 	}
 
-	localStateRoot, err := m.dataLayer.LastVersionID()
+	if request == nil { // No request in queue, nothing to process
+		return nil
+	}
+
+	appID := request.ApplicationID
+
+	localStateRoot, err := m.dataLayer.LastVersionID(appID)
 	if err != nil {
 		if dbErr, ok := err.(*storageErrors.Error); ok && dbErr.Code == storageErrors.NoVersionInDb {
 			localStateRoot = make([]byte, 32) // Initialize to zero state root if no version exists
 		} else {
-			m.log.Error("Manager: Failed to get local state root: %v", err)
+			m.log.Error("Manager: Failed to get local state root for app %d: %v", appID, err)
 			return nil
 		}
 	}
 
 	if !bytes.Equal(localStateRoot, stateRoot[:]) {
-		m.log.Warn("Manager: State root mismatch, expected %x, got %x. Checking if it is a REORG.", localStateRoot, stateRoot)
+		m.log.Warn("Manager: State root mismatch for app %d, expected %x, got %x. Checking if it is a REORG.", appID, localStateRoot, stateRoot)
 
-		isReorg, err := m.checkIfReorg(stateRoot)
+		isReorg, err := m.checkIfReorg(appID, stateRoot)
 		if err != nil {
 			m.log.Error("Manager: Failed to check for reorg: %v", err)
 			return nil
@@ -385,22 +562,22 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 		if isReorg {
 			if m.endReorgTime.IsZero() {
-				m.log.Info("Manager: Starting REORG timeout %d", m.config.ReorgTimeout)
+				m.log.Info("Manager: Starting REORG timeout %d for app %d", m.config.ReorgTimeout, appID)
 				m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
 				return nil
 			}
 			if time.Now().Before(m.endReorgTime) {
-				m.log.Info("Manager: REORG timeout not expired yet. Keep waiting...")
+				m.log.Info("Manager: REORG timeout not expired yet for app %d. Keep waiting...", appID)
 				return nil
 			}
-			m.log.Info("Manager: REORG not solved within timeout => Rollback the DB")
-			if err := m.dataLayer.Rollback(stateRoot[:]); err != nil {
+			m.log.Info("Manager: REORG not solved within timeout for app %d => Rollback the DB", appID)
+			if err := m.dataLayer.Rollback(appID, stateRoot[:]); err != nil {
 				m.log.Error("Manager: Error while rolling back the DB: %v", err)
 				return fmt.Errorf("fatal: rollback failed: %w", err)
 			}
 
 		} else {
-			m.log.Error("Manager: unrecoverable disalignment between DB and chain, no matching state root found in db")
+			m.log.Error("Manager: unrecoverable disalignment between DB and chain for app %d, no matching state root found in db", appID)
 			emptyStateRoot := [32]byte{}
 			if bytes.Equal(localStateRoot, emptyStateRoot[:]) {
 				m.log.Error("Manager: the DB is empty but the chain state root is non-zero, check if the database file is correct and restart the manager")
@@ -411,12 +588,8 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 	}
 
 	if !m.endReorgTime.IsZero() {
-		m.log.Info("Manager: State roots match, REORG resolved")
+		m.log.Info("Manager: State roots match for app %d, REORG resolved", appID)
 		m.endReorgTime = time.Time{}
-	}
-
-	if request == nil { //No request in queue, nothing to process
-		return nil
 	}
 
 	m.log.Info("Manager: processing request %s", request.RequestID)
@@ -430,14 +603,14 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 
 }
 
-func (m *SecureProcessorManager) checkIfReorg(stateRoot [32]byte) (bool, error) {
+func (m *SecureProcessorManager) checkIfReorg(appID common.ApplicationIdType, stateRoot [32]byte) (bool, error) {
 	if stateRoot == [32]byte{} {
-		m.log.Info("Manager: State root is zero, REORG")
+		m.log.Info("Manager: State root is zero for app %d, REORG", appID)
 		// Don't look for older db versions, just mark as reorged and wait for next poll
 		return true, nil
 	}
 
-	oldVersions, err := m.dataLayer.ListVersions()
+	oldVersions, err := m.dataLayer.ListVersions(appID)
 	if err != nil {
 		m.log.Error("Manager: Failed to get db old versions: %v", err)
 		return false, err
@@ -474,18 +647,18 @@ func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updateP
 		m.log.Error("Failed to submit state update for error: %v", err)
 		if updatePayload.ErrorCode == 0 {
 			m.log.Info("Rollback the application state to previous version")
-			if err := m.dataLayer.Rollback(updatePayload.PrevStateRoot[:]); err != nil {
+			if rollbackErr := m.dataLayer.Rollback(updatePayload.ApplicationID, updatePayload.PrevStateRoot[:]); rollbackErr != nil {
 				// If this happens, the local db and the chain are out of sync and cannot be recovered automatically.
 				// Log and return err to let REORG detection handle it on the next poll.
-				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", err)
-				return err
+				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", rollbackErr)
+				return rollbackErr
 			}
 
 			if _, ok := err.(blockchain.ReorgError); ok {
 				m.log.Warn("REORG, wait for next poll")
 				return nil
 			}
-		} 
+		}
 		return err
 	}
 
@@ -501,9 +674,9 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		return errors.New("manager is not running")
 	}
 
-	// check if app was already deployed
-	// Manager retrieves the state of admittedAppID instead of req.ApplicationID because in case of a wrong applicatioID the executor needs the real stateRoot for submitting the error on chain
-	state, err := m.dataLayer.GetApplicationState(ctx, admittedAppID)
+	// Check if app was already deployed. With per-app state roots, the executor handles
+	// appState == nil gracefully (uses emptyStateRoot for signed error payloads).
+	state, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
 		if !storageErrors.IsNotFound(err) {
 			m.log.Warn("Manager: Got error while getting application state: %v", err)
@@ -511,22 +684,29 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		}
 	}
 
-	//if the payload is empty, try to retrieve the wasm locally. In case of error, try again hoping someone fixes the problem
-	if len(req.Payload) == 0 {
-		m.log.Info("Empty payload received - trying to retrieve wasm locally")
-		wasmFilePath := filepath.Join(m.config.InputWasmPath, req.ApplicationID.String()+".wasm")
-		if !common.FileExists(wasmFilePath) {
-			return fmt.Errorf("failed to deploy application - wasm %v not found in both payload or local path", wasmFilePath)
+	wasmModule, resolveErr := m.resolveDeployWASM(ctx, req)
+	if resolveErr != nil {
+		if dErr, ok := resolveErr.(*deployResolutionError); ok {
+			m.log.Warn(
+				"Manager: continuing deploy with unresolved artifact requestId=%s applicationId=%d kind=%s err=%v",
+				req.RequestID,
+				req.ApplicationID,
+				dErr.kind,
+				resolveErr,
+			)
+		} else {
+			m.log.Warn(
+				"Manager: continuing deploy with unresolved artifact requestId=%s applicationId=%d err=%v",
+				req.RequestID,
+				req.ApplicationID,
+				resolveErr,
+			)
 		}
-		wasmBytesFromFile, err := os.ReadFile(wasmFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to deploy application - Error reading wasm file: %w", err)
-		}
-		req.Payload = wasmBytesFromFile
+		wasmModule = nil
 	}
 
 	// Deploy the application
-	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req, state)
+	updatePayload, appState, err := m.executorClient.SendDeployApp(ctx, req, state, wasmModule)
 	if err != nil {
 		return err
 	}
@@ -539,13 +719,7 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	}
 
 	// Store the application state and WASM bytecode
-	versionID := appState.StateRoot[:]
-	err = m.dataLayer.Store(
-		ctx,
-		versionID[:],
-		[]*common.ApplicationState{appState},
-		[]*common.WASMData{{ApplicationID: appState.ApplicationID, Bytecode: req.Payload}},
-	)
+	err = m.initAppStorage(ctx, appState, wasmModule)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
 		return err
@@ -612,21 +786,32 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 	}
 
 	// Store the updated application state
-	versionID := updatedState.StateRoot[:]
-	m.log.Info("VersionID %x", versionID[:])
-
-	err = m.dataLayer.Store(
-		ctx,
-		versionID[:],
-		[]*common.ApplicationState{updatedState},
-		nil,
-	)
+	err = m.storeStateToStorage(ctx, updatedState)
 	if err != nil {
 		m.log.Error("failed to submit state update: %v", err)
 		return err
 	}
 
 	return m.submitStateOnChain(ctx, updatePayload)
+}
+
+// initAppStorage stores the application state and WASM bytecode for a newly deployed application.
+func (m *SecureProcessorManager) initAppStorage(ctx context.Context, state *common.ApplicationState, wasmModule []byte) error {
+	versionID := state.StateRoot[:]
+	m.log.Info("Storing app state and WASM, versionID %x", versionID)
+	return m.dataLayer.StoreWithWasm(
+		ctx,
+		versionID,
+		state,
+		&common.WASMData{ApplicationID: state.ApplicationID, Bytecode: wasmModule},
+	)
+}
+
+// storeStateToStorage stores the updated application state after processing a request.
+func (m *SecureProcessorManager) storeStateToStorage(ctx context.Context, state *common.ApplicationState) error {
+	versionID := state.StateRoot[:]
+	m.log.Info("Storing app state, versionID %x", versionID)
+	return m.dataLayer.Store(ctx, versionID, state)
 }
 
 // saveDeanonymizationReport saves a deanonymization report to the filesystem

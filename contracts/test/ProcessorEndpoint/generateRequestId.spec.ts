@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -16,7 +17,8 @@ describe('ProcessorEndpoint Test', function () {
         const applicationId = 1;
         const requestType = 1;
         const payload = '0x1234';
-        const depositAmount = 10n;
+        const tokenAddress = ETH_TOKEN;
+        const assetAmount = 10n;
         const idx = 0;
 
         const baseId = await processorEndpoint.generateRequestId(
@@ -24,7 +26,8 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          tokenAddress,
+          assetAmount,
           idx
         );
 
@@ -33,7 +36,8 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          tokenAddress,
+          assetAmount,
           idx
         );
         const diffApplicationId = await processorEndpoint.generateRequestId(
@@ -41,7 +45,8 @@ describe('ProcessorEndpoint Test', function () {
           applicationId + 1,
           requestType,
           payload,
-          depositAmount,
+          tokenAddress,
+          assetAmount,
           idx
         );
         const diffRequestType = await processorEndpoint.generateRequestId(
@@ -49,7 +54,8 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType + 1,
           payload,
-          depositAmount,
+          tokenAddress,
+          assetAmount,
           idx
         );
         const diffPayload = await processorEndpoint.generateRequestId(
@@ -57,15 +63,26 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x1235',
-          depositAmount,
+          tokenAddress,
+          assetAmount,
           idx
         );
-        const diffDeposit = await processorEndpoint.generateRequestId(
+        const diffToken = await processorEndpoint.generateRequestId(
           sender,
           applicationId,
           requestType,
           payload,
-          depositAmount + 1n,
+          '0x0000000000000000000000000000000000000001',
+          assetAmount,
+          idx
+        );
+        const diffAsset = await processorEndpoint.generateRequestId(
+          sender,
+          applicationId,
+          requestType,
+          payload,
+          tokenAddress,
+          assetAmount + 1n,
           idx
         );
         const diffIdx = await processorEndpoint.generateRequestId(
@@ -73,7 +90,8 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          tokenAddress,
+          assetAmount,
           idx + 1
         );
 
@@ -81,7 +99,8 @@ describe('ProcessorEndpoint Test', function () {
         expect(diffApplicationId).to.not.equal(baseId);
         expect(diffRequestType).to.not.equal(baseId);
         expect(diffPayload).to.not.equal(baseId);
-        expect(diffDeposit).to.not.equal(baseId);
+        expect(diffToken).to.not.equal(baseId);
+        expect(diffAsset).to.not.equal(baseId);
         expect(diffIdx).to.not.equal(baseId);
       });
     });
@@ -92,7 +111,8 @@ describe('ProcessorEndpoint Test', function () {
         const applicationId = 1;
         const requestType = 1;
         const payload = '0xabcd';
-        const depositAmount = 42n;
+        const tokenAddress = ETH_TOKEN;
+        const assetAmount = 42n;
         const idx = 7;
 
         const id1 = await processorEndpoint.generateRequestId(
@@ -100,7 +120,8 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          tokenAddress,
+          assetAmount,
           idx
         );
         const id2 = await processorEndpoint.generateRequestId(
@@ -108,7 +129,8 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          tokenAddress,
+          assetAmount,
           idx
         );
 

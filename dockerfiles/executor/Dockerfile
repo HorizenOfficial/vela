@@ -17,7 +17,15 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux go build -o /executor ./cmd/executor
+# GIT_VERSION is auto-detected from .git/ when not provided via --build-arg.
+# Do not exclude .git/ in .dockerignore, or version falls back to "dev".
+ARG GIT_VERSION=
+RUN if [ -z "$GIT_VERSION" ]; then \
+      GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
+    fi && \
+    CGO_ENABLED=1 GOOS=linux go build \
+      -ldflags "-X github.com/HorizenOfficial/vela/pkg/version.Version=${GIT_VERSION}" \
+      -o /executor ./cmd/executor
 
 # --- Runtime Stage ---
 FROM amazonlinux:2

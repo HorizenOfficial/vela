@@ -14,3 +14,4 @@ contract_abis/
 /contracts/node_modules/
 /contracts/typechain/
 bin/
+.claude/settings.json

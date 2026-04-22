@@ -46,8 +46,16 @@ RUN go mod download
 # Copy the rest of the source code
 COPY . .
 
-# Build the manager binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /manager ./cmd/manager
+# Build the manager binary.
+# GIT_VERSION is auto-detected from .git/ when not provided via --build-arg.
+# Do not exclude .git/ in .dockerignore, or version falls back to "dev".
+ARG GIT_VERSION=
+RUN if [ -z "$GIT_VERSION" ]; then \
+      GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
+    fi && \
+    CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags "-X github.com/HorizenOfficial/vela/pkg/version.Version=${GIT_VERSION}" \
+      -o /manager ./cmd/manager
 
 # --- Runtime Stage ---
 FROM alpine:latest
@@ -57,10 +65,8 @@ RUN apk add --no-cache su-exec
 
 #default location for data folder (can be overridden by docker compose or docker run)
 ENV MANAGER_DATA_FOLDER="/data"
-#default location for reports folder (can be overridden by docker compose or docker run)
-ENV MANAGER_REPORTS_FOLDER="/reports"
-#default location for input wasms folder (can be overridden by docker compose or docker run)
-ENV MANAGER_INPUT_WASMS="/input_wasms"
+# default location for shared reports/artifacts data (entrypoint derives subfolders)
+ENV SHARED_DATA_FOLDER="/shared-data"
 #default location for logs folder (can be overridden by docker compose or docker run)
 ENV LOG_SERVER_FOLDER="/logs"
 
@@ -75,7 +81,7 @@ RUN chmod +x /entrypoint.sh
 COPY --from=builder /manager /manager
 
 VOLUME ${MANAGER_DATA_FOLDER}
-VOLUME ${MANAGER_REPORTS_FOLDER}
+VOLUME ${SHARED_DATA_FOLDER}
 VOLUME ${LOG_SERVER_FOLDER}
 
 # Set the entrypoint to our script.

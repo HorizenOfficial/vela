@@ -3,16 +3,19 @@ package communication
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	apperrors "github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/common/testutil"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,9 +29,8 @@ var (
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
 	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
-	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error)
-	KeyAttestationFunc func(ctx context.Context) ([]byte, error)
-	HelloFunc          func(ctx context.Context, message string) (string, error)
+	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	AdminCommandFunc   func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
@@ -56,9 +58,16 @@ func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *comm
 		nil
 }
 
-func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState) (*common.UpdatePayload, *common.ApplicationState, error) {
+func (m *MockRequestHandler) HandleAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+	if m.AdminCommandFunc != nil {
+		return m.AdminCommandFunc(ctx, cmdType, data)
+	}
+	return nil, fmt.Errorf("admin command not supported in mock")
+}
+
+func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	if m.DeployAppFunc != nil {
-		return m.DeployAppFunc(ctx, req, appState)
+		return m.DeployAppFunc(ctx, req, appState, wasmModule)
 	}
 	newStateRoot := sha256.Sum256([]byte("new-state-root"))
 	return &common.UpdatePayload{
@@ -76,13 +85,6 @@ func (m *MockRequestHandler) HandleDeployApp(ctx context.Context, req *common.Re
 			EncryptedState: []byte("test-encrypted-state"),
 		},
 		nil
-}
-
-func (m *MockRequestHandler) HandleKeyAttestationRequest(ctx context.Context) ([]byte, error) {
-	if m.KeyAttestationFunc != nil {
-		return m.KeyAttestationFunc(ctx)
-	}
-	return []byte("mock-attestation-document"), nil
 }
 
 // MockClientRequestHandler is a mock implementation for testing the new client
@@ -150,7 +152,8 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		DepositAmount:   common.NewBig(0),
+		TokenAddress:    ethCommon.Address{},
+		AssetAmount:     common.NewBig(0),
 		MaxFeeValue:     common.NewBig(100),
 	}
 	appState := &common.ApplicationState{
@@ -170,7 +173,8 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 	assert.Equal(t, []byte("test-event"), updatePayload.Events[0].EncryptedData)
 
 	// Test HandleDeployApp
-	updatedState, appState2, failure := client.SendDeployApp(ctx, req, nil)
+	deployWasm := []byte("deploy-wasm-module")
+	updatedState, appState2, failure := client.SendDeployApp(ctx, req, nil, deployWasm)
 	require.Nil(t, failure)
 	assert.Equal(t, req.ApplicationID, updatedState.ApplicationID)
 	assert.Equal(t, sha256.Sum256([]byte("new-state-root")), updatedState.NewStateRoot)
@@ -221,7 +225,8 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 			Sender:          senderAddress,
-			DepositAmount:   common.NewBig(0),
+			TokenAddress:    ethCommon.Address{},
+			AssetAmount:     common.NewBig(0),
 			MaxFeeValue:     common.NewBig(100),
 		}
 		appState := &common.ApplicationState{
@@ -273,11 +278,12 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 			Sender:          senderAddress,
-			DepositAmount:   common.NewBig(0),
+			TokenAddress:    ethCommon.Address{},
+			AssetAmount:     common.NewBig(0),
 			MaxFeeValue:     common.NewBig(100),
 		}
 
-		_, appState, failure := client.SendDeployApp(ctx, req, nil)
+		_, appState, failure := client.SendDeployApp(ctx, req, nil, []byte("deploy-wasm-module"))
 		require.Nil(t, failure)
 		assert.Equal(t, []byte("test-encrypted-state"), appState.EncryptedState)
 
@@ -333,7 +339,8 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		DepositAmount:   common.NewBig(0),
+		TokenAddress:    ethCommon.Address{},
+		AssetAmount:     common.NewBig(0),
 		MaxFeeValue:     common.NewBig(100),
 	}
 	appState := &common.ApplicationState{
@@ -351,12 +358,13 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 
 }
 
-func TestTCPClientServer_KeyAttestationRequest(t *testing.T) {
-	expectedAttestation := []byte("test-attestation-document-bytes")
+func TestTCPClientServer_AdminCommandRequest(t *testing.T) {
+	expectedResponse := json.RawMessage(`"test-attestation-document-bytes"`)
 
 	serverHandler := &MockRequestHandler{
-		KeyAttestationFunc: func(ctx context.Context) ([]byte, error) {
-			return expectedAttestation, nil
+		AdminCommandFunc: func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			assert.Equal(t, "key_attestation", cmdType)
+			return expectedResponse, nil
 		},
 	}
 
@@ -377,19 +385,19 @@ func TestTCPClientServer_KeyAttestationRequest(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Test success case
-	attestation, err := client.SendKeyAttestationRequest(ctx)
+	result, err := client.ForwardAdminCommand(ctx, "key_attestation", nil)
 	require.NoError(t, err)
-	assert.Equal(t, expectedAttestation, attestation)
+	assert.Equal(t, expectedResponse, result)
 
 	// Test error case
-	serverHandler.KeyAttestationFunc = func(ctx context.Context) ([]byte, error) {
+	serverHandler.AdminCommandFunc = func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
 		return nil, assert.AnError
 	}
 
-	attestation, err = client.SendKeyAttestationRequest(ctx)
+	result, err = client.ForwardAdminCommand(ctx, "key_attestation", nil)
 	require.Error(t, err)
-	assert.Nil(t, attestation)
-	assert.Contains(t, err.Error(), "key attestation failed")
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "COMMAND_ERROR")
 }
 
 func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
@@ -482,7 +490,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	}
 
 	// Create a server
-	factory := NewTCPConnectionFactory(":8089")
+	factory := NewTCPConnectionFactory(reserveTCPAddress(t))
 	server := NewServer(factory, commParams, testLogger)
 	server.SetRequestHandler(serverHandler)
 	err := server.Start(context.Background(), "Server")
@@ -509,7 +517,8 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		DepositAmount:   common.NewBig(0),
+		TokenAddress:    ethCommon.Address{},
+		AssetAmount:     common.NewBig(0),
 		MaxFeeValue:     common.NewBig(100),
 	}
 	appState := &common.ApplicationState{
@@ -528,4 +537,14 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 	require.NotNil(t, failure)
 	assert.Contains(t, failure.Error(), "failed to send process request")
 	assert.Greater(t, elapsed, 30*time.Second, "Should timeout at least after 30 seconds")
+}
+
+func reserveTCPAddress(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	return listener.Addr().String()
 }

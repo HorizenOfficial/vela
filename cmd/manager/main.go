@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"os"
 	"os/signal"
@@ -19,6 +20,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/manager"
 	"github.com/HorizenOfficial/vela/pkg/storage"
 	"github.com/HorizenOfficial/vela/pkg/storage/factory"
+	"github.com/HorizenOfficial/vela/pkg/version"
 )
 
 func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
@@ -54,6 +56,12 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 		config.RpcURL,
 		&config.PrivateKey)
 
+	if config.BlockchainConnectTimeout > 0 {
+		if err := bcClient.SetConnectTimeout(time.Duration(config.BlockchainConnectTimeout) * time.Second); err != nil {
+			return nil, fmt.Errorf("invalid blockchain connect timeout: %w", err)
+		}
+	}
+
 	return bcClient, nil
 }
 
@@ -67,6 +75,19 @@ func main() {
 	if err != nil {
 		logTmp.Fatal("Failed to load configuration: %v", err)
 	}
+
+	if err := config.Validate(); err != nil {
+		logTmp.Fatal("Invalid configuration: %v", err)
+	}
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Create context first so defer cancel() is registered before defer log.Close().
+	// Defers run LIFO, so log.Close() will drain the async buffer to the log server
+	// before cancel() shuts the log server down.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
@@ -86,14 +107,8 @@ func main() {
 		}
 	}()
 
+	log.Info("Manager version: %s", version.Version)
 	log.Warn("Initializing manager...")
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Create a context that is canceled on SIGINT or SIGTERM
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Start the log server if configured
 	err = logserver.StartLogServer(
@@ -103,8 +118,6 @@ func main() {
 			VSockAddr:       config.LogServerVSockAddress,
 			LogFilePath:     config.LogServerLogFile,
 			ConsoleEnabled:  config.LogServerConsole,
-			ConsoleLevel:    config.LogServerConsoleLevel,
-			FileLevel:       config.LogServerFileLevel,
 			RotationEnabled: config.LogServerRotationEnabled,
 			MaxSizeMB:       config.LogServerMaxSizeMB,
 			MaxBackups:      config.LogServerMaxBackups,

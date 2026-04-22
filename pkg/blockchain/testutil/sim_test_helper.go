@@ -225,7 +225,7 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	return helper
 }
 
-func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
+func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, tokenAddress ethCommon.Address, assetAmount *big.Int, maxFeeValue *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
 	if payload == nil {
 		payload = ethCommon.FromHex("0x00")
 	}
@@ -244,15 +244,30 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 		panic("Unsupported request type")
 	}
 
-	sender.Value = new(big.Int).Add(depositAmount, maxFeeValue)
-	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount, maxFeeValue))
+	sender.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, tokenAddress, assetAmount, maxFeeValue))
 	require.NoError(s.t, err, "failed to submit transaction")
 	sender.Value = big.NewInt(0)
 	return tx
 }
 
-func (s *SimTestHelper) SubmitRequest(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) *ethTypes.Transaction {
-	return s.SubmitRequestFromUser(applicationId, requestType, payload, depositAmount, maxFeeValue, s.Submitter)
+func (s *SimTestHelper) SubmitRequest(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, tokenAddress ethCommon.Address, assetAmount *big.Int, maxFeeValue *big.Int) *ethTypes.Transaction {
+	return s.SubmitRequestFromUser(applicationId, requestType, payload, tokenAddress, assetAmount, maxFeeValue, s.Submitter)
+}
+
+func (s *SimTestHelper) SubmitDeployRequestFromUser(payload []byte, maxFeeValue *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
+	if payload == nil {
+		payload = ethCommon.FromHex("0x00")
+	}
+	sender.Value = new(big.Int).Set(maxFeeValue)
+	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitDeployRequest(s.ProtocolVersion, payload))
+	require.NoError(s.t, err, "failed to submit deploy transaction")
+	sender.Value = big.NewInt(0)
+	return tx
+}
+
+func (s *SimTestHelper) SubmitDeployRequest(payload []byte, maxFeeValue *big.Int) *ethTypes.Transaction {
+	return s.SubmitDeployRequestFromUser(payload, maxFeeValue, s.Deployer)
 }
 
 func (s *SimTestHelper) MineBlock() ethCommon.Hash {
@@ -265,13 +280,22 @@ func (s *SimTestHelper) WaitMined(tx *ethTypes.Transaction) {
 	require.NoError(s.t, err, "error waiting for tx inclusion")
 }
 
-func (s *SimTestHelper) GetStateRoot() [32]byte {
+func (s *SimTestHelper) GetStateRoot(applicationId common.ApplicationIdType) [32]byte {
 	oldStateRoot, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
-		s.processEndpointContract.PackStateRoot(),
-		s.processEndpointContract.UnpackStateRoot)
+		s.processEndpointContract.PackApplicationStateRoots(uint64(applicationId)),
+		s.processEndpointContract.UnpackApplicationStateRoots)
 	require.NoError(s.t, err)
 	return oldStateRoot
+}
+
+func (s *SimTestHelper) GetAppCustody(applicationId common.ApplicationIdType, tokenAddress ethCommon.Address) *big.Int {
+	funds, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackAppCustody(uint64(applicationId), tokenAddress),
+		s.processEndpointContract.UnpackAppCustody)
+	require.NoError(s.t, err)
+	return funds
 }
 
 func (s *SimTestHelper) GetRequest(requestID common.RequestIdType) processorendpoint.RequestByIdOutput {

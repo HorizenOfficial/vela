@@ -1,15 +1,17 @@
 import { expect } from 'chai';
-import { deployProcessorEndpointFixture } from './fixture';
-import { BYTES32_ZERO } from '../util';
+import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
+import { ETH_TOKEN, BYTES32_ZERO } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     processorEndpoint = await fixture.deployProcessorEndpoint();
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   describe('getNextPendingRequest', function () {
@@ -25,10 +27,9 @@ describe('ProcessorEndpoint Test', function () {
     describe('happy paths', function () {
       it('returns current pending request, stateRoot, and success=true', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const payload = '0x01';
-        const depositAmount = 0n;
+        const assetAmount = 0n;
         const maxFeeValue = minFeePerRequest;
 
         const tx = await processorEndpoint.submitRequest(
@@ -36,22 +37,23 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         const receipt = await tx.wait();
         const requestId = receipt.logs[0].args.requestId;
 
         const [request, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
         expect(success).to.equal(true);
-        expect(stateRoot).to.equal(BYTES32_ZERO);
+        expect(stateRoot).to.equal(INITIAL_STATE_ROOT);
         expect(request.requestId).to.equal(requestId);
         expect(request.protocolVersion).to.equal(protocolVersion);
         expect(request.applicationId).to.equal(applicationId);
         expect(request.requestType).to.equal(requestType);
         expect(request.payload).to.equal(payload);
-        expect(request.depositAmount).to.equal(depositAmount);
+        expect(request.assetAmount).to.equal(assetAmount);
       });
     });
   });

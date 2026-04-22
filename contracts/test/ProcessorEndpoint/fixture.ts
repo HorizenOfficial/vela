@@ -1,5 +1,10 @@
+import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
-import { BYTES_ZERO } from '../util';
+import { BYTES_ZERO, BYTES32_ZERO } from '../util';
+import { ethSignStateUpdate } from '../../scripts/util';
+
+export const INITIAL_STATE_ROOT =
+  '0x0000000000000000000000000000000000000000000000000000000000000001';
 
 export async function deployProcessorEndpointFixture() {
   const signers = await ethers.getSigners();
@@ -34,6 +39,61 @@ export async function deployProcessorEndpointFixture() {
     );
   }
 
+  async function bootstrapApplication(processorEndpoint: any, teeSigner?: Signer) {
+    const deployTx = await processorEndpoint
+      .connect(signers[2])
+      .submitDeployRequest(0, '0x00', { value: minFeePerRequest });
+    const deployReceipt = await deployTx.wait();
+
+    const deployLog = deployReceipt.logs.find((log: any) => {
+      try {
+        return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
+      } catch {
+        return false;
+      }
+    });
+    const parsed = processorEndpoint.interface.parseLog(deployLog);
+    const applicationId: bigint = parsed.args.applicationId;
+    const requestId: string = parsed.args.requestId;
+
+    let signature = '0x';
+    if (teeSigner) {
+      signature = await ethSignStateUpdate(
+        teeSigner,
+        applicationId,
+        BYTES32_ZERO,
+        INITIAL_STATE_ROOT,
+        requestId,
+        [],
+        [],
+        [],
+        [],
+        [],
+        0,
+        minFeePerRequest
+      );
+    }
+
+    await processorEndpoint
+      .connect(signers[1])
+      .stateUpdate(
+        applicationId,
+        BYTES32_ZERO,
+        INITIAL_STATE_ROOT,
+        requestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [],
+        0,
+        minFeePerRequest,
+        0,
+        '',
+        signature
+      );
+
+    return { applicationId };
+  }
+
   return {
     signers,
     defaultAuthority,
@@ -44,5 +104,6 @@ export async function deployProcessorEndpointFixture() {
     admin,
     minFeePerRequest,
     deployProcessorEndpoint,
+    bootstrapApplication,
   };
 }

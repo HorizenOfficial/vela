@@ -21,17 +21,19 @@ func TestEncryptEventsCopiesSubType(t *testing.T) {
 		userAddr: privKey.PublicKey(),
 	}
 
+	subType := [32]byte{0xAA, 0xBB}
 	plain := []common.PlainEvent{{
 		UserID:       userAddr,
-		EventSubType: "test_subtype",
+		EventSubType: subType,
 		Data:         []byte("hello"),
 	}}
 
 	executor := &StatelessExecutor{log: testLogger}
-	encrypted, failure := executor.encryptEvents(context.Background(), plain, common.NewApplicationId(1), privKey, nil, keyStore)
+	encrypted, failure, err := executor.encryptEvents(context.Background(), plain, common.NewApplicationId(1), privKey, nil, keyStore, appdata.SeedStore{})
 	require.Nil(t, failure)
+	require.Nil(t, err)
 	require.Len(t, encrypted, 1)
-	require.Equal(t, "test_subtype", encrypted[0].EventSubType)
+	require.Equal(t, subType, encrypted[0].EventSubType)
 	require.Equal(t, userAddr, encrypted[0].UserID)
 	require.NotEmpty(t, encrypted[0].EncryptedData)
 }

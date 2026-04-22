@@ -12,6 +12,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/executor"
 	"github.com/HorizenOfficial/vela/pkg/executor/kms"
 	"github.com/HorizenOfficial/vela/pkg/logger"
+	"github.com/HorizenOfficial/vela/pkg/version"
 	"github.com/HorizenOfficial/vela/pkg/wasm"
 )
 
@@ -20,7 +21,6 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-
 	// Create the executor configuration
 	config, err := executor.LoadConfig()
 	if err != nil {
@@ -28,6 +28,18 @@ func main() {
 		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
 		log.Fatal("Failed to load configuration: %v", err)
 	}
+
+	// Validate configuration before creating any resources (logger, runtime, server).
+	if err := config.Validate(); err != nil {
+		log := logger.NewLogger(&logger.Config{Kind: "zerolog", ConsoleLevel: "info", Console: true})
+		log.Fatal("Invalid configuration: %v", err)
+	}
+
+	// Create context first so defer cancel() is registered before defer log.Close().
+	// Defers run LIFO, so log.Close() will drain the async buffer to the log server
+	// before cancel() shuts down context-dependent resources.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Create a logger from config
 	log := logger.NewLogger(&logger.Config{
@@ -47,12 +59,10 @@ func main() {
 		}
 	}()
 
-
 	// Create the WASM runtime
-	runtime := wasm.NewWasmtimeRuntime(log)
+	runtime := wasm.NewWasmtimeRuntime(log, config.MaxCachedModules)
 
 	// Create the appropriate server based on configuration
-
 	var server communication.ExecutorServer
 	switch config.ChannelType {
 	case "tcp":
@@ -75,11 +85,6 @@ func main() {
 	var enclaveHandle kms.EnclaveHandle
 
 	if config.KeySetRecoveryType == common.RecoveryTypeKMS {
-		// Validate KMS configuration
-		if err := config.ValidateKMSConfig(); err != nil {
-			log.Fatal("Invalid KMS configuration: %v", err)
-		}
-
 		log.Info("Initializing Type 1 (KMS) key recovery with Nitro Enclave attestation...")
 
 		// Initialize enclave handle first - this will fail if not running in a Nitro Enclave
@@ -114,12 +119,10 @@ func main() {
 		return
 	}
 
+	log.Info("Executor version: %s", version.Version)
+
 	// Start the executor
 	log.Info("Starting executor service...")
-	// Create a context that is canceled on SIGINT or SIGTERM
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	
 	if err := exec.Start(ctx); err != nil {
 		log.Error("Error starting executor: %v", err)
 		return

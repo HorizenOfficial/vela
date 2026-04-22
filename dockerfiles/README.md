@@ -54,13 +54,17 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
 - the manager database and chain data are persisted in docker volumes (`horizen-cce-manager-data` for the DB, `horizen-cce-chain-data` for chain data).<br>
   To start from scratch, delete the volumes.
 - deployed contract addresses are stored in the `horizen-cce-deploy-data` volume. The deployer checks this on startup and skips deployment if contracts are already present on the chain.
-- deanonymization reports are stored in `horizen-cce-manager-reports`; the authority service shares this reports volume so it can read the same outputs.
+- shared runtime files for manager and authorityservice are stored in `horizen-cce-shared-data`, with `reports/` for deanonymization outputs and `artifacts/` for uploaded deploy WASM blobs.
 - to connect to the chain from Metamask, use the following parameters:
    - rpc url: http://localhost:8545
    - chainid: 31337
 
 Authority service requires chain connectivity env vars (forwarded via docker-compose): `CHAIN_RPC_PROTOCOL`, `CHAIN_RPC_ADDRESS`, `CHAIN_RPC_PORT`, `CHAIN_PROCESSOR_ADDRESS`.
 Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUBGRAPH_URL` (and keep chain RPC settings for chain ID checks).
+For WASM deploy v1, ensure these are configured consistently in `.env`:
+- `DEPLOYER_ADMIN`: this address is bootstrapped on-chain as the initial allowed deployer for `DEPLOYAPP`.
+- `SHARED_DATA_FOLDER`: docker entrypoints derive `${SHARED_DATA_FOLDER}/reports` and `${SHARED_DATA_FOLDER}/artifacts` automatically for manager and authorityservice.
+- `DEPLOY_ARTIFACTS_MAX_SIZE_MB`: optional upload limit (`0` means unlimited).
 
 ## Restarting and volume management
 
@@ -70,27 +74,27 @@ Authority service now reads events from the subgraph: set `AUTHORITY_SERVICE_SUB
 - **Contracts modified**: rebuild the deployer image, delete both volumes, and restart.
 
 ## Where to go next
-The system is up and running, but you need to deploy an app inside it.
+The system is up and running, and you can deploy an app on-chain via the descriptor flow. Each deploy derives its own `applicationId` from the on-chain `requestId`, so there is no need to rename the WASM file or reserve a fixed id.
 
-Currently only  a single-app manual deployment is supported:
-- the app wasm *must* be named *1.wasm* and put manually into the wasms/ folder before launching the deploy app command
-- launch a deploy app command with app id = 1 to initialize it
+Practical how-to for the `vela-nova` test app (Private transfer):
+- go to https://github.com/HorizenOfficial/vela-nova/releases/tag/v0.1.0
+- download `payment_app.wasm`
+- use the nova-linux wallet executable to submit the deploy and interact with the app:
 
-Practical how-to for the vela-nova test app (Private transfer):
-- go to https://github.com/HorizenOfficial/vela-nova/releases/tag/v0.0.25
-- use payment_app.wasm (remember to rename to 1.wasm)
-- use the nova-linux wallet executable to launch the deploy command and interact with the app.
-
-    Use wallet.conf.template as wallet config file, with the following properties set to connect to this dev environment:
-    
     ```
-    rpcUrl=http://localhost:8545
-    ProcessorAddress=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
-    TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
-    AuthorityServiceURL=http://localhost:8081
-    SubgraphURL=http://localhost:8000/subgraphs/name/hcce
+    novaw deployapp --wasm /absolute/path/to/payment_app.wasm --max-value-fee "100 wei"
     ```
 
+The wallet uploads the WASM to the authority service (`POST /deploy/upload`) and submits the on-chain deploy request; the Manager picks it up, forwards the artifact to the Executor, and the TEE verifies the WASM fingerprint against the on-chain descriptor before loading the module.
 
+If you submit deploys from a different wallet, grant it first the `DEPLOYAPP` role with the ProcessorEndpoint management script (`contracts/scripts/management/addAllowedDeployer.ts`) using the admin account.
 
+Use `wallet.conf.template` as wallet config file, with the following properties set to connect to this dev environment:
 
+```
+rpcUrl=http://localhost:8545
+ProcessorAddress=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+AuthorityServiceURL=http://localhost:8081
+SubgraphURL=http://localhost:8000/subgraphs/name/hcce
+```

@@ -1,17 +1,20 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let applicationId: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     processorEndpoint = await fixture.deployProcessorEndpoint();
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
   describe('updateQueueThreshold', function () {
@@ -38,10 +41,9 @@ describe('ProcessorEndpoint Test', function () {
 
       it('prevents new requests when newThreshold is below current queue size', async () => {
         const protocolVersion = 0;
-        const applicationId = 1;
         const requestType = 1;
         const payload = '0x01';
-        const depositAmount = 0n;
+        const assetAmount = 0n;
         const maxFeeValue = minFeePerRequest;
 
         await processorEndpoint.submitRequest(
@@ -49,18 +51,20 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         await processorEndpoint.submitRequest(
           protocolVersion,
           applicationId,
           requestType,
           '0x02',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
 
         await processorEndpoint.connect(signers[2]).updateQueueThreshold(1);
@@ -71,9 +75,10 @@ describe('ProcessorEndpoint Test', function () {
             applicationId,
             requestType,
             '0x03',
-            depositAmount,
+            ETH_TOKEN,
+            assetAmount,
             maxFeeValue,
-            { value: depositAmount + maxFeeValue }
+            { value: assetAmount + maxFeeValue }
           )
         ).to.be.revertedWithCustomError(processorEndpoint, 'QueueThresholdExceeded');
       });

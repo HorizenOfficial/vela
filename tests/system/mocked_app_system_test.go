@@ -3,7 +3,6 @@ package system
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"os"
 	"testing"
@@ -17,14 +16,10 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/testutil"
 )
 
-var (
-	sender = ethCommon.HexToAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
-)
-
 func TestDeployApp(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime", log1, log2)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Start executor
@@ -43,10 +38,11 @@ func TestDeployApp(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: ApplicationId,
 		RequestID:     RequestID,
-		Payload:       []byte("deploy-payload"),
-		Sender:        sender,
+		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("deploy-payload")),
+		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	err = suite.SubmitRequest(deployReq)
@@ -72,21 +68,23 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime", log1, log2)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
 
 	appID := common.NewApplicationId(1)
-	userAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 1))
-	auditorAddress := ethCommon.HexToAddress(fmt.Sprintf("0xadd%037x", 2))
 	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
 	timeout := 100 * time.Second
 
 	cryptoHelper := testutil.NewCryptoHelper()
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+	auditorAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
 
 	// Deploy with mock bytecode
 	deployReqID := commontestutil.GenerateRandomRequestID()
@@ -94,14 +92,15 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		RequestType:   common.Deploy,
 		ApplicationID: appID,
 		RequestID:     deployReqID,
-		Payload:       []byte("mock-runtime-app-bytecode"),
-		Sender:        userAddress,
+		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("mock-runtime-app-bytecode")),
+		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
-	_, err := suite.WaitForAppStateInDB(appID, timeout)
+	_, err = suite.WaitForAppStateInDB(appID, timeout)
 	require.NoError(t, err)
 	_, err = suite.WaitForAppStateInBlockchain(appID, timeout)
 	require.NoError(t, err)
@@ -115,11 +114,15 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
 	require.NoError(t, err)
 
+	// Get executor's communication key for encryption
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+
 	// Register user key
 	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
 	reqID := commontestutil.GenerateRandomRequestID()
-	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey())
+	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	require.NoError(t, suite.SubmitRequest(associateKeyReq))
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
@@ -128,7 +131,7 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 	auditorKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
 	require.NoError(t, err)
 	reqID = commontestutil.GenerateRandomRequestID()
-	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey())
+	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey(), executorPubKey)
 	require.NoError(t, err)
 	require.NoError(t, suite.SubmitRequest(associateAuditorReq))
 	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
@@ -142,8 +145,6 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 	withdrawFromSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, recipientAddress, withdrawAmount)
 
 	// Deanonymization report as auditor — verifies final state after deposit and withdrawal
-	executorPubKey, err := suite.GetExecutorCommunicationKey()
-	require.NoError(t, err)
 
 	reqID = commontestutil.GenerateRandomRequestID()
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(appID, reqID, auditorAddress, []byte("{}"), executorPubKey)

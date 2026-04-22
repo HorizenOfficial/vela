@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
@@ -22,6 +22,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/storage/mockdb"
 	"github.com/HorizenOfficial/vela/pkg/storage/versioned_leveldb"
 	"github.com/HorizenOfficial/vela/pkg/wasm"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,20 +41,24 @@ type SystemTestSuite struct {
 	executorSigningKey *cryptotypes.PrivateKeySecp256k1 // Executor's signing key for testing
 	dbPath             string
 	reportsPath        string
+	artifactsPath      string
 	log                logger.Logger
 }
 
-func NewSystemTestSuite(t *testing.T, appType string, mgrLog logger.Logger, excLog logger.Logger) *SystemTestSuite {
-	// log is passed from outside, the log settings in the manager configuration does not affect it.
+// NewSystemTestSuite creates a self-contained system test suite.
+// It accepts logger configs (not logger instances) so the suite can inject the
+// ephemeral log-server port into RemoteLogParams before creating the loggers.
+// This guarantees zeronetwork loggers connect to the correct address, and
+// console/file loggers simply ignore the injected params.
+func NewSystemTestSuite(t *testing.T, appType string, mgrLogCfg *logger.Config, excLogCfg *logger.Config) *SystemTestSuite {
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
-	// For tests, always use Type 0 (no KMS dependencies needed)
 	ctx := context.Background()
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
 	require.NoError(t, err)
-	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLog, excLog)
+	return NewSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLogCfg, excLogCfg)
 }
 
 func NewSystemTestSuiteWithConfigs(
@@ -63,37 +68,41 @@ func NewSystemTestSuiteWithConfigs(
 	execConfig *executor.Config,
 	keySet *executor.EnclaveKeySet,
 	recoveryData *common.EnclaveKeySetRecovery,
-	mgrLog logger.Logger,
-	excLog logger.Logger,
+	mgrLogCfg *logger.Config,
+	excLogCfg *logger.Config,
 ) *SystemTestSuite {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Normalize channel params for tests: default configs may use vsock, but tests run over TCP.
-	var tcpParams common.TcpChannelConnectionParams
-	switch p := execConfig.ChannelParams.(type) {
-	case common.TcpChannelConnectionParams:
-		tcpParams = p
-	case common.VSockChannelConnectionParams:
-		tcpParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
-		execConfig.ChannelParams = tcpParams
-		execConfig.ChannelType = "tcp"
-	default:
-		t.Fatal("unsupported executor channel params type")
-	}
-	switch p := mgrConfig.ChannelParams.(type) {
-	case common.TcpChannelConnectionParams:
-		// keep as is
-	case common.VSockChannelConnectionParams:
-		mgrConfig.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: p.Port}
-		mgrConfig.ChannelType = "tcp"
-	default:
-		t.Fatal("unsupported manager channel params type")
-	}
+	// Assign ephemeral ports for executor, admin, and log server
+	// to avoid cross-test collisions.
+	executorPort := mustGetFreeTCPPort(t)
+	adminPort := mustGetFreeTCPPort(t)
+	logServerPort := mustGetFreeTCPPort(t)
+
+	tcpParams := common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: executorPort}
+	execConfig.ChannelParams = tcpParams
+	execConfig.ChannelType = "tcp"
+	mgrConfig.ChannelParams = tcpParams
+	mgrConfig.ChannelType = "tcp"
+	logServerAddr := common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: logServerPort}
+	execConfig.LogChannelParams = logServerAddr
+	mgrConfig.LogServerTCPAddress = logServerAddr
+	mgrConfig.AdminChannelParams = common.TcpChannelConnectionParams{Ip: "127.0.0.1", Port: adminPort}
+
+	// Inject the log-server address into the logger configs so that
+	// zeronetwork loggers connect to the correct ephemeral port.
+	// Console/file loggers ignore RemoteLogParams harmlessly.
+	mgrLogCfg.RemoteLogParams = logServerAddr
+	mgrLogCfg.RemoteLogNetwork = "tcp"
+	excLogCfg.RemoteLogParams = logServerAddr
+	excLogCfg.RemoteLogNetwork = "tcp"
+	mgrLog := logger.NewLogger(mgrLogCfg)
+	excLog := logger.NewLogger(excLogCfg)
 
 	// Create mock components
 	blockchainClient := blockchain.NewMockClient()
 	// Create an executor client (TCP for testing)
-	factory := communication.NewTCPConnectionFactory(tcpParams.Url())
+	factory := communication.NewTCPConnectionFactory(mgrConfig.ChannelParams.(common.TcpChannelConnectionParams).Url())
 	executorClient := communication.NewClient(factory, commParams, mgrLog)
 
 	// Create manager
@@ -110,6 +119,11 @@ func NewSystemTestSuiteWithConfigs(
 	// Create a temporary directory for the database
 	dbPath, err := os.MkdirTemp("", "vela-test-db")
 	require.NoError(t, err)
+
+	// Create a temporary directory for deploy artifacts and force manager to use it.
+	artifactsPath, err := os.MkdirTemp("", "horizen-pes-test-artifacts")
+	require.NoError(t, err)
+	mgrConfig.ArtifactsPath = artifactsPath
 
 	cfg := versioned_leveldb.VersionedLevelDBConfig{
 		DBPath:         dbPath,
@@ -133,8 +147,6 @@ func NewSystemTestSuiteWithConfigs(
 			VSockAddr:      mgrConfig.LogServerVSockAddress,
 			LogFilePath:    mgrConfig.LogServerLogFile,
 			ConsoleEnabled: mgrConfig.LogServerConsole,
-			ConsoleLevel:   mgrConfig.LogServerConsoleLevel,
-			FileLevel:      mgrConfig.LogServerFileLevel,
 		},
 	)
 
@@ -147,7 +159,7 @@ func NewSystemTestSuiteWithConfigs(
 		runtime = executor.NewMockRuntime(excLog)
 	default:
 		t.Log("wasm app type: ", appType)
-		runtime = wasm.NewWasmtimeRuntime(excLog)
+		runtime = wasm.NewWasmtimeRuntime(excLog, 0)
 	}
 
 	// Create the executor (nil KMS dependencies for Type 0 testing)
@@ -174,6 +186,7 @@ func NewSystemTestSuiteWithConfigs(
 		cancel:           cancel,
 		dbPath:           dbPath,
 		reportsPath:      reportsPath,
+		artifactsPath:    artifactsPath,
 		log:              mgrLog,
 	}
 
@@ -183,6 +196,16 @@ func NewSystemTestSuiteWithConfigs(
 	}
 
 	return suite
+}
+
+func mustGetFreeTCPPort(t *testing.T) uint32 {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	return uint32(listener.Addr().(*net.TCPAddr).Port)
 }
 
 func (s *SystemTestSuite) StartManager() error {
@@ -281,8 +304,37 @@ func (s *SystemTestSuite) AssertRequestCompleted(requestID common.RequestIdType,
 }
 
 // WaitForEvent waits for a specific event to be published for a user.
-// If eventSubType is empty, any subtype is accepted.
-func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType string, timeout time.Duration) (*common.Event, error) {
+// If eventSubType is the zero value, any subtype is accepted.
+func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType [32]byte, timeout time.Duration) (*common.Event, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutCh := time.After(timeout)
+	zero := [32]byte{}
+
+	for {
+		select {
+		case event := <-s.eventChannel:
+			if evt, ok := event.(common.Event); ok && evt.UserID == userID && (eventSubType == zero || evt.EventSubType == eventSubType) {
+				s.log.Info("TESTING: Received event: %v", evt)
+				return &evt, nil
+			} else {
+				s.log.Info("TESTING: Received unexpected event: %v", event)
+			}
+		case <-timeoutCh:
+			return nil, fmt.Errorf("timeout waiting for event for user %s", userID)
+		}
+	}
+}
+
+// WaitForEventBySubtypes waits for an event for userID whose EventSubType is in validSubtypes.
+// Used for privacy-preserving subtype retrieval where the exact subtype is not known in advance.
+func (s *SystemTestSuite) WaitForEventBySubtypes(userID ethCommon.Address, validSubtypes [][32]byte, timeout time.Duration) (*common.Event, error) {
+	subtypeSet := make(map[[32]byte]struct{}, len(validSubtypes))
+	for _, st := range validSubtypes {
+		subtypeSet[st] = struct{}{}
+	}
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -291,12 +343,13 @@ func (s *SystemTestSuite) WaitForEvent(userID ethCommon.Address, eventSubType st
 	for {
 		select {
 		case event := <-s.eventChannel:
-			if evt, ok := event.(common.Event); ok && evt.UserID == userID && (eventSubType == "" || evt.EventSubType == eventSubType) {
-				s.log.Info("TESTING: Received event: %v", evt)
-				return &evt, nil
-			} else {
-				s.log.Info("TESTING: Received unexpected event: %v", event)
+			if evt, ok := event.(common.Event); ok && evt.UserID == userID {
+				if _, matched := subtypeSet[evt.EventSubType]; matched {
+					s.log.Info("TESTING: Received event: %v", evt)
+					return &evt, nil
+				}
 			}
+			s.log.Info("TESTING: Received unexpected event: %v", event)
 		case <-timeoutCh:
 			return nil, fmt.Errorf("timeout waiting for event for user %s", userID)
 		}
@@ -353,6 +406,10 @@ func (s *SystemTestSuite) WaitForDeanonymizationReport(reportID common.RequestId
 // GetReportsPath returns the path where deanonymization reports are saved
 func (s *SystemTestSuite) GetReportsPath() string {
 	return s.reportsPath
+}
+
+func (s *SystemTestSuite) GetArtifactsPath() string {
+	return s.artifactsPath
 }
 
 // WaitForWithdrawal waits for a withdrawal to be processed
@@ -427,6 +484,9 @@ func (s *SystemTestSuite) Cleanup() error {
 	// Remove the temporary reports directory
 	if s.reportsPath != "" {
 		os.RemoveAll(s.reportsPath)
+	}
+	if s.artifactsPath != "" {
+		os.RemoveAll(s.artifactsPath)
 	}
 
 	return nil

@@ -1,13 +1,16 @@
 type RequestSubmitted @entity(immutable: true) {
   id: ID!
+  applicationId: BigInt!
   requestId: Bytes!
   sender: Bytes!
+  facilitator: Bytes!
   blockNumber: BigInt!
   blockTimestamp: BigInt!
 }
 
 type RequestCompleted @entity(immutable: true) {
   id: ID!
+  applicationId: BigInt!
   requestId: Bytes!
   applicationFees: BigInt!
   status: Int!
@@ -26,5 +29,83 @@ type UserEvent @entity(immutable: true) {
   blockNumber: BigInt!
   logIndex: BigInt!
   sortKey: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type AppEvent @entity(immutable: true) {
+  id: ID!
+  applicationId: BigInt!
+  requestId: Bytes!
+  eventSubType: Bytes!
+  data: Bytes!
+  blockNumber: BigInt!
+  logIndex: BigInt!
+  sortKey: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type DeployRequestSubmitted @entity(immutable: true) {
+  id: ID!
+  applicationId: BigInt!
+  requestId: Bytes!
+  sender: Bytes!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type DeployRequestCompleted @entity(immutable: true) {
+  id: ID!
+  applicationId: BigInt!
+  requestId: Bytes!
+  applicationFees: BigInt!
+  status: Int!
+  errorCode: Int!
+  errorMessage: String!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type OnChainRefund @entity(immutable: true) {
+  id: Bytes!
+  applicationId: BigInt!
+  requestId: Bytes!
+  to: Bytes!
+  tokenAddress: Bytes!
+  amount: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type OnChainWithdrawal @entity(immutable: true) {
+  id: Bytes!
+  applicationId: BigInt!
+  requestId: Bytes!
+  to: Bytes!
+  tokenAddress: Bytes!
+  amount: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type ClaimExecuted @entity(immutable: true) {
+  id: Bytes!
+  tokenAddress: Bytes!
+  payee: Bytes!
+  amount: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type TokenAllowed @entity(immutable: true) {
+  id: Bytes!
+  token: Bytes!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+}
+
+type TokenRemoved @entity(immutable: true) {
+  id: Bytes!
+  token: Bytes!
+  blockNumber: BigInt!
   blockTimestamp: BigInt!
 }

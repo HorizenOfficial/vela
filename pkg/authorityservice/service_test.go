@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,13 +15,14 @@ import (
 	"testing"
 	"time"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/HorizenOfficial/vela-common-go/subgraph"
 	"github.com/HorizenOfficial/vela/pkg/authorityservice/api"
+	"github.com/HorizenOfficial/vela/pkg/authorityservice/deployartifact"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/HorizenOfficial/vela/pkg/logger"
-	"github.com/HorizenOfficial/vela-common-go/subgraph"
+	ethCommon "github.com/ethereum/go-ethereum/common"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,13 +45,47 @@ func (stubSubgraphClient) HealthCheck(context.Context) error {
 	return nil
 }
 
-func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdType, string, int, *big.Int) ([]subgraph.UserEvent, error) {
+func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdType, [32]byte, int, *big.Int) ([]subgraph.UserEvent, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetUserEventsBySubTypes(context.Context, common.ApplicationIdType, [][32]byte, int, *big.Int) ([]subgraph.UserEvent, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetAppEvents(context.Context, common.ApplicationIdType, [32]byte, int, *big.Int) ([]subgraph.AppEvent, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetAppEventsBySubTypes(context.Context, common.ApplicationIdType, [][32]byte, int, *big.Int) ([]subgraph.AppEvent, error) {
+	return nil, nil
+}
+
+// GetDeployRequestCompletedByID is required to satisfy the subgraph.Client interface,
+// which added this method for multi-app deploy support. The authority service does not
+// use deploy request queries — this stub exists only for interface compliance.
+// TODO: consider splitting subgraph.Client into narrower interfaces so consumers
+// only need to implement the methods they actually use.
+func (s stubSubgraphClient) GetDeployRequestCompletedByID(ctx context.Context, id common.RequestIdType) (*subgraph.RequestCompleted, error) {
+	return s.GetRequestCompletedByID(ctx, id)
+}
+
+func (stubSubgraphClient) GetRefunds(context.Context, common.ApplicationIdType, *common.RequestIdType, int) ([]subgraph.OnChainRefund, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetWithdrawals(context.Context, common.ApplicationIdType, *common.RequestIdType, int) ([]subgraph.OnChainWithdrawal, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetClaimsExecuted(context.Context, ethCommon.Address, *ethCommon.Address, int) ([]subgraph.ClaimExecuted, error) {
 	return nil, nil
 }
 
 func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fixedTime time.Time, eventFn func(context.Context, common.RequestIdType) (*subgraph.RequestCompleted, error)) *AuthorityService {
 	t.Helper()
 	dir := t.TempDir()
+	artifactsDir := t.TempDir()
 	testLogger := logger.NewLogger(
 		&logger.Config{
 			Kind:         "zerolog",
@@ -62,7 +98,7 @@ func newTestServiceWithEvent(t *testing.T, chainID uint64, ttl time.Duration, fi
 	)
 	var sgClient subgraph.Client = stubSubgraphClient{getRequestCompleted: eventFn}
 
-	svc, err := NewAuthorityService(chainID, ttl, dir, sgClient, testLogger)
+	svc, err := NewAuthorityService(chainID, ttl, dir, artifactsDir, 0, sgClient, testLogger)
 	require.NoError(t, err)
 	svc.secret = bytes.Repeat([]byte{0x01}, 32)
 	svc.clock = func() time.Time { return fixedTime }
@@ -136,6 +172,31 @@ func TestHandleGetReportSuccess(t *testing.T) {
 	require.Equal(t, reportID.String(), resp.ReportID)
 	require.Equal(t, appID.String(), resp.ApplicationID)
 	require.Equal(t, hex.EncodeToString(report.EncryptedReport), resp.EncryptedReport)
+}
+
+func TestHandleDeployUploadSuccess(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	svc := newTestService(t, 42, time.Minute, now)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	fileWriter, err := writer.CreateFormFile("wasm", "app.wasm")
+	require.NoError(t, err)
+	_, err = fileWriter.Write([]byte("wasm-content"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/deploy/upload", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	svc.Handler().ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var resp deployartifact.UploadResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.ArtifactID)
+	require.NotEmpty(t, resp.WasmSHA256)
 }
 
 func TestHandleGetReportUnexpectedChainID(t *testing.T) {

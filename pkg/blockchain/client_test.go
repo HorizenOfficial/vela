@@ -24,9 +24,6 @@ import (
 //go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/AuthorityRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/AuthorityRegistryAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/AuthorityRegistryAbi/combined.json --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
 
-var (
-	applicationId = common.NewApplicationId(1)
-)
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {
 	return SetupNewBlockChainClientConnected(testHelper.Client(), testHelper.ProcessorContractAddress, testHelper.TeeSignerAddress, testHelper.ManagerAccount)
@@ -35,6 +32,42 @@ func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainCli
 
 func setupSimTestHelper(t *testing.T, autoMining bool, teePubSecp521r1 []byte) *testutil.SimTestHelper {
 	return testutil.NewSimTestHelper(t, autoMining, true, nil, teePubSecp521r1)
+}
+
+// deployApplication deploys an application via SubmitDeployRequest, completes it
+// with a successful stateUpdate, and returns the derived applicationId.
+func deployApplication(t *testing.T, testHelper *testutil.SimTestHelper, blockchainClient *BlockChainClient) common.ApplicationIdType {
+	t.Helper()
+
+	deployTx := testHelper.SubmitDeployRequest(nil, big.NewInt(100))
+	testHelper.WaitMined(deployTx)
+
+	deployReq, deployStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, deployReq)
+
+	// After deploy submit: appLockedFunds should be 0 (no deposit, fees tracked globally)
+	funds := testHelper.GetAppCustody(deployReq.ApplicationID, ethCommon.Address{})
+	require.Equal(t, 0, funds.Sign(), "appLockedFunds should be zero after submitDeployRequest (no deposit)")
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), &common.UpdatePayload{
+		ApplicationID:  deployReq.ApplicationID,
+		RequestID:      deployReq.RequestID,
+		PrevStateRoot:  deployStateRoot,
+		NewStateRoot:   [32]byte{0x01, 0x02, 0x03},
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{},
+		Signature:      make([]byte, 65),
+		RefundAmount:   common.NewBig(95),
+		ApplicationFee: common.NewBig(5),
+	})
+	require.NoError(t, err)
+
+	// After deploy stateUpdate: appLockedFunds should still be 0 (no deposit was tracked)
+	funds = testHelper.GetAppCustody(deployReq.ApplicationID, ethCommon.Address{})
+	require.Equal(t, 0, funds.Sign(), "appLockedFunds should be zero after deploy stateUpdate")
+
+	return deployReq.ApplicationID
 }
 
 func TestGetPendingRequests(t *testing.T) {
@@ -49,18 +82,16 @@ func TestGetPendingRequests(t *testing.T) {
 
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 
-	currentStateRoot := testHelper.GetStateRoot()
 	pendingRequest, stateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
 	require.Nil(t, pendingRequest, "There should be no pending request")
-	require.Equal(t, currentStateRoot, stateRoot)
+	require.Equal(t, [32]byte{}, stateRoot)
 
 	//*****************************************************
-	// submit request
-	transferValue := big.NewInt(1203055)
+	// submit deploy request
 	maxFeeValue := big.NewInt(100)
 	payload := ethCommon.FromHex("0x001234")
-	tx := testHelper.SubmitRequest(applicationId, common.Process, payload, transferValue, maxFeeValue)
+	tx := testHelper.SubmitDeployRequest(payload, maxFeeValue)
 
 	testHelper.MineBlock()
 
@@ -75,25 +106,27 @@ func TestGetPendingRequests(t *testing.T) {
 
 	request := res[0]
 	require.Equal(t, testHelper.ProtocolVersion, request.ProtocolVersion, "Protocol version should match")
-	require.Equal(t, applicationId, request.ApplicationID, "Application ID should match")
-	require.Equal(t, common.Process, request.RequestType, "Request type should match")
+	require.NotEqual(t, common.ApplicationIdType(0), request.ApplicationID, "Application ID should be derived and non-zero")
+	require.Equal(t, common.Deploy, request.RequestType, "Request type should match")
 	require.Equal(t, payload, request.Payload, "Payload should match")
 	require.Equal(t, 1, request.Timestamp.ToInt().Sign(), "Timestamp should be set and positive")
 
-	require.Equal(t, testHelper.Submitter.From, request.Sender, "Sender should match")
-	require.Equal(t, 0, request.DepositAmount.ToInt().Cmp(transferValue), "Value should match")
+	require.Equal(t, testHelper.Deployer.From, request.Sender, "Sender should match")
+	require.Equal(t, 0, request.AssetAmount.ToInt().Sign(), "Deposit amount should be zero for deploy requests")
 
 	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, request.RequestID, pendingRequest.RequestID, "RequestID should match")
 	require.Equal(t, testHelper.ProtocolVersion, pendingRequest.ProtocolVersion, "Protocol version should match")
-	require.Equal(t, applicationId, pendingRequest.ApplicationID, "Application ID should match")
-	require.Equal(t, common.Process, pendingRequest.RequestType, "Request type should match")
+	require.Equal(t, request.ApplicationID, pendingRequest.ApplicationID, "Application ID should match")
+	require.Equal(t, common.Deploy, pendingRequest.RequestType, "Request type should match")
 	require.Equal(t, payload, pendingRequest.Payload, "Payload should match")
 	require.Equal(t, request.Timestamp, pendingRequest.Timestamp, "Timestamp should match")
 
-	require.Equal(t, testHelper.Submitter.From, pendingRequest.Sender, "Sender should match")
-	require.Equal(t, 0, pendingRequest.DepositAmount.ToInt().Cmp(transferValue), "Value should match")
+	require.Equal(t, testHelper.Deployer.From, pendingRequest.Sender, "Sender should match")
+	require.Equal(t, 0, pendingRequest.AssetAmount.ToInt().Sign(), "Deposit amount should be zero for deploy requests")
+
+	currentStateRoot := testHelper.GetStateRoot(request.ApplicationID)
 
 	require.Equal(t, currentStateRoot, stateRoot)
 
@@ -107,13 +140,19 @@ func TestSubmitStateUpdate(t *testing.T) {
 	blockchainClient := SetupNewBlockChainClient(testHelper)
 
 	//*****************************************************
-	// submit request
+	// deploy an application and submit a process request
+	deployedAppId := deployApplication(t, testHelper, blockchainClient)
+
 	transferValue := big.NewInt(1000000)
 	maxFeeValue := big.NewInt(100)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
+	tx := testHelper.SubmitRequest(deployedAppId, common.Process, nil, ethCommon.Address{}, transferValue, maxFeeValue)
 
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
+
+	// After submit: appLockedFunds should equal depositAmount only (fees tracked globally)
+	funds := testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, funds.Cmp(transferValue), "appLockedFunds should equal depositAmount after submit")
 
 	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
@@ -189,6 +228,12 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(listOfRes), "There should be 0 pending request")
 
+	// After successful stateUpdate: appLockedFunds debited by withdrawals only
+	// withdrawal(10) debited from original locked = transferValue(1000000)
+	// remaining = 1000000 - 10 = 999990
+	fundsAfterUpdate := testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, fundsAfterUpdate.Cmp(big.NewInt(999990)), "appLockedFunds should be debited by withdrawals")
+
 	// =========================================================
 	// Case NonceTooLow
 	// =========================================================
@@ -213,7 +258,6 @@ func TestSubmitStateUpdate(t *testing.T) {
 	require.Contains(t, err.Error(), "ProcessorEndpointInvalidRequestId")
 }
 
-
 func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 
 	testHelper := setupSimTestHelper(t, true, nil)
@@ -221,12 +265,19 @@ func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
 
+	// deploy an application and submit a process request
+	deployedAppId := deployApplication(t, testHelper, blockchainClient)
+
 	transferValue := big.NewInt(1000000)
 	maxFeeValue := big.NewInt(100)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, transferValue, maxFeeValue)
+	tx := testHelper.SubmitRequest(deployedAppId, common.Process, nil, ethCommon.Address{}, transferValue, maxFeeValue)
 
 	// wait for transaction inclusion
 	testHelper.WaitMined(tx)
+
+	// After submit: appLockedFunds should equal depositAmount only (fees tracked globally)
+	funds := testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, funds.Cmp(transferValue), "appLockedFunds should equal depositAmount after submit")
 
 	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
@@ -241,38 +292,47 @@ func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 		Withdrawals:    []common.Withdrawal{},
 		Signature:      signature[:],
 		RefundAmount:   common.ToBig(maxFeeValue),
-		ApplicationFee: common.NewBig(0), 
-		ErrorCode: 1,
-		ErrorMsg: "test error message",
+		ApplicationFee: common.NewBig(0),
+		ErrorCode:      1,
+		ErrorMsg:       "test error message",
 	}
-	
+
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
 	listOfRes, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(listOfRes), "There should be zero pending request")
+
+	// After failed stateUpdate: appLockedFunds should be debited by depositAmount
+	fundsAfterFail := testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, fundsAfterFail.Sign(), "appLockedFunds should be zero after failed stateUpdate")
 }
 
-
 func TestSubmitRequest(t *testing.T) {
-	// mock private key for the client
 	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
 
+	// Deploy an application first
+	deployedAppId := deployApplication(t, testHelper, blockchainClient)
+
 	// Prepare a request
 	protocolVersion := uint8(0)
-	applicationId := common.NewApplicationId(1)
-	requestType := common.Deploy
+	requestType := common.Process
 	payload := []byte("test-payload")
 	depositAmount := big.NewInt(1)
 	maxFeeValue := big.NewInt(100)
 
 	// Submit the request
-	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, applicationId, requestType, payload, depositAmount, maxFeeValue)
+	requestId, blockNumber, err := blockchainClient.SubmitRequest(context.Background(), protocolVersion, deployedAppId, requestType, payload, ethCommon.Address{}, depositAmount, maxFeeValue)
 	require.NoError(t, err)
+
+	// After submit: appLockedFunds should equal depositAmount only (fees tracked globally)
+	funds := testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, funds.Cmp(depositAmount), "appLockedFunds should equal depositAmount after SubmitRequest")
+
 	// Get pending requests
 	pending, err := blockchainClient.GetPendingRequests(context.Background())
 	require.NoError(t, err)
@@ -281,17 +341,16 @@ func TestSubmitRequest(t *testing.T) {
 	require.True(t, blockNumber > 0, "Returned block number shouldn't be 0")
 	// Check that the submitted request is present and matches
 	found := false
-	// Convert types for comparison
 
 	for _, r := range pending {
 		if r.RequestID == requestId {
 			found = true
 
-			if r.ProtocolVersion != protocolVersion || r.ApplicationID != applicationId || r.RequestType != requestType || string(r.Payload) != string(payload) || r.DepositAmount.ToInt().Cmp(depositAmount) != 0 {
+			if r.ProtocolVersion != protocolVersion || r.ApplicationID != deployedAppId || r.RequestType != requestType || string(r.Payload) != string(payload) || r.AssetAmount.ToInt().Cmp(depositAmount) != 0 {
 				t.Errorf(
 					"Request fields do not match: got {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}, want {protocolVersion:%+v, applicationId:%+v, requestType:%+v, payload:%+v, value:%+v}",
-					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.DepositAmount,
-					protocolVersion, applicationId, requestType, string(payload), depositAmount,
+					r.ProtocolVersion, r.ApplicationID, r.RequestType, string(r.Payload), r.AssetAmount,
+					protocolVersion, deployedAppId, requestType, string(payload), depositAmount,
 				)
 			}
 		}
@@ -301,22 +360,83 @@ func TestSubmitRequest(t *testing.T) {
 	}
 }
 
+func TestSubmitDeployRequest_AuthorizedDeployer(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClientConnected(
+		testHelper.Client(),
+		testHelper.ProcessorContractAddress,
+		testHelper.TeeSignerAddress,
+		testHelper.Deployer,
+	)
+
+	appId, requestID, _, err := blockchainClient.SubmitDeployRequest(
+		context.Background(),
+		uint8(0),
+		[]byte("deploy-payload"),
+		big.NewInt(100),
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, common.ApplicationIdType(0), appId)
+
+	// After deploy submit: appLockedFunds should be 0 (no deposit, fees tracked globally)
+	funds := testHelper.GetAppCustody(appId, ethCommon.Address{})
+	require.Equal(t, 0, funds.Sign(), "appLockedFunds should be zero after SubmitDeployRequest (no deposit)")
+
+	pending, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, requestID, pending[0].RequestID)
+	require.Equal(t, common.Deploy, pending[0].RequestType)
+	require.Equal(t, testHelper.Deployer.From, pending[0].Sender)
+	require.Equal(t, appId, pending[0].ApplicationID)
+}
+
+func TestSubmitDeployRequest_UnauthorizedDeployerReverts(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClientConnected(
+		testHelper.Client(),
+		testHelper.ProcessorContractAddress,
+		testHelper.TeeSignerAddress,
+		testHelper.Submitter,
+	)
+
+	_, _, _, err := blockchainClient.SubmitDeployRequest(
+		context.Background(),
+		uint8(0),
+		[]byte("deploy-payload"),
+		big.NewInt(100),
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointDeployerNotAllowed")
+}
+
 func TestGetPendingPaymentsAndWithdraw(t *testing.T) {
 	testHelper := setupSimTestHelper(t, true, nil)
 	defer testHelper.Close()
 
 	blockchainClient := SetupNewBlockChainClient(testHelper)
 
+	// Deploy an application first
+	deployedAppId := deployApplication(t, testHelper, blockchainClient)
+
 	// Initially the submitter should have no pending payments
-	pending, err := blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
+	pending, err := blockchainClient.GetPendingClaims(context.Background(), ethCommon.Address{}, testHelper.Submitter.From)
 	require.NoError(t, err)
 	require.Equal(t, 0, pending.Sign(), "Pending payments should be zero initially")
 
 	// Submit a request so there's something to refund
 	depositAmount := big.NewInt(1000000)
 	maxFeeValue := big.NewInt(100)
-	tx := testHelper.SubmitRequest(applicationId, common.Process, nil, depositAmount, maxFeeValue)
+	tx := testHelper.SubmitRequest(deployedAppId, common.Process, nil, ethCommon.Address{}, depositAmount, maxFeeValue)
 	testHelper.WaitMined(tx)
+
+	// After submit: appLockedFunds should equal depositAmount only (fees tracked globally)
+	appFunds := testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, appFunds.Cmp(depositAmount), "appLockedFunds should equal depositAmount after submit")
 
 	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
 	require.NoError(t, err)
@@ -341,8 +461,12 @@ func TestGetPendingPaymentsAndWithdraw(t *testing.T) {
 	err = blockchainClient.SubmitStateUpdate(context.Background(), payload)
 	require.NoError(t, err)
 
+	// After failed stateUpdate: appLockedFunds should be zero (depositAmount debited)
+	appFunds = testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, appFunds.Sign(), "appLockedFunds should be zero after failed stateUpdate")
+
 	// Now the submitter should have a positive pending payment balance
-	pending, err = blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
+	pending, err = blockchainClient.GetPendingClaims(context.Background(), ethCommon.Address{}, testHelper.Submitter.From)
 	require.NoError(t, err)
 	require.Equal(t, 1, pending.Sign(), "Pending payments should be positive after failed request refund")
 
@@ -351,13 +475,144 @@ func TestGetPendingPaymentsAndWithdraw(t *testing.T) {
 	require.Equal(t, 0, pending.Cmp(expectedRefund), "Pending payments should equal deposit + (maxFee - minFee)")
 
 	// Withdraw payments for the submitter
-	err = blockchainClient.WithdrawPayments(context.Background(), testHelper.Submitter.From)
+	err = blockchainClient.Claim(context.Background(), ethCommon.Address{}, testHelper.Submitter.From)
 	require.NoError(t, err)
 
+	// After withdrawal: appLockedFunds should still be zero (withdrawPayments does not affect appLockedFunds)
+	appFunds = testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, appFunds.Sign(), "appLockedFunds should remain zero after withdrawPayments")
+
 	// After withdrawal, pending payments should be zero
-	pending, err = blockchainClient.GetPendingPayments(context.Background(), testHelper.Submitter.From)
+	pending, err = blockchainClient.GetPendingClaims(context.Background(), ethCommon.Address{}, testHelper.Submitter.From)
 	require.NoError(t, err)
 	require.Equal(t, 0, pending.Sign(), "Pending payments should be zero after withdrawal")
+}
+
+// TestInsufficientAppBalance verifies that a stateUpdate reverts with
+// InsufficientAppBalance when the withdrawal sum exceeds the application's
+// locked funds. A request is submitted with zero deposit and the minimum fee
+// (100), so appLockedFunds = 0 (fees tracked globally). The stateUpdate then
+// attempts a 1 wei withdrawal, which exceeds appLockedFunds(0).
+func TestInsufficientAppBalance(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	deployedAppId := deployApplication(t, testHelper, blockchainClient)
+
+	// Submit request: deposit=0, fee=100 → appLockedFunds = 0 (fees not tracked per-app)
+	maxFeeValue := big.NewInt(100)
+	tx := testHelper.SubmitRequest(deployedAppId, common.Process, nil, ethCommon.Address{}, big.NewInt(0), maxFeeValue)
+	testHelper.WaitMined(tx)
+
+	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+
+	// Attempt stateUpdate: withdrawal(1) > appLockedFunds(0)
+	// Expected: revert with InsufficientAppBalance
+	err = blockchainClient.SubmitStateUpdate(context.Background(), &common.UpdatePayload{
+		ApplicationID:  res.ApplicationID,
+		RequestID:      res.RequestID,
+		PrevStateRoot:  oldStateRoot,
+		NewStateRoot:   [32]byte{0x0a, 0x0b, 0x0c},
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(1)}},
+		Signature:      make([]byte, 65),
+		RefundAmount:   common.NewBig(0),
+		ApplicationFee: common.NewBig(100),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInsufficientAppBalance")
+
+	// The reverted tx must not have changed appLockedFunds
+	funds := testHelper.GetAppCustody(deployedAppId, ethCommon.Address{})
+	require.Equal(t, 0, funds.Sign(), "appLockedFunds should be unchanged (zero) after reverted stateUpdate")
+}
+
+// TestCrossAppFundIsolation verifies the core per-app solvency guarantee: an
+// application cannot withdraw funds deposited by another application, even when
+// the contract's global ETH balance would be sufficient.
+//
+// Setup: App A is funded with deposit=1000 (locked=1000), App B with
+// deposit=10 (locked=10). Fees are tracked globally, not per-app. After
+// processing App A's request with a 500 withdrawal, App A retains 500 locked.
+// The contract's global balance is well above 500, but App B's locked funds are
+// only 10. A stateUpdate for App B requesting a 500 withdrawal must revert
+// with InsufficientAppBalance.
+func TestCrossAppFundIsolation(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Step 1: Deploy two applications
+	appA := deployApplication(t, testHelper, blockchainClient)
+	appB := deployApplication(t, testHelper, blockchainClient)
+
+	// Step 2: Fund App A heavily (deposit=1000, fee=100) and App B lightly (deposit=10, fee=100)
+	txA := testHelper.SubmitRequest(appA, common.Process, nil, ethCommon.Address{}, big.NewInt(1000), big.NewInt(100))
+	testHelper.WaitMined(txA)
+	txB := testHelper.SubmitRequest(appB, common.Process, nil, ethCommon.Address{}, big.NewInt(10), big.NewInt(100))
+	testHelper.WaitMined(txB)
+
+	fundsA := testHelper.GetAppCustody(appA, ethCommon.Address{})
+	require.Equal(t, 0, fundsA.Cmp(big.NewInt(1000)), "App A should have 1000 locked (deposit only)")
+	fundsB := testHelper.GetAppCustody(appB, ethCommon.Address{})
+	require.Equal(t, 0, fundsB.Cmp(big.NewInt(10)), "App B should have 10 locked (deposit only)")
+
+	// Step 3: Process App A — withdraw 500 (within A's budget)
+	reqA, stateRootA, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, appA, reqA.ApplicationID)
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), &common.UpdatePayload{
+		ApplicationID:  reqA.ApplicationID,
+		RequestID:      reqA.RequestID,
+		PrevStateRoot:  stateRootA,
+		NewStateRoot:   [32]byte{0x0a, 0x01},
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(500)}},
+		Signature:      make([]byte, 65),
+		RefundAmount:   common.NewBig(95),
+		ApplicationFee: common.NewBig(5),
+	})
+	require.NoError(t, err)
+
+	// App A debited: withdrawal(500). Remaining: 1000 - 500 = 500
+	fundsA = testHelper.GetAppCustody(appA, ethCommon.Address{})
+	require.Equal(t, 0, fundsA.Cmp(big.NewInt(500)), "App A should have 500 remaining after processing")
+	// App B must be unaffected by App A's stateUpdate
+	fundsB = testHelper.GetAppCustody(appB, ethCommon.Address{})
+	require.Equal(t, 0, fundsB.Cmp(big.NewInt(10)), "App B should still have 10 locked — unaffected by App A")
+
+	// Step 4: Process App B — attempt to withdraw 500 (exceeds B's 10 locked funds)
+	// The contract's global balance is sufficient (App A's 500 is still in the contract),
+	// but the per-app solvency check must block this.
+	reqB, stateRootB, err := blockchainClient.GetNextPendingRequest(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, appB, reqB.ApplicationID)
+
+	err = blockchainClient.SubmitStateUpdate(context.Background(), &common.UpdatePayload{
+		ApplicationID:  reqB.ApplicationID,
+		RequestID:      reqB.RequestID,
+		PrevStateRoot:  stateRootB,
+		NewStateRoot:   [32]byte{0x0b, 0x01},
+		Events:         []common.Event{},
+		Withdrawals:    []common.Withdrawal{{DestinationAddress: ethCommon.HexToAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"), Amount: common.NewBig(500)}},
+		Signature:      make([]byte, 65),
+		RefundAmount:   common.NewBig(95),
+		ApplicationFee: common.NewBig(5),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInsufficientAppBalance",
+		"App B must not withdraw funds exceeding its own locked balance, even if global balance is sufficient")
+
+	// Step 5: Verify neither app's funds were changed by the reverted tx
+	fundsA = testHelper.GetAppCustody(appA, ethCommon.Address{})
+	require.Equal(t, 0, fundsA.Cmp(big.NewInt(500)), "App A funds unchanged after B's reverted tx")
+	fundsB = testHelper.GetAppCustody(appB, ethCommon.Address{})
+	require.Equal(t, 0, fundsB.Cmp(big.NewInt(10)), "App B funds unchanged after its own reverted tx")
 }
 
 func TestGetTeePublicKey(t *testing.T) {

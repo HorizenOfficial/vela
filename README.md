@@ -5,6 +5,8 @@ This repository contains the implementation of the Horizen Vela confidential com
 1. **Secure Processor Manager**: Interacts with smart contracts and executes requested actions by orchestrating services and the TEE.
 2. **WASM Executor**: Executes WASM modules within a secure environment (AWS Nitro Enclave) and handles private data.
 
+The platform supports multiple applications on the same deployment, with per-app isolated state and funds, and provides a secure on-chain deploy flow for new apps, an ERC-20 deposit/withdrawal mechanism (with EIP-2612 permit and an optional facilitator for gasless onboarding), and typed application events emitted by WASM guests.
+
 ## Technology Stack
 
 The system is implemented in Go and uses Wasmtime-go as the runtime for WASM Modules.
@@ -17,19 +19,34 @@ vela/
     ├── cmd/                            # Main applications entrypoints for this project.
     │   ├── manager/                    # Secure Processor Manager application
     │   ├── executor/                   # WASM Executor application
-    │   └── authorityservice/           # HTTP service to fetch deanonymization reports
+    │   ├── authorityservice/           # HTTP service to fetch deanonymization reports
+    │   ├── admincli/                   # Interactive admin CLI (log levels, attestation, version)
+    │   └── keytool/                    # Key management utility
     │
-    ├── contracts/                      # Smart contracts for the system
+    ├── contracts/                      # Solidity smart contracts (Hardhat project)
+    │
+    ├── subgraphs/                      # The Graph subgraphs indexing on-chain events
+    │   └── hcce/                       # HCCE subgraph
+    │
+    ├── app/                            # TinyGo WASM guest applications
+    │   └── simple/                     # Example WASM application
     │
     ├── pkg/                            # Library code that is used by other applications.
-    │   ├── blockchain/                 # Blockchain interaction
+    │   ├── admin/                      # Admin command server and protocol
+    │   ├── authorityservice/           # Authority HTTP service (nonce/getreport/upload)
+    │   ├── blockchain/                 # Blockchain interaction and generated contract bindings
     │   ├── common/                     # Data models and structures
-    │   ├── communication/              # V-Socket Communication
-    │   ├── executor/                   # WASM Executor
+    │   ├── communication/              # V-Socket / TCP communication
+    │   ├── crypto/                     # Key management (AES, P521, secp256k1, X25519)
+    │   ├── executor/                   # WASM Executor logic
+    │   ├── logger/                     # Zerolog wrapper and network logger
     │   ├── manager/                    # Secure Processor Manager
-    │   ├── authorityservice/           # Authority HTTP service (nonce/getreport)
-    │   └── storage/                    # Persistent data storage layer
+    │   ├── storage/                    # Versioned LevelDB storage layer
+    │   ├── subgraph/                   # GraphQL subgraph client
+    │   └── wasm/                       # Wasmtime runtime integration
     │
+    ├── docs/                           # Design documents
+    ├── dockerfiles/                    # Container configuration and dev docker-compose
     └── tests/                          # System tests and integration tests
 ```
 
@@ -39,7 +56,7 @@ vela/
 2. **Data models and structures**: Types, structs, and enums used in the system.
 3. **Secure Processor Manager**: Interacts with blockchain, storage, communication and orchestrates the execution of requests.
 4. **Authority Service**: Exposes `/nonce` and `/getreport` to authorities to fetch deanonymization reports (see `pkg/authorityservice/README.md` for the signing scheme).
-5. **Persistent data storage layer**: Interacts with data layer (Amazon S3).
+5. **Persistent data storage layer**: Versioned LevelDB store for application state, with per-app version chains and rollback support (see `pkg/storage/versioned_leveldb/README.md`).
 6. **V-Socket Communication**: Handles communication between the Secure Processor Manager and WASM Executor.
 7. **WASM Executor**: Executes WASM modules in a secure environment (AWS Nitro Enclave).
 
