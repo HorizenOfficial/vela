@@ -1,6 +1,6 @@
-# Testing the Horizen Privacy Preserving Execution System
+# Testing Horizen Vela
 
-This document describes the testing strategy for the Horizen Privacy Preserving Execution System.
+This document describes the testing strategy for Horizen Vela.
 
 ## Test Structure
 
