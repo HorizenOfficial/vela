@@ -13,7 +13,7 @@ import (
 // Client defines the interface for interacting with the blockchain
 type Client interface {
 	// SubmitRequest submits a request to the blockchain, returning submitted request id as a string and block number in which it is submitted
-	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error)
+	SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, tokenAddress ethCommon.Address, assetAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error)
 	// SubmitDeployRequest submits a deploy request to the blockchain, returning the derived application id, submitted request id and block number
 	SubmitDeployRequest(ctx context.Context, protocolVersion uint8, payload []byte, maxFeeValue *big.Int) (common.ApplicationIdType, common.RequestIdType, uint64, error)
 	// GetPendingRequests gets pending requests from the blockchain
@@ -29,10 +29,10 @@ type Client interface {
 	// LatestBlockNumber returns the latest block number from the chain.
 	LatestBlockNumber(ctx context.Context) (uint64, error)
 
-	// GetPendingPayments returns the pending payment balance for the given address.
-	GetPendingPayments(ctx context.Context, addr ethCommon.Address) (*big.Int, error)
-	// WithdrawPayments calls withdrawPayments on the ProcessorEndpoint contract for the given payee.
-	WithdrawPayments(ctx context.Context, payee ethCommon.Address) error
+	// GetPendingClaims returns the pending claim balance for the given token and address.
+	GetPendingClaims(ctx context.Context, tokenAddress ethCommon.Address, addr ethCommon.Address) (*big.Int, error)
+	// Claim calls claim on the ProcessorEndpoint contract for the given token and payee.
+	Claim(ctx context.Context, tokenAddress ethCommon.Address, payee ethCommon.Address) error
 
 	// Close closes the blockchain client
 	Close() error

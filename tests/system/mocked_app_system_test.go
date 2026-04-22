@@ -17,9 +17,9 @@ import (
 )
 
 func TestDeployApp(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime", log1, log2)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Start executor
@@ -41,7 +41,8 @@ func TestDeployApp(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("deploy-payload")),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	err = suite.SubmitRequest(deployReq)
@@ -67,9 +68,9 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "mock-runtime", log1, log2)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "mock-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	require.NoError(t, suite.StartExecutor())
@@ -94,7 +95,8 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("mock-runtime-app-bytecode")),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))

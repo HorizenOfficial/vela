@@ -13,48 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- VerifySeed tests ---
-
-func TestVerifySeed_Valid(t *testing.T) {
-	privKey, err := ethCrypto.GenerateKey()
-	require.NoError(t, err)
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
-	seed, err := ethCrypto.Sign(msgHash, privKey)
-	require.NoError(t, err)
-	addr := ethCrypto.PubkeyToAddress(privKey.PublicKey)
-	require.NoError(t, VerifySeed(seed, addr))
-}
-
-func TestVerifySeed_WrongSigner(t *testing.T) {
-	privKey, err := ethCrypto.GenerateKey()
-	require.NoError(t, err)
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
-	seed, err := ethCrypto.Sign(msgHash, privKey)
-	require.NoError(t, err)
-
-	// Different key → different address
-	otherKey, err := ethCrypto.GenerateKey()
-	require.NoError(t, err)
-	otherAddr := ethCrypto.PubkeyToAddress(otherKey.PublicKey)
-
-	err = VerifySeed(seed, otherAddr)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not match")
-}
-
-func TestVerifySeed_WrongLength(t *testing.T) {
-	err := VerifySeed(make([]byte, 64), ethCrypto.PubkeyToAddress(mustGenerateKey(t).PublicKey))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid seed length")
-}
-
-func TestVerifySeed_InvalidSignature(t *testing.T) {
-	addr := ethCrypto.PubkeyToAddress(mustGenerateKey(t).PublicKey)
-	// 65 zero bytes are not a valid signature
-	err := VerifySeed(make([]byte, 65), addr)
-	require.Error(t, err)
-}
-
 // --- GenerateSubtype tests ---
 
 func TestGenerateSubtype_Deterministic(t *testing.T) {
@@ -76,10 +34,7 @@ func TestGenerateSubtype_DifferentSeed(t *testing.T) {
 
 func TestGenerateSubtype_Format(t *testing.T) {
 	s := GenerateSubtype(mustSeed(t), 1)
-	require.True(t, len(s) == 66 && s[:2] == "0x", "should be '0x' + 64 hex chars, got: %s", s)
-	for _, c := range s[2:] {
-		require.True(t, (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'), "should be lowercase hex")
-	}
+	require.NotEqual(t, [32]byte{}, s, "should not be all zeros")
 }
 
 // --- AllSubtypes tests ---
@@ -90,10 +45,10 @@ func TestAllSubtypes_Length(t *testing.T) {
 
 func TestAllSubtypes_Unique(t *testing.T) {
 	subtypes := AllSubtypes(mustSeed(t), 50)
-	seen := make(map[string]struct{}, 50)
+	seen := make(map[[32]byte]struct{}, 50)
 	for _, st := range subtypes {
 		_, dup := seen[st]
-		require.False(t, dup, "duplicate subtype found: %s", st)
+		require.False(t, dup, "duplicate subtype found: 0x%x", st)
 		seen[st] = struct{}{}
 	}
 }
@@ -111,7 +66,7 @@ func TestAllSubtypes_Indices(t *testing.T) {
 func TestGenerateRandomSubtype_InSet(t *testing.T) {
 	seed := mustSeed(t)
 	all := AllSubtypes(seed, DefaultSubtypeN)
-	allSet := make(map[string]struct{}, len(all))
+	allSet := make(map[[32]byte]struct{}, len(all))
 	for _, st := range all {
 		allSet[st] = struct{}{}
 	}
@@ -119,7 +74,7 @@ func TestGenerateRandomSubtype_InSet(t *testing.T) {
 		st, err := GenerateRandomSubtype(seed, DefaultSubtypeN)
 		require.NoError(t, err)
 		_, ok := allSet[st]
-		require.True(t, ok, "generated subtype %s not in expected set", st)
+		require.True(t, ok, "generated subtype 0x%x not in expected set", st)
 	}
 }
 
@@ -188,9 +143,10 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 	commKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err)
 
+	wasmSubtype := [32]byte{0x01}
 	plainEvents := []common.PlainEvent{{
 		UserID:       sender,
-		EventSubType: "deposit", // WASM-provided subtype; should be overridden
+		EventSubType: wasmSubtype, // WASM-provided subtype; should be overridden
 		Data:         []byte(`{"type":"deposit"}`),
 	}}
 
@@ -212,7 +168,7 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 	generatedSubtype := encryptedEvents[0].EventSubType
 	allSubtypes := AllSubtypes(seed, DefaultSubtypeN)
 	require.Contains(t, allSubtypes, generatedSubtype, "generated subtype should be in the expected set")
-	require.NotEqual(t, "deposit", generatedSubtype, "WASM-provided subtype should be overridden")
+	require.NotEqual(t, wasmSubtype, generatedSubtype, "WASM-provided subtype should be overridden")
 }
 
 // --- Event retrieval test: verify subtype set filtering ---
@@ -239,10 +195,12 @@ func TestEventRetrieval_BySubtypeSet(t *testing.T) {
 	commKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err)
 
+	depositSubtype := [32]byte{0x01}
+	withdrawalSubtype := [32]byte{0x02}
 	plainEvents := []common.PlainEvent{
-		{UserID: userAAddr, EventSubType: "deposit", Data: []byte("a1")},
-		{UserID: userAAddr, EventSubType: "withdrawal", Data: []byte("a2")},
-		{UserID: userBAddr, EventSubType: "deposit", Data: []byte("b1")},
+		{UserID: userAAddr, EventSubType: depositSubtype, Data: []byte("a1")},
+		{UserID: userAAddr, EventSubType: withdrawalSubtype, Data: []byte("a2")},
+		{UserID: userBAddr, EventSubType: depositSubtype, Data: []byte("b1")},
 	}
 
 	e := &StatelessExecutor{log: testLogger}
@@ -261,7 +219,7 @@ func TestEventRetrieval_BySubtypeSet(t *testing.T) {
 
 	// All user A events should have a subtype in AllSubtypes(seedA, N)
 	userASubtypes := AllSubtypes(seedA, DefaultSubtypeN)
-	subtypeSet := make(map[string]struct{}, len(userASubtypes))
+	subtypeSet := make(map[[32]byte]struct{}, len(userASubtypes))
 	for _, st := range userASubtypes {
 		subtypeSet[st] = struct{}{}
 	}
@@ -269,12 +227,12 @@ func TestEventRetrieval_BySubtypeSet(t *testing.T) {
 	for _, ev := range encrypted {
 		if ev.UserID == userAAddr {
 			_, ok := subtypeSet[ev.EventSubType]
-			require.True(t, ok, "user A event subtype %s should be in expected set", ev.EventSubType)
-			require.NotEqual(t, "deposit", ev.EventSubType)
-			require.NotEqual(t, "withdrawal", ev.EventSubType)
+			require.True(t, ok, "user A event subtype 0x%x should be in expected set", ev.EventSubType)
+			require.NotEqual(t, depositSubtype, ev.EventSubType)
+			require.NotEqual(t, withdrawalSubtype, ev.EventSubType)
 		} else if ev.UserID == userBAddr {
 			// User B has no seed; original subtype is preserved
-			require.Equal(t, "deposit", ev.EventSubType)
+			require.Equal(t, depositSubtype, ev.EventSubType)
 		}
 	}
 }
@@ -298,40 +256,6 @@ func mustSeed(t *testing.T) []byte {
 	return seed
 }
 
-// Verify that AssociateKeyRequest with the wrong seed signer is rejected
-func TestAssociateKey_WrongSeedSigner(t *testing.T) {
-	exec := newTestExecutor(t, NewMockRuntime(testLogger))
-
-	// Sender is one address but seed is signed by a different key
-	realSender := ethCrypto.PubkeyToAddress(mustGenerateKey(t).PublicKey)
-	differentKey, err := ethCrypto.GenerateKey()
-	require.NoError(t, err)
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
-	wrongSeed, err := ethCrypto.Sign(msgHash, differentKey)
-	require.NoError(t, err)
-
-	p521Key, err := crypto.GeneratePrivateKeyP521()
-	require.NoError(t, err)
-
-	// Encrypt the wrong seed with the user's P521 key and the enclave's P521 public key
-	encryptedWrongSeed, err := crypto.Encrypt(p521Key, exec.keySet.CommunicationKey.PublicKey(), wrongSeed)
-	require.NoError(t, err)
-
-	payloadWithSeed := append(p521Key.PublicKey().Bytes(), encryptedWrongSeed...)
-
-	wasmModule := []byte("wasm")
-	appState := buildEncryptedAppState(t, exec, nil, nil, wasmModule)
-	req := newProcessRequest()
-	req.RequestType = common.AssociateKey
-	req.Payload = payloadWithSeed
-	req.Sender = realSender
-
-	respPayload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, wasmModule)
-	require.NoError(t, err) // no system error; returns an error payload
-	require.NotNil(t, respPayload)
-	require.NotEqual(t, uint8(0), respPayload.ErrorCode, "should reject mismatched seed signer")
-}
-
 // Verify that without a seed the original WASM-provided subtype is preserved
 func TestEncryptEvents_NoSeed_PreservesSubtype(t *testing.T) {
 	p521Key, err := crypto.GeneratePrivateKeyP521()
@@ -344,13 +268,14 @@ func TestEncryptEvents_NoSeed_PreservesSubtype(t *testing.T) {
 	commKey, err := crypto.GeneratePrivateKeyP521()
 	require.NoError(t, err)
 
-	plain := []common.PlainEvent{{UserID: userAddr, EventSubType: "original_type", Data: []byte("x")}}
+	origSubtype := [32]byte{0x42}
+	plain := []common.PlainEvent{{UserID: userAddr, EventSubType: origSubtype, Data: []byte("x")}}
 
 	e := &StatelessExecutor{log: testLogger}
 	encrypted, failure, err := e.encryptEvents(context.Background(), plain, common.NewApplicationId(1), commKey, nil, keyStore, seedStore)
 	require.Nil(t, failure)
 	require.NoError(t, err)
-	require.Equal(t, "original_type", encrypted[0].EventSubType, "subtype should be preserved when no seed is registered")
+	require.Equal(t, origSubtype, encrypted[0].EventSubType, "subtype should be preserved when no seed is registered")
 
 	_ = commontestutil.GenerateRandomRequestID() // keep import used
 }

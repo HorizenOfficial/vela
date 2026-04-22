@@ -112,29 +112,49 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
    - `POST /getreport` - Serves reports after on-chain verification
 
 4. **Smart Contracts** (`contracts/`) - On-chain coordination:
-   - `ProcessorEndpoint.sol` - Request handling
-   - `TeeAuthenticator.sol` - TEE attestation verification
+   - `ProcessorEndpoint.sol` - Request handling, ERC-20 deposits/withdrawals (with EIP-2612 permit and facilitator path), per-app locked funds, deploy descriptor and allowed-deployer roles
+   - `TeeAuthenticator.sol` - TEE attestation verification (PCR-based, including WASM fingerprint for deploys)
    - `AuthorityRegistry.sol` - Authority management
 
 5. **Subgraphs** (`subgraphs/`) - Blockchain event indexing:
-   - Index on-chain events for efficient GraphQL querying
+   - Index on-chain events for efficient GraphQL querying (multi-app aware, deploy-specific events)
 
 ### Communication Flow
 
 Manager and Executor use bidirectional messaging (V-Socket for Nitro, TCP fallback):
 - Manager sends `ProcessRequest`, Executor may callback with `GetUserKeys`
-- Handshake protocol on connection for keyset recovery (see `EXEC_MGR_HANDSHAKE.md`)
+- Handshake protocol on connection for keyset recovery (see `docs/design/EXEC_MGR_HANDSHAKE.md`)
+- Manager also forwards admin commands to the Executor over the same channel (`ForwardAdminCommand`)
+- `DeployApp` messages carry the WASM bytes and descriptor for the deploy flow
 
 ### Storage Layer (`pkg/storage/versioned_leveldb/`)
 
 Versioned LevelDB with atomic transactions and rollback support:
 - `LevelDBDataLayer` - High-level interface
-- `VersionedLevelDBAppStateStore` - Application state with versioning
+- `VersionedLevelDBAppStateStore` - Application state with versioning (version chains are per-app — pruning and rollbacks are independent across apps)
 - `LevelDBUserKeyStore` - Non-versioned user keys
+
+### Multi-app Support
+
+Manager, Executor, storage, contracts and subgraph are multi-app aware: each app has its own state, WASM module, locked funds and version chain. Deploy derives a unique `applicationId` from the deploy `requestId` (`ProcessorEndpoint.sol`), so deploys do not collide with regular requests.
+
+### ERC-20 Flow
+
+- Deposits use EIP-2612 `permit` to authorize the transfer from the user to the `ProcessorEndpoint`; a **facilitator** can relay the on-chain call so the user does not need gas.
+- Funds are tracked per app in `ProcessorEndpoint`; withdrawals are authorized by signed updates from the TEE.
+- See `docs/design/ERC20_DEPOSITS_WITHDRAWALS_DESIGN.md` and `docs/design/FACILITATOR.md`.
+
+### Deploy Flow
+
+- Apps are deployed on-chain via `DeployRequestSubmitted` on `ProcessorEndpoint`; only addresses holding the `DEPLOYAPP` role can submit deploys.
+- The Manager uploads the WASM artifact to a shared folder (or via `POST /deploy/upload` on the authority service) and forwards it to the Executor.
+- The Executor verifies the WASM fingerprint against the descriptor before loading the module.
 
 ## Key Patterns
 
 **Contract Bindings:** Generated via `go generate`, committed to repo. CI verifies bindings are up-to-date. If you modify contracts, regenerate and commit.
+
+**File Formatting:** If you modify contracts or TypeScript files, run `npm run format` after any modification to keep the correct formatting.
 
 **Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
 
@@ -144,6 +164,8 @@ Versioned LevelDB with atomic transactions and rollback support:
 - `CHAIN_PROCESSOR_ADDRESS` / `CHAIN_TEEAUTHENTICATOR_ADDRESS`
 
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
+
+**User Signatures:** When a signature is provided by an external user (e.g. via a wallet), it must be compatible with MetaMask's `personal_sign` format. This means the message is prefixed with `\x19Ethereum Signed Message:\n<length of message>` before hashing and signing. Both Go verification code and Solidity `ecrecover` usage must account for this prefix.
 
 ## Code Review Guidelines
 

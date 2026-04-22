@@ -16,7 +16,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	simpleapp "github.com/HorizenOfficial/vela/app/simple/app"
 	"github.com/HorizenOfficial/vela/pkg/common"
+	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
 	"github.com/HorizenOfficial/vela/pkg/executor"
 	"github.com/HorizenOfficial/vela/pkg/logger"
@@ -44,13 +46,27 @@ type hostWithdrawalEvent struct {
 var deployRequestSender = ethCommon.HexToAddress("0x1000000000000000000000000000000000000001")
 
 // getTestLogger creates a new logger instance for every test
-func getTestLogger(t *testing.T, useNetwork bool) logger.Logger {
-	return logger.NewLogger(&logger.Config{
+func consoleLogConfig() *logger.Config {
+	return &logger.Config{
 		Kind:         "zerolog",
 		ConsoleLevel: "info",
 		Console:      true,
 		ConsoleColor: false,
-	})
+	}
+}
+
+// networkLogConfig returns a zeronetwork logger config.
+// The suite injects the correct log-server port into RemoteLogParams
+// before creating the logger, so no hardcoded port is needed here.
+func networkLogConfig() *logger.Config {
+	return &logger.Config{
+		Kind:             "zeronetwork",
+		ConsoleLevel:     "info",
+		Console:          true,
+		ConsoleColor:     false,
+		RemoteLogNetwork: "tcp",
+		NetworkLevel:     "trace",
+	}
 }
 
 func TestMain(m *testing.M) {
@@ -82,39 +98,23 @@ func buildAndLoadWasmModule(t *testing.T) []byte {
 	return wasmBytecode
 }
 
-// deploySimpleApp is a helper function to deploy the simple app wasm module.
+// deploySimpleApp deploys the simple app without constructor params (ETH-only).
+// Convenience wrapper around deploySimpleAppWithTokens with nil token list.
 func deploySimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, wasmBytecode []byte) {
 	t.Helper()
-	timeout := 20 * time.Second
-	deployPayload := uploadArtifactAndBuildDescriptorPayload(t, suite, wasmBytecode)
+	deploySimpleAppWithTokens(t, suite, cryptoHelper, appID, deployReqID, wasmBytecode, nil)
+}
 
-	// Create and submit deploy request
-	deployReq := &common.Request{
-		RequestType:   common.Deploy,
-		ApplicationID: appID,
-		RequestID:     deployReqID,
-		Payload:       deployPayload,
-		Sender:        deployRequestSender,
-		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
-		MaxFeeValue:   common.NewBig(100),
-	}
-	require.NoError(t, suite.SubmitRequest(deployReq))
-
-	// Wait for app to be deployed
-	_, err := suite.WaitForAppStateInDB(appID, timeout)
+// registerUserKey generates a P521 key for the user, submits an AssociateKey request, and waits for completion.
+func registerUserKey(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, userAddress ethCommon.Address, executorPubKey *cryptotypes.PublicKeyP521, timeout time.Duration) {
+	t.Helper()
+	key, err := cryptoHelper.GenerateUserKey(userAddress)
 	require.NoError(t, err)
-	_, err = suite.WaitForAppStateInBlockchain(appID, timeout)
+	reqID := commontestutil.GenerateRandomRequestID()
+	req, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, key.PublicKey(), executorPubKey)
 	require.NoError(t, err)
-	require.NoError(t, suite.AssertRequestCompleted(deployReqID, timeout))
-
-	// Verify updatePayload signature
-	executorSigningKey, err := suite.GetExecutorSigningKey()
-	require.NoError(t, err)
-	payload, err := suite.GetRequestUpdatePayload(deployReqID)
-	require.NoError(t, err)
-	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
-	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(req))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
 }
 
 // depositToSimpleApp is a helper function to deposit funds into the simple app.
@@ -219,8 +219,8 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 		t.Skip("Skipping long running test in CI environment")
 	}
 
-	log := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
+	logCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
 	wasmBytecode := buildAndLoadWasmModule(t)
@@ -247,23 +247,9 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
 
-	// Register user key
-	userKey, err := cryptoHelper.GenerateUserKey(userAddress)
-	require.NoError(t, err)
-	reqID := commontestutil.GenerateRandomRequestID()
-	associateKeyReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, userAddress, userKey.PublicKey(), executorPubKey)
-	require.NoError(t, err)
-	require.NoError(t, suite.SubmitRequest(associateKeyReq))
-	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
-
-	// Register auditor key
-	auditorKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
-	require.NoError(t, err)
-	reqID = commontestutil.GenerateRandomRequestID()
-	associateAuditorReq, err := cryptoHelper.CreateAssociateKeyRequest(appID, reqID, auditorAddress, auditorKey.PublicKey(), executorPubKey)
-	require.NoError(t, err)
-	require.NoError(t, suite.SubmitRequest(associateAuditorReq))
-	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+	// Register user and auditor keys
+	registerUserKey(t, suite, cryptoHelper, appID, userAddress, executorPubKey, timeout)
+	registerUserKey(t, suite, cryptoHelper, appID, auditorAddress, executorPubKey, timeout)
 
 	// Deposit 2 ETH and validate event fields
 	depositAmount := big.NewInt(2000000000000000000)
@@ -275,7 +261,7 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 
 	// Deanonymization report as auditor — verifies final state after deposit and withdrawal
 
-	reqID = commontestutil.GenerateRandomRequestID()
+	reqID := commontestutil.GenerateRandomRequestID()
 	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(appID, reqID, auditorAddress, []byte("{}"), executorPubKey)
 	require.NoError(t, err)
 	require.NoError(t, suite.SubmitRequest(deanonReq))
@@ -314,11 +300,14 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	require.Len(t, accounts, 1, "expected exactly one account in report")
 
 	expectedBalance := new(big.Int).Sub(depositAmount, withdrawAmount)
+	ethZeroAddr := "0x0000000000000000000000000000000000000000"
 	for _, acct := range accounts {
 		acctMap, ok := acct.(map[string]interface{})
 		require.True(t, ok, "account entry is not a map")
-		balanceStr, ok := acctMap["balance"].(string)
-		require.True(t, ok, "balance is not a string")
+		balancesMap, ok := acctMap["balances"].(map[string]interface{})
+		require.True(t, ok, "balances is not a map")
+		balanceStr, ok := balancesMap[ethZeroAddr].(string)
+		require.True(t, ok, "ETH balance is not a string")
 		require.True(t, len(balanceStr) > 2 && balanceStr[:2] == "0x", "balance is not hex")
 		balance, ok := new(big.Int).SetString(balanceStr[2:], 16)
 		require.True(t, ok, "failed to parse balance hex")
@@ -328,17 +317,17 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 }
 
 func TestExecutorManagerStart(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
 
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, log1, log2)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, nil, nil, mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
-	// 2. Start services
+	// Start services
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
 
@@ -346,9 +335,9 @@ func TestExecutorManagerStart(t *testing.T) {
 }
 
 func TestDeploySimpleApp(t *testing.T) {
-	log := getTestLogger(t, true)
+	logCfg := consoleLogConfig()
 	// we use for both mgr and executor the remote network logger
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log, log)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -365,9 +354,9 @@ func TestDeploySimpleApp(t *testing.T) {
 
 // this will be modified when we support an app id other that "1"
 func TestDeploySimpleAppNegativeCase(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log1, log2)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -395,7 +384,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, wasmBytecode),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		DepositAmount: common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
 	require.NoError(t, suite.SubmitRequest(deployReq))
@@ -414,8 +404,8 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 }
 
 func TestSimpleAppCompareAction(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
@@ -442,7 +432,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	ctx := context.Background()
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
 	require.NoError(t, err)
-	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, log1, log2)
+	suite := testutil.NewSystemTestSuiteWithConfigs(t, "wasm-runtime", mgrConfig, execConfig, keySet, newRecoveryData, mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -452,13 +442,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
 
-	// 3. Create users and add their keys to the registry
-	user1Key, err := cryptoHelper.GenerateUserKey(user1Address)
-	require.NoError(t, err)
-	user2Key, err := cryptoHelper.GenerateUserKey(user2Address)
-	require.NoError(t, err)
-
-	// 4. Deploy the application
+	// 3. Deploy the application
 	appID := common.NewApplicationId(1)
 	RequestID := commontestutil.GenerateRandomRequestID()
 	deploySimpleApp(t, suite, cryptoHelper, appID, RequestID, wasmBytecode)
@@ -467,23 +451,9 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
 
-	//register key 1
-	RequestID = commontestutil.GenerateRandomRequestID()
-	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user1Address, user1Key.PublicKey(), executorPubKey)
-	require.NoError(t, err)
-	err = suite.SubmitRequest(associateKey1Req)
-	require.NoError(t, err)
-	err = suite.AssertRequestCompleted(RequestID, timeout_value)
-	require.NoError(t, err)
-
-	//register key 3
-	RequestID = commontestutil.GenerateRandomRequestID()
-	associateKey2Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, user2Address, user2Key.PublicKey(), executorPubKey)
-	require.NoError(t, err)
-	err = suite.SubmitRequest(associateKey2Req)
-	require.NoError(t, err)
-	err = suite.AssertRequestCompleted(RequestID, timeout_value)
-	require.NoError(t, err)
+	// 4. Register user keys
+	registerUserKey(t, suite, cryptoHelper, appID, user1Address, executorPubKey, timeout_value)
+	registerUserKey(t, suite, cryptoHelper, appID, user2Address, executorPubKey, timeout_value)
 
 	// 5. User1 deposits funds
 	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), user1Address, big.NewInt(2000000000000000000)) // 2 ETH
@@ -536,7 +506,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NotEmpty(t, updatePayload.Events, "no events found for request")
 
 	// Find the action event by matching user1's privacy-preserving subtype set
-	user1SubtypeSet := make(map[string]struct{})
+	user1SubtypeSet := make(map[[32]byte]struct{})
 	for _, st := range executor.AllSubtypes(user1Seed, executor.DefaultSubtypeN) {
 		user1SubtypeSet[st] = struct{}{}
 	}
@@ -564,19 +534,11 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	require.True(t, bytes.Equal(decryptedActionData, decryptedData))
 
-	// 9: Sending deanonymization request as auditor
+	// 9. Register auditor and send deanonymization request
 
-	RequestID = commontestutil.GenerateRandomRequestID()
 	auditorAddress, err := cryptoHelper.GenerateUserIdentity()
 	require.NoError(t, err)
-	auditorPrivateKey, err := cryptoHelper.GenerateUserKey(auditorAddress)
-	require.NoError(t, err)
-	associateKey1Req, err = cryptoHelper.CreateAssociateKeyRequest(appID, RequestID, auditorAddress, auditorPrivateKey.PublicKey(), executorPubKey)
-	require.NoError(t, err)
-	err = suite.SubmitRequest(associateKey1Req)
-	require.NoError(t, err)
-	err = suite.AssertRequestCompleted(RequestID, timeout_value)
-	require.NoError(t, err)
+	registerUserKey(t, suite, cryptoHelper, appID, auditorAddress, executorPubKey, timeout_value)
 
 	deanonReqPayload := []byte(`{"type":"deanonymize","deanonymize":{"tag":"SIMPLE_TAG"}}`)
 
@@ -602,7 +564,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, deanonReport)
 
-	// 4. Read and decrypt the report
+	// 10. Read and decrypt the report
 	reportFilePath := filepath.Join(suite.GetReportsPath(), common.ReportFilename(appID, RequestID))
 	encryptedReportBytes, err := os.ReadFile(reportFilePath)
 	require.NoError(t, err, "The report file should be saved to the filesystem")
@@ -650,14 +612,14 @@ func TestSimpleAppCompareAction(t *testing.T) {
 }
 
 func TestSimpleApp_NegativeScenarios(t *testing.T) {
-	log1 := getTestLogger(t, false)
-	log2 := getTestLogger(t, true)
+	mgrLogCfg := consoleLogConfig()
+	excLogCfg := consoleLogConfig()
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("Skipping long running test in CI environment")
 	}
 	timeout_value := 10 * time.Second
 
-	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", log1, log2)
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", mgrLogCfg, excLogCfg)
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
@@ -667,31 +629,22 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
 
-	// 3. Create user and add their key to the registry
+	// 3. Generate user identity and deploy the application
 	cryptoHelper := testutil.NewCryptoHelper()
 
 	userAddress, err := cryptoHelper.GenerateUserIdentity()
 	require.NoError(t, err)
 
-	// 4. Deploy the application
 	appID := common.NewApplicationId(1)
 	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
 
-	// Get executor's communication key for encryption
+	// 4. Register user key
 	executorPubKey, err := suite.GetExecutorCommunicationKey()
 	require.NoError(t, err)
 
-	user1Key, err := cryptoHelper.GenerateUserKey(userAddress)
-	require.NoError(t, err)
-	requestId := commontestutil.GenerateRandomRequestID()
-	associateKey1Req, err := cryptoHelper.CreateAssociateKeyRequest(appID, requestId, userAddress, user1Key.PublicKey(), executorPubKey)
-	require.NoError(t, err)
-	err = suite.SubmitRequest(associateKey1Req)
-	require.NoError(t, err)
-	err = suite.AssertRequestCompleted(requestId, timeout_value)
-	require.NoError(t, err)
+	registerUserKey(t, suite, cryptoHelper, appID, userAddress, executorPubKey, timeout_value)
 
-	// 5. User1 deposits funds
+	// 5. Deposit funds
 	depositToSimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), userAddress, big.NewInt(1000))
 
 	// --- Negative Test Cases ---
@@ -835,4 +788,264 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "has failed")
 	})
+}
+
+// --- ERC-20 system tests ---
+
+// erc20TokenAddress is a synthetic ERC-20 token address used in system tests.
+// It does not need to be a real contract since the token logic is handled entirely
+// inside the WASM guest (app-level allowlist), not on-chain in these tests.
+var erc20TokenAddress = ethCommon.HexToAddress("0xdead000000000000000000000000000000000001")
+
+// deploySimpleAppWithTokens deploys the simple app with an ERC-20 token allowlist.
+func deploySimpleAppWithTokens(t *testing.T, suite *testutil.SystemTestSuite, cryptoHelper *testutil.CryptoHelper, appID common.ApplicationIdType, deployReqID common.RequestIdType, wasmBytecode []byte, allowedTokens []string) {
+	t.Helper()
+	timeout := 20 * time.Second
+
+	params, err := json.Marshal(map[string]interface{}{
+		"allowedTokens": allowedTokens,
+	})
+	require.NoError(t, err)
+
+	deployPayload := uploadArtifactAndBuildDescriptorPayloadWithParams(t, suite, wasmBytecode, params)
+
+	deployReq := &common.Request{
+		RequestType:   common.Deploy,
+		ApplicationID: appID,
+		RequestID:     deployReqID,
+		Payload:       deployPayload,
+		Sender:        deployRequestSender,
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		TokenAddress:  ethCommon.Address{},
+		AssetAmount:   common.NewBig(0),
+		MaxFeeValue:   common.NewBig(100),
+	}
+	require.NoError(t, suite.SubmitRequest(deployReq))
+
+	_, err = suite.WaitForAppStateInDB(appID, timeout)
+	require.NoError(t, err)
+	_, err = suite.WaitForAppStateInBlockchain(appID, timeout)
+	require.NoError(t, err)
+	require.NoError(t, suite.AssertRequestCompleted(deployReqID, timeout))
+
+	executorSigningKey, err := suite.GetExecutorSigningKey()
+	require.NoError(t, err)
+	payload, err := suite.GetRequestUpdatePayload(deployReqID)
+	require.NoError(t, err)
+	err = cryptoHelper.ValidateUpdatePayloadSignature(payload, executorSigningKey)
+	require.NoError(t, err)
+}
+
+// TestSimpleAppERC20DepositAndWithdraw exercises the full ERC-20 lifecycle through the
+// system stack: deploy with token allowlist -> deposit ERC-20 -> withdraw ERC-20 -> verify
+// final balance via deanonymization report.
+func TestSimpleAppERC20DepositAndWithdraw(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	logCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
+	defer suite.Cleanup()
+
+	wasmBytecode := buildAndLoadWasmModule(t)
+
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	appID := common.NewApplicationId(1)
+	recipientAddress := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	timeout := 100 * time.Second
+
+	cryptoHelper := testutil.NewCryptoHelper()
+
+	// Generate user identity
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+
+	// 1. Deploy with ERC-20 token in the allowlist
+	deploySimpleAppWithTokens(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode, []string{erc20TokenAddress.Hex()})
+
+	// 2. Register user key
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+	registerUserKey(t, suite, cryptoHelper, appID, userAddress, executorPubKey, timeout)
+
+	// 3. Deposit 1000 units of ERC-20 token
+	erc20DepositAmount := big.NewInt(1000)
+	reqID := commontestutil.GenerateRandomRequestID()
+	depositReq, err := cryptoHelper.CreateTokenDepositRequest(appID, reqID, userAddress, erc20TokenAddress, erc20DepositAmount, executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(depositReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Verify deposit event carries token address
+	userSeed, err := cryptoHelper.ComputeSeed(userAddress)
+	require.NoError(t, err)
+	depositEvent, err := suite.WaitForEventBySubtypes(userAddress, executor.AllSubtypes(userSeed, executor.DefaultSubtypeN), timeout)
+	require.NoError(t, err)
+	decryptedDepositData, err := cryptoHelper.DecryptEvent(userAddress, depositEvent, executorPubKey)
+	require.NoError(t, err)
+
+	var depositEventData struct {
+		Type         string      `json:"type"`
+		TokenAddress string      `json:"tokenAddress"`
+		Amount       *common.Big `json:"amount"`
+	}
+	err = json.Unmarshal(decryptedDepositData, &depositEventData)
+	require.NoError(t, err)
+	require.Equal(t, "deposit", depositEventData.Type)
+	require.Equal(t, strings.ToLower(erc20TokenAddress.Hex()), strings.ToLower(depositEventData.TokenAddress))
+	require.Equal(t, 0, erc20DepositAmount.Cmp(depositEventData.Amount.ToInt()))
+
+	// 4. Withdraw 300 units of ERC-20 token
+	erc20WithdrawAmount := big.NewInt(300)
+	reqID = commontestutil.GenerateRandomRequestID()
+	withdrawReq, err := cryptoHelper.CreateTokenWithdrawalRequest(appID, reqID, userAddress, recipientAddress, erc20TokenAddress, common.ToBig(erc20WithdrawAmount), executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(withdrawReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	// Verify on-chain withdrawal carries the correct token address
+	withdrawal, err := suite.WaitForWithdrawal(appID, timeout)
+	require.NoError(t, err)
+	require.NotNil(t, withdrawal)
+	require.Equal(t, erc20TokenAddress, withdrawal.TokenAddress)
+	require.Equal(t, recipientAddress, withdrawal.DestinationAddress)
+	require.Equal(t, 0, erc20WithdrawAmount.Cmp(withdrawal.Amount.ToInt()))
+
+	// 5. Verify final ERC-20 balance via deanonymization report (1000 - 300 = 700)
+	auditorAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+	registerUserKey(t, suite, cryptoHelper, appID, auditorAddress, executorPubKey, timeout)
+
+	reqID = commontestutil.GenerateRandomRequestID()
+	deanonReq, err := cryptoHelper.CreateDeanonymizationRequest(appID, reqID, auditorAddress, []byte("{}"), executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(deanonReq))
+	require.NoError(t, suite.AssertRequestCompleted(reqID, timeout))
+
+	deanonReport, err := suite.WaitForDeanonymizationReport(reqID, timeout)
+	require.NoError(t, err)
+	decryptedReport, err := cryptoHelper.DecryptDeanonymizationReport(auditorAddress, deanonReport, executorPubKey)
+	require.NoError(t, err)
+
+	var report struct {
+		ReportDataBytes interface{} `json:"reportDataBytes"`
+	}
+	err = json.Unmarshal(decryptedReport, &report)
+	require.NoError(t, err)
+	jsonStr, ok := report.ReportDataBytes.(string)
+	require.True(t, ok)
+	reportBytes, err := base64.StdEncoding.DecodeString(jsonStr)
+	require.NoError(t, err)
+
+	var reportData map[string]interface{}
+	err = json.Unmarshal(reportBytes, &reportData)
+	require.NoError(t, err)
+	accounts, ok := reportData["accounts"].(map[string]interface{})
+	require.True(t, ok)
+
+	expectedBalance := new(big.Int).Sub(erc20DepositAmount, erc20WithdrawAmount)
+	tokenHex := strings.ToLower(erc20TokenAddress.Hex())
+	for _, acct := range accounts {
+		acctMap, ok := acct.(map[string]interface{})
+		require.True(t, ok)
+		balancesMap, ok := acctMap["balances"].(map[string]interface{})
+		require.True(t, ok)
+		balanceStr, ok := balancesMap[tokenHex].(string)
+		require.True(t, ok, "ERC-20 balance not found for token %s", tokenHex)
+		require.True(t, len(balanceStr) > 2 && balanceStr[:2] == "0x")
+		balance, ok := new(big.Int).SetString(balanceStr[2:], 16)
+		require.True(t, ok)
+		require.Equal(t, 0, expectedBalance.Cmp(balance),
+			"expected ERC-20 balance %s, got %s", expectedBalance, balance)
+	}
+}
+
+// TestSimpleAppETHOnlyRejectsERC20Deposit verifies that an app deployed without
+// ERC-20 tokens in its allowlist rejects an ERC-20 deposit. The executor should
+// return an error and the request should be marked as failed.
+func TestSimpleAppETHOnlyRejectsERC20Deposit(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	logCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
+	defer suite.Cleanup()
+
+	wasmBytecode := buildAndLoadWasmModule(t)
+
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	appID := common.NewApplicationId(1)
+	timeout := 100 * time.Second
+
+	cryptoHelper := testutil.NewCryptoHelper()
+
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+
+	// Deploy ETH-only app (no ERC-20 tokens in allowlist)
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
+
+	// Register user key
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+	registerUserKey(t, suite, cryptoHelper, appID, userAddress, executorPubKey, timeout)
+
+	// Attempt to deposit ERC-20 token into ETH-only app — should fail
+	reqID := commontestutil.GenerateRandomRequestID()
+	depositReq, err := cryptoHelper.CreateTokenDepositRequest(appID, reqID, userAddress, erc20TokenAddress, big.NewInt(1000), executorPubKey)
+	require.NoError(t, err)
+	require.NoError(t, suite.SubmitRequest(depositReq))
+
+	// The request should complete with a failure status
+	err = suite.AssertRequestCompleted(reqID, timeout)
+	require.Error(t, err, "ERC-20 deposit to ETH-only app should fail")
+	require.Contains(t, err.Error(), "has failed")
+}
+
+// TestSimpleAppDepositEmitsAppEvent verifies that a deposit produces an AppEvent
+// in the UpdatePayload (non-encrypted, application-level event).
+func TestSimpleAppDepositEmitsAppEvent(t *testing.T) {
+	if os.Getenv("CI_FLAG") != "" {
+		t.Skip("Skipping long running test in CI environment")
+	}
+
+	logCfg := consoleLogConfig()
+	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
+	defer suite.Cleanup()
+
+	wasmBytecode := buildAndLoadWasmModule(t)
+
+	require.NoError(t, suite.StartExecutor())
+	require.NoError(t, suite.StartManager())
+
+	appID := common.NewApplicationId(1)
+	timeout := 100 * time.Second
+	cryptoHelper := testutil.NewCryptoHelper()
+
+	userAddress, err := cryptoHelper.GenerateUserIdentity()
+	require.NoError(t, err)
+
+	deploySimpleApp(t, suite, cryptoHelper, appID, commontestutil.GenerateRandomRequestID(), wasmBytecode)
+
+	executorPubKey, err := suite.GetExecutorCommunicationKey()
+	require.NoError(t, err)
+	registerUserKey(t, suite, cryptoHelper, appID, userAddress, executorPubKey, timeout)
+
+	// Deposit and retrieve the update payload
+	depositReqID := commontestutil.GenerateRandomRequestID()
+	depositToSimpleApp(t, suite, cryptoHelper, appID, depositReqID, userAddress, big.NewInt(1000000000000000000))
+
+	payload, err := suite.GetRequestUpdatePayload(depositReqID)
+	require.NoError(t, err)
+
+	// Verify the AppEvent is present in the payload
+	require.NotEmpty(t, payload.AppEvents, "deposit should produce at least one AppEvent")
+	require.Equal(t, simpleapp.SubTypeFromString("deposit_received"), payload.AppEvents[0].EventSubType)
+	require.NotEmpty(t, payload.AppEvents[0].Data, "AppEvent data should not be empty")
 }

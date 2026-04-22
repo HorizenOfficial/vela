@@ -50,7 +50,7 @@ func newDeployRequest(t *testing.T) (*common.Request, []byte) {
 		RequestType:     common.Deploy,
 		Payload:         payload,
 		MaxFeeValue:     common.NewBig(1000),
-		DepositAmount:   common.NewBig(0),
+		AssetAmount:     common.NewBig(0),
 	}, wasmModule
 }
 
@@ -115,7 +115,11 @@ func TestHandleDeployApp_InvalidDescriptor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updatePayload)
 	require.Equal(t, uint8(apperrors.CodeInternalFallback.Category.Category), updatePayload.ErrorCode)
-	require.Equal(t, "failed to deploy application", updatePayload.ErrorMsg)
+	// errorResponse now appends the underlying decode error to the base message
+	// (e.g. "failed to deploy application: invalid character 'o' ...").
+	// Assert the base message is present; the exact suffix is
+	// implementation-dependent on the json package.
+	require.Contains(t, updatePayload.ErrorMsg, "failed to deploy application")
 	require.Equal(t, [32]byte{}, updatePayload.PrevStateRoot)
 	require.Equal(t, [32]byte{}, updatePayload.NewStateRoot)
 }
@@ -169,12 +173,16 @@ func (r *failingRuntime) LoadModule(_ context.Context, _ common.ApplicationIdTyp
 	return nil, big.NewInt(0), fmt.Errorf("wasm compilation failed")
 }
 
-func (r *failingRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ *big.Int, _ []byte, _ []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	return nil, nil, big.NewInt(0), nil
+func (r *failingRuntime) Deploy(_ context.Context, _ common.ApplicationIdType, _ []byte, _ []byte) ([]byte, *big.Int, error) {
+	return nil, big.NewInt(0), fmt.Errorf("wasm compilation failed")
 }
 
-func (r *failingRuntime) ProcessRequest(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ common.RequestType, _ []byte, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
-	return nil, nil, nil, nil, big.NewInt(0), nil
+func (r *failingRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ ethCommon.Address, _ *big.Int, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.AppEvent, *big.Int, *apperrors.RequestFailure) {
+	return nil, nil, nil, big.NewInt(0), nil
+}
+
+func (r *failingRuntime) ProcessRequest(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ common.RequestType, _ []byte, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	return nil, nil, nil, nil, nil, big.NewInt(0), nil
 }
 
 func (r *failingRuntime) Close() error { return nil }
@@ -199,6 +207,11 @@ type expensiveRuntime struct {
 
 func (r *expensiveRuntime) LoadModule(ctx context.Context, appID common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
 	state, _, err := r.MockRuntime.LoadModule(ctx, appID, wasm)
+	return state, big.NewInt(999999), err
+}
+
+func (r *expensiveRuntime) Deploy(ctx context.Context, appID common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
+	state, _, err := r.MockRuntime.Deploy(ctx, appID, constructorParams, wasm)
 	return state, big.NewInt(999999), err
 }
 
@@ -256,4 +269,44 @@ func TestHandleDeployApp_Success(t *testing.T) {
 	fee := updatePayload.ApplicationFee.ToInt()
 	total := new(big.Int).Add(refund, fee)
 	require.Equal(t, req.MaxFeeValue.ToInt().Cmp(total), 0, "refund + fee should equal MaxFeeValue")
+}
+
+// TestHandleDeployApp_WithConstructorParams verifies that constructor params
+// from the deploy descriptor are passed through to the runtime's Deploy method.
+func TestHandleDeployApp_WithConstructorParams(t *testing.T) {
+	runtime := NewMockRuntime(testLogger)
+	executor := newTestExecutor(t, runtime)
+
+	wasmModule := []byte("mock-wasm-bytecode")
+	sum := sha256.Sum256(wasmModule)
+	wasmSHA := hex.EncodeToString(sum[:])
+	artifactID, err := common.BuildArtifactID(wasmSHA)
+	require.NoError(t, err)
+
+	// Build deploy descriptor with constructor params
+	constructorParams := json.RawMessage(`{"allowedTokens":["0xdead000000000000000000000000000000000001"]}`)
+	payload, err := json.Marshal(common.DeployDescriptor{
+		Mode:              common.DeployModeArtifactRef,
+		ArtifactID:        artifactID,
+		WasmSHA256:        wasmSHA,
+		ConstructorParams: constructorParams,
+	})
+	require.NoError(t, err)
+
+	req := &common.Request{
+		ProtocolVersion: 0,
+		ApplicationID:   common.NewApplicationId(1),
+		RequestID:       commontestutil.GenerateRandomRequestID(),
+		RequestType:     common.Deploy,
+		Payload:         payload,
+		MaxFeeValue:     common.NewBig(1000),
+		AssetAmount:     common.NewBig(0),
+	}
+
+	updatePayload, newAppState, err := executor.HandleDeployApp(context.Background(), req, nil, wasmModule)
+	require.NoError(t, err)
+	require.NotNil(t, updatePayload)
+	require.NotNil(t, newAppState)
+	require.Equal(t, uint8(0), updatePayload.ErrorCode)
+	require.Empty(t, updatePayload.ErrorMsg)
 }

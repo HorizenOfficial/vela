@@ -256,7 +256,9 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 			Payload:         request.Payload,
 			Timestamp:       common.ToBig(request.Timestamp),
 			Sender:          request.Sender,
-			DepositAmount:   common.ToBig(request.DepositAmount),
+			Facilitator:     request.Facilitator,
+			TokenAddress:    request.TokenAddress,
+			AssetAmount:     common.ToBig(request.AssetAmount),
 			MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 		}
 
@@ -297,7 +299,9 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		Payload:         request.Payload,
 		Timestamp:       common.ToBig(request.Timestamp),
 		Sender:          request.Sender,
-		DepositAmount:   common.ToBig(request.DepositAmount),
+		Facilitator:     request.Facilitator,
+		TokenAddress:    request.TokenAddress,
+		AssetAmount:     common.ToBig(request.AssetAmount),
 		MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 	}
 
@@ -327,7 +331,7 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 }
 
 // SubmitRequest submits a request to the ProcessorEndpoint smart contract using a common.Request.
-func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
+func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion uint8, applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, tokenAddress ethCommon.Address, assetAmount *big.Int, maxFeeValue *big.Int) (common.RequestIdType, uint64, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -341,9 +345,15 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	reqType := uint8(requestType)
 
 	// Pack the transaction data using the generated binding
-	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount, maxFeeValue)
-	// Set the value for the transaction (msg.value)
-	c.account.Value = new(big.Int).Add(depositAmount, maxFeeValue)
+	data := c.processorEndpoint.PackSubmitRequest(protocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, tokenAddress, assetAmount, maxFeeValue)
+	// Set the value for the transaction (msg.value).
+	// For ETH requests: msg.value = assetAmount + maxFeeValue (carries both business asset and fee).
+	// For ERC-20 requests: msg.value = maxFeeValue only (business asset arrives via transferFrom).
+	if tokenAddress == (ethCommon.Address{}) {
+		c.account.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	} else {
+		c.account.Value = new(big.Int).Set(maxFeeValue)
+	}
 
 	// Send the transaction
 	tx, err := bind.Transact(c.processorBoundContract, c.account, data)
@@ -425,19 +435,35 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	if c.account == nil {
 		return fmt.Errorf("client not configured for signing transactions")
 	}
-	events := make([][]byte, len(update.Events))
-	eventSubTypes := make([]string, len(update.Events))
+	userEvents := make([][]byte, len(update.Events))
+	userEventSubTypes := make([][32]byte, len(update.Events))
 	for i, event := range update.Events {
-		events[i] = event.EncryptedData
-		eventSubTypes[i] = event.EventSubType
+		userEvents[i] = event.EncryptedData
+		userEventSubTypes[i] = event.EventSubType
+	}
+	userEventData := processorendpoint.StructsEventData{
+		Events:   userEvents,
+		SubTypes: userEventSubTypes,
+	}
+
+	appEvents := make([][]byte, len(update.AppEvents))
+	appEventSubTypes := make([][32]byte, len(update.AppEvents))
+	for i, appEvent := range update.AppEvents {
+		appEvents[i] = appEvent.Data
+		appEventSubTypes[i] = appEvent.EventSubType
+	}
+	appEventData := processorendpoint.StructsEventData{
+		Events:   appEvents,
+		SubTypes: appEventSubTypes,
 	}
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
 	for i, withdrawal := range update.Withdrawals {
 		amount := withdrawal.Amount.ToInt()
 		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
-			Receiver: withdrawal.DestinationAddress,
-			Amount:   amount,
+			TokenAddress: withdrawal.TokenAddress,
+			Receiver:     withdrawal.DestinationAddress,
+			Amount:       amount,
 		}
 	}
 
@@ -446,8 +472,8 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		update.PrevStateRoot,
 		update.NewStateRoot,
 		update.RequestID,
-		events,
-		eventSubTypes,
+		userEventData,
+		appEventData,
 		withdrawals,
 		update.RefundAmount.ToInt(),
 		update.ApplicationFee.ToInt(),
@@ -475,7 +501,7 @@ func (c *BlockChainClient) Close() error {
 }
 
 // GetPendingPayments returns the pending payment balance for the given address.
-func (c *BlockChainClient) GetPendingPayments(ctx context.Context, addr ethCommon.Address) (*big.Int, error) {
+func (c *BlockChainClient) GetPendingClaims(ctx context.Context, tokenAddress ethCommon.Address, addr ethCommon.Address) (*big.Int, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -485,16 +511,16 @@ func (c *BlockChainClient) GetPendingPayments(ctx context.Context, addr ethCommo
 
 	amount, err := bind.Call(c.processorBoundContract,
 		&bind.CallOpts{Pending: false},
-		c.processorEndpoint.PackPayments(addr),
-		c.processorEndpoint.UnpackPayments)
+		c.processorEndpoint.PackPendingClaims(tokenAddress, addr),
+		c.processorEndpoint.UnpackPendingClaims)
 	if err != nil {
-		return nil, fmt.Errorf("cannot retrieve pending payments: %w", err)
+		return nil, fmt.Errorf("cannot retrieve pending claims: %w", err)
 	}
 	return amount, nil
 }
 
-// WithdrawPayments calls withdrawPayments on the ProcessorEndpoint contract for the given payee.
-func (c *BlockChainClient) WithdrawPayments(ctx context.Context, payee ethCommon.Address) error {
+// Claim calls claim on the ProcessorEndpoint contract for the given token and payee.
+func (c *BlockChainClient) Claim(ctx context.Context, tokenAddress ethCommon.Address, payee ethCommon.Address) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.account == nil {
@@ -505,7 +531,7 @@ func (c *BlockChainClient) WithdrawPayments(ctx context.Context, payee ethCommon
 	}
 
 	c.account.Value = nil
-	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackWithdrawPayments(payee))
+	return c.sendTxAndWaitMined(ctx, c.processorEndpoint.PackClaim(tokenAddress, payee))
 }
 
 func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {

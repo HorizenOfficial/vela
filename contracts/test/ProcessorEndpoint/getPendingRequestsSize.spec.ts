@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { deployProcessorEndpointFixture } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -26,7 +27,7 @@ describe('ProcessorEndpoint Test', function () {
         const protocolVersion = 0;
         const requestType = 1;
         const payload = '0x01';
-        const depositAmount = 0n;
+        const assetAmount = 0n;
         const maxFeeValue = minFeePerRequest;
 
         await processorEndpoint.submitRequest(
@@ -34,9 +35,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
 
         let size = await processorEndpoint.getPendingRequestsSize();
@@ -47,9 +49,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x02',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
 
         size = await processorEndpoint.getPendingRequestsSize();

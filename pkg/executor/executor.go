@@ -586,15 +586,17 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
+	var depositAppEvents []common.AppEvent
 	var totalFuel *big.Int = big.NewInt(0)
-	if req.DepositAmount.ToInt().Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.DepositAmount.ToInt(), tempState, wasmModule)
+	if req.AssetAmount.ToInt().Sign() > 0 {
+		newState, depEvents, depAppEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req, appState.StateRoot, failure)
 			return errorPayload, nil, nil, err
 		}
 		tempState = newState
 		depositEvents = depEvents
+		depositAppEvents = depAppEvents
 		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		e.log.Info("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
@@ -612,6 +614,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	var events []common.PlainEvent
+	var appEvents []common.AppEvent
 	var withdrawals []common.Withdrawal
 	var reportData []byte
 
@@ -629,11 +632,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload[:keyOnlyPayloadSize])
 		if err != nil {
-			e.log.Error("Executor: failed to parse keyP521 in request payload: %v", err)
-			errorPayload, err := e.processErrorResponse(req,
-				appState.StateRoot,
-				apperrors.New(apperrors.CodeParsingKeyError, "failed to parse keyP521 in request payload"))
-			return errorPayload, nil, nil, err
+			errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
+				apperrors.CodeParsingKeyError,
+				"failed to parse keyP521 in request payload", err)
+			return errorPayload, nil, nil, respErr
 		}
 
 		appData.AddKey(req.Sender, *keyToAssociate)
@@ -643,18 +645,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			encryptedSeed := req.Payload[keyOnlyPayloadSize:keyWithEncryptedSeedPayloadSize]
 			seed, err := crypto.Decrypt(keyToAssociate, &e.keySet.CommunicationKey, encryptedSeed)
 			if err != nil {
-				e.log.Error("Executor: seed decryption failed for request %s: %v", req.RequestID, err)
-				errorPayload, err := e.processErrorResponse(req,
-					appState.StateRoot,
-					apperrors.New(apperrors.CodeParsingKeyError, "seed decryption failed"))
-				return errorPayload, nil, nil, err
-			}
-			if err := VerifySeed(seed, req.Sender); err != nil {
-				e.log.Error("Executor: seed verification failed for request %s: %v", req.RequestID, err)
-				errorPayload, err := e.processErrorResponse(req,
-					appState.StateRoot,
-					apperrors.New(apperrors.CodeParsingKeyError, "seed verification failed"))
-				return errorPayload, nil, nil, err
+				errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
+					apperrors.CodeParsingKeyError,
+					"seed decryption failed", err)
+				return errorPayload, nil, nil, respErr
 			}
 			if err := appData.AddSeed(req.Sender, seed); err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to add seed for request %s: %w", req.RequestID, err)
@@ -675,7 +669,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
+		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req,
 				appState.StateRoot,
@@ -684,6 +678,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 		tempState = newState
 		events = reqEvents
+		appEvents = reqAppEvents
 		withdrawals = reqWithdrawals
 		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 
@@ -740,8 +735,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	//serialize the new app data
 	newAppData, err := appData.Serialize()
 	if err != nil {
-		errorPayload, err := e.processErrorResponse(req, appState.StateRoot, apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new app data"))
-		return errorPayload, nil, nil, err
+		errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
+			apperrors.CodeAppDataSerializationFailure,
+			"failed to serialize new app data", err)
+		return errorPayload, nil, nil, respErr
 	}
 
 	// Encrypt the new app data and events
@@ -752,6 +749,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
+	appEvents = append(depositAppEvents, appEvents...)
 	encryptedEvents, failure, err := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore(), appData.GetEventSeedStore())
 	if failure != nil {
 		errorPayload, err := e.processErrorResponse(req,
@@ -778,6 +776,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		PrevStateRoot:  appState.StateRoot,
 		NewStateRoot:   newStateRoot,
 		Events:         encryptedEvents,
+		AppEvents:      appEvents,
 		Withdrawals:    withdrawals,
 		RefundAmount:   common.ToBig(refundAmount),
 		ApplicationFee: common.ToBig(applicationFee),
@@ -858,12 +857,10 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 
 	descriptor, err := common.DecodeDeployDescriptorStrict(req.Payload)
 	if err != nil {
-		errorPayload, err := e.processErrorResponse(
-			req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeInternalFallback, deployDescriptorFailureMsg),
-		)
-		return errorPayload, nil, err
+		errorPayload, respErr := e.errorResponse(req, emptyStateRoot,
+			apperrors.CodeInternalFallback,
+			deployDescriptorFailureMsg, err)
+		return errorPayload, nil, respErr
 	}
 
 	if len(wasmModule) == 0 {
@@ -880,14 +877,17 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 		return nil, nil, fmt.Errorf("wasm fingerprint mismatch")
 	}
 
-	// Load the module and get initial state
-	initialAppState, fuel, err := e.runtime.LoadModule(ctx, req.ApplicationID, wasmModule)
+	// Deploy the module with constructor params and get initial state
+	initialAppState, fuel, err := e.runtime.Deploy(ctx, req.ApplicationID, descriptor.ConstructorParams, wasmModule)
 	if err != nil {
-
-		errorPayload, err := e.processErrorResponse(req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, deployLoadFailureMsg))
-		return errorPayload, nil, err
+		// The runtime's error message carries the specific failure mode
+		// (compile failure, invalid guest result, JSON parse error, etc.).
+		// errorResponse logs it locally and folds it into the signed-payload
+		// message so downstream consumers see more than just the error code.
+		errorPayload, respErr := e.errorResponse(req, emptyStateRoot,
+			apperrors.CodeFailedLoadingOrGettingModule,
+			deployLoadFailureMsg, err)
+		return errorPayload, nil, respErr
 	}
 
 	// Check if there is enough ETH to cover the fuel costs
@@ -920,10 +920,10 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	//serialize the new app data
 	initialAppDataBytes, err := initialAppData.Serialize()
 	if err != nil {
-		errorPayload, err := e.processErrorResponse(req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeAppDataSerializationFailure, "failed to serialize new app data"))
-		return errorPayload, nil, err
+		errorPayload, respErr := e.errorResponse(req, emptyStateRoot,
+			apperrors.CodeAppDataSerializationFailure,
+			"failed to serialize new app data", err)
+		return errorPayload, nil, respErr
 	}
 	// Create app data root hash
 	initialAppDataRoot := sha256.Sum256(initialAppDataBytes)
@@ -1004,6 +1004,7 @@ func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32
 		PrevStateRoot:  stateRoot,
 		NewStateRoot:   stateRoot,        // State unchanged on error
 		Events:         nil,              // Empty events on error
+		AppEvents:      nil,              // Empty appevents on error
 		Withdrawals:    nil,              // Empty withdrawals on error
 		RefundAmount:   req.MaxFeeValue,  // Refund and fees are calculated on chain
 		ApplicationFee: common.NewBig(0), // No application fee on error, but the actual fee handling is done on chain
@@ -1031,6 +1032,27 @@ func (e *StatelessExecutor) processErrorResponse(req *common.Request, stateRoot 
 	}
 	e.log.Info("Executor: Returning signed error payload for request %s (error code: %d)", req.RequestID, payload.ErrorCode)
 	return payload, nil
+}
+
+// errorResponse builds a signed error response from a failure code + base
+// message, optionally folding an underlying cause into both the Executor log
+// and the payload message. It exists so call sites don't have to remember to
+// log AND wrap the cause every time they construct an apperrors.RequestFailure.
+//
+// When cause is nil, this is equivalent to processErrorResponse with
+// apperrors.New(code, baseMsg). When cause is non-nil, it:
+//  1. logs the cause at Error level with request/app context, and
+//  2. appends ": <cause>" to baseMsg in the signed payload so downstream
+//     consumers (wallet, subgraph) see the specific failure, not just the
+//     generic error code category.
+func (e *StatelessExecutor) errorResponse(req *common.Request, stateRoot [32]byte, code apperrors.FailureCode, baseMsg string, cause error) (*common.UpdatePayload, error) {
+	msg := baseMsg
+	if cause != nil {
+		e.log.Error("Executor: request %s (app %d) failed (%s): %v",
+			req.RequestID, req.ApplicationID, code.Code, cause)
+		msg = fmt.Sprintf("%s: %v", baseMsg, cause)
+	}
+	return e.processErrorResponse(req, stateRoot, apperrors.New(code, msg))
 }
 
 // signUpdatePayload signs the update payload to produce an attestation

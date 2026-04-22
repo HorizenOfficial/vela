@@ -74,18 +74,20 @@ For WASM deploy v1, ensure these are configured consistently in `.env`:
 - **Contracts modified**: rebuild the deployer image, delete both volumes, and restart.
 
 ## Where to go next
-The system is up and running, and you can deploy the app with the v1 descriptor flow.
+The system is up and running, and you can deploy an app on-chain via the descriptor flow. Each deploy derives its own `applicationId` from the on-chain `requestId`, so there is no need to rename the WASM file or reserve a fixed id.
 
-Practical how-to for the `horizen-pes-nova` test app (Private transfer):
-- go to https://github.com/HorizenOfficial/vela-nova/releases/tag/v0.0.25
-- use payment_app.wasm (remember to rename to 1.wasm)
-- use the nova-linux wallet executable to launch the deploy command and interact with the app.
+Practical how-to for the `vela-nova` test app (Private transfer):
+- go to https://github.com/HorizenOfficial/vela-nova/releases/tag/v0.1.0
+- download `payment_app.wasm`
+- use the nova-linux wallet executable to submit the deploy and interact with the app:
 
     ```
     novaw deployapp --wasm /absolute/path/to/payment_app.wasm --max-value-fee "100 wei"
     ```
 
-If you submit deploys from a different wallet, grant it first with the ProcessorEndpoint management script (`contracts/scripts/management/addAllowedDeployer.ts`) using the admin account.
+The wallet uploads the WASM to the authority service (`POST /deploy/upload`) and submits the on-chain deploy request; the Manager picks it up, forwards the artifact to the Executor, and the TEE verifies the WASM fingerprint against the on-chain descriptor before loading the module.
+
+If you submit deploys from a different wallet, grant it first the `DEPLOYAPP` role with the ProcessorEndpoint management script (`contracts/scripts/management/addAllowedDeployer.ts`) using the admin account.
 
 Use `wallet.conf.template` as wallet config file, with the following properties set to connect to this dev environment:
 
@@ -96,5 +98,3 @@ TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
 AuthorityServiceURL=http://localhost:8081
 SubgraphURL=http://localhost:8000/subgraphs/name/hcce
 ```
-
-Current v1 limitation: deploy still targets `applicationId=1`.
