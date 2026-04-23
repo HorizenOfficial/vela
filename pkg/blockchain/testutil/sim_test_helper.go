@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,6 +52,7 @@ type SimTestHelper struct {
 	ManagerPrivKey           *ecdsa.PrivateKey
 	autoMining               bool
 	cancel                   context.CancelFunc
+	autoMineWG               sync.WaitGroup
 }
 
 func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
@@ -187,9 +189,15 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	helper.Deployer = helper.GenerateNewUser()
 	helper.ManagerAccount = helper.GenerateNewUser()
 
+	// Deployer funds user accounts (5 ETH each via CreateFundedAccount) AND
+	// pays gas for test setup (contract deploys, role grants, allowlist ops).
+	// 9 ETH was enough for single-user tests but runs out after the second
+	// CreateFundedAccount in multi-user scenarios. 100 ETH gives generous
+	// headroom without side effects — the value isn't asserted on anywhere.
+	deployerInitialBalance, _ := new(big.Int).SetString("100000000000000000000", 10) // 100 ETH
 	helper.sim = simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
 		helper.Submitter.From:      {Balance: big.NewInt(9e18)},
-		helper.Deployer.From:       {Balance: big.NewInt(9e18)},
+		helper.Deployer.From:       {Balance: deployerInitialBalance},
 		helper.ManagerAccount.From: {Balance: big.NewInt(9e18)},
 	})
 
@@ -212,18 +220,20 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 		ctx, cancel := context.WithCancel(context.Background())
 		helper.cancel = cancel
 
+		helper.autoMineWG.Add(1)
 		go func() {
+			defer helper.autoMineWG.Done()
 			fmt.Println("Auto mining enabled")
 			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
 			for {
 				select {
-				case <-ticker.C:
-					block := helper.sim.Commit()
-					fmt.Println("Mined block: ", block)
 				case <-ctx.Done():
 					fmt.Println("Shutting down auto mining")
 					return
+				case <-ticker.C:
+					block := helper.sim.Commit()
+					fmt.Println("Mined block: ", block)
 				}
 			}
 
@@ -355,13 +365,17 @@ func (s *SimTestHelper) GetDeployRequestSubmittedEvent(tx *ethTypes.Transaction)
 }
 
 func (s *SimTestHelper) Close() {
+	// Stop auto-mining FIRST and wait for the goroutine to exit, otherwise a
+	// ticker firing between sim.Close() and ctx cancellation calls Commit() on
+	// a nil SimulatedBeacon and panics.
+	if s.autoMining {
+		s.cancel()
+		s.autoMineWG.Wait()
+	}
+
 	if s.sim != nil {
 		err := s.sim.Close()
 		require.NoError(s.t, err, "failed to close simulated backend")
-	}
-
-	if s.autoMining {
-		s.cancel()
 	}
 }
 
