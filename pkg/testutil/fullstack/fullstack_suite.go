@@ -138,9 +138,11 @@ func (s *FullStackSystemTestSuite) CreateFundedAccount() (ethCommon.Address, *cr
 	account := bind.NewKeyedTransactor(privKey, chainID)
 	addr := account.From
 
-	// Fund the account with 5 ETH
+	// Fund the account with 5 ETH. Wait for the tx to be mined before
+	// returning — otherwise the caller's first user-signed tx can hit
+	// "insufficient funds for transfer" because the funding is still pending.
 	fundAmount := new(big.Int).Mul(big.NewInt(5), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
-	s.simHelper.TransferFunds(s.simHelper.Deployer, addr, fundAmount)
+	s.simHelper.WaitMined(s.simHelper.TransferFunds(s.simHelper.Deployer, addr, fundAmount))
 
 	s.userAccounts[addr] = account
 	return addr, &cryptotypes.PrivateKeySecp256k1{PrivateKey: privKey}, nil
@@ -154,9 +156,11 @@ func (s *FullStackSystemTestSuite) RegisterAccount(privKey *ecdsa.PrivateKey) et
 	account := bind.NewKeyedTransactor(privKey, chainID)
 	addr := account.From
 
-	// Fund the account with 5 ETH
+	// Fund the account with 5 ETH. Wait for the tx to be mined before
+	// returning — otherwise the caller's first user-signed tx can hit
+	// "insufficient funds for transfer" because the funding is still pending.
 	fundAmount := new(big.Int).Mul(big.NewInt(5), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
-	s.simHelper.TransferFunds(s.simHelper.Deployer, addr, fundAmount)
+	s.simHelper.WaitMined(s.simHelper.TransferFunds(s.simHelper.Deployer, addr, fundAmount))
 
 	s.userAccounts[addr] = account
 	return addr
