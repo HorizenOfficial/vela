@@ -190,11 +190,12 @@ func (s *InProcessSubgraph) GetUserEventsBySubTypes(_ context.Context, applicati
 	return filtered, nil
 }
 
-// GetAppEvents / GetAppEventsBySubTypes: stubs. InProcessSubgraph only records
-// UserEvents (encrypted, per-user) from the state-update path; app-level
-// events are not produced by the current fullstack test flows. If a future
-// test needs them, extend RecordStateUpdate to also populate an appEvents
-// slice and filter here identically to the UserEvent path.
+// GetAppEvents / GetAppEventsBySubTypes: stubs returning nil. RecordStateUpdate
+// currently ignores update.AppEvents — only UserEvents are indexed. The real
+// payment-app does emit AppEvents (transfer receipts when InvoiceID is set),
+// but no current fullstack test queries them, so the stubs are safe. When a
+// test needs AppEvent visibility, extend RecordStateUpdate to append them to a
+// new appEvents slice and filter here identically to the UserEvent path.
 func (s *InProcessSubgraph) GetAppEvents(_ context.Context, _ velacommon.ApplicationIdType, _ [32]byte, _ int, _ *big.Int) ([]subgraph.AppEvent, error) {
 	return nil, nil
 }

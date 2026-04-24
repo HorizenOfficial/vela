@@ -54,8 +54,10 @@ func TestAuthorityServiceNonceEndpoint(t *testing.T) {
 // TestAuthorityServiceGetReportRoundTrip exercises the full /nonce + /getreport
 // path end-to-end against an in-process authority, subgraph, and filesystem
 // reports dir. It synthesizes the report file and subgraph completion directly
-// (via InjectRequestCompleted) since Phase 3 does not drive a real deanonymize
-// request through the manager.
+// (via InjectRequestCompleted) so the test targets the HTTP/verification path
+// alone — no deanonymize request is driven through the manager here. For a
+// real round-trip through manager + executor, see TestDeanonymize_RealRoundTrip
+// in runtime/wasm-go/fullstack_tests.
 func TestAuthorityServiceGetReportRoundTrip(t *testing.T) {
 	if os.Getenv("CI_FLAG") != "" {
 		t.Skip("skipping fullstack test under CI_FLAG")

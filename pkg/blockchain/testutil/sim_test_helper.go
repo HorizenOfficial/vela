@@ -495,7 +495,9 @@ func (s *SimTestHelper) MintERC20(to ethCommon.Address, amount *big.Int) *ethTyp
 // ApproveERC20 calls MockERC20.approve(spender, amount) from `owner`. The
 // ProcessorEndpoint contract uses the resulting allowance to pull tokens via
 // transferFrom when the user later calls submitRequest with an ERC-20
-// assetAmount (option A of the Phase 5 flow: pre-approve, then deposit).
+// assetAmount. Tests call this to pre-approve before a deposit, since the
+// wallet's submitRequest path uses transferFrom and does not embed an
+// EIP-2612 permit.
 func (s *SimTestHelper) ApproveERC20(owner *bind.TransactOpts, spender ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
 	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before ApproveERC20")
 	tx, err := bind.Transact(
