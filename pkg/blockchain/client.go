@@ -435,11 +435,26 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	if c.account == nil {
 		return fmt.Errorf("client not configured for signing transactions")
 	}
-	events := make([][]byte, len(update.Events))
-	eventSubTypes := make([]string, len(update.Events))
+	userEvents := make([][]byte, len(update.Events))
+	userEventSubTypes := make([][32]byte, len(update.Events))
 	for i, event := range update.Events {
-		events[i] = event.EncryptedData
-		eventSubTypes[i] = event.EventSubType
+		userEvents[i] = event.EncryptedData
+		userEventSubTypes[i] = event.EventSubType
+	}
+	userEventData := processorendpoint.StructsEventData{
+		Events:   userEvents,
+		SubTypes: userEventSubTypes,
+	}
+
+	appEvents := make([][]byte, len(update.AppEvents))
+	appEventSubTypes := make([][32]byte, len(update.AppEvents))
+	for i, appEvent := range update.AppEvents {
+		appEvents[i] = appEvent.Data
+		appEventSubTypes[i] = appEvent.EventSubType
+	}
+	appEventData := processorendpoint.StructsEventData{
+		Events:   appEvents,
+		SubTypes: appEventSubTypes,
 	}
 
 	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
@@ -457,8 +472,8 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 		update.PrevStateRoot,
 		update.NewStateRoot,
 		update.RequestID,
-		events,
-		eventSubTypes,
+		userEventData,
+		appEventData,
 		withdrawals,
 		update.RefundAmount.ToInt(),
 		update.ApplicationFee.ToInt(),

@@ -272,17 +272,18 @@ func (s *TestSuiteCore) WaitForAppStateInDB(appID common.ApplicationIdType, time
 }
 
 // WaitForEvent waits for a specific event to be published for a user.
-// If eventSubType is empty, any subtype is accepted.
-func (s *TestSuiteCore) WaitForEvent(userID ethCommon.Address, eventSubType string, timeout time.Duration) (*common.Event, error) {
+// If eventSubType is the zero value, any subtype is accepted.
+func (s *TestSuiteCore) WaitForEvent(userID ethCommon.Address, eventSubType [32]byte, timeout time.Duration) (*common.Event, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	timeoutCh := time.After(timeout)
+	zero := [32]byte{}
 
 	for {
 		select {
 		case event := <-s.eventChannel:
-			if evt, ok := event.(common.Event); ok && evt.UserID == userID && (eventSubType == "" || evt.EventSubType == eventSubType) {
+			if evt, ok := event.(common.Event); ok && evt.UserID == userID && (eventSubType == zero || evt.EventSubType == eventSubType) {
 				s.log.Info("TESTING: Received event: %v", evt)
 				return &evt, nil
 			} else {
@@ -296,8 +297,8 @@ func (s *TestSuiteCore) WaitForEvent(userID ethCommon.Address, eventSubType stri
 
 // WaitForEventBySubtypes waits for an event for userID whose EventSubType is in validSubtypes.
 // Used for privacy-preserving subtype retrieval where the exact subtype is not known in advance.
-func (s *TestSuiteCore) WaitForEventBySubtypes(userID ethCommon.Address, validSubtypes []string, timeout time.Duration) (*common.Event, error) {
-	subtypeSet := make(map[string]struct{}, len(validSubtypes))
+func (s *TestSuiteCore) WaitForEventBySubtypes(userID ethCommon.Address, validSubtypes [][32]byte, timeout time.Duration) (*common.Event, error) {
+	subtypeSet := make(map[[32]byte]struct{}, len(validSubtypes))
 	for _, st := range validSubtypes {
 		subtypeSet[st] = struct{}{}
 	}

@@ -45,11 +45,19 @@ func (stubSubgraphClient) HealthCheck(context.Context) error {
 	return nil
 }
 
-func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdType, string, int, *big.Int) ([]subgraph.UserEvent, error) {
+func (stubSubgraphClient) GetUserEvents(context.Context, common.ApplicationIdType, [32]byte, int, *big.Int) ([]subgraph.UserEvent, error) {
 	return nil, nil
 }
 
-func (stubSubgraphClient) GetUserEventsBySubTypes(context.Context, common.ApplicationIdType, []string, int, *big.Int) ([]subgraph.UserEvent, error) {
+func (stubSubgraphClient) GetUserEventsBySubTypes(context.Context, common.ApplicationIdType, [][32]byte, int, *big.Int) ([]subgraph.UserEvent, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetAppEvents(context.Context, common.ApplicationIdType, [32]byte, int, *big.Int) ([]subgraph.AppEvent, error) {
+	return nil, nil
+}
+
+func (stubSubgraphClient) GetAppEventsBySubTypes(context.Context, common.ApplicationIdType, [][32]byte, int, *big.Int) ([]subgraph.AppEvent, error) {
 	return nil, nil
 }
 

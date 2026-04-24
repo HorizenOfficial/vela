@@ -32,11 +32,11 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 
 	eventsArgs := abi.Arguments{{Type: bytesArrayType}}
 
-	stringArrayType, err := abi.NewType("string[]", "", nil)
+	bytes32ArrayType, err := abi.NewType("bytes32[]", "", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failure creating string array type: %w", err)
+		return nil, fmt.Errorf("failure creating bytes32 array type: %w", err)
 	}
-	eventSubTypesArgs := abi.Arguments{{Type: stringArrayType}}
+	eventSubTypesArgs := abi.Arguments{{Type: bytes32ArrayType}}
 
 	WithdrawalRequestArrayType, err := abi.NewType("tuple[]", "", []abi.ArgumentMarshaling{
 		{Name: "tokenAddress", Type: "address"},
@@ -68,18 +68,21 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failure creating bytes32 type: %w", err)
 	}
+	// Order must match AbstractTeeAuthenticator.checkSignature in Solidity
 	msgArgs := abi.Arguments{
-		{Type: uint64Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-		{Type: bytes32Type},
-		{Type: uint256Type},
-		{Type: uint256Type},
-		{Type: uint8Type},
-		{Type: stringType},
+		{Type: uint64Type},  // applicationId
+		{Type: bytes32Type}, // prevStateRoot
+		{Type: bytes32Type}, // newStateRoot
+		{Type: bytes32Type}, // processedRequestId
+		{Type: bytes32Type}, // userEventsHash
+		{Type: bytes32Type}, // userEventSubTypesHash
+		{Type: bytes32Type}, // appEventsHash
+		{Type: bytes32Type}, // appEventSubTypesHash
+		{Type: bytes32Type}, // withdrawalRequestsHash
+		{Type: uint256Type}, // refundAmount
+		{Type: uint256Type}, // applicationFee
+		{Type: uint8Type},   // errorCode
+		{Type: stringType},  // errorMsg
 	}
 
 	msgBuilder := &MsgToSignBuilder{msgArgs: msgArgs, eventsArgs: eventsArgs, eventSubTypesArgs: eventSubTypesArgs, withdrawalsArgs: withdrawalsArgs}
@@ -89,7 +92,7 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
 
 	events := make([][]byte, len(updatePayload.Events))
-	eventSubTypes := make([]string, len(updatePayload.Events))
+	eventSubTypes := make([][32]byte, len(updatePayload.Events))
 	for i, event := range updatePayload.Events {
 		events[i] = event.EncryptedData
 		eventSubTypes[i] = event.EventSubType
@@ -108,6 +111,27 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	}
 	eventSubTypesHash := ethCrypto.Keccak256(encodedEventSubTypes)
 	var eventSubTypesArr [32]byte = [32]byte(eventSubTypesHash)
+
+	appEvents := make([][]byte, len(updatePayload.AppEvents))
+	appEventSubTypes := make([][32]byte, len(updatePayload.AppEvents))
+	for i, appEvent := range updatePayload.AppEvents {
+		appEvents[i] = appEvent.Data
+		appEventSubTypes[i] = appEvent.EventSubType
+	}
+
+	encodedAppEvents, err := b.eventsArgs.Pack(appEvents)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode app events: %w", err)
+	}
+	appEventsHash := ethCrypto.Keccak256(encodedAppEvents)
+	var appEventsArr [32]byte = [32]byte(appEventsHash)
+
+	encodedAppEventSubTypes, err := b.eventSubTypesArgs.Pack(appEventSubTypes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode app event subtypes: %w", err)
+	}
+	appEventSubTypesHash := ethCrypto.Keccak256(encodedAppEventSubTypes)
+	var appEventSubTypesArr [32]byte = [32]byte(appEventSubTypesHash)
 
 	withdrawals := make([]withdrawalTuple, len(updatePayload.Withdrawals))
 
@@ -128,18 +152,21 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	withdrawalHash := ethCrypto.Keccak256(encodedWithdrawal)
 	var withdrawalArr [32]byte = [32]byte(withdrawalHash)
 
+	// Order must match msgArgs above and AbstractTeeAuthenticator.checkSignature
 	values := []interface{}{
-		updatePayload.ApplicationID,
-		updatePayload.PrevStateRoot,
-		updatePayload.NewStateRoot,
-		updatePayload.RequestID,
-		eventArr,
-		eventSubTypesArr,
-		withdrawalArr,
-		updatePayload.RefundAmount.ToInt(),
-		updatePayload.ApplicationFee.ToInt(),
-		updatePayload.ErrorCode,
-		updatePayload.ErrorMsg,
+		updatePayload.ApplicationID,       // applicationId
+		updatePayload.PrevStateRoot,       // prevStateRoot
+		updatePayload.NewStateRoot,        // newStateRoot
+		updatePayload.RequestID,           // processedRequestId
+		eventArr,                          // userEventsHash
+		eventSubTypesArr,                  // userEventSubTypesHash
+		appEventsArr,                      // appEventsHash
+		appEventSubTypesArr,               // appEventSubTypesHash
+		withdrawalArr,                     // withdrawalRequestsHash
+		updatePayload.RefundAmount.ToInt(),  // refundAmount
+		updatePayload.ApplicationFee.ToInt(), // applicationFee
+		updatePayload.ErrorCode,           // errorCode
+		updatePayload.ErrorMsg,            // errorMsg
 	}
 
 	// Encoding parameters

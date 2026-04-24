@@ -586,15 +586,17 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
 	var depositEvents []common.PlainEvent
+	var depositAppEvents []common.AppEvent
 	var totalFuel *big.Int = big.NewInt(0)
 	if req.AssetAmount.ToInt().Sign() > 0 {
-		newState, depEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
+		newState, depEvents, depAppEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req, appState.StateRoot, failure)
 			return errorPayload, nil, nil, err
 		}
 		tempState = newState
 		depositEvents = depEvents
+		depositAppEvents = depAppEvents
 		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 		e.log.Info("Executor: Successfully processed deposit for request %s", req.RequestID)
 	}
@@ -612,6 +614,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	var events []common.PlainEvent
+	var appEvents []common.AppEvent
 	var withdrawals []common.Withdrawal
 	var reportData []byte
 
@@ -666,7 +669,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
+		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req,
 				appState.StateRoot,
@@ -675,6 +678,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		}
 		tempState = newState
 		events = reqEvents
+		appEvents = reqAppEvents
 		withdrawals = reqWithdrawals
 		totalFuel = totalFuel.Add(totalFuel, reqFuel)
 
@@ -745,6 +749,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 	// Encrypt events if they are not empty
 	events = append(depositEvents, events...)
+	appEvents = append(depositAppEvents, appEvents...)
 	encryptedEvents, failure, err := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore(), appData.GetEventSeedStore())
 	if failure != nil {
 		errorPayload, err := e.processErrorResponse(req,
@@ -771,6 +776,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		PrevStateRoot:  appState.StateRoot,
 		NewStateRoot:   newStateRoot,
 		Events:         encryptedEvents,
+		AppEvents:      appEvents,
 		Withdrawals:    withdrawals,
 		RefundAmount:   common.ToBig(refundAmount),
 		ApplicationFee: common.ToBig(applicationFee),
@@ -998,6 +1004,7 @@ func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32
 		PrevStateRoot:  stateRoot,
 		NewStateRoot:   stateRoot,        // State unchanged on error
 		Events:         nil,              // Empty events on error
+		AppEvents:      nil,              // Empty appevents on error
 		Withdrawals:    nil,              // Empty withdrawals on error
 		RefundAmount:   req.MaxFeeValue,  // Refund and fees are calculated on chain
 		ApplicationFee: common.NewBig(0), // No application fee on error, but the actual fee handling is done on chain
@@ -1034,10 +1041,10 @@ func (e *StatelessExecutor) processErrorResponse(req *common.Request, stateRoot 
 //
 // When cause is nil, this is equivalent to processErrorResponse with
 // apperrors.New(code, baseMsg). When cause is non-nil, it:
-//   1. logs the cause at Error level with request/app context, and
-//   2. appends ": <cause>" to baseMsg in the signed payload so downstream
-//      consumers (wallet, subgraph) see the specific failure, not just the
-//      generic error code category.
+//  1. logs the cause at Error level with request/app context, and
+//  2. appends ": <cause>" to baseMsg in the signed payload so downstream
+//     consumers (wallet, subgraph) see the specific failure, not just the
+//     generic error code category.
 func (e *StatelessExecutor) errorResponse(req *common.Request, stateRoot [32]byte, code apperrors.FailureCode, baseMsg string, cause error) (*common.UpdatePayload, error) {
 	msg := baseMsg
 	if cause != nil {

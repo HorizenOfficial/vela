@@ -259,6 +259,7 @@ func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayl
 		PrevStateRoot:  payload.PrevStateRoot,
 		NewStateRoot:   payload.NewStateRoot,
 		Events:         payload.Events,
+		AppEvents:      payload.AppEvents,
 		Withdrawals:    payload.Withdrawals,
 		RefundAmount:   payload.RefundAmount,
 		ApplicationFee: payload.ApplicationFee,

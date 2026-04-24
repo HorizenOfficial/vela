@@ -157,8 +157,23 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 
 	events := []types.PlainEvent{{
 		UserID:       *senderPtr,
-		EventSubType: "deposit",
+		EventSubType: SubTypeFromString("deposit"),
 		Data:         eventDataBytes,
+	}}
+
+	// App-level event: visible to everyone (not encrypted)
+	appEventData := DepositAppEvent{
+		TokenAddress: *tokenPtr,
+		Amount:       value,
+	}
+	appEventDataBytes, err := json.Marshal(appEventData)
+	if err != nil {
+		utils.LogError("DepositFunds: failed to serialize app event data: %v", err)
+		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize app event data: %+v, err: %v", appEventData, err)}
+	}
+	appEvents := []types.AppEvent{{
+		EventSubType: SubTypeFromString("deposit_received"),
+		Data:         appEventDataBytes,
 	}}
 
 	// Serialize the updated state
@@ -168,9 +183,9 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize new state: %v", err)}
 	}
 	fuel := types.NewUint256(35)
-	utils.LogDebug("DepositFunds: sender=%s, token=%s, value=%v, newBalance=%v, eventsCount=%d, stateSize=%d, fuel=%v",
-		senderHex, tokenHex, value, balance, len(events), len(newStateBytes), fuel)
-	return types.DepositResult{State: newStateBytes, Events: events, Fuel: fuel}
+	utils.LogDebug("DepositFunds: sender=%s, token=%s, value=%v, newBalance=%v, eventsCount=%d, appEventsCount=%d, stateSize=%d, fuel=%v",
+		senderHex, tokenHex, value, balance, len(events), len(appEvents), len(newStateBytes), fuel)
+	return types.DepositResult{State: newStateBytes, Events: events, AppEvents: appEvents, Fuel: fuel}
 }
 
 func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, stateJSON string) types.ProcessResult {
@@ -271,7 +286,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 
 			events = append(events, types.PlainEvent{
 				UserID:       sender,
-				EventSubType: "compare_accounts",
+				EventSubType: SubTypeFromString("compare_accounts"),
 				Data:         eventDataBytes,
 			})
 
@@ -331,7 +346,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 
 			events = append(events, types.PlainEvent{
 				UserID:       sender,
-				EventSubType: "withdrawal",
+				EventSubType: SubTypeFromString("withdrawal"),
 				Data:         withdrawEventDataBytes,
 			})
 

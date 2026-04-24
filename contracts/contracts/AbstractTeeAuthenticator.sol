@@ -23,8 +23,10 @@ abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
   ) external view returns (bool) {
     if (getTeeSigner() == address(0) || getPubSecp521r1().length != PK_LENGTH) revert TeeIsNotSet();
 
-    bytes32 eventsHash = keccak256(abi.encode(params.events));
-    bytes32 eventSubTypesHash = keccak256(abi.encode(params.eventSubTypes));
+    bytes32 userEventsHash = keccak256(abi.encode(params.userEvents.events));
+    bytes32 userEventSubTypesHash = keccak256(abi.encode(params.userEvents.subTypes));
+    bytes32 appEventsHash = keccak256(abi.encode(params.appEvents.events));
+    bytes32 appEventSubTypesHash = keccak256(abi.encode(params.appEvents.subTypes));
     bytes32 withdrawalRequestsHash = keccak256(abi.encode(params.withdrawalRequests));
 
     bytes32 messageHash = keccak256(
@@ -33,8 +35,10 @@ abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
         params.prevStateRoot,
         params.newStateRoot,
         params.processedRequestId,
-        eventsHash,
-        eventSubTypesHash,
+        userEventsHash,
+        userEventSubTypesHash,
+        appEventsHash,
+        appEventSubTypesHash,
         withdrawalRequestsHash,
         params.refundAmount,
         params.applicationFee,

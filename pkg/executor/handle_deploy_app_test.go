@@ -177,12 +177,12 @@ func (r *failingRuntime) Deploy(_ context.Context, _ common.ApplicationIdType, _
 	return nil, big.NewInt(0), fmt.Errorf("wasm compilation failed")
 }
 
-func (r *failingRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ ethCommon.Address, _ *big.Int, _ []byte, _ []byte) ([]byte, []common.PlainEvent, *big.Int, *apperrors.RequestFailure) {
-	return nil, nil, big.NewInt(0), nil
+func (r *failingRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ ethCommon.Address, _ *big.Int, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.AppEvent, *big.Int, *apperrors.RequestFailure) {
+	return nil, nil, nil, big.NewInt(0), nil
 }
 
-func (r *failingRuntime) ProcessRequest(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ common.RequestType, _ []byte, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
-	return nil, nil, nil, nil, big.NewInt(0), nil
+func (r *failingRuntime) ProcessRequest(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ common.RequestType, _ []byte, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	return nil, nil, nil, nil, nil, big.NewInt(0), nil
 }
 
 func (r *failingRuntime) Close() error { return nil }

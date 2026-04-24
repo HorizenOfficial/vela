@@ -27,7 +27,7 @@ describe('ProcessorEndpoint Test', function () {
     ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
-  function getUserEvents(processorEndpointInstance: any, receipt: any) {
+  function getEventsByName(processorEndpointInstance: any, receipt: any, eventName: string) {
     return receipt.logs
       .map((log: any) => {
         try {
@@ -36,7 +36,15 @@ describe('ProcessorEndpoint Test', function () {
           return null;
         }
       })
-      .filter((parsed: any) => parsed && parsed.name === 'UserEvent');
+      .filter((parsed: any) => parsed && parsed.name === eventName);
+  }
+
+  function getUserEvents(processorEndpointInstance: any, receipt: any) {
+    return getEventsByName(processorEndpointInstance, receipt, 'UserEvent');
+  }
+
+  function getAppEvents(processorEndpointInstance: any, receipt: any) {
+    return getEventsByName(processorEndpointInstance, receipt, 'AppEvent');
   }
 
   async function submitRequest(
@@ -116,8 +124,8 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '11'.repeat(32),
               request.requestId,
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
               0,
               minFeePerRequest,
@@ -137,8 +145,8 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '11'.repeat(32),
               '0x' + '00'.repeat(32),
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
               0,
               minFeePerRequest,
@@ -168,8 +176,8 @@ describe('ProcessorEndpoint Test', function () {
               prevStateRoot,
               newStateRoot,
               request.requestId,
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
               0,
               minFeePerRequest,
@@ -199,8 +207,8 @@ describe('ProcessorEndpoint Test', function () {
             INITIAL_STATE_ROOT,
             '0x' + '22'.repeat(32),
             first.requestId,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             minFeePerRequest,
@@ -225,8 +233,8 @@ describe('ProcessorEndpoint Test', function () {
               BYTES32_ZERO,
               '0x' + '33'.repeat(32),
               second.requestId,
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
               0,
               minFeePerRequest,
@@ -255,8 +263,8 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '44'.repeat(32),
               second.requestId,
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
               0,
               minFeePerRequest,
@@ -267,7 +275,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestId');
       });
 
-      it('reverts with InvalidPayload when events and eventSubTypes length mismatch', async () => {
+      it('reverts with InvalidPayload when userEventData events and subTypes length mismatch', async () => {
         const request = await submitRequest(
           processorEndpoint,
           signers[0],
@@ -284,8 +292,37 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '55'.repeat(32),
               request.requestId,
-              ['0x01'],
+              { events: ['0x01'], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
+              0,
+              minFeePerRequest,
+              0,
+              '',
+              '0x'
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
+      });
+
+      it('reverts with InvalidPayload when appEventData events and subTypes length mismatch', async () => {
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x0500',
+          0n,
+          minFeePerRequest
+        );
+
+        await expect(
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              applicationId,
+              INITIAL_STATE_ROOT,
+              '0x' + '55'.repeat(32),
+              request.requestId,
+              { events: [], subTypes: [] },
+              { events: ['0x01'], subTypes: [] },
               [],
               0,
               minFeePerRequest,
@@ -316,6 +353,8 @@ describe('ProcessorEndpoint Test', function () {
           [],
           [],
           [],
+          [],
+          [],
           0,
           fixture.minFeePerRequest
         );
@@ -328,8 +367,8 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '66'.repeat(32),
               request.requestId,
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
               0,
               fixture.minFeePerRequest,
@@ -359,7 +398,9 @@ describe('ProcessorEndpoint Test', function () {
           '0x' + '77'.repeat(32),
           request.requestId,
           events,
-          ['typeA'],
+          [ethers.encodeBytes32String('typeA')],
+          [],
+          [],
           [],
           0,
           fixture.minFeePerRequest
@@ -373,8 +414,8 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '77'.repeat(32),
               request.requestId,
-              events,
-              ['typeB'],
+              { events: events, subTypes: [ethers.encodeBytes32String('typeB')] },
+              { events: [], subTypes: [] },
               [],
               0,
               fixture.minFeePerRequest,
@@ -402,8 +443,8 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '88'.repeat(32),
               request.requestId,
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
               1,
               minFeePerRequest,
@@ -427,8 +468,8 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + '99'.repeat(32),
               request.requestId,
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [],
               maxFeeValue - applicationFees,
               applicationFees,
@@ -456,8 +497,8 @@ describe('ProcessorEndpoint Test', function () {
               INITIAL_STATE_ROOT,
               '0x' + 'aa'.repeat(32),
               request.requestId,
-              [],
-              [],
+              { events: [], subTypes: [] },
+              { events: [], subTypes: [] },
               [[ETH_TOKEN, await signers[2].getAddress(), 1]],
               0,
               minFeePerRequest,
@@ -491,6 +532,8 @@ describe('ProcessorEndpoint Test', function () {
           [],
           [],
           [],
+          [],
+          [],
           0,
           fixture.minFeePerRequest
         );
@@ -502,8 +545,8 @@ describe('ProcessorEndpoint Test', function () {
             INITIAL_STATE_ROOT,
             newStateRoot,
             request.requestId,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             fixture.minFeePerRequest,
@@ -562,8 +605,11 @@ describe('ProcessorEndpoint Test', function () {
           INITIAL_STATE_ROOT,
           '0x' + 'ff'.repeat(32),
           request.requestId,
-          ['0xaa', '0xbb'],
-          ['A', 'B'],
+          {
+            events: ['0xaa', '0xbb'],
+            subTypes: [ethers.encodeBytes32String('A'), ethers.encodeBytes32String('B')],
+          },
+          { events: [], subTypes: [] },
           [
             [ETH_TOKEN, withdrawalA, withdrawalAAmount],
             [ETH_TOKEN, withdrawalB, withdrawalBAmount],
@@ -586,7 +632,10 @@ describe('ProcessorEndpoint Test', function () {
         });
         const eventPayloads = userEvents.map((event: any) => event.args.encryptedData);
         expect(userEvents.length).to.equal(2);
-        expect(eventSubTypes).to.have.members([ethers.id('A'), ethers.id('B')]);
+        expect(eventSubTypes).to.have.members([
+          ethers.encodeBytes32String('A'),
+          ethers.encodeBytes32String('B'),
+        ]);
         expect(eventPayloads).to.have.members(['0xaa', '0xbb']);
         await expect(tx)
           .to.emit(processorEndpoint, 'Refund')
@@ -631,22 +680,23 @@ describe('ProcessorEndpoint Test', function () {
           minFeePerRequest
         );
 
-        const tx = await processorEndpoint
-          .connect(signers[1])
-          .stateUpdate(
-            applicationId,
-            INITIAL_STATE_ROOT,
-            '0x' + '10'.repeat(32),
-            request.requestId,
-            ['0x11', '0x22'],
-            ['type1', 'type2'],
-            [],
-            0,
-            minFeePerRequest,
-            0,
-            '',
-            '0x'
-          );
+        const tx = await processorEndpoint.connect(signers[1]).stateUpdate(
+          applicationId,
+          INITIAL_STATE_ROOT,
+          '0x' + '10'.repeat(32),
+          request.requestId,
+          {
+            events: ['0x11', '0x22'],
+            subTypes: [ethers.encodeBytes32String('type1'), ethers.encodeBytes32String('type2')],
+          },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
 
         const receipt = await tx.wait();
         const userEvents = getUserEvents(processorEndpoint, receipt);
@@ -656,7 +706,10 @@ describe('ProcessorEndpoint Test', function () {
         });
         const eventPayloads = userEvents.map((event: any) => event.args.encryptedData);
         expect(userEvents.length).to.equal(2);
-        expect(eventSubTypes).to.have.members([ethers.id('type1'), ethers.id('type2')]);
+        expect(eventSubTypes).to.have.members([
+          ethers.encodeBytes32String('type1'),
+          ethers.encodeBytes32String('type2'),
+        ]);
         expect(eventPayloads).to.have.members(['0x11', '0x22']);
       });
 
@@ -677,8 +730,8 @@ describe('ProcessorEndpoint Test', function () {
             INITIAL_STATE_ROOT,
             newStateRoot,
             request.requestId,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             minFeePerRequest,
@@ -707,8 +760,8 @@ describe('ProcessorEndpoint Test', function () {
             INITIAL_STATE_ROOT,
             '0x' + '15'.repeat(32),
             request.requestId,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             minFeePerRequest,
@@ -718,6 +771,80 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         await expect(tx).not.to.emit(processorEndpoint, 'Refund');
+      });
+
+      it('emits AppEvent for provided appEventData', async () => {
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x16',
+          0n,
+          minFeePerRequest
+        );
+
+        const tx = await processorEndpoint.connect(signers[1]).stateUpdate(
+          applicationId,
+          INITIAL_STATE_ROOT,
+          '0x' + '16'.repeat(32),
+          request.requestId,
+          { events: [], subTypes: [] },
+          {
+            events: ['0x33', '0x44'],
+            subTypes: [
+              ethers.encodeBytes32String('appType1'),
+              ethers.encodeBytes32String('appType2'),
+            ],
+          },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
+
+        const receipt = await tx.wait();
+        const appEvents = getAppEvents(processorEndpoint, receipt);
+        const eventSubTypes = appEvents.map((event: any) => {
+          const subType = event.args.eventSubType;
+          return typeof subType === 'string' ? subType : subType.hash;
+        });
+        const eventPayloads = appEvents.map((event: any) => event.args.data);
+        expect(appEvents.length).to.equal(2);
+        expect(eventSubTypes).to.have.members([
+          ethers.encodeBytes32String('appType1'),
+          ethers.encodeBytes32String('appType2'),
+        ]);
+        expect(eventPayloads).to.have.members(['0x33', '0x44']);
+      });
+
+      it('reverts with InvalidPayload when appEventData is non-empty on error path', async () => {
+        const request = await submitRequest(
+          processorEndpoint,
+          signers[0],
+          '0x17',
+          0n,
+          minFeePerRequest
+        );
+
+        await expect(
+          processorEndpoint
+            .connect(signers[1])
+            .stateUpdate(
+              applicationId,
+              INITIAL_STATE_ROOT,
+              INITIAL_STATE_ROOT,
+              request.requestId,
+              { events: [], subTypes: [] },
+              { events: ['0xdeadbeef'], subTypes: [ethers.encodeBytes32String('subtype')] },
+              [],
+              0,
+              0,
+              1,
+              'err',
+              '0x'
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
       });
     });
   });

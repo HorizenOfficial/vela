@@ -32,6 +32,18 @@ type UserEvent @entity(immutable: true) {
   blockTimestamp: BigInt!
 }
 
+type AppEvent @entity(immutable: true) {
+  id: ID!
+  applicationId: BigInt!
+  requestId: Bytes!
+  eventSubType: Bytes!
+  data: Bytes!
+  blockNumber: BigInt!
+  logIndex: BigInt!
+  sortKey: BigInt!
+  blockTimestamp: BigInt!
+}
+
 type DeployRequestSubmitted @entity(immutable: true) {
   id: ID!
   applicationId: BigInt!

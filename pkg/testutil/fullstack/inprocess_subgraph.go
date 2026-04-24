@@ -141,19 +141,19 @@ func (s *InProcessSubgraph) GetDeployRequestCompletedByID(_ context.Context, req
 	return rc, nil
 }
 
-func (s *InProcessSubgraph) GetUserEvents(ctx context.Context, applicationID velacommon.ApplicationIdType, eventSubType string, limit int, before *big.Int) ([]subgraph.UserEvent, error) {
-	var subTypes []string
-	if eventSubType != "" {
-		subTypes = []string{eventSubType}
+func (s *InProcessSubgraph) GetUserEvents(ctx context.Context, applicationID velacommon.ApplicationIdType, eventSubType [32]byte, limit int, before *big.Int) ([]subgraph.UserEvent, error) {
+	var subTypes [][32]byte
+	if eventSubType != ([32]byte{}) {
+		subTypes = [][32]byte{eventSubType}
 	}
 	return s.GetUserEventsBySubTypes(ctx, applicationID, subTypes, limit, before)
 }
 
-func (s *InProcessSubgraph) GetUserEventsBySubTypes(_ context.Context, applicationID velacommon.ApplicationIdType, eventSubTypes []string, limit int, before *big.Int) ([]subgraph.UserEvent, error) {
+func (s *InProcessSubgraph) GetUserEventsBySubTypes(_ context.Context, applicationID velacommon.ApplicationIdType, eventSubTypes [][32]byte, limit int, before *big.Int) ([]subgraph.UserEvent, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	subtypeSet := make(map[string]bool, len(eventSubTypes))
+	subtypeSet := make(map[[32]byte]bool, len(eventSubTypes))
 	for _, st := range eventSubTypes {
 		subtypeSet[st] = true
 	}
@@ -188,6 +188,19 @@ func (s *InProcessSubgraph) GetUserEventsBySubTypes(_ context.Context, applicati
 	}
 
 	return filtered, nil
+}
+
+// GetAppEvents / GetAppEventsBySubTypes: stubs. InProcessSubgraph only records
+// UserEvents (encrypted, per-user) from the state-update path; app-level
+// events are not produced by the current fullstack test flows. If a future
+// test needs them, extend RecordStateUpdate to also populate an appEvents
+// slice and filter here identically to the UserEvent path.
+func (s *InProcessSubgraph) GetAppEvents(_ context.Context, _ velacommon.ApplicationIdType, _ [32]byte, _ int, _ *big.Int) ([]subgraph.AppEvent, error) {
+	return nil, nil
+}
+
+func (s *InProcessSubgraph) GetAppEventsBySubTypes(_ context.Context, _ velacommon.ApplicationIdType, _ [][32]byte, _ int, _ *big.Int) ([]subgraph.AppEvent, error) {
+	return nil, nil
 }
 
 func (s *InProcessSubgraph) GetRefunds(_ context.Context, _ velacommon.ApplicationIdType, _ *velacommon.RequestIdType, _ int) ([]subgraph.OnChainRefund, error) {

@@ -94,8 +94,19 @@ interface IProcessorEndpoint {
   event UserEvent(
     uint64 indexed applicationId,
     bytes32 indexed requestId,
-    string indexed eventSubType,
+    bytes32 indexed eventSubType,
     bytes encryptedData
+  );
+  /// @notice Emitted for application-level (non-encrypted) events.
+  /// @param applicationId Application identifier.
+  /// @param requestId Request identifier.
+  /// @param eventSubType Application event subtype.
+  /// @param data Unencrypted payload.
+  event AppEvent(
+    uint64 indexed applicationId,
+    bytes32 indexed requestId,
+    bytes32 indexed eventSubType,
+    bytes data
   );
   /// @notice Emitted when the state root is updated.
   /// @param applicationId Application identifier.
@@ -249,8 +260,8 @@ interface IProcessorEndpoint {
   /// @param prevStateRoot Previous state root.
   /// @param newStateRoot New state root.
   /// @param processedRequestId Request identifier being processed.
-  /// @param events Encrypted event payloads.
-  /// @param eventSubTypes Event subtype labels.
+  /// @param userEventData Encrypted user events and their subtypes.
+  /// @param appEventData Application-level (non-encrypted) events and their subtypes.
   /// @param withdrawalRequests Withdrawal requests to execute.
   /// @param refund Refund amount to the request sender.
   /// @param applicationFees Fee amount to the collector.
@@ -262,8 +273,8 @@ interface IProcessorEndpoint {
     bytes32 prevStateRoot,
     bytes32 newStateRoot,
     bytes32 processedRequestId,
-    bytes[] calldata events,
-    string[] calldata eventSubTypes,
+    Structs.EventData calldata userEventData,
+    Structs.EventData calldata appEventData,
     Structs.WithdrawalRequest[] calldata withdrawalRequests,
     uint256 refund,
     uint256 applicationFees,
