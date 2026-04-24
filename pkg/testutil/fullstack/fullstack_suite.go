@@ -409,6 +409,31 @@ func (s *FullStackSystemTestSuite) AssertNoStateUpdateErrors(t *testing.T) {
 	}
 }
 
+// SubmitStateUpdateAsManager builds a fresh blockchain.Client bound to the
+// manager's TransactOpts (same account the running manager uses) and
+// submits the state update, returning the on-chain error. Used by
+// negative-path tests that need to verify contract-side checks downstream
+// of the UPDATE_STATUS_ROLE gate — e.g. the prevStateRoot comparison —
+// where the caller must hold the role for the test to reach the target
+// check. The manager's key stays internal; the test expresses only the
+// capability "submit as manager" without handling the credential.
+//
+// Callers must typically StopManager first to avoid nonce contention
+// between the running manager's polling loop and this direct submission.
+// Like SubmitStateUpdateAs, this path deliberately bypasses the wrapped
+// eventBroadcastingClient so captured errors do NOT land in its
+// stateUpdateErrors channel.
+func (s *FullStackSystemTestSuite) SubmitStateUpdateAsManager(update *common.UpdatePayload) error {
+	client := blockchain.SetupNewBlockChainClientConnected(
+		s.simHelper.Client(),
+		s.simHelper.ProcessorContractAddress,
+		s.simHelper.TeeSignerAddress,
+		s.simHelper.ManagerAccount,
+	)
+	defer client.Close()
+	return client.SubmitStateUpdate(context.Background(), update)
+}
+
 // SubmitStateUpdateAs builds a fresh blockchain.Client bound to signerKey
 // and calls SubmitStateUpdate directly with the given payload. Returns the
 // on-chain error (typically the revert reason, surfaced via the existing

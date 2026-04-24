@@ -56,13 +56,19 @@ type SimTestHelper struct {
 }
 
 func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
-	// Since we are using a simulated backend, we will get the chain ID
-	// from the same place that the simulated backend gets it.
-	chainID := params.AllDevChainProtocolChanges.ChainID
+	opts, _ := s.generateNewUserWithKey()
+	return opts
+}
 
+// generateNewUserWithKey is like GenerateNewUser but also returns the raw
+// private key for callers that need to sign payloads directly (not just
+// send contract txs through the TransactOpts). Used internally so the
+// manager's private key can be stashed on SimTestHelper.ManagerPrivKey.
+func (s *SimTestHelper) generateNewUserWithKey() (*bind.TransactOpts, *ecdsa.PrivateKey) {
+	chainID := params.AllDevChainProtocolChanges.ChainID
 	userPrivateKey, err := ethCrypto.GenerateKey()
 	require.NoError(s.t, err, "failed to generate user private key")
-	return bind.NewKeyedTransactor(userPrivateKey, chainID)
+	return bind.NewKeyedTransactor(userPrivateKey, chainID), userPrivateKey
 }
 
 func (s *SimTestHelper) Client() simulated.Client {
@@ -187,7 +193,10 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 
 	helper.Submitter = helper.GenerateNewUser()
 	helper.Deployer = helper.GenerateNewUser()
-	helper.ManagerAccount = helper.GenerateNewUser()
+	// Capture the manager's private key too — some tests need to sign
+	// payloads (e.g. forge a state update for the InvalidStateRoot negative
+	// test) rather than only submit contract txs.
+	helper.ManagerAccount, helper.ManagerPrivKey = helper.generateNewUserWithKey()
 
 	// Deployer funds user accounts (5 ETH each via CreateFundedAccount) AND
 	// pays gas for test setup (contract deploys, role grants, allowlist ops).
