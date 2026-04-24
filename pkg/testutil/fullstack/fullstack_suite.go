@@ -66,6 +66,56 @@ func NewFullStackSystemTestSuiteWithConfigs(
 	mgrLogCfg *logger.Config,
 	excLogCfg *logger.Config,
 ) *FullStackSystemTestSuite {
+	return newFullStackSuiteInternal(t, appType, mgrConfig, execConfig, keySet, recoveryData, mgrLogCfg, excLogCfg, nil)
+}
+
+// NewFullStackSystemTestSuiteWithTeeSigner is the attestation-rejection variant
+// constructor: it registers teeSignerOverride as the contract's expected TEE
+// signer while the executor still uses its REAL signing key. Because the two
+// addresses differ, every on-chain stateUpdate's signature recovers to an
+// address that does NOT match the registered signer, and
+// teeAuthenticator.checkSignature returns false, which triggers
+// ProcessorEndpoint's InvalidSignature revert. Use this to prove the
+// TEE-verify wiring is actually enforced end-to-end — a regression that
+// removed or short-circuited the check would pass every other fullstack test
+// but fail this one.
+//
+// The executor's real comm pubkey is still registered on-chain, so wallet
+// payload encryption works normally and the test exercises the rejection
+// path (not a pre-flight encryption failure).
+func NewFullStackSystemTestSuiteWithTeeSigner(
+	t *testing.T,
+	appType string,
+	mgrLogCfg *logger.Config,
+	excLogCfg *logger.Config,
+	teeSignerOverride *ethCommon.Address,
+) *FullStackSystemTestSuite {
+	mgrConfig, err := manager.LoadConfig()
+	require.NoError(t, err)
+	execConfig, err := executor.LoadConfig()
+	require.NoError(t, err)
+	ctx := context.Background()
+	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
+	require.NoError(t, err)
+	return newFullStackSuiteInternal(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLogCfg, excLogCfg, teeSignerOverride)
+}
+
+// newFullStackSuiteInternal is the shared body for the public constructors.
+// teeSignerOverride being nil means "register the real signer derived from
+// the executor's signing key" (the normal path); non-nil means "register
+// this override instead, while still using the real keyset for the
+// executor" — the attestation-rejection path.
+func newFullStackSuiteInternal(
+	t *testing.T,
+	appType string,
+	mgrConfig *manager.Config,
+	execConfig *executor.Config,
+	keySet *executor.EnclaveKeySet,
+	recoveryData *common.EnclaveKeySetRecovery,
+	mgrLogCfg *logger.Config,
+	excLogCfg *logger.Config,
+	teeSignerOverride *ethCommon.Address,
+) *FullStackSystemTestSuite {
 	// Deploy the mock TEE authenticator pre-populated with the executor's real
 	// signing address and P521 communication pubkey. The MockTeeAuthenticator
 	// has no setter (its constructor is the only way to set pubSecp521r1), so
@@ -73,10 +123,26 @@ func NewFullStackSystemTestSuiteWithConfigs(
 	// GetTeePublicKey returns 133 zero bytes and wallet flows that encrypt
 	// payloads (RegisterUser, Deposit) fail with "invalid public key".
 	teeSignerAddr := ethCrypto.PubkeyToAddress(*keySet.SigningKey.PublicKey().PublicKey)
+	// Default: deploy the MockTeeAuthenticator (checkSignature always
+	// returns true — convenient for the happy-path suite). The rejection
+	// variant needs the NoAttestationTeeAuthenticator, which inherits the
+	// real ECDSA recover+compare logic, so we switch contracts when an
+	// override signer is supplied.
+	useMockTeeAuth := true
+	if teeSignerOverride != nil {
+		// The contract is told to expect the override, but the executor
+		// keeps its real signing key — so every stateUpdate signature
+		// recovers to an address that does NOT match the registered signer,
+		// and the authenticator rejects it. The real comm pubkey is kept
+		// so payload encryption still works (we want to reach the sig
+		// check, not fail earlier at encrypt).
+		teeSignerAddr = *teeSignerOverride
+		useMockTeeAuth = false
+	}
 	teePubKeyBytes := keySet.CommunicationKey.PublicKey().Bytes()
 
 	// Create SimTestHelper with auto-mining enabled (mines every 1s)
-	simHelper := blockchainTestutil.NewSimTestHelper(t, true, true, &teeSignerAddr, teePubKeyBytes)
+	simHelper := blockchainTestutil.NewSimTestHelper(t, true, useMockTeeAuth, &teeSignerAddr, teePubKeyBytes)
 
 	// Create a real BlockChainClient connected to the simulated backend
 	realClient := blockchain.SetupNewBlockChainClientConnected(
@@ -314,6 +380,16 @@ func (s *FullStackSystemTestSuite) WaitForWithdrawal(appID common.ApplicationIdT
 // as intercepted by the event-broadcasting wrapper.
 func (s *FullStackSystemTestSuite) GetRequestUpdatePayload(reqId common.RequestIdType) (*common.UpdatePayload, error) {
 	return s.wrappedClient.getUpdatePayload(reqId)
+}
+
+// WaitForStateUpdateError blocks up to `timeout` for the underlying
+// blockchain client's SubmitStateUpdate to return an error (typically an
+// on-chain revert reason). The second return value reports whether an
+// error arrived in that window. Intended for negative-path tests that
+// need to pin down the specific revert reason rather than waiting for an
+// outer polling timeout.
+func (s *FullStackSystemTestSuite) WaitForStateUpdateError(timeout time.Duration) (error, bool) {
+	return s.wrappedClient.waitForStateUpdateError(timeout)
 }
 
 // GetAppCustody queries the on-chain appCustody for an application and token.

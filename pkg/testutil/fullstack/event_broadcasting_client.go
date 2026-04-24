@@ -17,7 +17,10 @@ import (
 //     does (DeployRequestCompleted vs RequestCompleted).
 //   - SubmitStateUpdate — to broadcast events, track completions, store
 //     update payloads, accumulate withdrawals, and notify the in-process
-//     subgraph.
+//     subgraph. Errors from the underlying call are also captured on a
+//     channel so negative-path tests (e.g., TEE attestation rejection) can
+//     assert on the exact revert reason rather than waiting for an outer
+//     timeout.
 //
 // All other Client methods are delegated to the underlying client unchanged.
 type eventBroadcastingClient struct {
@@ -32,6 +35,12 @@ type eventBroadcastingClient struct {
 	updatePayloads map[common.RequestIdType]*common.UpdatePayload
 	withdrawals    map[common.ApplicationIdType][]common.Withdrawal
 
+	// stateUpdateErrors buffers errors returned by the underlying
+	// SubmitStateUpdate. Non-blocking send: if the channel is full, older
+	// errors are kept and the new one is dropped (so the manager's polling
+	// loop is never blocked). Tests drain via WaitForStateUpdateError.
+	stateUpdateErrors chan error
+
 	// onStateUpdate is called after each successful SubmitStateUpdate.
 	// Used by InProcessSubgraph to record data for wallet queries.
 	onStateUpdate func(update *common.UpdatePayload, isDeploy bool)
@@ -39,14 +48,15 @@ type eventBroadcastingClient struct {
 
 func newEventBroadcastingClient(inner blockchain.Client, eventCh chan<- interface{}) *eventBroadcastingClient {
 	return &eventBroadcastingClient{
-		Client:         inner,
-		eventChannel:   eventCh,
-		pendingIDs:     make(map[common.RequestIdType]struct{}),
-		requestTypes:   make(map[common.RequestIdType]common.RequestType),
-		completedIDs:   make(map[common.RequestIdType]struct{}),
-		failedIDs:      make(map[common.RequestIdType]struct{}),
-		updatePayloads: make(map[common.RequestIdType]*common.UpdatePayload),
-		withdrawals:    make(map[common.ApplicationIdType][]common.Withdrawal),
+		Client:            inner,
+		eventChannel:      eventCh,
+		pendingIDs:        make(map[common.RequestIdType]struct{}),
+		requestTypes:      make(map[common.RequestIdType]common.RequestType),
+		completedIDs:      make(map[common.RequestIdType]struct{}),
+		failedIDs:         make(map[common.RequestIdType]struct{}),
+		updatePayloads:    make(map[common.RequestIdType]*common.UpdatePayload),
+		withdrawals:       make(map[common.ApplicationIdType][]common.Withdrawal),
+		stateUpdateErrors: make(chan error, 16),
 	}
 }
 
@@ -82,6 +92,12 @@ func (c *eventBroadcastingClient) SubmitStateUpdate(ctx context.Context, update 
 	// Delegate to the real blockchain client (on-chain transaction)
 	err := c.Client.SubmitStateUpdate(ctx, update)
 	if err != nil {
+		// Non-blocking capture so tests can assert on the specific revert
+		// reason. Still propagate the error to the manager unchanged.
+		select {
+		case c.stateUpdateErrors <- err:
+		default:
+		}
 		return err
 	}
 
@@ -184,4 +200,18 @@ func (c *eventBroadcastingClient) getWithdrawals(appID common.ApplicationIdType)
 
 	w, exists := c.withdrawals[appID]
 	return w, exists
+}
+
+// waitForStateUpdateError blocks up to `timeout` for a SubmitStateUpdate
+// error to arrive from the underlying blockchain client. Returns the error
+// if one occurred in that window, or (nil, false) on timeout. Used by
+// negative-path tests to pin down the specific on-chain revert reason
+// (e.g. InvalidSignature on a TEE-attestation-rejection test).
+func (c *eventBroadcastingClient) waitForStateUpdateError(timeout time.Duration) (error, bool) {
+	select {
+	case err := <-c.stateUpdateErrors:
+		return err, true
+	case <-time.After(timeout):
+		return nil, false
+	}
 }
