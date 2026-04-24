@@ -409,6 +409,30 @@ func (s *FullStackSystemTestSuite) AssertNoStateUpdateErrors(t *testing.T) {
 	}
 }
 
+// SubmitStateUpdateAs builds a fresh blockchain.Client bound to signerKey
+// and calls SubmitStateUpdate directly with the given payload. Returns the
+// on-chain error (typically the revert reason, surfaced via the existing
+// UnpackProcessorEndpointError path). Used by negative-path tests that
+// verify the contract's UPDATE_STATUS_ROLE gate on stateUpdate — any
+// caller other than the manager (granted the role at construction) must
+// be rejected by OZ AccessControl with AccessControlUnauthorizedAccount.
+//
+// This path DELIBERATELY bypasses the wrapped eventBroadcastingClient, so
+// captured errors do NOT land in its stateUpdateErrors channel. Tests can
+// cross-check this with AssertNoStateUpdateErrors to confirm the bypass
+// is wired as intended.
+func (s *FullStackSystemTestSuite) SubmitStateUpdateAs(signerKey *cryptotypes.PrivateKeySecp256k1, update *common.UpdatePayload) error {
+	signer := bind.NewKeyedTransactor(signerKey.PrivateKey, ChainID)
+	client := blockchain.SetupNewBlockChainClientConnected(
+		s.simHelper.Client(),
+		s.simHelper.ProcessorContractAddress,
+		s.simHelper.TeeSignerAddress,
+		signer,
+	)
+	defer client.Close()
+	return client.SubmitStateUpdate(context.Background(), update)
+}
+
 // GetAppCustody queries the on-chain appCustody for an application and token.
 func (s *FullStackSystemTestSuite) GetAppCustody(appID common.ApplicationIdType, tokenAddress ethCommon.Address) *big.Int {
 	return s.simHelper.GetAppCustody(appID, tokenAddress)
