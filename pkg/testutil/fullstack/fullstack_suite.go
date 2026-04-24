@@ -40,6 +40,7 @@ type FullStackSystemTestSuite struct {
 	subgraphImpl  *InProcessSubgraph                            // in-process subgraph for wallet queries
 	authority     *InProcessAuthority                           // in-process authority HTTP service
 	userAccounts  map[ethCommon.Address]*bind.TransactOpts       // funded test accounts
+	eventChannel  chan interface{}                              // stashed so RestartAll can rebuild the wrappedClient with the same sink
 }
 
 // NewFullStackSystemTestSuite creates a system test suite backed by a real
@@ -121,7 +122,37 @@ func NewFullStackSystemTestSuiteWithConfigs(
 		subgraphImpl:  subgraphImpl,
 		authority:     authority,
 		userAccounts:  make(map[ethCommon.Address]*bind.TransactOpts),
+		eventChannel:  eventChannel,
 	}
+}
+
+// RestartAll stops and rebuilds the manager + executor (via TestSuiteCore)
+// AND rebuilds the fullstack-specific blockchain client stack (a fresh
+// BlockChainClient re-dialling the same simulated backend, wrapped in a
+// fresh eventBroadcastingClient sharing the original event channel and
+// subgraph sink). Used by tests that verify cross-restart keyset recovery.
+//
+// The simulated chain, subgraph, authority, SimTestHelper, and
+// user-accounts map are NOT rebuilt — their state is valid across the
+// restart and callers typically want to inspect pre/post state through
+// the same handles.
+func (s *FullStackSystemTestSuite) RestartAll() error {
+	// Fresh blockchain client: manager.Stop() closed the previous one by
+	// design. Build a new BlockChainClient dialing the same simulated
+	// backend (same contract addresses, same manager account), then wrap
+	// with a fresh eventBroadcastingClient that preserves the existing
+	// event channel and subgraph sink.
+	realClient := blockchain.SetupNewBlockChainClientConnected(
+		s.simHelper.Client(),
+		s.simHelper.ProcessorContractAddress,
+		s.simHelper.TeeSignerAddress,
+		s.simHelper.ManagerAccount,
+	)
+	freshWrapped := newEventBroadcastingClient(realClient, s.eventChannel)
+	freshWrapped.onStateUpdate = s.subgraphImpl.RecordStateUpdate
+	s.wrappedClient = freshWrapped
+
+	return s.TestSuiteCore.RestartCore(freshWrapped)
 }
 
 // CreateFundedAccount generates a new secp256k1 key, funds the derived address

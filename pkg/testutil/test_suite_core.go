@@ -48,6 +48,19 @@ type TestSuiteCore struct {
 	reportsPath        string
 	artifactsPath      string
 	log                logger.Logger
+
+	// Deps stashed to support RestartAll — rebuilding manager + executor
+	// requires the original configs, transport factory, blockchain client, and
+	// loggers. The dataLayer field above is also preserved across restart so
+	// the keyset-recovery handshake can serve the stored recovery data to the
+	// fresh executor.
+	appType          string
+	mgrConfig        *manager.Config
+	execConfig       *executor.Config
+	excFactory       communication.ConnectionFactory
+	blockchainClient blockchain.Client
+	mgrLog           logger.Logger
+	excLog           logger.Logger
 }
 
 // EnableReports marks the manager config so NewTestSuiteCore will provision a
@@ -178,17 +191,24 @@ func NewTestSuiteCore(
 	eventChannel := make(chan interface{}, 100)
 
 	core := &TestSuiteCore{
-		t:            t,
-		manager:      mgr,
-		executor:     exec,
-		dataLayer:    dataLayer,
-		eventChannel: eventChannel,
-		ctx:          ctx,
-		cancel:       cancel,
-		dbPath:       dbPath,
-		reportsPath:  reportsPath,
-		artifactsPath: artifactsPath,
-		log:          mgrLog,
+		t:                t,
+		manager:          mgr,
+		executor:         exec,
+		dataLayer:        dataLayer,
+		eventChannel:     eventChannel,
+		ctx:              ctx,
+		cancel:           cancel,
+		dbPath:           dbPath,
+		reportsPath:      reportsPath,
+		artifactsPath:    artifactsPath,
+		log:              mgrLog,
+		appType:          appType,
+		mgrConfig:        mgrConfig,
+		execConfig:       execConfig,
+		excFactory:       factory,
+		blockchainClient: blockchainClient,
+		mgrLog:           mgrLog,
+		excLog:           excLog,
 	}
 
 	if keySet != nil {
@@ -247,6 +267,112 @@ func (s *TestSuiteCore) StartExecutor() error {
 	}
 
 	time.Sleep(100 * time.Millisecond)
+	return nil
+}
+
+// StopExecutor closes the current executor (its TCP server + runtime). Safe to
+// call when executor is already nil; the field is cleared so callers know it
+// needs rebuilding before the next Start.
+func (s *TestSuiteCore) StopExecutor() error {
+	if s.executor == nil {
+		return nil
+	}
+	err := s.executor.Close()
+	s.executor = nil
+	return err
+}
+
+// StopManager stops the current manager's polling loop and admin server. Safe
+// to call when manager is already nil.
+func (s *TestSuiteCore) StopManager() error {
+	if s.manager == nil {
+		return nil
+	}
+	err := s.manager.Stop()
+	s.manager = nil
+	return err
+}
+
+// RestartCore stops both manager and executor and rebuilds them from
+// scratch. Used by each suite's public RestartAll() to handle the parts that
+// are independent of suite type; the caller must pass a freshly-constructed
+// blockchainClient because manager.Stop() closes the one the previous
+// manager owned (production-realistic behavior).
+//
+// The preserved on-disk data — specifically the LevelDB dbPath — carries
+// the keyset-recovery blob stored at initial startup. RestartCore re-opens
+// the data layer at the same path; the fresh manager serves the stored
+// recovery blob during the fresh executor's Type-0 handshake, and the
+// executor restores its original keyset. Used by tests that need to prove
+// state survives a coupled process restart (both containers dying
+// together, as in a host reboot).
+//
+// Why both at once rather than executor-only: the manager has no
+// auto-reconnect logic for the executor channel. A solo executor restart
+// in the current design would leave the manager with a dead connection
+// forever. When that gap is fixed, a StopExecutor + StartExecutor flow
+// without the manager side becomes meaningful as a separate, stronger
+// test.
+func (s *TestSuiteCore) RestartCore(freshBlockchainClient blockchain.Client) error {
+	if err := s.StopManager(); err != nil {
+		return fmt.Errorf("stop manager: %w", err)
+	}
+	if err := s.StopExecutor(); err != nil {
+		return fmt.Errorf("stop executor: %w", err)
+	}
+	// Brief pause so any in-flight sockets settle before we bind the new server.
+	time.Sleep(100 * time.Millisecond)
+
+	// Re-open the data layer at the same dbPath. manager.Stop() closed the
+	// previous handle; the on-disk LevelDB files (including the
+	// keyset-recovery blob) are intact. For the mockdb suite this would
+	// allocate a fresh in-memory store and lose the recovery data — not a
+	// useful test with that backend, so we don't attempt it.
+	if s.mgrConfig.DataLayerType == "mockdb" {
+		return fmt.Errorf("RestartCore is not supported with DataLayerType=mockdb (no on-disk persistence)")
+	}
+	cfg := versioned_leveldb.VersionedLevelDBConfig{
+		DBPath:         s.dbPath,
+		VersionsToKeep: s.mgrConfig.DataLayerNumOfVersions,
+	}
+	newDataLayer, err := versioned_leveldb.NewVersionedLevelDBDataLayer(cfg)
+	if err != nil {
+		return fmt.Errorf("reopen data layer: %w", err)
+	}
+	s.dataLayer = newDataLayer
+	s.blockchainClient = freshBlockchainClient
+
+	// Rebuild executor: fresh comm server (shutdownChan is single-use in
+	// Server.Stop, so reuse isn't possible), fresh runtime (Wasmtime closes
+	// on executor.Close and isn't reusable), fresh executor over the SAME
+	// config and factory so it lands on the same port the manager will dial.
+	server := communication.NewServer(s.excFactory, commParams, s.excLog)
+	var runtime executor.Runtime
+	switch s.appType {
+	case "mock-runtime":
+		runtime = executor.NewMockRuntime(s.excLog)
+	default:
+		runtime = wasm.NewWasmtimeRuntime(s.excLog, 0)
+	}
+	exec, err := executor.NewStatelessExecutor(s.execConfig, runtime, server, s.excLog, nil, nil)
+	if err != nil {
+		return fmt.Errorf("new executor: %w", err)
+	}
+	s.executor = exec
+
+	// Rebuild manager: fresh executor client (its handshake state is
+	// sync.Once-latched so a reuse can't handshake again), fresh data layer
+	// handle, caller-supplied fresh blockchain client.
+	executorClient := communication.NewClient(s.excFactory, commParams, s.mgrLog)
+	mgr := manager.NewSecureProcessorManager(s.mgrConfig, s.blockchainClient, s.dataLayer, executorClient, nil, s.mgrLog)
+	s.manager = mgr
+
+	if err := s.StartExecutor(); err != nil {
+		return fmt.Errorf("start executor: %w", err)
+	}
+	if err := s.StartManager(); err != nil {
+		return fmt.Errorf("start manager: %w", err)
+	}
 	return nil
 }
 
