@@ -83,7 +83,8 @@ func TestCheckSignature(t *testing.T) {
 	}
 	executorAddress := ethCrypto.PubkeyToAddress(*executor.keySet.SigningKey.PublicKey().PublicKey)
 
-	testHelper := testutil.NewSimTestHelper(t, false, false, &executorAddress, nil)
+	autoMining, useMockContracts := false, false
+	testHelper := testutil.NewSimTestHelper(t, autoMining, useMockContracts, &executorAddress, nil)
 	defer testHelper.Close()
 
 	events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}

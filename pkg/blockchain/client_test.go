@@ -45,7 +45,8 @@ func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainCli
 }
 
 func setupSimTestHelper(t *testing.T, autoMining bool, teePubSecp521r1 []byte) *testutil.SimTestHelper {
-	return testutil.NewSimTestHelper(t, autoMining, true, nil, teePubSecp521r1)
+	useMockContracts := true
+	return testutil.NewSimTestHelper(t, autoMining, useMockContracts, nil, teePubSecp521r1)
 }
 
 // deployApplication deploys an application via SubmitDeployRequest, completes it

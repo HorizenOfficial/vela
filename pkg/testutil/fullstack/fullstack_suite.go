@@ -142,7 +142,8 @@ func newFullStackSuiteInternal(
 	teePubKeyBytes := keySet.CommunicationKey.PublicKey().Bytes()
 
 	// Create SimTestHelper with auto-mining enabled (mines every 1s)
-	simHelper := blockchainTestutil.NewSimTestHelper(t, true, useMockTeeAuth, &teeSignerAddr, teePubKeyBytes)
+	autoMining := true
+	simHelper := blockchainTestutil.NewSimTestHelper(t, autoMining, useMockTeeAuth, &teeSignerAddr, teePubKeyBytes)
 
 	// Create a real BlockChainClient connected to the simulated backend
 	realClient := blockchain.SetupNewBlockChainClientConnected(
@@ -390,6 +391,22 @@ func (s *FullStackSystemTestSuite) GetRequestUpdatePayload(reqId common.RequestI
 // outer polling timeout.
 func (s *FullStackSystemTestSuite) WaitForStateUpdateError(timeout time.Duration) (error, bool) {
 	return s.wrappedClient.waitForStateUpdateError(timeout)
+}
+
+// AssertNoStateUpdateErrors fails the test if any SubmitStateUpdate errored
+// during its execution. Use as a defensive safety net in happy-path tests:
+// it catches silent retry-and-recover regressions where the manager hits a
+// transient stateUpdate revert and retries until success, leaving outer
+// (balance/custody) assertions green but the protocol invariant broken.
+// Non-blocking: reads only what's already buffered, returns immediately.
+func (s *FullStackSystemTestSuite) AssertNoStateUpdateErrors(t *testing.T) {
+	t.Helper()
+	select {
+	case err := <-s.wrappedClient.stateUpdateErrors:
+		t.Fatalf("unexpected stateUpdate error during happy-path test "+
+			"(indicates a silent retry-and-recover regression): %v", err)
+	default:
+	}
 }
 
 // GetAppCustody queries the on-chain appCustody for an application and token.
