@@ -15,6 +15,7 @@ import (
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/ethereum/go-ethereum/params"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/authority"
 	defaultauthority "github.com/HorizenOfficial/vela/pkg/blockchain/contracts/defaultauthoritychecker"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mockerc20"
@@ -261,7 +262,11 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 	var reqType uint8
 	switch requestType {
 	case common.Deploy:
-		reqType = 0
+		// ProcessorEndpoint.submitRequest reverts on Deploy — deploys must go
+		// through submitDeployRequest. Fail here so the test points at the
+		// caller rather than at a generic on-chain revert.
+		require.Fail(s.t, "use SubmitDeployRequest for deploy requests; submitRequest reverts on-chain for Deploy")
+		return nil
 	case common.Process:
 		reqType = 1
 	case common.Deanonymize:
@@ -276,7 +281,7 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 	// (business asset + fee in the same tx); ERC-20 requests carry maxFeeValue
 	// only (business asset arrives via the contract's transferFrom pull).
 	// Mirrors the check in ProcessorEndpoint.submitRequest.
-	if tokenAddress == (ethCommon.Address{}) {
+	if tokenAddress == velacommon.NativeTokenAddress() {
 		sender.Value = new(big.Int).Add(assetAmount, maxFeeValue)
 	} else {
 		sender.Value = new(big.Int).Set(maxFeeValue)
@@ -466,6 +471,15 @@ func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelpe
 // single call is enough to stage any ERC-20 scenario. Tests needing multiple
 // distinct tokens call this multiple times and track the returned addresses.
 func (s *SimTestHelper) DeployMockERC20(name, symbol string, decimals uint8) ethCommon.Address {
+	// A second call would silently overwrite the cached binding so that
+	// MintERC20 / ApproveERC20 / BalanceOfERC20 target only the latest token,
+	// breaking helpers for the previously deployed one. Fail fast instead.
+	//
+	// TODO: when a multi-token test legitimately hits this guard, drop the
+	// cached MockERC20Address / mockERC20Contract / mockERC20Instance fields
+	// and change the helpers to take a tokenAddress parameter, reconstructing
+	// the binding internally. Callers track the returned addresses themselves.
+	require.Nil(s.t, s.mockERC20Instance, "DeployMockERC20 already called")
 	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
 	contract := mockerc20.NewMockERC20()
 	deployParams := bind.DeploymentParams{

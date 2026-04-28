@@ -7,6 +7,7 @@ import (
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/testutil"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
@@ -89,7 +90,7 @@ func TestCheckSignature(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
 	withdrawals := []common.Withdrawal{
-		{TokenAddress: ethcommon.Address{}, DestinationAddress: ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(1)},
+		{TokenAddress: velacommon.NativeTokenAddress(), DestinationAddress: ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(1)},
 	}
 
 	updatePayload := &common.UpdatePayload{

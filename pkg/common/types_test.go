@@ -4,13 +4,15 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRequestValidate_ZeroAssetAmountWithZeroToken(t *testing.T) {
 	req := &Request{
 		Timestamp:    NewBig(1000),
-		TokenAddress: ethCommon.Address{},
+		TokenAddress: velacommon.NativeTokenAddress(),
 		AssetAmount:  NewBig(0),
 		MaxFeeValue:  NewBig(100),
 	}
@@ -30,7 +32,7 @@ func TestRequestValidate_NonZeroAssetAmountWithNonZeroToken(t *testing.T) {
 func TestRequestValidate_NonZeroAssetAmountWithZeroToken(t *testing.T) {
 	req := &Request{
 		Timestamp:    NewBig(1000),
-		TokenAddress: ethCommon.Address{},
+		TokenAddress: velacommon.NativeTokenAddress(),
 		AssetAmount:  NewBig(500),
 		MaxFeeValue:  NewBig(100),
 	}

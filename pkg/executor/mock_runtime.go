@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/logger"
@@ -249,7 +250,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			nonce++
 			currentState.Nonce = nonce
 
-			withdrawals = append(withdrawals, common.Withdrawal{TokenAddress: ethCommon.Address{}, DestinationAddress: to, Amount: amount})
+			withdrawals = append(withdrawals, common.Withdrawal{TokenAddress: velacommon.NativeTokenAddress(), DestinationAddress: to, Amount: amount})
 
 			withdrawEvent := common.PlainEvent{
 				UserID:       sender,

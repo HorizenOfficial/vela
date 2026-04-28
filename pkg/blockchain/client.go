@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tee"
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -349,7 +350,7 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	// Set the value for the transaction (msg.value).
 	// For ETH requests: msg.value = assetAmount + maxFeeValue (carries both business asset and fee).
 	// For ERC-20 requests: msg.value = maxFeeValue only (business asset arrives via transferFrom).
-	if tokenAddress == (ethCommon.Address{}) {
+	if tokenAddress == velacommon.NativeTokenAddress() {
 		c.account.Value = new(big.Int).Add(assetAmount, maxFeeValue)
 	} else {
 		c.account.Value = new(big.Int).Set(maxFeeValue)
