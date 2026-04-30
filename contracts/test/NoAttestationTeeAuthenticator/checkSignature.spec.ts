@@ -1,5 +1,6 @@
 import { expect } from 'chai';
-import { BYTES32_ZERO, getRandomHexString } from '../util';
+import { ethers } from 'ethers';
+import { ETH_TOKEN, BYTES32_ZERO, getRandomHexString } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 import {
   deployNoAttestationTeeAuthenticatorEmptyFixture,
@@ -17,11 +18,17 @@ describe('NoAttestationTeeAuthenticator Test', function () {
         prevStateRoot: BYTES32_ZERO,
         newStateRoot: NEW_STATE_ROOT,
         processedRequestId: REQUEST_ID,
-        events: ['0x01'],
-        eventSubTypes: ['subtype'],
+        userEvents: { events: ['0x01'], subTypes: [ethers.encodeBytes32String('subtype')] },
+        appEvents: {
+          events: ['0xca', '0xfe'],
+          subTypes: [
+            ethers.encodeBytes32String('app_sub1'),
+            ethers.encodeBytes32String('app_sub2'),
+          ],
+        },
         withdrawalRequests: [
-          [addr1, 50],
-          [addr2, 50],
+          [ETH_TOKEN, addr1, 50],
+          [ETH_TOKEN, addr2, 50],
         ],
         refundAmount: 0,
         applicationFee: 0,
@@ -64,8 +71,10 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           payload.prevStateRoot,
           payload.newStateRoot,
           payload.processedRequestId,
-          payload.events,
-          payload.eventSubTypes,
+          payload.userEvents.events,
+          payload.userEvents.subTypes,
+          payload.appEvents.events,
+          payload.appEvents.subTypes,
           payload.withdrawalRequests,
           payload.refundAmount,
           payload.applicationFee,
@@ -89,8 +98,10 @@ describe('NoAttestationTeeAuthenticator Test', function () {
           payload.prevStateRoot,
           payload.newStateRoot,
           payload.processedRequestId,
-          payload.events,
-          payload.eventSubTypes,
+          payload.userEvents.events,
+          payload.userEvents.subTypes,
+          payload.appEvents.events,
+          payload.appEvents.subTypes,
           payload.withdrawalRequests,
           payload.refundAmount,
           payload.applicationFee,

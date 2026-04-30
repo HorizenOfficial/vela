@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +19,8 @@ func TestProcessRequestDataValidate(t *testing.T) {
 		Payload:         []byte("test"),
 		Timestamp:       common.NewBig(100),
 		Sender:          [20]byte{1},
-		DepositAmount:   common.NewBig(10),
+		TokenAddress:    ethCommon.Address{},
+		AssetAmount:     common.NewBig(10),
 		MaxFeeValue:     common.NewBig(5),
 	}
 
@@ -82,7 +84,8 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					Payload:         []byte("test"),
 					Timestamp:       common.ToBig(big.NewInt(-1)), // Invalid timestamp
 					Sender:          [20]byte{1},
-					DepositAmount:   common.NewBig(10),
+					TokenAddress:    ethCommon.Address{},
+					AssetAmount:     common.NewBig(10),
 					MaxFeeValue:     common.NewBig(5),
 				},
 				ApplicationState: validApplicationState,
@@ -91,7 +94,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 			err: "cannot marshal negative Big value",
 		},
 		{
-			name: "Valid Request - zero DepositAmount",
+			name: "Valid Request - zero AssetAmount",
 			data: ProcessRequestData{
 				Request: &common.Request{
 					ProtocolVersion: 0,
@@ -101,7 +104,8 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					Payload:         []byte("test"),
 					Timestamp:       common.NewBig(100),
 					Sender:          [20]byte{1},
-					DepositAmount:   common.NewBig(0), // Zero deposit amount
+					TokenAddress:    ethCommon.Address{},
+					AssetAmount:     common.NewBig(0), // Zero asset amount
 					MaxFeeValue:     common.NewBig(5),
 				},
 				ApplicationState: validApplicationState,
@@ -120,7 +124,8 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					Payload:         []byte("test"),
 					Timestamp:       common.NewBig(100),
 					Sender:          [20]byte{1},
-					DepositAmount:   common.NewBig(10),
+					TokenAddress:    ethCommon.Address{},
+					AssetAmount:     common.NewBig(10),
 					MaxFeeValue:     common.NewBig(0), // zero max fee value
 				},
 				ApplicationState: validApplicationState,
@@ -150,7 +155,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 				require.NotNil(t, extractedData)
 				// Further checks to ensure data integrity after extraction if needed
 				require.Zero(t, tt.data.Request.Timestamp.ToInt().Cmp(extractedData.Request.Timestamp.ToInt()))
-				require.Zero(t, tt.data.Request.DepositAmount.ToInt().Cmp(extractedData.Request.DepositAmount.ToInt()))
+				require.Zero(t, tt.data.Request.AssetAmount.ToInt().Cmp(extractedData.Request.AssetAmount.ToInt()))
 				require.Zero(t, tt.data.Request.MaxFeeValue.ToInt().Cmp(extractedData.Request.MaxFeeValue.ToInt()))
 			}
 		})

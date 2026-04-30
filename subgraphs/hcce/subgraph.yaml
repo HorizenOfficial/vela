@@ -19,20 +19,38 @@ dataSources:
         - RequestSubmitted
         - RequestCompleted
         - UserEvent
+        - AppEvent
         - DeployRequestSubmitted
         - DeployRequestCompleted
+        - OnChainRefund
+        - OnChainWithdrawal
+        - ClaimExecuted
+        - TokenAllowed
+        - TokenRemoved
       abis:
         - name: ProcessorEndpoint
           file: ./abis/ProcessorEndpoint.json
       eventHandlers:
-        - event: RequestSubmitted(indexed uint64,bytes32,indexed address)
+        - event: RequestSubmitted(indexed uint64,indexed bytes32,indexed address,address)
           handler: handleRequestSubmitted
         - event: RequestCompleted(indexed uint64,indexed bytes32,uint256,uint8,uint8,string)
           handler: handleRequestCompleted
-        - event: UserEvent(indexed uint64,indexed bytes32,indexed string,bytes)
+        - event: UserEvent(indexed uint64,indexed bytes32,indexed bytes32,bytes)
           handler: handleUserEvent
+        - event: AppEvent(indexed uint64,indexed bytes32,indexed bytes32,bytes)
+          handler: handleAppEvent
         - event: DeployRequestSubmitted(indexed uint64,bytes32,indexed address)
           handler: handleDeployRequestSubmitted
         - event: DeployRequestCompleted(indexed uint64,indexed bytes32,uint256,uint8,uint8,string)
           handler: handleDeployRequestCompleted
+        - event: Refund(indexed uint64,indexed bytes32,indexed address,address,uint256)
+          handler: handleRefund
+        - event: Withdrawal(indexed uint64,indexed bytes32,indexed address,address,uint256)
+          handler: handleWithdrawal
+        - event: PaymentWithdrawn(address,indexed address,uint256)
+          handler: handlePaymentWithdrawn
+        - event: TokenAllowed(indexed address)
+          handler: handleTokenAllowed
+        - event: TokenRemoved(indexed address)
+          handler: handleTokenRemoved
       file: ./src/processor-endpoint.ts

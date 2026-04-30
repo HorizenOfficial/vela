@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { BYTES32_ZERO } from '../util';
+import { ETH_TOKEN, BYTES32_ZERO } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -29,7 +29,7 @@ describe('ProcessorEndpoint Test', function () {
         const protocolVersion = 0;
         const requestType = 1;
         const payload = '0x01';
-        const depositAmount = 0n;
+        const assetAmount = 0n;
         const maxFeeValue = minFeePerRequest;
 
         const tx = await processorEndpoint.submitRequest(
@@ -37,9 +37,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         const receipt = await tx.wait();
         const requestId = receipt.logs[0].args.requestId;
@@ -52,7 +53,7 @@ describe('ProcessorEndpoint Test', function () {
         expect(request.applicationId).to.equal(applicationId);
         expect(request.requestType).to.equal(requestType);
         expect(request.payload).to.equal(payload);
-        expect(request.depositAmount).to.equal(depositAmount);
+        expect(request.assetAmount).to.equal(assetAmount);
       });
     });
   });

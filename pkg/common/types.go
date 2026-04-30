@@ -8,24 +8,24 @@ import (
 	"strings"
 	"time"
 
-	ccecommon "github.com/HorizenOfficial/vela-common-go/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // Type aliases for types that moved to vela-common-go/common.
-type ApplicationIdType = ccecommon.ApplicationIdType
-type RequestIdType = ccecommon.RequestIdType
-type RequestResultStatus = ccecommon.RequestResultStatus
+type ApplicationIdType = velacommon.ApplicationIdType
+type RequestIdType = velacommon.RequestIdType
+type RequestResultStatus = velacommon.RequestResultStatus
 
 const (
-	RequestResultOK      = ccecommon.RequestResultOK
-	RequestResultFailed  = ccecommon.RequestResultFailed
-	RequestResultUnknown = ccecommon.RequestResultUnknown
+	RequestResultOK      = velacommon.RequestResultOK
+	RequestResultFailed  = velacommon.RequestResultFailed
+	RequestResultUnknown = velacommon.RequestResultUnknown
 )
 
 func NewApplicationId(id uint64) ApplicationIdType {
-	return ccecommon.NewApplicationId(id)
+	return velacommon.NewApplicationId(id)
 }
 
 // RequestType represents the type of request being sent to the TEE
@@ -74,9 +74,13 @@ type Request struct {
 	Timestamp *Big `json:"timestamp"`
 	// Sender is the address of the sender
 	Sender ethCommon.Address `json:"sender"`
-	// DepositAmount is the optional deposit value in WEI
-	DepositAmount *Big `json:"depositAmount"`
-	// MaxFeeValue is the maximum fee value reserved for fee payment
+	// Facilitator is the address of the facilitator (zero address for direct submissions)
+	Facilitator ethCommon.Address `json:"facilitator"`
+	// TokenAddress is the address of the business asset token (0x0 = ETH)
+	TokenAddress ethCommon.Address `json:"tokenAddress"`
+	// AssetAmount is the business asset amount (replaces DepositAmount)
+	AssetAmount *Big `json:"assetAmount"`
+	// MaxFeeValue is the maximum fee value reserved for fee payment (always ETH)
 	MaxFeeValue *Big `json:"maxFeeValue"`
 }
 
@@ -85,8 +89,13 @@ func (r *Request) Validate() error {
 		return err
 	}
 
-	if err := validateBigInt("depositAmount", r.DepositAmount.ToInt(), true); err != nil {
+	if err := validateBigInt("assetAmount", r.AssetAmount.ToInt(), true); err != nil {
 		return err
+	}
+
+	// If assetAmount is zero, tokenAddress must be the zero address
+	if r.AssetAmount.ToInt().Sign() == 0 && r.TokenAddress != (ethCommon.Address{}) {
+		return fmt.Errorf("tokenAddress must be zero address when assetAmount is zero")
 	}
 
 	if err := validateBigInt("maxFeeValue", r.MaxFeeValue.ToInt(), true); err != nil {
@@ -101,22 +110,24 @@ type Event struct {
 	ApplicationID ApplicationIdType `json:"applicationId"`
 	// UserID is the ID of the user associated with the event
 	UserID ethCommon.Address `json:"userId"`
-	// EventSubType is the optional subtype used for filtering
-	EventSubType string `json:"eventSubType"`
+	// EventSubType is the optional subtype used for filtering (bytes32 on-chain)
+	EventSubType [32]byte `json:"eventSubType"`
 	// EncryptedData is the encrypted event data
 	EncryptedData []byte `json:"encryptedData"`
 }
 
 func (e Event) String() string {
-	return fmt.Sprintf("Event{ApplicationID: %d, UserID: %s, EventSubType: %s, EncryptedData: %s}",
-		e.ApplicationID, e.UserID.Hex(), e.EventSubType, hex.EncodeToString(e.EncryptedData))
+	return fmt.Sprintf("Event{ApplicationID: %d, UserID: %s, EventSubType: 0x%s, EncryptedData: %s}",
+		e.ApplicationID, e.UserID.Hex(), hex.EncodeToString(e.EventSubType[:]), hex.EncodeToString(e.EncryptedData))
 }
 
 // Withdrawal represents a withdrawal from the system
 type Withdrawal struct {
+	// TokenAddress is the address of the token to withdraw (0x0 = ETH)
+	TokenAddress ethCommon.Address `json:"tokenAddress"`
 	// DestinationAddress is the address to send the funds to
 	DestinationAddress ethCommon.Address `json:"destinationAddress"`
-	// Amount is the amount to withdraw in WEI
+	// Amount is the amount to withdraw
 	Amount *Big `json:"amount"`
 }
 
@@ -130,8 +141,10 @@ type UpdatePayload struct {
 	PrevStateRoot [32]byte `json:"prevStateRoot"`
 	// NewStateRoot is the new state root
 	NewStateRoot [32]byte `json:"newStateRoot"`
-	// Events is a list of events to emit
+	// Events is a list of encrypted user events to emit
 	Events []Event `json:"events"`
+	// AppEvents is a list of application-level (non-encrypted) events to emit
+	AppEvents []AppEvent `json:"appEvents"`
 	// Withdrawals is a list of withdrawals to execute
 	Withdrawals []Withdrawal `json:"withdrawals"`
 	// Signature is the TEE signature
@@ -144,7 +157,6 @@ type UpdatePayload struct {
 	ErrorCode uint8 `json:"errorCode"`
 	// ErrorMsg is the error message (empty for success)
 	ErrorMsg string `json:"errorMsg"`
-
 }
 
 // ApplicationState represents the state of an application
@@ -187,9 +199,18 @@ type DecryptedReport struct {
 type PlainEvent struct {
 	// UserID is the address of the user associated with the event
 	UserID ethCommon.Address `json:"userId"`
-	// EventSubType is the optional subtype used for filtering
-	EventSubType string `json:"eventSubType"`
+	// EventSubType is the optional subtype used for filtering (bytes32 on-chain)
+	EventSubType [32]byte `json:"eventSubType"`
 	// Data is the encrypted event data
+	Data []byte `json:"data"`
+}
+
+// AppEvent represents an application-level event (not encrypted, not user-directed).
+// (note: we don't use the 'Plain' suffix here because there is not an encrypted version)
+type AppEvent struct {
+	// EventSubType is the subtype used for filtering (bytes32 on-chain)
+	EventSubType [32]byte `json:"eventSubType"`
+	// Data is the unencrypted event data
 	Data []byte `json:"data"`
 }
 

@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
+import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -28,8 +29,8 @@ describe('ProcessorEndpoint Test', function () {
       it('returns pending requests in FIFO order with correct data', async () => {
         const protocolVersion = 0;
         const requestType = 1;
-        const depositAmount1 = 0n;
-        const depositAmount2 = 10n;
+        const assetAmount1 = 0n;
+        const assetAmount2 = 10n;
         const maxFeeValue = minFeePerRequest;
 
         const tx1 = await processorEndpoint.submitRequest(
@@ -37,9 +38,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x01',
-          depositAmount1,
+          ETH_TOKEN,
+          assetAmount1,
           maxFeeValue,
-          { value: depositAmount1 + maxFeeValue }
+          { value: assetAmount1 + maxFeeValue }
         );
         const receipt1 = await tx1.wait();
         const requestId1 = receipt1.logs[0].args.requestId;
@@ -49,9 +51,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x02',
-          depositAmount2,
+          ETH_TOKEN,
+          assetAmount2,
           maxFeeValue,
-          { value: depositAmount2 + maxFeeValue }
+          { value: assetAmount2 + maxFeeValue }
         );
         const receipt2 = await tx2.wait();
         const requestId2 = receipt2.logs[0].args.requestId;
@@ -64,7 +67,8 @@ describe('ProcessorEndpoint Test', function () {
         expect(requests[0].applicationId).to.equal(applicationId);
         expect(requests[0].requestType).to.equal(requestType);
         expect(requests[0].payload).to.equal('0x01');
-        expect(requests[0].depositAmount).to.equal(depositAmount1);
+        expect(requests[0].tokenAddress).to.equal(ETH_TOKEN);
+        expect(requests[0].assetAmount).to.equal(assetAmount1);
         expect(requests[0].maxFeeValue).to.equal(maxFeeValue);
         expect(requests[0].sender).to.equal(await signers[0].getAddress());
 
@@ -73,7 +77,8 @@ describe('ProcessorEndpoint Test', function () {
         expect(requests[1].applicationId).to.equal(applicationId);
         expect(requests[1].requestType).to.equal(requestType);
         expect(requests[1].payload).to.equal('0x02');
-        expect(requests[1].depositAmount).to.equal(depositAmount2);
+        expect(requests[1].tokenAddress).to.equal(ETH_TOKEN);
+        expect(requests[1].assetAmount).to.equal(assetAmount2);
         expect(requests[1].maxFeeValue).to.equal(maxFeeValue);
         expect(requests[1].sender).to.equal(await signers[0].getAddress());
       });
@@ -82,7 +87,7 @@ describe('ProcessorEndpoint Test', function () {
         const protocolVersion = 0;
         const requestType = 1;
         const payload = '0x01';
-        const depositAmount = 0n;
+        const assetAmount = 0n;
         const maxFeeValue = minFeePerRequest;
 
         const tx1 = await processorEndpoint.submitRequest(
@@ -90,9 +95,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           payload,
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         const receipt1 = await tx1.wait();
         const requestId1 = receipt1.logs[0].args.requestId;
@@ -102,9 +108,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x02',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         const receipt2 = await tx2.wait();
         const requestId2 = receipt2.logs[0].args.requestId;
@@ -116,8 +123,8 @@ describe('ProcessorEndpoint Test', function () {
             INITIAL_STATE_ROOT,
             '0x' + '01'.repeat(32),
             requestId1,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             maxFeeValue,
@@ -139,8 +146,8 @@ describe('ProcessorEndpoint Test', function () {
             currentStateRoot,
             currentStateRoot,
             requestId2,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             0,
@@ -156,7 +163,7 @@ describe('ProcessorEndpoint Test', function () {
       it('accepts new requests after the queue is emptied', async () => {
         const protocolVersion = 0;
         const requestType = 1;
-        const depositAmount = 0n;
+        const assetAmount = 0n;
         const maxFeeValue = minFeePerRequest;
 
         const tx1 = await processorEndpoint.submitRequest(
@@ -164,9 +171,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x01',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         const receipt1 = await tx1.wait();
         const requestId1 = receipt1.logs[0].args.requestId;
@@ -176,9 +184,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x02',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         const receipt2 = await tx2.wait();
         const requestId2 = receipt2.logs[0].args.requestId;
@@ -190,8 +199,8 @@ describe('ProcessorEndpoint Test', function () {
             INITIAL_STATE_ROOT,
             '0x' + '01'.repeat(32),
             requestId1,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             maxFeeValue,
@@ -209,8 +218,8 @@ describe('ProcessorEndpoint Test', function () {
             currentStateRoot,
             currentStateRoot,
             requestId2,
-            [],
-            [],
+            { events: [], subTypes: [] },
+            { events: [], subTypes: [] },
             [],
             0,
             0,
@@ -226,9 +235,10 @@ describe('ProcessorEndpoint Test', function () {
           applicationId,
           requestType,
           '0x03',
-          depositAmount,
+          ETH_TOKEN,
+          assetAmount,
           maxFeeValue,
-          { value: depositAmount + maxFeeValue }
+          { value: assetAmount + maxFeeValue }
         );
         const receipt3 = await tx3.wait();
         const requestId3 = receipt3.logs[0].args.requestId;

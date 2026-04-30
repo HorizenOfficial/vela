@@ -1,4 +1,4 @@
-# System Tests for the Horizen Privacy Preserving Execution System
+# System Tests for Horizen Vela
 
 ## Test Examples
 

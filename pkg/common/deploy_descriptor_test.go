@@ -141,3 +141,31 @@ func TestParseArtifactID_InvalidFormat(t *testing.T) {
 	_, err := ParseArtifactID("sha:abc")
 	require.ErrorContains(t, err, "must start with sha256")
 }
+
+func TestDecodeDeployDescriptorStrict_WithConstructorParams(t *testing.T) {
+	sha := strings.Repeat("a", 64)
+	payload := []byte(`{
+		"mode":"artifact_ref",
+		"artifactId":"sha256:` + sha + `",
+		"wasmSha256":"` + sha + `",
+		"constructorParams":{"allowedTokens":["0xdead"]}
+	}`)
+
+	descriptor, err := DecodeDeployDescriptorStrict(payload)
+	require.NoError(t, err)
+	require.NotNil(t, descriptor.ConstructorParams)
+	require.Contains(t, string(descriptor.ConstructorParams), "allowedTokens")
+}
+
+func TestDecodeDeployDescriptorStrict_WithoutConstructorParams(t *testing.T) {
+	sha := strings.Repeat("a", 64)
+	payload := []byte(`{
+		"mode":"artifact_ref",
+		"artifactId":"sha256:` + sha + `",
+		"wasmSha256":"` + sha + `"
+	}`)
+
+	descriptor, err := DecodeDeployDescriptorStrict(payload)
+	require.NoError(t, err)
+	require.Nil(t, descriptor.ConstructorParams)
+}

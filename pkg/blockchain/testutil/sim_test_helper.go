@@ -225,7 +225,7 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 	return helper
 }
 
-func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
+func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, tokenAddress ethCommon.Address, assetAmount *big.Int, maxFeeValue *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
 	if payload == nil {
 		payload = ethCommon.FromHex("0x00")
 	}
@@ -244,15 +244,15 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 		panic("Unsupported request type")
 	}
 
-	sender.Value = new(big.Int).Add(depositAmount, maxFeeValue)
-	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, depositAmount, maxFeeValue))
+	sender.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, tokenAddress, assetAmount, maxFeeValue))
 	require.NoError(s.t, err, "failed to submit transaction")
 	sender.Value = big.NewInt(0)
 	return tx
 }
 
-func (s *SimTestHelper) SubmitRequest(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, depositAmount *big.Int, maxFeeValue *big.Int) *ethTypes.Transaction {
-	return s.SubmitRequestFromUser(applicationId, requestType, payload, depositAmount, maxFeeValue, s.Submitter)
+func (s *SimTestHelper) SubmitRequest(applicationId common.ApplicationIdType, requestType common.RequestType, payload []byte, tokenAddress ethCommon.Address, assetAmount *big.Int, maxFeeValue *big.Int) *ethTypes.Transaction {
+	return s.SubmitRequestFromUser(applicationId, requestType, payload, tokenAddress, assetAmount, maxFeeValue, s.Submitter)
 }
 
 func (s *SimTestHelper) SubmitDeployRequestFromUser(payload []byte, maxFeeValue *big.Int, sender *bind.TransactOpts) *ethTypes.Transaction {
@@ -289,11 +289,11 @@ func (s *SimTestHelper) GetStateRoot(applicationId common.ApplicationIdType) [32
 	return oldStateRoot
 }
 
-func (s *SimTestHelper) GetAppLockedFunds(applicationId common.ApplicationIdType) *big.Int {
+func (s *SimTestHelper) GetAppCustody(applicationId common.ApplicationIdType, tokenAddress ethCommon.Address) *big.Int {
 	funds, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
-		s.processEndpointContract.PackAppLockedFunds(uint64(applicationId)),
-		s.processEndpointContract.UnpackAppLockedFunds)
+		s.processEndpointContract.PackAppCustody(uint64(applicationId), tokenAddress),
+		s.processEndpointContract.UnpackAppCustody)
 	require.NoError(s.t, err)
 	return funds
 }

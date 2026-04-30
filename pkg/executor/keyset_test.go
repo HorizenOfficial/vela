@@ -88,7 +88,7 @@ func TestCheckSignature(t *testing.T) {
 
 	events := [1]common.Event{{ApplicationID: applicationId, EncryptedData: []byte{0x07, 0x07, 0x07}}}
 	withdrawals := []common.Withdrawal{
-		{DestinationAddress: ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(1)},
+		{TokenAddress: ethcommon.Address{}, DestinationAddress: ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.NewBig(1)},
 	}
 
 	updatePayload := &common.UpdatePayload{
