@@ -93,8 +93,8 @@ func (r *Request) Validate() error {
 		return err
 	}
 
-	// If assetAmount is zero, tokenAddress must be the zero address
-	if r.AssetAmount.ToInt().Sign() == 0 && r.TokenAddress != (ethCommon.Address{}) {
+	// If assetAmount is zero, tokenAddress must be the native-token sentinel.
+	if r.AssetAmount.ToInt().Sign() == 0 && r.TokenAddress != velacommon.ETH_TOKEN {
 		return fmt.Errorf("tokenAddress must be zero address when assetAmount is zero")
 	}
 

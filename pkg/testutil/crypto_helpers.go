@@ -10,6 +10,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	"github.com/HorizenOfficial/vela/pkg/crypto"
@@ -59,6 +60,14 @@ func (c *CryptoHelper) GenerateUserSigningKey(userID ethCommon.Address) (*crypto
 	}
 	c.userSigningKeys[userID] = privKey
 	return privKey, nil
+}
+
+// RegisterUserSigningKey registers an externally-created secp256k1 signing key
+// for the given address. Use this in fullstack tests where the key is created by
+// FullStackSystemTestSuite.CreateFundedAccount and needs to be associated with
+// the CryptoHelper for seed computation and payload encryption.
+func (c *CryptoHelper) RegisterUserSigningKey(userID ethCommon.Address, key *cryptotypes.PrivateKeySecp256k1) {
+	c.userSigningKeys[userID] = key
 }
 
 // GenerateUserIdentity generates a secp256k1 signing key and returns the Ethereum address
@@ -128,7 +137,7 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 		Sender:        sender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		AssetAmount:   common.NewBig(0),
-		TokenAddress:  ethCommon.Address{},
+		TokenAddress:  velacommon.ETH_TOKEN,
 		MaxFeeValue:   common.NewBig(100),
 	}, nil
 }
@@ -136,13 +145,13 @@ func (c *CryptoHelper) CreateAssociateKeyRequest(appID common.ApplicationIdType,
 // CreateDepositRequest creates an encrypted ETH deposit request.
 // Convenience wrapper around CreateTokenDepositRequest with tokenAddress = 0x0.
 func (c *CryptoHelper) CreateDepositRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, depositAmount *big.Int, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	return c.CreateTokenDepositRequest(appID, requestID, sender, ethCommon.Address{}, depositAmount, receiverPubKey)
+	return c.CreateTokenDepositRequest(appID, requestID, sender, velacommon.ETH_TOKEN, depositAmount, receiverPubKey)
 }
 
 // CreateWithdrawalRequest creates an encrypted ETH withdrawal request.
 // Convenience wrapper around CreateTokenWithdrawalRequest with tokenAddress = 0x0.
 func (c *CryptoHelper) CreateWithdrawalRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender, destinationAddress ethCommon.Address, amount *common.Big, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	return c.CreateTokenWithdrawalRequest(appID, requestID, sender, destinationAddress, ethCommon.Address{}, amount, receiverPubKey)
+	return c.CreateTokenWithdrawalRequest(appID, requestID, sender, destinationAddress, velacommon.ETH_TOKEN, amount, receiverPubKey)
 }
 
 // encryptAndBuildRequest encrypts a payload and builds a common.Request.
@@ -200,12 +209,12 @@ func (c *CryptoHelper) CreateTokenWithdrawalRequest(appID common.ApplicationIdTy
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal withdrawal instruction: %w", err)
 	}
-	return c.encryptAndBuildRequest(appID, requestID, common.Process, sender, payload, ethCommon.Address{}, common.NewBig(0), receiverPubKey)
+	return c.encryptAndBuildRequest(appID, requestID, common.Process, sender, payload, velacommon.ETH_TOKEN, common.NewBig(0), receiverPubKey)
 }
 
 // CreateDeanonymizationRequest creates an encrypted deanonymization request.
 func (c *CryptoHelper) CreateDeanonymizationRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	return c.encryptAndBuildRequest(appID, requestID, common.Deanonymize, sender, payload, ethCommon.Address{}, common.NewBig(0), receiverPubKey)
+	return c.encryptAndBuildRequest(appID, requestID, common.Deanonymize, sender, payload, velacommon.ETH_TOKEN, common.NewBig(0), receiverPubKey)
 }
 
 // DecryptEvent decrypts an event using the user's private key
@@ -240,7 +249,7 @@ func (c *CryptoHelper) DecryptDeanonymizationReport(userID ethCommon.Address, re
 
 // CreateProcessRequest creates an encrypted process request with a raw payload.
 func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, payload []byte, receiverPubKey *cryptotypes.PublicKeyP521) (*common.Request, error) {
-	return c.encryptAndBuildRequest(appID, requestID, common.Process, sender, payload, ethCommon.Address{}, common.NewBig(0), receiverPubKey)
+	return c.encryptAndBuildRequest(appID, requestID, common.Process, sender, payload, velacommon.ETH_TOKEN, common.NewBig(0), receiverPubKey)
 }
 
 func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *cryptotypes.PublicKeySecp256k1) error {

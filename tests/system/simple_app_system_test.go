@@ -25,6 +25,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/manager"
 	"github.com/HorizenOfficial/vela/pkg/testutil"
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 )
 
 // host-side event types for test validation (app-specific, not framework types)
@@ -384,7 +385,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, wasmBytecode),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		TokenAddress:  ethCommon.Address{},
+		TokenAddress:  velacommon.ETH_TOKEN,
 		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
@@ -816,7 +817,7 @@ func deploySimpleAppWithTokens(t *testing.T, suite *testutil.SystemTestSuite, cr
 		Payload:       deployPayload,
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		TokenAddress:  ethCommon.Address{},
+		TokenAddress:  velacommon.ETH_TOKEN,
 		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
