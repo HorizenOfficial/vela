@@ -45,7 +45,7 @@ func TestMsgToSignBuilder_IncludesWithdrawalTokenAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	ethAddr := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
-	tokenA := velacommon.NativeTokenAddress()                                                       // ETH
+	tokenA := velacommon.ETH_TOKEN                                                       // ETH
 	tokenB := ethCommon.HexToAddress("0xdead000000000000000000000000000000000001") // ERC-20
 
 	base := &common.UpdatePayload{

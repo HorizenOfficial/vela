@@ -12,7 +12,7 @@ import (
 func TestRequestValidate_ZeroAssetAmountWithZeroToken(t *testing.T) {
 	req := &Request{
 		Timestamp:    NewBig(1000),
-		TokenAddress: velacommon.NativeTokenAddress(),
+		TokenAddress: velacommon.ETH_TOKEN,
 		AssetAmount:  NewBig(0),
 		MaxFeeValue:  NewBig(100),
 	}
@@ -32,7 +32,7 @@ func TestRequestValidate_NonZeroAssetAmountWithNonZeroToken(t *testing.T) {
 func TestRequestValidate_NonZeroAssetAmountWithZeroToken(t *testing.T) {
 	req := &Request{
 		Timestamp:    NewBig(1000),
-		TokenAddress: velacommon.NativeTokenAddress(),
+		TokenAddress: velacommon.ETH_TOKEN,
 		AssetAmount:  NewBig(500),
 		MaxFeeValue:  NewBig(100),
 	}

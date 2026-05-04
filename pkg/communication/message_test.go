@@ -19,7 +19,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 		Payload:         []byte("test"),
 		Timestamp:       common.NewBig(100),
 		Sender:          [20]byte{1},
-		TokenAddress:    velacommon.NativeTokenAddress(),
+		TokenAddress:    velacommon.ETH_TOKEN,
 		AssetAmount:     common.NewBig(10),
 		MaxFeeValue:     common.NewBig(5),
 	}
@@ -84,7 +84,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					Payload:         []byte("test"),
 					Timestamp:       common.ToBig(big.NewInt(-1)), // Invalid timestamp
 					Sender:          [20]byte{1},
-					TokenAddress:    velacommon.NativeTokenAddress(),
+					TokenAddress:    velacommon.ETH_TOKEN,
 					AssetAmount:     common.NewBig(10),
 					MaxFeeValue:     common.NewBig(5),
 				},
@@ -104,7 +104,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					Payload:         []byte("test"),
 					Timestamp:       common.NewBig(100),
 					Sender:          [20]byte{1},
-					TokenAddress:    velacommon.NativeTokenAddress(),
+					TokenAddress:    velacommon.ETH_TOKEN,
 					AssetAmount:     common.NewBig(0), // Zero asset amount
 					MaxFeeValue:     common.NewBig(5),
 				},
@@ -124,7 +124,7 @@ func TestProcessRequestDataValidate(t *testing.T) {
 					Payload:         []byte("test"),
 					Timestamp:       common.NewBig(100),
 					Sender:          [20]byte{1},
-					TokenAddress:    velacommon.NativeTokenAddress(),
+					TokenAddress:    velacommon.ETH_TOKEN,
 					AssetAmount:     common.NewBig(10),
 					MaxFeeValue:     common.NewBig(0), // zero max fee value
 				},

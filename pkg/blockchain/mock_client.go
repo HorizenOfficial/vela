@@ -158,7 +158,7 @@ func (c *MockClient) SubmitDeployRequest(ctx context.Context, protocolVersion ui
 		ProtocolVersion: protocolVersion,
 		RequestType:     common.Deploy,
 		Payload:         payload,
-		TokenAddress:    velacommon.NativeTokenAddress(),
+		TokenAddress:    velacommon.ETH_TOKEN,
 		AssetAmount:     common.ToBig(big.NewInt(0)),
 		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}

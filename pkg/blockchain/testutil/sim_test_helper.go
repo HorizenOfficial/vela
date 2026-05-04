@@ -281,7 +281,7 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 	// (business asset + fee in the same tx); ERC-20 requests carry maxFeeValue
 	// only (business asset arrives via the contract's transferFrom pull).
 	// Mirrors the check in ProcessorEndpoint.submitRequest.
-	if tokenAddress == velacommon.NativeTokenAddress() {
+	if tokenAddress == velacommon.ETH_TOKEN {
 		sender.Value = new(big.Int).Add(assetAmount, maxFeeValue)
 	} else {
 		sender.Value = new(big.Int).Set(maxFeeValue)

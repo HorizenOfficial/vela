@@ -250,7 +250,7 @@ func (r *MockRuntime) ProcessRequest(ctx context.Context, appId common.Applicati
 			nonce++
 			currentState.Nonce = nonce
 
-			withdrawals = append(withdrawals, common.Withdrawal{TokenAddress: velacommon.NativeTokenAddress(), DestinationAddress: to, Amount: amount})
+			withdrawals = append(withdrawals, common.Withdrawal{TokenAddress: velacommon.ETH_TOKEN, DestinationAddress: to, Amount: amount})
 
 			withdrawEvent := common.PlainEvent{
 				UserID:       sender,

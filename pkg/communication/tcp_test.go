@@ -153,7 +153,7 @@ func TestTCPClientServer_ClientToServerRequest(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		TokenAddress:    velacommon.NativeTokenAddress(),
+		TokenAddress:    velacommon.ETH_TOKEN,
 		AssetAmount:     common.NewBig(0),
 		MaxFeeValue:     common.NewBig(100),
 	}
@@ -226,7 +226,7 @@ func TestTCPClientServer_MultipleSequentialRequests(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 			Sender:          senderAddress,
-			TokenAddress:    velacommon.NativeTokenAddress(),
+			TokenAddress:    velacommon.ETH_TOKEN,
 			AssetAmount:     common.NewBig(0),
 			MaxFeeValue:     common.NewBig(100),
 		}
@@ -279,7 +279,7 @@ func TestTCPClientServer_ConnectionHandling(t *testing.T) {
 			Payload:         []byte("test-encrypted-action"),
 			Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 			Sender:          senderAddress,
-			TokenAddress:    velacommon.NativeTokenAddress(),
+			TokenAddress:    velacommon.ETH_TOKEN,
 			AssetAmount:     common.NewBig(0),
 			MaxFeeValue:     common.NewBig(100),
 		}
@@ -340,7 +340,7 @@ func TestTCPClientServer_ErrorHandling(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		TokenAddress:    velacommon.NativeTokenAddress(),
+		TokenAddress:    velacommon.ETH_TOKEN,
 		AssetAmount:     common.NewBig(0),
 		MaxFeeValue:     common.NewBig(100),
 	}
@@ -518,7 +518,7 @@ func TestTCPClientServer_ServerTimeout(t *testing.T) {
 		Payload:         []byte("test-encrypted-action"),
 		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
 		Sender:          senderAddress,
-		TokenAddress:    velacommon.NativeTokenAddress(),
+		TokenAddress:    velacommon.ETH_TOKEN,
 		AssetAmount:     common.NewBig(0),
 		MaxFeeValue:     common.NewBig(100),
 	}

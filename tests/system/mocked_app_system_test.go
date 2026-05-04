@@ -42,7 +42,7 @@ func TestDeployApp(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("deploy-payload")),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		TokenAddress:  velacommon.NativeTokenAddress(),
+		TokenAddress:  velacommon.ETH_TOKEN,
 		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
@@ -96,7 +96,7 @@ func TestMockRuntimeFullFlow(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, []byte("mock-runtime-app-bytecode")),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		TokenAddress:  velacommon.NativeTokenAddress(),
+		TokenAddress:  velacommon.ETH_TOKEN,
 		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}

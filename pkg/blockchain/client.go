@@ -350,7 +350,7 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	// Set the value for the transaction (msg.value).
 	// For ETH requests: msg.value = assetAmount + maxFeeValue (carries both business asset and fee).
 	// For ERC-20 requests: msg.value = maxFeeValue only (business asset arrives via transferFrom).
-	if tokenAddress == velacommon.NativeTokenAddress() {
+	if tokenAddress == velacommon.ETH_TOKEN {
 		c.account.Value = new(big.Int).Add(assetAmount, maxFeeValue)
 	} else {
 		c.account.Value = new(big.Int).Set(maxFeeValue)

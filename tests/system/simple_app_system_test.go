@@ -385,7 +385,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 		Payload:       uploadArtifactAndBuildDescriptorPayload(t, suite, wasmBytecode),
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		TokenAddress:  velacommon.NativeTokenAddress(),
+		TokenAddress:  velacommon.ETH_TOKEN,
 		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
@@ -817,7 +817,7 @@ func deploySimpleAppWithTokens(t *testing.T, suite *testutil.SystemTestSuite, cr
 		Payload:       deployPayload,
 		Sender:        deployRequestSender,
 		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
-		TokenAddress:  velacommon.NativeTokenAddress(),
+		TokenAddress:  velacommon.ETH_TOKEN,
 		AssetAmount:   common.NewBig(0),
 		MaxFeeValue:   common.NewBig(100),
 	}
