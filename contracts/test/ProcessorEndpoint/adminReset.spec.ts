@@ -94,9 +94,18 @@ describe('ProcessorEndpoint Test', function () {
     describe('happy paths', function () {
       it('clears the pending request queue', async () => {
         const { applicationId } = await bootstrapApplication(processorEndpoint);
-        await processorEndpoint.submitRequest(0, applicationId, 1, '0x01', ETH_TOKEN, 0, minFeePerRequest, {
-          value: minFeePerRequest,
-        });
+        await processorEndpoint.submitRequest(
+          0,
+          applicationId,
+          1,
+          '0x01',
+          ETH_TOKEN,
+          0,
+          minFeePerRequest,
+          {
+            value: minFeePerRequest,
+          }
+        );
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(1n);
 
         await processorEndpoint.connect(signers[3]).adminReset();
@@ -142,7 +151,9 @@ describe('ProcessorEndpoint Test', function () {
     describe('happy paths', function () {
       it('clears state roots for all deployed apps when called with empty arrays', async () => {
         const { applicationId } = await bootstrapApplication(processorEndpoint);
-        expect(await processorEndpoint.applicationStateRoots(applicationId)).to.not.equal(BYTES32_ZERO);
+        expect(await processorEndpoint.applicationStateRoots(applicationId)).to.not.equal(
+          BYTES32_ZERO
+        );
 
         await processorEndpoint.connect(signers[3]).adminResetApps([], []);
         expect(await processorEndpoint.applicationStateRoots(applicationId)).to.equal(BYTES32_ZERO);
@@ -167,9 +178,18 @@ describe('ProcessorEndpoint Test', function () {
 
       it('also clears the pending request queue', async () => {
         const { applicationId } = await bootstrapApplication(processorEndpoint);
-        await processorEndpoint.submitRequest(0, applicationId, 1, '0x01', ETH_TOKEN, 0, minFeePerRequest, {
-          value: minFeePerRequest,
-        });
+        await processorEndpoint.submitRequest(
+          0,
+          applicationId,
+          1,
+          '0x01',
+          ETH_TOKEN,
+          0,
+          minFeePerRequest,
+          {
+            value: minFeePerRequest,
+          }
+        );
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(1n);
 
         await processorEndpoint.connect(signers[3]).adminResetApps([], []);
@@ -181,7 +201,13 @@ describe('ProcessorEndpoint Test', function () {
         // Deposit ETH as a business asset (assetAmount > 0, ETH token)
         const assetAmount = ethers.parseEther('0.5');
         await processorEndpoint.submitRequest(
-          0, applicationId, 1, '0x01', ETH_TOKEN, assetAmount, minFeePerRequest,
+          0,
+          applicationId,
+          1,
+          '0x01',
+          ETH_TOKEN,
+          assetAmount,
+          minFeePerRequest,
           { value: assetAmount + minFeePerRequest }
         );
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(assetAmount);
@@ -206,9 +232,17 @@ describe('ProcessorEndpoint Test', function () {
         const assetAmount = 500n;
 
         await mockERC20.mint(await signers[0].getAddress(), assetAmount);
-        await mockERC20.connect(signers[0]).approve(await processorEndpoint.getAddress(), assetAmount);
+        await mockERC20
+          .connect(signers[0])
+          .approve(await processorEndpoint.getAddress(), assetAmount);
         await processorEndpoint.submitRequest(
-          0, applicationId, 1, '0x01', tokenAddr, assetAmount, minFeePerRequest,
+          0,
+          applicationId,
+          1,
+          '0x01',
+          tokenAddr,
+          assetAmount,
+          minFeePerRequest,
           { value: minFeePerRequest }
         );
 
@@ -231,9 +265,17 @@ describe('ProcessorEndpoint Test', function () {
         const assetAmount = 200n;
 
         await mockERC20.mint(await signers[0].getAddress(), assetAmount);
-        await mockERC20.connect(signers[0]).approve(await processorEndpoint.getAddress(), assetAmount);
+        await mockERC20
+          .connect(signers[0])
+          .approve(await processorEndpoint.getAddress(), assetAmount);
         await processorEndpoint.submitRequest(
-          0, applicationId, 1, '0x01', tokenAddr, assetAmount, minFeePerRequest,
+          0,
+          applicationId,
+          1,
+          '0x01',
+          tokenAddr,
+          assetAmount,
+          minFeePerRequest,
           { value: minFeePerRequest }
         );
 

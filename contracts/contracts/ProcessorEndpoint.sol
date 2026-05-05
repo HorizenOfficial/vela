@@ -884,11 +884,15 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     // so their reserved deploy slots can be returned to the pool.
     while (i < tail) {
       if (requestById[_requestIdByOrder[i]].requestType == Structs.RequestType.DEPLOYAPP) {
-        unchecked { ++freedDeploySlots; }
+        unchecked {
+          ++freedDeploySlots;
+        }
       }
       delete requestById[_requestIdByOrder[i]];
       delete _requestIdByOrder[i];
-      unchecked { ++i; }
+      unchecked {
+        ++i;
+      }
     }
 
     // Collapse the queue by setting tail back to head. _head is intentionally left at its
@@ -898,7 +902,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
     // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
-    unchecked { availableDeploySlots += freedDeploySlots; }
+    unchecked {
+      availableDeploySlots += freedDeploySlots;
+    }
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -958,17 +964,23 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
           totalAppCustody[effectiveTokens[j]] -= amt;
           appCustody[appId][effectiveTokens[j]] = 0;
         }
-        unchecked { ++j; }
+        unchecked {
+          ++j;
+        }
       }
 
       // Clear the app's state root and return its deploy slot to the pool so the same
       // slot capacity can be reused by a subsequent deploy after the reset.
       if (applicationStateRoots[appId] != bytes32(0)) {
         applicationStateRoots[appId] = bytes32(0);
-        unchecked { ++availableDeploySlots; }
+        unchecked {
+          ++availableDeploySlots;
+        }
       }
 
-      unchecked { ++i; }
+      unchecked {
+        ++i;
+      }
     }
 
     // --- Interactions: transfer accumulated balances to the caller ---
@@ -987,7 +999,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       if (tokenTotals[k] > 0) {
         IERC20(effectiveTokens[k]).safeTransfer(recipient, tokenTotals[k]);
       }
-      unchecked { ++k; }
+      unchecked {
+        ++k;
+      }
     }
   }
 }

@@ -41,8 +41,14 @@ abstract contract TokenAllowlist is AccessControl, ITokenAllowlist {
     uint256 count;
     uint256 i;
     while (i < len) {
-      if (allowedTokens[_allowedTokenList[i]]) { unchecked { ++count; } }
-      unchecked { ++i; }
+      if (allowedTokens[_allowedTokenList[i]]) {
+        unchecked {
+          ++count;
+        }
+      }
+      unchecked {
+        ++i;
+      }
     }
     address[] memory result = new address[](count);
     uint256 j;
@@ -50,9 +56,13 @@ abstract contract TokenAllowlist is AccessControl, ITokenAllowlist {
     while (i < len) {
       if (allowedTokens[_allowedTokenList[i]]) {
         result[j] = _allowedTokenList[i];
-        unchecked { ++j; }
+        unchecked {
+          ++j;
+        }
       }
-      unchecked { ++i; }
+      unchecked {
+        ++i;
+      }
     }
     return result;
   }
