@@ -28,14 +28,16 @@ export async function deployProcessorEndpointFixture() {
   );
 
   const processorEndpointFactory = await ethers.getContractFactory('ProcessorEndpoint');
+  const resetOperator = await signers[3].getAddress();
 
-  async function deployProcessorEndpoint() {
+  async function deployProcessorEndpoint(resetOperatorOverride?: string) {
     return processorEndpointFactory.deploy(
       await teeAuthenticator.getAddress(),
       await authorityRegistry.getAddress(),
       updateStatusOperator,
       admin,
-      minFeePerRequest
+      minFeePerRequest,
+      resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator
     );
   }
 
@@ -102,6 +104,7 @@ export async function deployProcessorEndpointFixture() {
     processorEndpointFactory,
     updateStatusOperator,
     admin,
+    resetOperator,
     minFeePerRequest,
     deployProcessorEndpoint,
     bootstrapApplication,

@@ -8,8 +8,9 @@ describe('ProcessorEndpoint Test', function () {
   let processorEndpointFactory: any;
   let updateStatusOperator: string;
   let admin: string;
+  let resetOperator: string;
   let minFeePerRequest: bigint;
-  let deployProcessorEndpoint: () => Promise<any>;
+  let deployProcessorEndpoint: (resetOperatorOverride?: string) => Promise<any>;
 
   beforeEach(async function () {
     ({
@@ -18,6 +19,7 @@ describe('ProcessorEndpoint Test', function () {
       processorEndpointFactory,
       updateStatusOperator,
       admin,
+      resetOperator,
       minFeePerRequest,
       deployProcessorEndpoint,
     } = await deployProcessorEndpointFixture());
@@ -32,7 +34,8 @@ describe('ProcessorEndpoint Test', function () {
             await authorityRegistry.getAddress(),
             updateStatusOperator,
             admin,
-            minFeePerRequest
+            minFeePerRequest,
+            ADDRESS_ZERO
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -44,7 +47,8 @@ describe('ProcessorEndpoint Test', function () {
             ADDRESS_ZERO,
             updateStatusOperator,
             admin,
-            minFeePerRequest
+            minFeePerRequest,
+            ADDRESS_ZERO
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -56,7 +60,8 @@ describe('ProcessorEndpoint Test', function () {
             await authorityRegistry.getAddress(),
             ADDRESS_ZERO,
             admin,
-            minFeePerRequest
+            minFeePerRequest,
+            ADDRESS_ZERO
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -68,7 +73,8 @@ describe('ProcessorEndpoint Test', function () {
             await authorityRegistry.getAddress(),
             updateStatusOperator,
             ADDRESS_ZERO,
-            minFeePerRequest
+            minFeePerRequest,
+            ADDRESS_ZERO
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -93,10 +99,18 @@ describe('ProcessorEndpoint Test', function () {
         const updateRole = await processorEndpoint.UPDATE_STATUS_ROLE();
         const adminRole = await processorEndpoint.ADMIN();
         const deployerRole = await processorEndpoint.DEPLOYER_ROLE();
+        const resetRole = await processorEndpoint.RESET_OPERATOR();
         expect(await processorEndpoint.hasRole(updateRole, updateStatusOperator)).to.equal(true);
         expect(await processorEndpoint.hasRole(adminRole, admin)).to.equal(true);
         expect(await processorEndpoint.hasRole(deployerRole, admin)).to.equal(true);
         expect(await processorEndpoint.getRoleAdmin(deployerRole)).to.equal(adminRole);
+        expect(await processorEndpoint.hasRole(resetRole, resetOperator)).to.equal(true);
+      });
+
+      it('does not grant RESET_OPERATOR when address(0) is passed', async () => {
+        const processorEndpoint = await deployProcessorEndpoint(ADDRESS_ZERO);
+        const resetRole = await processorEndpoint.RESET_OPERATOR();
+        expect(await processorEndpoint.hasRole(resetRole, ADDRESS_ZERO)).to.equal(false);
       });
     });
   });

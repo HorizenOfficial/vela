@@ -33,4 +33,8 @@ interface ITokenAllowlist {
   /// @param token The token address to check.
   /// @return True if the token is allowed.
   function isAllowedToken(address token) external view returns (bool);
+
+  /// @notice Returns all currently allowed ERC-20 token addresses.
+  /// @return tokens Array of allowed token addresses.
+  function getAllowedTokens() external view returns (address[] memory);
 }

@@ -108,13 +108,15 @@ async function deploy() {
   const teeAuthenticatorAddr = await deployTeeAuthenticator(deployer, deployerAddress);
 
   // 4) ProcessorEndpoint
+  const resetOperator = process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000';
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');
   const processorEndpoint = await ProcessorEndpoint.deploy(
     teeAuthenticatorAddr,
     authorityRegistryAddr,
     process.env.UPDATE_STATUS_OPERATOR!,
     process.env.ADMIN!,
-    process.env.MIN_FEE_PER_REQUEST!
+    process.env.MIN_FEE_PER_REQUEST!,
+    resetOperator
   );
   await processorEndpoint.deploymentTransaction()!.wait();
   var processorEndpointAddr = await processorEndpoint.getAddress();
@@ -122,6 +124,7 @@ async function deploy() {
   console.log(`  contract address: ${processorEndpointAddr}`);
   console.log(`  update status operator (manager address): ${process.env.UPDATE_STATUS_OPERATOR!}`);
   console.log(`  admin / bootstrap deployer: ${process.env.ADMIN!}`);
+  console.log(`  reset operator (address(0) = disabled): ${resetOperator}`);
 
   // 5) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
   //    Must be deployed AFTER ProcessorEndpoint so that its CREATE address

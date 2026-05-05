@@ -169,7 +169,8 @@ describe('ProcessorEndpoint Test', function () {
       await fixture.authorityRegistry.getAddress(),
       fixture.updateStatusOperator,
       fixture.admin,
-      fixture.minFeePerRequest
+      fixture.minFeePerRequest,
+      fixture.resetOperator
     );
 
     const { applicationId: appId } = await fixture.bootstrapApplication(

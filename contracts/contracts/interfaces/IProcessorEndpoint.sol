@@ -367,4 +367,23 @@ interface IProcessorEndpoint {
   /// @param tokenAddress Token address (0x0 = ETH).
   /// @param payee Payee address.
   function claim(address tokenAddress, address payable payee) external;
+
+  /// @notice Returns all application IDs that have ever been successfully deployed.
+  /// @return appIds Array of deployed application IDs.
+  function getDeployedAppIds() external view returns (uint64[] memory);
+
+  /// @notice Clears the pending request queue and frees deploy slots for any pending DEPLOYAPP
+  ///         requests that are removed. Restricted to RESET_OPERATOR. Unreachable when
+  ///         RESET_OPERATOR was initialised as address(0).
+  function adminReset() external;
+
+  /// @notice Resets state roots and locked funds for the given application IDs, clears the queue
+  ///         in the same transaction, and transfers all recovered ETH and ERC-20 balances to the
+  ///         caller. Pass empty arrays to target all deployed apps / all allowlisted tokens.
+  ///         Restricted to RESET_OPERATOR. Unreachable when RESET_OPERATOR was initialised as
+  ///         address(0).
+  /// @param appIds Application IDs to reset. Empty array means all deployed apps.
+  /// @param erc20Tokens ERC-20 token addresses whose custody to recover. Empty array means all
+  ///        allowlisted tokens.
+  function adminResetApps(uint64[] calldata appIds, address[] calldata erc20Tokens) external;
 }

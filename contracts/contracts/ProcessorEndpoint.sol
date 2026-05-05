@@ -25,9 +25,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
   bytes32 public constant ADMIN = keccak256('ADMIN');
   bytes32 public constant DEPLOYER_ROLE = keccak256('DEPLOYER_ROLE');
+  bytes32 public constant RESET_OPERATOR = keccak256('RESET_OPERATOR');
   uint8 public constant PROTOCOL_VERSION = 0;
   //state variables
   mapping(uint64 => bytes32) public applicationStateRoots;
+  uint64[] private _deployedAppIds;
   uint256 public maxNumOfApplications = 10;
   uint256 public availableDeploySlots = maxNumOfApplications;
 
@@ -83,12 +85,15 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   /// @param updateStatusOperator Initial operator for status updates.
   /// @param admin Initial admin address.
   /// @param _minFeePerRequest Minimum fee enforced per request.
+  /// @param resetOperator Address granted RESET_OPERATOR role. Pass address(0) to disable reset
+  ///        permanently (required for production). The role cannot be granted after deployment.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
     address admin,
-    uint256 _minFeePerRequest
+    uint256 _minFeePerRequest,
+    address resetOperator
   ) EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {
     if (
       address(_teeAuthenticator) == address(0) ||
@@ -105,6 +110,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     _setRoleAdmin(DEPLOYER_ROLE, ADMIN);
     _grantRole(DEPLOYER_ROLE, admin);
     minFeePerRequest = _minFeePerRequest;
+    if (resetOperator != address(0)) {
+      _grantRole(RESET_OPERATOR, resetOperator);
+    }
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -706,6 +714,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     //update state root and request
     applicationStateRoots[applicationId] = newStateRoot;
+    if (reqType == Structs.RequestType.DEPLOYAPP) {
+      _deployedAppIds.push(applicationId);
+    }
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
     //credit refund to feeRecipient's pending balance (pull pattern) — refund is always ETH
@@ -852,5 +863,131 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       keccak256(
         abi.encode(sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx)
       );
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function getDeployedAppIds() external view returns (uint64[] memory) {
+    return _deployedAppIds;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function adminReset() external onlyRole(RESET_OPERATOR) {
+    _resetQueue();
+  }
+
+  function _resetQueue() internal {
+    uint256 i = _head;
+    uint256 tail = _tail;
+    uint256 freedDeploySlots;
+
+    // Iterate every pending request from head to tail, counting any DEPLOYAPP entries
+    // so their reserved deploy slots can be returned to the pool.
+    while (i < tail) {
+      if (requestById[_requestIdByOrder[i]].requestType == Structs.RequestType.DEPLOYAPP) {
+        unchecked { ++freedDeploySlots; }
+      }
+      delete requestById[_requestIdByOrder[i]];
+      delete _requestIdByOrder[i];
+      unchecked { ++i; }
+    }
+
+    // Collapse the queue by setting tail back to head. _head is intentionally left at its
+    // current value so that future queue indices continue from where they left off rather
+    // than restarting from zero (avoids any risk of re-using a slot index still in storage).
+    _tail = _head;
+
+    // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
+    // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
+    unchecked { availableDeploySlots += freedDeploySlots; }
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function adminResetApps(
+    uint64[] calldata appIds,
+    address[] calldata erc20Tokens
+  ) external onlyRole(RESET_OPERATOR) nonReentrant {
+    // Clear the pending request queue first so no in-flight requests remain after the reset.
+    _resetQueue();
+
+    // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
+    // fall back to every app that has ever been successfully deployed.
+    uint64[] memory effectiveAppIds;
+    if (appIds.length > 0) {
+      effectiveAppIds = appIds;
+    } else {
+      effectiveAppIds = _deployedAppIds;
+    }
+
+    // Resolve the effective token list: use the caller-supplied list when non-empty, otherwise
+    // fall back to all tokens currently registered in the allowlist.
+    address[] memory effectiveTokens;
+    if (erc20Tokens.length > 0) {
+      effectiveTokens = erc20Tokens;
+    } else {
+      effectiveTokens = getAllowedTokens();
+    }
+
+    uint256 appCount = effectiveAppIds.length;
+    uint256 tokenCount = effectiveTokens.length;
+
+    // Accumulators for the total ETH and per-token ERC-20 amounts to transfer at the end.
+    // Accumulating across all apps and then doing one transfer per asset (rather than one
+    // transfer per app) keeps the interactions section O(tokens) instead of O(apps * tokens).
+    uint256 totalEth;
+    uint256[] memory tokenTotals = new uint256[](tokenCount);
+
+    // --- Effects: zero out all custody and state roots before any external call ---
+    uint256 i;
+    while (i < appCount) {
+      uint64 appId = effectiveAppIds[i];
+
+      // Accumulate ETH custody for this app and clear both the per-app and global trackers.
+      uint256 ethAmt = appCustody[appId][address(0)];
+      if (ethAmt > 0) {
+        totalEth += ethAmt;
+        totalAppCustody[address(0)] -= ethAmt;
+        appCustody[appId][address(0)] = 0;
+      }
+
+      // Accumulate ERC-20 custody for this app across every token in the effective list.
+      uint256 j;
+      while (j < tokenCount) {
+        uint256 amt = appCustody[appId][effectiveTokens[j]];
+        if (amt > 0) {
+          tokenTotals[j] += amt;
+          totalAppCustody[effectiveTokens[j]] -= amt;
+          appCustody[appId][effectiveTokens[j]] = 0;
+        }
+        unchecked { ++j; }
+      }
+
+      // Clear the app's state root and return its deploy slot to the pool so the same
+      // slot capacity can be reused by a subsequent deploy after the reset.
+      if (applicationStateRoots[appId] != bytes32(0)) {
+        applicationStateRoots[appId] = bytes32(0);
+        unchecked { ++availableDeploySlots; }
+      }
+
+      unchecked { ++i; }
+    }
+
+    // --- Interactions: transfer accumulated balances to the caller ---
+    // All state changes are complete before any external call (checks-effects-interactions).
+    address payable recipient = payable(msg.sender);
+
+    // Single ETH transfer covering the total rescued across all apps.
+    if (totalEth > 0) {
+      (bool ok, ) = recipient.call{value: totalEth}('');
+      if (!ok) revert TransferFailed();
+    }
+
+    // One safeTransfer per token covering the total rescued across all apps.
+    uint256 k;
+    while (k < tokenCount) {
+      if (tokenTotals[k] > 0) {
+        IERC20(effectiveTokens[k]).safeTransfer(recipient, tokenTotals[k]);
+      }
+      unchecked { ++k; }
+    }
   }
 }
