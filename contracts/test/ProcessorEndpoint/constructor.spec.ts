@@ -34,8 +34,8 @@ describe('ProcessorEndpoint Test', function () {
             await authorityRegistry.getAddress(),
             updateStatusOperator,
             admin,
-            minFeePerRequest,
-            ADDRESS_ZERO
+            ADDRESS_ZERO,
+            minFeePerRequest
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -47,8 +47,8 @@ describe('ProcessorEndpoint Test', function () {
             ADDRESS_ZERO,
             updateStatusOperator,
             admin,
-            minFeePerRequest,
-            ADDRESS_ZERO
+            ADDRESS_ZERO,
+            minFeePerRequest
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -60,8 +60,8 @@ describe('ProcessorEndpoint Test', function () {
             await authorityRegistry.getAddress(),
             ADDRESS_ZERO,
             admin,
-            minFeePerRequest,
-            ADDRESS_ZERO
+            ADDRESS_ZERO,
+            minFeePerRequest
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -73,8 +73,8 @@ describe('ProcessorEndpoint Test', function () {
             await authorityRegistry.getAddress(),
             updateStatusOperator,
             ADDRESS_ZERO,
-            minFeePerRequest,
-            ADDRESS_ZERO
+            ADDRESS_ZERO,
+            minFeePerRequest
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
