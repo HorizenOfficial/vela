@@ -84,16 +84,16 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   /// @param _authorityRegistry Registry for authority checks.
   /// @param updateStatusOperator Initial operator for status updates.
   /// @param admin Initial admin address.
-  /// @param _minFeePerRequest Minimum fee enforced per request.
   /// @param resetOperator Address granted RESET_OPERATOR role. Pass address(0) to disable reset
   ///        permanently (required for production). The role cannot be granted after deployment.
+  /// @param _minFeePerRequest Minimum fee enforced per request.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
     address admin,
-    uint256 _minFeePerRequest,
-    address resetOperator
+    address resetOperator,
+    uint256 _minFeePerRequest
   ) EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {
     if (
       address(_teeAuthenticator) == address(0) ||

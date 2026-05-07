@@ -115,8 +115,8 @@ async function deploy() {
     authorityRegistryAddr,
     process.env.UPDATE_STATUS_OPERATOR!,
     process.env.ADMIN!,
-    process.env.MIN_FEE_PER_REQUEST!,
-    resetOperator
+    resetOperator,
+    process.env.MIN_FEE_PER_REQUEST!
   );
   await processorEndpoint.deploymentTransaction()!.wait();
   var processorEndpointAddr = await processorEndpoint.getAddress();

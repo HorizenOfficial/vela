@@ -22,14 +22,14 @@
         "type": "address"
       },
       {
-        "internalType": "uint256",
-        "name": "_minFeePerRequest",
-        "type": "uint256"
-      },
-      {
         "internalType": "address",
         "name": "resetOperator",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_minFeePerRequest",
+        "type": "uint256"
       }
     ],
     "stateMutability": "nonpayable",

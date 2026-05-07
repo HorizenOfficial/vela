@@ -161,7 +161,7 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, big.NewInt(5))
+	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5))
 	// set up params to deploy an instance of the ProcessorEndpoint contract
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},

@@ -36,8 +36,8 @@ export async function deployProcessorEndpointFixture() {
       await authorityRegistry.getAddress(),
       updateStatusOperator,
       admin,
-      minFeePerRequest,
-      resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator
+      resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator,
+      minFeePerRequest
     );
   }
 
