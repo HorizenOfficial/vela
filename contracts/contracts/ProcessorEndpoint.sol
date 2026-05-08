@@ -870,8 +870,23 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     return _deployedAppIds;
   }
 
+  function _removeDeployedAppId(uint64 appId) internal {
+    uint256 len = _deployedAppIds.length;
+    uint256 i;
+    while (i != len) {
+      if (_deployedAppIds[i] == appId) {
+        _deployedAppIds[i] = _deployedAppIds[len - 1];
+        _deployedAppIds.pop();
+        break;
+      }
+      unchecked {
+        ++i;
+      }
+    }
+  }
+
   /// @inheritdoc IProcessorEndpoint
-  function adminReset() external onlyRole(RESET_OPERATOR) {
+  function adminReset() external onlyRole(RESET_OPERATOR) nonReentrant {
     _resetQueue();
   }
 
@@ -912,8 +927,35 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     uint64[] calldata appIds,
     address[] calldata erc20Tokens
   ) external onlyRole(RESET_OPERATOR) nonReentrant {
-    // Clear the pending request queue first so no in-flight requests remain after the reset.
-    _resetQueue();
+    // Clear the pending request queue, refunding each request's asset deposit to its sender.
+    {
+      uint256 qi = _head;
+      uint256 qtail = _tail;
+      uint256 freedDeploySlots;
+      while (qi < qtail) {
+        bytes32 reqId = _requestIdByOrder[qi];
+        Structs.PendingRequest storage req = requestById[reqId];
+        if (req.requestType == Structs.RequestType.DEPLOYAPP) {
+          unchecked {
+            ++freedDeploySlots;
+          }
+        }
+        if (req.assetAmount > 0) {
+          appCustody[req.applicationId][req.tokenAddress] -= req.assetAmount;
+          totalAppCustody[req.tokenAddress] -= req.assetAmount;
+          _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
+        }
+        delete requestById[reqId];
+        delete _requestIdByOrder[qi];
+        unchecked {
+          ++qi;
+        }
+      }
+      _tail = _head;
+      unchecked {
+        availableDeploySlots += freedDeploySlots;
+      }
+    }
 
     // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
     // fall back to every app that has ever been successfully deployed.
@@ -948,11 +990,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       uint64 appId = effectiveAppIds[i];
 
       // Accumulate ETH custody for this app and clear both the per-app and global trackers.
-      uint256 ethAmt = appCustody[appId][address(0)];
+      uint256 ethAmt = appCustody[appId][ETH_TOKEN];
       if (ethAmt > 0) {
         totalEth += ethAmt;
-        totalAppCustody[address(0)] -= ethAmt;
-        appCustody[appId][address(0)] = 0;
+        totalAppCustody[ETH_TOKEN] -= ethAmt;
+        appCustody[appId][ETH_TOKEN] = 0;
       }
 
       // Accumulate ERC-20 custody for this app across every token in the effective list.
@@ -969,10 +1011,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         }
       }
 
-      // Clear the app's state root and return its deploy slot to the pool so the same
-      // slot capacity can be reused by a subsequent deploy after the reset.
+      // Clear the app's state root, remove it from the deployed list, and return its deploy
+      // slot to the pool so the same slot capacity can be reused after the reset.
       if (applicationStateRoots[appId] != bytes32(0)) {
         applicationStateRoots[appId] = bytes32(0);
+        _removeDeployedAppId(appId);
         unchecked {
           ++availableDeploySlots;
         }

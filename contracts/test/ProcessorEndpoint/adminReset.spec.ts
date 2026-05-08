@@ -196,67 +196,71 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
       });
 
-      it('recovers ETH custody and transfers it to the caller', async () => {
+      it('refunds ETH asset deposits to the original request senders', async () => {
         const { applicationId } = await bootstrapApplication(processorEndpoint);
+        const sender = signers[0];
+        const senderAddr = await sender.getAddress();
         // Deposit ETH as a business asset (assetAmount > 0, ETH token)
         const assetAmount = ethers.parseEther('0.5');
-        await processorEndpoint.submitRequest(
-          0,
-          applicationId,
-          1,
-          '0x01',
-          ETH_TOKEN,
-          assetAmount,
-          minFeePerRequest,
-          { value: assetAmount + minFeePerRequest }
-        );
+        await processorEndpoint
+          .connect(sender)
+          .submitRequest(0, applicationId, 1, '0x01', ETH_TOKEN, assetAmount, minFeePerRequest, {
+            value: assetAmount + minFeePerRequest,
+          });
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(assetAmount);
 
-        const resetOperatorSigner = signers[3];
-        const resetOperatorAddr = await resetOperatorSigner.getAddress();
-        const balBefore = await resetOperatorSigner.provider!.getBalance(resetOperatorAddr);
-
-        const tx = await processorEndpoint.connect(resetOperatorSigner).adminResetApps([], []);
-        const receipt = await tx.wait();
-        const gasCost = receipt.gasUsed * receipt.gasPrice;
-        const balAfter = await resetOperatorSigner.provider!.getBalance(resetOperatorAddr);
+        await processorEndpoint.connect(signers[3]).adminResetApps([], []);
 
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
         expect(await processorEndpoint.totalAppCustody(ETH_TOKEN)).to.equal(0n);
-        expect(balAfter).to.equal(balBefore + assetAmount - gasCost);
+        expect(await processorEndpoint.pendingClaims(ETH_TOKEN, senderAddr)).to.equal(assetAmount);
       });
 
-      it('recovers ERC-20 custody and transfers it to the caller', async () => {
+      it('refunds ERC-20 asset deposits to the original request senders', async () => {
         const { applicationId } = await bootstrapApplication(processorEndpoint);
         const tokenAddr = await mockERC20.getAddress();
         const assetAmount = 500n;
+        const sender = signers[0];
+        const senderAddr = await sender.getAddress();
 
-        await mockERC20.mint(await signers[0].getAddress(), assetAmount);
-        await mockERC20
-          .connect(signers[0])
-          .approve(await processorEndpoint.getAddress(), assetAmount);
-        await processorEndpoint.submitRequest(
-          0,
-          applicationId,
-          1,
-          '0x01',
-          tokenAddr,
-          assetAmount,
-          minFeePerRequest,
-          { value: minFeePerRequest }
-        );
+        await mockERC20.mint(senderAddr, assetAmount);
+        await mockERC20.connect(sender).approve(await processorEndpoint.getAddress(), assetAmount);
+        await processorEndpoint
+          .connect(sender)
+          .submitRequest(0, applicationId, 1, '0x01', tokenAddr, assetAmount, minFeePerRequest, {
+            value: minFeePerRequest,
+          });
 
         expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(assetAmount);
         expect(await processorEndpoint.totalAppCustody(tokenAddr)).to.equal(assetAmount);
 
         const resetOperatorAddr = await signers[3].getAddress();
-        const balBefore = await mockERC20.balanceOf(resetOperatorAddr);
+        const resetOpBalBefore = await mockERC20.balanceOf(resetOperatorAddr);
 
         await processorEndpoint.connect(signers[3]).adminResetApps([], []);
 
         expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(0n);
         expect(await processorEndpoint.totalAppCustody(tokenAddr)).to.equal(0n);
-        expect(await mockERC20.balanceOf(resetOperatorAddr)).to.equal(balBefore + assetAmount);
+        expect(await processorEndpoint.pendingClaims(tokenAddr, senderAddr)).to.equal(assetAmount);
+        expect(await mockERC20.balanceOf(resetOperatorAddr)).to.equal(resetOpBalBefore);
+      });
+
+      it('removes reset appIds from getDeployedAppIds', async () => {
+        const { applicationId: id1 } = await bootstrapApplication(processorEndpoint);
+        const { applicationId: id2 } = await bootstrapApplication(processorEndpoint);
+
+        await processorEndpoint.connect(signers[3]).adminResetApps([id1], []);
+        const ids = await processorEndpoint.getDeployedAppIds();
+        expect(ids.length).to.equal(1);
+        expect(ids[0]).to.equal(id2);
+      });
+
+      it('clears getDeployedAppIds when all apps are reset', async () => {
+        await bootstrapApplication(processorEndpoint);
+        await bootstrapApplication(processorEndpoint);
+
+        await processorEndpoint.connect(signers[3]).adminResetApps([], []);
+        expect(await processorEndpoint.getDeployedAppIds()).to.deep.equal([]);
       });
 
       it('uses getAllowedTokens when erc20Tokens is empty', async () => {
