@@ -895,15 +895,22 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     uint256 tail = _tail;
     uint256 freedDeploySlots;
 
-    // Iterate every pending request from head to tail, counting any DEPLOYAPP entries
-    // so their reserved deploy slots can be returned to the pool.
+    // Iterate every pending request from head to tail, refunding any asset deposits to their
+    // senders and counting any DEPLOYAPP entries so their reserved deploy slots can be returned.
     while (i < tail) {
-      if (requestById[_requestIdByOrder[i]].requestType == Structs.RequestType.DEPLOYAPP) {
+      bytes32 reqId = _requestIdByOrder[i];
+      Structs.PendingRequest storage req = requestById[reqId];
+      if (req.requestType == Structs.RequestType.DEPLOYAPP) {
         unchecked {
           ++freedDeploySlots;
         }
       }
-      delete requestById[_requestIdByOrder[i]];
+      if (req.assetAmount > 0) {
+        appCustody[req.applicationId][req.tokenAddress] -= req.assetAmount;
+        totalAppCustody[req.tokenAddress] -= req.assetAmount;
+        _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
+      }
+      delete requestById[reqId];
       delete _requestIdByOrder[i];
       unchecked {
         ++i;
@@ -928,34 +935,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     address[] calldata erc20Tokens
   ) external onlyRole(RESET_OPERATOR) nonReentrant {
     // Clear the pending request queue, refunding each request's asset deposit to its sender.
-    {
-      uint256 qi = _head;
-      uint256 qtail = _tail;
-      uint256 freedDeploySlots;
-      while (qi < qtail) {
-        bytes32 reqId = _requestIdByOrder[qi];
-        Structs.PendingRequest storage req = requestById[reqId];
-        if (req.requestType == Structs.RequestType.DEPLOYAPP) {
-          unchecked {
-            ++freedDeploySlots;
-          }
-        }
-        if (req.assetAmount > 0) {
-          appCustody[req.applicationId][req.tokenAddress] -= req.assetAmount;
-          totalAppCustody[req.tokenAddress] -= req.assetAmount;
-          _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
-        }
-        delete requestById[reqId];
-        delete _requestIdByOrder[qi];
-        unchecked {
-          ++qi;
-        }
-      }
-      _tail = _head;
-      unchecked {
-        availableDeploySlots += freedDeploySlots;
-      }
-    }
+    _resetQueue();
 
     // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
     // fall back to every app that has ever been successfully deployed.
