@@ -22,6 +22,11 @@
         "type": "address"
       },
       {
+        "internalType": "address",
+        "name": "resetOperator",
+        "type": "address"
+      },
+      {
         "internalType": "uint256",
         "name": "_minFeePerRequest",
         "type": "uint256"
@@ -802,6 +807,19 @@
   },
   {
     "inputs": [],
+    "name": "RESET_OPERATOR",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "UPDATE_STATUS_ROLE",
     "outputs": [
       {
@@ -835,6 +853,31 @@
       }
     ],
     "name": "addAllowedToken",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "adminReset",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64[]",
+        "name": "appIds",
+        "type": "uint64[]"
+      },
+      {
+        "internalType": "address[]",
+        "name": "erc20Tokens",
+        "type": "address[]"
+      }
+    ],
+    "name": "adminResetApps",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1067,6 +1110,32 @@
       }
     ],
     "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getAllowedTokens",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getDeployedAppIds",
+    "outputs": [
+      {
+        "internalType": "uint64[]",
+        "name": "",
+        "type": "uint64[]"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {

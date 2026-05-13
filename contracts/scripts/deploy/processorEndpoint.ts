@@ -9,6 +9,8 @@ async function deploy() {
     _authorityRegistry: ${process.env.AUTHORITY_REGISTRY}
     updateStatusOperator: ${process.env.UPDATE_STATUS_OPERATOR}
     admin (bootstrap deployer): ${process.env.ADMIN}
+    resetOperator (address(0) = disabled): ${process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000'}
+    minFeePerRequest: ${process.env.MIN_FEE_PER_REQUEST}
   `);
   //deploy
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');
@@ -17,6 +19,7 @@ async function deploy() {
     process.env.AUTHORITY_REGISTRY!,
     process.env.UPDATE_STATUS_OPERATOR!,
     process.env.ADMIN!,
+    process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000',
     process.env.MIN_FEE_PER_REQUEST!
   );
   await processorEndpoint.deploymentTransaction()!.wait();

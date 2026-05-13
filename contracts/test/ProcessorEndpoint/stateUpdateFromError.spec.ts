@@ -169,6 +169,7 @@ describe('ProcessorEndpoint Test', function () {
       await fixture.authorityRegistry.getAddress(),
       fixture.updateStatusOperator,
       fixture.admin,
+      fixture.resetOperator,
       fixture.minFeePerRequest
     );
 

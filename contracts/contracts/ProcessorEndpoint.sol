@@ -25,9 +25,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
   bytes32 public constant ADMIN = keccak256('ADMIN');
   bytes32 public constant DEPLOYER_ROLE = keccak256('DEPLOYER_ROLE');
+  bytes32 public constant RESET_OPERATOR = keccak256('RESET_OPERATOR');
   uint8 public constant PROTOCOL_VERSION = 0;
   //state variables
   mapping(uint64 => bytes32) public applicationStateRoots;
+  uint64[] private _deployedAppIds;
   uint256 public maxNumOfApplications = 10;
   uint256 public availableDeploySlots = maxNumOfApplications;
 
@@ -82,12 +84,15 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   /// @param _authorityRegistry Registry for authority checks.
   /// @param updateStatusOperator Initial operator for status updates.
   /// @param admin Initial admin address.
+  /// @param resetOperator Address granted RESET_OPERATOR role. Pass address(0) to disable reset
+  ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
     address admin,
+    address resetOperator,
     uint256 _minFeePerRequest
   ) EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {
     if (
@@ -105,6 +110,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     _setRoleAdmin(DEPLOYER_ROLE, ADMIN);
     _grantRole(DEPLOYER_ROLE, admin);
     minFeePerRequest = _minFeePerRequest;
+    if (resetOperator != address(0)) {
+      _grantRole(RESET_OPERATOR, resetOperator);
+    }
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -706,6 +714,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     //update state root and request
     applicationStateRoots[applicationId] = newStateRoot;
+    if (reqType == Structs.RequestType.DEPLOYAPP) {
+      _deployedAppIds.push(applicationId);
+    }
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
     //credit refund to feeRecipient's pending balance (pull pattern) — refund is always ETH
@@ -852,5 +863,168 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       keccak256(
         abi.encode(sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx)
       );
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function getDeployedAppIds() external view returns (uint64[] memory) {
+    return _deployedAppIds;
+  }
+
+  function _removeDeployedAppId(uint64 appId) internal {
+    uint256 len = _deployedAppIds.length;
+    uint256 i;
+    while (i != len) {
+      if (_deployedAppIds[i] == appId) {
+        _deployedAppIds[i] = _deployedAppIds[len - 1];
+        _deployedAppIds.pop();
+        break;
+      }
+      unchecked {
+        ++i;
+      }
+    }
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function adminReset() external onlyRole(RESET_OPERATOR) nonReentrant {
+    _resetQueue();
+  }
+
+  function _resetQueue() internal {
+    uint256 i = _head;
+    uint256 tail = _tail;
+    uint256 freedDeploySlots;
+
+    // Iterate every pending request from head to tail, refunding any asset deposits to their
+    // senders and counting any DEPLOYAPP entries so their reserved deploy slots can be returned.
+    while (i < tail) {
+      bytes32 reqId = _requestIdByOrder[i];
+      Structs.PendingRequest storage req = requestById[reqId];
+      if (req.requestType == Structs.RequestType.DEPLOYAPP) {
+        unchecked {
+          ++freedDeploySlots;
+        }
+      }
+      if (req.assetAmount > 0) {
+        appCustody[req.applicationId][req.tokenAddress] -= req.assetAmount;
+        totalAppCustody[req.tokenAddress] -= req.assetAmount;
+        _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
+      }
+      delete requestById[reqId];
+      delete _requestIdByOrder[i];
+      unchecked {
+        ++i;
+      }
+    }
+
+    // Collapse the queue by setting tail back to head. _head is intentionally left at its
+    // current value so that future queue indices continue from where they left off rather
+    // than restarting from zero (avoids any risk of re-using a slot index still in storage).
+    _tail = _head;
+
+    // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
+    // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
+    unchecked {
+      availableDeploySlots += freedDeploySlots;
+    }
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function adminResetApps(
+    uint64[] calldata appIds,
+    address[] calldata erc20Tokens
+  ) external onlyRole(RESET_OPERATOR) nonReentrant {
+    // Clear the pending request queue, refunding each request's asset deposit to its sender.
+    _resetQueue();
+
+    // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
+    // fall back to every app that has ever been successfully deployed.
+    uint64[] memory effectiveAppIds;
+    if (appIds.length > 0) {
+      effectiveAppIds = appIds;
+    } else {
+      effectiveAppIds = _deployedAppIds;
+    }
+
+    // Resolve the effective token list: use the caller-supplied list when non-empty, otherwise
+    // fall back to all tokens currently registered in the allowlist.
+    address[] memory effectiveTokens;
+    if (erc20Tokens.length > 0) {
+      effectiveTokens = erc20Tokens;
+    } else {
+      effectiveTokens = getAllowedTokens();
+    }
+
+    uint256 appCount = effectiveAppIds.length;
+    uint256 tokenCount = effectiveTokens.length;
+
+    // Accumulators for the total ETH and per-token ERC-20 amounts to transfer at the end.
+    // Accumulating across all apps and then doing one transfer per asset (rather than one
+    // transfer per app) keeps the interactions section O(tokens) instead of O(apps * tokens).
+    uint256 totalEth;
+    uint256[] memory tokenTotals = new uint256[](tokenCount);
+
+    // --- Effects: zero out all custody and state roots before any external call ---
+    uint256 i;
+    while (i < appCount) {
+      uint64 appId = effectiveAppIds[i];
+
+      // Accumulate ETH custody for this app and clear both the per-app and global trackers.
+      uint256 ethAmt = appCustody[appId][ETH_TOKEN];
+      if (ethAmt > 0) {
+        totalEth += ethAmt;
+        totalAppCustody[ETH_TOKEN] -= ethAmt;
+        appCustody[appId][ETH_TOKEN] = 0;
+      }
+
+      // Accumulate ERC-20 custody for this app across every token in the effective list.
+      uint256 j;
+      while (j < tokenCount) {
+        uint256 amt = appCustody[appId][effectiveTokens[j]];
+        if (amt > 0) {
+          tokenTotals[j] += amt;
+          totalAppCustody[effectiveTokens[j]] -= amt;
+          appCustody[appId][effectiveTokens[j]] = 0;
+        }
+        unchecked {
+          ++j;
+        }
+      }
+
+      // Clear the app's state root, remove it from the deployed list, and return its deploy
+      // slot to the pool so the same slot capacity can be reused after the reset.
+      if (applicationStateRoots[appId] != bytes32(0)) {
+        applicationStateRoots[appId] = bytes32(0);
+        _removeDeployedAppId(appId);
+        unchecked {
+          ++availableDeploySlots;
+        }
+      }
+
+      unchecked {
+        ++i;
+      }
+    }
+
+    // --- Interactions: transfer accumulated balances to the caller ---
+    // All state changes are complete before any external call (checks-effects-interactions).
+    address payable recipient = payable(msg.sender);
+
+    // Single ETH transfer covering the total rescued across all apps.
+    if (totalEth > 0) {
+      (bool ok, ) = recipient.call{value: totalEth}('');
+      if (!ok) revert TransferFailed();
+    }
+
+    // One safeTransfer per token covering the total rescued across all apps.
+    uint256 k;
+    while (k < tokenCount) {
+      if (tokenTotals[k] > 0) {
+        IERC20(effectiveTokens[k]).safeTransfer(recipient, tokenTotals[k]);
+      }
+      unchecked {
+        ++k;
+      }
+    }
   }
 }
