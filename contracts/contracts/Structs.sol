@@ -48,6 +48,11 @@ contract Structs {
     RequestType requestType;
   }
 
+  struct PrioritizedUnencryptedPendingRequest {
+    uint256 priority; //lower value = higher priority
+    PendingRequest request;
+  }
+
   struct WithdrawalRequest {
     address tokenAddress; // 0x0 = ETH
     address payable receiver;

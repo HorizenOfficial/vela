@@ -135,6 +135,29 @@ interface IProcessorEndpoint {
   /// @param amount Amount withdrawn.
   event PaymentWithdrawn(address tokenAddress, address indexed payee, uint256 amount);
 
+  // @notice Emitted when a trigger's execute function is called.
+  // @param applicationId Application identifier.
+  // @param processedRequestId Request identifier being processed.
+  // @param triggerContract Address of the trigger contract being called.
+  // @param success True if the execute call succeeded, false if it reverted.
+  event TriggerExecuted(
+    uint64 indexed applicationId,
+    bytes32 indexed processedRequestId,
+    address indexed triggerContract,
+    bool success
+  );
+  // @notice Emitted when a trigger's withdraw function is called.
+  // @param applicationId Application identifier.
+  // @param processedRequestId Request identifier being processed.
+  // @param triggerContract Address of the trigger contract being called.
+  // @param success True if the withdraw call succeeded, false if it reverted.
+  event TriggerPostWithdraw(
+    uint64 indexed applicationId,
+    bytes32 indexed processedRequestId,
+    address indexed triggerContract,
+    bool success
+  );
+
   /// @notice A zero address was supplied where not allowed.
   error AddressCantBeZero();
   /// @notice Fee value is below the minimum allowed.
@@ -177,6 +200,8 @@ interface IProcessorEndpoint {
   error InvalidSigner();
   /// @notice The deposit permit bytes are invalid or missing when required (used for facilitator requests).
   error InvalidPermit();
+  /// @notice Caller is not a trigger contract registered in triggerContracts.
+  error NotRegisteredTrigger();
 
   /// @notice Submits a new request and enqueues it for processing.
   /// @param protocolVersion Protocol version.
@@ -238,9 +263,36 @@ interface IProcessorEndpoint {
     bytes calldata payload
   ) external payable returns (bytes32);
 
+  /// @notice Enqueues a prioritized unencrypted request. Only callable by a trigger contract
+  ///         registered in triggerContracts. The applicationId is derived automatically from
+  ///         triggersToAppIds[msg.sender]; the requestId is generated deterministically.
+  /// @param priority Request priority (lower value = higher priority).
+  /// @param requestType Request type.
+  /// @param payload Request payload.
+  /// @param tokenAddress Token address (address(0) = ETH).
+  /// @param assetAmount Business asset amount.
+  /// @param maxFeeValue Maximum fee reserved for processing.
+  /// @param sender Original request sender.
+  /// @param facilitator Facilitator address (address(0) for direct submissions).
+  /// @return requestId Generated request identifier.
+  function submitPrioritizedRequest(
+    uint256 priority,
+    Structs.RequestType requestType,
+    bytes calldata payload,
+    address tokenAddress,
+    uint256 assetAmount,
+    uint256 maxFeeValue,
+    address sender,
+    address facilitator
+  ) external returns (bytes32);
+
   /// @notice Returns the number of pending requests in the queue.
   /// @return size Current pending request count.
   function getPendingRequestsSize() external view returns (uint256);
+
+  /// @notice Returns the number of requests currently in the prioritized queue.
+  /// @return size Current prioritized request count.
+  function getPrioritizedRequestsSize() external view returns (uint256);
 
   /// @notice Returns the list of pending requests in order.
   /// @return requests Array of pending requests.
@@ -316,6 +368,14 @@ interface IProcessorEndpoint {
     external
     view
     returns (Structs.PendingRequest memory, bytes32, bool);
+
+  /// @notice Returns the highest-priority pending prioritized request, if any.
+  /// @return request The request at the head of the prioritized queue.
+  /// @return success True if a request exists, false if the queue is empty.
+  function getNextPrioritizedRequest()
+    external
+    view
+    returns (Structs.PrioritizedUnencryptedPendingRequest memory request, bool success);
 
   /// @notice Checks whether a request is the current pending request.
   /// @param requestId Request identifier.

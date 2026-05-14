@@ -15,6 +15,7 @@ import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
 import './TokenAllowlist.sol';
 import './Structs.sol';
+import './trigger/AbstractTrigger.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
@@ -69,6 +70,16 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   // Sequential nonces per user for facilitator replay protection
   mapping(address => uint256) public facilitatorNonces;
+  // Trigger contracts associated to each applicationId
+  mapping(uint64 => AbstractTrigger) public triggerContracts;
+  // Reverse mapping for the above to check if a trigger is valid when adding to the queue
+  mapping(address => uint64) public triggersToAppIds;
+  // Prioritized uncrypted queue populated by trigger contracts
+  mapping(bytes32 => Structs.PrioritizedUnencryptedPendingRequest)
+    public _prioritizedUnencryptedRequestsById;
+  bytes32 private _prioritizedQueueHead; // requestId of the first (highest-priority) element; bytes32(0) if empty
+  mapping(bytes32 => bytes32) private _prioritizedQueueNext; // linked list: requestId => next requestId (bytes32(0) if last)
+  uint256 private _prioritizedQueueSize; // monotonically increasing counter used to seed unique requestIds
 
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
@@ -434,6 +445,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   }
 
   /// @inheritdoc IProcessorEndpoint
+  function getPrioritizedRequestsSize() public view returns (uint256) {
+    return _prioritizedQueueSize;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory) {
     uint256 numOfPendingRequests = getPendingRequestsSize();
 
@@ -718,6 +734,14 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     applicationStateRoots[applicationId] = newStateRoot;
     if (reqType == Structs.RequestType.DEPLOYAPP) {
       _deployedAppIds.push(applicationId);
+      // optional trigger: payload must be exactly 32 bytes (ABI-encoded address)
+      if (requestInfo.payload.length == 32) {
+        address triggerContract = abi.decode(requestInfo.payload, (address));
+        if (triggerContract != address(0)) {
+          triggerContracts[applicationId] = AbstractTrigger(triggerContract);
+          triggersToAppIds[triggerContract] = applicationId;
+        }
+      }
     }
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
@@ -746,6 +770,21 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         ++i;
       }
     }
+
+    //invoke trigger contracts, if registered
+    _invokeTrigger(
+      applicationId,
+      prevStateRoot,
+      newStateRoot,
+      processedRequestId,
+      userEventData,
+      appEventData,
+      withdrawalRequests,
+      refund,
+      applicationFees,
+      errorCode,
+      errorMsg
+    );
 
     //set requests as completed
     _markRequestCompleted(
@@ -1028,5 +1067,171 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         ++k;
       }
     }
+  }
+
+  // Calls execute then withdraw on the trigger contract registered for the given applicationId,
+  // if any. Each call is wrapped in an independent try/catch so that a revert in the trigger
+  // never propagates to the caller: both calls are always attempted regardless of the outcome
+  // of the first.
+  function _invokeTrigger(
+    uint64 applicationId,
+    bytes32 prevStateRoot,
+    bytes32 newStateRoot,
+    bytes32 processedRequestId,
+    Structs.EventData calldata userEventData,
+    Structs.EventData calldata appEventData,
+    Structs.WithdrawalRequest[] calldata withdrawalRequests,
+    uint256 refund,
+    uint256 applicationFees,
+    Structs.ErrorCode errorCode,
+    string calldata errorMsg
+  ) internal {
+    AbstractTrigger trigger = triggerContracts[applicationId];
+    if (address(trigger) == address(0)) return;
+
+    //unshield on funds to trigger contract if needed
+
+    //TODO
+
+    // invoke execute
+    bool executeSuccess = true;
+    try
+      trigger.execute(
+        applicationId,
+        prevStateRoot,
+        newStateRoot,
+        processedRequestId,
+        userEventData,
+        appEventData,
+        withdrawalRequests,
+        refund,
+        applicationFees,
+        errorCode,
+        errorMsg
+      )
+    {} catch {
+      executeSuccess = false;
+    }
+    emit TriggerExecuted(applicationId, processedRequestId, address(trigger), executeSuccess);
+
+    //invoke withdraw
+    bool withdrawSuccess = trigger.withdraw(
+      applicationId,
+      prevStateRoot,
+      newStateRoot,
+      processedRequestId,
+      userEventData,
+      appEventData,
+      withdrawalRequests,
+      refund,
+      applicationFees,
+      errorCode,
+      errorMsg
+    );
+    emit TriggerPostWithdraw(applicationId, processedRequestId, address(trigger), withdrawSuccess);
+  }
+
+  /// @notice Enqueues a prioritized unencrypted request on behalf of a registered trigger contract.
+  ///         Only callable by an address that appears in triggersToAppIds (i.e. a registered trigger).
+  ///         The applicationId is derived automatically from the caller's entry in triggersToAppIds.
+  ///         The requestId is generated deterministically and returned.
+  /// @param priority Request priority (lower value = higher priority).
+  /// @param requestType Request type.
+  /// @param payload Request payload.
+  /// @param tokenAddress Token address (address(0) = ETH).
+  /// @param assetAmount Business asset amount.
+  /// @param maxFeeValue Maximum fee reserved for processing.
+  /// @param sender Original request sender.
+  /// @param facilitator Facilitator address (address(0) for direct submissions).
+  /// @return requestId Generated request identifier.
+  function submitPrioritizedRequest(
+    uint256 priority,
+    Structs.RequestType requestType,
+    bytes calldata payload,
+    address tokenAddress,
+    uint256 assetAmount,
+    uint256 maxFeeValue,
+    address sender,
+    address facilitator
+  ) public nonReentrant returns (bytes32) {
+    uint64 applicationId = triggersToAppIds[msg.sender];
+    if (applicationId == 0) revert NotRegisteredTrigger();
+
+    bytes32 requestId = generateRequestId(
+      sender,
+      applicationId,
+      requestType,
+      payload,
+      tokenAddress,
+      assetAmount,
+      _prioritizedQueueSize
+    );
+
+    _prioritizedUnencryptedRequestsById[requestId] = Structs.PrioritizedUnencryptedPendingRequest({
+      priority: priority,
+      request: Structs.PendingRequest({
+        timestamp: block.timestamp,
+        tokenAddress: tokenAddress,
+        assetAmount: assetAmount,
+        maxFeeValue: maxFeeValue,
+        requestId: requestId,
+        payload: payload,
+        sender: sender,
+        facilitator: facilitator,
+        applicationId: applicationId,
+        protocolVersion: PROTOCOL_VERSION,
+        requestType: requestType
+      })
+    });
+
+    _insertPrioritized(requestId, priority);
+
+    emit RequestSubmitted(applicationId, requestId, sender, facilitator);
+    return requestId;
+  }
+
+  // Inserts requestId into the sorted linked list at the correct position.
+  // Items are ordered ascending by priority value: lower number = higher priority = closer to head.
+  // Equal-priority items are ordered FIFO: the new item is placed after all existing items with
+  // the same priority.
+  function _insertPrioritized(bytes32 id, uint256 priority) private {
+    if (
+      _prioritizedQueueHead == bytes32(0) ||
+      priority < _prioritizedUnencryptedRequestsById[_prioritizedQueueHead].priority
+    ) {
+      _prioritizedQueueNext[id] = _prioritizedQueueHead;
+      _prioritizedQueueHead = id;
+    } else {
+      bytes32 curr = _prioritizedQueueHead;
+      while (true) {
+        bytes32 next = _prioritizedQueueNext[curr];
+        if (
+          next == bytes32(0) ||
+          priority < _prioritizedUnencryptedRequestsById[next].priority
+        ) {
+          _prioritizedQueueNext[id] = next;
+          _prioritizedQueueNext[curr] = id;
+          break;
+        }
+        curr = next;
+      }
+    }
+    unchecked {
+      ++_prioritizedQueueSize;
+    }
+  }
+
+  /// @notice Returns the highest-priority pending prioritized request, if any.
+  /// @return request The request at the head of the prioritized queue.
+  /// @return success True if a request exists, false if the queue is empty.
+  function getNextPrioritizedRequest()
+    external
+    view
+    returns (Structs.PrioritizedUnencryptedPendingRequest memory request, bool success)
+  {
+    if (_prioritizedQueueHead == bytes32(0)) {
+      return (request, false);
+    }
+    return (_prioritizedUnencryptedRequestsById[_prioritizedQueueHead], true);
   }
 }
