@@ -126,6 +126,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     }
   }
 
+  // @notice receive ETH (sent back by trigger contracts)
+  receive() external payable {}
+
+   /// @param _teeAuthenticator Contract used to verify update signatures.
+
   /// @inheritdoc IProcessorEndpoint
   function submitRequest(
     uint8 protocolVersion,
@@ -738,7 +743,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       if (requestInfo.payload.length == 32) {
         address triggerContract = abi.decode(requestInfo.payload, (address));
         if (triggerContract != address(0)) {
-          triggerContracts[applicationId] = AbstractTrigger(triggerContract);
+          triggerContracts[applicationId] = AbstractTrigger(payable(triggerContract));
           triggersToAppIds[triggerContract] = applicationId;
         }
       }
@@ -1087,11 +1092,29 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     string calldata errorMsg
   ) internal {
     AbstractTrigger trigger = triggerContracts[applicationId];
+    //do nothing if trigger not defined for application
     if (address(trigger) == address(0)) return;
 
-    //unshield on funds to trigger contract if needed
+    // Unshield: best-effort transfer of app custody to trigger before invocation.
+    uint256 ethAmt = appCustody[applicationId][ETH_TOKEN];
+    if (ethAmt > 0) {
+      (bool ok, ) = address(trigger).call{value: ethAmt}('');
+      ok; //avoid not used warning
+    }
 
-    //TODO
+    address[] memory tokens = getAllowedTokens();
+    uint256 tokenCount = tokens.length;
+    uint256 ti;
+    while (ti != tokenCount) {
+      uint256 amt = appCustody[applicationId][tokens[ti]];
+      if (amt > 0) {
+        try IERC20(tokens[ti]).transfer(address(trigger), amt) returns (bool) {
+        } catch {}
+      }
+      unchecked {
+        ++ti;
+      }
+    }
 
     // invoke execute
     bool executeSuccess = true;
@@ -1115,7 +1138,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     emit TriggerExecuted(applicationId, processedRequestId, address(trigger), executeSuccess);
 
     //invoke withdraw
-    bool withdrawSuccess = trigger.withdraw(
+    (bool withdrawSuccess, AbstractTrigger.MovedTokens[] memory movedTokens) = trigger.withdraw(
       applicationId,
       prevStateRoot,
       newStateRoot,
@@ -1128,6 +1151,22 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       errorCode,
       errorMsg
     );
+
+    // Re-shield: movedTokens layout mirrors getAllowedTokens() order:
+    //   movedTokens[0..tokenCount-1] = ERC-20, movedTokens[tokenCount] = ETH.
+    // Use direct indexing — no inner search loop needed.
+    ti = 0;
+    while (ti != tokenCount) {
+      appCustody[applicationId][movedTokens[ti].token] = movedTokens[ti].amount;
+      totalAppCustody[movedTokens[ti].token] -= movedTokens[ti].amount;
+      unchecked {
+        ++ti;
+      }
+    }
+    //ETH re-shield using last element of movedTokens array
+    appCustody[applicationId][ETH_TOKEN] = movedTokens[tokenCount].amount;
+    totalAppCustody[ETH_TOKEN] -= movedTokens[tokenCount].amount;
+
     emit TriggerPostWithdraw(applicationId, processedRequestId, address(trigger), withdrawSuccess);
   }
 

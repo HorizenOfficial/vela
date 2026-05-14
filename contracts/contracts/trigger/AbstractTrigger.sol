@@ -41,6 +41,10 @@ abstract contract AbstractTrigger {
     _;
   }
 
+  receive() external payable {}
+
+   /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw.
+
   /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw.
   /// @param _tokenAllowlist Allowlist used to determine which ERC-20 tokens are swept on withdraw.
   constructor(IProcessorEndpoint _processorEndpoint, ITokenAllowlist _tokenAllowlist) {
@@ -121,13 +125,12 @@ abstract contract AbstractTrigger {
     uint256 applicationFees,
     Structs.ErrorCode errorCode,
     string calldata errorMsg
-  ) public _onlyProcessorEndpoint returns (bool) {
+  ) public _onlyProcessorEndpoint returns (bool, MovedTokens[] memory) {
     address[] memory tokens = tokenAllowlist.getAllowedTokens();
     uint256 length = tokens.length;
 
     //array to trace moved tokens
-    MovedTokens[] memory temp = new MovedTokens[](length + 1);
-    uint256 count; //counter for moved tokens, to avoid pushing to array and save gas
+    MovedTokens[] memory moved = new MovedTokens[](length + 1);
     uint256 i;
 
     //move ERC20 tokens in allowlist
@@ -136,11 +139,8 @@ abstract contract AbstractTrigger {
       uint256 balance = IERC20(token).balanceOf(address(this));
       if (balance > 0) {
         IERC20(token).transfer(address(processorEndpoint), balance);
-        temp[count] = MovedTokens({token: token, amount: balance});
-        unchecked {
-          ++count;
-        }
       }
+      moved[i] = MovedTokens({token: token, amount: balance});
       unchecked {
         ++i;
       }
@@ -150,21 +150,9 @@ abstract contract AbstractTrigger {
     uint256 ethBalance = address(this).balance;
     if (ethBalance > 0) {
       payable(address(processorEndpoint)).transfer(ethBalance);
-      temp[count] = MovedTokens({token: address(0), amount: ethBalance});
-      unchecked {
-        ++count;
-      }
     }
+    moved[moved.length - 1] = MovedTokens({token: ETH_TOKEN, amount: ethBalance});
 
-    //build moved array with exact length
-    MovedTokens[] memory moved = new MovedTokens[](count);
-    i = 0;
-    while (i != count) {
-      moved[i] = temp[i];
-      unchecked {
-        ++i;
-      }
-    }
 
     // try post withdraw hook, return false if it reverts
     try
@@ -183,9 +171,9 @@ abstract contract AbstractTrigger {
         moved
       )
     {
-      return true;
+      return (true, moved);
     } catch {
-      return false;
+      return (false, moved);
     }
   }
 
