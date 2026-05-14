@@ -185,6 +185,11 @@
   },
   {
     "inputs": [],
+    "name": "NotRegisteredTrigger",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "QueueThresholdExceeded",
     "type": "error"
   },
@@ -684,6 +689,68 @@
       {
         "indexed": true,
         "internalType": "bytes32",
+        "name": "processedRequestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "triggerContract",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "name": "TriggerExecuted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "processedRequestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "triggerContract",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "name": "TriggerPostWithdraw",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
         "name": "requestId",
         "type": "bytes32"
       },
@@ -826,6 +893,87 @@
         "internalType": "bytes32",
         "name": "",
         "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "_prioritizedUnencryptedRequestsById",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "priority",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "tokenAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "assetAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxFeeValue",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "requestId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes",
+            "name": "payload",
+            "type": "bytes"
+          },
+          {
+            "internalType": "address",
+            "name": "sender",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "facilitator",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "applicationId",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint8",
+            "name": "protocolVersion",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum Structs.RequestType",
+            "name": "requestType",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct Structs.PendingRequest",
+        "name": "request",
+        "type": "tuple"
       }
     ],
     "stateMutability": "view",
@@ -1239,6 +1387,93 @@
   },
   {
     "inputs": [],
+    "name": "getNextPrioritizedRequest",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "priority",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "timestamp",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "tokenAddress",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "assetAmount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "maxFeeValue",
+                "type": "uint256"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "requestId",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes",
+                "name": "payload",
+                "type": "bytes"
+              },
+              {
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "facilitator",
+                "type": "address"
+              },
+              {
+                "internalType": "uint64",
+                "name": "applicationId",
+                "type": "uint64"
+              },
+              {
+                "internalType": "uint8",
+                "name": "protocolVersion",
+                "type": "uint8"
+              },
+              {
+                "internalType": "enum Structs.RequestType",
+                "name": "requestType",
+                "type": "uint8"
+              }
+            ],
+            "internalType": "struct Structs.PendingRequest",
+            "name": "request",
+            "type": "tuple"
+          }
+        ],
+        "internalType": "struct Structs.PrioritizedUnencryptedPendingRequest",
+        "name": "request",
+        "type": "tuple"
+      },
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "getPendingRequests",
     "outputs": [
       {
@@ -1391,6 +1626,19 @@
   {
     "inputs": [],
     "name": "getPendingRequestsSize",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getPrioritizedRequestsSize",
     "outputs": [
       {
         "internalType": "uint256",
@@ -1849,6 +2097,60 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "priority",
+        "type": "uint256"
+      },
+      {
+        "internalType": "enum Structs.RequestType",
+        "name": "requestType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes",
+        "name": "payload",
+        "type": "bytes"
+      },
+      {
+        "internalType": "address",
+        "name": "tokenAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "assetAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxFeeValue",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "facilitator",
+        "type": "address"
+      }
+    ],
+    "name": "submitPrioritizedRequest",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint8",
         "name": "protocolVersion",
         "type": "uint8"
@@ -2024,6 +2326,44 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "name": "triggerContracts",
+    "outputs": [
+      {
+        "internalType": "contract AbstractTrigger",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "triggersToAppIds",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
       }
     ],
     "stateMutability": "view",
