@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -89,7 +90,8 @@ func TestAuthorityServiceGetReportRoundTrip(t *testing.T) {
 
 	// Step 2: sign the canonical message with the authority's key
 	msg := api.BuildMessage(fullstack.ChainID.Uint64(), appID, reportID, nonceBytes)
-	digest := ethCrypto.Keccak256Hash(msg)
+	prefix := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(msg))
+	digest := ethCrypto.Keccak256Hash([]byte(prefix), msg)
 	sig, err := ethCrypto.Sign(digest.Bytes(), suite.GetAuthorityKey())
 	require.NoError(t, err)
 

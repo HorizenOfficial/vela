@@ -260,7 +260,8 @@ func (s *AuthorityService) recoverSigner(req api.GetReportRequest, reportID comm
 	}
 
 	msg := api.BuildMessage(req.ChainID, common.ApplicationIdType(req.AppID), reportID, nonceBytes)
-	hash := ethCrypto.Keccak256Hash(msg)
+	prefix := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(msg))
+	hash := ethCrypto.Keccak256Hash([]byte(prefix), msg)
 
 	sigBytes, err := hex.DecodeString(req.Signature)
 	if err != nil {
