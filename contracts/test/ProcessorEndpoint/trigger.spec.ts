@@ -395,10 +395,10 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       expect(await processorEndpoint.appCustody(applicationId, tokenAAddr)).to.equal(TOKEN_A_ASSET);
       expect(await processorEndpoint.appCustody(applicationId, tokenBAddr)).to.equal(TOKEN_B_ASSET);
 
-      // totalAppCustody is decremented by the returned amounts (reshield accounting)
-      expect(await processorEndpoint.totalAppCustody(ETH_TOKEN)).to.equal(0n);
-      expect(await processorEndpoint.totalAppCustody(tokenAAddr)).to.equal(0n);
-      expect(await processorEndpoint.totalAppCustody(tokenBAddr)).to.equal(0n);
+      // totalAppCustody has the correct amounts (reshield accounting)
+      expect(await processorEndpoint.totalAppCustody(ETH_TOKEN)).to.equal(ETH_ASSET);
+      expect(await processorEndpoint.totalAppCustody(tokenAAddr)).to.equal(TOKEN_A_ASSET);
+      expect(await processorEndpoint.totalAppCustody(tokenBAddr)).to.equal(TOKEN_B_ASSET);
 
       // ProcessorEndpoint physically holds the ERC-20 tokens after the round-trip
       expect(await tokenA.balanceOf(await processorEndpoint.getAddress())).to.equal(TOKEN_A_ASSET);

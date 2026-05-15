@@ -143,19 +143,19 @@ describe('ProcessorEndpoint Test', function () {
     describe('unhappy paths', function () {
       it('reverts when caller lacks RESET_OPERATOR role', async () => {
         await expect(
-          processorEndpoint.connect(signers[0]).adminResetApps([], [])
+          processorEndpoint.connect(signers[0]).adminResetApps([])
         ).to.be.revertedWithCustomError(processorEndpoint, 'AccessControlUnauthorizedAccount');
       });
     });
 
     describe('happy paths', function () {
-      it('clears state roots for all deployed apps when called with empty arrays', async () => {
+      it('clears state roots for all deployed apps when called with empty appIds', async () => {
         const { applicationId } = await bootstrapApplication(processorEndpoint);
         expect(await processorEndpoint.applicationStateRoots(applicationId)).to.not.equal(
           BYTES32_ZERO
         );
 
-        await processorEndpoint.connect(signers[3]).adminResetApps([], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([]);
         expect(await processorEndpoint.applicationStateRoots(applicationId)).to.equal(BYTES32_ZERO);
       });
 
@@ -163,7 +163,7 @@ describe('ProcessorEndpoint Test', function () {
         const { applicationId: id1 } = await bootstrapApplication(processorEndpoint);
         const { applicationId: id2 } = await bootstrapApplication(processorEndpoint);
 
-        await processorEndpoint.connect(signers[3]).adminResetApps([id1], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([id1]);
         expect(await processorEndpoint.applicationStateRoots(id1)).to.equal(BYTES32_ZERO);
         expect(await processorEndpoint.applicationStateRoots(id2)).to.not.equal(BYTES32_ZERO);
       });
@@ -172,7 +172,7 @@ describe('ProcessorEndpoint Test', function () {
         const { applicationId } = await bootstrapApplication(processorEndpoint);
         const slotsBefore = await processorEndpoint.availableDeploySlots();
 
-        await processorEndpoint.connect(signers[3]).adminResetApps([applicationId], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([applicationId]);
         expect(await processorEndpoint.availableDeploySlots()).to.equal(slotsBefore + 1n);
       });
 
@@ -192,7 +192,7 @@ describe('ProcessorEndpoint Test', function () {
         );
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(1n);
 
-        await processorEndpoint.connect(signers[3]).adminResetApps([], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([]);
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
       });
 
@@ -209,7 +209,7 @@ describe('ProcessorEndpoint Test', function () {
           });
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(assetAmount);
 
-        await processorEndpoint.connect(signers[3]).adminResetApps([], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([]);
 
         expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(0n);
         expect(await processorEndpoint.totalAppCustody(ETH_TOKEN)).to.equal(0n);
@@ -237,7 +237,7 @@ describe('ProcessorEndpoint Test', function () {
         const resetOperatorAddr = await signers[3].getAddress();
         const resetOpBalBefore = await mockERC20.balanceOf(resetOperatorAddr);
 
-        await processorEndpoint.connect(signers[3]).adminResetApps([], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([]);
 
         expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(0n);
         expect(await processorEndpoint.totalAppCustody(tokenAddr)).to.equal(0n);
@@ -249,7 +249,7 @@ describe('ProcessorEndpoint Test', function () {
         const { applicationId: id1 } = await bootstrapApplication(processorEndpoint);
         const { applicationId: id2 } = await bootstrapApplication(processorEndpoint);
 
-        await processorEndpoint.connect(signers[3]).adminResetApps([id1], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([id1]);
         const ids = await processorEndpoint.getDeployedAppIds();
         expect(ids.length).to.equal(1);
         expect(ids[0]).to.equal(id2);
@@ -259,11 +259,11 @@ describe('ProcessorEndpoint Test', function () {
         await bootstrapApplication(processorEndpoint);
         await bootstrapApplication(processorEndpoint);
 
-        await processorEndpoint.connect(signers[3]).adminResetApps([], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([]);
         expect(await processorEndpoint.getDeployedAppIds()).to.deep.equal([]);
       });
 
-      it('uses getAllowedTokens when erc20Tokens is empty', async () => {
+      it('rescues ERC-20 custody using getAllowedTokens', async () => {
         const { applicationId } = await bootstrapApplication(processorEndpoint);
         const tokenAddr = await mockERC20.getAddress();
         const assetAmount = 200n;
@@ -283,8 +283,7 @@ describe('ProcessorEndpoint Test', function () {
           { value: minFeePerRequest }
         );
 
-        // Passing empty arrays — should pick up the allowlisted token automatically
-        await processorEndpoint.connect(signers[3]).adminResetApps([], []);
+        await processorEndpoint.connect(signers[3]).adminResetApps([]);
         expect(await processorEndpoint.appCustody(applicationId, tokenAddr)).to.equal(0n);
       });
     });

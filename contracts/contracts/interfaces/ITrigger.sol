@@ -9,7 +9,7 @@ import '../Structs.sol';
 /// @notice Interface for trigger contracts invoked by the ProcessorEndpoint on request completion.
 interface ITrigger {
   /// @notice Describes a token transfer performed during a withdraw call.
-  struct MovedTokens {
+  struct ReturnedTokens {
     /// @notice Token address; address(0) for ETH.
     address token;
     /// @notice Amount transferred to the ProcessorEndpoint.
@@ -51,7 +51,7 @@ interface ITrigger {
   /// @notice Sweeps all allowlisted ERC-20 tokens and ETH held by this contract to the
   ///         ProcessorEndpoint. Can only be called by the ProcessorEndpoint.
   /// @return success True if _postWithdraw executed successfully, false if it reverted.
-  /// @return movedTokens Array of tokens transferred in the sweep, with amounts.
+  /// @return returnedTokens Array of tokens transferred in the sweep, with amounts.
   function withdraw(
     uint64 applicationId,
     bytes32 prevStateRoot,
@@ -64,5 +64,5 @@ interface ITrigger {
     uint256 applicationFees,
     Structs.ErrorCode errorCode,
     string calldata errorMsg
-  ) external returns (bool success, MovedTokens[] memory movedTokens);
+  ) external returns (bool success, ReturnedTokens[] memory returnedTokens);
 }

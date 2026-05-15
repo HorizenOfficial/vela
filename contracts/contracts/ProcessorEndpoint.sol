@@ -942,9 +942,8 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     // Iterate every pending request from head to tail, refunding any asset deposits to their
     // senders and counting any DEPLOYAPP entries so their reserved deploy slots can be returned.
-    while (i < tail) {
-      bytes32 reqId = _requestIdByOrder[i];
-      Structs.PendingRequest storage req = requestById[reqId];
+    while (i != tail) {
+      Structs.PendingRequest storage req = requestById[_requestIdByOrder[i]];
       if (req.requestType == Structs.RequestType.DEPLOYAPP) {
         unchecked {
           ++freedDeploySlots;
@@ -955,7 +954,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         totalAppCustody[req.tokenAddress] -= req.assetAmount;
         _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
       }
-      delete requestById[reqId];
+      delete requestById[_requestIdByOrder[i]];
       delete _requestIdByOrder[i];
       unchecked {
         ++i;
@@ -976,58 +975,46 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   /// @inheritdoc IProcessorEndpoint
   function adminResetApps(
-    uint64[] calldata appIds,
-    address[] calldata erc20Tokens
+    uint64[] calldata appIds
   ) external onlyRole(RESET_OPERATOR) nonReentrant {
     // Clear the pending request queue, refunding each request's asset deposit to its sender.
     _resetQueue();
 
     // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
     // fall back to every app that has ever been successfully deployed.
-    uint64[] memory effectiveAppIds;
-    if (appIds.length > 0) {
-      effectiveAppIds = appIds;
-    } else {
+    uint64[] memory effectiveAppIds = appIds;
+    if (appIds.length == 0) {
       effectiveAppIds = _deployedAppIds;
     }
 
     // Resolve the effective token list: use the caller-supplied list when non-empty, otherwise
     // fall back to all tokens currently registered in the allowlist.
-    address[] memory effectiveTokens;
-    if (erc20Tokens.length > 0) {
-      effectiveTokens = erc20Tokens;
-    } else {
-      effectiveTokens = getAllowedTokens();
-    }
+    address[] memory effectiveTokens = getAllowedTokens();
 
     uint256 appCount = effectiveAppIds.length;
     uint256 tokenCount = effectiveTokens.length;
 
-    // Accumulators for the total ETH and per-token ERC-20 amounts to transfer at the end.
-    // Accumulating across all apps and then doing one transfer per asset (rather than one
-    // transfer per app) keeps the interactions section O(tokens) instead of O(apps * tokens).
-    uint256 totalEth;
-    uint256[] memory tokenTotals = new uint256[](tokenCount);
-
     // --- Effects: zero out all custody and state roots before any external call ---
+    address payable recipient = payable(msg.sender);
     uint256 i;
-    while (i < appCount) {
+    while (i != appCount) {
       uint64 appId = effectiveAppIds[i];
 
-      // Accumulate ETH custody for this app and clear both the per-app and global trackers.
+      // Transfer ETH custody for this app and clear both the per-app and global trackers.
       uint256 ethAmt = appCustody[appId][ETH_TOKEN];
       if (ethAmt > 0) {
-        totalEth += ethAmt;
+        (bool ok, ) = recipient.call{value: ethAmt}('');
+        if (!ok) revert TransferFailed();
         totalAppCustody[ETH_TOKEN] -= ethAmt;
         appCustody[appId][ETH_TOKEN] = 0;
       }
 
-      // Accumulate ERC-20 custody for this app across every token in the effective list.
+      // Transfer ERC-20 custody for this app across every token in the effective list.
       uint256 j;
-      while (j < tokenCount) {
+      while (j != tokenCount) {
         uint256 amt = appCustody[appId][effectiveTokens[j]];
         if (amt > 0) {
-          tokenTotals[j] += amt;
+          IERC20(effectiveTokens[j]).safeTransfer(recipient, amt);
           totalAppCustody[effectiveTokens[j]] -= amt;
           appCustody[appId][effectiveTokens[j]] = 0;
         }
@@ -1048,27 +1035,6 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
       unchecked {
         ++i;
-      }
-    }
-
-    // --- Interactions: transfer accumulated balances to the caller ---
-    // All state changes are complete before any external call (checks-effects-interactions).
-    address payable recipient = payable(msg.sender);
-
-    // Single ETH transfer covering the total rescued across all apps.
-    if (totalEth > 0) {
-      (bool ok, ) = recipient.call{value: totalEth}('');
-      if (!ok) revert TransferFailed();
-    }
-
-    // One safeTransfer per token covering the total rescued across all apps.
-    uint256 k;
-    while (k < tokenCount) {
-      if (tokenTotals[k] > 0) {
-        IERC20(effectiveTokens[k]).safeTransfer(recipient, tokenTotals[k]);
-      }
-      unchecked {
-        ++k;
       }
     }
   }
@@ -1094,20 +1060,29 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     //do nothing if trigger not defined for application
     if (address(trigger) == address(0)) return;
 
-    // Unshield: best-effort transfer of app custody to trigger before invocation.
+    // Unshield
+    //best-effort transfer of app custody to trigger before invocation.
     uint256 ethAmt = appCustody[applicationId][ETH_TOKEN];
     if (ethAmt > 0) {
       (bool ok, ) = address(trigger).call{value: ethAmt}('');
-      ok; //avoid not used warning
+      if(ok) { //update custodies
+        appCustody[applicationId][ETH_TOKEN] = 0;
+        totalAppCustody[ETH_TOKEN] -= ethAmt;
+      }
     }
 
+    //erc20 tokens
     address[] memory tokens = getAllowedTokens();
     uint256 tokenCount = tokens.length;
     uint256 ti;
     while (ti != tokenCount) {
       uint256 amt = appCustody[applicationId][tokens[ti]];
       if (amt > 0) {
-        try IERC20(tokens[ti]).transfer(address(trigger), amt) returns (bool) {
+        try IERC20(tokens[ti]).transfer(address(trigger), amt) returns (bool ok) {
+          if(ok) {
+            appCustody[applicationId][tokens[ti]] = 0;
+            totalAppCustody[tokens[ti]] -= amt;
+          }
         } catch {}
       }
       unchecked {
@@ -1137,7 +1112,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     emit TriggerExecuted(applicationId, processedRequestId, address(trigger), executeSuccess);
 
     //invoke withdraw
-    (bool withdrawSuccess, ITrigger.MovedTokens[] memory movedTokens) = trigger.withdraw(
+    (bool withdrawSuccess, ITrigger.ReturnedTokens[] memory returnedTokens) = trigger.withdraw(
       applicationId,
       prevStateRoot,
       newStateRoot,
@@ -1151,21 +1126,16 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       errorMsg
     );
 
-    // Re-shield: movedTokens layout mirrors getAllowedTokens() order:
-    //   movedTokens[0..tokenCount-1] = ERC-20, movedTokens[tokenCount] = ETH.
-    // Use direct indexing — no inner search loop needed.
+    // Re-shield: returnedTokens contains returned tokens + ETH_TOKEN
     ti = 0;
+    tokenCount = returnedTokens.length;
     while (ti != tokenCount) {
-      appCustody[applicationId][movedTokens[ti].token] = movedTokens[ti].amount;
-      totalAppCustody[movedTokens[ti].token] -= movedTokens[ti].amount;
+      appCustody[applicationId][returnedTokens[ti].token] = returnedTokens[ti].amount;
+      totalAppCustody[returnedTokens[ti].token] += returnedTokens[ti].amount;
       unchecked {
         ++ti;
       }
     }
-    //ETH re-shield using last element of movedTokens array
-    appCustody[applicationId][ETH_TOKEN] = movedTokens[tokenCount].amount;
-    totalAppCustody[ETH_TOKEN] -= movedTokens[tokenCount].amount;
-
     emit TriggerPostWithdraw(applicationId, processedRequestId, address(trigger), withdrawSuccess);
   }
 
@@ -1248,7 +1218,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     _prioritizedQueue.push(bytes32(0)); // to make space for the new item; will be overwritten in the loop below
     i = len;
-    while (i > pos) {
+    while (i != pos) {
       _prioritizedQueue[i] = _prioritizedQueue[i - 1];
       unchecked {
         --i;

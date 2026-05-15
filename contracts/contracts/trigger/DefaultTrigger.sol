@@ -45,6 +45,6 @@ contract DefaultTrigger is AbstractTrigger {
     uint256,
     Structs.ErrorCode,
     string calldata,
-    MovedTokens[] memory
+    ReturnedTokens[] memory
   ) public override {}
 }

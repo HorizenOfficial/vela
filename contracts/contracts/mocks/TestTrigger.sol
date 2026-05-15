@@ -67,7 +67,7 @@ contract TestTrigger is AbstractTrigger {
     uint256,
     Structs.ErrorCode,
     string calldata,
-    MovedTokens[] memory
+    ReturnedTokens[] memory
   ) public override {
     if (revertOnPostWithdraw) revert PostWithdrawReverted();
     executedPostWithdraws[processedRequestId] = true;

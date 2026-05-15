@@ -107,33 +107,34 @@ abstract contract AbstractTrigger is ITrigger {
     uint256 applicationFees,
     Structs.ErrorCode errorCode,
     string calldata errorMsg
-  ) public _onlyProcessorEndpoint returns (bool, MovedTokens[] memory) {
+  ) public _onlyProcessorEndpoint returns (bool, ReturnedTokens[] memory) {
     address[] memory tokens = tokenAllowlist.getAllowedTokens();
     uint256 length = tokens.length;
 
     //array to trace moved tokens
-    MovedTokens[] memory moved = new MovedTokens[](length + 1);
+    ReturnedTokens[] memory returned = new ReturnedTokens[](length + 1);
     uint256 i;
 
-    //move ERC20 tokens in allowlist
+    //return ERC20 tokens in allowlist
     while (i != length) {
       address token = tokens[i];
       uint256 balance = IERC20(token).balanceOf(address(this));
       if (balance > 0) {
         IERC20(token).transfer(address(processorEndpoint), balance);
       }
-      moved[i] = MovedTokens({token: token, amount: balance});
+      returned[i] = ReturnedTokens({token: token, amount: balance});
       unchecked {
         ++i;
       }
     }
 
-    //move ETH
+    //return ETH
     uint256 ethBalance = address(this).balance;
     if (ethBalance > 0) {
       payable(address(processorEndpoint)).transfer(ethBalance);
     }
-    moved[moved.length - 1] = MovedTokens({token: ETH_TOKEN, amount: ethBalance});
+    //put in last position in returned
+    returned[returned.length - 1] = ReturnedTokens({token: ETH_TOKEN, amount: ethBalance});
 
 
     // try post withdraw hook, return false if it reverts
@@ -150,12 +151,12 @@ abstract contract AbstractTrigger is ITrigger {
         applicationFees,
         errorCode,
         errorMsg,
-        moved
+        returned
       )
     {
-      return (true, moved);
+      return (true, returned);
     } catch {
-      return (false, moved);
+      return (false, returned);
     }
   }
 
@@ -199,7 +200,7 @@ abstract contract AbstractTrigger is ITrigger {
   /// @param applicationFees Fee amount sent to the collector.
   /// @param errorCode Error code for the update.
   /// @param errorMsg Error message for the update.
-  /// @param movedTokens Array of tokens actually transferred in the sweep, with amounts.
+  /// @param returnedTokens Array of tokens actually transferred in the sweep, with amounts.
   function _postWithdraw(
     uint64 applicationId,
     bytes32 prevStateRoot,
@@ -212,6 +213,6 @@ abstract contract AbstractTrigger is ITrigger {
     uint256 applicationFees,
     Structs.ErrorCode errorCode,
     string calldata errorMsg,
-    MovedTokens[] memory movedTokens
+    ReturnedTokens[] memory returnedTokens
   ) public virtual;
 }
