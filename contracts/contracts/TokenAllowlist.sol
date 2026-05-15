@@ -37,10 +37,11 @@ abstract contract TokenAllowlist is AccessControl, ITokenAllowlist {
 
   /// @inheritdoc ITokenAllowlist
   function getAllowedTokens() public view returns (address[] memory) {
-    uint256 len = _allowedTokenList.length;
-    uint256 count;
     uint256 i;
-    while (i < len) {
+    uint256 len = _allowedTokenList.length;
+    uint256 count; //count not removed
+
+    while (i != len) {
       if (allowedTokens[_allowedTokenList[i]]) {
         unchecked {
           ++count;
@@ -53,7 +54,7 @@ abstract contract TokenAllowlist is AccessControl, ITokenAllowlist {
     address[] memory result = new address[](count);
     uint256 j;
     i = 0;
-    while (i < len) {
+    while (i != len) {
       if (allowedTokens[_allowedTokenList[i]]) {
         result[j] = _allowedTokenList[i];
         unchecked {
