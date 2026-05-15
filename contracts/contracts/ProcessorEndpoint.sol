@@ -15,7 +15,7 @@ import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
 import './TokenAllowlist.sol';
 import './Structs.sol';
-import './trigger/AbstractTrigger.sol';
+import './interfaces/ITrigger.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
@@ -71,14 +71,13 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   // Sequential nonces per user for facilitator replay protection
   mapping(address => uint256) public facilitatorNonces;
   // Trigger contracts associated to each applicationId
-  mapping(uint64 => AbstractTrigger) public triggerContracts;
+  mapping(uint64 => ITrigger) public triggerContracts;
   // Reverse mapping for the above to check if a trigger is valid when adding to the queue
   mapping(address => uint64) public triggersToAppIds;
   // Prioritized uncrypted queue populated by trigger contracts
   mapping(bytes32 => Structs.PrioritizedUnencryptedPendingRequest)
     public _prioritizedUnencryptedRequestsById;
-  bytes32 private _prioritizedQueueHead; // requestId of the first (highest-priority) element; bytes32(0) if empty
-  mapping(bytes32 => bytes32) private _prioritizedQueueNext; // linked list: requestId => next requestId (bytes32(0) if last)
+  bytes32[] private _prioritizedQueue; // sorted array: index 0 = highest priority (lowest value), FIFO within same priority
   uint256 private _prioritizedQueueSize; // monotonically increasing counter used to seed unique requestIds
 
   modifier validProtocolVersion(uint8 protocolVersion) {
@@ -451,7 +450,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   /// @inheritdoc IProcessorEndpoint
   function getPrioritizedRequestsSize() public view returns (uint256) {
-    return _prioritizedQueueSize;
+    return _prioritizedQueue.length;
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -743,7 +742,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       if (requestInfo.payload.length == 32) {
         address triggerContract = abi.decode(requestInfo.payload, (address));
         if (triggerContract != address(0)) {
-          triggerContracts[applicationId] = AbstractTrigger(payable(triggerContract));
+          triggerContracts[applicationId] = ITrigger(triggerContract);
           triggersToAppIds[triggerContract] = applicationId;
         }
       }
@@ -1091,7 +1090,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     Structs.ErrorCode errorCode,
     string calldata errorMsg
   ) internal {
-    AbstractTrigger trigger = triggerContracts[applicationId];
+    ITrigger trigger = triggerContracts[applicationId];
     //do nothing if trigger not defined for application
     if (address(trigger) == address(0)) return;
 
@@ -1138,7 +1137,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     emit TriggerExecuted(applicationId, processedRequestId, address(trigger), executeSuccess);
 
     //invoke withdraw
-    (bool withdrawSuccess, AbstractTrigger.MovedTokens[] memory movedTokens) = trigger.withdraw(
+    (bool withdrawSuccess, ITrigger.MovedTokens[] memory movedTokens) = trigger.withdraw(
       applicationId,
       prevStateRoot,
       newStateRoot,
@@ -1229,32 +1228,35 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     return requestId;
   }
 
-  // Inserts requestId into the sorted linked list at the correct position.
-  // Items are ordered ascending by priority value: lower number = higher priority = closer to head.
+  // Inserts requestId into the sorted array at the correct position.
+  // Items are ordered ascending by priority value: lower number = higher priority = index 0.
   // Equal-priority items are ordered FIFO: the new item is placed after all existing items with
   // the same priority.
   function _insertPrioritized(bytes32 id, uint256 priority) private {
-    if (
-      _prioritizedQueueHead == bytes32(0) ||
-      priority < _prioritizedUnencryptedRequestsById[_prioritizedQueueHead].priority
-    ) {
-      _prioritizedQueueNext[id] = _prioritizedQueueHead;
-      _prioritizedQueueHead = id;
-    } else {
-      bytes32 curr = _prioritizedQueueHead;
-      while (true) {
-        bytes32 next = _prioritizedQueueNext[curr];
-        if (
-          next == bytes32(0) ||
-          priority < _prioritizedUnencryptedRequestsById[next].priority
-        ) {
-          _prioritizedQueueNext[id] = next;
-          _prioritizedQueueNext[curr] = id;
-          break;
-        }
-        curr = next;
+    uint256 len = _prioritizedQueue.length;
+    uint256 pos = len;
+    uint256 i;
+    while (i != len) {
+      if (priority < _prioritizedUnencryptedRequestsById[_prioritizedQueue[i]].priority) {
+        pos = i;
+        break;
+      }
+      unchecked {
+        ++i;
       }
     }
+
+    _prioritizedQueue.push(bytes32(0)); // to make space for the new item; will be overwritten in the loop below
+    i = len;
+    while (i > pos) {
+      _prioritizedQueue[i] = _prioritizedQueue[i - 1];
+      unchecked {
+        --i;
+      }
+    }
+    _prioritizedQueue[pos] = id;
+
+    //increment size after insertion to avoid off-by-one in the loop conditions
     unchecked {
       ++_prioritizedQueueSize;
     }
@@ -1268,9 +1270,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     view
     returns (Structs.PrioritizedUnencryptedPendingRequest memory request, bool success)
   {
-    if (_prioritizedQueueHead == bytes32(0)) {
+    if (_prioritizedQueue.length == 0) {
       return (request, false);
     }
-    return (_prioritizedUnencryptedRequestsById[_prioritizedQueueHead], true);
+    return (_prioritizedUnencryptedRequestsById[_prioritizedQueue[0]], true);
   }
 }

@@ -18,18 +18,18 @@ describe('ProcessorEndpoint Trigger Tests', function () {
 
   // HELPER FUNCTIONS FOR TESTS
 
-  // Deploys a MockTrigger and bootstraps an app with it registered.
+  // Deploys a TestTrigger and bootstraps an app with it registered.
   // Returns the applicationId, the mock trigger contract, and the state root after deploy.
   async function bootstrapApplicationWithTrigger(
     revertOnExecute: boolean,
-    revertOnPostWithdraw: boolean
+    revertOnPostWithdraw: boolean,
   ) {
-    const MockTrigger = await ethers.getContractFactory('MockTrigger');
-    const mockTrigger = await MockTrigger.deploy(
+    const TestTrigger = await ethers.getContractFactory('TestTrigger');
+    const mockTrigger: any = await TestTrigger.deploy(
       await processorEndpoint.getAddress(),
       await processorEndpoint.getAddress(), // ProcessorEndpoint also implements ITokenAllowlist
       revertOnExecute,
-      revertOnPostWithdraw
+      revertOnPostWithdraw,
     );
 
     // ABI-encode the trigger address to exactly 32 bytes so stateUpdate registers it
@@ -295,6 +295,149 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       await expect(updateTx)
         .to.emit(processorEndpoint, 'RequestCompleted')
         .withArgs(applicationId, requestId, minFeePerRequest, 0, 0, '');
+    });
+  });
+
+  describe('unshield and reshield', function () {
+    let tokenA: any;
+    let tokenB: any;
+    const ETH_ASSET = 1000n;
+    const TOKEN_A_ASSET = 500n;
+    const TOKEN_B_ASSET = 250n;
+
+    beforeEach(async function () {
+      const MockERC20 = await ethers.getContractFactory('MockERC20');
+      tokenA = await MockERC20.deploy('Token A', 'TKA', 18);
+      tokenB = await MockERC20.deploy('Token B', 'TKB', 18);
+      await processorEndpoint.connect(signers[2]).addAllowedToken(await tokenA.getAddress());
+      await processorEndpoint.connect(signers[2]).addAllowedToken(await tokenB.getAddress());
+    });
+
+    // Submits one ETH-asset request and two ERC-20 requests to build up appCustody.
+    // Returns the requestId of the first (ETH) request, which is next in queue for stateUpdate.
+    async function buildCustody(applicationId: bigint) {
+      const ethTx = await processorEndpoint
+        .connect(signers[0])
+        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', ETH_TOKEN, ETH_ASSET, minFeePerRequest, {
+          value: ETH_ASSET + minFeePerRequest,
+        });
+      const firstRequestId = getRequestIdFromReceipt(processorEndpoint, await ethTx.wait());
+
+      const tokenAAddr = await tokenA.getAddress();
+      await tokenA.mint(await signers[0].getAddress(), TOKEN_A_ASSET);
+      await tokenA.connect(signers[0]).approve(await processorEndpoint.getAddress(), TOKEN_A_ASSET);
+      await processorEndpoint
+        .connect(signers[0])
+        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x02', tokenAAddr, TOKEN_A_ASSET, minFeePerRequest, {
+          value: minFeePerRequest,
+        });
+
+      const tokenBAddr = await tokenB.getAddress();
+      await tokenB.mint(await signers[0].getAddress(), TOKEN_B_ASSET);
+      await tokenB.connect(signers[0]).approve(await processorEndpoint.getAddress(), TOKEN_B_ASSET);
+      await processorEndpoint
+        .connect(signers[0])
+        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x03', tokenBAddr, TOKEN_B_ASSET, minFeePerRequest, {
+          value: minFeePerRequest,
+        });
+
+      return { firstRequestId };
+    }
+
+    it('trigger holds ETH and both ERC-20 assets during _execute (unshield)', async function () {
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+      const { firstRequestId } = await buildCustody(applicationId);
+
+      await processorEndpoint.connect(signers[1]).stateUpdate(
+        applicationId,
+        INITIAL_STATE_ROOT,
+        '0x' + 'aa'.repeat(32),
+        firstRequestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [],
+        0,
+        minFeePerRequest,
+        0,
+        '',
+        '0x',
+      );
+
+      expect(await mockTrigger.capturedBalances(ETH_TOKEN)).to.equal(ETH_ASSET);
+      expect(await mockTrigger.capturedBalances(await tokenA.getAddress())).to.equal(TOKEN_A_ASSET);
+      expect(await mockTrigger.capturedBalances(await tokenB.getAddress())).to.equal(TOKEN_B_ASSET);
+    });
+
+    it('appCustody is updated with reshielded amounts after trigger withdraw', async function () {
+      const { applicationId } = await bootstrapApplicationWithTrigger(false, false);
+      const { firstRequestId } = await buildCustody(applicationId);
+
+      await processorEndpoint.connect(signers[1]).stateUpdate(
+        applicationId,
+        INITIAL_STATE_ROOT,
+        '0x' + 'bb'.repeat(32),
+        firstRequestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [],
+        0,
+        minFeePerRequest,
+        0,
+        '',
+        '0x',
+      );
+
+      const tokenAAddr = await tokenA.getAddress();
+      const tokenBAddr = await tokenB.getAddress();
+
+      // TestTrigger returns all assets; appCustody is set to returned amounts
+      expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(ETH_ASSET);
+      expect(await processorEndpoint.appCustody(applicationId, tokenAAddr)).to.equal(TOKEN_A_ASSET);
+      expect(await processorEndpoint.appCustody(applicationId, tokenBAddr)).to.equal(TOKEN_B_ASSET);
+
+      // totalAppCustody is decremented by the returned amounts (reshield accounting)
+      expect(await processorEndpoint.totalAppCustody(ETH_TOKEN)).to.equal(0n);
+      expect(await processorEndpoint.totalAppCustody(tokenAAddr)).to.equal(0n);
+      expect(await processorEndpoint.totalAppCustody(tokenBAddr)).to.equal(0n);
+
+      // ProcessorEndpoint physically holds the ERC-20 tokens after the round-trip
+      expect(await tokenA.balanceOf(await processorEndpoint.getAddress())).to.equal(TOKEN_A_ASSET);
+      expect(await tokenB.balanceOf(await processorEndpoint.getAddress())).to.equal(TOKEN_B_ASSET);
+    });
+
+    it('if trigger retains no ETH custody, unshield skips ETH transfer', async function () {
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+
+      // Submit only ERC-20 requests (no ETH assetAmount — ETH custody stays at 0)
+      const tokenAAddr = await tokenA.getAddress();
+      await tokenA.mint(await signers[0].getAddress(), TOKEN_A_ASSET);
+      await tokenA.connect(signers[0]).approve(await processorEndpoint.getAddress(), TOKEN_A_ASSET);
+      const erc20Tx = await processorEndpoint
+        .connect(signers[0])
+        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', tokenAAddr, TOKEN_A_ASSET, minFeePerRequest, {
+          value: minFeePerRequest,
+        });
+      const requestId = getRequestIdFromReceipt(processorEndpoint, await erc20Tx.wait());
+
+      await processorEndpoint.connect(signers[1]).stateUpdate(
+        applicationId,
+        INITIAL_STATE_ROOT,
+        '0x' + 'cc'.repeat(32),
+        requestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [],
+        0,
+        minFeePerRequest,
+        0,
+        '',
+        '0x',
+      );
+
+      // Trigger had no ETH (nothing was unshielded for ETH)
+      expect(await mockTrigger.capturedBalances(ETH_TOKEN)).to.equal(0n);
+      // ERC-20 was unshielded
+      expect(await mockTrigger.capturedBalances(tokenAAddr)).to.equal(TOKEN_A_ASSET);
     });
   });
 });

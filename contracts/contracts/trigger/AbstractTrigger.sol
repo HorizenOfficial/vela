@@ -2,36 +2,18 @@
 pragma solidity ^0.8.28;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import '../interfaces/IProcessorEndpoint.sol';
-import '../interfaces/ITokenAllowlist.sol';
+import '../interfaces/ITrigger.sol';
 import '../Structs.sol';
 
 /// @title Trigger abstract contract
 /// @notice Base contract for triggers invoked by the ProcessorEndpoint on request completion.
 ///         Provides a non-overridable withdraw mechanism that sweeps all allowlisted ERC-20
 ///         tokens and ETH back to the ProcessorEndpoint, and an overridable execute hook.
-abstract contract AbstractTrigger {
-  /// @notice Describes a token transfer performed during a withdraw call.
-  struct MovedTokens {
-    /// @notice Token address; address(0) for ETH.
-    address token;
-    /// @notice Amount transferred to the ProcessorEndpoint.
-    uint256 amount;
-  }
-
+abstract contract AbstractTrigger is ITrigger {
   /// @notice ProcessorEndpoint that is allowed to call execute and withdraw.
   IProcessorEndpoint public processorEndpoint;
   /// @notice Allowlist of ERC-20 tokens swept on withdraw.
   ITokenAllowlist public tokenAllowlist;
-
-  /// @notice Emitted when execute is called successfully.
-  /// @param applicationId Application identifier.
-  /// @param processedRequestId Request identifier that was processed.
-  event TriggerExecuted(uint64 indexed applicationId, bytes32 indexed processedRequestId);
-  /// @notice A zero address was supplied where not allowed.
-  error ZeroAddress();
-  /// @notice Caller is not the ProcessorEndpoint.
-  error NotProcessorEndpoint();
 
   /// @dev Reverts if msg.sender is not the processorEndpoint.
   modifier _onlyProcessorEndpoint() {

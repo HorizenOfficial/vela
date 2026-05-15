@@ -2342,7 +2342,7 @@
     "name": "triggerContracts",
     "outputs": [
       {
-        "internalType": "contract AbstractTrigger",
+        "internalType": "contract ITrigger",
         "name": "",
         "type": "address"
       }
@@ -2407,5 +2407,9 @@
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "stateMutability": "payable",
+    "type": "receive"
   }
 ]

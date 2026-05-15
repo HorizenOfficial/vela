@@ -5,6 +5,7 @@
   "scripts": {
     "build": "npx hardhat compile",
     "test": "npx hardhat test",
+    "test:ignoresize": "UNLIMITED_SIZE=true npx hardhat test",
     "format": "npx prettier --ignore-path ../.gitignore --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"hardhat.config.ts\"",
     "format:check": "npx prettier --ignore-path ../.gitignore --check \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"hardhat.config.ts\"",
     "prepare": "cd .. && npx --prefix contracts husky install contracts/.husky"

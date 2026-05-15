@@ -1,30 +1,28 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
+import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '../trigger/AbstractTrigger.sol';
-import '../interfaces/IProcessorEndpoint.sol';
-import '../interfaces/ITokenAllowlist.sol';
 import '../Structs.sol';
 
-/// @title Mock Trigger
-/// @notice AbstractTrigger implementation for testing. Reverts in _execute and/or _postWithdraw
-///         based on constructor flags.
-contract MockTrigger is AbstractTrigger {
-  /// @notice If true, _execute will revert.
+/// @title Test Trigger
+/// @notice AbstractTrigger implementation for testing. Combines configurable revert flags
+///         with balance capture at the moment _execute runs, so a single contract can verify
+///         both the unshield/reshield round-trip and the error-path behaviour.
+contract TestTrigger is AbstractTrigger {
   bool public revertOnExecute;
-  /// @notice If true, _postWithdraw will revert.
   bool public revertOnPostWithdraw;
 
   mapping(bytes32 => bool) public executedRequests;
   mapping(bytes32 => bool) public executedPostWithdraws;
 
+  /// @notice Balances captured at the time _execute last ran (only persisted on non-reverting
+  ///         paths). Keyed by token address; address(0) for ETH.
+  mapping(address => uint256) public capturedBalances;
+
   error ExecuteReverted();
   error PostWithdrawReverted();
 
-  /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw.
-  /// @param _tokenAllowlist Allowlist used to determine which ERC-20 tokens are swept on withdraw.
-  /// @param _revertOnExecute If true, _execute reverts.
-  /// @param _revertOnPostWithdraw If true, _postWithdraw reverts.
   constructor(
     IProcessorEndpoint _processorEndpoint,
     ITokenAllowlist _tokenAllowlist,
@@ -49,6 +47,11 @@ contract MockTrigger is AbstractTrigger {
     string calldata
   ) internal override {
     if (revertOnExecute) revert ExecuteReverted();
+    capturedBalances[ETH_TOKEN] = address(this).balance;
+    address[] memory tokens = tokenAllowlist.getAllowedTokens();
+    for (uint256 i = 0; i < tokens.length; i++) {
+      capturedBalances[tokens[i]] = IERC20(tokens[i]).balanceOf(address(this));
+    }
     executedRequests[processedRequestId] = true;
   }
 

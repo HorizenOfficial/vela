@@ -25,7 +25,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 1,
+            runs: 0,
           },
           viaIR: true,
         },
@@ -44,6 +44,9 @@ const config: HardhatUserConfig = {
     local: {
       url: process.env.CHAIN_RPC_URL || 'http://127.0.0.1:8545/',
       accounts,
+    },
+    hardhat: {
+      allowUnlimitedContractSize: process.env.UNLIMITED_SIZE === "true",
     },
   },
 };
