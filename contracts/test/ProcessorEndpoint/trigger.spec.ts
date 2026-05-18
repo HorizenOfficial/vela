@@ -6,12 +6,13 @@ import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt, REQUEST_TYPE_PROCESS 
 
 describe('ProcessorEndpoint Trigger Tests', function () {
   let processorEndpoint: any;
+  let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
   });
@@ -27,7 +28,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     const TestTrigger = await ethers.getContractFactory('TestTrigger');
     const mockTrigger: any = await TestTrigger.deploy(
       await processorEndpoint.getAddress(),
-      await processorEndpoint.getAddress(), // ProcessorEndpoint also implements ITokenAllowlist
+      await tokenAllowlist.getAddress(),
       revertOnExecute,
       revertOnPostWithdraw,
     );
@@ -309,8 +310,8 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       const MockERC20 = await ethers.getContractFactory('MockERC20');
       tokenA = await MockERC20.deploy('Token A', 'TKA', 18);
       tokenB = await MockERC20.deploy('Token B', 'TKB', 18);
-      await processorEndpoint.connect(signers[2]).addAllowedToken(await tokenA.getAddress());
-      await processorEndpoint.connect(signers[2]).addAllowedToken(await tokenB.getAddress());
+      await tokenAllowlist.connect(signers[2]).addAllowedToken(await tokenA.getAddress());
+      await tokenAllowlist.connect(signers[2]).addAllowedToken(await tokenB.getAddress());
     });
 
     // Submits one ETH-asset request and two ERC-20 requests to build up appCustody.

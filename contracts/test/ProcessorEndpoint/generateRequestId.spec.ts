@@ -7,7 +7,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const { deployProcessorEndpoint } = await deployProcessorEndpointFixture();
-    processorEndpoint = await deployProcessorEndpoint();
+    ({ processorEndpoint } = await deployProcessorEndpoint());
   });
 
   describe('generateRequestId', function () {

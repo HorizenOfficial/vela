@@ -13,13 +13,13 @@ import '@openzeppelin/contracts/utils/Strings.sol';
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
-import './TokenAllowlist.sol';
+import './interfaces/ITokenAllowlist.sol';
 import './Structs.sol';
 import './interfaces/ITrigger.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuard, EIP712 {
+contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard, EIP712 {
   using SafeERC20 for IERC20;
 
   //constants
@@ -42,6 +42,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   ITeeAuthenticator public teeAuthenticator;
   IAuthorityRegistry public authorityRegistry;
+  ITokenAllowlist public tokenAllowlist;
 
   // Pull payment pattern state — per-token, per-payee
   mapping(address => mapping(address => uint256)) public pendingClaims;
@@ -98,23 +99,27 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   /// @param resetOperator Address granted RESET_OPERATOR role. Pass address(0) to disable reset
   ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
+  /// @param _tokenAllowlist External token allowlist contract.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
     address admin,
     address resetOperator,
-    uint256 _minFeePerRequest
+    uint256 _minFeePerRequest,
+    ITokenAllowlist _tokenAllowlist
   ) EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {
     if (
       address(_teeAuthenticator) == address(0) ||
       address(_authorityRegistry) == address(0) ||
       updateStatusOperator == address(0) ||
-      admin == address(0)
+      admin == address(0) ||
+      address(_tokenAllowlist) == address(0)
     ) revert AddressCantBeZero();
 
     teeAuthenticator = _teeAuthenticator;
     authorityRegistry = _authorityRegistry;
+    tokenAllowlist = _tokenAllowlist;
     feeCollector = payable(updateStatusOperator);
     _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
     _grantRole(ADMIN, admin);
@@ -160,7 +165,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     } else {
       if (msg.value != maxFeeValue) revert InvalidValue();
       if (assetAmount == 0) revert InvalidValue();
-      if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
+      if (!tokenAllowlist.isAllowedToken(tokenAddress)) revert ITokenAllowlist.TokenNotAllowed();
       // Pull ERC-20 tokens with balance-before/after check
       _pullERC20(tokenAddress, msg.sender, assetAmount);
     }
@@ -265,7 +270,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     if (assetAmount == 0 && tokenAddress != ETH_TOKEN) revert InvalidValue();
     if (assetAmount > 0) {
       if (tokenAddress == ETH_TOKEN) revert InvalidValue();
-      if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
+      if (!tokenAllowlist.isAllowedToken(tokenAddress)) revert ITokenAllowlist.TokenNotAllowed();
 
       // Decode deposit permit and execute EIP-2612 permit + transferFrom
       if (depositPermit.length != 96) revert InvalidPermit();
@@ -1004,7 +1009,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     // Resolve the effective token list: use the caller-supplied list when non-empty, otherwise
     // fall back to all tokens currently registered in the allowlist.
-    address[] memory effectiveTokens = getAllowedTokens();
+    address[] memory effectiveTokens = tokenAllowlist.getAllowedTokens();
 
     uint256 appCount = effectiveAppIds.length;
     uint256 tokenCount = effectiveTokens.length;
@@ -1087,7 +1092,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     }
 
     //erc20 tokens
-    address[] memory tokens = getAllowedTokens();
+    address[] memory tokens = tokenAllowlist.getAllowedTokens();
     uint256 tokenCount = tokens.length;
     uint256 ti;
     while (ti != tokenCount) {

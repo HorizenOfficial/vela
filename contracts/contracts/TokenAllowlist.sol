@@ -5,9 +5,12 @@ import '@openzeppelin/contracts/access/AccessControl.sol';
 import './interfaces/ITokenAllowlist.sol';
 
 /// @title TokenAllowlist
-/// @notice Base contract managing a global ERC-20 token allowlist.
+/// @notice Standalone contract managing a global ERC-20 token allowlist.
 /// ETH (address(0)) is always implicitly allowed.
-abstract contract TokenAllowlist is AccessControl, ITokenAllowlist {
+contract TokenAllowlist is AccessControl, ITokenAllowlist {
+  constructor(address admin) {
+    _grantRole(keccak256('ADMIN'), admin);
+  }
   mapping(address => bool) public allowedTokens;
   address[] private _allowedTokenList;
 

@@ -107,7 +107,15 @@ async function deploy() {
   // 3) TeeAuthenticator
   const teeAuthenticatorAddr = await deployTeeAuthenticator(deployer, deployerAddress);
 
-  // 4) ProcessorEndpoint
+  // 4) TokenAllowlist
+  const TokenAllowlist = await ethers.getContractFactory('TokenAllowlist');
+  const tokenAllowlist = await TokenAllowlist.deploy(process.env.ADMIN!);
+  await tokenAllowlist.deploymentTransaction()!.wait();
+  const tokenAllowlistAddr = await tokenAllowlist.getAddress();
+  console.log(`TokenAllowlist`);
+  console.log(`  contract address: ${tokenAllowlistAddr}`);
+
+  // 5) ProcessorEndpoint
   const resetOperator = process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000';
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');
   const processorEndpoint = await ProcessorEndpoint.deploy(
@@ -116,7 +124,8 @@ async function deploy() {
     process.env.UPDATE_STATUS_OPERATOR!,
     process.env.ADMIN!,
     resetOperator,
-    process.env.MIN_FEE_PER_REQUEST!
+    process.env.MIN_FEE_PER_REQUEST!,
+    tokenAllowlistAddr
   );
   await processorEndpoint.deploymentTransaction()!.wait();
   var processorEndpointAddr = await processorEndpoint.getAddress();
@@ -125,6 +134,7 @@ async function deploy() {
   console.log(`  update status operator (manager address): ${process.env.UPDATE_STATUS_OPERATOR!}`);
   console.log(`  admin / bootstrap deployer: ${process.env.ADMIN!}`);
   console.log(`  reset operator (address(0) = disabled): ${resetOperator}`);
+  console.log(`  token allowlist: ${tokenAllowlistAddr}`);
 
   // 5) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
   //    Must be deployed AFTER ProcessorEndpoint so that its CREATE address
@@ -145,12 +155,12 @@ async function deploy() {
     console.log(`  contract address: ${mockErc20Addr}`);
     console.log(`  name / symbol / decimals: ${name} / ${symbol} / ${decimals}`);
 
-    // Allowlist the MockERC20 on ProcessorEndpoint.
+    // Allowlist the MockERC20 on TokenAllowlist.
     // The deployer signer must have the ADMIN role (granted to process.env.ADMIN
-    // in the ProcessorEndpoint constructor).
-    const tx = await processorEndpoint.addAllowedToken(mockErc20Addr);
+    // in the TokenAllowlist constructor).
+    const tx = await tokenAllowlist.addAllowedToken(mockErc20Addr);
     await tx.wait();
-    console.log(`  allowlisted on ProcessorEndpoint`);
+    console.log(`  allowlisted on TokenAllowlist`);
   }
 
   // Write deployed addresses to file if DEPLOY_OUTPUT_DIR is set
@@ -159,6 +169,7 @@ async function deploy() {
     const lines = [
       `CHAIN_PROCESSOR_ADDRESS=${processorEndpointAddr}`,
       `CHAIN_TEEAUTHENTICATOR_ADDRESS=${teeAuthenticatorAddr}`,
+      `CHAIN_TOKEN_ALLOWLIST_ADDRESS=${tokenAllowlistAddr}`,
     ];
     if (mockErc20Addr !== '') {
       lines.push(`CHAIN_MOCK_ERC20_ADDRESS=${mockErc20Addr}`);

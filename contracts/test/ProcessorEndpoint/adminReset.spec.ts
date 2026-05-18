@@ -6,6 +6,7 @@ import { ADDRESS_ZERO, ETH_TOKEN, BYTES32_ZERO } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
+  let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let bootstrapApplication: any;
@@ -15,7 +16,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     bootstrapApplication = fixture.bootstrapApplication;
@@ -24,30 +25,30 @@ describe('ProcessorEndpoint Test', function () {
 
     const MockERC20 = await ethers.getContractFactory('MockERC20');
     mockERC20 = await MockERC20.deploy('Mock Token', 'MCK', 18);
-    await processorEndpoint.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
+    await tokenAllowlist.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
   });
 
   describe('getAllowedTokens', function () {
     it('returns empty array when no tokens are allowlisted', async () => {
-      const fresh = await deployProcessorEndpoint();
-      expect(await fresh.getAllowedTokens()).to.deep.equal([]);
+      const { tokenAllowlist: freshTokenAllowlist } = await deployProcessorEndpoint();
+      expect(await freshTokenAllowlist.getAllowedTokens()).to.deep.equal([]);
     });
 
     it('returns added tokens', async () => {
       const tokenAddr = await mockERC20.getAddress();
-      expect(await processorEndpoint.getAllowedTokens()).to.deep.equal([tokenAddr]);
+      expect(await tokenAllowlist.getAllowedTokens()).to.deep.equal([tokenAddr]);
     });
 
     it('excludes removed tokens', async () => {
       const tokenAddr = await mockERC20.getAddress();
-      await processorEndpoint.connect(signers[2]).removeAllowedToken(tokenAddr);
-      expect(await processorEndpoint.getAllowedTokens()).to.deep.equal([]);
+      await tokenAllowlist.connect(signers[2]).removeAllowedToken(tokenAddr);
+      expect(await tokenAllowlist.getAllowedTokens()).to.deep.equal([]);
     });
 
     it('does not duplicate a token added twice', async () => {
       const tokenAddr = await mockERC20.getAddress();
-      await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
-      const tokens = await processorEndpoint.getAllowedTokens();
+      await tokenAllowlist.connect(signers[2]).addAllowedToken(tokenAddr);
+      const tokens = await tokenAllowlist.getAllowedTokens();
       expect(tokens.length).to.equal(1);
       expect(tokens[0]).to.equal(tokenAddr);
     });
@@ -84,7 +85,7 @@ describe('ProcessorEndpoint Test', function () {
       });
 
       it('is unreachable when deployed with address(0) as reset operator', async () => {
-        const noResetEndpoint = await deployProcessorEndpoint(ADDRESS_ZERO);
+        const { processorEndpoint: noResetEndpoint } = await deployProcessorEndpoint(ADDRESS_ZERO);
         await expect(
           noResetEndpoint.connect(signers[3]).adminReset()
         ).to.be.revertedWithCustomError(noResetEndpoint, 'AccessControlUnauthorizedAccount');

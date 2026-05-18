@@ -99,6 +99,7 @@ async function signERC20Permit(
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
+  let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let applicationId: bigint;
@@ -106,7 +107,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     bootstrapApplication = fixture.bootstrapApplication;
@@ -170,7 +171,8 @@ describe('ProcessorEndpoint Test', function () {
       fixture.updateStatusOperator,
       fixture.admin,
       fixture.resetOperator,
-      fixture.minFeePerRequest
+      fixture.minFeePerRequest,
+      await fixture.sharedTokenAllowlist.getAddress()
     );
 
     const { applicationId: appId } = await fixture.bootstrapApplication(
@@ -724,7 +726,7 @@ describe('ProcessorEndpoint Test', function () {
         const MockERC20Permit = await ethers.getContractFactory('MockERC20Permit');
         const token = await MockERC20Permit.deploy('Permit Token', 'PMT', 18);
         const tokenAddr = await token.getAddress();
-        await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
+        await tokenAllowlist.connect(signers[2]).addAllowedToken(tokenAddr);
 
         const assetAmount = 200n;
         const maxFeeValue = minFeePerRequest + 30n;

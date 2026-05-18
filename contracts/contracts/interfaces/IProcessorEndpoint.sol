@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import '../Structs.sol';
+import './ITokenAllowlist.sol';
 
 /// @title ProcessorEndpoint interface
 /// @notice External API, events, and errors for the processor endpoint.
@@ -444,4 +445,7 @@ interface IProcessorEndpoint {
   ///         address(0).
   /// @param appIds Application IDs to reset. Empty array means all deployed apps.
   function adminResetApps(uint64[] calldata appIds) external;
+
+  /// @notice Returns the external token allowlist contract used by this endpoint.
+  function tokenAllowlist() external view returns (ITokenAllowlist);
 }

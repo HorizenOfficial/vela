@@ -19,7 +19,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint } = await fixture.deployProcessorEndpoint());
     defaultAuthority = fixture.defaultAuthority;
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;

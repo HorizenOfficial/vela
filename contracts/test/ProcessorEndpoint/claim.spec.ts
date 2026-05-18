@@ -6,6 +6,7 @@ import { ETH_TOKEN, getRequestIdFromReceipt } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
+  let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let protocolVersion: BigNumberish;
@@ -14,7 +15,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     protocolVersion = await processorEndpoint.PROTOCOL_VERSION();
@@ -22,7 +23,7 @@ describe('ProcessorEndpoint Test', function () {
 
     const MockERC20 = await ethers.getContractFactory('MockERC20');
     mockERC20 = await MockERC20.deploy('Mock Token', 'MCK', 18);
-    await processorEndpoint.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
+    await tokenAllowlist.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
   });
 
   describe('claim', function () {

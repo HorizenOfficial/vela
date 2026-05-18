@@ -123,6 +123,7 @@ async function signERC20Permit(
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
+  let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let applicationId: bigint;
@@ -134,7 +135,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
@@ -558,7 +559,7 @@ describe('ProcessorEndpoint Test', function () {
         const tokenAddr = await token.getAddress();
         const assetAmount = 100n;
 
-        await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
+        await tokenAllowlist.connect(signers[2]).addAllowedToken(tokenAddr);
         await token.mint(await user.getAddress(), assetAmount);
 
         const params = await buildRequestParams({
@@ -883,7 +884,7 @@ describe('ProcessorEndpoint Test', function () {
       beforeEach(async function () {
         const MockERC20Permit = await ethers.getContractFactory('MockERC20Permit');
         mockERC20Permit = await MockERC20Permit.deploy('Permit Token', 'PMT', 18);
-        await processorEndpoint
+        await tokenAllowlist
           .connect(signers[2])
           .addAllowedToken(await mockERC20Permit.getAddress());
       });
@@ -1026,7 +1027,7 @@ describe('ProcessorEndpoint Test', function () {
         const deadline = await getDeadline();
         const processorAddr = await processorEndpoint.getAddress();
 
-        await processorEndpoint.connect(signers[2]).addAllowedToken(feeTokenAddr);
+        await tokenAllowlist.connect(signers[2]).addAllowedToken(feeTokenAddr);
         await feeToken.mint(await user.getAddress(), assetAmount);
 
         // Pre-approve since FeeOnTransferERC20 doesn't support permit
