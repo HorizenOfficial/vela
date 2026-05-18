@@ -49,8 +49,13 @@ contract TestTrigger is AbstractTrigger {
     if (revertOnExecute) revert ExecuteReverted();
     capturedBalances[ETH_TOKEN] = address(this).balance;
     address[] memory tokens = tokenAllowlist.getAllowedTokens();
-    for (uint256 i = 0; i < tokens.length; i++) {
+    uint256 i;
+    uint256 len = tokens.length;
+    while (i != len) {
       capturedBalances[tokens[i]] = IERC20(tokens[i]).balanceOf(address(this));
+      unchecked {
+         ++i; 
+      }
     }
     executedRequests[processedRequestId] = true;
   }

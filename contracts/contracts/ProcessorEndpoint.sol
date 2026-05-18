@@ -77,8 +77,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   // Prioritized uncrypted queue populated by trigger contracts
   mapping(bytes32 => Structs.PrioritizedUnencryptedPendingRequest)
     public _prioritizedUnencryptedRequestsById;
-  bytes32[] private _prioritizedQueue; // sorted array: index 0 = highest priority (lowest value), FIFO within same priority
-  uint256 private _prioritizedQueueSize; // monotonically increasing counter used to seed unique requestIds
+  mapping(uint256 => bytes32) private _prioritizedIdByOrder; // sorted mapping: _prioritizedHead = highest priority, FIFO within same priority
+  uint256 private _prioritizedHead; // index of the current highest-priority item
+  uint256 private _prioritizedQueueSize; // monotonically increasing tail; also seeds unique requestIds
 
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
@@ -404,11 +405,21 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     return requestId;
   }
 
-  function _removeRequest() private {
-    delete requestById[_requestIdByOrder[_head]];
-    delete _requestIdByOrder[_head];
-    unchecked {
-      ++_head;
+  function _removeRequest(bytes32 requestId) private {
+    if (_prioritizedUnencryptedRequestsById[requestId].request.requestId != bytes32(0)) {
+      // delete from prioritized queue — O(1) with head pointer
+      delete _prioritizedUnencryptedRequestsById[requestId];
+      delete _prioritizedIdByOrder[_prioritizedHead];
+      unchecked {
+        ++_prioritizedHead;
+      }
+    } else {
+      //delete by normal queue
+      delete requestById[_requestIdByOrder[_head]];
+      delete _requestIdByOrder[_head];
+      unchecked {
+        ++_head;
+      }
     }
   }
 
@@ -421,7 +432,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     string memory errorMsg,
     Structs.RequestType requestType
   ) private {
-    _removeRequest();
+    _removeRequest(requestId);
 
     if (requestType == Structs.RequestType.DEPLOYAPP) {
       emit DeployRequestCompleted(
@@ -450,7 +461,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   /// @inheritdoc IProcessorEndpoint
   function getPrioritizedRequestsSize() public view returns (uint256) {
-    return _prioritizedQueue.length;
+    if (_prioritizedQueueSize > _prioritizedHead) {
+      return _prioritizedQueueSize - _prioritizedHead;
+    } else {
+      return 0;
+    }
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -1198,16 +1213,17 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     return requestId;
   }
 
-  // Inserts requestId into the sorted array at the correct position.
-  // Items are ordered ascending by priority value: lower number = higher priority = index 0.
+  // Inserts requestId into the sorted mapping at the correct position.
+  // Items are ordered ascending by priority value: lower number = higher priority = _prioritizedHead.
   // Equal-priority items are ordered FIFO: the new item is placed after all existing items with
   // the same priority.
   function _insertPrioritized(bytes32 id, uint256 priority) private {
-    uint256 len = _prioritizedQueue.length;
-    uint256 pos = len;
-    uint256 i;
-    while (i != len) {
-      if (priority < _prioritizedUnencryptedRequestsById[_prioritizedQueue[i]].priority) {
+    uint256 head = _prioritizedHead;
+    uint256 tail = _prioritizedQueueSize;
+    uint256 pos = tail;
+    uint256 i = head;
+    while (i != tail) {
+      if (priority < _prioritizedUnencryptedRequestsById[_prioritizedIdByOrder[i]].priority) {
         pos = i;
         break;
       }
@@ -1216,17 +1232,17 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       }
     }
 
-    _prioritizedQueue.push(bytes32(0)); // to make space for the new item; will be overwritten in the loop below
-    i = len;
+    // Shift elements from tail down to pos to make room for the new item
+    i = tail;
     while (i != pos) {
-      _prioritizedQueue[i] = _prioritizedQueue[i - 1];
+      _prioritizedIdByOrder[i] = _prioritizedIdByOrder[i - 1];
       unchecked {
         --i;
       }
     }
-    _prioritizedQueue[pos] = id;
+    _prioritizedIdByOrder[pos] = id;
 
-    //increment size after insertion to avoid off-by-one in the loop conditions
+    // increment tail after insertion to avoid off-by-one in the loop conditions
     unchecked {
       ++_prioritizedQueueSize;
     }
@@ -1240,9 +1256,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     view
     returns (Structs.PrioritizedUnencryptedPendingRequest memory request, bool success)
   {
-    if (_prioritizedQueue.length == 0) {
+    if (getPrioritizedRequestsSize() == 0) {
       return (request, false);
     }
-    return (_prioritizedUnencryptedRequestsById[_prioritizedQueue[0]], true);
+    return (_prioritizedUnencryptedRequestsById[_prioritizedIdByOrder[_prioritizedHead]], true);
   }
 }
