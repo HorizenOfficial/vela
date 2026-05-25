@@ -197,9 +197,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     nonReentrant
     returns (bytes32)
   {
-    // 1. Only ASSOCIATEKEY and PROCESS are supported
+    // 1. Only ASSOCIATEKEY, PROCESS and PLAINPROCESS are supported
     if (
-      requestType != Structs.RequestType.ASSOCIATEKEY && requestType != Structs.RequestType.PROCESS
+      requestType != Structs.RequestType.ASSOCIATEKEY &&
+      requestType != Structs.RequestType.PROCESS &&
+      requestType != Structs.RequestType.PLAINPROCESS
     ) revert InvalidRequestType();
 
     // 2. Verify deadline not expired

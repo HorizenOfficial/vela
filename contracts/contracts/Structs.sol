@@ -11,7 +11,8 @@ contract Structs {
     DEPLOYAPP,
     PROCESS,
     DEANONYMIZATION,
-    ASSOCIATEKEY
+    ASSOCIATEKEY,
+    PLAINPROCESS
   }
   enum RequestResult {
     COMPLETED,

@@ -252,6 +252,22 @@ func (c *CryptoHelper) CreateProcessRequest(appID common.ApplicationIdType, requ
 	return c.encryptAndBuildRequest(appID, requestID, common.Process, sender, payload, velacommon.ETH_TOKEN, common.NewBig(0), receiverPubKey)
 }
 
+// CreatePlainProcessRequest creates a plain-text process request. The payload is forwarded
+// to the WASM module as-is, without encryption toward the enclave communication key.
+func (c *CryptoHelper) CreatePlainProcessRequest(appID common.ApplicationIdType, requestID common.RequestIdType, sender ethCommon.Address, payload []byte) *common.Request {
+	return &common.Request{
+		ApplicationID: appID,
+		RequestID:     requestID,
+		RequestType:   common.PlainProcess,
+		Payload:       payload,
+		Sender:        sender,
+		Timestamp:     common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		AssetAmount:   common.NewBig(0),
+		TokenAddress:  ethCommon.Address{},
+		MaxFeeValue:   common.NewBig(100),
+	}
+}
+
 func (c *CryptoHelper) ValidateUpdatePayloadSignature(payload *common.UpdatePayload, key *cryptotypes.PublicKeySecp256k1) error {
 	// Create the original payload that was signed
 	originalPayload := &common.UpdatePayload{

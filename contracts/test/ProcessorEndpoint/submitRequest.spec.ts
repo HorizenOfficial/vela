@@ -6,6 +6,7 @@ import {
   REQUEST_TYPE_ASSOCIATEKEY,
   REQUEST_TYPE_DEANONYMIZATION,
   REQUEST_TYPE_DEPLOYAPP,
+  REQUEST_TYPE_PLAINPROCESS,
   REQUEST_TYPE_PROCESS,
 } from '../util';
 
@@ -361,6 +362,28 @@ describe('ProcessorEndpoint Test', function () {
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
         const receipt = await tx.wait();
         expect(receipt.logs[0].args.sender).to.equal(await signers[0].getAddress());
+      });
+
+      it('accepts PLAINPROCESS and enqueues it like PROCESS', async () => {
+        const payload = '0x' + 'ab'.repeat(32);
+        const tx = await processorEndpoint.submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_PLAINPROCESS,
+          payload,
+          ETH_TOKEN,
+          0,
+          minFeePerRequest,
+          { value: minFeePerRequest }
+        );
+
+        await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
+        const receipt = await tx.wait();
+        const requestId = receipt.logs[0].args.requestId;
+        const stored = await processorEndpoint.requestById(requestId);
+        expect(stored.requestType).to.equal(REQUEST_TYPE_PLAINPROCESS);
+        expect(stored.payload).to.equal(payload);
+        expect(stored.sender).to.equal(await signers[0].getAddress());
       });
 
       it('accepts DEANONYMIZATION for allowed authority with zero deposit', async () => {

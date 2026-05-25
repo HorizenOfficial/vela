@@ -50,3 +50,28 @@ func TestRequestValidate_ZeroAssetAmountWithNonZeroToken(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tokenAddress must be zero address when assetAmount is zero")
 }
+
+func TestRequestType_StringAndToUint8(t *testing.T) {
+	cases := []struct {
+		rt   RequestType
+		name string
+		val  uint8
+	}{
+		{Deploy, "deploy", 0},
+		{Process, "process", 1},
+		{Deanonymize, "deanonymize", 2},
+		{AssociateKey, "associatekey", 3},
+		{PlainProcess, "plainprocess", 4},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.name, c.rt.String())
+		v, err := c.rt.ToUint8()
+		require.NoError(t, err)
+		require.Equal(t, c.val, v)
+	}
+
+	unknown := RequestType(99)
+	require.Equal(t, "unknown", unknown.String())
+	_, err := unknown.ToUint8()
+	require.Error(t, err)
+}
