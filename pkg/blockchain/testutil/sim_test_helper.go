@@ -22,6 +22,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mocktee"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/noattestationtee"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tokenallowlist"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/stretchr/testify/require"
 )
@@ -32,8 +33,11 @@ type SimTestHelper struct {
 	ProtocolVersion uint8
 	sim             *simulated.Backend
 
-	processEndpointContract *processorendpoint.ProcessorEndpoint
-	processEndpointInstance *bind.BoundContract
+	processEndpointContract  *processorendpoint.ProcessorEndpoint
+	processEndpointInstance  *bind.BoundContract
+	tokenAllowlistContract   *tokenallowlist.TokenAllowlist
+	tokenAllowlistInstance   *bind.BoundContract
+	TokenAllowlistAddress    ethCommon.Address
 
 	// MockERC20 is populated by DeployMockERC20 and remains the zero value if
 	// the test never deploys one. Only one MockERC20 per SimTestHelper — tests
@@ -159,9 +163,28 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	require.NoError(s.t, err)
 	fmt.Printf("Authority contract deployed at address 0x%x\n", s.AuthorityAddress)
 
+	// 3) Deploy TokenAllowlist
+	taContract := *tokenallowlist.NewTokenAllowlist()
+	taInput := taContract.PackConstructor(s.Deployer.From)
+	taDeployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&tokenallowlist.TokenAllowlistMetaData},
+		Inputs:    map[string][]byte{tokenallowlist.TokenAllowlistMetaData.ID: taInput},
+	}
+	taDeployRes, err := bind.LinkAndDeploy(&taDeployParams, deployer)
+	require.NoError(s.t, err)
+	s.TokenAllowlistAddress = taDeployRes.Addresses[tokenallowlist.TokenAllowlistMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), taDeployRes.Txs[tokenallowlist.TokenAllowlistMetaData.ID].Hash())
+	require.NoError(s.t, err)
+	fmt.Printf("TokenAllowlist contract deployed at address 0x%x\n", s.TokenAllowlistAddress)
+
+	s.tokenAllowlistContract = tokenallowlist.NewTokenAllowlist()
+	s.tokenAllowlistInstance = s.tokenAllowlistContract.Instance(s.sim.Client(), s.TokenAllowlistAddress)
+
+	// 4) Deploy ProcessorEndpoint
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5))
+	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5), s.TokenAllowlistAddress)
 	// set up params to deploy an instance of the ProcessorEndpoint contract
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},
@@ -341,7 +364,7 @@ func (s *SimTestHelper) GetAppCustody(applicationId common.ApplicationIdType, to
 	return funds
 }
 
-func (s *SimTestHelper) GetRequest(requestID common.RequestIdType) processorendpoint.RequestByIdOutput {
+func (s *SimTestHelper) GetRequest(requestID common.RequestIdType) processorendpoint.StructsPendingRequest {
 	request, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
 		s.processEndpointContract.PackRequestById(requestID),
@@ -557,9 +580,9 @@ func (s *SimTestHelper) BalanceOfERC20(account ethCommon.Address) *big.Int {
 // account (holder of the ADMIN role from the constructor).
 func (s *SimTestHelper) AddAllowedToken(tokenAddress ethCommon.Address) *ethTypes.Transaction {
 	tx, err := bind.Transact(
-		s.processEndpointInstance,
+		s.tokenAllowlistInstance,
 		s.Deployer,
-		s.processEndpointContract.PackAddAllowedToken(tokenAddress),
+		s.tokenAllowlistContract.PackAddAllowedToken(tokenAddress),
 	)
 	require.NoError(s.t, err, "failed to add allowed token")
 	return tx

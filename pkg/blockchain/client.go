@@ -31,6 +31,11 @@ import (
 //go:generate mkdir -p ./contracts/tee
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
+//go:generate mkdir -p ./contracts/tokenallowlist
+//go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TokenAllowlist.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TokenAllowlistAbi --overwrite
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TokenAllowlist.sol:TokenAllowlist\"].abi' ../../contract_abis/TokenAllowlistAbi/combined.json > ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TokenAllowlist.sol:TokenAllowlist\"].bin' ../../contract_abis/TokenAllowlistAbi/combined.json > ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.abi --bin ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.bin --pkg tokenallowlist --type TokenAllowlist --out ./contracts/tokenallowlist/TokenAllowlist.go
 
 type ChainClient interface {
 	ethereum.BlockNumberReader
