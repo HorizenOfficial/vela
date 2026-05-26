@@ -27,12 +27,7 @@ export async function deployProcessorEndpointFixture() {
     BYTES_ZERO
   );
 
-  const RequestQueueLib = await ethers.getContractFactory('RequestQueueLib');
-  const requestQueueLib = await RequestQueueLib.deploy();
-
-  const processorEndpointFactory = await ethers.getContractFactory('ProcessorEndpoint', {
-    libraries: { RequestQueueLib: await requestQueueLib.getAddress() },
-  });
+  const processorEndpointFactory = await ethers.getContractFactory('ProcessorEndpoint');
   const resetOperator = await signers[3].getAddress();
 
   async function deployTokenAllowlist() {
