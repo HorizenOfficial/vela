@@ -23,14 +23,14 @@ describe('ProcessorEndpoint Trigger Tests', function () {
   // Returns the applicationId, the mock trigger contract, and the state root after deploy.
   async function bootstrapApplicationWithTrigger(
     revertOnExecute: boolean,
-    revertOnPostWithdraw: boolean,
+    revertOnPostWithdraw: boolean
   ) {
     const TestTrigger = await ethers.getContractFactory('TestTrigger');
     const mockTrigger: any = await TestTrigger.deploy(
       await processorEndpoint.getAddress(),
       await tokenAllowlist.getAddress(),
       revertOnExecute,
-      revertOnPostWithdraw,
+      revertOnPostWithdraw
     );
 
     // ABI-encode the trigger address to exactly 32 bytes so stateUpdate registers it
@@ -55,20 +55,22 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     const applicationId: bigint = parsed.args.applicationId;
     const requestId: string = parsed.args.requestId;
 
-    await processorEndpoint.connect(signers[1]).stateUpdate(
-      applicationId,
-      BYTES32_ZERO,
-      INITIAL_STATE_ROOT,
-      requestId,
-      { events: [], subTypes: [] },
-      { events: [], subTypes: [] },
-      [],
-      0,
-      minFeePerRequest,
-      0,
-      '',
-      '0x'
-    );
+    await processorEndpoint
+      .connect(signers[1])
+      .stateUpdate(
+        applicationId,
+        BYTES32_ZERO,
+        INITIAL_STATE_ROOT,
+        requestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [],
+        0,
+        minFeePerRequest,
+        0,
+        '',
+        '0x'
+      );
 
     return { applicationId, mockTrigger };
   }
@@ -153,10 +155,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
   describe('trigger registered via deploy payload', function () {
     describe('revertOnExecute=false, revertOnPostWithdraw=false', function () {
       it('stateUpdate succeeds, TriggerExecuted and TriggerPostWithdraw both report success=true', async function () {
-        const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(
-          false,
-          false
-        );
+        const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
         const triggerAddress = await mockTrigger.getAddress();
 
         const { requestId, updateTx, updateReceipt } = await submitAndProcess(
@@ -183,10 +182,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
 
     describe('revertOnExecute=false, revertOnPostWithdraw=true', function () {
       it('stateUpdate succeeds, TriggerExecuted success=true, TriggerPostWithdraw success=false', async function () {
-        const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(
-          false,
-          true
-        );
+        const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, true);
         const triggerAddress = await mockTrigger.getAddress();
 
         const { requestId, updateTx, updateReceipt } = await submitAndProcess(
@@ -215,10 +211,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
 
     describe('revertOnExecute=true, revertOnPostWithdraw=false', function () {
       it('stateUpdate succeeds, TriggerExecuted success=false, TriggerPostWithdraw success=true', async function () {
-        const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(
-          true,
-          false
-        );
+        const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(true, false);
         const triggerAddress = await mockTrigger.getAddress();
 
         const { requestId, updateTx, updateReceipt } = await submitAndProcess(
@@ -247,10 +240,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
 
     describe('revertOnExecute=true, revertOnPostWithdraw=true', function () {
       it('stateUpdate succeeds, TriggerExecuted success=false, TriggerPostWithdraw success=false', async function () {
-        const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(
-          true,
-          true
-        );
+        const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(true, true);
         const triggerAddress = await mockTrigger.getAddress();
 
         const { requestId, updateTx, updateReceipt } = await submitAndProcess(
@@ -319,9 +309,18 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     async function buildCustody(applicationId: bigint) {
       const ethTx = await processorEndpoint
         .connect(signers[0])
-        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', ETH_TOKEN, ETH_ASSET, minFeePerRequest, {
-          value: ETH_ASSET + minFeePerRequest,
-        });
+        .submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x01',
+          ETH_TOKEN,
+          ETH_ASSET,
+          minFeePerRequest,
+          {
+            value: ETH_ASSET + minFeePerRequest,
+          }
+        );
       const firstRequestId = getRequestIdFromReceipt(processorEndpoint, await ethTx.wait());
 
       const tokenAAddr = await tokenA.getAddress();
@@ -329,18 +328,36 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       await tokenA.connect(signers[0]).approve(await processorEndpoint.getAddress(), TOKEN_A_ASSET);
       await processorEndpoint
         .connect(signers[0])
-        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x02', tokenAAddr, TOKEN_A_ASSET, minFeePerRequest, {
-          value: minFeePerRequest,
-        });
+        .submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x02',
+          tokenAAddr,
+          TOKEN_A_ASSET,
+          minFeePerRequest,
+          {
+            value: minFeePerRequest,
+          }
+        );
 
       const tokenBAddr = await tokenB.getAddress();
       await tokenB.mint(await signers[0].getAddress(), TOKEN_B_ASSET);
       await tokenB.connect(signers[0]).approve(await processorEndpoint.getAddress(), TOKEN_B_ASSET);
       await processorEndpoint
         .connect(signers[0])
-        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x03', tokenBAddr, TOKEN_B_ASSET, minFeePerRequest, {
-          value: minFeePerRequest,
-        });
+        .submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x03',
+          tokenBAddr,
+          TOKEN_B_ASSET,
+          minFeePerRequest,
+          {
+            value: minFeePerRequest,
+          }
+        );
 
       return { firstRequestId };
     }
@@ -349,20 +366,22 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
       const { firstRequestId } = await buildCustody(applicationId);
 
-      await processorEndpoint.connect(signers[1]).stateUpdate(
-        applicationId,
-        INITIAL_STATE_ROOT,
-        '0x' + 'aa'.repeat(32),
-        firstRequestId,
-        { events: [], subTypes: [] },
-        { events: [], subTypes: [] },
-        [],
-        0,
-        minFeePerRequest,
-        0,
-        '',
-        '0x',
-      );
+      await processorEndpoint
+        .connect(signers[1])
+        .stateUpdate(
+          applicationId,
+          INITIAL_STATE_ROOT,
+          '0x' + 'aa'.repeat(32),
+          firstRequestId,
+          { events: [], subTypes: [] },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
 
       expect(await mockTrigger.capturedBalances(ETH_TOKEN)).to.equal(ETH_ASSET);
       expect(await mockTrigger.capturedBalances(await tokenA.getAddress())).to.equal(TOKEN_A_ASSET);
@@ -373,20 +392,22 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       const { applicationId } = await bootstrapApplicationWithTrigger(false, false);
       const { firstRequestId } = await buildCustody(applicationId);
 
-      await processorEndpoint.connect(signers[1]).stateUpdate(
-        applicationId,
-        INITIAL_STATE_ROOT,
-        '0x' + 'bb'.repeat(32),
-        firstRequestId,
-        { events: [], subTypes: [] },
-        { events: [], subTypes: [] },
-        [],
-        0,
-        minFeePerRequest,
-        0,
-        '',
-        '0x',
-      );
+      await processorEndpoint
+        .connect(signers[1])
+        .stateUpdate(
+          applicationId,
+          INITIAL_STATE_ROOT,
+          '0x' + 'bb'.repeat(32),
+          firstRequestId,
+          { events: [], subTypes: [] },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
 
       const tokenAAddr = await tokenA.getAddress();
       const tokenBAddr = await tokenB.getAddress();
@@ -415,25 +436,36 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       await tokenA.connect(signers[0]).approve(await processorEndpoint.getAddress(), TOKEN_A_ASSET);
       const erc20Tx = await processorEndpoint
         .connect(signers[0])
-        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', tokenAAddr, TOKEN_A_ASSET, minFeePerRequest, {
-          value: minFeePerRequest,
-        });
+        .submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x01',
+          tokenAAddr,
+          TOKEN_A_ASSET,
+          minFeePerRequest,
+          {
+            value: minFeePerRequest,
+          }
+        );
       const requestId = getRequestIdFromReceipt(processorEndpoint, await erc20Tx.wait());
 
-      await processorEndpoint.connect(signers[1]).stateUpdate(
-        applicationId,
-        INITIAL_STATE_ROOT,
-        '0x' + 'cc'.repeat(32),
-        requestId,
-        { events: [], subTypes: [] },
-        { events: [], subTypes: [] },
-        [],
-        0,
-        minFeePerRequest,
-        0,
-        '',
-        '0x',
-      );
+      await processorEndpoint
+        .connect(signers[1])
+        .stateUpdate(
+          applicationId,
+          INITIAL_STATE_ROOT,
+          '0x' + 'cc'.repeat(32),
+          requestId,
+          { events: [], subTypes: [] },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
 
       // Trigger had no ETH (nothing was unshielded for ETH)
       expect(await mockTrigger.capturedBalances(ETH_TOKEN)).to.equal(0n);

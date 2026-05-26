@@ -16,11 +16,13 @@ import './interfaces/IAuthorityRegistry.sol';
 import './interfaces/ITokenAllowlist.sol';
 import './Structs.sol';
 import './interfaces/ITrigger.sol';
+import './libraries/RequestQueueLib.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
 contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard, EIP712 {
   using SafeERC20 for IERC20;
+  using RequestQueueLib for RequestQueueLib.NormalQueue;
 
   //constants
   bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
@@ -34,10 +36,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   uint256 public maxNumOfApplications = 10;
   uint256 public availableDeploySlots = maxNumOfApplications;
 
-  mapping(bytes32 => Structs.PendingRequest) public requestById;
-  mapping(uint256 => bytes32) private _requestIdByOrder;
-  uint256 private _head;
-  uint256 private _tail;
+  RequestQueueLib.NormalQueue private _queue;
   uint256 public maxQueueSize = 10;
 
   ITeeAuthenticator public teeAuthenticator;
@@ -75,12 +74,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   mapping(uint64 => ITrigger) public triggerContracts;
   // Reverse mapping for the above to check if a trigger is valid when adding to the queue
   mapping(address => uint64) public triggersToAppIds;
-  // Prioritized uncrypted queue populated by trigger contracts
-  mapping(bytes32 => Structs.PrioritizedUnencryptedPendingRequest)
-    public _prioritizedUnencryptedRequestsById;
-  mapping(uint256 => bytes32) private _prioritizedIdByOrder; // sorted mapping: _prioritizedHead = highest priority, FIFO within same priority
-  uint256 private _prioritizedHead; // index of the current highest-priority item
-  uint256 private _prioritizedQueueSize; // monotonically increasing tail; also seeds unique requestIds
+  // FIFO queue populated by trigger contracts; served before the normal queue
+  RequestQueueLib.NormalQueue private _triggerQueue;
 
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
@@ -134,7 +129,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   // @notice receive ETH (sent back by trigger contracts)
   receive() external payable {}
 
-   /// @param _teeAuthenticator Contract used to verify update signatures.
+  /// @param _teeAuthenticator Contract used to verify update signatures.
 
   /// @inheritdoc IProcessorEndpoint
   function submitRequest(
@@ -330,28 +325,26 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       payload,
       ETH_TOKEN,
       0,
-      _tail
+      _queue.tail
     );
 
     uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
-    requestById[requestId] = Structs.PendingRequest({
-      timestamp: block.timestamp,
-      tokenAddress: ETH_TOKEN,
-      assetAmount: 0,
-      maxFeeValue: msg.value,
-      requestId: requestId,
-      payload: payload,
-      sender: msg.sender,
-      facilitator: address(0),
-      applicationId: applicationId,
-      protocolVersion: protocolVersion,
-      requestType: requestType
-    });
-    _requestIdByOrder[_tail] = requestId;
-
-    unchecked {
-      ++_tail;
-    }
+    _queue.enqueue(
+      requestId,
+      Structs.PendingRequest({
+        timestamp: block.timestamp,
+        tokenAddress: ETH_TOKEN,
+        assetAmount: 0,
+        maxFeeValue: msg.value,
+        requestId: requestId,
+        payload: payload,
+        sender: msg.sender,
+        facilitator: address(0),
+        applicationId: applicationId,
+        protocolVersion: protocolVersion,
+        requestType: requestType
+      })
+    );
 
     //emit event
     emit DeployRequestSubmitted(applicationId, requestId, msg.sender);
@@ -385,46 +378,34 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       payload,
       tokenAddress,
       assetAmount,
-      _tail
+      _queue.tail
     );
-    requestById[requestId] = Structs.PendingRequest({
-      timestamp: block.timestamp,
-      tokenAddress: tokenAddress,
-      assetAmount: assetAmount,
-      maxFeeValue: maxFeeValue,
-      requestId: requestId,
-      payload: payload,
-      sender: sender,
-      facilitator: facilitator,
-      applicationId: applicationId,
-      protocolVersion: protocolVersion,
-      requestType: requestType
-    });
-    _requestIdByOrder[_tail] = requestId;
-
-    unchecked {
-      ++_tail;
-    }
+    _queue.enqueue(
+      requestId,
+      Structs.PendingRequest({
+        timestamp: block.timestamp,
+        tokenAddress: tokenAddress,
+        assetAmount: assetAmount,
+        maxFeeValue: maxFeeValue,
+        requestId: requestId,
+        payload: payload,
+        sender: sender,
+        facilitator: facilitator,
+        applicationId: applicationId,
+        protocolVersion: protocolVersion,
+        requestType: requestType
+      })
+    );
 
     emit RequestSubmitted(applicationId, requestId, sender, facilitator);
     return requestId;
   }
 
   function _removeRequest(bytes32 requestId) private {
-    if (_prioritizedUnencryptedRequestsById[requestId].request.requestId != bytes32(0)) {
-      // delete from prioritized queue — O(1) with head pointer
-      delete _prioritizedUnencryptedRequestsById[requestId];
-      delete _prioritizedIdByOrder[_prioritizedHead];
-      unchecked {
-        ++_prioritizedHead;
-      }
+    if (_triggerQueue.size() > 0 && _triggerQueue.isHead(requestId)) {
+      _triggerQueue.dequeueHead();
     } else {
-      //delete by normal queue
-      delete requestById[_requestIdByOrder[_head]];
-      delete _requestIdByOrder[_head];
-      unchecked {
-        ++_head;
-      }
+      _queue.dequeueHead();
     }
   }
 
@@ -457,40 +438,17 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequestsSize() public view returns (uint256) {
-    if (_tail > _head) {
-      return (_tail - _head);
-    } else {
-      return 0;
-    }
+    return _queue.size();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function getPrioritizedRequestsSize() public view returns (uint256) {
-    if (_prioritizedQueueSize > _prioritizedHead) {
-      return _prioritizedQueueSize - _prioritizedHead;
-    } else {
-      return 0;
-    }
+  function getTriggerQueueSize() public view returns (uint256) {
+    return _triggerQueue.size();
   }
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory) {
-    uint256 numOfPendingRequests = getPendingRequestsSize();
-
-    Structs.PendingRequest[] memory res = new Structs.PendingRequest[](numOfPendingRequests);
-    uint256 i = _head;
-    uint256 tail = _tail;
-    uint256 j;
-    while (i < tail) {
-      bytes32 requestId = _requestIdByOrder[i];
-      res[j] = requestById[requestId];
-      unchecked {
-        ++i;
-        ++j;
-      }
-    }
-
-    return res;
+    return _queue.getAll();
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -498,31 +456,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 offset,
     uint256 limit
   ) external view returns (Structs.PendingRequest[] memory) {
-    uint256 size = getPendingRequestsSize();
-    if (offset >= size || limit == 0) {
-      return new Structs.PendingRequest[](0);
-    }
+    return _queue.getPage(offset, limit);
+  }
 
-    uint256 end = offset + limit;
-    if (end > size) {
-      end = size;
-    }
-    uint256 count = end - offset;
-
-    Structs.PendingRequest[] memory res = new Structs.PendingRequest[](count);
-    uint256 i = _head + offset;
-    uint256 stop = _head + end;
-    uint256 j;
-    while (i < stop) {
-      bytes32 requestId = _requestIdByOrder[i];
-      res[j] = requestById[requestId];
-      unchecked {
-        ++i;
-        ++j;
-      }
-    }
-
-    return res;
+  /// @notice Returns the stored request for a given id (normal queue only).
+  function requestById(bytes32 id) external view returns (Structs.PendingRequest memory) {
+    return _queue.requestById[id];
   }
 
   //update status
@@ -545,7 +484,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
     // Check application Id
-    Structs.PendingRequest storage requestInfo = requestById[processedRequestId];
+    bool fromTriggerQueue = _triggerQueue.size() > 0 && _triggerQueue.isHead(processedRequestId);
+    Structs.PendingRequest storage requestInfo = fromTriggerQueue
+      ? _triggerQueue.requestById[processedRequestId]
+      : _queue.requestById[processedRequestId];
     if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
 
     //check prev state root
@@ -870,10 +812,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     view
     returns (Structs.PendingRequest memory, bytes32, bool success)
   {
-    uint256 numOfRequests = getPendingRequestsSize();
-    if (numOfRequests > 0) {
-      bytes32 requestId = _requestIdByOrder[_head];
-      Structs.PendingRequest storage req = requestById[requestId];
+    if (_triggerQueue.size() > 0) {
+      bytes32 requestId = _triggerQueue.peekHead();
+      Structs.PendingRequest storage req = _triggerQueue.requestById[requestId];
+      return (req, applicationStateRoots[req.applicationId], true);
+    }
+    if (_queue.size() > 0) {
+      bytes32 requestId = _queue.peekHead();
+      Structs.PendingRequest storage req = _queue.requestById[requestId];
       return (req, applicationStateRoots[req.applicationId], true);
     }
 
@@ -883,7 +829,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
   /// @inheritdoc IProcessorEndpoint
   function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
-    return getPendingRequestsSize() > 0 && _requestIdByOrder[_head] == requestId;
+    if (_triggerQueue.size() > 0) {
+      return _triggerQueue.isHead(requestId);
+    }
+    return _queue.isHead(requestId);
   }
 
   // Pull payment pattern functions
@@ -956,14 +905,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   function _resetQueue() internal {
-    uint256 i = _head;
-    uint256 tail = _tail;
+    uint256 i = _queue.head;
+    uint256 tail = _queue.tail;
     uint256 freedDeploySlots;
 
     // Iterate every pending request from head to tail, refunding any asset deposits to their
     // senders and counting any DEPLOYAPP entries so their reserved deploy slots can be returned.
     while (i != tail) {
-      Structs.PendingRequest storage req = requestById[_requestIdByOrder[i]];
+      Structs.PendingRequest storage req = _queue.requestById[_queue.idByOrder[i]];
       if (req.requestType == Structs.RequestType.DEPLOYAPP) {
         unchecked {
           ++freedDeploySlots;
@@ -974,17 +923,17 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         totalAppCustody[req.tokenAddress] -= req.assetAmount;
         _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
       }
-      delete requestById[_requestIdByOrder[i]];
-      delete _requestIdByOrder[i];
+      delete _queue.requestById[_queue.idByOrder[i]];
+      delete _queue.idByOrder[i];
       unchecked {
         ++i;
       }
     }
 
-    // Collapse the queue by setting tail back to head. _head is intentionally left at its
+    // Collapse the queue by setting tail back to head. _queue.head is intentionally left at its
     // current value so that future queue indices continue from where they left off rather
     // than restarting from zero (avoids any risk of re-using a slot index still in storage).
-    _tail = _head;
+    _queue.tail = _queue.head;
 
     // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
     // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
@@ -994,9 +943,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function adminResetApps(
-    uint64[] calldata appIds
-  ) external onlyRole(RESET_OPERATOR) nonReentrant {
+  function adminResetApps(uint64[] calldata appIds) external onlyRole(RESET_OPERATOR) nonReentrant {
     // Clear the pending request queue, refunding each request's asset deposit to its sender.
     _resetQueue();
 
@@ -1085,7 +1032,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 ethAmt = appCustody[applicationId][ETH_TOKEN];
     if (ethAmt > 0) {
       (bool ok, ) = address(trigger).call{value: ethAmt}('');
-      if(ok) { //update custodies
+      if (ok) {
+        //update custodies
         appCustody[applicationId][ETH_TOKEN] = 0;
         totalAppCustody[ETH_TOKEN] -= ethAmt;
       }
@@ -1099,7 +1047,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       uint256 amt = appCustody[applicationId][tokens[ti]];
       if (amt > 0) {
         try IERC20(tokens[ti]).transfer(address(trigger), amt) returns (bool ok) {
-          if(ok) {
+          if (ok) {
             appCustody[applicationId][tokens[ti]] = 0;
             totalAppCustody[tokens[ti]] -= amt;
           }
@@ -1159,11 +1107,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     emit TriggerPostWithdraw(applicationId, processedRequestId, address(trigger), withdrawSuccess);
   }
 
-  /// @notice Enqueues a prioritized unencrypted request on behalf of a registered trigger contract.
+  /// @notice Enqueues a request on behalf of a registered trigger contract (FIFO).
   ///         Only callable by an address that appears in triggersToAppIds (i.e. a registered trigger).
   ///         The applicationId is derived automatically from the caller's entry in triggersToAppIds.
   ///         The requestId is generated deterministically and returned.
-  /// @param priority Request priority (lower value = higher priority).
   /// @param requestType Request type.
   /// @param payload Request payload.
   /// @param tokenAddress Token address (address(0) = ETH).
@@ -1172,8 +1119,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   /// @param sender Original request sender.
   /// @param facilitator Facilitator address (address(0) for direct submissions).
   /// @return requestId Generated request identifier.
-  function submitPrioritizedRequest(
-    uint256 priority,
+  function submitTriggerRequest(
     Structs.RequestType requestType,
     bytes calldata payload,
     address tokenAddress,
@@ -1192,12 +1138,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       payload,
       tokenAddress,
       assetAmount,
-      _prioritizedQueueSize
+      _triggerQueue.tail
     );
 
-    _prioritizedUnencryptedRequestsById[requestId] = Structs.PrioritizedUnencryptedPendingRequest({
-      priority: priority,
-      request: Structs.PendingRequest({
+    _triggerQueue.enqueue(
+      requestId,
+      Structs.PendingRequest({
         timestamp: block.timestamp,
         tokenAddress: tokenAddress,
         assetAmount: assetAmount,
@@ -1210,60 +1156,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         protocolVersion: PROTOCOL_VERSION,
         requestType: requestType
       })
-    });
-
-    _insertPrioritized(requestId, priority);
+    );
 
     emit RequestSubmitted(applicationId, requestId, sender, facilitator);
     return requestId;
-  }
-
-  // Inserts requestId into the sorted mapping at the correct position.
-  // Items are ordered ascending by priority value: lower number = higher priority = _prioritizedHead.
-  // Equal-priority items are ordered FIFO: the new item is placed after all existing items with
-  // the same priority.
-  function _insertPrioritized(bytes32 id, uint256 priority) private {
-    uint256 head = _prioritizedHead;
-    uint256 tail = _prioritizedQueueSize;
-    uint256 pos = tail;
-    uint256 i = head;
-    while (i != tail) {
-      if (priority < _prioritizedUnencryptedRequestsById[_prioritizedIdByOrder[i]].priority) {
-        pos = i;
-        break;
-      }
-      unchecked {
-        ++i;
-      }
-    }
-
-    // Shift elements from tail down to pos to make room for the new item
-    i = tail;
-    while (i != pos) {
-      _prioritizedIdByOrder[i] = _prioritizedIdByOrder[i - 1];
-      unchecked {
-        --i;
-      }
-    }
-    _prioritizedIdByOrder[pos] = id;
-
-    // increment tail after insertion to avoid off-by-one in the loop conditions
-    unchecked {
-      ++_prioritizedQueueSize;
-    }
-  }
-
-  /// @notice Returns the highest-priority pending prioritized request, if any.
-  /// @return request The request at the head of the prioritized queue.
-  /// @return success True if a request exists, false if the queue is empty.
-  function getNextPrioritizedRequest()
-    external
-    view
-    returns (Structs.PrioritizedUnencryptedPendingRequest memory request, bool success)
-  {
-    if (getPrioritizedRequestsSize() == 0) {
-      return (request, false);
-    }
-    return (_prioritizedUnencryptedRequestsById[_prioritizedIdByOrder[_prioritizedHead]], true);
   }
 }

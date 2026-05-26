@@ -46,7 +46,7 @@ const config: HardhatUserConfig = {
       accounts,
     },
     hardhat: {
-      allowUnlimitedContractSize: process.env.UNLIMITED_SIZE === "true",
+      allowUnlimitedContractSize: true,
     },
   },
 };

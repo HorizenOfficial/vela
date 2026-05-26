@@ -264,10 +264,10 @@ interface IProcessorEndpoint {
     bytes calldata payload
   ) external payable returns (bytes32);
 
-  /// @notice Enqueues a prioritized unencrypted request. Only callable by a trigger contract
-  ///         registered in triggerContracts. The applicationId is derived automatically from
-  ///         triggersToAppIds[msg.sender]; the requestId is generated deterministically.
-  /// @param priority Request priority (lower value = higher priority).
+  /// @notice Enqueues a request (FIFO) on behalf of a registered trigger contract.
+  ///         Only callable by a trigger contract registered in triggerContracts.
+  ///         The applicationId is derived automatically from triggersToAppIds[msg.sender];
+  ///         the requestId is generated deterministically.
   /// @param requestType Request type.
   /// @param payload Request payload.
   /// @param tokenAddress Token address (address(0) = ETH).
@@ -276,8 +276,7 @@ interface IProcessorEndpoint {
   /// @param sender Original request sender.
   /// @param facilitator Facilitator address (address(0) for direct submissions).
   /// @return requestId Generated request identifier.
-  function submitPrioritizedRequest(
-    uint256 priority,
+  function submitTriggerRequest(
     Structs.RequestType requestType,
     bytes calldata payload,
     address tokenAddress,
@@ -291,9 +290,9 @@ interface IProcessorEndpoint {
   /// @return size Current pending request count.
   function getPendingRequestsSize() external view returns (uint256);
 
-  /// @notice Returns the number of requests currently in the prioritized queue.
-  /// @return size Current prioritized request count.
-  function getPrioritizedRequestsSize() external view returns (uint256);
+  /// @notice Returns the number of requests currently in the trigger queue.
+  /// @return size Current trigger request count.
+  function getTriggerQueueSize() external view returns (uint256);
 
   /// @notice Returns the list of pending requests in order.
   /// @return requests Array of pending requests.
@@ -369,14 +368,6 @@ interface IProcessorEndpoint {
     external
     view
     returns (Structs.PendingRequest memory, bytes32, bool);
-
-  /// @notice Returns the highest-priority pending prioritized request, if any.
-  /// @return request The request at the head of the prioritized queue.
-  /// @return success True if a request exists, false if the queue is empty.
-  function getNextPrioritizedRequest()
-    external
-    view
-    returns (Structs.PrioritizedUnencryptedPendingRequest memory request, bool success);
 
   /// @notice Checks whether a request is the current pending request.
   /// @param requestId Request identifier.

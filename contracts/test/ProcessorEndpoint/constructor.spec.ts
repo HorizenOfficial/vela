@@ -129,7 +129,9 @@ describe('ProcessorEndpoint Test', function () {
 
       it('sets tokenAllowlist address correctly', async () => {
         const { processorEndpoint, tokenAllowlist } = await deployProcessorEndpoint();
-        expect(await processorEndpoint.tokenAllowlist()).to.equal(await tokenAllowlist.getAddress());
+        expect(await processorEndpoint.tokenAllowlist()).to.equal(
+          await tokenAllowlist.getAddress()
+        );
       });
 
       it('does not grant RESET_OPERATOR when address(0) is passed', async () => {

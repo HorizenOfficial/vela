@@ -54,7 +54,7 @@ contract TestTrigger is AbstractTrigger {
     while (i != len) {
       capturedBalances[tokens[i]] = IERC20(tokens[i]).balanceOf(address(this));
       unchecked {
-         ++i; 
+        ++i;
       }
     }
     executedRequests[processedRequestId] = true;

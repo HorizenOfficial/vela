@@ -25,7 +25,7 @@ abstract contract AbstractTrigger is ITrigger {
 
   receive() external payable {}
 
-   /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw.
+  /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw.
 
   /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw.
   /// @param _tokenAllowlist Allowlist used to determine which ERC-20 tokens are swept on withdraw.
@@ -135,7 +135,6 @@ abstract contract AbstractTrigger is ITrigger {
     }
     //put in last position in returned
     returned[returned.length - 1] = ReturnedTokens({token: ETH_TOKEN, amount: ethBalance});
-
 
     // try post withdraw hook, return false if it reverts
     try
