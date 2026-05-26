@@ -491,7 +491,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
     // Check application Id
-    bool fromTriggerQueue = _queueSize(_triggerQueue) > 0 && _queueIsHead(_triggerQueue, processedRequestId);
+    bool fromTriggerQueue = _queueSize(_triggerQueue) > 0 &&
+      _queueIsHead(_triggerQueue, processedRequestId);
     Structs.PendingRequest storage requestInfo = fromTriggerQueue
       ? _triggerQueue.requestById[processedRequestId]
       : _queue.requestById[processedRequestId];
