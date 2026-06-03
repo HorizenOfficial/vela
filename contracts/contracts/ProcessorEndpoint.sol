@@ -1129,7 +1129,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 maxFeeValue,
     address sender,
     address facilitator
-  ) public nonReentrant returns (bytes32) {
+  ) public returns (bytes32) {
     uint64 applicationId = triggersToAppIds[msg.sender];
     if (applicationId == 0) revert NotRegisteredTrigger();
 
