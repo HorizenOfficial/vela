@@ -851,6 +851,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
   /// @inheritdoc IProcessorEndpoint
   function claim(address tokenAddress, address payable payee) public nonReentrant {
+    return _claim(tokenAddress, payee);
+  }
+  //logic is reentrable because it will be invoked in invokeTrigger
+  function _claim(address tokenAddress, address payable payee) internal {
     uint256 amount = pendingClaims[tokenAddress][payee];
     if (amount == 0) return;
 
