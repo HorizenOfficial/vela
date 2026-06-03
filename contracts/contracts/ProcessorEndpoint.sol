@@ -836,10 +836,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
   /// @inheritdoc IProcessorEndpoint
   function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
-    if (_queueSize(_triggerQueue) > 0) {
-      return _queueIsHead(_triggerQueue, requestId);
-    }
-    return _queueIsHead(_requestQueue, requestId);
+    return _queueIsHead(_triggerQueue, requestId) || _queueIsHead(_requestQueue, requestId);
   }
 
   // Pull payment pattern functions
