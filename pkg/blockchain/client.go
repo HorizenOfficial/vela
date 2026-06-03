@@ -500,7 +500,7 @@ func (c *BlockChainClient) Close() error {
 	return nil
 }
 
-// GetPendingPayments returns the pending payment balance for the given address.
+// GetPendingClaims returns the pending claims balance for the given address.
 func (c *BlockChainClient) GetPendingClaims(ctx context.Context, tokenAddress ethCommon.Address, addr ethCommon.Address) (*big.Int, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
