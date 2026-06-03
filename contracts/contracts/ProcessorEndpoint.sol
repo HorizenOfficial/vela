@@ -962,8 +962,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       effectiveAppIds = _deployedAppIds;
     }
 
-    // Resolve the effective token list: use the caller-supplied list when non-empty, otherwise
-    // fall back to all tokens currently registered in the allowlist.
     address[] memory effectiveTokens = tokenAllowlist.getAllowedTokens();
 
     uint256 appCount = effectiveAppIds.length;
