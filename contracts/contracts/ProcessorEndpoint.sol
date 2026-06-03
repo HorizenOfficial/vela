@@ -22,7 +22,7 @@ import './interfaces/ITrigger.sol';
 contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard, EIP712 {
   using SafeERC20 for IERC20;
 
-  struct NormalQueue {
+  struct RequestQueue {
     mapping(bytes32 => Structs.PendingRequest) requestById;
     mapping(uint256 => bytes32) idByOrder;
     uint256 head;
@@ -41,7 +41,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   uint256 public maxNumOfApplications = 10;
   uint256 public availableDeploySlots = maxNumOfApplications;
 
-  NormalQueue private _queue;
+  RequestQueue private _requestQueue;
   uint256 public maxQueueSize = 10;
 
   ITeeAuthenticator public teeAuthenticator;
@@ -80,7 +80,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   // Reverse mapping for the above to check if a trigger is valid when adding to the queue
   mapping(address => uint64) public triggersToAppIds;
   // FIFO queue populated by trigger contracts; served before the normal queue
-  NormalQueue private _triggerQueue;
+  RequestQueue private _triggerQueue;
 
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
@@ -330,12 +330,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       payload,
       ETH_TOKEN,
       0,
-      _queue.tail
+      _requestQueue.tail
     );
 
     uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
     _queueEnqueue(
-      _queue,
+      _requestQueue,
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,
@@ -384,10 +384,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       payload,
       tokenAddress,
       assetAmount,
-      _queue.tail
+      _requestQueue.tail
     );
     _queueEnqueue(
-      _queue,
+      _requestQueue,
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,
@@ -412,7 +412,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (_queueSize(_triggerQueue) > 0 && _queueIsHead(_triggerQueue, requestId)) {
       _queueDequeueHead(_triggerQueue);
     } else {
-      _queueDequeueHead(_queue);
+      _queueDequeueHead(_requestQueue);
     }
   }
 
@@ -445,7 +445,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequestsSize() public view returns (uint256) {
-    return _queueSize(_queue);
+    return _queueSize(_requestQueue);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -455,7 +455,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory) {
-    return _queueGetAll(_queue);
+    return _queueGetAll(_requestQueue);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -463,12 +463,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 offset,
     uint256 limit
   ) external view returns (Structs.PendingRequest[] memory) {
-    return _queueGetPage(_queue, offset, limit);
+    return _queueGetPage(_requestQueue, offset, limit);
   }
 
   /// @notice Returns the stored request for a given id (normal queue only).
   function requestById(bytes32 id) external view returns (Structs.PendingRequest memory) {
-    return _queue.requestById[id];
+    return _requestQueue.requestById[id];
   }
 
   //update status
@@ -491,11 +491,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
     // Check application Id
-    bool fromTriggerQueue = _queueSize(_triggerQueue) > 0 &&
-      _queueIsHead(_triggerQueue, processedRequestId);
+    bool fromTriggerQueue = _queueIsHead(_triggerQueue, processedRequestId);
     Structs.PendingRequest storage requestInfo = fromTriggerQueue
       ? _triggerQueue.requestById[processedRequestId]
-      : _queue.requestById[processedRequestId];
+      : _requestQueue.requestById[processedRequestId];
     if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
 
     //check prev state root
@@ -825,9 +824,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       Structs.PendingRequest storage req = _triggerQueue.requestById[requestId];
       return (req, applicationStateRoots[req.applicationId], true);
     }
-    if (_queueSize(_queue) > 0) {
-      bytes32 requestId = _queuePeekHead(_queue);
-      Structs.PendingRequest storage req = _queue.requestById[requestId];
+    if (_queueSize(_requestQueue) > 0) {
+      bytes32 requestId = _queuePeekHead(_requestQueue);
+      Structs.PendingRequest storage req = _requestQueue.requestById[requestId];
       return (req, applicationStateRoots[req.applicationId], true);
     }
 
@@ -840,7 +839,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (_queueSize(_triggerQueue) > 0) {
       return _queueIsHead(_triggerQueue, requestId);
     }
-    return _queueIsHead(_queue, requestId);
+    return _queueIsHead(_requestQueue, requestId);
   }
 
   // Pull payment pattern functions
@@ -913,14 +912,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   function _resetQueue() internal {
-    uint256 i = _queue.head;
-    uint256 tail = _queue.tail;
+    uint256 i = _requestQueue.head;
+    uint256 tail = _requestQueue.tail;
     uint256 freedDeploySlots;
 
     // Iterate every pending request from head to tail, refunding any asset deposits to their
     // senders and counting any DEPLOYAPP entries so their reserved deploy slots can be returned.
     while (i != tail) {
-      Structs.PendingRequest storage req = _queue.requestById[_queue.idByOrder[i]];
+      Structs.PendingRequest storage req = _requestQueue.requestById[_requestQueue.idByOrder[i]];
       if (req.requestType == Structs.RequestType.DEPLOYAPP) {
         unchecked {
           ++freedDeploySlots;
@@ -931,8 +930,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         totalAppCustody[req.tokenAddress] -= req.assetAmount;
         _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
       }
-      delete _queue.requestById[_queue.idByOrder[i]];
-      delete _queue.idByOrder[i];
+      delete _requestQueue.requestById[_requestQueue.idByOrder[i]];
+      delete _requestQueue.idByOrder[i];
       unchecked {
         ++i;
       }
@@ -941,7 +940,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     // Collapse the queue by setting tail back to head. _queue.head is intentionally left at its
     // current value so that future queue indices continue from where they left off rather
     // than restarting from zero (avoids any risk of re-using a slot index still in storage).
-    _queue.tail = _queue.head;
+    _requestQueue.tail = _requestQueue.head;
 
     // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
     // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
@@ -1172,7 +1171,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   // ── Internal queue helpers ────────────────────────────────────────────────
 
   function _queueEnqueue(
-    NormalQueue storage q,
+    RequestQueue storage q,
     bytes32 id,
     Structs.PendingRequest memory req
   ) internal {
@@ -1183,7 +1182,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
   }
 
-  function _queueDequeueHead(NormalQueue storage q) internal {
+  function _queueDequeueHead(RequestQueue storage q) internal {
     bytes32 id = q.idByOrder[q.head];
     delete q.requestById[id];
     delete q.idByOrder[q.head];
@@ -1192,21 +1191,21 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
   }
 
-  function _queueSize(NormalQueue storage q) internal view returns (uint256) {
+  function _queueSize(RequestQueue storage q) internal view returns (uint256) {
     if (q.tail > q.head) return q.tail - q.head;
     return 0;
   }
 
-  function _queuePeekHead(NormalQueue storage q) internal view returns (bytes32) {
+  function _queuePeekHead(RequestQueue storage q) internal view returns (bytes32) {
     return q.idByOrder[q.head];
   }
 
-  function _queueIsHead(NormalQueue storage q, bytes32 id) internal view returns (bool) {
+  function _queueIsHead(RequestQueue storage q, bytes32 id) internal view returns (bool) {
     return q.tail > q.head && q.idByOrder[q.head] == id;
   }
 
   function _queueGetAll(
-    NormalQueue storage q
+    RequestQueue storage q
   ) internal view returns (Structs.PendingRequest[] memory result) {
     uint256 n = _queueSize(q);
     result = new Structs.PendingRequest[](n);
@@ -1223,7 +1222,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   function _queueGetPage(
-    NormalQueue storage q,
+    RequestQueue storage q,
     uint256 offset,
     uint256 limit
   ) internal view returns (Structs.PendingRequest[] memory result) {
