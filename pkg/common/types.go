@@ -40,6 +40,9 @@ const (
 	Deanonymize
 	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
 	AssociateKey
+	// PlainProcess is analogous to Process but its Payload is sent in clear text
+	// (not encrypted toward the enclave communication key).
+	PlainProcess
 )
 
 func (rt RequestType) String() string {
@@ -52,6 +55,8 @@ func (rt RequestType) String() string {
 		return "deanonymize"
 	case AssociateKey:
 		return "associatekey"
+	case PlainProcess:
+		return "plainprocess"
 	default:
 		return "unknown"
 	}
@@ -67,8 +72,9 @@ type Request struct {
 	RequestID RequestIdType `json:"requestId"`
 	// RequestType is the type of request
 	RequestType RequestType `json:"requestType"`
-	// Payload is the payload for the request
-	// All payloads except the one for AssociateKey are encrypted
+	// Payload is the payload for the request.
+	// Payloads for Deploy, Process and Deanonymize are encrypted toward the enclave
+	// communication key. Payloads for AssociateKey and PlainProcess are sent in clear text.
 	Payload []byte `json:"payload"`
 	// Timestamp is the time the request was submitted
 	Timestamp *Big `json:"timestamp"`

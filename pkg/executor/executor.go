@@ -548,7 +548,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, nil, err
 	}
 
-	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize {
+	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize && req.RequestType != common.PlainProcess {
 		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
 	}
 
@@ -657,19 +657,24 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
 	} else {
-		//any other case: decrypt the payload and forward to the WASM to obtain the new state
+		//any other case: forward the payload to the WASM to obtain the new state.
+		//Process and Deanonymize payloads are encrypted toward the enclave and must be
+		//decrypted first; PlainProcess payloads are sent in clear text and forwarded as-is.
 
-		// Decrypt the request payload
-		decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
-		if failure != nil {
-			errorPayload, err := e.processErrorResponse(req,
-				appState.StateRoot,
-				failure)
-			return errorPayload, nil, nil, err
+		wasmPayload := req.Payload
+		if req.RequestType != common.PlainProcess {
+			decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
+			if failure != nil {
+				errorPayload, err := e.processErrorResponse(req,
+					appState.StateRoot,
+					failure)
+				return errorPayload, nil, nil, err
+			}
+			wasmPayload = decryptedPayload
 		}
 
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, decryptedPayload, tempState, wasmModule)
+		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, wasmPayload, tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req,
 				appState.StateRoot,
