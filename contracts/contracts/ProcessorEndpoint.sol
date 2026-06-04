@@ -180,7 +180,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       }
     }
 
-
     _addToCustody(applicationId, tokenAddress, assetAmount);
 
     //create request and enqueue
@@ -542,7 +541,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       uint256 assetAmount = requestInfo.assetAmount;
       address reqTokenAddress = requestInfo.tokenAddress;
       if (assetAmount > appCustody[applicationId][reqTokenAddress]) revert InsufficientAppBalance();
-      if (requestInfo.maxFeeValue > _getAvailableEthBalance()) revert InsufficientBalance();
+      if (!fromTriggerQueue && requestInfo.maxFeeValue > _getAvailableEthBalance()) revert InsufficientBalance();
       _subtractToCustody(applicationId, reqTokenAddress, assetAmount);
 
       // Refund business-asset deposit in its original token to the user.
@@ -597,7 +596,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (applicationStateRoots[applicationId] == newStateRoot) revert InvalidStateRoot();
 
     // don't check fees if we are from trigger queue
-    if(fromTriggerQueue) {
+    if (!fromTriggerQueue) {
       if (refund + applicationFees != maxFeeValue) revert InvalidValue();
       if (applicationFees < minFeePerRequest) {
         revert InvalidValue();
@@ -712,8 +711,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       if (requestInfo.payload.length == 32) {
         address triggerContract = abi.decode(requestInfo.payload, (address));
         if (triggerContract != address(0)) {
-          
-          if (triggersToAppIds[triggerContract] != 0) revert TriggerAlreadyRegistered(); 
+          if (triggersToAppIds[triggerContract] != 0) revert TriggerAlreadyRegistered();
           if (triggerContract.code.length == 0) revert TriggerCannotBeEOA();
 
           triggerContracts[applicationId] = ITrigger(triggerContract);
@@ -733,10 +731,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     i = 0;
     uint256 insertIntoClaimable;
     address trigger = address(triggerContracts[applicationId]);
-    address[] memory claimable = new address[](withdrawalsLength);
+    address[] memory claimableTemp = new address[](withdrawalsLength);
     while (i < withdrawalsLength) {
       if (withdrawalRequests[i].receiver == trigger) {
-        claimable[insertIntoClaimable] = withdrawalRequests[i].receiver;
+        claimableTemp[insertIntoClaimable] = withdrawalRequests[i].tokenAddress;
         unchecked {
           ++insertIntoClaimable;
         }
@@ -758,13 +756,18 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       }
     }
 
+    //reduce claimable array size to correct one
+    address[] memory claimable = new address[](insertIntoClaimable);
+    i = 0;
+    while (i != insertIntoClaimable) {
+      claimable[i] = claimableTemp[i];
+      unchecked {
+        ++i;
+      }
+    }
+
     //invoke trigger contracts, if registered
-    _invokeTrigger(
-      applicationId,
-      processedRequestId,
-      appEventData,
-      claimable
-    );
+    _invokeTrigger(applicationId, processedRequestId, appEventData, claimable);
 
     //set requests as completed
     _markRequestCompleted(
@@ -1042,9 +1045,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     // invoke execute
     bool executeSuccess = true;
-    try
-      trigger.execute(appEventData)
-    {} catch {
+    try trigger.execute(appEventData) {} catch {
       executeSuccess = false;
     }
     emit TriggerExecuted(applicationId, processedRequestId, executeSuccess);
@@ -1075,7 +1076,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         ++ti;
       }
     }
-    emit TriggerWithdraw(applicationId, processedRequestId, withdrawSuccess, postWithdrawSuccess, returnedTokens, failedTokens);
+    emit TriggerWithdraw(
+      applicationId,
+      processedRequestId,
+      withdrawSuccess,
+      postWithdrawSuccess,
+      returnedTokens,
+      failedTokens
+    );
   }
 
   /// @notice Enqueues a request on behalf of a registered trigger contract (FIFO).
@@ -1124,7 +1132,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     return requestId;
   }
 
-  // Internal queue helpers 
+  // Internal queue helpers
 
   function _queueEnqueue(
     RequestQueue storage q,
@@ -1202,12 +1210,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
   // update custody helper
   function _addToCustody(uint64 applicationId, address token, uint256 amount) internal {
-      appCustody[applicationId][token] += amount;
-      totalAppCustody[token] += amount;
+    appCustody[applicationId][token] += amount;
+    totalAppCustody[token] += amount;
   }
 
   function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {
-      appCustody[applicationId][token] -= amount;
-      totalAppCustody[token] -= amount;
+    appCustody[applicationId][token] -= amount;
+    totalAppCustody[token] -= amount;
   }
 }

@@ -38,12 +38,8 @@ abstract contract AbstractTrigger is ITrigger {
   /// @notice Called by the ProcessorEndpoint when a request is completed.
   ///         Delegates to _execute and emits TriggerExecuted.
   /// @param appEventData Application-level (non-encrypted) events and their subtypes.
-  function execute(
-    Structs.EventData calldata appEventData
-  ) public _onlyProcessorEndpoint {
-    _execute(
-      appEventData
-    );
+  function execute(Structs.EventData calldata appEventData) public _onlyProcessorEndpoint {
+    _execute(appEventData);
     emit TriggerExecuted();
   }
 
@@ -57,7 +53,11 @@ abstract contract AbstractTrigger is ITrigger {
   function withdraw(
     Structs.EventData calldata appEventData,
     bool executeSuccess
-  ) public _onlyProcessorEndpoint returns (bool, Structs.TokenAndAmount[] memory, Structs.TokenAndAmount[] memory) {
+  )
+    public
+    _onlyProcessorEndpoint
+    returns (bool, Structs.TokenAndAmount[] memory, Structs.TokenAndAmount[] memory)
+  {
     address[] memory tokens = tokenAllowlist.getAllowedTokens();
     uint256 length = tokens.length;
 
@@ -74,16 +74,14 @@ abstract contract AbstractTrigger is ITrigger {
       uint256 balance = IERC20(token).balanceOf(address(this));
 
       if (balance > 0) {
-        try 
-          IERC20(token).transfer(address(processorEndpoint), balance) { // try to transfer
+        try IERC20(token).transfer(address(processorEndpoint), balance) {
+          // try to transfer
           //if successful, add to returned
           returned[insertIntoReturned] = Structs.TokenAndAmount({token: token, amount: balance});
-            unchecked {
-              ++insertIntoReturned;
-            }
-
-        } 
-        catch {
+          unchecked {
+            ++insertIntoReturned;
+          }
+        } catch {
           //if transfer fails, add to failed
           failed[insertIntoFailed] = Structs.TokenAndAmount({token: token, amount: balance});
           unchecked {
@@ -112,14 +110,7 @@ abstract contract AbstractTrigger is ITrigger {
     }
 
     // try post withdraw hook, return false if it reverts
-    try
-      this._postWithdraw(
-        appEventData,
-        executeSuccess,
-        returned,
-        failed
-      )
-    {
+    try this._postWithdraw(appEventData, executeSuccess, returned, failed) {
       return (true, returned, failed);
     } catch {
       return (false, returned, failed);
@@ -129,9 +120,7 @@ abstract contract AbstractTrigger is ITrigger {
   /// @notice Override to implement custom execute behavior.
   ///         Called inside execute, which is restricted to the ProcessorEndpoint.
   /// @param appEventData Application-level (non-encrypted) events and their subtypes.
-  function _execute(
-    Structs.EventData calldata appEventData
-  ) internal virtual;
+  function _execute(Structs.EventData calldata appEventData) internal virtual;
 
   /// @notice Override to add logic that runs after the default withdraw sweep.
   ///         Called at the end of withdraw, after all tokens and ETH have been transferred.

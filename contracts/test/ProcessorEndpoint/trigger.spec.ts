@@ -20,7 +20,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
   // HELPER FUNCTIONS FOR TESTS
 
   // Deploys a TestTrigger and bootstraps an app with it registered.
-  // Returns the applicationId, the mock trigger contract, and the state root after deploy.
+  // Returns the applicationId and the trigger contract instance.
   async function bootstrapApplicationWithTrigger(
     revertOnExecute: boolean,
     revertOnPostWithdraw: boolean
@@ -118,17 +118,17 @@ describe('ProcessorEndpoint Trigger Tests', function () {
 
   function parseTriggerEvents(receipt: any) {
     const triggerExecuted: any[] = [];
-    const triggerPostWithdraw: any[] = [];
+    const triggerWithdraw: any[] = [];
     for (const log of receipt.logs) {
       try {
         const parsed = processorEndpoint.interface.parseLog(log);
         if (parsed.name === 'TriggerExecuted') triggerExecuted.push(parsed.args);
-        if (parsed.name === 'TriggerPostWithdraw') triggerPostWithdraw.push(parsed.args);
+        if (parsed.name === 'TriggerWithdraw') triggerWithdraw.push(parsed.args);
       } catch {
         // ignore logs from other contracts
       }
     }
-    return { triggerExecuted, triggerPostWithdraw };
+    return { triggerExecuted, triggerWithdraw };
   }
 
   // TESTS
@@ -143,125 +143,121 @@ describe('ProcessorEndpoint Trigger Tests', function () {
         INITIAL_STATE_ROOT,
         '0x' + 'ab'.repeat(32)
       );
-      const { triggerExecuted, triggerPostWithdraw } = parseTriggerEvents(updateReceipt);
+      const { triggerExecuted, triggerWithdraw } = parseTriggerEvents(updateReceipt);
 
       await expect(updateTx).not.to.emit(processorEndpoint, 'TriggerExecuted');
-      await expect(updateTx).not.to.emit(processorEndpoint, 'TriggerPostWithdraw');
+      await expect(updateTx).not.to.emit(processorEndpoint, 'TriggerWithdraw');
       expect(triggerExecuted.length).to.equal(0);
-      expect(triggerPostWithdraw.length).to.equal(0);
+      expect(triggerWithdraw.length).to.equal(0);
     });
   });
 
   describe('trigger registered via deploy payload', function () {
     describe('revertOnExecute=false, revertOnPostWithdraw=false', function () {
-      it('stateUpdate succeeds, TriggerExecuted and TriggerPostWithdraw both report success=true', async function () {
+      it('stateUpdate succeeds, TriggerExecuted and TriggerWithdraw both report success=true', async function () {
         const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
-        const triggerAddress = await mockTrigger.getAddress();
 
         const { requestId, updateTx, updateReceipt } = await submitAndProcess(
           applicationId,
           INITIAL_STATE_ROOT,
           '0x' + '11'.repeat(32)
         );
-        const { triggerExecuted, triggerPostWithdraw } = parseTriggerEvents(updateReceipt);
+        const { triggerExecuted, triggerWithdraw } = parseTriggerEvents(updateReceipt);
+        const blockNumber = updateReceipt.blockNumber;
 
         await expect(updateTx)
           .to.emit(processorEndpoint, 'TriggerExecuted')
-          .withArgs(applicationId, requestId, triggerAddress, true);
-        await expect(updateTx)
-          .to.emit(processorEndpoint, 'TriggerPostWithdraw')
-          .withArgs(applicationId, requestId, triggerAddress, true);
+          .withArgs(applicationId, requestId, true);
+        await expect(updateTx).to.emit(processorEndpoint, 'TriggerWithdraw');
 
         expect(triggerExecuted[0].success).to.equal(true);
-        expect(triggerPostWithdraw[0].success).to.equal(true);
+        expect(triggerWithdraw[0].withdrawSuccess).to.equal(true);
+        expect(triggerWithdraw[0].postWithdrawSuccess).to.equal(true);
 
-        expect(await mockTrigger.executedRequests(requestId)).to.equal(true);
-        expect(await mockTrigger.executedPostWithdraws(requestId)).to.equal(true);
+        expect(await mockTrigger.executedInBlock(blockNumber)).to.equal(true);
+        expect(await mockTrigger.executedPostWithdrawsInBlock(blockNumber)).to.equal(true);
       });
     });
 
     describe('revertOnExecute=false, revertOnPostWithdraw=true', function () {
-      it('stateUpdate succeeds, TriggerExecuted success=true, TriggerPostWithdraw success=false', async function () {
+      it('stateUpdate succeeds, TriggerExecuted success=true, TriggerWithdraw postWithdrawSuccess=false', async function () {
         const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, true);
-        const triggerAddress = await mockTrigger.getAddress();
 
         const { requestId, updateTx, updateReceipt } = await submitAndProcess(
           applicationId,
           INITIAL_STATE_ROOT,
           '0x' + '22'.repeat(32)
         );
-        const { triggerExecuted, triggerPostWithdraw } = parseTriggerEvents(updateReceipt);
+        const { triggerExecuted, triggerWithdraw } = parseTriggerEvents(updateReceipt);
+        const blockNumber = updateReceipt.blockNumber;
 
         await expect(updateTx)
           .to.emit(processorEndpoint, 'TriggerExecuted')
-          .withArgs(applicationId, requestId, triggerAddress, true);
-        await expect(updateTx)
-          .to.emit(processorEndpoint, 'TriggerPostWithdraw')
-          .withArgs(applicationId, requestId, triggerAddress, false);
+          .withArgs(applicationId, requestId, true);
+        await expect(updateTx).to.emit(processorEndpoint, 'TriggerWithdraw');
 
         expect(triggerExecuted[0].success).to.equal(true);
-        expect(triggerPostWithdraw[0].success).to.equal(false);
+        expect(triggerWithdraw[0].withdrawSuccess).to.equal(true);
+        expect(triggerWithdraw[0].postWithdrawSuccess).to.equal(false);
 
         // _execute ran successfully so the mapping was written
-        expect(await mockTrigger.executedRequests(requestId)).to.equal(true);
+        expect(await mockTrigger.executedInBlock(blockNumber)).to.equal(true);
         // _postWithdraw reverted so its storage write was rolled back
-        expect(await mockTrigger.executedPostWithdraws(requestId)).to.equal(false);
+        expect(await mockTrigger.executedPostWithdrawsInBlock(blockNumber)).to.equal(false);
       });
     });
 
     describe('revertOnExecute=true, revertOnPostWithdraw=false', function () {
-      it('stateUpdate succeeds, TriggerExecuted success=false, TriggerPostWithdraw success=true', async function () {
+      it('stateUpdate succeeds, TriggerExecuted success=false, TriggerWithdraw postWithdrawSuccess=true', async function () {
         const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(true, false);
-        const triggerAddress = await mockTrigger.getAddress();
 
         const { requestId, updateTx, updateReceipt } = await submitAndProcess(
           applicationId,
           INITIAL_STATE_ROOT,
           '0x' + '33'.repeat(32)
         );
-        const { triggerExecuted, triggerPostWithdraw } = parseTriggerEvents(updateReceipt);
+        const { triggerExecuted, triggerWithdraw } = parseTriggerEvents(updateReceipt);
+        const blockNumber = updateReceipt.blockNumber;
 
         await expect(updateTx)
           .to.emit(processorEndpoint, 'TriggerExecuted')
-          .withArgs(applicationId, requestId, triggerAddress, false);
-        await expect(updateTx)
-          .to.emit(processorEndpoint, 'TriggerPostWithdraw')
-          .withArgs(applicationId, requestId, triggerAddress, true);
+          .withArgs(applicationId, requestId, false);
+        await expect(updateTx).to.emit(processorEndpoint, 'TriggerWithdraw');
 
         expect(triggerExecuted[0].success).to.equal(false);
-        expect(triggerPostWithdraw[0].success).to.equal(true);
+        expect(triggerWithdraw[0].withdrawSuccess).to.equal(true);
+        expect(triggerWithdraw[0].postWithdrawSuccess).to.equal(true);
 
         // _execute reverted so nothing was written
-        expect(await mockTrigger.executedRequests(requestId)).to.equal(false);
+        expect(await mockTrigger.executedInBlock(blockNumber)).to.equal(false);
         // withdraw was still called and _postWithdraw succeeded
-        expect(await mockTrigger.executedPostWithdraws(requestId)).to.equal(true);
+        expect(await mockTrigger.executedPostWithdrawsInBlock(blockNumber)).to.equal(true);
       });
     });
 
     describe('revertOnExecute=true, revertOnPostWithdraw=true', function () {
-      it('stateUpdate succeeds, TriggerExecuted success=false, TriggerPostWithdraw success=false', async function () {
+      it('stateUpdate succeeds, TriggerExecuted success=false, TriggerWithdraw postWithdrawSuccess=false', async function () {
         const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(true, true);
-        const triggerAddress = await mockTrigger.getAddress();
 
         const { requestId, updateTx, updateReceipt } = await submitAndProcess(
           applicationId,
           INITIAL_STATE_ROOT,
           '0x' + '44'.repeat(32)
         );
-        const { triggerExecuted, triggerPostWithdraw } = parseTriggerEvents(updateReceipt);
+        const { triggerExecuted, triggerWithdraw } = parseTriggerEvents(updateReceipt);
+        const blockNumber = updateReceipt.blockNumber;
 
         await expect(updateTx)
           .to.emit(processorEndpoint, 'TriggerExecuted')
-          .withArgs(applicationId, requestId, triggerAddress, false);
-        await expect(updateTx)
-          .to.emit(processorEndpoint, 'TriggerPostWithdraw')
-          .withArgs(applicationId, requestId, triggerAddress, false);
+          .withArgs(applicationId, requestId, false);
+        await expect(updateTx).to.emit(processorEndpoint, 'TriggerWithdraw');
 
         expect(triggerExecuted[0].success).to.equal(false);
-        expect(triggerPostWithdraw[0].success).to.equal(false);
+        expect(triggerWithdraw[0].withdrawSuccess).to.equal(true);
+        expect(triggerWithdraw[0].postWithdrawSuccess).to.equal(false);
 
-        expect(await mockTrigger.executedRequests(requestId)).to.equal(false);
-        expect(await mockTrigger.executedPostWithdraws(requestId)).to.equal(false);
+        expect(await mockTrigger.executedInBlock(blockNumber)).to.equal(false);
+        expect(await mockTrigger.executedPostWithdrawsInBlock(blockNumber)).to.equal(false);
       });
     });
 
@@ -362,55 +358,62 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       return { firstRequestId };
     }
 
-    it('trigger holds ETH and both ERC-20 assets during _execute (unshield)', async function () {
+    it('trigger holds ETH and both ERC-20 assets during _execute (unshield via withdrawalRequests)', async function () {
       const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
       const { firstRequestId } = await buildCustody(applicationId);
+      const triggerAddress = await mockTrigger.getAddress();
+      const tokenAAddr = await tokenA.getAddress();
+      const tokenBAddr = await tokenB.getAddress();
 
-      await processorEndpoint
-        .connect(signers[1])
-        .stateUpdate(
-          applicationId,
-          INITIAL_STATE_ROOT,
-          '0x' + 'aa'.repeat(32),
-          firstRequestId,
-          { events: [], subTypes: [] },
-          { events: [], subTypes: [] },
-          [],
-          0,
-          minFeePerRequest,
-          0,
-          '',
-          '0x'
-        );
+      await processorEndpoint.connect(signers[1]).stateUpdate(
+        applicationId,
+        INITIAL_STATE_ROOT,
+        '0x' + 'aa'.repeat(32),
+        firstRequestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [
+          { tokenAddress: ETH_TOKEN, receiver: triggerAddress, amount: ETH_ASSET },
+          { tokenAddress: tokenAAddr, receiver: triggerAddress, amount: TOKEN_A_ASSET },
+          { tokenAddress: tokenBAddr, receiver: triggerAddress, amount: TOKEN_B_ASSET },
+        ],
+        0,
+        minFeePerRequest,
+        0,
+        '',
+        '0x'
+      );
 
       expect(await mockTrigger.capturedBalances(ETH_TOKEN)).to.equal(ETH_ASSET);
-      expect(await mockTrigger.capturedBalances(await tokenA.getAddress())).to.equal(TOKEN_A_ASSET);
-      expect(await mockTrigger.capturedBalances(await tokenB.getAddress())).to.equal(TOKEN_B_ASSET);
+      expect(await mockTrigger.capturedBalances(tokenAAddr)).to.equal(TOKEN_A_ASSET);
+      expect(await mockTrigger.capturedBalances(tokenBAddr)).to.equal(TOKEN_B_ASSET);
     });
 
     it('appCustody is updated with reshielded amounts after trigger withdraw', async function () {
-      const { applicationId } = await bootstrapApplicationWithTrigger(false, false);
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
       const { firstRequestId } = await buildCustody(applicationId);
-
-      await processorEndpoint
-        .connect(signers[1])
-        .stateUpdate(
-          applicationId,
-          INITIAL_STATE_ROOT,
-          '0x' + 'bb'.repeat(32),
-          firstRequestId,
-          { events: [], subTypes: [] },
-          { events: [], subTypes: [] },
-          [],
-          0,
-          minFeePerRequest,
-          0,
-          '',
-          '0x'
-        );
-
+      const triggerAddress = await mockTrigger.getAddress();
       const tokenAAddr = await tokenA.getAddress();
       const tokenBAddr = await tokenB.getAddress();
+
+      await processorEndpoint.connect(signers[1]).stateUpdate(
+        applicationId,
+        INITIAL_STATE_ROOT,
+        '0x' + 'bb'.repeat(32),
+        firstRequestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [
+          { tokenAddress: ETH_TOKEN, receiver: triggerAddress, amount: ETH_ASSET },
+          { tokenAddress: tokenAAddr, receiver: triggerAddress, amount: TOKEN_A_ASSET },
+          { tokenAddress: tokenBAddr, receiver: triggerAddress, amount: TOKEN_B_ASSET },
+        ],
+        0,
+        minFeePerRequest,
+        0,
+        '',
+        '0x'
+      );
 
       // TestTrigger returns all assets; appCustody is set to returned amounts
       expect(await processorEndpoint.appCustody(applicationId, ETH_TOKEN)).to.equal(ETH_ASSET);
@@ -427,10 +430,10 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       expect(await tokenB.balanceOf(await processorEndpoint.getAddress())).to.equal(TOKEN_B_ASSET);
     });
 
-    it('if trigger retains no ETH custody, unshield skips ETH transfer', async function () {
+    it('if trigger is not in withdrawalRequests, it receives no ETH or ERC-20', async function () {
       const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
 
-      // Submit only ERC-20 requests (no ETH assetAmount — ETH custody stays at 0)
+      // Submit only ERC-20 request but route withdrawal to a different receiver (not trigger)
       const tokenAAddr = await tokenA.getAddress();
       await tokenA.mint(await signers[0].getAddress(), TOKEN_A_ASSET);
       await tokenA.connect(signers[0]).approve(await processorEndpoint.getAddress(), TOKEN_A_ASSET);
@@ -450,6 +453,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
         );
       const requestId = getRequestIdFromReceipt(processorEndpoint, await erc20Tx.wait());
 
+      // No withdrawalRequests to trigger — trigger receives nothing
       await processorEndpoint
         .connect(signers[1])
         .stateUpdate(
@@ -467,10 +471,9 @@ describe('ProcessorEndpoint Trigger Tests', function () {
           '0x'
         );
 
-      // Trigger had no ETH (nothing was unshielded for ETH)
+      // Trigger received nothing — capturedBalances are 0
       expect(await mockTrigger.capturedBalances(ETH_TOKEN)).to.equal(0n);
-      // ERC-20 was unshielded
-      expect(await mockTrigger.capturedBalances(tokenAAddr)).to.equal(TOKEN_A_ASSET);
+      expect(await mockTrigger.capturedBalances(tokenAAddr)).to.equal(0n);
     });
   });
 });

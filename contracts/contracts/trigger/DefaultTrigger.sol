@@ -18,9 +18,7 @@ contract DefaultTrigger is AbstractTrigger {
   ) AbstractTrigger(_processorEndpoint, _tokenAllowlist) {}
 
   /// @notice No-op execute hook; DefaultTrigger performs no action on request completion.
-  function _execute(
-    Structs.EventData calldata
-  ) internal override {}
+  function _execute(Structs.EventData calldata) internal override {}
 
   /// @notice No-op post-withdraw hook; DefaultTrigger performs no action after the sweep.
   function _postWithdraw(

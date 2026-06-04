@@ -33,9 +33,7 @@ contract TestTrigger is AbstractTrigger {
     revertOnPostWithdraw = _revertOnPostWithdraw;
   }
 
-  function _execute(
-    Structs.EventData calldata
-  ) internal override {
+  function _execute(Structs.EventData calldata) internal override {
     if (revertOnExecute) revert ExecuteReverted();
     capturedBalances[ETH_TOKEN] = address(this).balance;
     address[] memory tokens = tokenAllowlist.getAllowedTokens();

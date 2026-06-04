@@ -8,8 +8,6 @@ import '../Structs.sol';
 /// @title ITrigger
 /// @notice Interface for trigger contracts invoked by the ProcessorEndpoint on request completion.
 interface ITrigger {
-
-
   /// @notice Emitted when execute is called successfully.
   event TriggerExecuted();
 
@@ -26,9 +24,7 @@ interface ITrigger {
 
   /// @notice Called by the ProcessorEndpoint when a request is completed.
   ///         Delegates to _execute and emits TriggerExecuted.
-  function execute(
-    Structs.EventData calldata appEventData
-  ) external;
+  function execute(Structs.EventData calldata appEventData) external;
 
   /// @notice Sweeps all allowlisted ERC-20 tokens and ETH held by this contract to the
   ///         ProcessorEndpoint. Can only be called by the ProcessorEndpoint.
@@ -38,5 +34,11 @@ interface ITrigger {
   function withdraw(
     Structs.EventData calldata appEventData,
     bool executeSuccess
-  ) external returns (bool postWithdrawSuccess, Structs.TokenAndAmount[] memory returnedTokens, Structs.TokenAndAmount[] memory failedTokens);
+  )
+    external
+    returns (
+      bool postWithdrawSuccess,
+      Structs.TokenAndAmount[] memory returnedTokens,
+      Structs.TokenAndAmount[] memory failedTokens
+    );
 }
