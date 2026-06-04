@@ -19,32 +19,14 @@ contract DefaultTrigger is AbstractTrigger {
 
   /// @notice No-op execute hook; DefaultTrigger performs no action on request completion.
   function _execute(
-    uint64,
-    bytes32,
-    bytes32,
-    bytes32,
-    Structs.EventData calldata,
-    Structs.EventData calldata,
-    Structs.WithdrawalRequest[] calldata,
-    uint256,
-    uint256,
-    Structs.ErrorCode,
-    string calldata
+    Structs.EventData calldata
   ) internal override {}
 
   /// @notice No-op post-withdraw hook; DefaultTrigger performs no action after the sweep.
   function _postWithdraw(
-    uint64,
-    bytes32,
-    bytes32,
-    bytes32,
     Structs.EventData calldata,
-    Structs.EventData calldata,
-    Structs.WithdrawalRequest[] calldata,
-    uint256,
-    uint256,
-    Structs.ErrorCode,
-    string calldata,
-    ReturnedTokens[] memory
+    bool,
+    Structs.TokenAndAmount[] memory,
+    Structs.TokenAndAmount[] memory
   ) public override {}
 }

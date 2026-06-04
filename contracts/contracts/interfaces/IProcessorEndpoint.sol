@@ -139,24 +139,26 @@ interface IProcessorEndpoint {
   // @notice Emitted when a trigger's execute function is called.
   // @param applicationId Application identifier.
   // @param processedRequestId Request identifier being processed.
-  // @param triggerContract Address of the trigger contract being called.
   // @param success True if the execute call succeeded, false if it reverted.
   event TriggerExecuted(
     uint64 indexed applicationId,
     bytes32 indexed processedRequestId,
-    address indexed triggerContract,
     bool success
   );
   // @notice Emitted when a trigger's withdraw function is called.
   // @param applicationId Application identifier.
   // @param processedRequestId Request identifier being processed.
-  // @param triggerContract Address of the trigger contract being called.
-  // @param success True if the withdraw call succeeded, false if it reverted.
-  event TriggerPostWithdraw(
+  // @param withdrawSuccess True if the withdraw call succeeded, false if it reverted.
+  // @param postWithdrawSuccess True if the post-withdraw call succeeded, false if it reverted.
+  // @param returnedTokens Array of tokens transferred in the sweep, with amounts.
+  // @param failedTokens Array of tokens that failed to transfer, with amounts.
+  event TriggerWithdraw(
     uint64 indexed applicationId,
     bytes32 indexed processedRequestId,
-    address indexed triggerContract,
-    bool success
+    bool withdrawSuccess,
+    bool postWithdrawSuccess,
+    Structs.TokenAndAmount[] returnedTokens,
+    Structs.TokenAndAmount[] failedTokens
   );
 
   /// @notice A zero address was supplied where not allowed.
@@ -203,6 +205,10 @@ interface IProcessorEndpoint {
   error InvalidPermit();
   /// @notice Caller is not a trigger contract registered in triggerContracts.
   error NotRegisteredTrigger();
+  /// @notice Trigger contract is already registered to another application.
+  error TriggerAlreadyRegistered();
+  /// @notice Trigger contrct cannot be an EOA.
+  error TriggerCannotBeEOA();
 
   /// @notice Submits a new request and enqueues it for processing.
   /// @param protocolVersion Protocol version.
@@ -270,20 +276,10 @@ interface IProcessorEndpoint {
   ///         the requestId is generated deterministically.
   /// @param requestType Request type.
   /// @param payload Request payload.
-  /// @param tokenAddress Token address (address(0) = ETH).
-  /// @param assetAmount Business asset amount.
-  /// @param maxFeeValue Maximum fee reserved for processing.
-  /// @param sender Original request sender.
-  /// @param facilitator Facilitator address (address(0) for direct submissions).
   /// @return requestId Generated request identifier.
   function submitTriggerRequest(
     Structs.RequestType requestType,
-    bytes calldata payload,
-    address tokenAddress,
-    uint256 assetAmount,
-    uint256 maxFeeValue,
-    address sender,
-    address facilitator
+    bytes calldata payload
   ) external returns (bytes32);
 
   /// @notice Returns the number of pending requests in the queue.

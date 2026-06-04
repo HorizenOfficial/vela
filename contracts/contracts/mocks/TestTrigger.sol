@@ -13,8 +13,8 @@ contract TestTrigger is AbstractTrigger {
   bool public revertOnExecute;
   bool public revertOnPostWithdraw;
 
-  mapping(bytes32 => bool) public executedRequests;
-  mapping(bytes32 => bool) public executedPostWithdraws;
+  mapping(uint256 => bool) public executedInBlock;
+  mapping(uint256 => bool) public executedPostWithdrawsInBlock;
 
   /// @notice Balances captured at the time _execute last ran (only persisted on non-reverting
   ///         paths). Keyed by token address; address(0) for ETH.
@@ -34,17 +34,7 @@ contract TestTrigger is AbstractTrigger {
   }
 
   function _execute(
-    uint64,
-    bytes32,
-    bytes32,
-    bytes32 processedRequestId,
-    Structs.EventData calldata,
-    Structs.EventData calldata,
-    Structs.WithdrawalRequest[] calldata,
-    uint256,
-    uint256,
-    Structs.ErrorCode,
-    string calldata
+    Structs.EventData calldata
   ) internal override {
     if (revertOnExecute) revert ExecuteReverted();
     capturedBalances[ETH_TOKEN] = address(this).balance;
@@ -57,24 +47,16 @@ contract TestTrigger is AbstractTrigger {
         ++i;
       }
     }
-    executedRequests[processedRequestId] = true;
+    executedInBlock[block.number] = true;
   }
 
   function _postWithdraw(
-    uint64,
-    bytes32,
-    bytes32,
-    bytes32 processedRequestId,
     Structs.EventData calldata,
-    Structs.EventData calldata,
-    Structs.WithdrawalRequest[] calldata,
-    uint256,
-    uint256,
-    Structs.ErrorCode,
-    string calldata,
-    ReturnedTokens[] memory
+    bool,
+    Structs.TokenAndAmount[] memory,
+    Structs.TokenAndAmount[] memory
   ) public override {
     if (revertOnPostWithdraw) revert PostWithdrawReverted();
-    executedPostWithdraws[processedRequestId] = true;
+    executedPostWithdrawsInBlock[block.number] = true;
   }
 }

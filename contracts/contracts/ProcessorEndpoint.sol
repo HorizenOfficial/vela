@@ -180,8 +180,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       }
     }
 
-    appCustody[applicationId][tokenAddress] += assetAmount;
-    totalAppCustody[tokenAddress] += assetAmount;
+
+    _addToCustody(applicationId, tokenAddress, assetAmount);
 
     //create request and enqueue
     return
@@ -284,8 +284,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
       _pullERC20(tokenAddress, sender, assetAmount);
 
-      appCustody[applicationId][tokenAddress] += assetAmount;
-      totalAppCustody[tokenAddress] += assetAmount;
+      _addToCustody(applicationId, tokenAddress, assetAmount);
     }
 
     // 10. Create PendingRequest with sender = user (not msg.sender) and enqueue
@@ -544,8 +543,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       address reqTokenAddress = requestInfo.tokenAddress;
       if (assetAmount > appCustody[applicationId][reqTokenAddress]) revert InsufficientAppBalance();
       if (requestInfo.maxFeeValue > _getAvailableEthBalance()) revert InsufficientBalance();
-      appCustody[applicationId][reqTokenAddress] -= assetAmount;
-      totalAppCustody[reqTokenAddress] -= assetAmount;
+      _subtractToCustody(applicationId, reqTokenAddress, assetAmount);
 
       // Refund business-asset deposit in its original token to the user.
       // Fee refund is always in ETH, routed to facilitator if present.
@@ -598,9 +596,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     // State cannot remain the same
     if (applicationStateRoots[applicationId] == newStateRoot) revert InvalidStateRoot();
 
-    if (refund + applicationFees != maxFeeValue) revert InvalidValue();
-    if (applicationFees < minFeePerRequest) {
-      revert InvalidValue();
+    // don't check fees if we are from trigger queue
+    if(fromTriggerQueue) {
+      if (refund + applicationFees != maxFeeValue) revert InvalidValue();
+      if (applicationFees < minFeePerRequest) {
+        revert InvalidValue();
+      }
     }
 
     //check withdrawal sums and debit per-app per-token custody
@@ -671,7 +672,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     //emit encrypted event
     i = 0;
-    while (i < eventsLength) {
+    while (i != eventsLength) {
       emit UserEvent(
         applicationId,
         processedRequestId,
@@ -685,7 +686,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     //emit app event
     i = 0;
-    while (i < appEventsLength) {
+    while (i != appEventsLength) {
       emit AppEvent(
         applicationId,
         processedRequestId,
@@ -711,6 +712,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       if (requestInfo.payload.length == 32) {
         address triggerContract = abi.decode(requestInfo.payload, (address));
         if (triggerContract != address(0)) {
+          
+          if (triggersToAppIds[triggerContract] != 0) revert TriggerAlreadyRegistered(); 
+          if (triggerContract.code.length == 0) revert TriggerCannotBeEOA();
+
           triggerContracts[applicationId] = ITrigger(triggerContract);
           triggersToAppIds[triggerContract] = applicationId;
         }
@@ -726,7 +731,16 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     //credit withdrawals to receivers' pending balances
     i = 0;
+    uint256 insertIntoClaimable;
+    address trigger = address(triggerContracts[applicationId]);
+    address[] memory claimable = new address[](withdrawalsLength);
     while (i < withdrawalsLength) {
+      if (withdrawalRequests[i].receiver == trigger) {
+        claimable[insertIntoClaimable] = withdrawalRequests[i].receiver;
+        unchecked {
+          ++insertIntoClaimable;
+        }
+      }
       _asyncTransfer(
         withdrawalRequests[i].tokenAddress,
         withdrawalRequests[i].receiver,
@@ -747,16 +761,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     //invoke trigger contracts, if registered
     _invokeTrigger(
       applicationId,
-      prevStateRoot,
-      newStateRoot,
       processedRequestId,
-      userEventData,
       appEventData,
-      withdrawalRequests,
-      refund,
-      applicationFees,
-      errorCode,
-      errorMsg
+      claimable
     );
 
     //set requests as completed
@@ -927,8 +934,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         }
       }
       if (req.assetAmount > 0) {
-        appCustody[req.applicationId][req.tokenAddress] -= req.assetAmount;
-        totalAppCustody[req.tokenAddress] -= req.assetAmount;
+        _subtractToCustody(req.applicationId, req.tokenAddress, req.assetAmount);
         _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
       }
       delete _requestQueue.requestById[_requestQueue.idByOrder[i]];
@@ -978,8 +984,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       if (ethAmt > 0) {
         (bool ok, ) = recipient.call{value: ethAmt}('');
         if (!ok) revert TransferFailed();
-        totalAppCustody[ETH_TOKEN] -= ethAmt;
-        appCustody[appId][ETH_TOKEN] = 0;
+        _subtractToCustody(appId, ETH_TOKEN, ethAmt);
       }
 
       // Transfer ERC-20 custody for this app across every token in the effective list.
@@ -988,8 +993,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         uint256 amt = appCustody[appId][effectiveTokens[j]];
         if (amt > 0) {
           IERC20(effectiveTokens[j]).safeTransfer(recipient, amt);
-          totalAppCustody[effectiveTokens[j]] -= amt;
-          appCustody[appId][effectiveTokens[j]] = 0;
+          _subtractToCustody(appId, effectiveTokens[j], amt);
         }
         unchecked {
           ++j;
@@ -1018,47 +1022,19 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   // of the first.
   function _invokeTrigger(
     uint64 applicationId,
-    bytes32 prevStateRoot,
-    bytes32 newStateRoot,
     bytes32 processedRequestId,
-    Structs.EventData calldata userEventData,
     Structs.EventData calldata appEventData,
-    Structs.WithdrawalRequest[] calldata withdrawalRequests,
-    uint256 refund,
-    uint256 applicationFees,
-    Structs.ErrorCode errorCode,
-    string calldata errorMsg
+    address[] memory claimable
   ) internal {
     ITrigger trigger = triggerContracts[applicationId];
     //do nothing if trigger not defined for application
     if (address(trigger) == address(0)) return;
 
-    // Unshield
-    //best-effort transfer of app custody to trigger before invocation.
-    uint256 ethAmt = appCustody[applicationId][ETH_TOKEN];
-    if (ethAmt > 0) {
-      (bool ok, ) = address(trigger).call{value: ethAmt}('');
-      if (ok) {
-        //update custodies
-        appCustody[applicationId][ETH_TOKEN] = 0;
-        totalAppCustody[ETH_TOKEN] -= ethAmt;
-      }
-    }
-
-    //erc20 tokens
-    address[] memory tokens = tokenAllowlist.getAllowedTokens();
-    uint256 tokenCount = tokens.length;
+    //claims for the trigger
     uint256 ti;
+    uint256 tokenCount = claimable.length;
     while (ti != tokenCount) {
-      uint256 amt = appCustody[applicationId][tokens[ti]];
-      if (amt > 0) {
-        try IERC20(tokens[ti]).transfer(address(trigger), amt) returns (bool ok) {
-          if (ok) {
-            appCustody[applicationId][tokens[ti]] = 0;
-            totalAppCustody[tokens[ti]] -= amt;
-          }
-        } catch {}
-      }
+      _claim(claimable[ti], payable(address(trigger)));
       unchecked {
         ++ti;
       }
@@ -1067,50 +1043,39 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     // invoke execute
     bool executeSuccess = true;
     try
-      trigger.execute(
-        applicationId,
-        prevStateRoot,
-        newStateRoot,
-        processedRequestId,
-        userEventData,
-        appEventData,
-        withdrawalRequests,
-        refund,
-        applicationFees,
-        errorCode,
-        errorMsg
-      )
+      trigger.execute(appEventData)
     {} catch {
       executeSuccess = false;
     }
-    emit TriggerExecuted(applicationId, processedRequestId, address(trigger), executeSuccess);
+    emit TriggerExecuted(applicationId, processedRequestId, executeSuccess);
 
     //invoke withdraw
-    (bool withdrawSuccess, ITrigger.ReturnedTokens[] memory returnedTokens) = trigger.withdraw(
-      applicationId,
-      prevStateRoot,
-      newStateRoot,
-      processedRequestId,
-      userEventData,
-      appEventData,
-      withdrawalRequests,
-      refund,
-      applicationFees,
-      errorCode,
-      errorMsg
-    );
+    bool postWithdrawSuccess;
+    Structs.TokenAndAmount[] memory returnedTokens;
+    Structs.TokenAndAmount[] memory failedTokens;
+    bool withdrawSuccess = true;
+    try trigger.withdraw(appEventData, executeSuccess) returns (
+      bool _postWithdrawSuccess,
+      Structs.TokenAndAmount[] memory _returnedTokens,
+      Structs.TokenAndAmount[] memory _failedTokens
+    ) {
+      postWithdrawSuccess = _postWithdrawSuccess;
+      returnedTokens = _returnedTokens;
+      failedTokens = _failedTokens;
+    } catch {
+      withdrawSuccess = false;
+    }
 
     // Re-shield: returnedTokens contains returned tokens + ETH_TOKEN
     ti = 0;
     tokenCount = returnedTokens.length;
     while (ti != tokenCount) {
-      appCustody[applicationId][returnedTokens[ti].token] = returnedTokens[ti].amount;
-      totalAppCustody[returnedTokens[ti].token] += returnedTokens[ti].amount;
+      _addToCustody(applicationId, returnedTokens[ti].token, returnedTokens[ti].amount);
       unchecked {
         ++ti;
       }
     }
-    emit TriggerPostWithdraw(applicationId, processedRequestId, address(trigger), withdrawSuccess);
+    emit TriggerWithdraw(applicationId, processedRequestId, withdrawSuccess, postWithdrawSuccess, returnedTokens, failedTokens);
   }
 
   /// @notice Enqueues a request on behalf of a registered trigger contract (FIFO).
@@ -1119,31 +1084,21 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   ///         The requestId is generated deterministically and returned.
   /// @param requestType Request type.
   /// @param payload Request payload.
-  /// @param tokenAddress Token address (address(0) = ETH).
-  /// @param assetAmount Business asset amount.
-  /// @param maxFeeValue Maximum fee reserved for processing.
-  /// @param sender Original request sender.
-  /// @param facilitator Facilitator address (address(0) for direct submissions).
   /// @return requestId Generated request identifier.
   function submitTriggerRequest(
     Structs.RequestType requestType,
-    bytes calldata payload,
-    address tokenAddress,
-    uint256 assetAmount,
-    uint256 maxFeeValue,
-    address sender,
-    address facilitator
+    bytes calldata payload
   ) public returns (bytes32) {
     uint64 applicationId = triggersToAppIds[msg.sender];
     if (applicationId == 0) revert NotRegisteredTrigger();
 
     bytes32 requestId = generateRequestId(
-      sender,
+      msg.sender,
       applicationId,
       requestType,
       payload,
-      tokenAddress,
-      assetAmount,
+      address(0),
+      0,
       _triggerQueue.tail
     );
 
@@ -1152,24 +1107,24 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,
-        tokenAddress: tokenAddress,
-        assetAmount: assetAmount,
-        maxFeeValue: maxFeeValue,
+        tokenAddress: address(0),
+        assetAmount: 0,
+        maxFeeValue: 0,
         requestId: requestId,
         payload: payload,
-        sender: sender,
-        facilitator: facilitator,
+        sender: msg.sender,
+        facilitator: address(0),
         applicationId: applicationId,
         protocolVersion: PROTOCOL_VERSION,
         requestType: requestType
       })
     );
 
-    emit RequestSubmitted(applicationId, requestId, sender, facilitator);
+    emit RequestSubmitted(applicationId, requestId, msg.sender, address(0));
     return requestId;
   }
 
-  // ── Internal queue helpers ────────────────────────────────────────────────
+  // Internal queue helpers 
 
   function _queueEnqueue(
     RequestQueue storage q,
@@ -1243,5 +1198,16 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         ++j;
       }
     }
+  }
+
+  // update custody helper
+  function _addToCustody(uint64 applicationId, address token, uint256 amount) internal {
+      appCustody[applicationId][token] += amount;
+      totalAppCustody[token] += amount;
+  }
+
+  function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {
+      appCustody[applicationId][token] -= amount;
+      totalAppCustody[token] -= amount;
   }
 }
