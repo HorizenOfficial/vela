@@ -290,7 +290,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
 
       const payload = '0xdeadbeef';
-      const tx = await mockTrigger.submitToTriggerQueue(REQUEST_TYPE_PROCESS, payload);
+      const tx = await mockTrigger.submitToTriggerQueue(payload);
       const receipt = await tx.wait();
 
       const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
@@ -325,7 +325,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       await normalTx.wait();
 
       // Then enqueue a trigger request
-      const triggerTx = await mockTrigger.submitToTriggerQueue(REQUEST_TYPE_PROCESS, '0x02');
+      const triggerTx = await mockTrigger.submitToTriggerQueue('0x02');
       const triggerRequestId = getRequestIdFromReceipt(processorEndpoint, await triggerTx.wait());
 
       // Trigger queue has priority — trigger request is the current pending one

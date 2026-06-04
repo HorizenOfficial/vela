@@ -60,10 +60,7 @@ contract TestTrigger is AbstractTrigger {
 
   /// @notice Calls processorEndpoint.submitTriggerRequest on behalf of this trigger.
   ///         Used in tests to enqueue a request from the trigger's address.
-  function submitToTriggerQueue(
-    Structs.RequestType requestType,
-    bytes calldata payload
-  ) external returns (bytes32) {
-    return processorEndpoint.submitTriggerRequest(requestType, payload);
+  function submitToTriggerQueue(bytes calldata payload) external returns (bytes32) {
+    return processorEndpoint.submitTriggerRequest(payload);
   }
 }

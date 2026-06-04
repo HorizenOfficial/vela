@@ -1090,20 +1090,16 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   ///         Only callable by an address that appears in triggersToAppIds (i.e. a registered trigger).
   ///         The applicationId is derived automatically from the caller's entry in triggersToAppIds.
   ///         The requestId is generated deterministically and returned.
-  /// @param requestType Request type.
   /// @param payload Request payload.
   /// @return requestId Generated request identifier.
-  function submitTriggerRequest(
-    Structs.RequestType requestType,
-    bytes calldata payload
-  ) public returns (bytes32) {
+  function submitTriggerRequest(bytes calldata payload) public returns (bytes32) {
     uint64 applicationId = triggersToAppIds[msg.sender];
     if (applicationId == 0) revert NotRegisteredTrigger();
 
     bytes32 requestId = generateRequestId(
       msg.sender,
       applicationId,
-      requestType,
+      Structs.RequestType.PLAINPROCESS,
       payload,
       address(0),
       0,
@@ -1124,7 +1120,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         facilitator: address(0),
         applicationId: applicationId,
         protocolVersion: PROTOCOL_VERSION,
-        requestType: requestType
+        requestType: Structs.RequestType.PLAINPROCESS
       })
     );
 

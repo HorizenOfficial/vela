@@ -1976,11 +1976,6 @@
   {
     "inputs": [
       {
-        "internalType": "enum Structs.RequestType",
-        "name": "requestType",
-        "type": "uint8"
-      },
-      {
         "internalType": "bytes",
         "name": "payload",
         "type": "bytes"

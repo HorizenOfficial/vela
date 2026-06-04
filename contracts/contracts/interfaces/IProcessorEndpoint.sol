@@ -274,13 +274,9 @@ interface IProcessorEndpoint {
   ///         Only callable by a trigger contract registered in triggerContracts.
   ///         The applicationId is derived automatically from triggersToAppIds[msg.sender];
   ///         the requestId is generated deterministically.
-  /// @param requestType Request type.
   /// @param payload Request payload.
   /// @return requestId Generated request identifier.
-  function submitTriggerRequest(
-    Structs.RequestType requestType,
-    bytes calldata payload
-  ) external returns (bytes32);
+  function submitTriggerRequest(bytes calldata payload) external returns (bytes32);
 
   /// @notice Returns the number of pending requests in the queue.
   /// @return size Current pending request count.
