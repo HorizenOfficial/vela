@@ -285,6 +285,55 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     });
   });
 
+  describe('trigger queue submission', function () {
+    it('trigger can enqueue a request into the trigger queue via submitTriggerRequest', async function () {
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+
+      const payload = '0xdeadbeef';
+      const tx = await mockTrigger.submitToTriggerQueue(REQUEST_TYPE_PROCESS, payload);
+      const receipt = await tx.wait();
+
+      const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
+
+      expect(await processorEndpoint.getTriggerQueueSize()).to.equal(1n);
+      expect(await processorEndpoint.isCurrentPendingRequest(requestId)).to.equal(true);
+
+      // Trigger queue takes priority — the enqueued request is the next to be processed
+      const [request] = await processorEndpoint.getNextPendingRequest();
+      expect(request.requestId).to.equal(requestId);
+      expect(request.applicationId).to.equal(applicationId);
+    });
+
+    it('trigger queue request is served before the normal queue', async function () {
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+
+      // Enqueue a normal request first
+      const normalTx = await processorEndpoint
+        .connect(signers[0])
+        .submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x01',
+          ETH_TOKEN,
+          0n,
+          minFeePerRequest,
+          {
+            value: minFeePerRequest,
+          }
+        );
+      await normalTx.wait();
+
+      // Then enqueue a trigger request
+      const triggerTx = await mockTrigger.submitToTriggerQueue(REQUEST_TYPE_PROCESS, '0x02');
+      const triggerRequestId = getRequestIdFromReceipt(processorEndpoint, await triggerTx.wait());
+
+      // Trigger queue has priority — trigger request is the current pending one
+      const [request] = await processorEndpoint.getNextPendingRequest();
+      expect(request.requestId).to.equal(triggerRequestId);
+    });
+  });
+
   describe('unshield and reshield', function () {
     let tokenA: any;
     let tokenB: any;

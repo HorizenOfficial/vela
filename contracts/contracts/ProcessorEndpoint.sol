@@ -541,7 +541,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       uint256 assetAmount = requestInfo.assetAmount;
       address reqTokenAddress = requestInfo.tokenAddress;
       if (assetAmount > appCustody[applicationId][reqTokenAddress]) revert InsufficientAppBalance();
-      if (!fromTriggerQueue && requestInfo.maxFeeValue > _getAvailableEthBalance()) revert InsufficientBalance();
+      if (requestInfo.maxFeeValue > _getAvailableEthBalance()) revert InsufficientBalance();
       _subtractToCustody(applicationId, reqTokenAddress, assetAmount);
 
       // Refund business-asset deposit in its original token to the user.

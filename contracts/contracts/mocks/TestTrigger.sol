@@ -57,4 +57,13 @@ contract TestTrigger is AbstractTrigger {
     if (revertOnPostWithdraw) revert PostWithdrawReverted();
     executedPostWithdrawsInBlock[block.number] = true;
   }
+
+  /// @notice Calls processorEndpoint.submitTriggerRequest on behalf of this trigger.
+  ///         Used in tests to enqueue a request from the trigger's address.
+  function submitToTriggerQueue(
+    Structs.RequestType requestType,
+    bytes calldata payload
+  ) external returns (bytes32) {
+    return processorEndpoint.submitTriggerRequest(requestType, payload);
+  }
 }
