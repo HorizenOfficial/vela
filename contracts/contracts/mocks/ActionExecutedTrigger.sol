@@ -50,6 +50,12 @@ contract ActionExecutedTrigger is AbstractTrigger {
     Structs.TokenAndAmount[] memory, /*returned*/
     Structs.TokenAndAmount[] memory /*failed*/
   ) public pure override returns (bytes memory) {
+    // Guard: only produce a trusted payload when the AppEvent array is non-empty
+    // (TRUSTPROCESS stateUpdates have no AppEvents and must not trigger again).
+    if (appEventData.events.length == 0) {
+      return '';
+    }
+
     // Decode the WASM EXECUTE_REQUESTED AppEvent data (ABI-encoded ExecuteRequestedEvent):
     //   (bytes16 lockId, bytes transaction, (address token, uint256 amount)[] tokens)
     (bytes16 lockId, , Structs.TokenAndAmount[] memory tokens) = abi.decode(
