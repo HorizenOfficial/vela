@@ -533,7 +533,11 @@ func (e *StatelessExecutor) validateRequest(req *common.Request) error {
 	if req.ProtocolVersion != admittedProtocolVersion {
 		return fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
 	}
-	if req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
+	// TRUSTPROCESS requests are enqueued by the on-chain trigger contract with
+	// maxFeeValue = 0 (set by _enqueueTrustedRequest in ProcessorEndpoint).
+	// They are authenticated on-chain and do not go through the normal user
+	// fee path, so the minimum fee check must be skipped for them.
+	if req.RequestType != common.TrustProcess && req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
 		return fmt.Errorf("request fee is below minimum fee")
 	}
 	return nil
