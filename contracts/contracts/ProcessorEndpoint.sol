@@ -580,7 +580,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
       // Refund business-asset deposit in its original token to the user.
       // Fee refund is always in ETH, routed to facilitator if present.
-      uint256 feeRefund = requestInfo.maxFeeValue - minFeePerRequest;
+      // TRUSTPROCESS requests have maxFeeValue=0, so feeRefund is 0 (nothing to refund).
+      uint256 feeRefund = requestInfo.maxFeeValue >= minFeePerRequest
+        ? requestInfo.maxFeeValue - minFeePerRequest
+        : 0;
       if (reqTokenAddress == ETH_TOKEN) {
         if (assetAmount > 0) {
           // ETH requests that moved also assets: only direct path, never facilitated => refund all to the sender

@@ -712,24 +712,31 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	}
 
-	// Check if there is enough ETH to cover the fuel costs
-	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
+	// Check if there is enough ETH to cover the fuel costs.
+	// TRUSTPROCESS requests have maxFeeValue=0 (enqueued by the on-chain trigger
+	// contract with no user-provided fee). Skip fee adequacy checks for them;
+	// their authenticity is established on-chain.
+	if req.RequestType == common.TrustProcess {
+		applicationFee = big.NewInt(0)
+	} else {
+		applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 
-	// Application fee must be minimum fee at least
-	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
-		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
-	}
+		// Application fee must be minimum fee at least
+		if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
+			applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
+		}
 
-	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
-		errorPayload, err := e.processErrorResponse(req,
-			appState.StateRoot,
-			apperrors.New(apperrors.CodeInsufficientFuel,
-				fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
-					applicationFee.String(),
-					req.MaxFeeValue.ToInt().String(),
-				),
-			))
-		return errorPayload, nil, nil, err
+		if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
+				apperrors.New(apperrors.CodeInsufficientFuel,
+					fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
+						applicationFee.String(),
+						req.MaxFeeValue.ToInt().String(),
+					),
+				))
+			return errorPayload, nil, nil, err
+		}
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee
