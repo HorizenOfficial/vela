@@ -12,7 +12,7 @@ contract Structs {
     PROCESS,
     DEANONYMIZATION,
     ASSOCIATEKEY,
-    PLAINPROCESS
+    TRUSTPROCESS
   }
   enum RequestResult {
     COMPLETED,

@@ -2,7 +2,13 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt, REQUEST_TYPE_PROCESS } from '../util';
+import {
+  ETH_TOKEN,
+  BYTES32_ZERO,
+  getRequestIdFromReceipt,
+  REQUEST_TYPE_PROCESS,
+  REQUEST_TYPE_TRUSTPROCESS,
+} from '../util';
 
 describe('ProcessorEndpoint Trigger Tests', function () {
   let processorEndpoint: any;
@@ -202,7 +208,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
 
         // _execute ran successfully so the mapping was written
         expect(await mockTrigger.executedInBlock(blockNumber)).to.equal(true);
-        // _postWithdraw reverted so its storage write was rolled back
+        // getTrustProcessPayload reverted so its storage write was rolled back
         expect(await mockTrigger.executedPostWithdrawsInBlock(blockNumber)).to.equal(false);
       });
     });
@@ -230,7 +236,7 @@ describe('ProcessorEndpoint Trigger Tests', function () {
 
         // _execute reverted so nothing was written
         expect(await mockTrigger.executedInBlock(blockNumber)).to.equal(false);
-        // withdraw was still called and _postWithdraw succeeded
+        // withdraw was still called and getTrustProcessPayload succeeded
         expect(await mockTrigger.executedPostWithdrawsInBlock(blockNumber)).to.equal(true);
       });
     });
@@ -285,29 +291,42 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     });
   });
 
-  describe('trigger queue submission', function () {
-    it('trigger can enqueue a request into the trigger queue via submitTriggerRequest', async function () {
+  describe('trigger queue submission (trusted requests created in stateUpdate)', function () {
+    it('a non-empty getTrustProcessPayload payload enqueues a TRUSTPROCESS into the trigger queue during stateUpdate', async function () {
       const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
 
-      const payload = '0xdeadbeef';
-      const tx = await mockTrigger.submitToTriggerQueue(payload);
-      const receipt = await tx.wait();
+      const trustedPayload = '0xdeadbeef';
+      await (await mockTrigger.setTrustedPayload(trustedPayload)).wait();
 
-      const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
+      // Processing a normal request runs _invokeTrigger inside stateUpdate; the
+      // trigger's getTrustProcessPayload returns the payload → a TRUSTPROCESS is enqueued.
+      await submitAndProcess(applicationId, INITIAL_STATE_ROOT, '0x' + '33'.repeat(32));
 
       expect(await processorEndpoint.getTriggerQueueSize()).to.equal(1n);
-      expect(await processorEndpoint.isCurrentPendingRequest(requestId)).to.equal(true);
 
-      // Trigger queue takes priority — the enqueued request is the next to be processed
+      // Trigger queue takes priority — the enqueued trusted request is next.
       const [request] = await processorEndpoint.getNextPendingRequest();
-      expect(request.requestId).to.equal(requestId);
       expect(request.applicationId).to.equal(applicationId);
+      expect(request.requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
+      expect(request.payload).to.equal(trustedPayload);
+      expect(request.sender).to.equal(await mockTrigger.getAddress());
+    });
+
+    it('an empty getTrustProcessPayload payload enqueues nothing', async function () {
+      const { applicationId } = await bootstrapApplicationWithTrigger(false, false);
+      // default trustedPayload is empty ("")
+      await submitAndProcess(applicationId, INITIAL_STATE_ROOT, '0x' + '44'.repeat(32));
+      expect(await processorEndpoint.getTriggerQueueSize()).to.equal(0n);
     });
 
     it('trigger queue request is served before the normal queue', async function () {
       const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+      await (await mockTrigger.setTrustedPayload('0x02')).wait();
 
-      // Enqueue a normal request first
+      // Processing the first request enqueues the trusted request in the trigger queue.
+      await submitAndProcess(applicationId, INITIAL_STATE_ROOT, '0x' + '55'.repeat(32));
+
+      // Enqueue a normal request afterwards.
       const normalTx = await processorEndpoint
         .connect(signers[0])
         .submitRequest(
@@ -324,13 +343,10 @@ describe('ProcessorEndpoint Trigger Tests', function () {
         );
       await normalTx.wait();
 
-      // Then enqueue a trigger request
-      const triggerTx = await mockTrigger.submitToTriggerQueue('0x02');
-      const triggerRequestId = getRequestIdFromReceipt(processorEndpoint, await triggerTx.wait());
-
-      // Trigger queue has priority — trigger request is the current pending one
+      // Trigger queue has priority — the trusted request is the current pending one.
       const [request] = await processorEndpoint.getNextPendingRequest();
-      expect(request.requestId).to.equal(triggerRequestId);
+      expect(request.requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
+      expect(request.sender).to.equal(await mockTrigger.getAddress());
     });
   });
 

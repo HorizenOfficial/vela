@@ -548,7 +548,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, nil, err
 	}
 
-	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize && req.RequestType != common.PlainProcess {
+	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize && req.RequestType != common.TrustProcess {
 		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
 	}
 
@@ -659,10 +659,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	} else {
 		//any other case: forward the payload to the WASM to obtain the new state.
 		//Process and Deanonymize payloads are encrypted toward the enclave and must be
-		//decrypted first; PlainProcess payloads are sent in clear text and forwarded as-is.
+		//decrypted first; TrustProcess payloads are sent in clear text and forwarded as-is.
 
 		wasmPayload := req.Payload
-		if req.RequestType != common.PlainProcess {
+		if req.RequestType != common.TrustProcess {
 			decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
 			if failure != nil {
 				errorPayload, err := e.processErrorResponse(req,

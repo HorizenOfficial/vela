@@ -45,18 +45,18 @@ abstract contract AbstractTrigger is ITrigger {
 
   /// @notice Sweeps all allowlisted ERC-20 tokens and ETH held by this contract to the
   ///         ProcessorEndpoint. Can only be called by the ProcessorEndpoint.
-  ///         Cannot be overridden; custom post-sweep logic belongs in _postWithdraw.
-  ///         Returns false (without reverting) if _postWithdraw reverts.
+  ///         Cannot be overridden; custom post-sweep logic belongs in getTrustProcessPayload.
+  ///         Returns false (without reverting) if getTrustProcessPayload reverts.
   /// @param appEventData Application-level (non-encrypted) events and their subtypes.
   /// @param executeSuccess True if the execute call succeeded, false if it reverted.
-  /// @return success True if _postWithdraw executed successfully, false if it reverted.
+  /// @return success True if getTrustProcessPayload executed successfully, false if it reverted.
   function withdraw(
     Structs.EventData calldata appEventData,
     bool executeSuccess
   )
     public
     _onlyProcessorEndpoint
-    returns (bool, Structs.TokenAndAmount[] memory, Structs.TokenAndAmount[] memory)
+    returns (bool, Structs.TokenAndAmount[] memory, Structs.TokenAndAmount[] memory, bytes memory)
   {
     address[] memory tokens = tokenAllowlist.getAllowedTokens();
     uint256 length = tokens.length;
@@ -109,11 +109,13 @@ abstract contract AbstractTrigger is ITrigger {
       mstore(failed, insertIntoFailed)
     }
 
-    // try post withdraw hook, return false if it reverts
-    try this._postWithdraw(appEventData, executeSuccess, returned, failed) {
-      return (true, returned, failed);
+    // try post withdraw hook, return false (and no trusted payload) if it reverts
+    try this.getTrustProcessPayload(appEventData, executeSuccess, returned, failed) returns (
+      bytes memory trustedPayload
+    ) {
+      return (true, returned, failed, trustedPayload);
     } catch {
-      return (false, returned, failed);
+      return (false, returned, failed, '');
     }
   }
 
@@ -128,10 +130,12 @@ abstract contract AbstractTrigger is ITrigger {
   /// @param executeSuccess True if the execute call succeeded, false if it reverted.
   /// @param returnedTokens Array of tokens actually transferred in the sweep, with amounts.
   /// @param failedTokens Array of tokens that failed to transfer.
-  function _postWithdraw(
+  /// @return trustedPayload Optional payload; when non-empty the ProcessorEndpoint enqueues
+  ///         a trusted (TRUSTPROCESS) request with it. Return "" to enqueue nothing.
+  function getTrustProcessPayload(
     Structs.EventData calldata appEventData,
     bool executeSuccess,
     Structs.TokenAndAmount[] memory returnedTokens,
     Structs.TokenAndAmount[] memory failedTokens
-  ) public virtual;
+  ) public virtual returns (bytes memory trustedPayload);
 }

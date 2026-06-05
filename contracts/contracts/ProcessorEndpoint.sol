@@ -158,7 +158,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     nonReentrant
     returns (bytes32)
   {
-    if (requestType == Structs.RequestType.DEPLOYAPP) revert InvalidRequestType();
+    // DEPLOYAPP has its own entrypoint; TRUSTPROCESS is trusted and can ONLY be
+    // created internally during stateUpdate (via a trigger's getTrustProcessPayload payload).
+    if (
+      requestType == Structs.RequestType.DEPLOYAPP ||
+      requestType == Structs.RequestType.TRUSTPROCESS
+    ) revert InvalidRequestType();
 
     //check values
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
@@ -222,11 +227,11 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     nonReentrant
     returns (bytes32)
   {
-    // 1. Only ASSOCIATEKEY, PROCESS and PLAINPROCESS are supported
+    // 1. Only ASSOCIATEKEY and PROCESS are supported. TRUSTPROCESS is trusted
+    //    and can ONLY be created internally during stateUpdate (via a trigger's
+    //    getTrustProcessPayload payload) — never submitted by an external caller here.
     if (
-      requestType != Structs.RequestType.ASSOCIATEKEY &&
-      requestType != Structs.RequestType.PROCESS &&
-      requestType != Structs.RequestType.PLAINPROCESS
+      requestType != Structs.RequestType.ASSOCIATEKEY && requestType != Structs.RequestType.PROCESS
     ) revert InvalidRequestType();
 
     // 2. Verify deadline not expired
@@ -1085,15 +1090,18 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     bool postWithdrawSuccess;
     Structs.TokenAndAmount[] memory returnedTokens;
     Structs.TokenAndAmount[] memory failedTokens;
+    bytes memory trustedPayload;
     bool withdrawSuccess = true;
     try trigger.withdraw(appEventData, executeSuccess) returns (
       bool _postWithdrawSuccess,
       Structs.TokenAndAmount[] memory _returnedTokens,
-      Structs.TokenAndAmount[] memory _failedTokens
+      Structs.TokenAndAmount[] memory _failedTokens,
+      bytes memory _trustedPayload
     ) {
       postWithdrawSuccess = _postWithdrawSuccess;
       returnedTokens = _returnedTokens;
       failedTokens = _failedTokens;
+      trustedPayload = _trustedPayload;
     } catch {
       withdrawSuccess = false;
     }
@@ -1115,26 +1123,39 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       returnedTokens,
       failedTokens
     );
+
+    // stateUpdate is the ONLY place a trusted (TRUSTPROCESS) request can be
+    // created. If the trigger's getTrustProcessPayload returned a non-empty payload,
+    // enqueue it into the trigger queue.
+    if (trustedPayload.length > 0) {
+      _enqueueTrustedRequest(applicationId, address(trigger), trustedPayload);
+    }
   }
 
-  /// @notice Enqueues a request on behalf of a registered trigger contract (FIFO).
-  ///         Only callable by an address that appears in triggersToAppIds (i.e. a registered trigger).
-  ///         The applicationId is derived automatically from the caller's entry in triggersToAppIds.
-  ///         The requestId is generated deterministically and returned.
-  /// @param payload Request payload.
-  /// @return requestId Generated request identifier.
-  function submitTriggerRequest(bytes calldata payload) public returns (bytes32) {
-    uint64 applicationId = triggersToAppIds[msg.sender];
-    if (applicationId == 0) revert NotRegisteredTrigger();
-
-    bytes32 requestId = generateRequestId(
-      msg.sender,
-      applicationId,
-      Structs.RequestType.PLAINPROCESS,
-      payload,
-      address(0),
-      0,
-      _triggerQueue.tail
+  /// @notice Enqueues a TRUSTPROCESS request into the trigger queue. PRIVATE and
+  ///         reachable ONLY from _invokeTrigger (i.e. during stateUpdate), which is
+  ///         the single authorized point allowed to create a trusted request. The
+  ///         payload is produced by the trigger's getTrustProcessPayload hook; callers must
+  ///         skip empty payloads (no trusted request is created for them).
+  /// @param applicationId Application the trusted request belongs to.
+  /// @param trigger Trigger contract that produced the payload (recorded as sender).
+  /// @param payload Trusted request payload (forwarded to the WASM as-is).
+  function _enqueueTrustedRequest(
+    uint64 applicationId,
+    address trigger,
+    bytes memory payload
+  ) private {
+    // Same derivation as generateRequestId, but accepting a memory payload.
+    bytes32 requestId = keccak256(
+      abi.encode(
+        trigger,
+        applicationId,
+        Structs.RequestType.TRUSTPROCESS,
+        payload,
+        address(0),
+        uint256(0),
+        _triggerQueue.tail
+      )
     );
 
     _queueEnqueue(
@@ -1147,16 +1168,15 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         maxFeeValue: 0,
         requestId: requestId,
         payload: payload,
-        sender: msg.sender,
+        sender: trigger,
         facilitator: address(0),
         applicationId: applicationId,
         protocolVersion: PROTOCOL_VERSION,
-        requestType: Structs.RequestType.PLAINPROCESS
+        requestType: Structs.RequestType.TRUSTPROCESS
       })
     );
 
-    emit RequestSubmitted(applicationId, requestId, msg.sender, address(0));
-    return requestId;
+    emit RequestSubmitted(applicationId, requestId, trigger, address(0));
   }
 
   // Internal queue helpers

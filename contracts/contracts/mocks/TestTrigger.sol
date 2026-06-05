@@ -13,6 +13,10 @@ contract TestTrigger is AbstractTrigger {
   bool public revertOnExecute;
   bool public revertOnPostWithdraw;
 
+  /// @notice Payload returned by getTrustProcessPayload. When non-empty, the ProcessorEndpoint
+  ///         enqueues a trusted (TRUSTPROCESS) request with it. Default empty = none.
+  bytes public trustedPayload;
+
   mapping(uint256 => bool) public executedInBlock;
   mapping(uint256 => bool) public executedPostWithdrawsInBlock;
 
@@ -48,19 +52,20 @@ contract TestTrigger is AbstractTrigger {
     executedInBlock[block.number] = true;
   }
 
-  function _postWithdraw(
+  function getTrustProcessPayload(
     Structs.EventData calldata,
     bool,
     Structs.TokenAndAmount[] memory,
     Structs.TokenAndAmount[] memory
-  ) public override {
+  ) public override returns (bytes memory) {
     if (revertOnPostWithdraw) revert PostWithdrawReverted();
     executedPostWithdrawsInBlock[block.number] = true;
+    return trustedPayload;
   }
 
-  /// @notice Calls processorEndpoint.submitTriggerRequest on behalf of this trigger.
-  ///         Used in tests to enqueue a request from the trigger's address.
-  function submitToTriggerQueue(bytes calldata payload) external returns (bytes32) {
-    return processorEndpoint.submitTriggerRequest(payload);
+  /// @notice Test helper: set the payload getTrustProcessPayload returns. A non-empty value
+  ///         makes the ProcessorEndpoint enqueue a trusted (TRUSTPROCESS) request.
+  function setTrustedPayload(bytes calldata payload) external {
+    trustedPayload = payload;
   }
 }

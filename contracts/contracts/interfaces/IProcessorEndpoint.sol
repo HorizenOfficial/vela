@@ -203,8 +203,6 @@ interface IProcessorEndpoint {
   error InvalidSigner();
   /// @notice The deposit permit bytes are invalid or missing when required (used for facilitator requests).
   error InvalidPermit();
-  /// @notice Caller is not a trigger contract registered in triggerContracts.
-  error NotRegisteredTrigger();
   /// @notice Trigger contract is already registered to another application.
   error TriggerAlreadyRegistered();
   /// @notice Trigger contrct cannot be an EOA.
@@ -284,14 +282,6 @@ interface IProcessorEndpoint {
     bytes calldata payload,
     address trigger
   ) external payable returns (bytes32);
-
-  /// @notice Enqueues a request (FIFO) on behalf of a registered trigger contract.
-  ///         Only callable by a trigger contract registered in triggerContracts.
-  ///         The applicationId is derived automatically from triggersToAppIds[msg.sender];
-  ///         the requestId is generated deterministically.
-  /// @param payload Request payload.
-  /// @return requestId Generated request identifier.
-  function submitTriggerRequest(bytes calldata payload) external returns (bytes32);
 
   /// @notice Returns the number of pending requests in the queue.
   /// @return size Current pending request count.

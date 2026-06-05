@@ -20,11 +20,14 @@ contract DefaultTrigger is AbstractTrigger {
   /// @notice No-op execute hook; DefaultTrigger performs no action on request completion.
   function _execute(Structs.EventData calldata) internal override {}
 
-  /// @notice No-op post-withdraw hook; DefaultTrigger performs no action after the sweep.
-  function _postWithdraw(
+  /// @notice No-op post-withdraw hook; DefaultTrigger performs no action after the sweep
+  ///         and never creates a trusted request (returns an empty payload).
+  function getTrustProcessPayload(
     Structs.EventData calldata,
     bool,
     Structs.TokenAndAmount[] memory,
     Structs.TokenAndAmount[] memory
-  ) public override {}
+  ) public pure override returns (bytes memory) {
+    return '';
+  }
 }

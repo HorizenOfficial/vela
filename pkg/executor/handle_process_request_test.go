@@ -723,12 +723,12 @@ func (r *payloadCapturingRuntime) ProcessRequest(ctx context.Context, appId comm
 	return r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
 }
 
-// TestHandleProcessRequest_PlainProcess_PayloadForwardedAsIs verifies that PlainProcess
+// TestHandleProcessRequest_TrustProcess_PayloadForwardedAsIs verifies that TrustProcess
 // requests skip enclave-payload decryption and forward the raw bytes to the WASM module
 // untouched. The plain-text JSON payload would fail to decrypt if a decryption attempt
 // were made, so a successful execution combined with byte-identical capture proves the
 // decryption step was bypassed.
-func TestHandleProcessRequest_PlainProcess_PayloadForwardedAsIs(t *testing.T) {
+func TestHandleProcessRequest_TrustProcess_PayloadForwardedAsIs(t *testing.T) {
 	runtime := &payloadCapturingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
 	exec := newTestExecutor(t, runtime)
 
@@ -767,7 +767,7 @@ func TestHandleProcessRequest_PlainProcess_PayloadForwardedAsIs(t *testing.T) {
 	require.NoError(t, err)
 
 	req := newProcessRequest()
-	req.RequestType = common.PlainProcess
+	req.RequestType = common.TrustProcess
 	req.Payload = transferPayload // plain bytes — would fail decryption
 	req.Sender = sender
 
@@ -777,19 +777,19 @@ func TestHandleProcessRequest_PlainProcess_PayloadForwardedAsIs(t *testing.T) {
 	require.NotNil(t, newAppState)
 	require.Nil(t, report)
 
-	require.Equal(t, uint8(0), updatePayload.ErrorCode, "PlainProcess should not fail: %s", updatePayload.ErrorMsg)
-	require.Equal(t, common.PlainProcess, runtime.seenType, "runtime should see the PlainProcess request type")
+	require.Equal(t, uint8(0), updatePayload.ErrorCode, "TrustProcess should not fail: %s", updatePayload.ErrorMsg)
+	require.Equal(t, common.TrustProcess, runtime.seenType, "runtime should see the TrustProcess request type")
 	require.Equal(t, transferPayload, runtime.seenPayload, "runtime must receive the request payload verbatim, with no decryption applied")
 }
 
-// TestHandleProcessRequest_PlainProcess_SkipsDecryption_NoKeyRequired confirms that a
-// PlainProcess request succeeds even when the sender has no key registered (decryption
+// TestHandleProcessRequest_TrustProcess_SkipsDecryption_NoKeyRequired confirms that a
+// TrustProcess request succeeds even when the sender has no key registered (decryption
 // would otherwise fail with PubKeyNotRegistered).
-func TestHandleProcessRequest_PlainProcess_SkipsDecryption_NoKeyRequired(t *testing.T) {
+func TestHandleProcessRequest_TrustProcess_SkipsDecryption_NoKeyRequired(t *testing.T) {
 	exec := newTestExecutor(t, NewMockRuntime(testLogger))
 
 	req := newProcessRequest()
-	req.RequestType = common.PlainProcess
+	req.RequestType = common.TrustProcess
 	req.Payload = []byte("{}") // empty instructions — mock runtime accepts this
 	req.Sender = ethCommon.HexToAddress("0x9999999999999999999999999999999999999999")
 
@@ -801,14 +801,14 @@ func TestHandleProcessRequest_PlainProcess_SkipsDecryption_NoKeyRequired(t *test
 	require.Equal(t, uint8(0), updatePayload.ErrorCode, "unexpected error: %s", updatePayload.ErrorMsg)
 }
 
-// TestHandleProcessRequest_PlainProcess_UnexpectedReportRejected ensures that the
-// "only Deanonymize may emit a report" invariant still applies to PlainProcess.
-func TestHandleProcessRequest_PlainProcess_UnexpectedReportRejected(t *testing.T) {
+// TestHandleProcessRequest_TrustProcess_UnexpectedReportRejected ensures that the
+// "only Deanonymize may emit a report" invariant still applies to TrustProcess.
+func TestHandleProcessRequest_TrustProcess_UnexpectedReportRejected(t *testing.T) {
 	runtime := &reportOnProcessRuntime{MockRuntime: *NewMockRuntime(testLogger)}
 	exec := newTestExecutor(t, runtime)
 
 	req := newProcessRequest()
-	req.RequestType = common.PlainProcess
+	req.RequestType = common.TrustProcess
 	req.Payload = []byte("{}")
 	req.Sender = ethCommon.HexToAddress("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
 

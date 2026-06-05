@@ -61,7 +61,7 @@ func TestRequestType_StringAndToUint8(t *testing.T) {
 		{Process, "process", 1},
 		{Deanonymize, "deanonymize", 2},
 		{AssociateKey, "associatekey", 3},
-		{PlainProcess, "plainprocess", 4},
+		{TrustProcess, "trustprocess", 4},
 	}
 	for _, c := range cases {
 		require.Equal(t, c.name, c.rt.String())

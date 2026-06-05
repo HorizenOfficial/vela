@@ -18,7 +18,7 @@ func (rt RequestType) ToUint8() (uint8, error) {
 		return 2, nil
 	case AssociateKey:
 		return 3, nil
-	case PlainProcess:
+	case TrustProcess:
 		return 4, nil
 	default:
 		return 0, fmt.Errorf("unknown RequestType: %s", rt)

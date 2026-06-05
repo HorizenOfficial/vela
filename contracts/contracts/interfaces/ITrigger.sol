@@ -28,9 +28,11 @@ interface ITrigger {
 
   /// @notice Sweeps all allowlisted ERC-20 tokens and ETH held by this contract to the
   ///         ProcessorEndpoint. Can only be called by the ProcessorEndpoint.
-  /// @return postWithdrawSuccess True if _postWithdraw executed successfully, false if it reverted.
+  /// @return postWithdrawSuccess True if getTrustProcessPayload executed successfully, false if it reverted.
   /// @return returnedTokens Array of tokens transferred in the sweep, with amounts.
   /// @return failedTokens Array of tokens that failed to transfer, with amounts.
+  /// @return trustedPayload Payload returned by getTrustProcessPayload, used by the ProcessorEndpoint
+  ///         to enqueue a trusted (TRUSTPROCESS) request; empty means none.
   function withdraw(
     Structs.EventData calldata appEventData,
     bool executeSuccess
@@ -39,6 +41,7 @@ interface ITrigger {
     returns (
       bool postWithdrawSuccess,
       Structs.TokenAndAmount[] memory returnedTokens,
-      Structs.TokenAndAmount[] memory failedTokens
+      Structs.TokenAndAmount[] memory failedTokens,
+      bytes memory trustedPayload
     );
 }

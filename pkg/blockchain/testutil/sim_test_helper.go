@@ -296,7 +296,7 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 		reqType = 2
 	case common.AssociateKey:
 		reqType = 3
-	case common.PlainProcess:
+	case common.TrustProcess:
 		reqType = 4
 	default:
 		panic("Unsupported request type")

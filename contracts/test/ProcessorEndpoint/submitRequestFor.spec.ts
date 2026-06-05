@@ -7,7 +7,7 @@ import {
   REQUEST_TYPE_ASSOCIATEKEY,
   REQUEST_TYPE_DEANONYMIZATION,
   REQUEST_TYPE_DEPLOYAPP,
-  REQUEST_TYPE_PLAINPROCESS,
+  REQUEST_TYPE_TRUSTPROCESS,
   REQUEST_TYPE_PROCESS,
 } from '../util';
 
@@ -687,44 +687,30 @@ describe('ProcessorEndpoint Test', function () {
         expect(nonceAfter).to.equal(nonceBefore + 1n);
       });
 
-      it('submits a PLAINPROCESS request via the facilitator path', async () => {
+      it('rejects TRUSTPROCESS via the facilitator path — trusted requests are stateUpdate-only', async () => {
         const payload = '0x' + 'ab'.repeat(32);
         const params = await buildRequestParams({
-          requestType: REQUEST_TYPE_PLAINPROCESS,
+          requestType: REQUEST_TYPE_TRUSTPROCESS,
           payload,
         });
 
-        const tx = await processorEndpoint
-          .connect(facilitator)
-          .submitRequestFor(
-            params.sender,
-            params.protocolVersion,
-            params.applicationId,
-            params.requestType,
-            params.payload,
-            params.tokenAddress,
-            params.assetAmount,
-            params.deadline,
-            params.requestSignature,
-            params.depositPermit,
-            { value: minFeePerRequest }
-          );
-
-        await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
-        const receipt = await tx.wait();
-        const requestSubmittedLog = receipt.logs.find((log: any) => {
-          try {
-            return processorEndpoint.interface.parseLog(log)?.name === 'RequestSubmitted';
-          } catch {
-            return false;
-          }
-        });
-        const parsed = processorEndpoint.interface.parseLog(requestSubmittedLog);
-        const stored = await processorEndpoint.requestById(parsed.args.requestId);
-        expect(stored.requestType).to.equal(REQUEST_TYPE_PLAINPROCESS);
-        expect(stored.payload).to.equal(payload);
-        expect(stored.sender).to.equal(await user.getAddress());
-        expect(stored.facilitator).to.equal(await facilitator.getAddress());
+        await expect(
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestType');
       });
 
       it('submits an ASSOCIATEKEY request with 133-byte payload', async () => {
