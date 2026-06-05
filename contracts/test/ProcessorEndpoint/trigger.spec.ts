@@ -33,15 +33,15 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       revertOnPostWithdraw
     );
 
-    // ABI-encode the trigger address to exactly 32 bytes so stateUpdate registers it
-    const triggerPayload = ethers.AbiCoder.defaultAbiCoder().encode(
-      ['address'],
-      [await mockTrigger.getAddress()]
-    );
+    // Register the trigger explicitly. The payload is an opaque (non-address)
+    // deploy descriptor — it is NEVER interpreted as a trigger address.
+    const descriptorPayload = '0x' + 'ab'.repeat(40);
 
     const deployTx = await processorEndpoint
       .connect(signers[2])
-      .submitDeployRequest(0, triggerPayload, { value: minFeePerRequest });
+      .submitDeployRequestWithTrigger(0, descriptorPayload, await mockTrigger.getAddress(), {
+        value: minFeePerRequest,
+      });
     const deployReceipt = await deployTx.wait();
 
     const deployLog = deployReceipt.logs.find((log: any) => {
@@ -523,6 +523,124 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       // Trigger received nothing — capturedBalances are 0
       expect(await mockTrigger.capturedBalances(ETH_TOKEN)).to.equal(0n);
       expect(await mockTrigger.capturedBalances(tokenAAddr)).to.equal(0n);
+    });
+  });
+
+  describe('trigger registered via 3-arg submitDeployRequest overload (descriptor + trigger)', function () {
+    // A non-32-byte payload simulates a real WASM deploy descriptor, proving the
+    // trigger is registered from the explicit `trigger` arg and NOT from the
+    // legacy 32-byte-payload path.
+    const descriptorPayload = '0x' + 'ab'.repeat(40); // 40 bytes, != 32
+
+    async function bootstrapWithTriggerParam(
+      revertOnExecute: boolean,
+      revertOnPostWithdraw: boolean
+    ) {
+      const TestTrigger = await ethers.getContractFactory('TestTrigger');
+      const mockTrigger: any = await TestTrigger.deploy(
+        await processorEndpoint.getAddress(),
+        await tokenAllowlist.getAddress(),
+        revertOnExecute,
+        revertOnPostWithdraw
+      );
+
+      const deployTx = await processorEndpoint
+        .connect(signers[2])
+        .submitDeployRequestWithTrigger(0, descriptorPayload, await mockTrigger.getAddress(), {
+          value: minFeePerRequest,
+        });
+      const deployReceipt = await deployTx.wait();
+      const deployLog = deployReceipt.logs.find((log: any) => {
+        try {
+          return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
+        } catch {
+          return false;
+        }
+      });
+      const parsed = processorEndpoint.interface.parseLog(deployLog);
+      const applicationId: bigint = parsed.args.applicationId;
+      const requestId: string = parsed.args.requestId;
+
+      await processorEndpoint
+        .connect(signers[1])
+        .stateUpdate(
+          applicationId,
+          BYTES32_ZERO,
+          INITIAL_STATE_ROOT,
+          requestId,
+          { events: [], subTypes: [] },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
+
+      return { applicationId, mockTrigger };
+    }
+
+    it('registers the trigger from the explicit arg even when the payload is a (non-32-byte) descriptor', async function () {
+      const { applicationId, mockTrigger } = await bootstrapWithTriggerParam(false, false);
+      const triggerAddr = await mockTrigger.getAddress();
+
+      expect(await processorEndpoint.triggerContracts(applicationId)).to.equal(triggerAddr);
+      expect(await processorEndpoint.triggersToAppIds(triggerAddr)).to.equal(applicationId);
+    });
+
+    it('invokes execute()/withdraw() on a subsequent PROCESS request for the app', async function () {
+      const { applicationId } = await bootstrapWithTriggerParam(false, false);
+
+      const { requestId, updateTx } = await submitAndProcess(
+        applicationId,
+        INITIAL_STATE_ROOT,
+        '0x' + '22'.repeat(32)
+      );
+
+      await expect(updateTx)
+        .to.emit(processorEndpoint, 'TriggerExecuted')
+        .withArgs(applicationId, requestId, true);
+      await expect(updateTx).to.emit(processorEndpoint, 'TriggerWithdraw');
+    });
+
+    it('address(0) trigger registers nothing (equivalent to the 2-arg overload)', async function () {
+      const deployTx = await processorEndpoint
+        .connect(signers[2])
+        .submitDeployRequestWithTrigger(0, descriptorPayload, ethers.ZeroAddress, {
+          value: minFeePerRequest,
+        });
+      const deployReceipt = await deployTx.wait();
+      const parsed = processorEndpoint.interface.parseLog(
+        deployReceipt.logs.find((log: any) => {
+          try {
+            return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
+          } catch {
+            return false;
+          }
+        })
+      );
+      const applicationId: bigint = parsed.args.applicationId;
+      const requestId: string = parsed.args.requestId;
+
+      await processorEndpoint
+        .connect(signers[1])
+        .stateUpdate(
+          applicationId,
+          BYTES32_ZERO,
+          INITIAL_STATE_ROOT,
+          requestId,
+          { events: [], subTypes: [] },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
+
+      expect(await processorEndpoint.triggerContracts(applicationId)).to.equal(ethers.ZeroAddress);
     });
   });
 });

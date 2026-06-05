@@ -270,6 +270,21 @@ interface IProcessorEndpoint {
     bytes calldata payload
   ) external payable returns (bytes32);
 
+  /// @notice Submits a new deploy request and enqueues it for processing,
+  ///         optionally registering a trigger contract for the new application.
+  ///         Unlike the legacy 32-byte-payload registration, this lets the
+  ///         deploy carry a full descriptor payload AND a trigger address.
+  /// @param protocolVersion Protocol version.
+  /// @param payload Request payload (e.g. the WASM deploy descriptor).
+  /// @param trigger Trigger contract to register for the deployed app, or
+  ///        address(0) for no trigger (equivalent to the 2-arg overload).
+  /// @return requestId Generated request id.
+  function submitDeployRequestWithTrigger(
+    uint8 protocolVersion,
+    bytes calldata payload,
+    address trigger
+  ) external payable returns (bytes32);
+
   /// @notice Enqueues a request (FIFO) on behalf of a registered trigger contract.
   ///         Only callable by a trigger contract registered in triggerContracts.
   ///         The applicationId is derived automatically from triggersToAppIds[msg.sender];

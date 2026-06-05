@@ -79,6 +79,11 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   mapping(uint64 => ITrigger) public triggerContracts;
   // Reverse mapping for the above to check if a trigger is valid when adding to the queue
   mapping(address => uint64) public triggersToAppIds;
+  // Optional trigger address supplied to the 3-arg submitDeployRequest overload,
+  // keyed by deploy requestId. Lets a deploy carry BOTH a WASM descriptor payload
+  // AND a trigger address; consumed (registered + cleared) in stateUpdate. The
+  // legacy 32-byte-payload registration path remains supported.
+  mapping(bytes32 => address) public deployTriggers;
   // FIFO queue populated by trigger contracts; served before the normal queue
   RequestQueue private _triggerQueue;
 
@@ -311,6 +316,30 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint8 protocolVersion,
     bytes calldata payload
   ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
+    return _submitDeployRequest(protocolVersion, payload);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function submitDeployRequestWithTrigger(
+    uint8 protocolVersion,
+    bytes calldata payload,
+    address trigger
+  ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
+    bytes32 requestId = _submitDeployRequest(protocolVersion, payload);
+    // Optional trigger registration that does NOT consume the payload, so the
+    // deploy can still carry a full WASM descriptor. address(0) means "no
+    // trigger" (identical to the 2-arg overload). The address is validated and
+    // registered when this deploy request is processed in stateUpdate.
+    if (trigger != address(0)) {
+      deployTriggers[requestId] = trigger;
+    }
+    return requestId;
+  }
+
+  function _submitDeployRequest(
+    uint8 protocolVersion,
+    bytes calldata payload
+  ) private returns (bytes32 requestId) {
     if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
     if (availableDeploySlots == 0) revert MaxNumOfApplicationsExceeded();
     //check queue size
@@ -321,7 +350,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
     Structs.RequestType requestType = Structs.RequestType.DEPLOYAPP;
     //create request
-    bytes32 requestId = generateRequestId(
+    requestId = generateRequestId(
       msg.sender,
       0, // deploy requests have applicationId 0, a unique applicationId will be derived from the requestId for each deploy request to avoid collisions with regular requests and to group deploy requests together
       requestType,
@@ -707,16 +736,18 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     applicationStateRoots[applicationId] = newStateRoot;
     if (reqType == Structs.RequestType.DEPLOYAPP) {
       _deployedAppIds.push(applicationId);
-      // optional trigger: payload must be exactly 32 bytes (ABI-encoded address)
-      if (requestInfo.payload.length == 32) {
-        address triggerContract = abi.decode(requestInfo.payload, (address));
-        if (triggerContract != address(0)) {
-          if (triggersToAppIds[triggerContract] != 0) revert TriggerAlreadyRegistered();
-          if (triggerContract.code.length == 0) revert TriggerCannotBeEOA();
+      // Trigger registration: ONLY from the explicit address supplied to
+      // submitDeployRequestWithTrigger (stored in deployTriggers). The trigger
+      // is NEVER inferred from the request payload — the payload carries the
+      // WASM deploy descriptor and must not be reinterpreted as an address.
+      address triggerContract = deployTriggers[processedRequestId];
+      if (triggerContract != address(0)) {
+        delete deployTriggers[processedRequestId];
+        if (triggersToAppIds[triggerContract] != 0) revert TriggerAlreadyRegistered();
+        if (triggerContract.code.length == 0) revert TriggerCannotBeEOA();
 
-          triggerContracts[applicationId] = ITrigger(triggerContract);
-          triggersToAppIds[triggerContract] = applicationId;
-        }
+        triggerContracts[applicationId] = ITrigger(triggerContract);
+        triggersToAppIds[triggerContract] = applicationId;
       }
     }
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
