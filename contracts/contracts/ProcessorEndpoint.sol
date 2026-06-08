@@ -618,7 +618,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       _markRequestCompleted(
         applicationId,
         processedRequestId,
-        minFeePerRequest,
+        fromTriggerQueue ? 0 : minFeePerRequest,
         Structs.RequestResult.FAILED,
         Structs.ErrorCode(errorCode),
         errorMsg,
@@ -925,7 +925,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     address sender,
     uint64 applicationId,
     Structs.RequestType requestType,
-    bytes calldata payload,
+    bytes memory payload,
     address tokenAddress,
     uint256 assetAmount,
     uint256 idx
@@ -1148,17 +1148,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     address trigger,
     bytes memory payload
   ) private {
-    // Same derivation as generateRequestId, but accepting a memory payload.
-    bytes32 requestId = keccak256(
-      abi.encode(
-        trigger,
-        applicationId,
-        Structs.RequestType.TRUSTPROCESS,
-        payload,
-        address(0),
-        uint256(0),
-        _triggerQueue.tail
-      )
+    bytes32 requestId = generateRequestId(
+      trigger,
+      applicationId,
+      Structs.RequestType.TRUSTPROCESS,
+      payload,
+      address(0),
+      0,
+      _triggerQueue.tail
     );
 
     _queueEnqueue(

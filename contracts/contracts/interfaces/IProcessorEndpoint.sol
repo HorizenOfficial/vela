@@ -384,7 +384,7 @@ interface IProcessorEndpoint {
     address sender,
     uint64 applicationId,
     Structs.RequestType requestType,
-    bytes calldata payload,
+    bytes memory payload,
     address tokenAddress,
     uint256 assetAmount,
     uint256 idx
