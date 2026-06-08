@@ -1134,9 +1134,9 @@
         "type": "uint8"
       },
       {
-        "internalType": "bytes",
-        "name": "payload",
-        "type": "bytes"
+        "internalType": "bytes32",
+        "name": "payloadHash",
+        "type": "bytes32"
       },
       {
         "internalType": "address",
