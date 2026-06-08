@@ -26,7 +26,7 @@ describe('ProcessorEndpoint Test', function () {
           sender,
           applicationId,
           requestType,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount,
           idx
@@ -36,7 +36,7 @@ describe('ProcessorEndpoint Test', function () {
           '0x0000000000000000000000000000000000000002',
           applicationId,
           requestType,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount,
           idx
@@ -45,7 +45,7 @@ describe('ProcessorEndpoint Test', function () {
           sender,
           applicationId + 1,
           requestType,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount,
           idx
@@ -54,16 +54,17 @@ describe('ProcessorEndpoint Test', function () {
           sender,
           applicationId,
           requestType + 1,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount,
           idx
         );
+        // Different payload -> different hash -> different id
         const diffPayload = await processorEndpoint.generateRequestId(
           sender,
           applicationId,
           requestType,
-          '0x1235',
+          keccak256('0x1235'),
           tokenAddress,
           assetAmount,
           idx
@@ -72,7 +73,7 @@ describe('ProcessorEndpoint Test', function () {
           sender,
           applicationId,
           requestType,
-          payload,
+          keccak256(payload),
           '0x0000000000000000000000000000000000000001',
           assetAmount,
           idx
@@ -81,7 +82,7 @@ describe('ProcessorEndpoint Test', function () {
           sender,
           applicationId,
           requestType,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount + 1n,
           idx
@@ -90,7 +91,7 @@ describe('ProcessorEndpoint Test', function () {
           sender,
           applicationId,
           requestType,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount,
           idx + 1
@@ -120,7 +121,7 @@ describe('ProcessorEndpoint Test', function () {
           sender,
           applicationId,
           requestType,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount,
           idx
@@ -129,7 +130,7 @@ describe('ProcessorEndpoint Test', function () {
           sender,
           applicationId,
           requestType,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount,
           idx
@@ -148,28 +149,31 @@ describe('ProcessorEndpoint Test', function () {
         const assetAmount = 0n;
         const idx = 0n;
 
-        // On-chain result
+        // On-chain result: passes keccak256(payload) as bytes32 payloadHash
         const onChainId = await processorEndpoint.generateRequestId(
           sender,
           applicationId,
           requestType,
-          payload,
+          keccak256(payload),
           tokenAddress,
           assetAmount,
           idx
         );
 
         // Off-chain replication: same field order/types as abi.encode in Solidity
-        // (address, uint64, uint8, bytes, address, uint256, uint256)
+        // (address, uint64, uint8, bytes32, address, uint256, uint256)
+        // NOTE: payloadHash = keccak256(payload) — the bytes32 slot carries the hash, not the raw bytes.
+        // This GOLDEN_HASH intentionally differs from the pre-payloadHash derivation (which used raw `bytes`).
         const abiCoder = AbiCoder.defaultAbiCoder();
         const encoded = abiCoder.encode(
-          ['address', 'uint64', 'uint8', 'bytes', 'address', 'uint256', 'uint256'],
-          [sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx]
+          ['address', 'uint64', 'uint8', 'bytes32', 'address', 'uint256', 'uint256'],
+          [sender, applicationId, requestType, keccak256(payload), tokenAddress, assetAmount, idx]
         );
         const offChainId = keccak256(encoded);
 
         // Golden pin: any future encoding change in generateRequestId will break this test.
-        // Pin computed from the inputs above; verified against on-chain output.
+        // Pin is keccak256(abi.encode(sender, applicationId, requestType, keccak256(payload),
+        //   tokenAddress, assetAmount, idx)) — intentionally changed from the bytes-payload derivation.
         const GOLDEN_HASH = offChainId; // computed deterministically from fixed inputs
 
         expect(onChainId).to.equal(offChainId);
