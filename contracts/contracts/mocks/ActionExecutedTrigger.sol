@@ -46,8 +46,8 @@ contract ActionExecutedTrigger is AbstractTrigger {
   /// Returns non-empty bytes so the ProcessorEndpoint enqueues a TRUSTPROCESS request.
   function getTrustProcessPayload(
     Structs.EventData calldata appEventData,
-    bool, /*executeSuccess*/
-    Structs.TokenAndAmount[] memory, /*returned*/
+    bool /*executeSuccess*/,
+    Structs.TokenAndAmount[] memory /*returned*/,
     Structs.TokenAndAmount[] memory /*failed*/
   ) public pure override returns (bytes memory) {
     // Guard: only produce a trusted payload when the AppEvent array is non-empty

@@ -18,7 +18,7 @@ async function deployFixture() {
   const factory = await ethers.getContractFactory('ActionExecutedTrigger');
   const trigger = await factory.deploy(
     '0x0000000000000000000000000000000000000001', // mock processorEndpoint (non-zero)
-    '0x0000000000000000000000000000000000000002', // mock tokenAllowlist (non-zero)
+    '0x0000000000000000000000000000000000000002' // mock tokenAllowlist (non-zero)
   );
   await trigger.waitForDeployment();
   return { trigger };
@@ -43,7 +43,7 @@ describe('ActionExecutedTrigger', () => {
     //   (bytes16 lockId, bytes transaction, (address token, uint256 amount)[] tokens)
     const appEventData = abiCoder.encode(
       ['bytes16', 'bytes', 'tuple(address token, uint256 amount)[]'],
-      [lockIdHex, transactionBytes, [{ token, amount }]],
+      [lockIdHex, transactionBytes, [{ token, amount }]]
     );
 
     // ---- Wrap in EventData struct and call getTrustProcessPayload -------------
@@ -58,26 +58,26 @@ describe('ActionExecutedTrigger', () => {
       eventData,
       true, // executeSuccess
       [], // returnedTokens
-      [], // failedTokens
+      [] // failedTokens
     );
 
     // ---- Decode and assert the returned ActionExecutedTrusted payload --------
     const [decodedLockId, decodedRemain, decodedOutcome] = abiCoder.decode(
       ['bytes16', 'tuple(address token, uint256 amount)[]', 'uint8'],
-      trustedPayload,
+      trustedPayload
     );
 
     // lockId must round-trip exactly.
     expect(decodedLockId.toLowerCase()).to.equal(
       lockIdHex.toLowerCase(),
-      'lockId must round-trip through ABI encode/decode',
+      'lockId must round-trip through ABI encode/decode'
     );
 
     // remain must equal the input tokens list (one entry: USDC/255).
     expect(decodedRemain.length).to.equal(1, 'remain must have exactly one token entry');
     expect(decodedRemain[0].token.toLowerCase()).to.equal(
       token.toLowerCase(),
-      'remain[0].token must match input token',
+      'remain[0].token must match input token'
     );
     expect(decodedRemain[0].amount).to.equal(amount, 'remain[0].amount must match input amount');
 
@@ -94,7 +94,7 @@ describe('ActionExecutedTrigger', () => {
     const amount = 100n;
     const appEventData = abiCoder.encode(
       ['bytes16', 'bytes', 'tuple(address token, uint256 amount)[]'],
-      [lockIdHex, '0x', [{ token, amount }]],
+      [lockIdHex, '0x', [{ token, amount }]]
     );
 
     const eventData = {
@@ -103,7 +103,10 @@ describe('ActionExecutedTrigger', () => {
     };
 
     const result: string = await trigger.getTrustProcessPayload(eventData, true, [], []);
-    expect(result).to.not.equal('0x', 'non-empty payload causes ProcessorEndpoint to enqueue TRUSTPROCESS');
+    expect(result).to.not.equal(
+      '0x',
+      'non-empty payload causes ProcessorEndpoint to enqueue TRUSTPROCESS'
+    );
     expect(result.length).to.be.greaterThan(2, 'returned bytes must be non-empty');
   });
 
@@ -116,7 +119,7 @@ describe('ActionExecutedTrigger', () => {
     const token = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
     const appEventData = abiCoder.encode(
       ['bytes16', 'bytes', 'tuple(address token, uint256 amount)[]'],
-      [lockIdHex, '0xaabb', [{ token, amount: 42n }]],
+      [lockIdHex, '0xaabb', [{ token, amount: 42n }]]
     );
     const eventData = {
       events: [appEventData],

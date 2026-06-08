@@ -845,8 +845,7 @@ describe('ProcessorEndpoint Test', function () {
     // next PROCESS stateUpdate enqueues a TRUSTPROCESS onto the trigger queue.
     async function bootstrapWithTrigger(trustedPayload: string) {
       const fixture = await deployProcessorEndpointFixture();
-      const { processorEndpoint: pe, tokenAllowlist: tl } =
-        await fixture.deployProcessorEndpoint();
+      const { processorEndpoint: pe, tokenAllowlist: tl } = await fixture.deployProcessorEndpoint();
       tokenAllowlistForTrigger = tl;
 
       const TestTrigger = await ethers.getContractFactory('TestTrigger');
@@ -854,7 +853,7 @@ describe('ProcessorEndpoint Test', function () {
         await pe.getAddress(),
         await tl.getAddress(),
         false, // revertOnExecute
-        false  // revertOnPostWithdraw
+        false // revertOnPostWithdraw
       );
 
       const descriptorPayload = '0x' + 'ab'.repeat(40);
@@ -876,20 +875,22 @@ describe('ProcessorEndpoint Test', function () {
       const deployRequestId: string = parsed.args.requestId;
 
       // Complete the DEPLOYAPP request
-      await pe.connect(fixture.signers[1]).stateUpdate(
-        appId,
-        BYTES32_ZERO,
-        INITIAL_STATE_ROOT,
-        deployRequestId,
-        { events: [], subTypes: [] },
-        { events: [], subTypes: [] },
-        [],
-        0,
-        fixture.minFeePerRequest,
-        0,
-        '',
-        '0x'
-      );
+      await pe
+        .connect(fixture.signers[1])
+        .stateUpdate(
+          appId,
+          BYTES32_ZERO,
+          INITIAL_STATE_ROOT,
+          deployRequestId,
+          { events: [], subTypes: [] },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          fixture.minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
 
       // Set the trusted payload on the mock trigger
       await (await mockTrigger.setTrustedPayload(trustedPayload)).wait();
@@ -912,28 +913,40 @@ describe('ProcessorEndpoint Test', function () {
       const processRequestId = getRequestIdFromReceipt(pe, submitReceipt);
 
       const currentRoot = await pe.applicationStateRoots(appId);
-      await pe.connect(fixture.signers[1]).stateUpdate(
-        appId,
-        currentRoot,
-        '0x' + '33'.repeat(32),
-        processRequestId,
-        { events: [], subTypes: [] },
-        { events: [], subTypes: [] },
-        [],
-        0,
-        fixture.minFeePerRequest,
-        0,
-        '',
-        '0x'
-      );
+      await pe
+        .connect(fixture.signers[1])
+        .stateUpdate(
+          appId,
+          currentRoot,
+          '0x' + '33'.repeat(32),
+          processRequestId,
+          { events: [], subTypes: [] },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          fixture.minFeePerRequest,
+          0,
+          '',
+          '0x'
+        );
 
       // The TRUSTPROCESS is now head of the trigger queue
-      return { pe, appId, mockTrigger, signers: fixture.signers, minFeePerRequest: fixture.minFeePerRequest };
+      return {
+        pe,
+        appId,
+        mockTrigger,
+        signers: fixture.signers,
+        minFeePerRequest: fixture.minFeePerRequest,
+      };
     }
 
     it('4a: TRUSTPROCESS error path does NOT credit minFeePerRequest to feeCollector', async () => {
-      const { pe, appId, signers: s, minFeePerRequest: minFee } =
-        await bootstrapWithTrigger('0xdeadbeef');
+      const {
+        pe,
+        appId,
+        signers: s,
+        minFeePerRequest: minFee,
+      } = await bootstrapWithTrigger('0xdeadbeef');
 
       const feeCollectorAddr = await pe.feeCollector();
       const pendingBefore = await pe.pendingClaims(ETH_TOKEN, feeCollectorAddr);
@@ -955,7 +968,7 @@ describe('ProcessorEndpoint Test', function () {
         [],
         0,
         0,
-        1,    // non-NO_ERROR errorCode
+        1, // non-NO_ERROR errorCode
         'err',
         '0x'
       );
