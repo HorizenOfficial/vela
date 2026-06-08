@@ -375,7 +375,7 @@ interface IProcessorEndpoint {
   /// @param sender Sender address.
   /// @param applicationId Application identifier.
   /// @param requestType Request type.
-  /// @param payload Request payload.
+  /// @param payloadHash keccak256 of the request payload.
   /// @param tokenAddress Token address (0x0 = ETH).
   /// @param assetAmount Business asset amount.
   /// @param idx Queue index.
@@ -384,7 +384,7 @@ interface IProcessorEndpoint {
     address sender,
     uint64 applicationId,
     Structs.RequestType requestType,
-    bytes memory payload,
+    bytes32 payloadHash,
     address tokenAddress,
     uint256 assetAmount,
     uint256 idx

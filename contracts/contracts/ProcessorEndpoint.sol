@@ -359,7 +359,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       msg.sender,
       0, // deploy requests have applicationId 0, a unique applicationId will be derived from the requestId for each deploy request to avoid collisions with regular requests and to group deploy requests together
       requestType,
-      payload,
+      keccak256(payload),
       ETH_TOKEN,
       0,
       _requestQueue.tail
@@ -413,7 +413,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       sender,
       applicationId,
       requestType,
-      payload,
+      keccak256(payload),
       tokenAddress,
       assetAmount,
       _requestQueue.tail
@@ -925,14 +925,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     address sender,
     uint64 applicationId,
     Structs.RequestType requestType,
-    bytes memory payload,
+    bytes32 payloadHash,
     address tokenAddress,
     uint256 assetAmount,
     uint256 idx
   ) public pure returns (bytes32) {
     return
       keccak256(
-        abi.encode(sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx)
+        abi.encode(sender, applicationId, requestType, payloadHash, tokenAddress, assetAmount, idx)
       );
   }
 
@@ -1152,7 +1152,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       trigger,
       applicationId,
       Structs.RequestType.TRUSTPROCESS,
-      payload,
+      keccak256(payload),
       address(0),
       0,
       _triggerQueue.tail
