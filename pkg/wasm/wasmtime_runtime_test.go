@@ -1,18 +1,92 @@
 package wasm
 
 import (
+	"context"
 	"encoding/binary"
 	"math"
 	"os"
 	"testing"
 
-	"github.com/bytecodealliance/wasmtime-go"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
+	"github.com/bytecodealliance/wasmtime-go"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// dispatchTestWat is a minimal WAT module used by TestProcessRequest_DispatchesByRequestType.
+//
+// Memory layout (all offsets within one 64 KiB page):
+//
+//	[100..173] process_request result: 4-byte LE length (70) + JSON {"state":[1],...}
+//	[200..273] trusted_request result: 4-byte LE length (70) + JSON {"state":[2],...}
+//	[300..328] load_module result:     4-byte LE length (25) + JSON {"state":[],"fuel":"0x1"}
+//	[500..~  ] scratch area for allocate — the host writes payload/state here; the
+//	           WASM functions ignore all input params and return the fixed offsets above.
+//
+// Signatures:
+//
+//	process_request (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+//	  (appId, senderPtr, senderLen, requestType, payloadPtr, payloadLen, statePtr, stateLen)
+//	trusted_request (param i64 i32 i32 i32 i32) (result i32)
+//	  (appId, payloadPtr, payloadLen, statePtr, stateLen)
+//	load_module (param i64) (result i32)       — called by getOrLoadModule on first load
+//	allocate    (param i32) (result i32)       — always returns scratch offset 500
+//	deallocate  (param i32 i32)                — no-op
+const dispatchTestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100:
+  ;;   4-byte LE length = 70 (0x46) followed by JSON {"state":[1],"events":[],"appEvents":[],"withdrawals":[],"fuel":"0x1"}
+  (data (i32.const 100)
+    "\46\00\00\00"
+    "\7b\22\73\74\61\74\65\22\3a\5b\31\5d\2c\22\65\76\65\6e\74\73\22\3a\5b\5d\2c"
+    "\22\61\70\70\45\76\65\6e\74\73\22\3a\5b\5d\2c\22\77\69\74\68\64\72\61\77\61"
+    "\6c\73\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
+  )
+
+  ;; trusted_request result at offset 200:
+  ;;   4-byte LE length = 70 (0x46) followed by JSON {"state":[2],"events":[],"appEvents":[],"withdrawals":[],"fuel":"0x1"}
+  (data (i32.const 200)
+    "\46\00\00\00"
+    "\7b\22\73\74\61\74\65\22\3a\5b\32\5d\2c\22\65\76\65\6e\74\73\22\3a\5b\5d\2c"
+    "\22\61\70\70\45\76\65\6e\74\73\22\3a\5b\5d\2c\22\77\69\74\68\64\72\61\77\61"
+    "\6c\73\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
+  )
+
+  ;; load_module result at offset 300:
+  ;;   4-byte LE length = 25 (0x19) followed by JSON {"state":[],"fuel":"0x1"}
+  (data (i32.const 300)
+    "\19\00\00\00"
+    "\7b\22\73\74\61\74\65\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
+  )
+
+  ;; load_module: called by getOrLoadModule during module warm-up; returns fixed offset 300
+  (func (export "load_module") (param i64) (result i32)
+    i32.const 300
+  )
+
+  ;; allocate: always returns scratch offset 500 (host writes payload/state here)
+  (func (export "allocate") (param i32) (result i32)
+    i32.const 500
+  )
+
+  ;; deallocate: no-op
+  (func (export "deallocate") (param i32 i32)
+  )
+
+  ;; process_request: 8-arg ABI — ignores all params, returns fixed offset 100
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100
+  )
+
+  ;; trusted_request: 5-arg ABI (no sender, no request_type) — returns fixed offset 200
+  (func (export "trusted_request") (param i64 i32 i32 i32 i32) (result i32)
+    i32.const 200
+  )
+)`
 
 var testLogger logger.Logger
 
@@ -346,4 +420,35 @@ func TestLRUEviction_UnloadRemovesFromAccessOrder(t *testing.T) {
 	require.Equal(t, 1, runtime.accessOrder.Len())
 	_, hasApp1 := runtime.accessElements[app1]
 	require.False(t, hasApp1)
+}
+
+// TestProcessRequest_DispatchesByRequestType asserts the TrustProcess/Process dispatch split
+// introduced in Phase 11.1:
+//   - TrustProcess → trusted_request export (state discriminator byte == 2)
+//   - Process       → process_request export (state discriminator byte == 1)
+//
+// It compiles a real two-export WASM module from WAT (dispatchTestWat) where each export
+// returns a different pre-seeded result buffer so we can distinguish which was called.
+func TestProcessRequest_DispatchesByRequestType(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(dispatchTestWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+	payload := []byte("{}")
+	state := []byte("{}")
+
+	// TrustProcess -> trusted_request (state discriminator byte == 2)
+	trustedState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.TrustProcess, payload, state, wasmBytes)
+	require.Nil(t, failure, "TrustProcess must succeed via trusted_request")
+	require.Equal(t, []byte{2}, trustedState, "TrustProcess must dispatch to trusted_request (state=[2])")
+
+	// Process -> process_request (state discriminator byte == 1)
+	// Same appId is fine — the cached module exports both functions.
+	procState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
+	require.Nil(t, failure, "Process must succeed via process_request")
+	require.Equal(t, []byte{1}, procState, "Process must dispatch to process_request (state=[1])")
 }
