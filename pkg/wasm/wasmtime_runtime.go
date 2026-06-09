@@ -17,12 +17,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bytecodealliance/wasmtime-go"
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
+	"github.com/bytecodealliance/wasmtime-go"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // Address is a local definition of a 20-byte address.
@@ -65,9 +65,9 @@ type WasmtimeRuntime struct {
 	modules          map[common.ApplicationIdType]*ApplicationModule // Map of application ID to module
 	moduleLock       sync.RWMutex                                    // Lock for module access
 	log              logger.Logger
-	maxCachedModules int                                              // 0 = unlimited
-	accessOrder      *list.List                                       // LRU order: front = most recent, back = least recent
-	accessElements   map[common.ApplicationIdType]*list.Element       // O(1) lookup into accessOrder
+	maxCachedModules int                                        // 0 = unlimited
+	accessOrder      *list.List                                 // LRU order: front = most recent, back = least recent
+	accessElements   map[common.ApplicationIdType]*list.Element // O(1) lookup into accessOrder
 }
 
 // NewWasmtimeRuntime creates a new wasmtime runtime instance.
@@ -613,6 +613,56 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, fmt.Sprintf("failed to get or load module: %v", err))
+	}
+
+	// TRUSTPROCESS dispatch (Phase 11.1): TrustProcess requests are routed to the
+	// dedicated `trusted_request` WASM export, which takes NEITHER sender (the
+	// trusted path never reads it) NOR request_type (implicit for this export).
+	// All other request types fall through to `process_request` below, unchanged.
+	if requestType == common.TrustProcess {
+		trustedFunc := appModule.instance.GetFunc(appModule.store, "trusted_request")
+		if trustedFunc == nil {
+			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFunctionNotFound, "trusted_request function not found in WASM module")
+		}
+
+		// No sender write (D-05). Only payload + state are passed to the guest.
+		payloadPtr, err := r.writeToMemory(appModule, payload)
+		if err != nil {
+			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write payload to memory: %v", err))
+		}
+		if appModule.deallocate != nil && payloadPtr != 0 {
+			defer func() { _, _ = appModule.deallocate.Call(appModule.store, payloadPtr, int32(len(payload))) }()
+		}
+
+		statePtr, err := r.writeToMemory(appModule, state)
+		if err != nil {
+			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
+		}
+		if appModule.deallocate != nil && statePtr != 0 {
+			defer func() { _, _ = appModule.deallocate.Call(appModule.store, statePtr, int32(len(state))) }()
+		}
+
+		// Guest ABI: trusted_request(appId, payloadPtr, payloadLen, statePtr, stateLen)
+		result, err := trustedFunc.Call(appModule.store, wasmAppId, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
+		if err != nil {
+			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call trusted_request: %v", err))
+		}
+
+		resultBytes, err := r.extractResultBytes(result, appModule)
+		if err != nil {
+			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
+		}
+
+		var processResult appCommon.ProcessResult
+		if err := json.Unmarshal(resultBytes, &processResult); err != nil {
+			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal process result: %v", err))
+		}
+		if processResult.Error != "" {
+			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to process request: %s", processResult.Error))
+		}
+
+		r.log.Info("Wasmtime Runtime: Successfully processed TrustProcess request for application %d via trusted_request, generated %d events and %d withdrawals", appId, len(processResult.Events), len(processResult.Withdrawals))
+		return processResult.State, processResult.Events, processResult.AppEvents, processResult.Withdrawals, processResult.Report, processResult.Fuel.ToInt(), nil
 	}
 
 	// Get the process_request function
