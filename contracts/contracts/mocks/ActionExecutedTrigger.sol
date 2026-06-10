@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import '../interfaces/IProcessorEndpoint.sol';
-import '../interfaces/ITokenAllowlist.sol';
 import '../Structs.sol';
 import '../trigger/AbstractTrigger.sol';
 
@@ -22,11 +21,7 @@ import '../trigger/AbstractTrigger.sol';
 /// This is a test/mock trigger; a production trigger would inspect on-chain results.
 contract ActionExecutedTrigger is AbstractTrigger {
   /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw.
-  /// @param _tokenAllowlist Allowlist used to determine which ERC-20 tokens are swept on withdraw.
-  constructor(
-    IProcessorEndpoint _processorEndpoint,
-    ITokenAllowlist _tokenAllowlist
-  ) AbstractTrigger(_processorEndpoint, _tokenAllowlist) {}
+  constructor(IProcessorEndpoint _processorEndpoint) AbstractTrigger(_processorEndpoint) {}
 
   /// @notice No-op execute hook; all logic lives in getTrustProcessPayload.
   function _execute(Structs.EventData calldata) internal override {}
@@ -44,12 +39,13 @@ contract ActionExecutedTrigger is AbstractTrigger {
   /// (address token, uint256 amount), so it decodes/encodes the WASM token list directly.
   ///
   /// Returns non-empty bytes so the ProcessorEndpoint enqueues a TRUSTPROCESS request.
-  function getTrustProcessPayload(
+  function _getTrustProcessPayload(
     Structs.EventData calldata appEventData,
     bool /*executeSuccess*/,
-    Structs.TokenAndAmount[] memory /*returned*/,
-    Structs.TokenAndAmount[] memory /*failed*/
-  ) public pure override returns (bytes memory) {
+    bool /*withdrawSuccess*/,
+    Structs.TokenAndAmount[] calldata /*returned*/,
+    Structs.TokenAndAmount[] calldata /*failed*/
+  ) internal pure override returns (bytes memory) {
     // Guard: only produce a trusted payload when the AppEvent array is non-empty
     // (TRUSTPROCESS stateUpdates have no AppEvents and must not trigger again).
     if (appEventData.events.length == 0) {

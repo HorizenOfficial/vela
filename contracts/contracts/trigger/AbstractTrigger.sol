@@ -25,14 +25,15 @@ abstract contract AbstractTrigger is ITrigger {
 
   receive() external payable {}
 
-  /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw.
-  /// @param _tokenAllowlist Allowlist used to determine which ERC-20 tokens are swept on withdraw.
-  constructor(IProcessorEndpoint _processorEndpoint, ITokenAllowlist _tokenAllowlist) {
-    if (address(_processorEndpoint) == address(0) || address(_tokenAllowlist) == address(0)) {
+  /// @param _processorEndpoint ProcessorEndpoint that will call execute and withdraw. Its
+  ///        tokenAllowlist() is read to determine which ERC-20 tokens are swept on withdraw,
+  ///        so the allowlist can never be misconfigured independently of the endpoint.
+  constructor(IProcessorEndpoint _processorEndpoint) {
+    if (address(_processorEndpoint) == address(0)) {
       revert ZeroAddress();
     }
     processorEndpoint = _processorEndpoint;
-    tokenAllowlist = _tokenAllowlist;
+    tokenAllowlist = _processorEndpoint.tokenAllowlist();
   }
 
   /// @notice Called by the ProcessorEndpoint when a request is completed.
@@ -45,18 +46,14 @@ abstract contract AbstractTrigger is ITrigger {
 
   /// @notice Sweeps all allowlisted ERC-20 tokens and ETH held by this contract to the
   ///         ProcessorEndpoint. Can only be called by the ProcessorEndpoint.
-  ///         Cannot be overridden; custom post-sweep logic belongs in getTrustProcessPayload.
-  ///         Returns false (without reverting) if getTrustProcessPayload reverts.
-  /// @param appEventData Application-level (non-encrypted) events and their subtypes.
-  /// @param executeSuccess True if the execute call succeeded, false if it reverted.
-  /// @return success True if getTrustProcessPayload executed successfully, false if it reverted.
-  function withdraw(
-    Structs.EventData calldata appEventData,
-    bool executeSuccess
-  )
+  ///         Performs ONLY the sweep and cannot be overridden; producing the optional
+  ///         trusted follow-up payload is a separate, explicit step (getTrustProcessPayload).
+  /// @return returnedTokens Array of tokens transferred in the sweep, with amounts (ETH last).
+  /// @return failedTokens Array of tokens that failed to transfer, with amounts.
+  function withdraw()
     public
     _onlyProcessorEndpoint
-    returns (bool, Structs.TokenAndAmount[] memory, Structs.TokenAndAmount[] memory, bytes memory)
+    returns (Structs.TokenAndAmount[] memory, Structs.TokenAndAmount[] memory)
   {
     address[] memory tokens = tokenAllowlist.getAllowedTokens();
     uint256 length = tokens.length;
@@ -109,14 +106,28 @@ abstract contract AbstractTrigger is ITrigger {
       mstore(failed, insertIntoFailed)
     }
 
-    // try post withdraw hook, return false (and no trusted payload) if it reverts
-    try this.getTrustProcessPayload(appEventData, executeSuccess, returned, failed) returns (
-      bytes memory trustedPayload
-    ) {
-      return (true, returned, failed, trustedPayload);
-    } catch {
-      return (false, returned, failed, '');
-    }
+    return (returned, failed);
+  }
+
+  /// @notice Produces the optional trusted follow-up payload. Restricted to the ProcessorEndpoint,
+  ///         which calls it explicitly after withdraw inside its own try/catch. Delegates to the
+  ///         overridable _getTrustProcessPayload hook (mirrors the execute/_execute pattern).
+  /// @inheritdoc ITrigger
+  function getTrustProcessPayload(
+    Structs.EventData calldata appEventData,
+    bool executeSuccess,
+    bool withdrawSuccess,
+    Structs.TokenAndAmount[] calldata returnedTokens,
+    Structs.TokenAndAmount[] calldata failedTokens
+  ) external _onlyProcessorEndpoint returns (bytes memory) {
+    return
+      _getTrustProcessPayload(
+        appEventData,
+        executeSuccess,
+        withdrawSuccess,
+        returnedTokens,
+        failedTokens
+      );
   }
 
   /// @notice Override to implement custom execute behavior.
@@ -124,18 +135,22 @@ abstract contract AbstractTrigger is ITrigger {
   /// @param appEventData Application-level (non-encrypted) events and their subtypes.
   function _execute(Structs.EventData calldata appEventData) internal virtual;
 
-  /// @notice Override to add logic that runs after the default withdraw sweep.
-  ///         Called at the end of withdraw, after all tokens and ETH have been transferred.
+  /// @notice Override to produce the optional trusted (TRUSTPROCESS) follow-up payload.
+  ///         Called by the ProcessorEndpoint after execute and withdraw, in an isolated
+  ///         try/catch, even when withdraw failed — so the application can react to a failed
+  ///         sweep (damage control) by returning an appropriate payload.
   /// @param appEventData Application-level (non-encrypted) events and their subtypes.
   /// @param executeSuccess True if the execute call succeeded, false if it reverted.
+  /// @param withdrawSuccess True if the withdraw sweep succeeded, false if it reverted.
   /// @param returnedTokens Array of tokens actually transferred in the sweep, with amounts.
   /// @param failedTokens Array of tokens that failed to transfer.
   /// @return trustedPayload Optional payload; when non-empty the ProcessorEndpoint enqueues
   ///         a trusted (TRUSTPROCESS) request with it. Return "" to enqueue nothing.
-  function getTrustProcessPayload(
+  function _getTrustProcessPayload(
     Structs.EventData calldata appEventData,
     bool executeSuccess,
-    Structs.TokenAndAmount[] memory returnedTokens,
-    Structs.TokenAndAmount[] memory failedTokens
-  ) public virtual returns (bytes memory trustedPayload);
+    bool withdrawSuccess,
+    Structs.TokenAndAmount[] calldata returnedTokens,
+    Structs.TokenAndAmount[] calldata failedTokens
+  ) internal virtual returns (bytes memory trustedPayload);
 }

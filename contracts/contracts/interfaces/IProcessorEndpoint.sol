@@ -270,8 +270,9 @@ interface IProcessorEndpoint {
 
   /// @notice Submits a new deploy request and enqueues it for processing,
   ///         optionally registering a trigger contract for the new application.
-  ///         Unlike the legacy 32-byte-payload registration, this lets the
-  ///         deploy carry a full descriptor payload AND a trigger address.
+  ///         The trigger is supplied as an explicit argument and is never inferred
+  ///         from the payload, so the deploy payload can still carry a full WASM
+  ///         descriptor (and any constructor params) alongside the trigger address.
   /// @param protocolVersion Protocol version.
   /// @param payload Request payload (e.g. the WASM deploy descriptor).
   /// @param trigger Trigger contract to register for the deployed app, or
@@ -290,6 +291,10 @@ interface IProcessorEndpoint {
   /// @notice Returns the number of requests currently in the trigger queue.
   /// @return size Current trigger request count.
   function getTriggerQueueSize() external view returns (uint256);
+
+  /// @notice Returns the list of requests currently in the trigger queue, in order.
+  /// @return requests Array of trigger-queue requests.
+  function getTriggerRequests() external view returns (Structs.PendingRequest[] memory);
 
   /// @notice Returns the list of pending requests in order.
   /// @return requests Array of pending requests.

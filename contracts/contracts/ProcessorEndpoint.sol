@@ -79,11 +79,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   mapping(uint64 => ITrigger) public triggerContracts;
   // Reverse mapping for the above to check if a trigger is valid when adding to the queue
   mapping(address => uint64) public triggersToAppIds;
-  // Optional trigger address supplied to the 3-arg submitDeployRequest overload,
-  // keyed by deploy requestId. Lets a deploy carry BOTH a WASM descriptor payload
-  // AND a trigger address; consumed (registered + cleared) in stateUpdate. The
-  // legacy 32-byte-payload registration path remains supported.
-  mapping(bytes32 => address) public deployTriggers;
   // FIFO queue populated by trigger contracts; served before the normal queue
   RequestQueue private _triggerQueue;
 
@@ -333,10 +328,17 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     bytes32 requestId = _submitDeployRequest(protocolVersion, payload);
     // Optional trigger registration that does NOT consume the payload, so the
     // deploy can still carry a full WASM descriptor. address(0) means "no
-    // trigger" (identical to the 2-arg overload). The address is validated and
-    // registered when this deploy request is processed in stateUpdate.
+    // trigger" (identical to the 2-arg overload). The trigger is validated and
+    // registered eagerly here so that an invalid/duplicate trigger reverts the
+    // submit (instead of failing later inside stateUpdate). If the deploy then
+    // fails on-chain, the registration is rolled back in stateUpdate.
     if (trigger != address(0)) {
-      deployTriggers[requestId] = trigger;
+      if (triggersToAppIds[trigger] != 0) revert TriggerAlreadyRegistered();
+      if (trigger.code.length == 0) revert TriggerCannotBeEOA();
+
+      uint64 applicationId = uint64(bytes8(requestId));
+      triggerContracts[applicationId] = ITrigger(trigger);
+      triggersToAppIds[trigger] = applicationId;
     }
     return requestId;
   }
@@ -441,7 +443,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   function _removeRequest(bytes32 requestId) private {
-    if (_queueSize(_triggerQueue) > 0 && _queueIsHead(_triggerQueue, requestId)) {
+    // _queueIsHead already returns false for an empty queue (tail > head check),
+    // so no separate size guard is needed here.
+    if (_queueIsHead(_triggerQueue, requestId)) {
       _queueDequeueHead(_triggerQueue);
     } else {
       _queueDequeueHead(_requestQueue);
@@ -483,6 +487,11 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   /// @inheritdoc IProcessorEndpoint
   function getTriggerQueueSize() public view returns (uint256) {
     return _queueSize(_triggerQueue);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function getTriggerRequests() external view returns (Structs.PendingRequest[] memory) {
+    return _queueGetAll(_triggerQueue);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -613,6 +622,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         unchecked {
           ++availableDeploySlots;
         }
+        // Deploy failed: roll back the trigger that was registered eagerly at
+        // submit time so the trigger address can be reused by a future deploy.
+        _clearTrigger(applicationId);
       }
 
       _markRequestCompleted(
@@ -744,19 +756,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     applicationStateRoots[applicationId] = newStateRoot;
     if (reqType == Structs.RequestType.DEPLOYAPP) {
       _deployedAppIds.push(applicationId);
-      // Trigger registration: ONLY from the explicit address supplied to
-      // submitDeployRequestWithTrigger (stored in deployTriggers). The trigger
-      // is NEVER inferred from the request payload — the payload carries the
-      // WASM deploy descriptor and must not be reinterpreted as an address.
-      address triggerContract = deployTriggers[processedRequestId];
-      if (triggerContract != address(0)) {
-        delete deployTriggers[processedRequestId];
-        if (triggersToAppIds[triggerContract] != 0) revert TriggerAlreadyRegistered();
-        if (triggerContract.code.length == 0) revert TriggerCannotBeEOA();
-
-        triggerContracts[applicationId] = ITrigger(triggerContract);
-        triggersToAppIds[triggerContract] = applicationId;
-      }
+      // The trigger (if any) was already validated and registered eagerly in
+      // submitDeployRequestWithTrigger, so a successful deploy needs no further
+      // trigger bookkeeping here.
     }
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
@@ -772,7 +774,11 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     address trigger = address(triggerContracts[applicationId]);
     address[] memory claimableTemp = new address[](withdrawalsLength);
     while (i < withdrawalsLength) {
-      if (withdrawalRequests[i].receiver == trigger) {
+      // Only classify a withdrawal as "claimable by the trigger" when a trigger is actually
+      // registered. Without this guard, trigger == address(0) would match withdrawals sent to
+      // the zero address and route them into the trigger-claim path. A user mistakenly
+      // withdrawing to address(0) is their own problem, but it must never be handed to a trigger.
+      if (trigger != address(0) && withdrawalRequests[i].receiver == trigger) {
         claimableTemp[insertIntoClaimable] = withdrawalRequests[i].tokenAddress;
         unchecked {
           ++insertIntoClaimable;
@@ -974,6 +980,10 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         unchecked {
           ++freedDeploySlots;
         }
+        // A pending deploy may have registered a trigger eagerly at submit time. Since the
+        // deploy is being discarded (and its derived appId never appears in _deployedAppIds),
+        // clear the registration here so the trigger address can be reused.
+        _clearTrigger(req.applicationId);
       }
       if (req.assetAmount > 0) {
         _subtractToCustody(req.applicationId, req.tokenAddress, req.assetAmount);
@@ -991,10 +1001,34 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     // than restarting from zero (avoids any risk of re-using a slot index still in storage).
     _requestQueue.tail = _requestQueue.head;
 
+    // Drain the trigger queue too: pending TRUSTPROCESS requests reference apps that may be
+    // reset, and must not survive a reset. They carry no funds (assetAmount/maxFeeValue == 0),
+    // so clearing their storage is sufficient — no refunds needed.
+    uint256 ti = _triggerQueue.head;
+    uint256 triggerTail = _triggerQueue.tail;
+    while (ti != triggerTail) {
+      delete _triggerQueue.requestById[_triggerQueue.idByOrder[ti]];
+      delete _triggerQueue.idByOrder[ti];
+      unchecked {
+        ++ti;
+      }
+    }
+    _triggerQueue.tail = _triggerQueue.head;
+
     // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
     // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
     unchecked {
       availableDeploySlots += freedDeploySlots;
+    }
+  }
+
+  /// @dev Removes any trigger registration for the given application (both the forward and
+  ///      reverse mappings). No-op when no trigger is registered.
+  function _clearTrigger(uint64 applicationId) private {
+    ITrigger trigger = triggerContracts[applicationId];
+    if (address(trigger) != address(0)) {
+      delete triggersToAppIds[address(trigger)];
+      delete triggerContracts[applicationId];
     }
   }
 
@@ -1052,6 +1086,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         }
       }
 
+      // Clear any trigger registered for this app so its address can be reused after reset.
+      _clearTrigger(appId);
+
       unchecked {
         ++i;
       }
@@ -1089,22 +1126,16 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     }
     emit TriggerExecuted(applicationId, processedRequestId, executeSuccess);
 
-    //invoke withdraw
-    bool postWithdrawSuccess;
+    //invoke withdraw (sweep only)
     Structs.TokenAndAmount[] memory returnedTokens;
     Structs.TokenAndAmount[] memory failedTokens;
-    bytes memory trustedPayload;
     bool withdrawSuccess = true;
-    try trigger.withdraw(appEventData, executeSuccess) returns (
-      bool _postWithdrawSuccess,
+    try trigger.withdraw() returns (
       Structs.TokenAndAmount[] memory _returnedTokens,
-      Structs.TokenAndAmount[] memory _failedTokens,
-      bytes memory _trustedPayload
+      Structs.TokenAndAmount[] memory _failedTokens
     ) {
-      postWithdrawSuccess = _postWithdrawSuccess;
       returnedTokens = _returnedTokens;
       failedTokens = _failedTokens;
-      trustedPayload = _trustedPayload;
     } catch {
       withdrawSuccess = false;
     }
@@ -1118,6 +1149,26 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         ++ti;
       }
     }
+
+    // Explicit, isolated trusted-payload step, decoupled from the sweep: getTrustProcessPayload
+    // is called here in its own try/catch (a revert cannot block stateUpdate). It runs even when
+    // withdraw failed, so the application can react to a failed sweep (damage control).
+    bytes memory trustedPayload;
+    bool postWithdrawSuccess = true;
+    try
+      trigger.getTrustProcessPayload(
+        appEventData,
+        executeSuccess,
+        withdrawSuccess,
+        returnedTokens,
+        failedTokens
+      )
+    returns (bytes memory _trustedPayload) {
+      trustedPayload = _trustedPayload;
+    } catch {
+      postWithdrawSuccess = false;
+    }
+
     emit TriggerWithdraw(
       applicationId,
       processedRequestId,
@@ -1128,8 +1179,8 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     );
 
     // stateUpdate is the ONLY place a trusted (TRUSTPROCESS) request can be
-    // created. If the trigger's getTrustProcessPayload returned a non-empty payload,
-    // enqueue it into the trigger queue.
+    // created. If getTrustProcessPayload returned a non-empty payload, enqueue it
+    // into the trigger queue.
     if (trustedPayload.length > 0) {
       _enqueueTrustedRequest(applicationId, address(trigger), trustedPayload);
     }

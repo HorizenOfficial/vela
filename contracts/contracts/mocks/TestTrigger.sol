@@ -29,10 +29,9 @@ contract TestTrigger is AbstractTrigger {
 
   constructor(
     IProcessorEndpoint _processorEndpoint,
-    ITokenAllowlist _tokenAllowlist,
     bool _revertOnExecute,
     bool _revertOnPostWithdraw
-  ) AbstractTrigger(_processorEndpoint, _tokenAllowlist) {
+  ) AbstractTrigger(_processorEndpoint) {
     revertOnExecute = _revertOnExecute;
     revertOnPostWithdraw = _revertOnPostWithdraw;
   }
@@ -52,12 +51,13 @@ contract TestTrigger is AbstractTrigger {
     executedInBlock[block.number] = true;
   }
 
-  function getTrustProcessPayload(
+  function _getTrustProcessPayload(
     Structs.EventData calldata,
     bool,
-    Structs.TokenAndAmount[] memory,
-    Structs.TokenAndAmount[] memory
-  ) public override returns (bytes memory) {
+    bool,
+    Structs.TokenAndAmount[] calldata,
+    Structs.TokenAndAmount[] calldata
+  ) internal override returns (bytes memory) {
     if (revertOnPostWithdraw) revert PostWithdrawReverted();
     executedPostWithdrawsInBlock[block.number] = true;
     return trustedPayload;
