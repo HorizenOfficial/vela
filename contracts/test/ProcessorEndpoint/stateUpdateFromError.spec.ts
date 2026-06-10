@@ -851,7 +851,6 @@ describe('ProcessorEndpoint Test', function () {
       const TestTrigger = await ethers.getContractFactory('TestTrigger');
       const mockTrigger: any = await TestTrigger.deploy(
         await pe.getAddress(),
-        await tl.getAddress(),
         false, // revertOnExecute
         false // revertOnPostWithdraw
       );

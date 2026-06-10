@@ -34,7 +34,6 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     const TestTrigger = await ethers.getContractFactory('TestTrigger');
     const mockTrigger: any = await TestTrigger.deploy(
       await processorEndpoint.getAddress(),
-      await tokenAllowlist.getAddress(),
       revertOnExecute,
       revertOnPostWithdraw
     );
@@ -555,7 +554,6 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       const TestTrigger = await ethers.getContractFactory('TestTrigger');
       const mockTrigger: any = await TestTrigger.deploy(
         await processorEndpoint.getAddress(),
-        await tokenAllowlist.getAddress(),
         revertOnExecute,
         revertOnPostWithdraw
       );
@@ -657,6 +655,126 @@ describe('ProcessorEndpoint Trigger Tests', function () {
         );
 
       expect(await processorEndpoint.triggerContracts(applicationId)).to.equal(ethers.ZeroAddress);
+    });
+  });
+
+  describe('eager trigger registration: validation and cleanup', function () {
+    const descriptorPayload = '0x' + 'ab'.repeat(40);
+
+    async function deployTrigger() {
+      const TestTrigger = await ethers.getContractFactory('TestTrigger');
+      return (await TestTrigger.deploy(await processorEndpoint.getAddress(), false, false)) as any;
+    }
+
+    function deployInfoFromReceipt(receipt: any): { applicationId: bigint; requestId: string } {
+      const log = receipt.logs.find((l: any) => {
+        try {
+          return processorEndpoint.interface.parseLog(l)?.name === 'DeployRequestSubmitted';
+        } catch {
+          return false;
+        }
+      });
+      const parsed = processorEndpoint.interface.parseLog(log);
+      return { applicationId: parsed.args.applicationId, requestId: parsed.args.requestId };
+    }
+
+    it('registers the trigger eagerly at submit time (before any stateUpdate)', async function () {
+      const triggerAddr = await (await deployTrigger()).getAddress();
+      const tx = await processorEndpoint
+        .connect(signers[2])
+        .submitDeployRequestWithTrigger(0, descriptorPayload, triggerAddr, {
+          value: minFeePerRequest,
+        });
+      const { applicationId } = deployInfoFromReceipt(await tx.wait());
+      expect(await processorEndpoint.triggerContracts(applicationId)).to.equal(triggerAddr);
+      expect(await processorEndpoint.triggersToAppIds(triggerAddr)).to.equal(applicationId);
+    });
+
+    it('reverts with TriggerAlreadyRegistered when the same trigger is submitted twice', async function () {
+      const triggerAddr = await (await deployTrigger()).getAddress();
+      await processorEndpoint
+        .connect(signers[2])
+        .submitDeployRequestWithTrigger(0, descriptorPayload, triggerAddr, {
+          value: minFeePerRequest,
+        });
+      await expect(
+        processorEndpoint
+          .connect(signers[2])
+          .submitDeployRequestWithTrigger(0, descriptorPayload, triggerAddr, {
+            value: minFeePerRequest,
+          })
+      ).to.be.revertedWithCustomError(processorEndpoint, 'TriggerAlreadyRegistered');
+    });
+
+    it('reverts with TriggerCannotBeEOA when the trigger is an EOA', async function () {
+      const eoa = await signers[5].getAddress();
+      await expect(
+        processorEndpoint
+          .connect(signers[2])
+          .submitDeployRequestWithTrigger(0, descriptorPayload, eoa, { value: minFeePerRequest })
+      ).to.be.revertedWithCustomError(processorEndpoint, 'TriggerCannotBeEOA');
+    });
+
+    it('rolls back the eager registration when the deploy fails, so the trigger can be reused', async function () {
+      const triggerAddr = await (await deployTrigger()).getAddress();
+      const tx = await processorEndpoint
+        .connect(signers[2])
+        .submitDeployRequestWithTrigger(0, descriptorPayload, triggerAddr, {
+          value: minFeePerRequest,
+        });
+      const { applicationId, requestId } = deployInfoFromReceipt(await tx.wait());
+      expect(await processorEndpoint.triggersToAppIds(triggerAddr)).to.equal(applicationId);
+
+      // Fail the deploy: error stateUpdate (errorCode != NO_ERROR, state left unchanged at zero).
+      await processorEndpoint.connect(signers[1]).stateUpdate(
+        applicationId,
+        BYTES32_ZERO,
+        BYTES32_ZERO,
+        requestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [],
+        0,
+        0,
+        3, // ErrorCode.APPLICATION_ALREADY_DEPLOYED
+        'deploy failed',
+        '0x'
+      );
+
+      // Registration rolled back on failure.
+      expect(await processorEndpoint.triggerContracts(applicationId)).to.equal(ethers.ZeroAddress);
+      expect(await processorEndpoint.triggersToAppIds(triggerAddr)).to.equal(0n);
+
+      // The same trigger address can now be reused by a fresh deploy.
+      await expect(
+        processorEndpoint
+          .connect(signers[2])
+          .submitDeployRequestWithTrigger(0, descriptorPayload, triggerAddr, {
+            value: minFeePerRequest,
+          })
+      ).to.not.be.reverted;
+    });
+
+    it('adminResetApps clears the trigger mappings for the reset app', async function () {
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+      const triggerAddr = await mockTrigger.getAddress();
+      expect(await processorEndpoint.triggerContracts(applicationId)).to.equal(triggerAddr);
+
+      await processorEndpoint.connect(signers[3]).adminResetApps([applicationId]);
+
+      expect(await processorEndpoint.triggerContracts(applicationId)).to.equal(ethers.ZeroAddress);
+      expect(await processorEndpoint.triggersToAppIds(triggerAddr)).to.equal(0n);
+    });
+
+    it('adminReset drains the trigger queue', async function () {
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+      // Trigger emits a non-empty trusted payload → a TRUSTPROCESS is enqueued during stateUpdate.
+      await (await mockTrigger.setTrustedPayload('0x02')).wait();
+      await submitAndProcess(applicationId, INITIAL_STATE_ROOT, '0x' + '22'.repeat(32));
+      expect(await processorEndpoint.getTriggerQueueSize()).to.equal(1n);
+
+      await processorEndpoint.connect(signers[3]).adminReset();
+      expect(await processorEndpoint.getTriggerQueueSize()).to.equal(0n);
     });
   });
 });

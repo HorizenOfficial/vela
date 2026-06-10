@@ -11,24 +11,27 @@ const EXECUTE_REQUESTED_TAG = '0x45786563757465526571756573746564000000000000000
 // ---- Fixture ------------------------------------------------------------------
 
 async function deployFixture() {
-  // ActionExecutedTrigger requires two constructor args: processorEndpoint + tokenAllowlist.
-  // We use address(0) placeholders — getTrustProcessPayload is pure and never accesses them.
-  // Deploy real contract for the round-trip test; use placeholder addresses to avoid
-  // deploying full infra.
-  const factory = await ethers.getContractFactory('ActionExecutedTrigger');
-  const trigger = await factory.deploy(
-    '0x0000000000000000000000000000000000000001', // mock processorEndpoint (non-zero)
-    '0x0000000000000000000000000000000000000002' // mock tokenAllowlist (non-zero)
+  // ActionExecutedTrigger takes a single constructor arg: the ProcessorEndpoint, from which
+  // AbstractTrigger reads tokenAllowlist(). getTrustProcessPayload is pure and never accesses
+  // either, so we deploy a minimal MockTriggerEndpoint (exposing only tokenAllowlist()) wired
+  // to a placeholder allowlist address, avoiding the full endpoint infra.
+  const MockEndpoint = await ethers.getContractFactory('MockTriggerEndpoint');
+  const mockEndpoint = await MockEndpoint.deploy(
+    '0x0000000000000000000000000000000000000002' // placeholder tokenAllowlist (non-zero)
   );
+  await mockEndpoint.waitForDeployment();
+
+  const factory = await ethers.getContractFactory('ActionExecutedTrigger');
+  const trigger = await factory.deploy(await mockEndpoint.getAddress());
   await trigger.waitForDeployment();
-  return { trigger };
+  return { trigger, mockEndpoint };
 }
 
 // ---- Tests --------------------------------------------------------------------
 
 describe('ActionExecutedTrigger', () => {
   it('round-trip: ABI-decode AppEvent → ABI-encode ActionExecutedTrusted (lockId/remain/outcome)', async () => {
-    const { trigger } = await deployFixture();
+    const { trigger, mockEndpoint } = await deployFixture();
     const abiCoder = AbiCoder.defaultAbiCoder();
 
     // ---- Build a known ExecuteRequestedEvent ABI payload ---------------------
@@ -52,11 +55,14 @@ describe('ActionExecutedTrigger', () => {
       subTypes: [EXECUTE_REQUESTED_TAG],
     };
 
-    // Call getTrustProcessPayload directly (function is public pure).
+    // getTrustProcessPayload is _onlyProcessorEndpoint, so invoke it through the mock
+    // endpoint forwarder (msg.sender == endpoint). staticCall to read the returned bytes.
     // Pass zero-length arrays for returned/failed tokens (policy: remain = locked tokens).
-    const trustedPayload: string = await trigger.getTrustProcessPayload(
+    const trustedPayload: string = await mockEndpoint.callGetTrustProcessPayload.staticCall(
+      await trigger.getAddress(),
       eventData,
       true, // executeSuccess
+      true, // withdrawSuccess
       [], // returnedTokens
       [] // failedTokens
     );
@@ -86,7 +92,7 @@ describe('ActionExecutedTrigger', () => {
   });
 
   it('returns non-empty bytes (causes ProcessorEndpoint to enqueue TRUSTPROCESS)', async () => {
-    const { trigger } = await deployFixture();
+    const { trigger, mockEndpoint } = await deployFixture();
     const abiCoder = AbiCoder.defaultAbiCoder();
 
     const lockIdHex = '0x0102030405060708090a0b0c0d0e0f10';
@@ -102,7 +108,14 @@ describe('ActionExecutedTrigger', () => {
       subTypes: [BYTES32_ZERO],
     };
 
-    const result: string = await trigger.getTrustProcessPayload(eventData, true, [], []);
+    const result: string = await mockEndpoint.callGetTrustProcessPayload.staticCall(
+      await trigger.getAddress(),
+      eventData,
+      true, // executeSuccess
+      true, // withdrawSuccess
+      [],
+      []
+    );
     expect(result).to.not.equal(
       '0x',
       'non-empty payload causes ProcessorEndpoint to enqueue TRUSTPROCESS'
@@ -111,7 +124,7 @@ describe('ActionExecutedTrigger', () => {
   });
 
   it('does not revert on happy-path AppEvent bytes with a known lockId', async () => {
-    const { trigger } = await deployFixture();
+    const { trigger, mockEndpoint } = await deployFixture();
     const abiCoder = AbiCoder.defaultAbiCoder();
 
     // Use a non-zero lockId (16 bytes) and a single token (avoids empty-array edge cases).
@@ -127,7 +140,14 @@ describe('ActionExecutedTrigger', () => {
     };
 
     // Must not revert — the trigger function is pure and well-typed.
-    const result: string = await trigger.getTrustProcessPayload(eventData, false, [], []);
+    const result: string = await mockEndpoint.callGetTrustProcessPayload.staticCall(
+      await trigger.getAddress(),
+      eventData,
+      false, // executeSuccess
+      true, // withdrawSuccess
+      [],
+      []
+    );
     expect(result.length).to.be.greaterThan(2, 'must return non-empty bytes');
   });
 });
