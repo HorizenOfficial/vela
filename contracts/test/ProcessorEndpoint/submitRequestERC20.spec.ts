@@ -6,6 +6,7 @@ import { ETH_TOKEN } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
+  let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let applicationId: bigint;
@@ -15,7 +16,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
@@ -23,7 +24,7 @@ describe('ProcessorEndpoint Test', function () {
     // Deploy and allowlist a mock ERC20
     const MockERC20 = await ethers.getContractFactory('MockERC20');
     mockERC20 = await MockERC20.deploy('Mock Token', 'MCK', 18);
-    await processorEndpoint.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
+    await tokenAllowlist.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
   });
 
   describe('submitRequest with ERC-20', function () {
@@ -138,7 +139,7 @@ describe('ProcessorEndpoint Test', function () {
         const assetAmount = 100n;
 
         // Allowlist the fee-on-transfer token
-        await processorEndpoint.connect(signers[2]).addAllowedToken(feeTokenAddr);
+        await tokenAllowlist.connect(signers[2]).addAllowedToken(feeTokenAddr);
         await feeToken.mint(await signers[0].getAddress(), assetAmount);
         await feeToken.approve(await processorEndpoint.getAddress(), assetAmount);
 

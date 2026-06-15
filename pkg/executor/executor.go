@@ -533,7 +533,11 @@ func (e *StatelessExecutor) validateRequest(req *common.Request) error {
 	if req.ProtocolVersion != admittedProtocolVersion {
 		return fmt.Errorf("protocol version %d is not admitted", req.ProtocolVersion)
 	}
-	if req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
+	// TRUSTPROCESS requests are enqueued by the on-chain trigger contract with
+	// maxFeeValue = 0 (set by _enqueueTrustedRequest in ProcessorEndpoint).
+	// They are authenticated on-chain and do not go through the normal user
+	// fee path, so the minimum fee check must be skipped for them.
+	if req.RequestType != common.TrustProcess && req.MaxFeeValue.ToInt().Cmp(e.config.MinFeePerRequest) < 0 {
 		return fmt.Errorf("request fee is below minimum fee")
 	}
 	return nil
@@ -548,7 +552,7 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, nil, err
 	}
 
-	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize && req.RequestType != common.PlainProcess {
+	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize && req.RequestType != common.TrustProcess {
 		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
 	}
 
@@ -659,10 +663,10 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	} else {
 		//any other case: forward the payload to the WASM to obtain the new state.
 		//Process and Deanonymize payloads are encrypted toward the enclave and must be
-		//decrypted first; PlainProcess payloads are sent in clear text and forwarded as-is.
+		//decrypted first; TrustProcess payloads are sent in clear text and forwarded as-is.
 
 		wasmPayload := req.Payload
-		if req.RequestType != common.PlainProcess {
+		if req.RequestType != common.TrustProcess {
 			decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
 			if failure != nil {
 				errorPayload, err := e.processErrorResponse(req,
@@ -708,24 +712,31 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
 	}
 
-	// Check if there is enough ETH to cover the fuel costs
-	applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
+	// Check if there is enough ETH to cover the fuel costs.
+	// TRUSTPROCESS requests have maxFeeValue=0 (enqueued by the on-chain trigger
+	// contract with no user-provided fee). Skip fee adequacy checks for them;
+	// their authenticity is established on-chain.
+	if req.RequestType == common.TrustProcess {
+		applicationFee = big.NewInt(0)
+	} else {
+		applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
 
-	// Application fee must be minimum fee at least
-	if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
-		applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
-	}
+		// Application fee must be minimum fee at least
+		if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
+			applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
+		}
 
-	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
-		errorPayload, err := e.processErrorResponse(req,
-			appState.StateRoot,
-			apperrors.New(apperrors.CodeInsufficientFuel,
-				fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
-					applicationFee.String(),
-					req.MaxFeeValue.ToInt().String(),
-				),
-			))
-		return errorPayload, nil, nil, err
+		if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
+				apperrors.New(apperrors.CodeInsufficientFuel,
+					fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
+						applicationFee.String(),
+						req.MaxFeeValue.ToInt().String(),
+					),
+				))
+			return errorPayload, nil, nil, err
+		}
 	}
 
 	// Compute refundAmount = req.MaxFeeValue - applicationFee

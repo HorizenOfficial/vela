@@ -8,7 +8,7 @@ dataSources:
     name: ProcessorEndpoint
     network: horizen-testnet
     source:
-      address: "0x<contract_address>"
+      address: "0x<processor_address>"
       abi: ProcessorEndpoint
       startBlock: 6623732
     mapping:
@@ -25,8 +25,6 @@ dataSources:
         - OnChainRefund
         - OnChainWithdrawal
         - ClaimExecuted
-        - TokenAllowed
-        - TokenRemoved
       abis:
         - name: ProcessorEndpoint
           file: ./abis/ProcessorEndpoint.json
@@ -49,8 +47,27 @@ dataSources:
           handler: handleWithdrawal
         - event: PaymentWithdrawn(address,indexed address,uint256)
           handler: handlePaymentWithdrawn
+      file: ./src/processor-endpoint.ts
+  - kind: ethereum/contract
+    name: TokenAllowlist
+    network: horizen-testnet
+    source:
+      address: "0x<token_allowlist_address>"
+      abi: TokenAllowlist
+      startBlock: 6623732
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - TokenAllowed
+        - TokenRemoved
+      abis:
+        - name: TokenAllowlist
+          file: ./abis/TokenAllowlist.json
+      eventHandlers:
         - event: TokenAllowed(indexed address)
           handler: handleTokenAllowed
         - event: TokenRemoved(indexed address)
           handler: handleTokenRemoved
-      file: ./src/processor-endpoint.ts
+      file: ./src/token-allowlist.ts

@@ -11,6 +11,7 @@ describe('ProcessorEndpoint Test', function () {
   let resetOperator: string;
   let minFeePerRequest: bigint;
   let deployProcessorEndpoint: (resetOperatorOverride?: string) => Promise<any>;
+  let sharedTokenAllowlist: any;
 
   beforeEach(async function () {
     ({
@@ -22,6 +23,7 @@ describe('ProcessorEndpoint Test', function () {
       resetOperator,
       minFeePerRequest,
       deployProcessorEndpoint,
+      sharedTokenAllowlist,
     } = await deployProcessorEndpointFixture());
   });
 
@@ -35,7 +37,8 @@ describe('ProcessorEndpoint Test', function () {
             updateStatusOperator,
             admin,
             ADDRESS_ZERO,
-            minFeePerRequest
+            minFeePerRequest,
+            await sharedTokenAllowlist.getAddress()
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -48,7 +51,8 @@ describe('ProcessorEndpoint Test', function () {
             updateStatusOperator,
             admin,
             ADDRESS_ZERO,
-            minFeePerRequest
+            minFeePerRequest,
+            await sharedTokenAllowlist.getAddress()
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -61,7 +65,8 @@ describe('ProcessorEndpoint Test', function () {
             ADDRESS_ZERO,
             admin,
             ADDRESS_ZERO,
-            minFeePerRequest
+            minFeePerRequest,
+            await sharedTokenAllowlist.getAddress()
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -74,7 +79,22 @@ describe('ProcessorEndpoint Test', function () {
             updateStatusOperator,
             ADDRESS_ZERO,
             ADDRESS_ZERO,
-            minFeePerRequest
+            minFeePerRequest,
+            await sharedTokenAllowlist.getAddress()
+          )
+        ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
+      });
+
+      it('reverts when tokenAllowlist is zero address', async () => {
+        await expect(
+          processorEndpointFactory.deploy(
+            await teeAuthenticator.getAddress(),
+            await authorityRegistry.getAddress(),
+            updateStatusOperator,
+            admin,
+            ADDRESS_ZERO,
+            minFeePerRequest,
+            ADDRESS_ZERO
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -82,7 +102,7 @@ describe('ProcessorEndpoint Test', function () {
 
     describe('happy paths', function () {
       it('initializes dependencies, roles, and config values', async () => {
-        const processorEndpoint = await deployProcessorEndpoint();
+        const { processorEndpoint } = await deployProcessorEndpoint();
 
         expect(await processorEndpoint.teeAuthenticator()).to.equal(
           await teeAuthenticator.getAddress()
@@ -107,8 +127,15 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.hasRole(resetRole, resetOperator)).to.equal(true);
       });
 
+      it('sets tokenAllowlist address correctly', async () => {
+        const { processorEndpoint, tokenAllowlist } = await deployProcessorEndpoint();
+        expect(await processorEndpoint.tokenAllowlist()).to.equal(
+          await tokenAllowlist.getAddress()
+        );
+      });
+
       it('does not grant RESET_OPERATOR when address(0) is passed', async () => {
-        const processorEndpoint = await deployProcessorEndpoint(ADDRESS_ZERO);
+        const { processorEndpoint } = await deployProcessorEndpoint(ADDRESS_ZERO);
         const resetRole = await processorEndpoint.RESET_OPERATOR();
         expect(await processorEndpoint.hasRole(resetRole, ADDRESS_ZERO)).to.equal(false);
       });

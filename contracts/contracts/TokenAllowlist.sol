@@ -5,9 +5,12 @@ import '@openzeppelin/contracts/access/AccessControl.sol';
 import './interfaces/ITokenAllowlist.sol';
 
 /// @title TokenAllowlist
-/// @notice Base contract managing a global ERC-20 token allowlist.
+/// @notice Standalone contract managing a global ERC-20 token allowlist.
 /// ETH (address(0)) is always implicitly allowed.
-abstract contract TokenAllowlist is AccessControl, ITokenAllowlist {
+contract TokenAllowlist is AccessControl, ITokenAllowlist {
+  constructor(address admin) {
+    _grantRole(keccak256('ADMIN'), admin);
+  }
   mapping(address => bool) public allowedTokens;
   address[] private _allowedTokenList;
 
@@ -37,10 +40,11 @@ abstract contract TokenAllowlist is AccessControl, ITokenAllowlist {
 
   /// @inheritdoc ITokenAllowlist
   function getAllowedTokens() public view returns (address[] memory) {
-    uint256 len = _allowedTokenList.length;
-    uint256 count;
     uint256 i;
-    while (i < len) {
+    uint256 len = _allowedTokenList.length;
+    uint256 count; //count not removed
+
+    while (i != len) {
       if (allowedTokens[_allowedTokenList[i]]) {
         unchecked {
           ++count;
@@ -53,7 +57,7 @@ abstract contract TokenAllowlist is AccessControl, ITokenAllowlist {
     address[] memory result = new address[](count);
     uint256 j;
     i = 0;
-    while (i < len) {
+    while (i != len) {
       if (allowedTokens[_allowedTokenList[i]]) {
         result[j] = _allowedTokenList[i];
         unchecked {

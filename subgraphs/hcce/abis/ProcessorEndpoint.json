@@ -30,6 +30,11 @@
         "internalType": "uint256",
         "name": "_minFeePerRequest",
         "type": "uint256"
+      },
+      {
+        "internalType": "contract ITokenAllowlist",
+        "name": "_tokenAllowlist",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -180,11 +185,6 @@
   },
   {
     "inputs": [],
-    "name": "NotAContract",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "QueueThresholdExceeded",
     "type": "error"
   },
@@ -217,11 +217,6 @@
   },
   {
     "inputs": [],
-    "name": "TokenAddressCantBeZero",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "TokenNotAllowed",
     "type": "error"
   },
@@ -233,6 +228,16 @@
   {
     "inputs": [],
     "name": "TransferFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TriggerAlreadyRegistered",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TriggerCannotBeEOA",
     "type": "error"
   },
   {
@@ -651,12 +656,24 @@
     "inputs": [
       {
         "indexed": true,
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "processedRequestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
       }
     ],
-    "name": "TokenAllowed",
+    "name": "TriggerExecuted",
     "type": "event"
   },
   {
@@ -664,12 +681,66 @@
     "inputs": [
       {
         "indexed": true,
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "processedRequestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "withdrawSuccess",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "postWithdrawSuccess",
+        "type": "bool"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct Structs.TokenAndAmount[]",
+        "name": "returnedTokens",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct Structs.TokenAndAmount[]",
+        "name": "failedTokens",
+        "type": "tuple[]"
       }
     ],
-    "name": "TokenRemoved",
+    "name": "TriggerWithdraw",
     "type": "event"
   },
   {
@@ -845,19 +916,6 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      }
-    ],
-    "name": "addAllowedToken",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "adminReset",
     "outputs": [],
@@ -870,35 +928,11 @@
         "internalType": "uint64[]",
         "name": "appIds",
         "type": "uint64[]"
-      },
-      {
-        "internalType": "address[]",
-        "name": "erc20Tokens",
-        "type": "address[]"
       }
     ],
     "name": "adminResetApps",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "allowedTokens",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1081,9 +1115,9 @@
         "type": "uint8"
       },
       {
-        "internalType": "bytes",
-        "name": "payload",
-        "type": "bytes"
+        "internalType": "bytes32",
+        "name": "payloadHash",
+        "type": "bytes32"
       },
       {
         "internalType": "address",
@@ -1110,19 +1144,6 @@
       }
     ],
     "stateMutability": "pure",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getAllowedTokens",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1421,6 +1442,89 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "getTriggerQueueSize",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getTriggerRequests",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "tokenAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "assetAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxFeeValue",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "requestId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes",
+            "name": "payload",
+            "type": "bytes"
+          },
+          {
+            "internalType": "address",
+            "name": "sender",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "facilitator",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "applicationId",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint8",
+            "name": "protocolVersion",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum Structs.RequestType",
+            "name": "requestType",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct Structs.PendingRequest[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "bytes32",
@@ -1475,25 +1579,6 @@
       {
         "internalType": "bool",
         "name": "allowed",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      }
-    ],
-    "name": "isAllowedToken",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
         "type": "bool"
       }
     ],
@@ -1598,19 +1683,6 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      }
-    ],
-    "name": "removeAllowedToken",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "bytes32",
         "name": "role",
         "type": "bytes32"
@@ -1630,66 +1702,73 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "",
+        "name": "id",
         "type": "bytes32"
       }
     ],
     "name": "requestById",
     "outputs": [
       {
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "tokenAddress",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "assetAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "maxFeeValue",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "requestId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes",
-        "name": "payload",
-        "type": "bytes"
-      },
-      {
-        "internalType": "address",
-        "name": "sender",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "facilitator",
-        "type": "address"
-      },
-      {
-        "internalType": "uint64",
-        "name": "applicationId",
-        "type": "uint64"
-      },
-      {
-        "internalType": "uint8",
-        "name": "protocolVersion",
-        "type": "uint8"
-      },
-      {
-        "internalType": "enum Structs.RequestType",
-        "name": "requestType",
-        "type": "uint8"
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "tokenAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "assetAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxFeeValue",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "requestId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes",
+            "name": "payload",
+            "type": "bytes"
+          },
+          {
+            "internalType": "address",
+            "name": "sender",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "facilitator",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "applicationId",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint8",
+            "name": "protocolVersion",
+            "type": "uint8"
+          },
+          {
+            "internalType": "enum Structs.RequestType",
+            "name": "requestType",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct Structs.PendingRequest",
+        "name": "",
+        "type": "tuple"
       }
     ],
     "stateMutability": "view",
@@ -1854,6 +1933,35 @@
         "type": "uint8"
       },
       {
+        "internalType": "bytes",
+        "name": "payload",
+        "type": "bytes"
+      },
+      {
+        "internalType": "address",
+        "name": "trigger",
+        "type": "address"
+      }
+    ],
+    "name": "submitDeployRequestWithTrigger",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "protocolVersion",
+        "type": "uint8"
+      },
+      {
         "internalType": "uint64",
         "name": "applicationId",
         "type": "uint64"
@@ -1992,6 +2100,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "tokenAllowlist",
+    "outputs": [
+      {
+        "internalType": "contract ITokenAllowlist",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -2024,6 +2145,44 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "name": "triggerContracts",
+    "outputs": [
+      {
+        "internalType": "contract ITrigger",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "triggersToAppIds",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
       }
     ],
     "stateMutability": "view",
@@ -2067,5 +2226,9 @@
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "stateMutability": "payable",
+    "type": "receive"
   }
 ]

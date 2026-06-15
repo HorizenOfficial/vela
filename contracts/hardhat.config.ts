@@ -21,11 +21,11 @@ const config: HardhatUserConfig = {
   solidity: {
     compilers: [
       {
-        version: '0.8.28',
+        version: '0.8.30',
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200,
+            runs: 0,
           },
           viaIR: true,
         },
@@ -44,6 +44,9 @@ const config: HardhatUserConfig = {
     local: {
       url: process.env.CHAIN_RPC_URL || 'http://127.0.0.1:8545/',
       accounts,
+    },
+    hardhat: {
+      allowUnlimitedContractSize: true,
     },
   },
 };

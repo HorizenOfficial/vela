@@ -13,13 +13,21 @@ import '@openzeppelin/contracts/utils/Strings.sol';
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
-import './TokenAllowlist.sol';
+import './interfaces/ITokenAllowlist.sol';
 import './Structs.sol';
+import './interfaces/ITrigger.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuard, EIP712 {
+contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard, EIP712 {
   using SafeERC20 for IERC20;
+
+  struct RequestQueue {
+    mapping(bytes32 => Structs.PendingRequest) requestById;
+    mapping(uint256 => bytes32) idByOrder;
+    uint256 head;
+    uint256 tail;
+  }
 
   //constants
   bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
@@ -33,14 +41,12 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   uint256 public maxNumOfApplications = 10;
   uint256 public availableDeploySlots = maxNumOfApplications;
 
-  mapping(bytes32 => Structs.PendingRequest) public requestById;
-  mapping(uint256 => bytes32) private _requestIdByOrder;
-  uint256 private _head;
-  uint256 private _tail;
+  RequestQueue private _requestQueue;
   uint256 public maxQueueSize = 10;
 
   ITeeAuthenticator public teeAuthenticator;
   IAuthorityRegistry public authorityRegistry;
+  ITokenAllowlist public tokenAllowlist;
 
   // Pull payment pattern state — per-token, per-payee
   mapping(address => mapping(address => uint256)) public pendingClaims;
@@ -69,6 +75,12 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   // Sequential nonces per user for facilitator replay protection
   mapping(address => uint256) public facilitatorNonces;
+  // Trigger contracts associated to each applicationId
+  mapping(uint64 => ITrigger) public triggerContracts;
+  // Reverse mapping for the above to check if a trigger is valid when adding to the queue
+  mapping(address => uint64) public triggersToAppIds;
+  // FIFO queue populated by trigger contracts; served before the normal queue
+  RequestQueue private _triggerQueue;
 
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
@@ -87,23 +99,27 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   /// @param resetOperator Address granted RESET_OPERATOR role. Pass address(0) to disable reset
   ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
+  /// @param _tokenAllowlist External token allowlist contract.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
     address admin,
     address resetOperator,
-    uint256 _minFeePerRequest
+    uint256 _minFeePerRequest,
+    ITokenAllowlist _tokenAllowlist
   ) EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {
     if (
       address(_teeAuthenticator) == address(0) ||
       address(_authorityRegistry) == address(0) ||
       updateStatusOperator == address(0) ||
-      admin == address(0)
+      admin == address(0) ||
+      address(_tokenAllowlist) == address(0)
     ) revert AddressCantBeZero();
 
     teeAuthenticator = _teeAuthenticator;
     authorityRegistry = _authorityRegistry;
+    tokenAllowlist = _tokenAllowlist;
     feeCollector = payable(updateStatusOperator);
     _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
     _grantRole(ADMIN, admin);
@@ -114,6 +130,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       _grantRole(RESET_OPERATOR, resetOperator);
     }
   }
+
+  // @notice receive ETH (sent back by trigger contracts)
+  receive() external payable {}
+
+  /// @param _teeAuthenticator Contract used to verify update signatures.
 
   /// @inheritdoc IProcessorEndpoint
   function submitRequest(
@@ -132,7 +153,12 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     nonReentrant
     returns (bytes32)
   {
-    if (requestType == Structs.RequestType.DEPLOYAPP) revert InvalidRequestType();
+    // DEPLOYAPP has its own entrypoint; TRUSTPROCESS is trusted and can ONLY be
+    // created internally during stateUpdate (via a trigger's getTrustProcessPayload payload).
+    if (
+      requestType == Structs.RequestType.DEPLOYAPP ||
+      requestType == Structs.RequestType.TRUSTPROCESS
+    ) revert InvalidRequestType();
 
     //check values
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
@@ -144,7 +170,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     } else {
       if (msg.value != maxFeeValue) revert InvalidValue();
       if (assetAmount == 0) revert InvalidValue();
-      if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
+      if (!tokenAllowlist.isAllowedToken(tokenAddress)) revert ITokenAllowlist.TokenNotAllowed();
       // Pull ERC-20 tokens with balance-before/after check
       _pullERC20(tokenAddress, msg.sender, assetAmount);
     }
@@ -159,8 +185,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       }
     }
 
-    appCustody[applicationId][tokenAddress] += assetAmount;
-    totalAppCustody[tokenAddress] += assetAmount;
+    _addToCustody(applicationId, tokenAddress, assetAmount);
 
     //create request and enqueue
     return
@@ -197,11 +222,11 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     nonReentrant
     returns (bytes32)
   {
-    // 1. Only ASSOCIATEKEY, PROCESS and PLAINPROCESS are supported
+    // 1. Only ASSOCIATEKEY and PROCESS are supported. TRUSTPROCESS is trusted
+    //    and can ONLY be created internally during stateUpdate (via a trigger's
+    //    getTrustProcessPayload payload) — never submitted by an external caller here.
     if (
-      requestType != Structs.RequestType.ASSOCIATEKEY &&
-      requestType != Structs.RequestType.PROCESS &&
-      requestType != Structs.RequestType.PLAINPROCESS
+      requestType != Structs.RequestType.ASSOCIATEKEY && requestType != Structs.RequestType.PROCESS
     ) revert InvalidRequestType();
 
     // 2. Verify deadline not expired
@@ -249,7 +274,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     if (assetAmount == 0 && tokenAddress != ETH_TOKEN) revert InvalidValue();
     if (assetAmount > 0) {
       if (tokenAddress == ETH_TOKEN) revert InvalidValue();
-      if (!allowedTokens[tokenAddress]) revert TokenNotAllowed();
+      if (!tokenAllowlist.isAllowedToken(tokenAddress)) revert ITokenAllowlist.TokenNotAllowed();
 
       // Decode deposit permit and execute EIP-2612 permit + transferFrom
       if (depositPermit.length != 96) revert InvalidPermit();
@@ -263,8 +288,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
       _pullERC20(tokenAddress, sender, assetAmount);
 
-      appCustody[applicationId][tokenAddress] += assetAmount;
-      totalAppCustody[tokenAddress] += assetAmount;
+      _addToCustody(applicationId, tokenAddress, assetAmount);
     }
 
     // 10. Create PendingRequest with sender = user (not msg.sender) and enqueue
@@ -292,6 +316,37 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     uint8 protocolVersion,
     bytes calldata payload
   ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
+    return _submitDeployRequest(protocolVersion, payload);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function submitDeployRequestWithTrigger(
+    uint8 protocolVersion,
+    bytes calldata payload,
+    address trigger
+  ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
+    bytes32 requestId = _submitDeployRequest(protocolVersion, payload);
+    // Optional trigger registration that does NOT consume the payload, so the
+    // deploy can still carry a full WASM descriptor. address(0) means "no
+    // trigger" (identical to the 2-arg overload). The trigger is validated and
+    // registered eagerly here so that an invalid/duplicate trigger reverts the
+    // submit (instead of failing later inside stateUpdate). If the deploy then
+    // fails on-chain, the registration is rolled back in stateUpdate.
+    if (trigger != address(0)) {
+      if (triggersToAppIds[trigger] != 0) revert TriggerAlreadyRegistered();
+      if (trigger.code.length == 0) revert TriggerCannotBeEOA();
+
+      uint64 applicationId = uint64(bytes8(requestId));
+      triggerContracts[applicationId] = ITrigger(trigger);
+      triggersToAppIds[trigger] = applicationId;
+    }
+    return requestId;
+  }
+
+  function _submitDeployRequest(
+    uint8 protocolVersion,
+    bytes calldata payload
+  ) private returns (bytes32 requestId) {
     if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
     if (availableDeploySlots == 0) revert MaxNumOfApplicationsExceeded();
     //check queue size
@@ -302,35 +357,34 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     Structs.RequestType requestType = Structs.RequestType.DEPLOYAPP;
     //create request
-    bytes32 requestId = generateRequestId(
+    requestId = generateRequestId(
       msg.sender,
       0, // deploy requests have applicationId 0, a unique applicationId will be derived from the requestId for each deploy request to avoid collisions with regular requests and to group deploy requests together
       requestType,
-      payload,
+      keccak256(payload),
       ETH_TOKEN,
       0,
-      _tail
+      _requestQueue.tail
     );
 
     uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
-    requestById[requestId] = Structs.PendingRequest({
-      timestamp: block.timestamp,
-      tokenAddress: ETH_TOKEN,
-      assetAmount: 0,
-      maxFeeValue: msg.value,
-      requestId: requestId,
-      payload: payload,
-      sender: msg.sender,
-      facilitator: address(0),
-      applicationId: applicationId,
-      protocolVersion: protocolVersion,
-      requestType: requestType
-    });
-    _requestIdByOrder[_tail] = requestId;
-
-    unchecked {
-      ++_tail;
-    }
+    _queueEnqueue(
+      _requestQueue,
+      requestId,
+      Structs.PendingRequest({
+        timestamp: block.timestamp,
+        tokenAddress: ETH_TOKEN,
+        assetAmount: 0,
+        maxFeeValue: msg.value,
+        requestId: requestId,
+        payload: payload,
+        sender: msg.sender,
+        facilitator: address(0),
+        applicationId: applicationId,
+        protocolVersion: protocolVersion,
+        requestType: requestType
+      })
+    );
 
     //emit event
     emit DeployRequestSubmitted(applicationId, requestId, msg.sender);
@@ -361,39 +415,40 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       sender,
       applicationId,
       requestType,
-      payload,
+      keccak256(payload),
       tokenAddress,
       assetAmount,
-      _tail
+      _requestQueue.tail
     );
-    requestById[requestId] = Structs.PendingRequest({
-      timestamp: block.timestamp,
-      tokenAddress: tokenAddress,
-      assetAmount: assetAmount,
-      maxFeeValue: maxFeeValue,
-      requestId: requestId,
-      payload: payload,
-      sender: sender,
-      facilitator: facilitator,
-      applicationId: applicationId,
-      protocolVersion: protocolVersion,
-      requestType: requestType
-    });
-    _requestIdByOrder[_tail] = requestId;
-
-    unchecked {
-      ++_tail;
-    }
+    _queueEnqueue(
+      _requestQueue,
+      requestId,
+      Structs.PendingRequest({
+        timestamp: block.timestamp,
+        tokenAddress: tokenAddress,
+        assetAmount: assetAmount,
+        maxFeeValue: maxFeeValue,
+        requestId: requestId,
+        payload: payload,
+        sender: sender,
+        facilitator: facilitator,
+        applicationId: applicationId,
+        protocolVersion: protocolVersion,
+        requestType: requestType
+      })
+    );
 
     emit RequestSubmitted(applicationId, requestId, sender, facilitator);
     return requestId;
   }
 
-  function _removeRequest() private {
-    delete requestById[_requestIdByOrder[_head]];
-    delete _requestIdByOrder[_head];
-    unchecked {
-      ++_head;
+  function _removeRequest(bytes32 requestId) private {
+    // _queueIsHead already returns false for an empty queue (tail > head check),
+    // so no separate size guard is needed here.
+    if (_queueIsHead(_triggerQueue, requestId)) {
+      _queueDequeueHead(_triggerQueue);
+    } else {
+      _queueDequeueHead(_requestQueue);
     }
   }
 
@@ -406,7 +461,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     string memory errorMsg,
     Structs.RequestType requestType
   ) private {
-    _removeRequest();
+    _removeRequest(requestId);
 
     if (requestType == Structs.RequestType.DEPLOYAPP) {
       emit DeployRequestCompleted(
@@ -426,31 +481,22 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequestsSize() public view returns (uint256) {
-    if (_tail > _head) {
-      return (_tail - _head);
-    } else {
-      return 0;
-    }
+    return _queueSize(_requestQueue);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function getTriggerQueueSize() public view returns (uint256) {
+    return _queueSize(_triggerQueue);
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function getTriggerRequests() external view returns (Structs.PendingRequest[] memory) {
+    return _queueGetAll(_triggerQueue);
   }
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory) {
-    uint256 numOfPendingRequests = getPendingRequestsSize();
-
-    Structs.PendingRequest[] memory res = new Structs.PendingRequest[](numOfPendingRequests);
-    uint256 i = _head;
-    uint256 tail = _tail;
-    uint256 j;
-    while (i < tail) {
-      bytes32 requestId = _requestIdByOrder[i];
-      res[j] = requestById[requestId];
-      unchecked {
-        ++i;
-        ++j;
-      }
-    }
-
-    return res;
+    return _queueGetAll(_requestQueue);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -458,31 +504,12 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     uint256 offset,
     uint256 limit
   ) external view returns (Structs.PendingRequest[] memory) {
-    uint256 size = getPendingRequestsSize();
-    if (offset >= size || limit == 0) {
-      return new Structs.PendingRequest[](0);
-    }
+    return _queueGetPage(_requestQueue, offset, limit);
+  }
 
-    uint256 end = offset + limit;
-    if (end > size) {
-      end = size;
-    }
-    uint256 count = end - offset;
-
-    Structs.PendingRequest[] memory res = new Structs.PendingRequest[](count);
-    uint256 i = _head + offset;
-    uint256 stop = _head + end;
-    uint256 j;
-    while (i < stop) {
-      bytes32 requestId = _requestIdByOrder[i];
-      res[j] = requestById[requestId];
-      unchecked {
-        ++i;
-        ++j;
-      }
-    }
-
-    return res;
+  /// @notice Returns the stored request for a given id (normal queue only).
+  function requestById(bytes32 id) external view returns (Structs.PendingRequest memory) {
+    return _requestQueue.requestById[id];
   }
 
   //update status
@@ -505,7 +532,10 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
     // Check application Id
-    Structs.PendingRequest storage requestInfo = requestById[processedRequestId];
+    bool fromTriggerQueue = _queueIsHead(_triggerQueue, processedRequestId);
+    Structs.PendingRequest storage requestInfo = fromTriggerQueue
+      ? _triggerQueue.requestById[processedRequestId]
+      : _requestQueue.requestById[processedRequestId];
     if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
 
     //check prev state root
@@ -555,12 +585,14 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
       address reqTokenAddress = requestInfo.tokenAddress;
       if (assetAmount > appCustody[applicationId][reqTokenAddress]) revert InsufficientAppBalance();
       if (requestInfo.maxFeeValue > _getAvailableEthBalance()) revert InsufficientBalance();
-      appCustody[applicationId][reqTokenAddress] -= assetAmount;
-      totalAppCustody[reqTokenAddress] -= assetAmount;
+      _subtractToCustody(applicationId, reqTokenAddress, assetAmount);
 
       // Refund business-asset deposit in its original token to the user.
       // Fee refund is always in ETH, routed to facilitator if present.
-      uint256 feeRefund = requestInfo.maxFeeValue - minFeePerRequest;
+      // TRUSTPROCESS requests have maxFeeValue=0, so feeRefund is 0 (nothing to refund).
+      uint256 feeRefund = requestInfo.maxFeeValue >= minFeePerRequest
+        ? requestInfo.maxFeeValue - minFeePerRequest
+        : 0;
       if (reqTokenAddress == ETH_TOKEN) {
         if (assetAmount > 0) {
           // ETH requests that moved also assets: only direct path, never facilitated => refund all to the sender
@@ -590,12 +622,15 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         unchecked {
           ++availableDeploySlots;
         }
+        // Deploy failed: roll back the trigger that was registered eagerly at
+        // submit time so the trigger address can be reused by a future deploy.
+        _clearTrigger(applicationId);
       }
 
       _markRequestCompleted(
         applicationId,
         processedRequestId,
-        minFeePerRequest,
+        fromTriggerQueue ? 0 : minFeePerRequest,
         Structs.RequestResult.FAILED,
         Structs.ErrorCode(errorCode),
         errorMsg,
@@ -609,9 +644,12 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     // State cannot remain the same
     if (applicationStateRoots[applicationId] == newStateRoot) revert InvalidStateRoot();
 
-    if (refund + applicationFees != maxFeeValue) revert InvalidValue();
-    if (applicationFees < minFeePerRequest) {
-      revert InvalidValue();
+    // don't check fees if we are from trigger queue
+    if (!fromTriggerQueue) {
+      if (refund + applicationFees != maxFeeValue) revert InvalidValue();
+      if (applicationFees < minFeePerRequest) {
+        revert InvalidValue();
+      }
     }
 
     //check withdrawal sums and debit per-app per-token custody
@@ -682,7 +720,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     //emit encrypted event
     i = 0;
-    while (i < eventsLength) {
+    while (i != eventsLength) {
       emit UserEvent(
         applicationId,
         processedRequestId,
@@ -696,7 +734,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     //emit app event
     i = 0;
-    while (i < appEventsLength) {
+    while (i != appEventsLength) {
       emit AppEvent(
         applicationId,
         processedRequestId,
@@ -718,6 +756,9 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     applicationStateRoots[applicationId] = newStateRoot;
     if (reqType == Structs.RequestType.DEPLOYAPP) {
       _deployedAppIds.push(applicationId);
+      // The trigger (if any) was already validated and registered eagerly in
+      // submitDeployRequestWithTrigger, so a successful deploy needs no further
+      // trigger bookkeeping here.
     }
     emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
 
@@ -729,7 +770,20 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
     //credit withdrawals to receivers' pending balances
     i = 0;
+    uint256 insertIntoClaimable;
+    address trigger = address(triggerContracts[applicationId]);
+    address[] memory claimableTemp = new address[](withdrawalsLength);
     while (i < withdrawalsLength) {
+      // Only classify a withdrawal as "claimable by the trigger" when a trigger is actually
+      // registered. Without this guard, trigger == address(0) would match withdrawals sent to
+      // the zero address and route them into the trigger-claim path. A user mistakenly
+      // withdrawing to address(0) is their own problem, but it must never be handed to a trigger.
+      if (trigger != address(0) && withdrawalRequests[i].receiver == trigger) {
+        claimableTemp[insertIntoClaimable] = withdrawalRequests[i].tokenAddress;
+        unchecked {
+          ++insertIntoClaimable;
+        }
+      }
       _asyncTransfer(
         withdrawalRequests[i].tokenAddress,
         withdrawalRequests[i].receiver,
@@ -746,6 +800,19 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         ++i;
       }
     }
+
+    //reduce claimable array size to correct one
+    address[] memory claimable = new address[](insertIntoClaimable);
+    i = 0;
+    while (i != insertIntoClaimable) {
+      claimable[i] = claimableTemp[i];
+      unchecked {
+        ++i;
+      }
+    }
+
+    //invoke trigger contracts, if registered
+    _invokeTrigger(applicationId, processedRequestId, appEventData, claimable);
 
     //set requests as completed
     _markRequestCompleted(
@@ -807,10 +874,14 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     view
     returns (Structs.PendingRequest memory, bytes32, bool success)
   {
-    uint256 numOfRequests = getPendingRequestsSize();
-    if (numOfRequests > 0) {
-      bytes32 requestId = _requestIdByOrder[_head];
-      Structs.PendingRequest storage req = requestById[requestId];
+    if (_queueSize(_triggerQueue) > 0) {
+      bytes32 requestId = _queuePeekHead(_triggerQueue);
+      Structs.PendingRequest storage req = _triggerQueue.requestById[requestId];
+      return (req, applicationStateRoots[req.applicationId], true);
+    }
+    if (_queueSize(_requestQueue) > 0) {
+      bytes32 requestId = _queuePeekHead(_requestQueue);
+      Structs.PendingRequest storage req = _requestQueue.requestById[requestId];
       return (req, applicationStateRoots[req.applicationId], true);
     }
 
@@ -820,7 +891,7 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   /// @inheritdoc IProcessorEndpoint
   function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
-    return getPendingRequestsSize() > 0 && _requestIdByOrder[_head] == requestId;
+    return _queueIsHead(_triggerQueue, requestId) || _queueIsHead(_requestQueue, requestId);
   }
 
   // Pull payment pattern functions
@@ -835,6 +906,10 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
 
   /// @inheritdoc IProcessorEndpoint
   function claim(address tokenAddress, address payable payee) public nonReentrant {
+    return _claim(tokenAddress, payee);
+  }
+  //logic is reentrable because it will be invoked in invokeTrigger
+  function _claim(address tokenAddress, address payable payee) internal {
     uint256 amount = pendingClaims[tokenAddress][payee];
     if (amount == 0) return;
 
@@ -856,14 +931,14 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     address sender,
     uint64 applicationId,
     Structs.RequestType requestType,
-    bytes calldata payload,
+    bytes32 payloadHash,
     address tokenAddress,
     uint256 assetAmount,
     uint256 idx
   ) public pure returns (bytes32) {
     return
       keccak256(
-        abi.encode(sender, applicationId, requestType, payload, tokenAddress, assetAmount, idx)
+        abi.encode(sender, applicationId, requestType, payloadHash, tokenAddress, assetAmount, idx)
       );
   }
 
@@ -893,36 +968,52 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
   }
 
   function _resetQueue() internal {
-    uint256 i = _head;
-    uint256 tail = _tail;
+    uint256 i = _requestQueue.head;
+    uint256 tail = _requestQueue.tail;
     uint256 freedDeploySlots;
 
     // Iterate every pending request from head to tail, refunding any asset deposits to their
     // senders and counting any DEPLOYAPP entries so their reserved deploy slots can be returned.
-    while (i < tail) {
-      bytes32 reqId = _requestIdByOrder[i];
-      Structs.PendingRequest storage req = requestById[reqId];
+    while (i != tail) {
+      Structs.PendingRequest storage req = _requestQueue.requestById[_requestQueue.idByOrder[i]];
       if (req.requestType == Structs.RequestType.DEPLOYAPP) {
         unchecked {
           ++freedDeploySlots;
         }
+        // A pending deploy may have registered a trigger eagerly at submit time. Since the
+        // deploy is being discarded (and its derived appId never appears in _deployedAppIds),
+        // clear the registration here so the trigger address can be reused.
+        _clearTrigger(req.applicationId);
       }
       if (req.assetAmount > 0) {
-        appCustody[req.applicationId][req.tokenAddress] -= req.assetAmount;
-        totalAppCustody[req.tokenAddress] -= req.assetAmount;
+        _subtractToCustody(req.applicationId, req.tokenAddress, req.assetAmount);
         _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
       }
-      delete requestById[reqId];
-      delete _requestIdByOrder[i];
+      delete _requestQueue.requestById[_requestQueue.idByOrder[i]];
+      delete _requestQueue.idByOrder[i];
       unchecked {
         ++i;
       }
     }
 
-    // Collapse the queue by setting tail back to head. _head is intentionally left at its
+    // Collapse the queue by setting tail back to head. _queue.head is intentionally left at its
     // current value so that future queue indices continue from where they left off rather
     // than restarting from zero (avoids any risk of re-using a slot index still in storage).
-    _tail = _head;
+    _requestQueue.tail = _requestQueue.head;
+
+    // Drain the trigger queue too: pending TRUSTPROCESS requests reference apps that may be
+    // reset, and must not survive a reset. They carry no funds (assetAmount/maxFeeValue == 0),
+    // so clearing their storage is sufficient — no refunds needed.
+    uint256 ti = _triggerQueue.head;
+    uint256 triggerTail = _triggerQueue.tail;
+    while (ti != triggerTail) {
+      delete _triggerQueue.requestById[_triggerQueue.idByOrder[ti]];
+      delete _triggerQueue.idByOrder[ti];
+      unchecked {
+        ++ti;
+      }
+    }
+    _triggerQueue.tail = _triggerQueue.head;
 
     // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
     // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
@@ -931,62 +1022,54 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
     }
   }
 
+  /// @dev Removes any trigger registration for the given application (both the forward and
+  ///      reverse mappings). No-op when no trigger is registered.
+  function _clearTrigger(uint64 applicationId) private {
+    ITrigger trigger = triggerContracts[applicationId];
+    if (address(trigger) != address(0)) {
+      delete triggersToAppIds[address(trigger)];
+      delete triggerContracts[applicationId];
+    }
+  }
+
   /// @inheritdoc IProcessorEndpoint
-  function adminResetApps(
-    uint64[] calldata appIds,
-    address[] calldata erc20Tokens
-  ) external onlyRole(RESET_OPERATOR) nonReentrant {
+  function adminResetApps(uint64[] calldata appIds) external onlyRole(RESET_OPERATOR) nonReentrant {
     // Clear the pending request queue, refunding each request's asset deposit to its sender.
     _resetQueue();
 
     // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
     // fall back to every app that has ever been successfully deployed.
-    uint64[] memory effectiveAppIds;
-    if (appIds.length > 0) {
-      effectiveAppIds = appIds;
-    } else {
+    uint64[] memory effectiveAppIds = appIds;
+    if (appIds.length == 0) {
       effectiveAppIds = _deployedAppIds;
     }
 
-    // Resolve the effective token list: use the caller-supplied list when non-empty, otherwise
-    // fall back to all tokens currently registered in the allowlist.
-    address[] memory effectiveTokens;
-    if (erc20Tokens.length > 0) {
-      effectiveTokens = erc20Tokens;
-    } else {
-      effectiveTokens = getAllowedTokens();
-    }
+    address[] memory effectiveTokens = tokenAllowlist.getAllowedTokens();
 
     uint256 appCount = effectiveAppIds.length;
     uint256 tokenCount = effectiveTokens.length;
 
-    // Accumulators for the total ETH and per-token ERC-20 amounts to transfer at the end.
-    // Accumulating across all apps and then doing one transfer per asset (rather than one
-    // transfer per app) keeps the interactions section O(tokens) instead of O(apps * tokens).
-    uint256 totalEth;
-    uint256[] memory tokenTotals = new uint256[](tokenCount);
-
     // --- Effects: zero out all custody and state roots before any external call ---
+    address payable recipient = payable(msg.sender);
     uint256 i;
-    while (i < appCount) {
+    while (i != appCount) {
       uint64 appId = effectiveAppIds[i];
 
-      // Accumulate ETH custody for this app and clear both the per-app and global trackers.
+      // Transfer ETH custody for this app and clear both the per-app and global trackers.
       uint256 ethAmt = appCustody[appId][ETH_TOKEN];
       if (ethAmt > 0) {
-        totalEth += ethAmt;
-        totalAppCustody[ETH_TOKEN] -= ethAmt;
-        appCustody[appId][ETH_TOKEN] = 0;
+        (bool ok, ) = recipient.call{value: ethAmt}('');
+        if (!ok) revert TransferFailed();
+        _subtractToCustody(appId, ETH_TOKEN, ethAmt);
       }
 
-      // Accumulate ERC-20 custody for this app across every token in the effective list.
+      // Transfer ERC-20 custody for this app across every token in the effective list.
       uint256 j;
-      while (j < tokenCount) {
+      while (j != tokenCount) {
         uint256 amt = appCustody[appId][effectiveTokens[j]];
         if (amt > 0) {
-          tokenTotals[j] += amt;
-          totalAppCustody[effectiveTokens[j]] -= amt;
-          appCustody[appId][effectiveTokens[j]] = 0;
+          IERC20(effectiveTokens[j]).safeTransfer(recipient, amt);
+          _subtractToCustody(appId, effectiveTokens[j], amt);
         }
         unchecked {
           ++j;
@@ -1003,30 +1086,234 @@ contract ProcessorEndpoint is TokenAllowlist, IProcessorEndpoint, ReentrancyGuar
         }
       }
 
+      // Clear any trigger registered for this app so its address can be reused after reset.
+      _clearTrigger(appId);
+
       unchecked {
         ++i;
       }
     }
+  }
 
-    // --- Interactions: transfer accumulated balances to the caller ---
-    // All state changes are complete before any external call (checks-effects-interactions).
-    address payable recipient = payable(msg.sender);
+  // Calls execute then withdraw on the trigger contract registered for the given applicationId,
+  // if any. Each call is wrapped in an independent try/catch so that a revert in the trigger
+  // never propagates to the caller: both calls are always attempted regardless of the outcome
+  // of the first.
+  function _invokeTrigger(
+    uint64 applicationId,
+    bytes32 processedRequestId,
+    Structs.EventData calldata appEventData,
+    address[] memory claimable
+  ) internal {
+    ITrigger trigger = triggerContracts[applicationId];
+    //do nothing if trigger not defined for application
+    if (address(trigger) == address(0)) return;
 
-    // Single ETH transfer covering the total rescued across all apps.
-    if (totalEth > 0) {
-      (bool ok, ) = recipient.call{value: totalEth}('');
-      if (!ok) revert TransferFailed();
-    }
-
-    // One safeTransfer per token covering the total rescued across all apps.
-    uint256 k;
-    while (k < tokenCount) {
-      if (tokenTotals[k] > 0) {
-        IERC20(effectiveTokens[k]).safeTransfer(recipient, tokenTotals[k]);
-      }
+    //claims for the trigger
+    uint256 ti;
+    uint256 tokenCount = claimable.length;
+    while (ti != tokenCount) {
+      _claim(claimable[ti], payable(address(trigger)));
       unchecked {
-        ++k;
+        ++ti;
       }
     }
+
+    // invoke execute
+    bool executeSuccess = true;
+    try trigger.execute(appEventData) {} catch {
+      executeSuccess = false;
+    }
+    emit TriggerExecuted(applicationId, processedRequestId, executeSuccess);
+
+    //invoke withdraw (sweep only)
+    Structs.TokenAndAmount[] memory returnedTokens;
+    Structs.TokenAndAmount[] memory failedTokens;
+    bool withdrawSuccess = true;
+    try trigger.withdraw() returns (
+      Structs.TokenAndAmount[] memory _returnedTokens,
+      Structs.TokenAndAmount[] memory _failedTokens
+    ) {
+      returnedTokens = _returnedTokens;
+      failedTokens = _failedTokens;
+    } catch {
+      withdrawSuccess = false;
+    }
+
+    // Re-shield: returnedTokens contains returned tokens + ETH_TOKEN
+    ti = 0;
+    tokenCount = returnedTokens.length;
+    while (ti != tokenCount) {
+      _addToCustody(applicationId, returnedTokens[ti].token, returnedTokens[ti].amount);
+      unchecked {
+        ++ti;
+      }
+    }
+
+    // Explicit, isolated trusted-payload step, decoupled from the sweep: getTrustProcessPayload
+    // is called here in its own try/catch (a revert cannot block stateUpdate). It runs even when
+    // withdraw failed, so the application can react to a failed sweep (damage control).
+    bytes memory trustedPayload;
+    bool postWithdrawSuccess = true;
+    try
+      trigger.getTrustProcessPayload(
+        appEventData,
+        executeSuccess,
+        withdrawSuccess,
+        returnedTokens,
+        failedTokens
+      )
+    returns (bytes memory _trustedPayload) {
+      trustedPayload = _trustedPayload;
+    } catch {
+      postWithdrawSuccess = false;
+    }
+
+    emit TriggerWithdraw(
+      applicationId,
+      processedRequestId,
+      withdrawSuccess,
+      postWithdrawSuccess,
+      returnedTokens,
+      failedTokens
+    );
+
+    // stateUpdate is the ONLY place a trusted (TRUSTPROCESS) request can be
+    // created. If getTrustProcessPayload returned a non-empty payload, enqueue it
+    // into the trigger queue.
+    if (trustedPayload.length > 0) {
+      _enqueueTrustedRequest(applicationId, address(trigger), trustedPayload);
+    }
+  }
+
+  /// @notice Enqueues a TRUSTPROCESS request into the trigger queue. PRIVATE and
+  ///         reachable ONLY from _invokeTrigger (i.e. during stateUpdate), which is
+  ///         the single authorized point allowed to create a trusted request. The
+  ///         payload is produced by the trigger's getTrustProcessPayload hook; callers must
+  ///         skip empty payloads (no trusted request is created for them).
+  /// @param applicationId Application the trusted request belongs to.
+  /// @param trigger Trigger contract that produced the payload (recorded as sender).
+  /// @param payload Trusted request payload (forwarded to the WASM as-is).
+  function _enqueueTrustedRequest(
+    uint64 applicationId,
+    address trigger,
+    bytes memory payload
+  ) private {
+    bytes32 requestId = generateRequestId(
+      trigger,
+      applicationId,
+      Structs.RequestType.TRUSTPROCESS,
+      keccak256(payload),
+      address(0),
+      0,
+      _triggerQueue.tail
+    );
+
+    _queueEnqueue(
+      _triggerQueue,
+      requestId,
+      Structs.PendingRequest({
+        timestamp: block.timestamp,
+        tokenAddress: address(0),
+        assetAmount: 0,
+        maxFeeValue: 0,
+        requestId: requestId,
+        payload: payload,
+        sender: trigger,
+        facilitator: address(0),
+        applicationId: applicationId,
+        protocolVersion: PROTOCOL_VERSION,
+        requestType: Structs.RequestType.TRUSTPROCESS
+      })
+    );
+
+    emit RequestSubmitted(applicationId, requestId, trigger, address(0));
+  }
+
+  // Internal queue helpers
+
+  function _queueEnqueue(
+    RequestQueue storage q,
+    bytes32 id,
+    Structs.PendingRequest memory req
+  ) internal {
+    q.requestById[id] = req;
+    q.idByOrder[q.tail] = id;
+    unchecked {
+      ++q.tail;
+    }
+  }
+
+  function _queueDequeueHead(RequestQueue storage q) internal {
+    bytes32 id = q.idByOrder[q.head];
+    delete q.requestById[id];
+    delete q.idByOrder[q.head];
+    unchecked {
+      ++q.head;
+    }
+  }
+
+  function _queueSize(RequestQueue storage q) internal view returns (uint256) {
+    if (q.tail > q.head) return q.tail - q.head;
+    return 0;
+  }
+
+  function _queuePeekHead(RequestQueue storage q) internal view returns (bytes32) {
+    return q.idByOrder[q.head];
+  }
+
+  function _queueIsHead(RequestQueue storage q, bytes32 id) internal view returns (bool) {
+    return q.tail > q.head && q.idByOrder[q.head] == id;
+  }
+
+  function _queueGetAll(
+    RequestQueue storage q
+  ) internal view returns (Structs.PendingRequest[] memory result) {
+    uint256 n = _queueSize(q);
+    result = new Structs.PendingRequest[](n);
+    uint256 i = q.head;
+    uint256 tail = q.tail;
+    uint256 j;
+    while (i < tail) {
+      result[j] = q.requestById[q.idByOrder[i]];
+      unchecked {
+        ++i;
+        ++j;
+      }
+    }
+  }
+
+  function _queueGetPage(
+    RequestQueue storage q,
+    uint256 offset,
+    uint256 limit
+  ) internal view returns (Structs.PendingRequest[] memory result) {
+    uint256 n = _queueSize(q);
+    if (offset >= n || limit == 0) return new Structs.PendingRequest[](0);
+    uint256 end = offset + limit;
+    if (end > n) end = n;
+    uint256 count = end - offset;
+    result = new Structs.PendingRequest[](count);
+    uint256 i = q.head + offset;
+    uint256 stop = q.head + end;
+    uint256 j;
+    while (i < stop) {
+      result[j] = q.requestById[q.idByOrder[i]];
+      unchecked {
+        ++i;
+        ++j;
+      }
+    }
+  }
+
+  // update custody helper
+  function _addToCustody(uint64 applicationId, address token, uint256 amount) internal {
+    appCustody[applicationId][token] += amount;
+    totalAppCustody[token] += amount;
+  }
+
+  function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {
+    appCustody[applicationId][token] -= amount;
+    totalAppCustody[token] -= amount;
   }
 }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import '../Structs.sol';
+import './ITokenAllowlist.sol';
 
 /// @title ProcessorEndpoint interface
 /// @notice External API, events, and errors for the processor endpoint.
@@ -135,6 +136,31 @@ interface IProcessorEndpoint {
   /// @param amount Amount withdrawn.
   event PaymentWithdrawn(address tokenAddress, address indexed payee, uint256 amount);
 
+  // @notice Emitted when a trigger's execute function is called.
+  // @param applicationId Application identifier.
+  // @param processedRequestId Request identifier being processed.
+  // @param success True if the execute call succeeded, false if it reverted.
+  event TriggerExecuted(
+    uint64 indexed applicationId,
+    bytes32 indexed processedRequestId,
+    bool success
+  );
+  // @notice Emitted when a trigger's withdraw function is called.
+  // @param applicationId Application identifier.
+  // @param processedRequestId Request identifier being processed.
+  // @param withdrawSuccess True if the withdraw call succeeded, false if it reverted.
+  // @param postWithdrawSuccess True if the post-withdraw call succeeded, false if it reverted.
+  // @param returnedTokens Array of tokens transferred in the sweep, with amounts.
+  // @param failedTokens Array of tokens that failed to transfer, with amounts.
+  event TriggerWithdraw(
+    uint64 indexed applicationId,
+    bytes32 indexed processedRequestId,
+    bool withdrawSuccess,
+    bool postWithdrawSuccess,
+    Structs.TokenAndAmount[] returnedTokens,
+    Structs.TokenAndAmount[] failedTokens
+  );
+
   /// @notice A zero address was supplied where not allowed.
   error AddressCantBeZero();
   /// @notice Fee value is below the minimum allowed.
@@ -177,6 +203,10 @@ interface IProcessorEndpoint {
   error InvalidSigner();
   /// @notice The deposit permit bytes are invalid or missing when required (used for facilitator requests).
   error InvalidPermit();
+  /// @notice Trigger contract is already registered to another application.
+  error TriggerAlreadyRegistered();
+  /// @notice Trigger contrct cannot be an EOA.
+  error TriggerCannotBeEOA();
 
   /// @notice Submits a new request and enqueues it for processing.
   /// @param protocolVersion Protocol version.
@@ -238,9 +268,33 @@ interface IProcessorEndpoint {
     bytes calldata payload
   ) external payable returns (bytes32);
 
+  /// @notice Submits a new deploy request and enqueues it for processing,
+  ///         optionally registering a trigger contract for the new application.
+  ///         The trigger is supplied as an explicit argument and is never inferred
+  ///         from the payload, so the deploy payload can still carry a full WASM
+  ///         descriptor (and any constructor params) alongside the trigger address.
+  /// @param protocolVersion Protocol version.
+  /// @param payload Request payload (e.g. the WASM deploy descriptor).
+  /// @param trigger Trigger contract to register for the deployed app, or
+  ///        address(0) for no trigger (equivalent to the 2-arg overload).
+  /// @return requestId Generated request id.
+  function submitDeployRequestWithTrigger(
+    uint8 protocolVersion,
+    bytes calldata payload,
+    address trigger
+  ) external payable returns (bytes32);
+
   /// @notice Returns the number of pending requests in the queue.
   /// @return size Current pending request count.
   function getPendingRequestsSize() external view returns (uint256);
+
+  /// @notice Returns the number of requests currently in the trigger queue.
+  /// @return size Current trigger request count.
+  function getTriggerQueueSize() external view returns (uint256);
+
+  /// @notice Returns the list of requests currently in the trigger queue, in order.
+  /// @return requests Array of trigger-queue requests.
+  function getTriggerRequests() external view returns (Structs.PendingRequest[] memory);
 
   /// @notice Returns the list of pending requests in order.
   /// @return requests Array of pending requests.
@@ -326,7 +380,7 @@ interface IProcessorEndpoint {
   /// @param sender Sender address.
   /// @param applicationId Application identifier.
   /// @param requestType Request type.
-  /// @param payload Request payload.
+  /// @param payloadHash keccak256 of the request payload.
   /// @param tokenAddress Token address (0x0 = ETH).
   /// @param assetAmount Business asset amount.
   /// @param idx Queue index.
@@ -335,7 +389,7 @@ interface IProcessorEndpoint {
     address sender,
     uint64 applicationId,
     Structs.RequestType requestType,
-    bytes calldata payload,
+    bytes32 payloadHash,
     address tokenAddress,
     uint256 assetAmount,
     uint256 idx
@@ -379,11 +433,12 @@ interface IProcessorEndpoint {
 
   /// @notice Resets state roots and locked funds for the given application IDs, clears the queue
   ///         in the same transaction, and transfers all recovered ETH and ERC-20 balances to the
-  ///         caller. Pass empty arrays to target all deployed apps / all allowlisted tokens.
+  ///         caller. Pass empty array to target all deployed apps.
   ///         Restricted to RESET_OPERATOR. Unreachable when RESET_OPERATOR was initialised as
   ///         address(0).
   /// @param appIds Application IDs to reset. Empty array means all deployed apps.
-  /// @param erc20Tokens ERC-20 token addresses whose custody to recover. Empty array means all
-  ///        allowlisted tokens.
-  function adminResetApps(uint64[] calldata appIds, address[] calldata erc20Tokens) external;
+  function adminResetApps(uint64[] calldata appIds) external;
+
+  /// @notice Returns the external token allowlist contract used by this endpoint.
+  function tokenAllowlist() external view returns (ITokenAllowlist);
 }
