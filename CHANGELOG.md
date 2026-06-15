@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+### Features
+
+- **Smart contracts invocation**: Added possibility to invoke an external smart contract as a result of a TEE invocation + priority queue for following reentrant calls
+
 ## 0.1.0
 
 ### Features
