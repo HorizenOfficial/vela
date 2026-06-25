@@ -28,8 +28,8 @@ import (
 //
 // Signatures:
 //
-//	process_request (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
-//	  (appId, senderPtr, senderLen, requestType, payloadPtr, payloadLen, statePtr, stateLen)
+//	process_request (param i64 i32 i32 i32 i64 i32 i32 i32 i32) (result i32)
+//	  (appId, senderPtr, senderLen, requestType, blockTimestamp, payloadPtr, payloadLen, statePtr, stateLen)
 //	trusted_request (param i64 i32 i32 i32 i32) (result i32)
 //	  (appId, payloadPtr, payloadLen, statePtr, stateLen)
 //	load_module (param i64) (result i32)       — called by getOrLoadModule on first load
@@ -77,8 +77,8 @@ const dispatchTestWat = `(module
   (func (export "deallocate") (param i32 i32)
   )
 
-  ;; process_request: 8-arg ABI — ignores all params, returns fixed offset 100
-  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+  ;; process_request: 9-arg ABI — ignores all params, returns fixed offset 100
+  (func (export "process_request") (param i64 i32 i32 i32 i64 i32 i32 i32 i32) (result i32)
     i32.const 100
   )
 
@@ -442,13 +442,13 @@ func TestProcessRequest_DispatchesByRequestType(t *testing.T) {
 	state := []byte("{}")
 
 	// TrustProcess -> trusted_request (state discriminator byte == 2)
-	trustedState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.TrustProcess, payload, state, wasmBytes)
+	trustedState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.TrustProcess, uint64(0), payload, state, wasmBytes)
 	require.Nil(t, failure, "TrustProcess must succeed via trusted_request")
 	require.Equal(t, []byte{2}, trustedState, "TrustProcess must dispatch to trusted_request (state=[2])")
 
 	// Process -> process_request (state discriminator byte == 1)
 	// Same appId is fine — the cached module exports both functions.
-	procState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
+	procState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.Process, uint64(0), payload, state, wasmBytes)
 	require.Nil(t, failure, "Process must succeed via process_request")
 	require.Equal(t, []byte{1}, procState, "Process must dispatch to process_request (state=[1])")
 }

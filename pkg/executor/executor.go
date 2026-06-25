@@ -677,8 +677,20 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			wasmPayload = decryptedPayload
 		}
 
+		// Source the chain-attested block.timestamp from req.Timestamp and pass it to the runtime.
+		// Request.Validate() has already constrained the value to a non-negative bigint; here we
+		// additionally require it to fit in uint64 before crossing the WASM boundary.
+		tsBig := req.Timestamp.ToInt()
+		if !tsBig.IsUint64() {
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
+				apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("block timestamp does not fit in uint64: %s", tsBig.String())))
+			return errorPayload, nil, nil, err
+		}
+		blockTimestamp := tsBig.Uint64()
+
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, wasmPayload, tempState, wasmModule)
+		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, blockTimestamp, wasmPayload, tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req,
 				appState.StateRoot,

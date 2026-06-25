@@ -596,8 +596,10 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	return depositResult.State, depositResult.Events, depositResult.AppEvents, depositResult.Fuel.ToInt(), nil
 }
 
-// ProcessRequest processes a request and returns the new state, events, withdrawals, and optionally a deanonymization report
-func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+// ProcessRequest processes a request and returns the new state, events, withdrawals, and optionally a deanonymization report.
+// blockTimestamp is the chain-attested block.timestamp at request enqueue and is passed through to the WASM guest as an
+// additional int64 parameter on the process_request export.
+func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, blockTimestamp uint64, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	r.log.Info("Wasmtime Runtime: Processing request for application %d (type: %s, payload size: %d, state size: %d)", appId, requestType, len(payload), len(state))
 
 	wasmAppId, err := ToWasmType(appId)
@@ -697,9 +699,9 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	}
 
 	// Call the process_request function
-	// Wasm supports only int64, so we cast appId to int64
+	// Wasm supports only int64, so we cast appId and blockTimestamp to int64
 	// requestType is passed as int32 to the WASM module
-	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), int32(requestType), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
+	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), int32(requestType), int64(blockTimestamp), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call process_request: %v", err))
 	}
