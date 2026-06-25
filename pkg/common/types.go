@@ -209,6 +209,11 @@ type PlainEvent struct {
 	EventSubType [32]byte `json:"eventSubType"`
 	// Data is the encrypted event data
 	Data []byte `json:"data"`
+	// RecipientPubKey, when non-empty, overrides the standard keyStore[UserID]
+	// lookup in encryptEvents — the executor parses it as a P521 SEC1-uncompressed
+	// public key (133 bytes, prefix 0x04) and uses it as the ECIES receiver.
+	// When nil or empty, the keyStore lookup runs unchanged.
+	RecipientPubKey []byte `json:"recipientPubKey,omitempty"`
 }
 
 // AppEvent represents an application-level event (not encrypted, not user-directed).

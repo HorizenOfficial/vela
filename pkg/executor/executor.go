@@ -1117,11 +1117,23 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	encryptedEvents := make([]common.Event, len(events))
 
 	for i, event := range events {
-		// retrieve user Secp521r1_PubKey
-		userKey, exists := keyStore[event.UserID]
-
-		if !exists {
-			return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found"), nil
+		// Resolve the ECIES recipient pubkey: prefer the WASM-supplied
+		// RecipientPubKey when set, fall back to keyStore[event.UserID] otherwise.
+		// Used by vela-ned for hint events whose recipient (the Scheduler) does not
+		// register a key via ASSOCIATEKEY and is therefore absent from keyStore.
+		var userKey *cryptotypes.PublicKeyP521
+		if len(event.RecipientPubKey) > 0 {
+			parsed, perr := cryptotypes.NewPublicKeyP521(event.RecipientPubKey)
+			if perr != nil {
+				return nil, apperrors.New(apperrors.CodeParsingKeyError, fmt.Sprintf("invalid RecipientPubKey: %v", perr)), nil
+			}
+			userKey = parsed
+		} else {
+			var exists bool
+			userKey, exists = keyStore[event.UserID]
+			if !exists {
+				return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found"), nil
+			}
 		}
 		// Encrypt the event data
 		encryptedData, err := crypto.Encrypt(key, userKey, event.Data)
