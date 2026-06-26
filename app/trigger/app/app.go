@@ -205,7 +205,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 // with its new balance, and deliberately emits NO AppEvents: a TRUSTPROCESS
 // stateUpdate with empty AppEvents makes a guarded trigger return no payload,
 // terminating the loop.
-func TrustedRequest(payloadJSON, stateJSON string) types.ProcessResult {
+func TrustedRequest(payloadString, stateJSON string) types.ProcessResult {
 	var currentState ApplicationInternalState
 	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
 		return types.ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
@@ -214,7 +214,7 @@ func TrustedRequest(payloadJSON, stateJSON string) types.ProcessResult {
 	// ABI-decode the trusted payload (abi.encode(uint256 reshieldedAmount)): a
 	// single 32-byte big-endian word. Reject anything else — a malformed payload
 	// is a deterministic failure, so the executor marks the TRUSTPROCESS FAILED.
-	payload := []byte(payloadJSON)
+	payload := []byte(payloadString)
 	if len(payload) != 32 {
 		return types.ProcessResult{Error: fmt.Sprintf("trusted_request: malformed payload, expected 32 bytes, got %d", len(payload))}
 	}
@@ -225,7 +225,8 @@ func TrustedRequest(payloadJSON, stateJSON string) types.ProcessResult {
 	if err != nil {
 		return types.ProcessResult{Error: fmt.Sprintf("invalid fee collector address %q: %v", currentState.FeeCollector, err)}
 	}
-	feeHex := feeAddr.Hex()
+	// feeHex := feeAddr.Hex()
+	feeHex := currentState.FeeCollector
 	acc := currentState.Accounts[feeHex]
 	if acc == nil {
 		acc = &AccountState{Address: feeAddr, Balances: make(map[string]*types.Uint256)}

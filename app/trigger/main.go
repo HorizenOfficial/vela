@@ -45,9 +45,9 @@ func process_request(appId int64, senderPtr *byte, senderLen int32, requestType 
 //export trusted_request
 func trusted_request(appId int64, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = appId
-	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
+	payload := utils.PtrToString(payloadPtr, payloadLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)
-	result := app.TrustedRequest(payloadJSON, stateJSON)
+	result := app.TrustedRequest(payload, stateJSON)
 	return types.SerializeAndWriteResult(result)
 }
 
