@@ -225,7 +225,7 @@ func TrustedRequest(payloadString, stateJSON string) types.ProcessResult {
 	if err != nil {
 		return types.ProcessResult{Error: fmt.Sprintf("invalid fee collector address %q: %v", currentState.FeeCollector, err)}
 	}
-	// feeHex := feeAddr.Hex()
+
 	feeHex := currentState.FeeCollector
 	acc := currentState.Accounts[feeHex]
 	if acc == nil {
