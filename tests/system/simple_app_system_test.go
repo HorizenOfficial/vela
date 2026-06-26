@@ -14,7 +14,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	simpleapp "github.com/HorizenOfficial/vela/app/simple/app"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
+	"github.com/HorizenOfficial/vela/app/subtype"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
@@ -23,7 +24,6 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/manager"
 	"github.com/HorizenOfficial/vela/pkg/testutil"
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 )
 
 // host-side event types for test validation (app-specific, not framework types)
@@ -1022,6 +1022,6 @@ func TestSimpleAppDepositEmitsAppEvent(t *testing.T) {
 
 	// Verify the AppEvent is present in the payload
 	require.NotEmpty(t, payload.AppEvents, "deposit should produce at least one AppEvent")
-	require.Equal(t, simpleapp.SubTypeFromString("deposit_received"), payload.AppEvents[0].EventSubType)
+	require.Equal(t, subtype.FromString("deposit_received"), payload.AppEvents[0].EventSubType)
 	require.NotEmpty(t, payload.AppEvents[0].Data, "AppEvent data should not be empty")
 }

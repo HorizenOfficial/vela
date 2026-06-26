@@ -6,6 +6,7 @@ import (
 
 	"github.com/HorizenOfficial/vela-common-go/wasm/types"
 	"github.com/HorizenOfficial/vela-common-go/wasm/utils"
+	"github.com/HorizenOfficial/vela/app/subtype"
 )
 
 // --- High-Level Application Logic ---
@@ -170,7 +171,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 		// than JSON parsing in Solidity. Uint256.Bytes() is the 32-byte big-endian
 		// form, which is exactly the ABI encoding of a single uint256.
 		appEvents = []types.AppEvent{{
-			EventSubType: SubTypeFromString("execute_requested"),
+			EventSubType: subtype.FromString("execute_requested"),
 			Data:         types.NewUint256(currentState.Counter).Bytes(),
 		}}
 	case "ping":
@@ -179,7 +180,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 		// sender to hold any balance. Used to drive a TRUSTPROCESS without funds.
 		currentState.Counter++
 		appEvents = []types.AppEvent{{
-			EventSubType: SubTypeFromString("execute_requested"),
+			EventSubType: subtype.FromString("execute_requested"),
 			Data:         types.NewUint256(currentState.Counter).Bytes(),
 		}}
 	case "":
@@ -252,7 +253,7 @@ func TrustedRequest(payloadJSON, stateJSON string) types.ProcessResult {
 	}
 	events := []types.PlainEvent{{
 		UserID:       feeAddr,
-		EventSubType: SubTypeFromString("fee_credited"),
+		EventSubType: subtype.FromString("fee_credited"),
 		Data:         eventData,
 	}}
 

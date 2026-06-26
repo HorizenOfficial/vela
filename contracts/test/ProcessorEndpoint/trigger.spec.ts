@@ -786,22 +786,20 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     // empty events/withdrawals, errorCode != NO_ERROR.
     async function failStateUpdate(applicationId: bigint, requestId: string) {
       const currentRoot = await processorEndpoint.applicationStateRoots(applicationId);
-      const updateTx = await processorEndpoint
-        .connect(signers[1])
-        .stateUpdate(
-          applicationId,
-          currentRoot,
-          currentRoot,
-          requestId,
-          { events: [], subTypes: [] },
-          { events: [], subTypes: [] },
-          [],
-          0,
-          0,
-          1, // errorCode != NO_ERROR
-          'err',
-          '0x'
-        );
+      const updateTx = await processorEndpoint.connect(signers[1]).stateUpdate(
+        applicationId,
+        currentRoot,
+        currentRoot,
+        requestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [],
+        0,
+        0,
+        1, // errorCode != NO_ERROR
+        'err',
+        '0x'
+      );
       return { updateTx, updateReceipt: await updateTx.wait() };
     }
 
@@ -813,9 +811,18 @@ describe('ProcessorEndpoint Trigger Tests', function () {
 
       const submitTx = await processorEndpoint
         .connect(signers[0])
-        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', ETH_TOKEN, 0n, minFeePerRequest, {
-          value: minFeePerRequest,
-        });
+        .submitRequest(
+          0,
+          applicationId,
+          REQUEST_TYPE_PROCESS,
+          '0x01',
+          ETH_TOKEN,
+          0n,
+          minFeePerRequest,
+          {
+            value: minFeePerRequest,
+          }
+        );
       const requestId = getRequestIdFromReceipt(processorEndpoint, await submitTx.wait());
 
       const { updateTx, updateReceipt } = await failStateUpdate(applicationId, requestId);
