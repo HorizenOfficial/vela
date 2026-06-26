@@ -38,6 +38,16 @@ import (
 //go:generate mkdir -p ./contracts/mockerc20
 //go:generate solc --via-ir --abi --bin ../../contracts/contracts/mocks/MockERC20.sol --base-path ../.. --include-path ../../contracts/node_modules -o ../../contract_abis/MockERC20Abi --overwrite
 //go:generate abigen --v2 --abi ../../contract_abis/MockERC20Abi/MockERC20.abi --bin ../../contract_abis/MockERC20Abi/MockERC20.bin --pkg mockerc20 --type MockERC20 --out ./contracts/mockerc20/MockERC20.go
+// TestTrigger isolates its own .abi + .bin (like MockERC20 above) rather than
+// using --combined-json: the combined output also binds sibling contracts
+// (ITrigger, AbstractTrigger) that share a withdraw() tuple, which makes abigen
+// emit a duplicate WithdrawOutput struct and fails to compile.
+//go:generate mkdir -p ./contracts/testtrigger
+//go:generate solc --via-ir --abi --bin ../../contracts/contracts/mocks/TestTrigger.sol --base-path ../.. --include-path ../../contracts/node_modules -o ../../contract_abis/TestTriggerAbi --overwrite
+//go:generate abigen --v2 --abi ../../contract_abis/TestTriggerAbi/TestTrigger.abi --bin ../../contract_abis/TestTriggerAbi/TestTrigger.bin --pkg testtrigger --type TestTrigger --out ./contracts/testtrigger/TestTrigger.go
+//go:generate mkdir -p ./contracts/guardedtrigger
+//go:generate solc --via-ir --abi --bin ../../contracts/contracts/mocks/GuardedTrigger.sol --base-path ../.. --include-path ../../contracts/node_modules -o ../../contract_abis/GuardedTriggerAbi --overwrite
+//go:generate abigen --v2 --abi ../../contract_abis/GuardedTriggerAbi/GuardedTrigger.abi --bin ../../contract_abis/GuardedTriggerAbi/GuardedTrigger.bin --pkg guardedtrigger --type GuardedTrigger --out ./contracts/guardedtrigger/GuardedTrigger.go
 
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {

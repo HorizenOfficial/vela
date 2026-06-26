@@ -777,4 +777,93 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       expect(await processorEndpoint.getTriggerQueueSize()).to.equal(0n);
     });
   });
+
+  // The trigger must only act on SUCCESSFUL stateUpdates: the error branch returns
+  // before _invokeTrigger, so a failed request can neither invoke the trigger nor
+  // enqueue (another) TRUSTPROCESS. These cover that "failure is inert" guarantee.
+  describe('failure path: a failed stateUpdate leaves the trigger inert', function () {
+    // Drives an already-pending request into the error path: state unchanged,
+    // empty events/withdrawals, errorCode != NO_ERROR.
+    async function failStateUpdate(applicationId: bigint, requestId: string) {
+      const currentRoot = await processorEndpoint.applicationStateRoots(applicationId);
+      const updateTx = await processorEndpoint
+        .connect(signers[1])
+        .stateUpdate(
+          applicationId,
+          currentRoot,
+          currentRoot,
+          requestId,
+          { events: [], subTypes: [] },
+          { events: [], subTypes: [] },
+          [],
+          0,
+          0,
+          1, // errorCode != NO_ERROR
+          'err',
+          '0x'
+        );
+      return { updateTx, updateReceipt: await updateTx.wait() };
+    }
+
+    it('a failed PROCESS request does not invoke the registered trigger', async function () {
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+      // Arm a non-empty payload: were the trigger (wrongly) invoked, it would
+      // enqueue a TRUSTPROCESS — so a queue size of 0 proves it was not.
+      await (await mockTrigger.setTrustedPayload('0xdeadbeef')).wait();
+
+      const submitTx = await processorEndpoint
+        .connect(signers[0])
+        .submitRequest(0, applicationId, REQUEST_TYPE_PROCESS, '0x01', ETH_TOKEN, 0n, minFeePerRequest, {
+          value: minFeePerRequest,
+        });
+      const requestId = getRequestIdFromReceipt(processorEndpoint, await submitTx.wait());
+
+      const { updateTx, updateReceipt } = await failStateUpdate(applicationId, requestId);
+      const { triggerExecuted, triggerWithdraw } = parseTriggerEvents(updateReceipt);
+
+      await expect(updateTx).not.to.emit(processorEndpoint, 'TriggerExecuted');
+      await expect(updateTx).not.to.emit(processorEndpoint, 'TriggerWithdraw');
+      expect(triggerExecuted.length).to.equal(0);
+      expect(triggerWithdraw.length).to.equal(0);
+      expect(await mockTrigger.executedInBlock(updateReceipt.blockNumber)).to.equal(false);
+
+      // No TRUSTPROCESS enqueued, and the request completes as FAILED.
+      expect(await processorEndpoint.getTriggerQueueSize()).to.equal(0n);
+      await expect(updateTx)
+        .to.emit(processorEndpoint, 'RequestCompleted')
+        .withArgs(applicationId, requestId, minFeePerRequest, 1, 1, 'err');
+    });
+
+    it('a failed TRUSTPROCESS is dequeued and neither re-invokes the trigger nor enqueues another', async function () {
+      const { applicationId, mockTrigger } = await bootstrapApplicationWithTrigger(false, false);
+      await (await mockTrigger.setTrustedPayload('0xdeadbeef')).wait();
+
+      // A successful PROCESS enqueues exactly one TRUSTPROCESS.
+      await submitAndProcess(applicationId, INITIAL_STATE_ROOT, '0x' + '33'.repeat(32));
+      expect(await processorEndpoint.getTriggerQueueSize()).to.equal(1n);
+
+      const [req] = await processorEndpoint.getNextPendingRequest();
+      expect(req.requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
+      const trustedRequestId: string = req.requestId;
+
+      const { updateTx, updateReceipt } = await failStateUpdate(applicationId, trustedRequestId);
+      const { triggerExecuted, triggerWithdraw } = parseTriggerEvents(updateReceipt);
+
+      // The failed TRUSTPROCESS does not re-invoke the trigger...
+      await expect(updateTx).not.to.emit(processorEndpoint, 'TriggerExecuted');
+      await expect(updateTx).not.to.emit(processorEndpoint, 'TriggerWithdraw');
+      expect(triggerExecuted.length).to.equal(0);
+      expect(triggerWithdraw.length).to.equal(0);
+      expect(await mockTrigger.executedInBlock(updateReceipt.blockNumber)).to.equal(false);
+
+      // ...enqueues no replacement and is itself dequeued.
+      expect(await processorEndpoint.getTriggerQueueSize()).to.equal(0n);
+      expect(await processorEndpoint.isCurrentPendingRequest(trustedRequestId)).to.equal(false);
+
+      // Marked FAILED with no fee (trigger-queue requests carry maxFeeValue 0).
+      await expect(updateTx)
+        .to.emit(processorEndpoint, 'RequestCompleted')
+        .withArgs(applicationId, trustedRequestId, 0n, 1, 1, 'err');
+    });
+  });
 });

@@ -56,6 +56,21 @@ func NewFullStackSystemTestSuite(t *testing.T, appType string, mgrLogCfg *logger
 	return NewFullStackSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLogCfg, excLogCfg)
 }
 
+// NewWasmRuntimeSuite is the one-call bootstrap for full-stack tests that need
+// the real WASM runtime (deployed apps run as actual modules): it sets the env
+// vars LoadConfig requires (MANAGER_ARTIFACTS_PATH, plus type-0 keyset recovery
+// so no KMS client is needed), then constructs the suite with appType
+// "wasm-runtime". The artifacts path is overridden with a temp dir by
+// TestSuiteCore during construction; the env var only needs to exist so
+// manager.LoadConfig passes.
+func NewWasmRuntimeSuite(t *testing.T) *FullStackSystemTestSuite {
+	t.Helper()
+	t.Setenv("MANAGER_ARTIFACTS_PATH", t.TempDir())
+	t.Setenv("EXECUTOR_KEYSET_RECOVERY_TYPE", "0")
+	logCfg := &logger.Config{Kind: "zerolog", Console: true, ConsoleLevel: "info", ConsoleColor: false}
+	return NewFullStackSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
+}
+
 func NewFullStackSystemTestSuiteWithConfigs(
 	t *testing.T,
 	appType string,
@@ -332,6 +347,102 @@ func (s *FullStackSystemTestSuite) AssertRequestCompleted(requestID common.Reque
 	return s.wrappedClient.waitForRequestCompletion(requestID, timeout)
 }
 
+// AssertRequestFailed blocks until the request is marked FAILED by the executor
+// (a signed error stateUpdate), returning an error if it instead completes or
+// times out. Used by negative paths where the WASM rejects the request.
+func (s *FullStackSystemTestSuite) AssertRequestFailed(requestID common.RequestIdType, timeout time.Duration) error {
+	return s.wrappedClient.waitForRequestFailed(requestID, timeout)
+}
+
+// DeployTestTrigger deploys a TestTrigger bound to the suite's ProcessorEndpoint
+// and returns its address. revertOnExecute / revertOnPostWithdraw configure the
+// trigger's failure modes (pass false/false for the happy path).
+func (s *FullStackSystemTestSuite) DeployTestTrigger(revertOnExecute, revertOnPostWithdraw bool) ethCommon.Address {
+	return s.simHelper.DeployTestTrigger(revertOnExecute, revertOnPostWithdraw)
+}
+
+// SubmitDeployRequestWithTrigger submits a deploy request on-chain that also
+// registers `trigger` for the resulting app (via
+// ProcessorEndpoint.submitDeployRequestWithTrigger). Like SubmitRequest, the
+// contract assigns the requestID and applicationID; this method writes both
+// back into req in place.
+func (s *FullStackSystemTestSuite) SubmitDeployRequestWithTrigger(req *common.Request, trigger ethCommon.Address) error {
+	sender, err := s.GetTransactOpts(req.Sender)
+	if err != nil {
+		return err
+	}
+
+	tx := s.simHelper.SubmitDeployRequestWithTriggerFromUser(req.Payload, req.MaxFeeValue.ToInt(), trigger, sender)
+	s.simHelper.WaitMined(tx)
+	event := s.simHelper.GetDeployRequestSubmittedEvent(tx)
+	req.RequestID = event.RequestId
+	req.ApplicationID = common.NewApplicationId(event.ApplicationId)
+
+	s.wrappedClient.markPending(req.RequestID)
+	return nil
+}
+
+// GetTriggerContract returns the trigger address registered on-chain for appID
+// (zero address if none).
+func (s *FullStackSystemTestSuite) GetTriggerContract(appID common.ApplicationIdType) ethCommon.Address {
+	return s.simHelper.GetTriggerContract(appID)
+}
+
+// GetTriggerAppId returns the application id the trigger is registered for
+// on-chain (0 if none).
+func (s *FullStackSystemTestSuite) GetTriggerAppId(trigger ethCommon.Address) uint64 {
+	return s.simHelper.GetTriggerAppId(trigger)
+}
+
+// SetTrustedPayload sets the payload a TestTrigger / GuardedTrigger returns from
+// getTrustProcessPayload; a non-empty value makes the ProcessorEndpoint enqueue
+// a TRUSTPROCESS request after the trigger runs.
+func (s *FullStackSystemTestSuite) SetTrustedPayload(trigger ethCommon.Address, payload []byte) {
+	s.simHelper.SetTrustedPayload(trigger, payload)
+}
+
+// DeployGuardedTrigger deploys a loop-safe GuardedTrigger bound to the suite's
+// ProcessorEndpoint and returns its address. Use this (not DeployTestTrigger)
+// for the request->TRUSTPROCESS round-trip so the trigger does not re-enqueue
+// indefinitely. On execute it sweeps all received ETH but 1 wei to `sink`; the
+// leftover 1 wei is re-shielded and reported in the trusted payload.
+func (s *FullStackSystemTestSuite) DeployGuardedTrigger(sink ethCommon.Address) ethCommon.Address {
+	return s.simHelper.DeployGuardedTrigger(sink)
+}
+
+// WaitForTrustProcessRequest blocks until a TRUSTPROCESS request — enqueued
+// on-chain by a trigger and processed by the manager — completes, returning its
+// request ID and UpdatePayload. The TRUSTPROCESS request ID is assigned on-chain
+// (not by the test), so this is how a test observes the trigger's follow-up.
+func (s *FullStackSystemTestSuite) WaitForTrustProcessRequest(timeout time.Duration) (common.RequestIdType, *common.UpdatePayload, error) {
+	return s.wrappedClient.waitForTrustProcess(timeout)
+}
+
+// WaitForFailedTrustProcessRequest blocks until a TRUSTPROCESS request — enqueued
+// on-chain by a trigger and pulled by the manager — is marked FAILED by the
+// executor (a signed error stateUpdate), returning its request ID. Use this for
+// negative paths where the WASM trusted_request rejects the trigger's payload.
+func (s *FullStackSystemTestSuite) WaitForFailedTrustProcessRequest(timeout time.Duration) (common.RequestIdType, error) {
+	return s.wrappedClient.waitForFailedTrustProcess(timeout)
+}
+
+// TrustProcessCount returns how many distinct TRUSTPROCESS requests the manager
+// has pulled. Use it to assert the trigger loop terminated (exactly one).
+func (s *FullStackSystemTestSuite) TrustProcessCount() int {
+	return s.wrappedClient.trustProcessCount()
+}
+
+// GetTriggerQueueSize returns the on-chain size of the trigger (TRUSTPROCESS)
+// queue. Use it to assert the queue drains and does not re-fill (no loop).
+func (s *FullStackSystemTestSuite) GetTriggerQueueSize() *big.Int {
+	return s.simHelper.GetTriggerQueueSize()
+}
+
+// GetStateRoot returns the current on-chain application state root.
+func (s *FullStackSystemTestSuite) GetStateRoot(appID common.ApplicationIdType) [32]byte {
+	return s.simHelper.GetStateRoot(appID)
+}
+
 // WaitForAppStateInBlockchain polls the on-chain state root until it becomes non-zero
 // for the given application (indicating the app has been deployed and state updated).
 func (s *FullStackSystemTestSuite) WaitForAppStateInBlockchain(appID common.ApplicationIdType, timeout time.Duration) (*common.ApplicationState, error) {
@@ -461,6 +572,12 @@ func (s *FullStackSystemTestSuite) SubmitStateUpdateAs(signerKey *cryptotypes.Pr
 // GetAppCustody queries the on-chain appCustody for an application and token.
 func (s *FullStackSystemTestSuite) GetAppCustody(appID common.ApplicationIdType, tokenAddress ethCommon.Address) *big.Int {
 	return s.simHelper.GetAppCustody(appID, tokenAddress)
+}
+
+// GetEthBalance returns the on-chain ETH balance of an address (used to observe
+// funds swept to a trigger's sink).
+func (s *FullStackSystemTestSuite) GetEthBalance(addr ethCommon.Address) *big.Int {
+	return s.simHelper.GetEthBalance(addr)
 }
 
 // GetDeployerAddress returns the address of the pre-authorized deployer account.
