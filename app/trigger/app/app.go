@@ -206,11 +206,6 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 // stateUpdate with empty AppEvents makes a guarded trigger return no payload,
 // terminating the loop.
 func TrustedRequest(payloadString, stateJSON string) types.ProcessResult {
-	var currentState ApplicationInternalState
-	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
-	}
-
 	// ABI-decode the trusted payload (abi.encode(uint256 reshieldedAmount)): a
 	// single 32-byte big-endian word. Reject anything else — a malformed payload
 	// is a deterministic failure, so the executor marks the TRUSTPROCESS FAILED.
@@ -220,6 +215,11 @@ func TrustedRequest(payloadString, stateJSON string) types.ProcessResult {
 	}
 	var amount types.Uint256
 	amount.SetBytes(payload)
+
+	var currentState ApplicationInternalState
+	if err := json.Unmarshal([]byte(stateJSON), &currentState); err != nil {
+		return types.ProcessResult{Error: fmt.Sprintf("Failed to parse application state: %v", err)}
+	}
 
 	feeAddr, err := types.HexToAddress(currentState.FeeCollector)
 	if err != nil {
