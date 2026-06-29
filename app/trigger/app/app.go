@@ -227,7 +227,7 @@ func TrustedRequest(payloadString, stateJSON string) types.ProcessResult {
 	}
 
 	feeHex := currentState.FeeCollector
-	acc := currentState.Accounts[feeHex]
+	acc := currentState.Accounts[feeHex] 
 	if acc == nil {
 		acc = &AccountState{Address: feeAddr, Balances: make(map[string]*types.Uint256)}
 		currentState.Accounts[feeHex] = acc
