@@ -271,6 +271,17 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
 	}
+	// defineHostCryptoImports wires host-implemented SHA-256 + HMAC-SHA-512
+	// into the linker as the `env::host_sha256` / `env::host_hmac_sha512`
+	// imports. WASM guests built with TinyGo+WASI cannot use Go's stdlib
+	// crypto directly because Go-1.24's `crypto/internal/fips140` indicator
+	// depends on per-goroutine state populated by `_start`, which we never
+	// call (see host_crypto.go for the full rationale). This is the seam to
+	// add future host-implemented primitives — if another stdlib package
+	// trips a similar lifecycle issue, expose it here alongside crypto.
+	if err := defineHostCryptoImports(linker, store); err != nil {
+		return nil, big.NewInt(0), err
+	}
 
 	// Instantiate the module using the module-specific store
 	instance, err := linker.Instantiate(store, module)
@@ -408,6 +419,17 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 	err = linker.DefineWasi()
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
+	}
+	// defineHostCryptoImports wires host-implemented SHA-256 + HMAC-SHA-512
+	// into the linker as the `env::host_sha256` / `env::host_hmac_sha512`
+	// imports. WASM guests built with TinyGo+WASI cannot use Go's stdlib
+	// crypto directly because Go-1.24's `crypto/internal/fips140` indicator
+	// depends on per-goroutine state populated by `_start`, which we never
+	// call (see host_crypto.go for the full rationale). This is the seam to
+	// add future host-implemented primitives — if another stdlib package
+	// trips a similar lifecycle issue, expose it here alongside crypto.
+	if err := defineHostCryptoImports(linker, store); err != nil {
+		return nil, big.NewInt(0), err
 	}
 
 	// Instantiate the module using the module-specific store
