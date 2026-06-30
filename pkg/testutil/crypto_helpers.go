@@ -11,6 +11,7 @@ import (
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 
 	velacommon "github.com/HorizenOfficial/vela-common-go/common"
+	"github.com/HorizenOfficial/vela-common-go/subtypes"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	"github.com/HorizenOfficial/vela/pkg/crypto"
@@ -100,7 +101,7 @@ func (c *CryptoHelper) ComputeSeed(userID ethCommon.Address) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	msgHash := ethCrypto.Keccak256([]byte(executor.SubtypeKeyMessage))
+	msgHash := ethCrypto.Keccak256([]byte(subtypes.SubtypeKeyMessage))
 	seed, err := signingKey.Sign(msgHash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign subtype message for user %s: %w", userID, err)

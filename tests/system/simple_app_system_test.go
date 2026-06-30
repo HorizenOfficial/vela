@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/HorizenOfficial/vela-common-go/subtypes"
 	simpleapp "github.com/HorizenOfficial/vela/app/simple/app"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
@@ -142,7 +143,7 @@ func depositToSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, cryptoHel
 	// Wait for, decrypt and verify deposit event (using privacy-preserving subtype set)
 	userSeed, err := cryptoHelper.ComputeSeed(user)
 	require.NoError(t, err)
-	depositEvent, err := suite.WaitForEventBySubtypes(user, executor.AllSubtypes(userSeed, executor.DefaultSubtypeN), timeout)
+	depositEvent, err := suite.WaitForEventBySubtypes(user, subtypes.AllSubtypes(userSeed, subtypes.DefaultSubtypeN), timeout)
 	require.NoError(t, err)
 	decryptedDepositData, err := cryptoHelper.DecryptEvent(user, depositEvent, executorPubKey)
 	require.NoError(t, err)
@@ -187,7 +188,7 @@ func withdrawFromSimpleApp(t *testing.T, suite *testutil.SystemTestSuite, crypto
 	// Wait for, decrypt and verify withdrawal event (using privacy-preserving subtype set)
 	userSeed, err := cryptoHelper.ComputeSeed(user)
 	require.NoError(t, err)
-	withdrawalEvent, err := suite.WaitForEventBySubtypes(user, executor.AllSubtypes(userSeed, executor.DefaultSubtypeN), timeout)
+	withdrawalEvent, err := suite.WaitForEventBySubtypes(user, subtypes.AllSubtypes(userSeed, subtypes.DefaultSubtypeN), timeout)
 	require.NoError(t, err)
 	decryptedWithdrawalData, err := cryptoHelper.DecryptEvent(user, withdrawalEvent, executorPubKey)
 	require.NoError(t, err)
@@ -488,7 +489,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	// Wait for action event (using privacy-preserving subtype set)
 	user1Seed, err := cryptoHelper.ComputeSeed(user1Address)
 	require.NoError(t, err)
-	actionEvent, err := suite.WaitForEventBySubtypes(user1Address, executor.AllSubtypes(user1Seed, executor.DefaultSubtypeN), timeout_value)
+	actionEvent, err := suite.WaitForEventBySubtypes(user1Address, subtypes.AllSubtypes(user1Seed, subtypes.DefaultSubtypeN), timeout_value)
 	require.NoError(t, err)
 	require.NotNil(t, actionEvent)
 
@@ -508,7 +509,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 
 	// Find the action event by matching user1's privacy-preserving subtype set
 	user1SubtypeSet := make(map[[32]byte]struct{})
-	for _, st := range executor.AllSubtypes(user1Seed, executor.DefaultSubtypeN) {
+	for _, st := range subtypes.AllSubtypes(user1Seed, subtypes.DefaultSubtypeN) {
 		user1SubtypeSet[st] = struct{}{}
 	}
 	var compareEvent *common.Event
@@ -883,7 +884,7 @@ func TestSimpleAppERC20DepositAndWithdraw(t *testing.T) {
 	// Verify deposit event carries token address
 	userSeed, err := cryptoHelper.ComputeSeed(userAddress)
 	require.NoError(t, err)
-	depositEvent, err := suite.WaitForEventBySubtypes(userAddress, executor.AllSubtypes(userSeed, executor.DefaultSubtypeN), timeout)
+	depositEvent, err := suite.WaitForEventBySubtypes(userAddress, subtypes.AllSubtypes(userSeed, subtypes.DefaultSubtypeN), timeout)
 	require.NoError(t, err)
 	decryptedDepositData, err := cryptoHelper.DecryptEvent(userAddress, depositEvent, executorPubKey)
 	require.NoError(t, err)

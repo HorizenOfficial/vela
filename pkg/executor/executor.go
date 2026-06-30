@@ -12,6 +12,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
 
+	"github.com/HorizenOfficial/vela-common-go/subtypes"
 	"github.com/HorizenOfficial/vela/pkg/admin"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
@@ -1145,7 +1146,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 		// otherwise fall back to the WASM-provided subtype.
 		eventSubType := event.EventSubType
 		if seed, hasSeed := seedStore[event.UserID]; hasSeed {
-			privSubtype, err := GenerateRandomSubtype(seed, DefaultSubtypeN)
+			privSubtype, err := GenerateRandomSubtype(seed, subtypes.DefaultSubtypeN)
 			if err != nil {
 				e.log.Warn("Executor: failed to generate random subtype for user %s, falling back to WASM subtype: %v", event.UserID, err)
 			} else {

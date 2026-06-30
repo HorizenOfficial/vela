@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/HorizenOfficial/vela-common-go/subtypes"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
@@ -559,7 +560,7 @@ func TestHandleProcessRequest_AssociateKey_Success(t *testing.T) {
 	sender := ethCommon.HexToAddress(signingKey.PublicKey().Address())
 
 	// Compute seed: sign keccak256(SubtypeKeyMessage) with the secp256k1 key
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
+	msgHash := ethCrypto.Keccak256([]byte(subtypes.SubtypeKeyMessage))
 	seed, err := signingKey.Sign(msgHash)
 	require.NoError(t, err)
 	require.Len(t, seed, 65)
