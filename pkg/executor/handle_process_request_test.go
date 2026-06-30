@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/HorizenOfficial/vela-common-go/subtypes"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
@@ -28,6 +29,7 @@ func newProcessRequest() *common.Request {
 		RequestID:       commontestutil.GenerateRandomRequestID(),
 		RequestType:     common.Process,
 		Payload:         nil, // set per test
+		Timestamp:       common.NewBig(0),
 		MaxFeeValue:     common.NewBig(1000),
 		AssetAmount:     common.NewBig(0),
 	}
@@ -186,9 +188,9 @@ func (r *countingRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	return r.MockRuntime.Deposit(ctx, appId, sender, tokenAddress, depositAmount, state, wasm)
 }
 
-func (r *countingRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+func (r *countingRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, blockTimestamp uint64, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	r.processCalls++
-	return r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
+	return r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, blockTimestamp, payload, state, wasm)
 }
 
 func TestHandleProcessRequest_EmptyWasmModule(t *testing.T) {
@@ -407,7 +409,7 @@ type failingProcessRuntime struct {
 	MockRuntime
 }
 
-func (r *failingProcessRuntime) ProcessRequest(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ common.RequestType, _ []byte, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+func (r *failingProcessRuntime) ProcessRequest(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ common.RequestType, _ uint64, _ []byte, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	return nil, nil, nil, nil, nil, big.NewInt(10), apperrors.New(apperrors.CodeRequestFuncFailed, "wasm execution failed")
 }
 
@@ -441,8 +443,8 @@ type reportOnProcessRuntime struct {
 	MockRuntime
 }
 
-func (r *reportOnProcessRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
-	newState, events, appEvents, withdrawals, _, fuel, failure := r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
+func (r *reportOnProcessRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, blockTimestamp uint64, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	newState, events, appEvents, withdrawals, _, fuel, failure := r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, blockTimestamp, payload, state, wasm)
 	// Always return a report, even for non-Deanonymize requests
 	return newState, events, appEvents, withdrawals, []byte(`{"unexpected":"report"}`), fuel, failure
 }
@@ -477,8 +479,8 @@ type noReportDeanonymizeRuntime struct {
 	MockRuntime
 }
 
-func (r *noReportDeanonymizeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
-	newState, events, appEvents, withdrawals, _, fuel, failure := r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
+func (r *noReportDeanonymizeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, blockTimestamp uint64, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	newState, events, appEvents, withdrawals, _, fuel, failure := r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, blockTimestamp, payload, state, wasm)
 	// Force empty report even for Deanonymize
 	return newState, events, appEvents, withdrawals, nil, fuel, failure
 }
@@ -512,8 +514,8 @@ type expensiveProcessRuntime struct {
 	MockRuntime
 }
 
-func (r *expensiveProcessRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
-	newState, events, appEvents, withdrawals, report, _, failure := r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
+func (r *expensiveProcessRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, blockTimestamp uint64, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	newState, events, appEvents, withdrawals, report, _, failure := r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, blockTimestamp, payload, state, wasm)
 	return newState, events, appEvents, withdrawals, report, big.NewInt(999999), failure
 }
 
@@ -558,7 +560,7 @@ func TestHandleProcessRequest_AssociateKey_Success(t *testing.T) {
 	sender := ethCommon.HexToAddress(signingKey.PublicKey().Address())
 
 	// Compute seed: sign keccak256(SubtypeKeyMessage) with the secp256k1 key
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
+	msgHash := ethCrypto.Keccak256([]byte(subtypes.SubtypeKeyMessage))
 	seed, err := signingKey.Sign(msgHash)
 	require.NoError(t, err)
 	require.Len(t, seed, 65)
@@ -717,10 +719,10 @@ type payloadCapturingRuntime struct {
 	seenType    common.RequestType
 }
 
-func (r *payloadCapturingRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+func (r *payloadCapturingRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, blockTimestamp uint64, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	r.seenPayload = append([]byte(nil), payload...)
 	r.seenType = requestType
-	return r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
+	return r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, blockTimestamp, payload, state, wasm)
 }
 
 // TestHandleProcessRequest_TrustProcess_PayloadForwardedAsIs verifies that TrustProcess

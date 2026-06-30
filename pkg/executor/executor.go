@@ -12,6 +12,7 @@ import (
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
 
+	"github.com/HorizenOfficial/vela-common-go/subtypes"
 	"github.com/HorizenOfficial/vela/pkg/admin"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
@@ -677,8 +678,20 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 			wasmPayload = decryptedPayload
 		}
 
+		// Source the chain-attested block.timestamp from req.Timestamp and pass it to the runtime.
+		// Request.Validate() has already constrained the value to a non-negative bigint; here we
+		// additionally require it to fit in uint64 before crossing the WASM boundary.
+		tsBig := req.Timestamp.ToInt()
+		if !tsBig.IsUint64() {
+			errorPayload, err := e.processErrorResponse(req,
+				appState.StateRoot,
+				apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("block timestamp does not fit in uint64: %s", tsBig.String())))
+			return errorPayload, nil, nil, err
+		}
+		blockTimestamp := tsBig.Uint64()
+
 		// Invoke WASM method to process the request
-		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, wasmPayload, tempState, wasmModule)
+		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, blockTimestamp, wasmPayload, tempState, wasmModule)
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req,
 				appState.StateRoot,
@@ -1105,11 +1118,23 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 	encryptedEvents := make([]common.Event, len(events))
 
 	for i, event := range events {
-		// retrieve user Secp521r1_PubKey
-		userKey, exists := keyStore[event.UserID]
-
-		if !exists {
-			return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found"), nil
+		// Resolve the ECIES recipient pubkey: prefer the WASM-supplied
+		// RecipientPubKey when set, fall back to keyStore[event.UserID] otherwise.
+		// Used by vela-ned for hint events whose recipient (the Scheduler) does not
+		// register a key via ASSOCIATEKEY and is therefore absent from keyStore.
+		var userKey *cryptotypes.PublicKeyP521
+		if len(event.RecipientPubKey) > 0 {
+			parsed, perr := cryptotypes.NewPublicKeyP521(event.RecipientPubKey)
+			if perr != nil {
+				return nil, apperrors.New(apperrors.CodeParsingKeyError, fmt.Sprintf("invalid RecipientPubKey: %v", perr)), nil
+			}
+			userKey = parsed
+		} else {
+			var exists bool
+			userKey, exists = keyStore[event.UserID]
+			if !exists {
+				return nil, apperrors.New(apperrors.CodePubKeyNotRegistered, "no Secp521r1_PubKey found"), nil
+			}
 		}
 		// Encrypt the event data
 		encryptedData, err := crypto.Encrypt(key, userKey, event.Data)
@@ -1121,7 +1146,7 @@ func (e *StatelessExecutor) encryptEvents(ctx context.Context, events []common.P
 		// otherwise fall back to the WASM-provided subtype.
 		eventSubType := event.EventSubType
 		if seed, hasSeed := seedStore[event.UserID]; hasSeed {
-			privSubtype, err := GenerateRandomSubtype(seed, DefaultSubtypeN)
+			privSubtype, err := GenerateRandomSubtype(seed, subtypes.DefaultSubtypeN)
 			if err != nil {
 				e.log.Warn("Executor: failed to generate random subtype for user %s, falling back to WASM subtype: %v", event.UserID, err)
 			} else {

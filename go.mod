@@ -132,3 +132,9 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// Local replace for cross-repo development of the b-full dedup
+// (SubtypeKeyMessage / DefaultSubtypeN / GenerateSubtype / AllSubtypes
+// moved into vela-common-go/subtypes). Re-comment before any upstream PR
+// per the [[preserve-local-replaces]] convention.
+replace github.com/HorizenOfficial/vela-common-go => ../vela-common-go

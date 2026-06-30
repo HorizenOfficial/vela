@@ -181,7 +181,7 @@ func (r *failingRuntime) Deposit(_ context.Context, _ common.ApplicationIdType, 
 	return nil, nil, nil, big.NewInt(0), nil
 }
 
-func (r *failingRuntime) ProcessRequest(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ common.RequestType, _ []byte, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+func (r *failingRuntime) ProcessRequest(_ context.Context, _ common.ApplicationIdType, _ ethCommon.Address, _ common.RequestType, _ uint64, _ []byte, _ []byte, _ []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	return nil, nil, nil, nil, nil, big.NewInt(0), nil
 }
 

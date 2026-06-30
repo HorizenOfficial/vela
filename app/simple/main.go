@@ -35,8 +35,9 @@ func deposit(appId int64, senderPtr *byte, senderLen int32, tokenPtr *byte, toke
 }
 
 //export process_request
-func process_request(appId int64, senderPtr *byte, senderLen int32, requestType int32, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
+func process_request(appId int64, senderPtr *byte, senderLen int32, requestType int32, blockTimestamp int64, payloadPtr *byte, payloadLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = appId
+	_ = blockTimestamp
 	sender := types.PtrToAddress(senderPtr, senderLen)
 	payloadJSON := utils.PtrToString(payloadPtr, payloadLen)
 	stateJSON := utils.PtrToString(statePtr, stateLen)

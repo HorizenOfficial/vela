@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/HorizenOfficial/vela-common-go/subtypes"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
@@ -17,36 +18,36 @@ import (
 
 func TestGenerateSubtype_Deterministic(t *testing.T) {
 	seed := mustSeed(t)
-	s1 := GenerateSubtype(seed, 1)
-	s2 := GenerateSubtype(seed, 1)
+	s1 := subtypes.GenerateSubtype(seed, 1)
+	s2 := subtypes.GenerateSubtype(seed, 1)
 	require.Equal(t, s1, s2)
 }
 
 func TestGenerateSubtype_DifferentIndex(t *testing.T) {
 	seed := mustSeed(t)
-	require.NotEqual(t, GenerateSubtype(seed, 1), GenerateSubtype(seed, 2))
+	require.NotEqual(t, subtypes.GenerateSubtype(seed, 1), subtypes.GenerateSubtype(seed, 2))
 }
 
 func TestGenerateSubtype_DifferentSeed(t *testing.T) {
 	seed1, seed2 := mustSeed(t), mustSeed(t)
-	require.NotEqual(t, GenerateSubtype(seed1, 1), GenerateSubtype(seed2, 1))
+	require.NotEqual(t, subtypes.GenerateSubtype(seed1, 1), subtypes.GenerateSubtype(seed2, 1))
 }
 
 func TestGenerateSubtype_Format(t *testing.T) {
-	s := GenerateSubtype(mustSeed(t), 1)
+	s := subtypes.GenerateSubtype(mustSeed(t), 1)
 	require.NotEqual(t, [32]byte{}, s, "should not be all zeros")
 }
 
 // --- AllSubtypes tests ---
 
 func TestAllSubtypes_Length(t *testing.T) {
-	require.Len(t, AllSubtypes(mustSeed(t), 50), 50)
+	require.Len(t, subtypes.AllSubtypes(mustSeed(t), 50), 50)
 }
 
 func TestAllSubtypes_Unique(t *testing.T) {
-	subtypes := AllSubtypes(mustSeed(t), 50)
+	subs := subtypes.AllSubtypes(mustSeed(t), 50)
 	seen := make(map[[32]byte]struct{}, 50)
-	for _, st := range subtypes {
+	for _, st := range subs {
 		_, dup := seen[st]
 		require.False(t, dup, "duplicate subtype found: 0x%x", st)
 		seen[st] = struct{}{}
@@ -55,23 +56,23 @@ func TestAllSubtypes_Unique(t *testing.T) {
 
 func TestAllSubtypes_Indices(t *testing.T) {
 	seed := mustSeed(t)
-	subtypes := AllSubtypes(seed, 3)
-	require.Equal(t, GenerateSubtype(seed, 1), subtypes[0])
-	require.Equal(t, GenerateSubtype(seed, 2), subtypes[1])
-	require.Equal(t, GenerateSubtype(seed, 3), subtypes[2])
+	subs := subtypes.AllSubtypes(seed, 3)
+	require.Equal(t, subtypes.GenerateSubtype(seed, 1), subs[0])
+	require.Equal(t, subtypes.GenerateSubtype(seed, 2), subs[1])
+	require.Equal(t, subtypes.GenerateSubtype(seed, 3), subs[2])
 }
 
 // --- GenerateRandomSubtype tests ---
 
 func TestGenerateRandomSubtype_InSet(t *testing.T) {
 	seed := mustSeed(t)
-	all := AllSubtypes(seed, DefaultSubtypeN)
+	all := subtypes.AllSubtypes(seed, subtypes.DefaultSubtypeN)
 	allSet := make(map[[32]byte]struct{}, len(all))
 	for _, st := range all {
 		allSet[st] = struct{}{}
 	}
 	for i := 0; i < 20; i++ {
-		st, err := GenerateRandomSubtype(seed, DefaultSubtypeN)
+		st, err := GenerateRandomSubtype(seed, subtypes.DefaultSubtypeN)
 		require.NoError(t, err)
 		_, ok := allSet[st]
 		require.True(t, ok, "generated subtype 0x%x not in expected set", st)
@@ -91,8 +92,8 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 	require.NoError(t, err)
 	sender := ethCrypto.PubkeyToAddress(signingKey.PublicKey)
 
-	// Compute seed: sign keccak256(SubtypeKeyMessage) deterministically
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
+	// Compute seed: sign keccak256(subtypes.SubtypeKeyMessage) deterministically
+	msgHash := ethCrypto.Keccak256([]byte(subtypes.SubtypeKeyMessage))
 	seed, err := ethCrypto.Sign(msgHash, signingKey)
 	require.NoError(t, err)
 	require.Len(t, seed, 65)
@@ -166,7 +167,7 @@ func TestAssociateKey_AndSubtypeGeneration(t *testing.T) {
 
 	// The subtype should be one of the N possible subtypes derived from the seed
 	generatedSubtype := encryptedEvents[0].EventSubType
-	allSubtypes := AllSubtypes(seed, DefaultSubtypeN)
+	allSubtypes := subtypes.AllSubtypes(seed, subtypes.DefaultSubtypeN)
 	require.Contains(t, allSubtypes, generatedSubtype, "generated subtype should be in the expected set")
 	require.NotEqual(t, wasmSubtype, generatedSubtype, "WASM-provided subtype should be overridden")
 }
@@ -217,8 +218,8 @@ func TestEventRetrieval_BySubtypeSet(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, encrypted, 3)
 
-	// All user A events should have a subtype in AllSubtypes(seedA, N)
-	userASubtypes := AllSubtypes(seedA, DefaultSubtypeN)
+	// All user A events should have a subtype in subtypes.AllSubtypes(seedA, N)
+	userASubtypes := subtypes.AllSubtypes(seedA, subtypes.DefaultSubtypeN)
 	subtypeSet := make(map[[32]byte]struct{}, len(userASubtypes))
 	for _, st := range userASubtypes {
 		subtypeSet[st] = struct{}{}
@@ -250,7 +251,7 @@ func mustSeed(t *testing.T) []byte {
 	t.Helper()
 	k, err := ethCrypto.GenerateKey()
 	require.NoError(t, err)
-	msgHash := ethCrypto.Keccak256([]byte(SubtypeKeyMessage))
+	msgHash := ethCrypto.Keccak256([]byte(subtypes.SubtypeKeyMessage))
 	seed, err := ethCrypto.Sign(msgHash, k)
 	require.NoError(t, err)
 	return seed
