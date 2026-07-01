@@ -35,6 +35,11 @@ type eventBroadcastingClient struct {
 	updatePayloads map[common.RequestIdType]*common.UpdatePayload
 	withdrawals    map[common.ApplicationIdType][]common.Withdrawal
 
+	// trustProcessIDs records, in fetch order, the request IDs the manager pulled
+	// that were of type TrustProcess. These requests are enqueued on-chain by the
+	// trigger (not submitted by the test), so this is how a test discovers them.
+	trustProcessIDs []common.RequestIdType
+
 	// stateUpdateErrors buffers errors returned by the underlying
 	// SubmitStateUpdate. Non-blocking send: if the channel is full, older
 	// errors are kept and the new one is dropped (so the manager's polling
@@ -81,9 +86,21 @@ func (c *eventBroadcastingClient) GetNextPendingRequest(ctx context.Context) (*c
 	if req != nil {
 		c.mu.Lock()
 		c.requestTypes[req.RequestID] = req.RequestType
+		if req.RequestType == common.TrustProcess && !containsRequestID(c.trustProcessIDs, req.RequestID) {
+			c.trustProcessIDs = append(c.trustProcessIDs, req.RequestID)
+		}
 		c.mu.Unlock()
 	}
 	return req, stateRoot, nil
+}
+
+func containsRequestID(ids []common.RequestIdType, id common.RequestIdType) bool {
+	for _, x := range ids {
+		if x == id {
+			return true
+		}
+	}
+	return false
 }
 
 // SubmitStateUpdate delegates to the real client and then records the result
@@ -179,6 +196,101 @@ func (c *eventBroadcastingClient) waitForRequestCompletion(requestID common.Requ
 			return fmt.Errorf("timeout waiting for request %s to complete", requestID)
 		}
 	}
+}
+
+// waitForRequestFailed blocks until the given request has been marked FAILED by
+// the executor (a signed error stateUpdate), or times out. The negative
+// counterpart of waitForRequestCompletion.
+func (c *eventBroadcastingClient) waitForRequestFailed(requestID common.RequestIdType, timeout time.Duration) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutCh := time.After(timeout)
+
+	for {
+		select {
+		case <-ticker.C:
+			c.mu.Lock()
+			_, failed := c.failedIDs[requestID]
+			_, completed := c.completedIDs[requestID]
+			c.mu.Unlock()
+			if failed {
+				return nil
+			}
+			if completed {
+				return fmt.Errorf("request %s completed successfully, expected failure", requestID)
+			}
+		case <-timeoutCh:
+			return fmt.Errorf("timeout waiting for request %s to fail", requestID)
+		}
+	}
+}
+
+// waitForTrustProcess blocks until a TRUSTPROCESS request (enqueued on-chain by
+// a trigger and pulled by the manager) has completed, returning its request ID
+// and stored UpdatePayload. Fails if such a request completes with an error.
+func (c *eventBroadcastingClient) waitForTrustProcess(timeout time.Duration) (common.RequestIdType, *common.UpdatePayload, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutCh := time.After(timeout)
+
+	for {
+		select {
+		case <-ticker.C:
+			c.mu.Lock()
+			for _, id := range c.trustProcessIDs {
+				if _, failed := c.failedIDs[id]; failed {
+					c.mu.Unlock()
+					return id, nil, fmt.Errorf("TRUSTPROCESS request %s has failed", id)
+				}
+				if _, completed := c.completedIDs[id]; completed {
+					payload := c.updatePayloads[id]
+					c.mu.Unlock()
+					return id, payload, nil
+				}
+			}
+			c.mu.Unlock()
+		case <-timeoutCh:
+			return common.RequestIdType{}, nil, fmt.Errorf("timeout waiting for a TRUSTPROCESS request to complete")
+		}
+	}
+}
+
+// waitForFailedTrustProcess blocks until a TRUSTPROCESS request (enqueued
+// on-chain by a trigger and pulled by the manager) has been marked FAILED by the
+// executor (a signed error stateUpdate), returning its request ID. This is the
+// negative counterpart of waitForTrustProcess.
+func (c *eventBroadcastingClient) waitForFailedTrustProcess(timeout time.Duration) (common.RequestIdType, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutCh := time.After(timeout)
+
+	for {
+		select {
+		case <-ticker.C:
+			c.mu.Lock()
+			for _, id := range c.trustProcessIDs {
+				if _, failed := c.failedIDs[id]; failed {
+					c.mu.Unlock()
+					return id, nil
+				}
+			}
+			c.mu.Unlock()
+		case <-timeoutCh:
+			return common.RequestIdType{}, fmt.Errorf("timeout waiting for a TRUSTPROCESS request to fail")
+		}
+	}
+}
+
+// trustProcessCount returns how many distinct TRUSTPROCESS requests the manager
+// has pulled so far. Tests use it to assert the trigger loop terminated (exactly
+// one) rather than re-enqueuing endlessly.
+func (c *eventBroadcastingClient) trustProcessCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.trustProcessIDs)
 }
 
 // getUpdatePayload returns the stored UpdatePayload for a completed request.

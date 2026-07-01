@@ -20,8 +20,10 @@ import (
 	defaultauthority "github.com/HorizenOfficial/vela/pkg/blockchain/contracts/defaultauthoritychecker"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mockerc20"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mocktee"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/guardedtrigger"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/noattestationtee"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/testtrigger"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tokenallowlist"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/stretchr/testify/require"
@@ -78,6 +80,13 @@ func (s *SimTestHelper) generateNewUserWithKey() (*bind.TransactOpts, *ecdsa.Pri
 
 func (s *SimTestHelper) Client() simulated.Client {
 	return s.sim.Client()
+}
+
+// GetEthBalance returns the on-chain ETH balance of an address.
+func (s *SimTestHelper) GetEthBalance(addr ethCommon.Address) *big.Int {
+	bal, err := s.sim.Client().BalanceAt(context.Background(), addr, nil)
+	require.NoError(s.t, err)
+	return bal
 }
 
 func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethCommon.Address, teePubSecp521r1 []byte) {
@@ -334,6 +343,127 @@ func (s *SimTestHelper) SubmitDeployRequestFromUser(payload []byte, maxFeeValue 
 
 func (s *SimTestHelper) SubmitDeployRequest(payload []byte, maxFeeValue *big.Int) *ethTypes.Transaction {
 	return s.SubmitDeployRequestFromUser(payload, maxFeeValue, s.Deployer)
+}
+
+// --- Trigger helpers ---
+
+// DeployTestTrigger deploys a TestTrigger bound to this helper's
+// ProcessorEndpoint and returns its address. revertOnExecute /
+// revertOnPostWithdraw configure the trigger's failure modes for negative-path
+// tests; pass false/false for the happy path. The TestTrigger reads the
+// endpoint's tokenAllowlist() in its constructor, so the ProcessorEndpoint must
+// already be deployed (it is, by setupContracts).
+func (s *SimTestHelper) DeployTestTrigger(revertOnExecute, revertOnPostWithdraw bool) ethCommon.Address {
+	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
+	contract := testtrigger.NewTestTrigger()
+	deployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&testtrigger.TestTriggerMetaData},
+		Inputs: map[string][]byte{
+			testtrigger.TestTriggerMetaData.ID: contract.PackConstructor(s.ProcessorContractAddress, revertOnExecute, revertOnPostWithdraw),
+		},
+	}
+	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
+	require.NoError(s.t, err, "failed to deploy TestTrigger")
+
+	addr := deployRes.Addresses[testtrigger.TestTriggerMetaData.ID]
+	tx := deployRes.Txs[testtrigger.TestTriggerMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
+	require.NoError(s.t, err, "TestTrigger deployment not mined")
+	return addr
+}
+
+// DeployGuardedTrigger deploys a GuardedTrigger bound to this helper's
+// ProcessorEndpoint and returns its address. Unlike TestTrigger, it only emits a
+// trusted payload when the completed request had AppEvents, so the
+// request->TRUSTPROCESS round-trip terminates after one TRUSTPROCESS instead of
+// looping. On execute it sweeps all received ETH but 1 wei to `sink`; the leftover
+// 1 wei is re-shielded by withdraw() and reported in the trusted payload.
+func (s *SimTestHelper) DeployGuardedTrigger(sink ethCommon.Address) ethCommon.Address {
+	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
+	contract := guardedtrigger.NewGuardedTrigger()
+	deployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&guardedtrigger.GuardedTriggerMetaData},
+		Inputs: map[string][]byte{
+			guardedtrigger.GuardedTriggerMetaData.ID: contract.PackConstructor(s.ProcessorContractAddress, sink),
+		},
+	}
+	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
+	require.NoError(s.t, err, "failed to deploy GuardedTrigger")
+
+	addr := deployRes.Addresses[guardedtrigger.GuardedTriggerMetaData.ID]
+	tx := deployRes.Txs[guardedtrigger.GuardedTriggerMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
+	require.NoError(s.t, err, "GuardedTrigger deployment not mined")
+	return addr
+}
+
+// SubmitDeployRequestWithTriggerFromUser submits a deploy request that also
+// registers `trigger` for the resulting app, via
+// ProcessorEndpoint.submitDeployRequestWithTrigger. Passing the zero address is
+// equivalent to a plain deploy (no trigger registered).
+func (s *SimTestHelper) SubmitDeployRequestWithTriggerFromUser(payload []byte, maxFeeValue *big.Int, trigger ethCommon.Address, sender *bind.TransactOpts) *ethTypes.Transaction {
+	if payload == nil {
+		payload = ethCommon.FromHex("0x00")
+	}
+	sender.Value = new(big.Int).Set(maxFeeValue)
+	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitDeployRequestWithTrigger(s.ProtocolVersion, payload, trigger))
+	require.NoError(s.t, err, "failed to submit deploy-with-trigger transaction")
+	sender.Value = big.NewInt(0)
+	return tx
+}
+
+// SubmitDeployRequestWithTrigger is SubmitDeployRequestWithTriggerFromUser using
+// the pre-authorized Deployer account as the sender.
+func (s *SimTestHelper) SubmitDeployRequestWithTrigger(payload []byte, maxFeeValue *big.Int, trigger ethCommon.Address) *ethTypes.Transaction {
+	return s.SubmitDeployRequestWithTriggerFromUser(payload, maxFeeValue, trigger, s.Deployer)
+}
+
+// GetTriggerContract reads the on-chain triggerContracts[appId] mapping and
+// returns the trigger address registered for the application (zero address if
+// none).
+func (s *SimTestHelper) GetTriggerContract(applicationId common.ApplicationIdType) ethCommon.Address {
+	addr, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackTriggerContracts(uint64(applicationId)),
+		s.processEndpointContract.UnpackTriggerContracts)
+	require.NoError(s.t, err)
+	return addr
+}
+
+// GetTriggerAppId reads the on-chain triggersToAppIds[trigger] reverse mapping
+// and returns the application id the trigger is registered for (0 if none).
+func (s *SimTestHelper) GetTriggerAppId(trigger ethCommon.Address) uint64 {
+	appId, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackTriggersToAppIds(trigger),
+		s.processEndpointContract.UnpackTriggersToAppIds)
+	require.NoError(s.t, err)
+	return appId
+}
+
+// GetTriggerQueueSize returns the on-chain size of the trigger (TRUSTPROCESS)
+// queue. Used to assert the queue drains and does not re-fill (no trigger loop).
+func (s *SimTestHelper) GetTriggerQueueSize() *big.Int {
+	size, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackGetTriggerQueueSize(),
+		s.processEndpointContract.UnpackGetTriggerQueueSize)
+	require.NoError(s.t, err)
+	return size
+}
+
+// SetTrustedPayload sets the payload a TestTrigger returns from
+// getTrustProcessPayload (via its setTrustedPayload(bytes) ABI). A non-empty
+// payload makes the ProcessorEndpoint enqueue a TRUSTPROCESS request after the
+// trigger runs. Used by the request->trigger->TRUSTPROCESS tests.
+func (s *SimTestHelper) SetTrustedPayload(trigger ethCommon.Address, payload []byte) {
+	contract := testtrigger.NewTestTrigger()
+	instance := contract.Instance(s.sim.Client(), trigger)
+	tx, err := bind.Transact(instance, s.Deployer, contract.PackSetTrustedPayload(payload))
+	require.NoError(s.t, err, "failed to set trusted payload on TestTrigger")
+	s.WaitMined(tx)
 }
 
 func (s *SimTestHelper) MineBlock() ethCommon.Hash {
