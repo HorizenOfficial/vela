@@ -7,16 +7,15 @@ import (
 	"encoding/json"
 	"math/big"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
-	simpleapp "github.com/HorizenOfficial/vela/app/simple/app"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
+	"github.com/HorizenOfficial/vela/app/subtype"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	commontestutil "github.com/HorizenOfficial/vela/pkg/common/testutil"
@@ -25,7 +24,6 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/manager"
 	"github.com/HorizenOfficial/vela/pkg/testutil"
 	ethCommon "github.com/ethereum/go-ethereum/common"
-	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 )
 
 // host-side event types for test validation (app-specific, not framework types)
@@ -74,29 +72,6 @@ func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()
 	os.Exit(code)
-}
-
-// buildAndLoadWasmModule is a helper function to build the wasm module and read its bytecode.
-func buildAndLoadWasmModule(t *testing.T) []byte {
-	// Get the project root directory to construct absolute paths
-	_, b, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	projectRoot := filepath.Join(filepath.Dir(b), "../..")
-	appDir := filepath.Join(projectRoot, "app", "simple")
-
-	// Build the wasm module
-	cmd := exec.Command("make", "build")
-	cmd.Dir = appDir
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "failed to build wasm module: %s", string(output))
-
-	// Load wasm bytecode for the wasm app
-	wasmPath := filepath.Join(appDir, "build", "simple_app.wasm")
-	wasmBytecode, err := os.ReadFile(wasmPath)
-	require.NoError(t, err)
-	require.NotEmpty(t, wasmBytecode)
-
-	return wasmBytecode
 }
 
 // deploySimpleApp deploys the simple app without constructor params (ETH-only).
@@ -224,7 +199,7 @@ func TestSimpleAppDepositAndWithdraw(t *testing.T) {
 	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
-	wasmBytecode := buildAndLoadWasmModule(t)
+	wasmBytecode := buildWasmApp(t, "simple")
 
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
@@ -342,7 +317,7 @@ func TestDeploySimpleApp(t *testing.T) {
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
-	wasmBytecode := buildAndLoadWasmModule(t)
+	wasmBytecode := buildWasmApp(t, "simple")
 
 	// 2. Start services
 	require.NoError(t, suite.StartExecutor())
@@ -361,7 +336,7 @@ func TestDeploySimpleAppNegativeCase(t *testing.T) {
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
-	wasmBytecode := buildAndLoadWasmModule(t)
+	wasmBytecode := buildWasmApp(t, "simple")
 
 	// 2. Start services
 	require.NoError(t, suite.StartExecutor())
@@ -437,7 +412,7 @@ func TestSimpleAppCompareAction(t *testing.T) {
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
-	wasmBytecode := buildAndLoadWasmModule(t)
+	wasmBytecode := buildWasmApp(t, "simple")
 
 	// 2. Start services
 	require.NoError(t, suite.StartExecutor())
@@ -624,7 +599,7 @@ func TestSimpleApp_NegativeScenarios(t *testing.T) {
 	defer suite.Cleanup()
 
 	// 1. Build and load wasm bytecode
-	wasmBytecode := buildAndLoadWasmModule(t)
+	wasmBytecode := buildWasmApp(t, "simple")
 
 	// 2. Start services
 	require.NoError(t, suite.StartExecutor())
@@ -849,7 +824,7 @@ func TestSimpleAppERC20DepositAndWithdraw(t *testing.T) {
 	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
-	wasmBytecode := buildAndLoadWasmModule(t)
+	wasmBytecode := buildWasmApp(t, "simple")
 
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
@@ -976,7 +951,7 @@ func TestSimpleAppETHOnlyRejectsERC20Deposit(t *testing.T) {
 	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
-	wasmBytecode := buildAndLoadWasmModule(t)
+	wasmBytecode := buildWasmApp(t, "simple")
 
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
@@ -1020,7 +995,7 @@ func TestSimpleAppDepositEmitsAppEvent(t *testing.T) {
 	suite := testutil.NewSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
 	defer suite.Cleanup()
 
-	wasmBytecode := buildAndLoadWasmModule(t)
+	wasmBytecode := buildWasmApp(t, "simple")
 
 	require.NoError(t, suite.StartExecutor())
 	require.NoError(t, suite.StartManager())
@@ -1047,6 +1022,6 @@ func TestSimpleAppDepositEmitsAppEvent(t *testing.T) {
 
 	// Verify the AppEvent is present in the payload
 	require.NotEmpty(t, payload.AppEvents, "deposit should produce at least one AppEvent")
-	require.Equal(t, simpleapp.SubTypeFromString("deposit_received"), payload.AppEvents[0].EventSubType)
+	require.Equal(t, subtype.FromString("deposit_received"), payload.AppEvents[0].EventSubType)
 	require.NotEmpty(t, payload.AppEvents[0].Data, "AppEvent data should not be empty")
 }

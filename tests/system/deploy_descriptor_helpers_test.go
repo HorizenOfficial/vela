@@ -8,6 +8,10 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/HorizenOfficial/vela/pkg/authorityservice/deployartifact"
@@ -16,6 +20,28 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/testutil"
 	"github.com/stretchr/testify/require"
 )
+
+// buildWasmApp builds the guest module under app/<appName> via `make build` and
+// returns its bytecode. It relies on the shared Makefile naming convention:
+// app/<appName> produces build/<appName>_app.wasm.
+func buildWasmApp(t *testing.T, appName string) []byte {
+	t.Helper()
+	_, b, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	projectRoot := filepath.Join(filepath.Dir(b), "../..")
+	appDir := filepath.Join(projectRoot, "app", appName)
+
+	cmd := exec.Command("make", "build")
+	cmd.Dir = appDir
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "failed to build wasm module: %s", string(output))
+
+	wasmPath := filepath.Join(appDir, "build", appName+"_app.wasm")
+	wasmBytecode, err := os.ReadFile(wasmPath)
+	require.NoError(t, err)
+	require.NotEmpty(t, wasmBytecode)
+	return wasmBytecode
+}
 
 // uploadArtifactAndBuildDescriptorPayloadWithParams uploads a WASM artifact and builds
 // a deploy descriptor with optional constructor params.

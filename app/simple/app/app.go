@@ -6,6 +6,7 @@ import (
 
 	"github.com/HorizenOfficial/vela-common-go/wasm/types"
 	"github.com/HorizenOfficial/vela-common-go/wasm/utils"
+	"github.com/HorizenOfficial/vela/app/subtype"
 	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
@@ -157,7 +158,7 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 
 	events := []types.PlainEvent{{
 		UserID:       *senderPtr,
-		EventSubType: SubTypeFromString("deposit"),
+		EventSubType: subtype.FromString("deposit"),
 		Data:         eventDataBytes,
 	}}
 
@@ -172,7 +173,7 @@ func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *type
 		return types.DepositResult{Error: fmt.Sprintf("Failed to serialize app event data: %+v, err: %v", appEventData, err)}
 	}
 	appEvents := []types.AppEvent{{
-		EventSubType: SubTypeFromString("deposit_received"),
+		EventSubType: subtype.FromString("deposit_received"),
 		Data:         appEventDataBytes,
 	}}
 
@@ -286,7 +287,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 
 			events = append(events, types.PlainEvent{
 				UserID:       sender,
-				EventSubType: SubTypeFromString("compare_accounts"),
+				EventSubType: subtype.FromString("compare_accounts"),
 				Data:         eventDataBytes,
 			})
 
@@ -346,7 +347,7 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 
 			events = append(events, types.PlainEvent{
 				UserID:       sender,
-				EventSubType: SubTypeFromString("withdrawal"),
+				EventSubType: subtype.FromString("withdrawal"),
 				Data:         withdrawEventDataBytes,
 			})
 

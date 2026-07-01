@@ -10,14 +10,15 @@ import (
 	"sync"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
 	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela-common-go/wasm/types"
 	"github.com/HorizenOfficial/vela/app/simple/app"
+	"github.com/HorizenOfficial/vela/app/subtype"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/HorizenOfficial/vela/pkg/testutil"
 	vela_wasm "github.com/HorizenOfficial/vela/pkg/wasm"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -98,7 +99,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
 	require.Len(t, depositAppEvents, 1)
-	require.Equal(t, app.SubTypeFromString("deposit_received"), depositAppEvents[0].EventSubType)
+	require.Equal(t, subtype.FromString("deposit_received"), depositAppEvents[0].EventSubType)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
 
 	var depositState app.ApplicationInternalState
