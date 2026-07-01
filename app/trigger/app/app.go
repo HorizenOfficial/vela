@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"math/bits"
 
 	"github.com/HorizenOfficial/vela-common-go/wasm/types"
 	"github.com/HorizenOfficial/vela-common-go/wasm/utils"
@@ -45,11 +46,22 @@ func Deploy(appId int64, paramsJSON string) types.DeployResult {
 			utils.LogError("Deploy: failed to parse deploy params: %v", err)
 			return types.DeployResult{Error: fmt.Sprintf("failed to parse deploy params: %v", err)}
 		}
+		_, err := types.HexToAddress(params.TriggerAddress)
+		if err != nil {
+			return types.DeployResult{Error: fmt.Sprintf("invalid trigger address %q: %v", triggerAddr, err)}
+		}
+		triggerAddr = params.TriggerAddress
+		feeAddr, err := types.HexToAddress(params.FeeCollector)
+		if err != nil {
+			return types.DeployResult{Error: fmt.Sprintf("invalid fee collector address %q: %v", feeCollector, err)}
+		}
+		// Use the hex representation of the fee collector address for consistent map keys. 
+		// go-ethereum's ethCommon.Address.Hex() uses EIP-55 checksummed, mixed-case while types.HexToAddress is all lower case.
+		// This ensures that the fee collector address is stored in the state in a consistent format.
+		feeCollector = feeAddr.Hex()
 		for _, tokenHex := range params.AllowedTokens {
 			allowedTokens[tokenHex] = true
 		}
-		triggerAddr = params.TriggerAddress
-		feeCollector = params.FeeCollector
 	}
 
 	stateJSON, err := json.Marshal(newInitialState(appId, allowedTokens, triggerAddr, feeCollector))
@@ -147,8 +159,13 @@ func ProcessRequest(senderPtr *types.Address, requestType int32, payloadJSON, st
 			return types.ProcessResult{Error: "fire: sender has no ETH balance to withdraw"}
 		}
 		bal := acc.Balances[ethTokenHex]
-		// Test balances fit in 64 bits, so compute the percentage in uint64. 1 = 1%.
-		withdrawAmt := types.NewUint256(bal[0] * currentState.Counter / 100)
+		// Withdraw Counter% of the balance (1 = 1%). bal[0]*Counter can exceed 64
+		// bits, so take the full 128-bit product and divide by 100 across both
+		// words to avoid wrapping before the division.
+		hi, lo := bits.Mul64(bal[0], currentState.Counter)
+		qHi, rem := bits.Div64(0, hi, 100)
+		qLo, _ := bits.Div64(rem, lo, 100)
+		withdrawAmt := &types.Uint256{qLo, qHi, 0, 0}
 		if withdrawAmt.IsZero() {
 			return types.ProcessResult{Error: "fire: withdrawal rounds to zero"}
 		}
@@ -226,11 +243,10 @@ func TrustedRequest(payloadString, stateJSON string) types.ProcessResult {
 		return types.ProcessResult{Error: fmt.Sprintf("invalid fee collector address %q: %v", currentState.FeeCollector, err)}
 	}
 
-	feeHex := currentState.FeeCollector
-	acc := currentState.Accounts[feeHex] 
+	acc := currentState.Accounts[currentState.FeeCollector] 
 	if acc == nil {
 		acc = &AccountState{Address: feeAddr, Balances: make(map[string]*types.Uint256)}
-		currentState.Accounts[feeHex] = acc
+		currentState.Accounts[currentState.FeeCollector] = acc
 	}
 	if acc.Balances == nil {
 		acc.Balances = make(map[string]*types.Uint256)

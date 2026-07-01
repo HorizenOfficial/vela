@@ -111,7 +111,7 @@ type AppEvent struct {
 
 The framework provides no built-in string→bytes32 helper. How subtype bytes
 are produced is a per-application policy: short readable tags packed with
-`copy(b[:], s)` (as SimpleApp does via its own `app.SubTypeFromString`),
+`copy(b[:], s)` (as SimpleApp and TriggerApp do via their own `subtype.FromString`),
 keccak256 hashes, enumerated constants, or anti-linkability subtypes derived
 from a user seed (see `pkg/executor/subtype.go`) are all valid — apps just
 need to be consistent between producer and filter.
@@ -177,8 +177,8 @@ type AppEvent struct {
 ```
 
 The guest framework package also provides no subtype-encoding helper; apps
-own that policy. SimpleApp defines its own `app.SubTypeFromString` (in
-`app/simple/app/subtype.go`) that packs up to 32 ASCII bytes left-aligned.
+own that policy. SimpleApp and TriggerApp define their own `subtype.FromString` (in
+`app/subtype/subtype.go`) that packs up to 32 ASCII bytes left-aligned.
 Other apps are free to pick a different encoding (e.g. keccak256).
 
 ### wasm/types/results.go
