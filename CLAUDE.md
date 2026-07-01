@@ -154,6 +154,8 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 
 **Contract Bindings:** Generated via `go generate`, committed to repo. CI verifies bindings are up-to-date. If you modify contracts, regenerate and commit.
 
+**Third-Party Notices:** Whenever dependencies in `go.mod` change (add, remove, or version bump), update the `NOTICES` file to match — reconcile listed versions and add/remove entries for notable direct dependencies and their licenses.
+
 **File Formatting:** If you modify contracts or TypeScript files, run `npm run format` after any modification to keep the correct formatting.
 
 **Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
