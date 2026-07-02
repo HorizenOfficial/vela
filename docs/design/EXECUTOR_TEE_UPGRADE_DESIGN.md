@@ -315,6 +315,7 @@ The Manager may be upgraded independently of this sequence, gated only by the [R
 | Request interrupted by swap | Drain skipped | Manager drains in-flight work on the on-chain swap signal before stop (R8) |
 | Malicious image pushed by compromised owner | Owner key compromise | Timelock (R4) + reproducible build (R5) give users a window to detect and withdraw |
 | All PCR0 removed | Operator error | `removePcr0` reverts on the last entry (`CannotRemoveLastPcr0`) |
+| Active image accidentally removed | Fat-finger at finalization (step 6): passing `PCR0_new` instead of `PCR0_old` | `removePcr0` reverts (`CannotRemoveActiveImage`); this matters because the mistake would not cause an immediate outage (runtime uses `teeSigner`, not the set) but would leave `activeImage` dangling and block any future `updateTee` re-attestation |
 
 ---
 
