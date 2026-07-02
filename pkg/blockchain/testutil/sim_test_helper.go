@@ -39,13 +39,19 @@ type SimTestHelper struct {
 	tokenAllowlistInstance   *bind.BoundContract
 	TokenAllowlistAddress    ethCommon.Address
 
-	// MockERC20 is populated by DeployMockERC20 and remains the zero value if
-	// the test never deploys one. Only one MockERC20 per SimTestHelper — tests
-	// that need multiple tokens should call DeployMockERC20 multiple times and
-	// track the returned addresses themselves.
+	// MockERC20Address is the most-recently-deployed MockERC20 (zero value if
+	// the test never deploys one). The single-token helpers (MintERC20 /
+	// ApproveERC20 / BalanceOfERC20) operate on it for backward compatibility.
+	// Multi-token tests call DeployMockERC20 more than once and use the
+	// address-parameterized ...At helpers, which resolve their binding from
+	// erc20Instances instead of this cached field.
 	MockERC20Address  ethCommon.Address
 	mockERC20Contract *mockerc20.MockERC20
 	mockERC20Instance *bind.BoundContract
+	// erc20Instances holds one bound contract per deployed MockERC20, keyed by
+	// token address, so a single SimTestHelper can stage several distinct
+	// tokens at once. Populated by DeployMockERC20; read by the ...At helpers.
+	erc20Instances map[ethCommon.Address]*bind.BoundContract
 
 	ProcessorContractAddress ethCommon.Address
 	TeeSignerAddress         ethCommon.Address
@@ -384,12 +390,23 @@ func (s *SimTestHelper) GetRequestSubmittedEvent(tx *ethTypes.Transaction) *proc
 
 	receipt, err := s.GetTxReceipt(tx)
 	require.NoError(s.t, err, "error getting transaction receipt")
-	require.Equal(s.t, 1, len(receipt.Logs), "There should be one RequestSubmittedEvent")
+	require.NotEmpty(s.t, receipt.Logs, "transaction produced no logs")
+
+	// An ETH request emits only the ProcessorEndpoint RequestSubmitted log,
+	// but an ERC-20 request also emits the token's Transfer log (from the
+	// contract's transferFrom pull), so the RequestSubmitted log is not
+	// necessarily the only one nor at index 0. Find it by trying to unpack
+	// each log against the RequestSubmitted event signature; UnpackLog
+	// returns an error for logs whose topic0 doesn't match.
 	event := processorendpoint.ProcessorEndpointRequestSubmitted{}
-	err = s.processEndpointInstance.UnpackLog(&event,
-		processorendpoint.ProcessorEndpointRequestSubmittedEventName, *receipt.Logs[0])
-	require.NoError(s.t, err, "error unpacking RequestSubmittedEvent")
-	return &event
+	for _, lg := range receipt.Logs {
+		if err := s.processEndpointInstance.UnpackLog(&event,
+			processorendpoint.ProcessorEndpointRequestSubmittedEventName, *lg); err == nil {
+			return &event
+		}
+	}
+	require.FailNow(s.t, "no RequestSubmitted log found in transaction receipt")
+	return nil
 }
 
 func (s *SimTestHelper) GetDeployRequestSubmittedEvent(tx *ethTypes.Transaction) *processorendpoint.ProcessorEndpointDeployRequestSubmitted {
@@ -489,22 +506,15 @@ func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelpe
 // --- MockERC20 infrastructure ---
 
 // DeployMockERC20 deploys a MockERC20 token contract on the simulated chain
-// and stores its binding on the helper. Subsequent MintERC20 / ApproveERC20
-// calls target this deployed instance. Returns the deployed token address.
+// and stores its binding on the helper. Returns the deployed token address.
 //
-// The mock's mint is permissionless and decimals are caller-chosen, so a
-// single call is enough to stage any ERC-20 scenario. Tests needing multiple
-// distinct tokens call this multiple times and track the returned addresses.
+// The mock's mint is permissionless and decimals are caller-chosen. Calling
+// this more than once stages several distinct tokens on one helper: each
+// binding is kept in erc20Instances keyed by address, and the most recent
+// deploy also becomes the cached single-token target (MockERC20Address).
+// Single-token tests keep using MintERC20 / ApproveERC20 / BalanceOfERC20;
+// multi-token tests use the address-parameterized ...At variants.
 func (s *SimTestHelper) DeployMockERC20(name, symbol string, decimals uint8) ethCommon.Address {
-	// A second call would silently overwrite the cached binding so that
-	// MintERC20 / ApproveERC20 / BalanceOfERC20 target only the latest token,
-	// breaking helpers for the previously deployed one. Fail fast instead.
-	//
-	// TODO: when a multi-token test legitimately hits this guard, drop the
-	// cached MockERC20Address / mockERC20Contract / mockERC20Instance fields
-	// and change the helpers to take a tokenAddress parameter, reconstructing
-	// the binding internally. Callers track the returned addresses themselves.
-	require.Nil(s.t, s.mockERC20Instance, "DeployMockERC20 already called")
 	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
 	contract := mockerc20.NewMockERC20()
 	deployParams := bind.DeploymentParams{
@@ -520,19 +530,42 @@ func (s *SimTestHelper) DeployMockERC20(name, symbol string, decimals uint8) eth
 	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
 	require.NoError(s.t, err, "MockERC20 deployment not mined")
 
+	instance := contract.Instance(s.sim.Client(), addr)
+	if s.erc20Instances == nil {
+		s.erc20Instances = make(map[ethCommon.Address]*bind.BoundContract)
+	}
+	s.erc20Instances[addr] = instance
+
+	// Cache the most-recent deploy as the single-token target for the
+	// non-parameterized helpers. mockERC20Contract is the shared ABI packer
+	// (address-independent), so one copy is enough for all tokens.
 	s.MockERC20Address = addr
 	s.mockERC20Contract = contract
-	s.mockERC20Instance = contract.Instance(s.sim.Client(), addr)
+	s.mockERC20Instance = instance
 	return addr
 }
 
-// MintERC20 mints `amount` tokens of the deployed MockERC20 to `to`. The
-// mock's mint is permissionless; the Deployer account is used as msg.sender
-// for consistency with other admin-style helpers.
+// erc20InstanceFor returns the bound contract for a token deployed via
+// DeployMockERC20, failing the test if the address was never deployed.
+func (s *SimTestHelper) erc20InstanceFor(token ethCommon.Address) *bind.BoundContract {
+	inst, ok := s.erc20Instances[token]
+	require.True(s.t, ok, "MockERC20 %s was not deployed via DeployMockERC20", token.Hex())
+	return inst
+}
+
+// MintERC20 mints `amount` tokens of the most-recently-deployed MockERC20 to
+// `to`. Convenience wrapper over MintERC20At for single-token tests.
 func (s *SimTestHelper) MintERC20(to ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
 	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before MintERC20")
+	return s.MintERC20At(s.MockERC20Address, to, amount)
+}
+
+// MintERC20At mints `amount` tokens of the MockERC20 at `token` to `to`. The
+// mock's mint is permissionless; the Deployer account is used as msg.sender
+// for consistency with other admin-style helpers.
+func (s *SimTestHelper) MintERC20At(token, to ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
 	tx, err := bind.Transact(
-		s.mockERC20Instance,
+		s.erc20InstanceFor(token),
 		s.Deployer,
 		s.mockERC20Contract.PackMint(to, amount),
 	)
@@ -540,16 +573,22 @@ func (s *SimTestHelper) MintERC20(to ethCommon.Address, amount *big.Int) *ethTyp
 	return tx
 }
 
-// ApproveERC20 calls MockERC20.approve(spender, amount) from `owner`. The
-// ProcessorEndpoint contract uses the resulting allowance to pull tokens via
-// transferFrom when the user later calls submitRequest with an ERC-20
-// assetAmount. Tests call this to pre-approve before a deposit, since the
-// wallet's submitRequest path uses transferFrom and does not embed an
-// EIP-2612 permit.
+// ApproveERC20 calls approve(spender, amount) on the most-recently-deployed
+// MockERC20 from `owner`. Convenience wrapper over ApproveERC20At.
 func (s *SimTestHelper) ApproveERC20(owner *bind.TransactOpts, spender ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
 	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before ApproveERC20")
+	return s.ApproveERC20At(owner, s.MockERC20Address, spender, amount)
+}
+
+// ApproveERC20At calls MockERC20.approve(spender, amount) from `owner` on the
+// token at `token`. The ProcessorEndpoint contract uses the resulting
+// allowance to pull tokens via transferFrom when the user later calls
+// submitRequest with an ERC-20 assetAmount. Tests call this to pre-approve
+// before a deposit, since the wallet's submitRequest path uses transferFrom
+// and does not embed an EIP-2612 permit.
+func (s *SimTestHelper) ApproveERC20At(owner *bind.TransactOpts, token, spender ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
 	tx, err := bind.Transact(
-		s.mockERC20Instance,
+		s.erc20InstanceFor(token),
 		owner,
 		s.mockERC20Contract.PackApprove(spender, amount),
 	)
@@ -557,13 +596,19 @@ func (s *SimTestHelper) ApproveERC20(owner *bind.TransactOpts, spender ethCommon
 	return tx
 }
 
-// BalanceOfERC20 reads the caller-visible balance for `account` on the deployed
-// MockERC20. Useful for end-to-end assertions (e.g. confirming that a
-// ClaimPendingPayments moved tokens back to the user).
+// BalanceOfERC20 reads the balance for `account` on the most-recently-deployed
+// MockERC20. Convenience wrapper over BalanceOfERC20At.
 func (s *SimTestHelper) BalanceOfERC20(account ethCommon.Address) *big.Int {
 	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before BalanceOfERC20")
+	return s.BalanceOfERC20At(s.MockERC20Address, account)
+}
+
+// BalanceOfERC20At reads the caller-visible balance for `account` on the
+// MockERC20 at `token`. Useful for end-to-end assertions (e.g. confirming a
+// claim moved tokens to a sub-address).
+func (s *SimTestHelper) BalanceOfERC20At(token, account ethCommon.Address) *big.Int {
 	bal, err := bind.Call(
-		s.mockERC20Instance,
+		s.erc20InstanceFor(token),
 		&bind.CallOpts{Pending: false},
 		s.mockERC20Contract.PackBalanceOf(account),
 		s.mockERC20Contract.UnpackBalanceOf,
