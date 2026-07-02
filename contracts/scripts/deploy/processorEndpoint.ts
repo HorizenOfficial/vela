@@ -9,19 +9,32 @@ async function deploy() {
     _authorityRegistry: ${process.env.AUTHORITY_REGISTRY}
     updateStatusOperator: ${process.env.UPDATE_STATUS_OPERATOR}
     admin (bootstrap deployer): ${process.env.ADMIN}
+    resetOperator (address(0) = disabled): ${process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000'}
+    minFeePerRequest: ${process.env.MIN_FEE_PER_REQUEST}
   `);
-  //deploy
+
+  // 1) TokenAllowlist
+  const TokenAllowlist = await ethers.getContractFactory('TokenAllowlist');
+  const tokenAllowlist = await TokenAllowlist.deploy(process.env.ADMIN!);
+  await tokenAllowlist.deploymentTransaction()!.wait();
+  const tokenAllowlistAddr = await tokenAllowlist.getAddress();
+  console.log(`TokenAllowlist deployed at ${tokenAllowlistAddr}`);
+
+  // 2) ProcessorEndpoint
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');
   const processorEndpoint = await ProcessorEndpoint.deploy(
     process.env.TEE_AUTHENTICATOR!,
     process.env.AUTHORITY_REGISTRY!,
     process.env.UPDATE_STATUS_OPERATOR!,
     process.env.ADMIN!,
-    process.env.MIN_FEE_PER_REQUEST!
+    process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000',
+    process.env.MIN_FEE_PER_REQUEST!,
+    tokenAllowlistAddr
   );
   await processorEndpoint.deploymentTransaction()!.wait();
 
-  console.log(`contract deployed at ${await processorEndpoint.getAddress()}`);
+  console.log(`TokenAllowlist deployed at ${tokenAllowlistAddr}`);
+  console.log(`ProcessorEndpoint deployed at ${await processorEndpoint.getAddress()}`);
 }
 
 deploy()

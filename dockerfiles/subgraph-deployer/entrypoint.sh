@@ -23,6 +23,12 @@ if [ -z "${CHAIN_PROCESSOR_ADDRESS}" ]; then
 fi
 echo "Subgraph deployer: ProcessorEndpoint address = ${CHAIN_PROCESSOR_ADDRESS}"
 
+if [ -z "${CHAIN_TOKEN_ALLOWLIST_ADDRESS}" ]; then
+    echo "Subgraph deployer: ERROR - CHAIN_TOKEN_ALLOWLIST_ADDRESS not set in ${DEPLOY_FILE}."
+    exit 1
+fi
+echo "Subgraph deployer: TokenAllowlist address = ${CHAIN_TOKEN_ALLOWLIST_ADDRESS}"
+
 # --- 2. Wait for Graph Node to be ready ---
 echo "Subgraph deployer: waiting for Graph Node at ${GRAPH_NODE_URL}..."
 RETRIES=60
@@ -45,7 +51,8 @@ done
 # --- 3. Generate subgraph-local.yaml from the template ---
 echo "Subgraph deployer: generating subgraph-local.yaml..."
 sed -e "s/network: horizen-testnet/network: local/" \
-    -e "s/address: \"0x<contract_address>\"/address: \"${CHAIN_PROCESSOR_ADDRESS}\"/" \
+    -e "s/address: \"0x<processor_address>\"/address: \"${CHAIN_PROCESSOR_ADDRESS}\"/" \
+    -e "s/address: \"0x<token_allowlist_address>\"/address: \"${CHAIN_TOKEN_ALLOWLIST_ADDRESS}\"/" \
     -e "s/startBlock: [0-9]*/startBlock: 0/" \
     subgraph.yaml > subgraph-local.yaml
 

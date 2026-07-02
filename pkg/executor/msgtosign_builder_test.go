@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +45,7 @@ func TestMsgToSignBuilder_IncludesWithdrawalTokenAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	ethAddr := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
-	tokenA := ethCommon.Address{}                                                       // ETH
+	tokenA := velacommon.ETH_TOKEN                                                       // ETH
 	tokenB := ethCommon.HexToAddress("0xdead000000000000000000000000000000000001") // ERC-20
 
 	base := &common.UpdatePayload{

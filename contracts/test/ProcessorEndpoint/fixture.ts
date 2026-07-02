@@ -28,15 +28,27 @@ export async function deployProcessorEndpointFixture() {
   );
 
   const processorEndpointFactory = await ethers.getContractFactory('ProcessorEndpoint');
+  const resetOperator = await signers[3].getAddress();
 
-  async function deployProcessorEndpoint() {
-    return processorEndpointFactory.deploy(
+  async function deployTokenAllowlist() {
+    const TokenAllowlist = await ethers.getContractFactory('TokenAllowlist');
+    return TokenAllowlist.deploy(admin);
+  }
+
+  const sharedTokenAllowlist = await deployTokenAllowlist();
+
+  async function deployProcessorEndpoint(resetOperatorOverride?: string) {
+    const tokenAllowlist = await deployTokenAllowlist();
+    const processorEndpoint = await processorEndpointFactory.deploy(
       await teeAuthenticator.getAddress(),
       await authorityRegistry.getAddress(),
       updateStatusOperator,
       admin,
-      minFeePerRequest
+      resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator,
+      minFeePerRequest,
+      await tokenAllowlist.getAddress()
     );
+    return { processorEndpoint, tokenAllowlist };
   }
 
   async function bootstrapApplication(processorEndpoint: any, teeSigner?: Signer) {
@@ -102,8 +114,11 @@ export async function deployProcessorEndpointFixture() {
     processorEndpointFactory,
     updateStatusOperator,
     admin,
+    resetOperator,
     minFeePerRequest,
     deployProcessorEndpoint,
+    deployTokenAllowlist,
+    sharedTokenAllowlist,
     bootstrapApplication,
   };
 }

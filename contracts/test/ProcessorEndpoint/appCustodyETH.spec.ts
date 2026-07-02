@@ -19,7 +19,7 @@ describe('ProcessorEndpoint — appCustody', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     bootstrapApplication = fixture.bootstrapApplication;
@@ -462,7 +462,7 @@ describe('ProcessorEndpoint — appCustody', function () {
     // and the subsequent stateUpdate debits it back to zero.
     it('deploy request credits then stateUpdate debits to zero', async () => {
       const fixture = await deployProcessorEndpointFixture();
-      const pe = await fixture.deployProcessorEndpoint();
+      const { processorEndpoint: pe } = await fixture.deployProcessorEndpoint();
 
       const deployTx = await pe
         .connect(fixture.signers[2])

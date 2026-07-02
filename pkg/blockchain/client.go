@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tee"
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -30,6 +31,11 @@ import (
 //go:generate mkdir -p ./contracts/tee
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
+//go:generate mkdir -p ./contracts/tokenallowlist
+//go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TokenAllowlist.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TokenAllowlistAbi --overwrite
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TokenAllowlist.sol:TokenAllowlist\"].abi' ../../contract_abis/TokenAllowlistAbi/combined.json > ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TokenAllowlist.sol:TokenAllowlist\"].bin' ../../contract_abis/TokenAllowlistAbi/combined.json > ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.abi --bin ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.bin --pkg tokenallowlist --type TokenAllowlist --out ./contracts/tokenallowlist/TokenAllowlist.go
 
 type ChainClient interface {
 	ethereum.BlockNumberReader
@@ -349,7 +355,7 @@ func (c *BlockChainClient) SubmitRequest(ctx context.Context, protocolVersion ui
 	// Set the value for the transaction (msg.value).
 	// For ETH requests: msg.value = assetAmount + maxFeeValue (carries both business asset and fee).
 	// For ERC-20 requests: msg.value = maxFeeValue only (business asset arrives via transferFrom).
-	if tokenAddress == (ethCommon.Address{}) {
+	if tokenAddress == velacommon.ETH_TOKEN {
 		c.account.Value = new(big.Int).Add(assetAmount, maxFeeValue)
 	} else {
 		c.account.Value = new(big.Int).Set(maxFeeValue)

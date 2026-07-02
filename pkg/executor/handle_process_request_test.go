@@ -709,3 +709,114 @@ func TestHandleProcessRequest_Process_Success(t *testing.T) {
 	total := new(big.Int).Add(refund, fee)
 	require.Equal(t, 0, req.MaxFeeValue.ToInt().Cmp(total), "refund + fee should equal MaxFeeValue")
 }
+
+// payloadCapturingRuntime records the exact payload bytes seen by ProcessRequest.
+type payloadCapturingRuntime struct {
+	MockRuntime
+	seenPayload []byte
+	seenType    common.RequestType
+}
+
+func (r *payloadCapturingRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
+	r.seenPayload = append([]byte(nil), payload...)
+	r.seenType = requestType
+	return r.MockRuntime.ProcessRequest(ctx, appId, sender, requestType, payload, state, wasm)
+}
+
+// TestHandleProcessRequest_TrustProcess_PayloadForwardedAsIs verifies that TrustProcess
+// requests skip enclave-payload decryption and forward the raw bytes to the WASM module
+// untouched. The plain-text JSON payload would fail to decrypt if a decryption attempt
+// were made, so a successful execution combined with byte-identical capture proves the
+// decryption step was bypassed.
+func TestHandleProcessRequest_TrustProcess_PayloadForwardedAsIs(t *testing.T) {
+	runtime := &payloadCapturingRuntime{MockRuntime: *NewMockRuntime(testLogger)}
+	exec := newTestExecutor(t, runtime)
+
+	sender := ethCommon.HexToAddress("0x7777777777777777777777777777777777777777")
+	recipient := ethCommon.HexToAddress("0x8888888888888888888888888888888888888888")
+	senderKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+	recipientKey, err := crypto.GeneratePrivateKeyP521()
+	require.NoError(t, err)
+
+	initialState := fmt.Sprintf(`{"appId":1,"accounts":{"%s":{"address":"%s","balance":"0x3e8"}},"nonce":0}`,
+		strings.ToLower(sender.Hex()), strings.ToLower(sender.Hex()))
+	ad := appdata.NewAppData([]byte(initialState))
+	ad.SetWasmFingerprint(sha256.Sum256([]byte("wasm")))
+	// Both keys are needed to encrypt the user events produced by the transfer.
+	ad.AddKey(sender, *senderKey.PublicKey())
+	ad.AddKey(recipient, *recipientKey.PublicKey())
+	serialized, err := ad.Serialize()
+	require.NoError(t, err)
+	encryptedState, err := crypto.EncryptWithAES(exec.keySet.StateKey, serialized)
+	require.NoError(t, err)
+	stateRoot := sha256.Sum256(serialized)
+	appState := &common.ApplicationState{
+		ApplicationID:  common.NewApplicationId(1),
+		StateRoot:      stateRoot,
+		EncryptedState: encryptedState,
+	}
+
+	transferPayload, err := json.Marshal(testPayloadInstructions{
+		Type: "transfer",
+		Transfer: &testTransferInstruction{
+			To:     recipient,
+			Amount: common.NewBig(100),
+		},
+	})
+	require.NoError(t, err)
+
+	req := newProcessRequest()
+	req.RequestType = common.TrustProcess
+	req.Payload = transferPayload // plain bytes — would fail decryption
+	req.Sender = sender
+
+	updatePayload, newAppState, report, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
+	require.NoError(t, err)
+	require.NotNil(t, updatePayload)
+	require.NotNil(t, newAppState)
+	require.Nil(t, report)
+
+	require.Equal(t, uint8(0), updatePayload.ErrorCode, "TrustProcess should not fail: %s", updatePayload.ErrorMsg)
+	require.Equal(t, common.TrustProcess, runtime.seenType, "runtime should see the TrustProcess request type")
+	require.Equal(t, transferPayload, runtime.seenPayload, "runtime must receive the request payload verbatim, with no decryption applied")
+}
+
+// TestHandleProcessRequest_TrustProcess_SkipsDecryption_NoKeyRequired confirms that a
+// TrustProcess request succeeds even when the sender has no key registered (decryption
+// would otherwise fail with PubKeyNotRegistered).
+func TestHandleProcessRequest_TrustProcess_SkipsDecryption_NoKeyRequired(t *testing.T) {
+	exec := newTestExecutor(t, NewMockRuntime(testLogger))
+
+	req := newProcessRequest()
+	req.RequestType = common.TrustProcess
+	req.Payload = []byte("{}") // empty instructions — mock runtime accepts this
+	req.Sender = ethCommon.HexToAddress("0x9999999999999999999999999999999999999999")
+
+	appState := buildEncryptedAppState(t, exec, nil, nil)
+
+	updatePayload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
+	require.NoError(t, err)
+	require.NotNil(t, updatePayload)
+	require.Equal(t, uint8(0), updatePayload.ErrorCode, "unexpected error: %s", updatePayload.ErrorMsg)
+}
+
+// TestHandleProcessRequest_TrustProcess_UnexpectedReportRejected ensures that the
+// "only Deanonymize may emit a report" invariant still applies to TrustProcess.
+func TestHandleProcessRequest_TrustProcess_UnexpectedReportRejected(t *testing.T) {
+	runtime := &reportOnProcessRuntime{MockRuntime: *NewMockRuntime(testLogger)}
+	exec := newTestExecutor(t, runtime)
+
+	req := newProcessRequest()
+	req.RequestType = common.TrustProcess
+	req.Payload = []byte("{}")
+	req.Sender = ethCommon.HexToAddress("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
+
+	appState := buildEncryptedAppState(t, exec, nil, nil)
+
+	updatePayload, _, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
+	require.NoError(t, err)
+	require.NotNil(t, updatePayload)
+	require.Equal(t, uint8(apperrors.CategoryRequestFuncFailedMeta.Category), updatePayload.ErrorCode)
+	require.Contains(t, updatePayload.ErrorMsg, "unexpected report")
+}

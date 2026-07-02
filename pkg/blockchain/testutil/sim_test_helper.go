@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,11 +15,16 @@ import (
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/ethereum/go-ethereum/params"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/authority"
 	defaultauthority "github.com/HorizenOfficial/vela/pkg/blockchain/contracts/defaultauthoritychecker"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mockerc20"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mocktee"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/guardedtrigger"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/noattestationtee"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/testtrigger"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tokenallowlist"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/stretchr/testify/require"
 )
@@ -29,8 +35,19 @@ type SimTestHelper struct {
 	ProtocolVersion uint8
 	sim             *simulated.Backend
 
-	processEndpointContract *processorendpoint.ProcessorEndpoint
-	processEndpointInstance *bind.BoundContract
+	processEndpointContract  *processorendpoint.ProcessorEndpoint
+	processEndpointInstance  *bind.BoundContract
+	tokenAllowlistContract   *tokenallowlist.TokenAllowlist
+	tokenAllowlistInstance   *bind.BoundContract
+	TokenAllowlistAddress    ethCommon.Address
+
+	// MockERC20 is populated by DeployMockERC20 and remains the zero value if
+	// the test never deploys one. Only one MockERC20 per SimTestHelper — tests
+	// that need multiple tokens should call DeployMockERC20 multiple times and
+	// track the returned addresses themselves.
+	MockERC20Address  ethCommon.Address
+	mockERC20Contract *mockerc20.MockERC20
+	mockERC20Instance *bind.BoundContract
 
 	ProcessorContractAddress ethCommon.Address
 	TeeSignerAddress         ethCommon.Address
@@ -42,20 +59,34 @@ type SimTestHelper struct {
 	ManagerPrivKey           *ecdsa.PrivateKey
 	autoMining               bool
 	cancel                   context.CancelFunc
+	autoMineWG               sync.WaitGroup
 }
 
 func (s *SimTestHelper) GenerateNewUser() *bind.TransactOpts {
-	// Since we are using a simulated backend, we will get the chain ID
-	// from the same place that the simulated backend gets it.
-	chainID := params.AllDevChainProtocolChanges.ChainID
+	opts, _ := s.generateNewUserWithKey()
+	return opts
+}
 
+// generateNewUserWithKey is like GenerateNewUser but also returns the raw
+// private key for callers that need to sign payloads directly (not just
+// send contract txs through the TransactOpts). Used internally so the
+// manager's private key can be stashed on SimTestHelper.ManagerPrivKey.
+func (s *SimTestHelper) generateNewUserWithKey() (*bind.TransactOpts, *ecdsa.PrivateKey) {
+	chainID := params.AllDevChainProtocolChanges.ChainID
 	userPrivateKey, err := ethCrypto.GenerateKey()
 	require.NoError(s.t, err, "failed to generate user private key")
-	return bind.NewKeyedTransactor(userPrivateKey, chainID)
+	return bind.NewKeyedTransactor(userPrivateKey, chainID), userPrivateKey
 }
 
 func (s *SimTestHelper) Client() simulated.Client {
 	return s.sim.Client()
+}
+
+// GetEthBalance returns the on-chain ETH balance of an address.
+func (s *SimTestHelper) GetEthBalance(addr ethCommon.Address) *big.Int {
+	bal, err := s.sim.Client().BalanceAt(context.Background(), addr, nil)
+	require.NoError(s.t, err)
+	return bal
 }
 
 func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethCommon.Address, teePubSecp521r1 []byte) {
@@ -141,9 +172,28 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	require.NoError(s.t, err)
 	fmt.Printf("Authority contract deployed at address 0x%x\n", s.AuthorityAddress)
 
+	// 3) Deploy TokenAllowlist
+	taContract := *tokenallowlist.NewTokenAllowlist()
+	taInput := taContract.PackConstructor(s.Deployer.From)
+	taDeployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&tokenallowlist.TokenAllowlistMetaData},
+		Inputs:    map[string][]byte{tokenallowlist.TokenAllowlistMetaData.ID: taInput},
+	}
+	taDeployRes, err := bind.LinkAndDeploy(&taDeployParams, deployer)
+	require.NoError(s.t, err)
+	s.TokenAllowlistAddress = taDeployRes.Addresses[tokenallowlist.TokenAllowlistMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), taDeployRes.Txs[tokenallowlist.TokenAllowlistMetaData.ID].Hash())
+	require.NoError(s.t, err)
+	fmt.Printf("TokenAllowlist contract deployed at address 0x%x\n", s.TokenAllowlistAddress)
+
+	s.tokenAllowlistContract = tokenallowlist.NewTokenAllowlist()
+	s.tokenAllowlistInstance = s.tokenAllowlistContract.Instance(s.sim.Client(), s.TokenAllowlistAddress)
+
+	// 4) Deploy ProcessorEndpoint
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, big.NewInt(5))
+	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5), s.TokenAllowlistAddress)
 	// set up params to deploy an instance of the ProcessorEndpoint contract
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},
@@ -176,11 +226,20 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 
 	helper.Submitter = helper.GenerateNewUser()
 	helper.Deployer = helper.GenerateNewUser()
-	helper.ManagerAccount = helper.GenerateNewUser()
+	// Capture the manager's private key too — some tests need to sign
+	// payloads (e.g. forge a state update for the InvalidStateRoot negative
+	// test) rather than only submit contract txs.
+	helper.ManagerAccount, helper.ManagerPrivKey = helper.generateNewUserWithKey()
 
+	// Deployer funds user accounts (5 ETH each via CreateFundedAccount) AND
+	// pays gas for test setup (contract deploys, role grants, allowlist ops).
+	// 9 ETH was enough for single-user tests but runs out after the second
+	// CreateFundedAccount in multi-user scenarios. 100 ETH gives generous
+	// headroom without side effects — the value isn't asserted on anywhere.
+	deployerInitialBalance, _ := new(big.Int).SetString("100000000000000000000", 10) // 100 ETH
 	helper.sim = simulated.NewBackend(map[ethCommon.Address]ethTypes.Account{
 		helper.Submitter.From:      {Balance: big.NewInt(9e18)},
-		helper.Deployer.From:       {Balance: big.NewInt(9e18)},
+		helper.Deployer.From:       {Balance: deployerInitialBalance},
 		helper.ManagerAccount.From: {Balance: big.NewInt(9e18)},
 	})
 
@@ -192,7 +251,7 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 		teeSigner = &teeSignerAddress
 	}
 	if teePubSecp521r1 == nil {
-		//generate mock secp251r1 pk
+		//generate mock secp521r1 pk
 		teePubSecp521r1 = make([]byte, 133)
 	}
 	helper.setupContracts(useMockContracts, teeSigner, teePubSecp521r1)
@@ -203,18 +262,20 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 		ctx, cancel := context.WithCancel(context.Background())
 		helper.cancel = cancel
 
+		helper.autoMineWG.Add(1)
 		go func() {
+			defer helper.autoMineWG.Done()
 			fmt.Println("Auto mining enabled")
 			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
 			for {
 				select {
-				case <-ticker.C:
-					block := helper.sim.Commit()
-					fmt.Println("Mined block: ", block)
 				case <-ctx.Done():
 					fmt.Println("Shutting down auto mining")
 					return
+				case <-ticker.C:
+					block := helper.sim.Commit()
+					fmt.Println("Mined block: ", block)
 				}
 			}
 
@@ -233,18 +294,32 @@ func (s *SimTestHelper) SubmitRequestFromUser(applicationId common.ApplicationId
 	var reqType uint8
 	switch requestType {
 	case common.Deploy:
-		reqType = 0
+		// ProcessorEndpoint.submitRequest reverts on Deploy — deploys must go
+		// through submitDeployRequest. Fail here so the test points at the
+		// caller rather than at a generic on-chain revert.
+		require.Fail(s.t, "use SubmitDeployRequest for deploy requests; submitRequest reverts on-chain for Deploy")
+		return nil
 	case common.Process:
 		reqType = 1
 	case common.Deanonymize:
 		reqType = 2
 	case common.AssociateKey:
 		reqType = 3
+	case common.TrustProcess:
+		reqType = 4
 	default:
 		panic("Unsupported request type")
 	}
 
-	sender.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	// msg.value differs by token: ETH requests carry assetAmount + maxFeeValue
+	// (business asset + fee in the same tx); ERC-20 requests carry maxFeeValue
+	// only (business asset arrives via the contract's transferFrom pull).
+	// Mirrors the check in ProcessorEndpoint.submitRequest.
+	if tokenAddress == velacommon.ETH_TOKEN {
+		sender.Value = new(big.Int).Add(assetAmount, maxFeeValue)
+	} else {
+		sender.Value = new(big.Int).Set(maxFeeValue)
+	}
 	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitRequest(s.ProtocolVersion, processorendpoint.ApplicationIdToBindingType(applicationId), reqType, payload, tokenAddress, assetAmount, maxFeeValue))
 	require.NoError(s.t, err, "failed to submit transaction")
 	sender.Value = big.NewInt(0)
@@ -268,6 +343,127 @@ func (s *SimTestHelper) SubmitDeployRequestFromUser(payload []byte, maxFeeValue 
 
 func (s *SimTestHelper) SubmitDeployRequest(payload []byte, maxFeeValue *big.Int) *ethTypes.Transaction {
 	return s.SubmitDeployRequestFromUser(payload, maxFeeValue, s.Deployer)
+}
+
+// --- Trigger helpers ---
+
+// DeployTestTrigger deploys a TestTrigger bound to this helper's
+// ProcessorEndpoint and returns its address. revertOnExecute /
+// revertOnPostWithdraw configure the trigger's failure modes for negative-path
+// tests; pass false/false for the happy path. The TestTrigger reads the
+// endpoint's tokenAllowlist() in its constructor, so the ProcessorEndpoint must
+// already be deployed (it is, by setupContracts).
+func (s *SimTestHelper) DeployTestTrigger(revertOnExecute, revertOnPostWithdraw bool) ethCommon.Address {
+	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
+	contract := testtrigger.NewTestTrigger()
+	deployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&testtrigger.TestTriggerMetaData},
+		Inputs: map[string][]byte{
+			testtrigger.TestTriggerMetaData.ID: contract.PackConstructor(s.ProcessorContractAddress, revertOnExecute, revertOnPostWithdraw),
+		},
+	}
+	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
+	require.NoError(s.t, err, "failed to deploy TestTrigger")
+
+	addr := deployRes.Addresses[testtrigger.TestTriggerMetaData.ID]
+	tx := deployRes.Txs[testtrigger.TestTriggerMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
+	require.NoError(s.t, err, "TestTrigger deployment not mined")
+	return addr
+}
+
+// DeployGuardedTrigger deploys a GuardedTrigger bound to this helper's
+// ProcessorEndpoint and returns its address. Unlike TestTrigger, it only emits a
+// trusted payload when the completed request had AppEvents, so the
+// request->TRUSTPROCESS round-trip terminates after one TRUSTPROCESS instead of
+// looping. On execute it sweeps all received ETH but 1 wei to `sink`; the leftover
+// 1 wei is re-shielded by withdraw() and reported in the trusted payload.
+func (s *SimTestHelper) DeployGuardedTrigger(sink ethCommon.Address) ethCommon.Address {
+	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
+	contract := guardedtrigger.NewGuardedTrigger()
+	deployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&guardedtrigger.GuardedTriggerMetaData},
+		Inputs: map[string][]byte{
+			guardedtrigger.GuardedTriggerMetaData.ID: contract.PackConstructor(s.ProcessorContractAddress, sink),
+		},
+	}
+	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
+	require.NoError(s.t, err, "failed to deploy GuardedTrigger")
+
+	addr := deployRes.Addresses[guardedtrigger.GuardedTriggerMetaData.ID]
+	tx := deployRes.Txs[guardedtrigger.GuardedTriggerMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
+	require.NoError(s.t, err, "GuardedTrigger deployment not mined")
+	return addr
+}
+
+// SubmitDeployRequestWithTriggerFromUser submits a deploy request that also
+// registers `trigger` for the resulting app, via
+// ProcessorEndpoint.submitDeployRequestWithTrigger. Passing the zero address is
+// equivalent to a plain deploy (no trigger registered).
+func (s *SimTestHelper) SubmitDeployRequestWithTriggerFromUser(payload []byte, maxFeeValue *big.Int, trigger ethCommon.Address, sender *bind.TransactOpts) *ethTypes.Transaction {
+	if payload == nil {
+		payload = ethCommon.FromHex("0x00")
+	}
+	sender.Value = new(big.Int).Set(maxFeeValue)
+	tx, err := bind.Transact(s.processEndpointInstance, sender, s.processEndpointContract.PackSubmitDeployRequestWithTrigger(s.ProtocolVersion, payload, trigger))
+	require.NoError(s.t, err, "failed to submit deploy-with-trigger transaction")
+	sender.Value = big.NewInt(0)
+	return tx
+}
+
+// SubmitDeployRequestWithTrigger is SubmitDeployRequestWithTriggerFromUser using
+// the pre-authorized Deployer account as the sender.
+func (s *SimTestHelper) SubmitDeployRequestWithTrigger(payload []byte, maxFeeValue *big.Int, trigger ethCommon.Address) *ethTypes.Transaction {
+	return s.SubmitDeployRequestWithTriggerFromUser(payload, maxFeeValue, trigger, s.Deployer)
+}
+
+// GetTriggerContract reads the on-chain triggerContracts[appId] mapping and
+// returns the trigger address registered for the application (zero address if
+// none).
+func (s *SimTestHelper) GetTriggerContract(applicationId common.ApplicationIdType) ethCommon.Address {
+	addr, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackTriggerContracts(uint64(applicationId)),
+		s.processEndpointContract.UnpackTriggerContracts)
+	require.NoError(s.t, err)
+	return addr
+}
+
+// GetTriggerAppId reads the on-chain triggersToAppIds[trigger] reverse mapping
+// and returns the application id the trigger is registered for (0 if none).
+func (s *SimTestHelper) GetTriggerAppId(trigger ethCommon.Address) uint64 {
+	appId, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackTriggersToAppIds(trigger),
+		s.processEndpointContract.UnpackTriggersToAppIds)
+	require.NoError(s.t, err)
+	return appId
+}
+
+// GetTriggerQueueSize returns the on-chain size of the trigger (TRUSTPROCESS)
+// queue. Used to assert the queue drains and does not re-fill (no trigger loop).
+func (s *SimTestHelper) GetTriggerQueueSize() *big.Int {
+	size, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackGetTriggerQueueSize(),
+		s.processEndpointContract.UnpackGetTriggerQueueSize)
+	require.NoError(s.t, err)
+	return size
+}
+
+// SetTrustedPayload sets the payload a TestTrigger returns from
+// getTrustProcessPayload (via its setTrustedPayload(bytes) ABI). A non-empty
+// payload makes the ProcessorEndpoint enqueue a TRUSTPROCESS request after the
+// trigger runs. Used by the request->trigger->TRUSTPROCESS tests.
+func (s *SimTestHelper) SetTrustedPayload(trigger ethCommon.Address, payload []byte) {
+	contract := testtrigger.NewTestTrigger()
+	instance := contract.Instance(s.sim.Client(), trigger)
+	tx, err := bind.Transact(instance, s.Deployer, contract.PackSetTrustedPayload(payload))
+	require.NoError(s.t, err, "failed to set trusted payload on TestTrigger")
+	s.WaitMined(tx)
 }
 
 func (s *SimTestHelper) MineBlock() ethCommon.Hash {
@@ -298,7 +494,7 @@ func (s *SimTestHelper) GetAppCustody(applicationId common.ApplicationIdType, to
 	return funds
 }
 
-func (s *SimTestHelper) GetRequest(requestID common.RequestIdType) processorendpoint.RequestByIdOutput {
+func (s *SimTestHelper) GetRequest(requestID common.RequestIdType) processorendpoint.StructsPendingRequest {
 	request, err := bind.Call(s.processEndpointInstance,
 		&bind.CallOpts{Pending: false},
 		s.processEndpointContract.PackRequestById(requestID),
@@ -326,14 +522,29 @@ func (s *SimTestHelper) GetRequestSubmittedEvent(tx *ethTypes.Transaction) *proc
 	return &event
 }
 
+func (s *SimTestHelper) GetDeployRequestSubmittedEvent(tx *ethTypes.Transaction) *processorendpoint.ProcessorEndpointDeployRequestSubmitted {
+	receipt, err := s.GetTxReceipt(tx)
+	require.NoError(s.t, err, "error getting transaction receipt")
+	require.GreaterOrEqual(s.t, len(receipt.Logs), 1, "There should be at least one log for DeployRequestSubmitted")
+	event := processorendpoint.ProcessorEndpointDeployRequestSubmitted{}
+	err = s.processEndpointInstance.UnpackLog(&event,
+		processorendpoint.ProcessorEndpointDeployRequestSubmittedEventName, *receipt.Logs[0])
+	require.NoError(s.t, err, "error unpacking DeployRequestSubmittedEvent")
+	return &event
+}
+
 func (s *SimTestHelper) Close() {
+	// Stop auto-mining FIRST and wait for the goroutine to exit, otherwise a
+	// ticker firing between sim.Close() and ctx cancellation calls Commit() on
+	// a nil SimulatedBeacon and panics.
+	if s.autoMining {
+		s.cancel()
+		s.autoMineWG.Wait()
+	}
+
 	if s.sim != nil {
 		err := s.sim.Close()
 		require.NoError(s.t, err, "failed to close simulated backend")
-	}
-
-	if s.autoMining {
-		s.cancel()
 	}
 }
 
@@ -368,6 +579,25 @@ func (s *SimTestHelper) TransferFunds(sender *bind.TransactOpts, toAddress ethCo
 	return signedTx
 }
 
+// GrantDeployerRole grants the ProcessorEndpoint's DEPLOYER_ROLE to addr.
+// Must be called from the ADMIN (set to s.Deployer in the constructor).
+// Used by the wallet driver so a user's secp key can submit deploy requests.
+func (s *SimTestHelper) GrantDeployerRole(addr ethCommon.Address) *ethTypes.Transaction {
+	roleHash, err := bind.Call(s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackDEPLOYERROLE(),
+		s.processEndpointContract.UnpackDEPLOYERROLE)
+	require.NoError(s.t, err, "failed to read DEPLOYER_ROLE")
+
+	tx, err := bind.Transact(
+		s.processEndpointInstance,
+		s.Deployer,
+		s.processEndpointContract.PackGrantRole(roleHash, addr),
+	)
+	require.NoError(s.t, err, "failed to grant DEPLOYER_ROLE")
+	return tx
+}
+
 func (s *SimTestHelper) AddAuthority(applicationId *big.Int, newAuthority ethCommon.Address) *ethTypes.Transaction {
     defaultAuthContract := defaultauthority.NewDefaultAuthority()
     defaultAuthInstance := defaultAuthContract.Instance(s.Client(), s.DefaultAuthorityAddress)
@@ -384,4 +614,135 @@ func (s *SimTestHelper) AddAuthority(applicationId *big.Int, newAuthority ethCom
 
 func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelper {
 	return NewSimTeeAuthenticatorHelper(s.t, s.TeeSignerAddress, s.sim.Client())
+}
+
+// --- MockERC20 infrastructure ---
+
+// DeployMockERC20 deploys a MockERC20 token contract on the simulated chain
+// and stores its binding on the helper. Subsequent MintERC20 / ApproveERC20
+// calls target this deployed instance. Returns the deployed token address.
+//
+// The mock's mint is permissionless and decimals are caller-chosen, so a
+// single call is enough to stage any ERC-20 scenario. Tests needing multiple
+// distinct tokens call this multiple times and track the returned addresses.
+func (s *SimTestHelper) DeployMockERC20(name, symbol string, decimals uint8) ethCommon.Address {
+	// A second call would silently overwrite the cached binding so that
+	// MintERC20 / ApproveERC20 / BalanceOfERC20 target only the latest token,
+	// breaking helpers for the previously deployed one. Fail fast instead.
+	//
+	// TODO: when a multi-token test legitimately hits this guard, drop the
+	// cached MockERC20Address / mockERC20Contract / mockERC20Instance fields
+	// and change the helpers to take a tokenAddress parameter, reconstructing
+	// the binding internally. Callers track the returned addresses themselves.
+	require.Nil(s.t, s.mockERC20Instance, "DeployMockERC20 already called")
+	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
+	contract := mockerc20.NewMockERC20()
+	deployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&mockerc20.MockERC20MetaData},
+		Inputs:    map[string][]byte{mockerc20.MockERC20MetaData.ID: contract.PackConstructor(name, symbol, decimals)},
+	}
+	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
+	require.NoError(s.t, err, "failed to deploy MockERC20")
+
+	addr := deployRes.Addresses[mockerc20.MockERC20MetaData.ID]
+	tx := deployRes.Txs[mockerc20.MockERC20MetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
+	require.NoError(s.t, err, "MockERC20 deployment not mined")
+
+	s.MockERC20Address = addr
+	s.mockERC20Contract = contract
+	s.mockERC20Instance = contract.Instance(s.sim.Client(), addr)
+	return addr
+}
+
+// MintERC20 mints `amount` tokens of the deployed MockERC20 to `to`. The
+// mock's mint is permissionless; the Deployer account is used as msg.sender
+// for consistency with other admin-style helpers.
+func (s *SimTestHelper) MintERC20(to ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
+	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before MintERC20")
+	tx, err := bind.Transact(
+		s.mockERC20Instance,
+		s.Deployer,
+		s.mockERC20Contract.PackMint(to, amount),
+	)
+	require.NoError(s.t, err, "failed to mint ERC-20")
+	return tx
+}
+
+// ApproveERC20 calls MockERC20.approve(spender, amount) from `owner`. The
+// ProcessorEndpoint contract uses the resulting allowance to pull tokens via
+// transferFrom when the user later calls submitRequest with an ERC-20
+// assetAmount. Tests call this to pre-approve before a deposit, since the
+// wallet's submitRequest path uses transferFrom and does not embed an
+// EIP-2612 permit.
+func (s *SimTestHelper) ApproveERC20(owner *bind.TransactOpts, spender ethCommon.Address, amount *big.Int) *ethTypes.Transaction {
+	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before ApproveERC20")
+	tx, err := bind.Transact(
+		s.mockERC20Instance,
+		owner,
+		s.mockERC20Contract.PackApprove(spender, amount),
+	)
+	require.NoError(s.t, err, "failed to approve ERC-20")
+	return tx
+}
+
+// BalanceOfERC20 reads the caller-visible balance for `account` on the deployed
+// MockERC20. Useful for end-to-end assertions (e.g. confirming that a
+// ClaimPendingPayments moved tokens back to the user).
+func (s *SimTestHelper) BalanceOfERC20(account ethCommon.Address) *big.Int {
+	require.NotNil(s.t, s.mockERC20Instance, "DeployMockERC20 must be called before BalanceOfERC20")
+	bal, err := bind.Call(
+		s.mockERC20Instance,
+		&bind.CallOpts{Pending: false},
+		s.mockERC20Contract.PackBalanceOf(account),
+		s.mockERC20Contract.UnpackBalanceOf,
+	)
+	require.NoError(s.t, err, "failed to read ERC-20 balance")
+	return bal
+}
+
+// --- ProcessorEndpoint ERC-20-adjacent helpers ---
+
+// AddAllowedToken allowlists `tokenAddress` for ERC-20 deposits on the
+// ProcessorEndpoint. Must be called before any submitRequest that targets the
+// token, or the contract reverts with TokenNotAllowed. Uses the Deployer
+// account (holder of the ADMIN role from the constructor).
+func (s *SimTestHelper) AddAllowedToken(tokenAddress ethCommon.Address) *ethTypes.Transaction {
+	tx, err := bind.Transact(
+		s.tokenAllowlistInstance,
+		s.Deployer,
+		s.tokenAllowlistContract.PackAddAllowedToken(tokenAddress),
+	)
+	require.NoError(s.t, err, "failed to add allowed token")
+	return tx
+}
+
+// GetPendingClaims reads pendingClaims[tokenAddress][payee] on the
+// ProcessorEndpoint. Accumulates token refunds on state-update failures and
+// withdrawal outputs; cleared to zero by Claim.
+func (s *SimTestHelper) GetPendingClaims(tokenAddress, payee ethCommon.Address) *big.Int {
+	amount, err := bind.Call(
+		s.processEndpointInstance,
+		&bind.CallOpts{Pending: false},
+		s.processEndpointContract.PackPendingClaims(tokenAddress, payee),
+		s.processEndpointContract.UnpackPendingClaims,
+	)
+	require.NoError(s.t, err, "failed to read pendingClaims")
+	return amount
+}
+
+// Claim pulls any pending amount of `tokenAddress` for `payee` out of the
+// ProcessorEndpoint and into the payee's balance. Payable by any caller; the
+// Deployer account is used here so tests don't need to thread TransactOpts
+// through for every test-side claim. For user-initiated claims, the wallet
+// driver calls BlockChainClient.Claim from the user's own account.
+func (s *SimTestHelper) Claim(tokenAddress, payee ethCommon.Address) *ethTypes.Transaction {
+	tx, err := bind.Transact(
+		s.processEndpointInstance,
+		s.Deployer,
+		s.processEndpointContract.PackClaim(tokenAddress, payee),
+	)
+	require.NoError(s.t, err, "failed to claim pending payments")
+	return tx
 }

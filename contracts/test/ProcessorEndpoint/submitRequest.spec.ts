@@ -6,6 +6,7 @@ import {
   REQUEST_TYPE_ASSOCIATEKEY,
   REQUEST_TYPE_DEANONYMIZATION,
   REQUEST_TYPE_DEPLOYAPP,
+  REQUEST_TYPE_TRUSTPROCESS,
   REQUEST_TYPE_PROCESS,
 } from '../util';
 
@@ -18,7 +19,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint } = await fixture.deployProcessorEndpoint());
     defaultAuthority = fixture.defaultAuthority;
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
@@ -361,6 +362,22 @@ describe('ProcessorEndpoint Test', function () {
         await expect(tx).to.emit(processorEndpoint, 'RequestSubmitted');
         const receipt = await tx.wait();
         expect(receipt.logs[0].args.sender).to.equal(await signers[0].getAddress());
+      });
+
+      it('rejects TRUSTPROCESS — trusted requests can only be created during stateUpdate', async () => {
+        const payload = '0x' + 'ab'.repeat(32);
+        await expect(
+          processorEndpoint.submitRequest(
+            0,
+            applicationId,
+            REQUEST_TYPE_TRUSTPROCESS,
+            payload,
+            ETH_TOKEN,
+            0,
+            minFeePerRequest,
+            { value: minFeePerRequest }
+          )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidRequestType');
       });
 
       it('accepts DEANONYMIZATION for allowed authority with zero deposit', async () => {

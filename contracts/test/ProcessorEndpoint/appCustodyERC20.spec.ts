@@ -11,6 +11,7 @@ import {
 
 describe('ProcessorEndpoint — appCustody ERC-20', function () {
   let processorEndpoint: any;
+  let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let applicationId: bigint;
@@ -19,7 +20,7 @@ describe('ProcessorEndpoint — appCustody ERC-20', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     bootstrapApplication = fixture.bootstrapApplication;
@@ -27,7 +28,7 @@ describe('ProcessorEndpoint — appCustody ERC-20', function () {
 
     const MockERC20 = await ethers.getContractFactory('MockERC20');
     mockERC20 = await MockERC20.deploy('Mock Token', 'MCK', 18);
-    await processorEndpoint.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
+    await tokenAllowlist.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
   });
 
   async function submitERC20Request(

@@ -11,6 +11,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/logger"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 )
 
@@ -95,7 +96,7 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 
 	// Make a deposit
 	ctx := context.Background()
-	newState, events, _, fuel, failure := runtime.Deposit(ctx, appId, sender, ethCommon.Address{}, depositAmount, serializedState, wasmBytes)
+	newState, events, _, fuel, failure := runtime.Deposit(ctx, appId, sender, velacommon.ETH_TOKEN, depositAmount, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("ProcessRequest failed: %v", failure)
 	}
@@ -152,7 +153,7 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 
 	// make a deposit
 	ctx := context.Background()
-	serializedState, _, _, _, failure := runtime.Deposit(ctx, appId, sender, ethCommon.Address{}, depositAmount, serializedState, wasmBytes)
+	serializedState, _, _, _, failure := runtime.Deposit(ctx, appId, sender, velacommon.ETH_TOKEN, depositAmount, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Deposit failed: %v", failure)
 	}
@@ -239,7 +240,7 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 
 	// make a deposit
 	ctx := context.Background()
-	serializedState, _, _, _, failure := runtime.Deposit(ctx, appId, sender, ethCommon.Address{}, depositAmount, serializedState, wasmBytes)
+	serializedState, _, _, _, failure := runtime.Deposit(ctx, appId, sender, velacommon.ETH_TOKEN, depositAmount, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Deposit failed: %v", failure)
 	}
@@ -370,13 +371,13 @@ func TestMockRuntime_DeanonymizationViaProcessRequest(t *testing.T) {
 
 	// Deposit for sender1
 	ctx := context.Background()
-	serializedState, _, _, _, failure := runtime.Deposit(ctx, appId, sender1, ethCommon.Address{}, depositAmount, serializedState, wasmBytes)
+	serializedState, _, _, _, failure := runtime.Deposit(ctx, appId, sender1, velacommon.ETH_TOKEN, depositAmount, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("First deposit failed: %v", failure)
 	}
 
 	// Deposit for sender2
-	serializedState, _, _, _, failure = runtime.Deposit(ctx, appId, sender2, ethCommon.Address{}, depositAmount, serializedState, wasmBytes)
+	serializedState, _, _, _, failure = runtime.Deposit(ctx, appId, sender2, velacommon.ETH_TOKEN, depositAmount, serializedState, wasmBytes)
 	if failure != nil {
 		t.Fatalf("Second deposit failed: %v", failure)
 	}

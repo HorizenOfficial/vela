@@ -12,7 +12,7 @@ describe('ProcessorEndpoint deployer role management', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));

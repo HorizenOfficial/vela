@@ -20,7 +20,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     bootstrapApplication = fixture.bootstrapApplication;
@@ -88,7 +88,9 @@ describe('ProcessorEndpoint Test', function () {
       await fixture.authorityRegistry.getAddress(),
       fixture.updateStatusOperator,
       fixture.admin,
-      fixture.minFeePerRequest
+      fixture.resetOperator,
+      fixture.minFeePerRequest,
+      await fixture.sharedTokenAllowlist.getAddress()
     );
 
     const { applicationId: appId } = await fixture.bootstrapApplication(

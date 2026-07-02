@@ -6,13 +6,14 @@ import { ETH_TOKEN, getRequestIdFromReceipt } from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
+  let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let mockERC20: any;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    processorEndpoint = await fixture.deployProcessorEndpoint();
+    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
 
@@ -25,38 +26,38 @@ describe('ProcessorEndpoint Test', function () {
     describe('unhappy paths', function () {
       it('reverts when called by non-admin', async () => {
         await expect(
-          processorEndpoint.connect(signers[0]).addAllowedToken(await mockERC20.getAddress())
-        ).to.be.revertedWithCustomError(processorEndpoint, 'AccessControlUnauthorizedAccount');
+          tokenAllowlist.connect(signers[0]).addAllowedToken(await mockERC20.getAddress())
+        ).to.be.revertedWithCustomError(tokenAllowlist, 'AccessControlUnauthorizedAccount');
       });
 
       it('reverts with AddressCantBeZero when token is address(0)', async () => {
         await expect(
-          processorEndpoint.connect(signers[2]).addAllowedToken(ETH_TOKEN)
-        ).to.be.revertedWithCustomError(processorEndpoint, 'TokenAddressCantBeZero');
+          tokenAllowlist.connect(signers[2]).addAllowedToken(ETH_TOKEN)
+        ).to.be.revertedWithCustomError(tokenAllowlist, 'TokenAddressCantBeZero');
       });
 
       it('reverts with NotAContract when token address has no code', async () => {
         const eoa = await signers[5].getAddress();
         await expect(
-          processorEndpoint.connect(signers[2]).addAllowedToken(eoa)
-        ).to.be.revertedWithCustomError(processorEndpoint, 'NotAContract');
+          tokenAllowlist.connect(signers[2]).addAllowedToken(eoa)
+        ).to.be.revertedWithCustomError(tokenAllowlist, 'NotAContract');
       });
     });
 
     describe('happy paths', function () {
       it('adds a token to the allowlist and emits TokenAllowed', async () => {
         const tokenAddr = await mockERC20.getAddress();
-        const tx = await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
-        await expect(tx).to.emit(processorEndpoint, 'TokenAllowed').withArgs(tokenAddr);
-        expect(await processorEndpoint.isAllowedToken(tokenAddr)).to.be.true;
+        const tx = await tokenAllowlist.connect(signers[2]).addAllowedToken(tokenAddr);
+        await expect(tx).to.emit(tokenAllowlist, 'TokenAllowed').withArgs(tokenAddr);
+        expect(await tokenAllowlist.isAllowedToken(tokenAddr)).to.be.true;
       });
 
       it('is idempotent when adding an already-allowed token', async () => {
         const tokenAddr = await mockERC20.getAddress();
-        await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
-        const tx = await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
-        await expect(tx).to.emit(processorEndpoint, 'TokenAllowed').withArgs(tokenAddr);
-        expect(await processorEndpoint.isAllowedToken(tokenAddr)).to.be.true;
+        await tokenAllowlist.connect(signers[2]).addAllowedToken(tokenAddr);
+        const tx = await tokenAllowlist.connect(signers[2]).addAllowedToken(tokenAddr);
+        await expect(tx).to.emit(tokenAllowlist, 'TokenAllowed').withArgs(tokenAddr);
+        expect(await tokenAllowlist.isAllowedToken(tokenAddr)).to.be.true;
       });
     });
   });
@@ -65,48 +66,48 @@ describe('ProcessorEndpoint Test', function () {
     describe('unhappy paths', function () {
       it('reverts when called by non-admin', async () => {
         await expect(
-          processorEndpoint.connect(signers[0]).removeAllowedToken(await mockERC20.getAddress())
-        ).to.be.revertedWithCustomError(processorEndpoint, 'AccessControlUnauthorizedAccount');
+          tokenAllowlist.connect(signers[0]).removeAllowedToken(await mockERC20.getAddress())
+        ).to.be.revertedWithCustomError(tokenAllowlist, 'AccessControlUnauthorizedAccount');
       });
 
       it('reverts with AddressCantBeZero when token is address(0)', async () => {
         await expect(
-          processorEndpoint.connect(signers[2]).removeAllowedToken(ETH_TOKEN)
-        ).to.be.revertedWithCustomError(processorEndpoint, 'TokenAddressCantBeZero');
+          tokenAllowlist.connect(signers[2]).removeAllowedToken(ETH_TOKEN)
+        ).to.be.revertedWithCustomError(tokenAllowlist, 'TokenAddressCantBeZero');
       });
     });
 
     describe('happy paths', function () {
       it('removes a token from the allowlist and emits TokenRemoved', async () => {
         const tokenAddr = await mockERC20.getAddress();
-        await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
-        const tx = await processorEndpoint.connect(signers[2]).removeAllowedToken(tokenAddr);
-        await expect(tx).to.emit(processorEndpoint, 'TokenRemoved').withArgs(tokenAddr);
-        expect(await processorEndpoint.isAllowedToken(tokenAddr)).to.be.false;
+        await tokenAllowlist.connect(signers[2]).addAllowedToken(tokenAddr);
+        const tx = await tokenAllowlist.connect(signers[2]).removeAllowedToken(tokenAddr);
+        await expect(tx).to.emit(tokenAllowlist, 'TokenRemoved').withArgs(tokenAddr);
+        expect(await tokenAllowlist.isAllowedToken(tokenAddr)).to.be.false;
       });
 
       it('is idempotent when removing a non-allowed token', async () => {
         const tokenAddr = await mockERC20.getAddress();
-        const tx = await processorEndpoint.connect(signers[2]).removeAllowedToken(tokenAddr);
-        await expect(tx).to.emit(processorEndpoint, 'TokenRemoved').withArgs(tokenAddr);
-        expect(await processorEndpoint.isAllowedToken(tokenAddr)).to.be.false;
+        const tx = await tokenAllowlist.connect(signers[2]).removeAllowedToken(tokenAddr);
+        await expect(tx).to.emit(tokenAllowlist, 'TokenRemoved').withArgs(tokenAddr);
+        expect(await tokenAllowlist.isAllowedToken(tokenAddr)).to.be.false;
       });
     });
   });
 
   describe('isAllowedToken', function () {
     it('returns true for ETH (address(0))', async () => {
-      expect(await processorEndpoint.isAllowedToken(ETH_TOKEN)).to.be.true;
+      expect(await tokenAllowlist.isAllowedToken(ETH_TOKEN)).to.be.true;
     });
 
     it('returns false for a non-allowlisted token', async () => {
-      expect(await processorEndpoint.isAllowedToken(await mockERC20.getAddress())).to.be.false;
+      expect(await tokenAllowlist.isAllowedToken(await mockERC20.getAddress())).to.be.false;
     });
 
     it('returns true for an allowlisted token', async () => {
       const tokenAddr = await mockERC20.getAddress();
-      await processorEndpoint.connect(signers[2]).addAllowedToken(tokenAddr);
-      expect(await processorEndpoint.isAllowedToken(tokenAddr)).to.be.true;
+      await tokenAllowlist.connect(signers[2]).addAllowedToken(tokenAddr);
+      expect(await tokenAllowlist.isAllowedToken(tokenAddr)).to.be.true;
     });
   });
 
@@ -115,14 +116,14 @@ describe('ProcessorEndpoint Test', function () {
 
     beforeEach(async function () {
       const fixture = await deployProcessorEndpointFixture();
-      processorEndpoint = await fixture.deployProcessorEndpoint();
+      ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
       signers = fixture.signers;
       minFeePerRequest = fixture.minFeePerRequest;
       ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
 
       const MockERC20 = await ethers.getContractFactory('MockERC20');
       mockERC20 = await MockERC20.deploy('Mock Token', 'MCK', 18);
-      await processorEndpoint.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
+      await tokenAllowlist.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
     });
 
     it('blocks new deposits after token is removed from allowlist', async () => {
@@ -133,7 +134,7 @@ describe('ProcessorEndpoint Test', function () {
       await mockERC20.approve(await processorEndpoint.getAddress(), assetAmount);
 
       // Remove from allowlist
-      await processorEndpoint.connect(signers[2]).removeAllowedToken(tokenAddr);
+      await tokenAllowlist.connect(signers[2]).removeAllowedToken(tokenAddr);
 
       // New deposit should be rejected
       await expect(
@@ -173,8 +174,8 @@ describe('ProcessorEndpoint Test', function () {
       const requestId = getRequestIdFromReceipt(processorEndpoint, receipt);
 
       // Remove token from allowlist
-      await processorEndpoint.connect(signers[2]).removeAllowedToken(tokenAddr);
-      expect(await processorEndpoint.isAllowedToken(tokenAddr)).to.be.false;
+      await tokenAllowlist.connect(signers[2]).removeAllowedToken(tokenAddr);
+      expect(await tokenAllowlist.isAllowedToken(tokenAddr)).to.be.false;
 
       // stateUpdate with ERC-20 withdrawal should still succeed
       await processorEndpoint

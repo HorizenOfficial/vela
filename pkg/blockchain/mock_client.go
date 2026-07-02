@@ -10,6 +10,7 @@ import (
 	"github.com/elliotchance/orderedmap/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	"github.com/HorizenOfficial/vela/pkg/common/testutil"
@@ -157,7 +158,7 @@ func (c *MockClient) SubmitDeployRequest(ctx context.Context, protocolVersion ui
 		ProtocolVersion: protocolVersion,
 		RequestType:     common.Deploy,
 		Payload:         payload,
-		TokenAddress:    ethCommon.Address{},
+		TokenAddress:    velacommon.ETH_TOKEN,
 		AssetAmount:     common.ToBig(big.NewInt(0)),
 		MaxFeeValue:     common.ToBig(maxFeeValue),
 	}

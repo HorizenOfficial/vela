@@ -11,7 +11,8 @@ contract Structs {
     DEPLOYAPP,
     PROCESS,
     DEANONYMIZATION,
-    ASSOCIATEKEY
+    ASSOCIATEKEY,
+    TRUSTPROCESS
   }
   enum RequestResult {
     COMPLETED,
@@ -70,5 +71,13 @@ contract Structs {
     uint256 applicationFee;
     Structs.ErrorCode errorCode;
     string errorMsg;
+  }
+
+  /// @notice Describes a token and amount pair.
+  struct TokenAndAmount {
+    /// @notice Token address; address(0) for ETH.
+    address token;
+    /// @notice Amount of the token.
+    uint256 amount;
   }
 }

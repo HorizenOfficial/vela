@@ -9,8 +9,6 @@ import {
   Refund as RefundEvent,
   Withdrawal as WithdrawalEvent,
   PaymentWithdrawn as PaymentWithdrawnEvent,
-  TokenAllowed as TokenAllowedEvent,
-  TokenRemoved as TokenRemovedEvent,
 } from "../generated/ProcessorEndpoint/ProcessorEndpoint";
 import {
   RequestSubmitted,
@@ -22,8 +20,6 @@ import {
   OnChainRefund,
   OnChainWithdrawal,
   ClaimExecuted,
-  TokenAllowed,
-  TokenRemoved,
 } from "../generated/schema";
 
 const SORT_BASE = BigInt.fromI64(1000000000000);
@@ -166,26 +162,3 @@ export function handlePaymentWithdrawn(event: PaymentWithdrawnEvent): void {
   entity.save();
 }
 
-export function handleTokenAllowed(event: TokenAllowedEvent): void {
-  let entity = new TokenAllowed(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  );
-
-  entity.token = event.params.token;
-  entity.blockNumber = event.block.number;
-  entity.blockTimestamp = event.block.timestamp;
-
-  entity.save();
-}
-
-export function handleTokenRemoved(event: TokenRemovedEvent): void {
-  let entity = new TokenRemoved(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  );
-
-  entity.token = event.params.token;
-  entity.blockNumber = event.block.number;
-  entity.blockTimestamp = event.block.timestamp;
-
-  entity.save();
-}

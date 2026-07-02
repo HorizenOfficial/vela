@@ -10,13 +10,15 @@ import (
 	"sync"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
+	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela-common-go/wasm/types"
 	"github.com/HorizenOfficial/vela/app/simple/app"
+	"github.com/HorizenOfficial/vela/app/subtype"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/HorizenOfficial/vela/pkg/testutil"
 	vela_wasm "github.com/HorizenOfficial/vela/pkg/wasm"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,12 +94,12 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User1 Deposits funds
 	deposit1Amount := big.NewInt(1000)
-	depositState1Bytes, depositEvents, depositAppEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, deposit1Amount, initialStateBytes, wasmBytes)
+	depositState1Bytes, depositEvents, depositAppEvents, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, deposit1Amount, initialStateBytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState1Bytes)
 	require.Len(t, depositEvents, 1)
 	require.Len(t, depositAppEvents, 1)
-	require.Equal(t, app.SubTypeFromString("deposit_received"), depositAppEvents[0].EventSubType)
+	require.Equal(t, subtype.FromString("deposit_received"), depositAppEvents[0].EventSubType)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(35)))
 
 	var depositState app.ApplicationInternalState
@@ -108,7 +110,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 
 	// 2. User2 Deposits funds (more than previous user)
 	deposit2Amount := big.NewInt(2000)
-	depositState2Bytes, depositEvents, _, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, deposit2Amount, depositState1Bytes, wasmBytes)
+	depositState2Bytes, depositEvents, _, fuel, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), velacommon.ETH_TOKEN, deposit2Amount, depositState1Bytes, wasmBytes)
 	require.Nil(t, failure)
 	require.NotNil(t, depositState2Bytes)
 	require.Len(t, depositEvents, 1)
@@ -247,10 +249,10 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 
 	// 2. Create a populated state for testing
 	// User1 deposits 1000
-	populatedStateBytes, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), initialStateBytes, wasmBytes)
+	populatedStateBytes, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(1000), initialStateBytes, wasmBytes)
 	require.Nil(t, err)
 	// User2 deposits 500
-	populatedStateBytes, _, _, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, big.NewInt(500), populatedStateBytes, wasmBytes)
+	populatedStateBytes, _, _, _, err = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), velacommon.ETH_TOKEN, big.NewInt(500), populatedStateBytes, wasmBytes)
 	require.Nil(t, err)
 
 	// --- Test Cases ---
@@ -358,7 +360,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	t.Run("deposit with nil state", func(t *testing.T) {
 		// This should fail inside the wasm module because a nil state is not valid JSON.
 		// This test verifies that the runtime correctly handles passing a nil slice to wasm.
-		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), nil, wasmBytes)
+		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(1000), nil, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -399,7 +401,7 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 
 	// For other functions, the error will come from getOrLoadModule -> LoadModule
 	t.Run("deposit with nil wasm", func(t *testing.T) {
-		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), initialStateBytes, nil)
+		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(1000), initialStateBytes, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to load module")
 	})
@@ -424,7 +426,7 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	invalidState := []byte("{invalid-state}")
 
 	t.Run("deposit with invalid state", func(t *testing.T) {
-		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(1000), invalidState, wasmBytes)
+		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(1000), invalidState, wasmBytes)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
@@ -473,7 +475,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 				require.NoError(t, err)
 
 				runtimeMutex.Lock()
-				newStateBytes, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), ethCommon.Address{}, depositAmount, stateBytes, wasmBytes)
+				newStateBytes, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), velacommon.ETH_TOKEN, depositAmount, stateBytes, wasmBytes)
 				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
 				stateBytes = newStateBytes
 				runtimeMutex.Unlock()
@@ -557,7 +559,7 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after LoadModule")
 
 	// Deposit: exercises SerializeAndWriteResult for DepositResult (with events)
-	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(5000), stateBytes, wasmBytes)
+	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(5000), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after Deposit")
 
@@ -577,7 +579,7 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (withdraw)")
 
 	// Deposit a second user so we can compare
-	stateBytes, _, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), ethCommon.Address{}, big.NewInt(3000), stateBytes, wasmBytes)
+	stateBytes, _, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), velacommon.ETH_TOKEN, big.NewInt(3000), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after second Deposit")
 
@@ -622,7 +624,7 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 	require.NoError(t, err)
 
 	// Deposit so user1 has a balance
-	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(100), stateBytes, wasmBytes)
+	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(100), stateBytes, wasmBytes)
 	require.Nil(t, failure)
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after initial deposit")
 
@@ -648,7 +650,7 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for non-existent account")
 
 	// Trigger error: invalid state
-	_, _, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, big.NewInt(100), []byte("{bad-json}"), wasmBytes)
+	_, _, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(100), []byte("{bad-json}"), wasmBytes)
 	require.NotNil(t, failure, "expected error for invalid state")
 	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for invalid state")
 }
@@ -672,7 +674,7 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 		addr, err := types.HexToAddress(fmt.Sprintf("0xadd%037d", i))
 		require.NoError(t, err)
 
-		newState, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(addr), ethCommon.Address{}, big.NewInt(int64(1000+i)), stateBytes, wasmBytes)
+		newState, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(addr), velacommon.ETH_TOKEN, big.NewInt(int64(1000+i)), stateBytes, wasmBytes)
 		require.Nil(t, failure, "deposit failed for account %d", i)
 		stateBytes = newState
 	}
@@ -876,7 +878,7 @@ func TestMixedETHAndERC20Deposits(t *testing.T) {
 
 	// Deposit ETH
 	ethAmount := big.NewInt(1000)
-	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), ethCommon.Address{}, ethAmount, stateBytes, wasmBytes)
+	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, ethAmount, stateBytes, wasmBytes)
 	require.Nil(t, failure)
 
 	// Deposit ERC-20

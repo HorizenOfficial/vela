@@ -22,7 +22,7 @@ Source code and build configuration (go.mod, go.sum) are provided to enable
 this.
 
 go-ethereum
-  Version:    v1.16.1
+  Version:    v1.17.2
   License:    GNU Lesser General Public License v3.0 (LGPL-3.0) (library code)
               GNU General Public License v3.0 (GPL-3.0) (cmd/ binaries only)
   Source:     https://github.com/ethereum/go-ethereum
@@ -45,6 +45,24 @@ wasmtime-go
   Source:     https://github.com/bytecodealliance/wasmtime-go
   Notice:     Copyright The Bytecode Alliance contributors.
 
+aws-sdk-go-v2
+  Version:    v1.41.1 (config v1.29.14, service/kms v1.49.5)
+  License:    Apache-2.0
+  Source:     https://github.com/aws/aws-sdk-go-v2
+  Notice:     Copyright Amazon.com, Inc. or its affiliates.
+
+asn1-ber
+  Version:    v1.5.4
+  License:    MIT
+  Source:     https://github.com/go-asn1-ber/asn1-ber
+  Notice:     Copyright (c) 2011-2015 Michael Mitton and contributors.
+
+lumberjack
+  Version:    v2.2.1
+  License:    MIT
+  Source:     https://github.com/natefinch/lumberjack
+  Notice:     Copyright (c) 2014 Nate Finch.
+
 orderedmap
   Version:    v3.1.0
   License:    MIT
@@ -52,7 +70,7 @@ orderedmap
   Notice:     Copyright (c) 2020 Elliot Chance.
 
 go-cmp
-  Version:    v0.5.9
+  Version:    v0.7.0
   License:    BSD-3-Clause
   Source:     https://github.com/google/go-cmp
   Notice:     Copyright (c) 2017 The Go Authors.
@@ -76,7 +94,7 @@ vsock
   Notice:     Copyright (c) 2017-2022 Matt Layher.
 
 testify
-  Version:    v1.10.0
+  Version:    v1.11.1
   License:    MIT
   Source:     https://github.com/stretchr/testify
   Notice:     Copyright (c) 2012-2020 Mat Ryer, Tyler Bunnell, and contributors.
@@ -94,7 +112,7 @@ zerolog
   Notice:     Copyright (c) 2017 Olivier Poitrey.
 
 golang.org/x/crypto
-  Version:    v0.39.0
+  Version:    v0.44.0
   License:    BSD-3-Clause
   Source:     https://github.com/golang/crypto
   Notice:     Copyright 2009 The Go Authors.
@@ -110,25 +128,25 @@ pebble
   Notice:     Copyright 2011 The LevelDB-Go Authors.
 
 blst
-  Version:    v0.3.14
+  Version:    v0.3.16
   License:    Apache-2.0
   Source:     https://github.com/supranational/blst
   Notice:     Copyright (c) 2022 Supranational LLC.
 
 gnark-crypto
-  Version:    v0.18.0
+  Version:    v0.18.1
   License:    Apache-2.0
   Source:     https://github.com/consensys/gnark-crypto
   Notice:     Copyright (c) 2020 ConsenSys Software Inc.
 
 go-eth-kzg
-  Version:    v1.3.0
+  Version:    v1.5.0
   License:    Apache-2.0
   Source:     https://github.com/crate-crypto/go-eth-kzg
   Notice:     Copyright (c) 2023 Crate Crypto.
 
 c-kzg-4844
-  Version:    v2.1.0
+  Version:    v2.1.6
   License:    Apache-2.0
   Source:     https://github.com/ethereum/c-kzg-4844
   Notice:     Copyright (c) 2023 The Ethereum Foundation.
@@ -158,13 +176,13 @@ golang/protobuf
   Notice:     Copyright 2010 The Go Authors.
 
 google.golang.org/protobuf
-  Version:    v1.34.2
+  Version:    v1.36.11
   License:    BSD-3-Clause
   Source:     https://github.com/protocolbuffers/protobuf-go
   Notice:     Copyright 2018 The Go Authors.
 
 golang/snappy
-  Version:    v0.0.5-0.20220116011046-fa5810519dcb
+  Version:    v1.0.0
   License:    BSD-3-Clause
   Source:     https://github.com/golang/snappy
   Notice:     Copyright 2011 The Snappy-Go Authors.
