@@ -32,7 +32,7 @@ func GetConfigVarInt64(name string, defaultValue int64, fileProperties *properti
 	if confVar == "" {
 		return defaultValue
 	} else {
-		var parsed, err = strconv.ParseInt(confVar, 10, 32)
+		var parsed, err = strconv.ParseInt(confVar, 10, 64)
 		if err != nil {
 			fmt.Printf("Failed to convert %v for error %v, using default value\n", name, err)
 			return defaultValue
