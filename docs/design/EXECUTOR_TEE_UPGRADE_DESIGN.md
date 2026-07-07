@@ -343,3 +343,35 @@ Concretely:
 - Both sides expose their `ProtocolVersion` in the handshake, and a single `IsCompatible(peer)` function encodes the rule (exact-match, or a documented min-supported floor as the protocol evolves). That function is the matrix.
 - This doc records only *where* the constant and the compatibility rule live; it does not duplicate the pairs, so there is nothing to keep in sync by hand.
 
+---
+
+## Limitations and Future Extensions
+
+### The trust gap in the current design
+
+The current design controls **which** images are *allowed* to run (the on-chain accepted PCR0 set and the `activeImage` pointer) and **which** images are *allowed to recover the master key* (the KMS key policy's `kms:RecipientAttestation:PCR0` condition). What it does **not** provide is a strong, publicly-verifiable guarantee that, after an upgrade, the old image has genuinely stopped and only the intended new image retains access to the master key.
+
+Concretely, the on-chain state records *intent* — `activeImage` says which PCR0 the Manager *should* be running — but it does not, by itself, prove that the old enclave was actually torn down or that it can no longer decrypt state. During the overlapping-validity window ([R3](#r3--overlapping-validity-window)) **both** `PCR0_old` and `PCR0_new` can recover the key set by design, which is exactly what makes zero-downtime swaps and rollbacks possible — but it also means that, for that window, the accepted set alone tells an observer nothing about which image is live.
+
+The only place where an actual exclusivity guarantee materializes today is the **KMS key policy**: once the finalization step ([Safe Upgrade Sequence](#safe-upgrade-sequence), step 6) removes `PCR0_old` from the `kms:RecipientAttestation:PCR0` condition, only an enclave attesting to `PCR0_new` can decrypt the master key, and therefore only the intended TEE can run the platform. This is a real guarantee, but it has two significant weaknesses:
+
+- **It is not easily auditable.** Inspecting the KMS key policy requires privileged AWS access to the account that owns the key. An ordinary user or third-party auditor cannot independently confirm the policy's current PCR0 condition.
+- **It is not anchored on-chain.** The guarantee lives in AWS-side configuration, entirely off the chain that anchors the rest of the trust model. There is no on-chain, tamper-evident record proving that the old image was actually cut off from the master key, so the property that a verifier most cares about — *exclusive* control by the intended TEE — is exactly the one that is least visible.
+
+In short: the chain records what the admin *intended*; the enforcement of exclusivity lives in an off-chain, privileged, non-auditable KMS policy. This is acceptable as an interim design but is not the end state.
+
+### The KMS-free end state
+
+In the final version of Vela **the KMS is removed entirely**. The master key is no longer escrowed by an external service: it is **generated inside the TEE on first boot** and thereafter **handed off directly from one TEE to the next** during an upgrade, TEE-to-TEE, without any third party ever holding it. This closes the trust gap above by making key custody a property of the enclaves themselves — attested end to end — rather than of an off-chain policy.
+
+In that model the swap primitives introduced by this design (`proposePcr0Swap` / `applyPcr0Swap`, the accepted PCR0 set, the timelock) are **reused unchanged as the coordination layer**, but they gain a second role: the on-chain proposal becomes the authenticated instruction that authorizes the key handoff. The upgrade flow becomes:
+
+1. **`proposePcr0Swap(PCR0_new)`** — the admin proposes the swap from the current image `PCR0_old` to `PCR0_new` on-chain, exactly as today. This on-chain record is now also the authorization that the outgoing TEE will check before releasing the key.
+2. **New TEE requests the key** — a new enclave is launched with `PCR0_new`. It contacts the running (old) TEE and issues a **key-transfer request, presenting its own attestation document / certificate** (binding its `PCR0_new` and its ephemeral transport public key).
+3. **Old TEE verifies and releases** — the outgoing TEE verifies that (a) the presented attestation is **authentic** (valid Nitro attestation chain), and (b) the attested `PCR0_new` **matches the target of the pending `proposePcr0Swap`** read from `TeeAuthenticator` on-chain. Only if both checks pass does it **seal the master key to the new TEE's attested transport key and transmit it**. The on-chain proposal is what prevents the outgoing TEE from handing the key to an arbitrary requester: the target PCR0 must have been publicly proposed, and it inherits the same timelock/audit window as today.
+4. **`applyPcr0Swap()`** — after the timelock window elapses, the admin applies the swap. The old TEE **stops processing requests** and the new TEE **begins**, now holding the key it received directly from its predecessor.
+
+The key advantage over the current design is that **exclusivity becomes attested and on-chain-anchored rather than KMS-policy-anchored**: the handoff is gated by an authenticated attestation check against an on-chain proposal, no external service ever holds the key, and the outgoing TEE's refusal-by-default (it releases the key *only* to an image matching the on-chain target) replaces the KMS key policy as the enforcement point. The property that "only the intended TEE has the key" is then a consequence of the enclaves' own attested behavior, coordinated through the same on-chain swap record this document already defines — no privileged, non-auditable off-chain configuration required.
+
+This end state is **out of scope for the present design**, which targets the KMS-backed deployment; it is documented here to record the intended evolution and to show that the on-chain swap machinery introduced now is forward-compatible with it.
+
