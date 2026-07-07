@@ -294,7 +294,7 @@ The dependency order that guarantees zero key loss and a clean rollback:
 |---|------|-------------|
 | 1 | Reproducibly build the new EIF; derive `PCR0_new` (and PCR1/PCR2); publish for verification. | n/a |
 | 2 | Add `PCR0_new` to the **KMS key policy** (keep `PCR0_old`). | yes (remove it) |
-| 3 | `proposePcr0Swap(PCR0_new)` on-chain. Old PCR0 still the only accepted/active image. | yes (let the proposal expire) |
+| 3 | `proposePcr0Swap(PCR0_new)` on-chain. Old PCR0 still the only accepted/active image. | yes (do not apply the swap) |
 | 4 | *(Audit / timelock window — users may verify the image or withdraw.)* | — |
 | 5 | After `pcr0UpgradeDelay`, `applyPcr0Swap()`: `PCR0_new` joins the accepted set and becomes `activeImage`; `Pcr0Swapped` is emitted. The Manager drains and stops the old enclave; an operator launches the new EIF (manual step); the handshake recovers the key set via KMS. Service resumes. Both PCR0s are now accepted. | yes (instant on-chain rollback — see below) |
 | 6 | After a stability period: `removePcr0(PCR0_old)` on-chain and remove `PCR0_old` from the KMS policy. | this finalizes the upgrade |
