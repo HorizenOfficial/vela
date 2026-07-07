@@ -224,7 +224,7 @@ function _checkAttestationContent(bytes memory pcrs, bytes memory enclaveKey, by
     if (enclaveKey.length != PK_LENGTH) revert InvalidPKLength();
 
     bytes memory candidate = _extractPcr0(pcrs);   // pcrs[4 : 4 + PCR0_LENGTH], PCR0 is a fixed 48-byte SHA-384
-    if (!acceptedPcr0[keccak256(candidate)]) revert InvalidPCR();
+    if (!activeImage == keccak256(candidate)) revert InvalidPCR();
 }
 ```
 
@@ -367,10 +367,9 @@ In the final version of Vela **the KMS is removed entirely**. The master key is 
 In that model the swap primitives introduced by this design (`proposePcr0Swap` / `applyPcr0Swap`, the accepted PCR0 set, the timelock) are **reused unchanged as the coordination layer**, but they gain a second role: the on-chain proposal becomes the authenticated instruction that authorizes the key handoff. The upgrade flow becomes:
 
 1. **`proposePcr0Swap(PCR0_new)`** — the admin proposes the swap from the current image `PCR0_old` to `PCR0_new` on-chain, exactly as today. This on-chain record is now also the authorization that the outgoing TEE will check before releasing the key.
-2. **New TEE requests the key** — a new enclave is launched with `PCR0_new`. It contacts the running (old) TEE and issues a **key-transfer request, presenting its own attestation document / certificate** (binding its `PCR0_new` and its ephemeral transport public key).
-3. **Old TEE verifies and releases** — the outgoing TEE verifies that (a) the presented attestation is **authentic** (valid Nitro attestation chain), and (b) the attested `PCR0_new` **matches the target of the pending `proposePcr0Swap`** read from `TeeAuthenticator` on-chain. Only if both checks pass does it **seal the master key to the new TEE's attested transport key and transmit it**. The on-chain proposal is what prevents the outgoing TEE from handing the key to an arbitrary requester: the target PCR0 must have been publicly proposed, and it inherits the same timelock/audit window as today.
-4. **`applyPcr0Swap()`** — after the timelock window elapses, the admin applies the swap. The old TEE **stops processing requests** and the new TEE **begins**, now holding the key it received directly from its predecessor.
-
+2. **`applyPcr0Swap()`** — after the timelock window elapses, the admin applies the swap. The old TEE **stops processing requests** and the new TEE **begins**, now holding the key it received directly from its predecessor.
+3. **New TEE requests the key** — a new enclave is launched with `PCR0_new`. It contacts the running (old) TEE and issues a **key-transfer request, presenting its own attestation document / certificate** (binding its `PCR0_new` and its ephemeral transport public key).
+4. **Old TEE verifies and releases** — the outgoing TEE verifies that (a) the presented attestation is **authentic** (valid Nitro attestation chain), and (b) the attested `PCR0_new` **matches the target of the swap** read from `TeeAuthenticator` on-chain. Only if both checks pass does it **seal the master key to the new TEE's attested transport key and transmit it**. The on-chain proposal is what prevents the outgoing TEE from handing the key to an arbitrary requester: the target PCR0 must have been publicly proposed and apply, and it inherits the same timelock/audit window as today.
 The key advantage over the current design is that **exclusivity becomes attested and on-chain-anchored rather than KMS-policy-anchored**: the handoff is gated by an authenticated attestation check against an on-chain proposal, no external service ever holds the key, and the outgoing TEE's refusal-by-default (it releases the key *only* to an image matching the on-chain target) replaces the KMS key policy as the enforcement point. The property that "only the intended TEE has the key" is then a consequence of the enclaves' own attested behavior, coordinated through the same on-chain swap record this document already defines — no privileged, non-auditable off-chain configuration required.
 
 This end state is **out of scope for the present design**, which targets the KMS-backed deployment; it is documented here to record the intended evolution and to show that the on-chain swap machinery introduced now is forward-compatible with it.
