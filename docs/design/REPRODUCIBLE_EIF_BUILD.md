@@ -84,8 +84,17 @@ jq .Measurements.PCR0 eif-out/measurements.json     # compare to the on-chain pr
 CI performs the same build twice on independent runners and fails if any of
 `PCR0`/`PCR1`/`PCR2` differ.
 
-Per release, publish: the git tag, the EIF hash, `PCR0`/`PCR1`/`PCR2`, the
-`nitro-cli` version, and the base-image digest.
+Per release, publish: the git tag, `PCR0`/`PCR1`/`PCR2`, the `nitro-cli`
+version, and the base-image digest.
+
+> **The verifiable output is the PCR set, not the `.eif` file hash.** `nitro-cli`
+> stamps a wall-clock `BuildTime` (and docker `LastTagTime`) into the EIF's
+> metadata **header**, which is *not* part of the measured sections. Two builds
+> from the same source therefore produce EIFs that differ in the header (first
+> differing byte is in the metadata region) but carry **identical PCR0/1/2** —
+> and PCR0 is the on-chain trust anchor. The underlying Docker image *is*
+> byte-reproducible (same layer digests), which is what makes the ramdisk (PCR2)
+> and hence PCR0 deterministic. Do not gate verification on the EIF file hash.
 
 ## Known limits
 
