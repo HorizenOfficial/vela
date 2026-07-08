@@ -1,0 +1,109 @@
+name: Reproducible EIF
+
+# Builds the Executor EIF twice on independent runners and asserts the PCR
+# measurements are identical (Task 7 / R5). Stays informational until the pins
+# in dockerfiles/executor/versions.env are resolved (no __TODO__ left).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: 'Git ref (tag) to build'
+        required: true
+
+jobs:
+  guard:
+    name: Check pins resolved
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if grep -v '^[[:space:]]*#' dockerfiles/executor/versions.env | grep -q '__TODO__'; then
+            echo "versions.env still has __TODO__ placeholders; reproducible-EIF check is informational until they are pinned." >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build EIF (run ${{ matrix.run }})
+    needs: guard
+    if: needs.guard.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        run: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out (and fetch) the exact ref we build so `git archive <ref>`
+          # and `git log <ref>` resolve it; full history for tag resolution.
+          ref: ${{ github.event.inputs.git_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Load pinned BuildKit version
+        run: |
+          # shellcheck disable=SC1091
+          . dockerfiles/executor/versions.env
+          echo "BUILDKIT_VERSION=${BUILDKIT_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:${{ env.BUILDKIT_VERSION }}
+
+      - name: Resolve ref
+        id: ref
+        run: echo "ref=${{ github.event.inputs.git_ref || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build EIF
+        run: ./dockerfiles/executor/build-eif.sh "${{ steps.ref.outputs.ref }}" "${{ github.workspace }}/eif-out"
+
+      - name: Upload measurements
+        uses: actions/upload-artifact@v4
+        with:
+          name: measurements-${{ matrix.run }}
+          path: |
+            eif-out/measurements.json
+            eif-out/build-info.json
+            eif-out/blobs.sha256
+
+  compare:
+    name: Compare PCRs
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: measurements-1
+          path: r1
+      - uses: actions/download-artifact@v4
+        with:
+          name: measurements-2
+          path: r2
+      - name: Assert identical PCR0/1/2
+        run: |
+          fail=0
+          for p in PCR0 PCR1 PCR2; do
+            a=$(jq -r ".Measurements.$p" r1/measurements.json)
+            b=$(jq -r ".Measurements.$p" r2/measurements.json)
+            echo "$p run1=$a run2=$b"
+            if [ "$a" != "$b" ]; then
+              echo "::error::MISMATCH in $p: $a != $b"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          {
+            echo "### Reproducible EIF ✅";
+            echo "PCR0/1/2 identical across two independent builds.";
+            echo '```json';
+            cat r1/measurements.json;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"

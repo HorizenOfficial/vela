@@ -18,6 +18,12 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
     docker build -t horizen/cce-subgraph-deployer -f dockerfiles/subgraph-deployer/Dockerfile .
     ```
 
+    > The `cce-executor` command above is a convenient **dev** build (unpinned,
+    > version auto-detected from `.git`). For a **reproducible** enclave image
+    > whose `PCR0`/`PCR1`/`PCR2` can be verified against the on-chain value, use
+    > `dockerfiles/executor/build-eif.sh` instead — see
+    > [`docs/design/REPRODUCIBLE_EIF_BUILD.md`](../docs/design/REPRODUCIBLE_EIF_BUILD.md).
+
 2) Switch to "dockerfiles" folder
 
     ```
