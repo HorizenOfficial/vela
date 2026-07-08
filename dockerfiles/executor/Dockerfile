@@ -96,11 +96,14 @@ ARG RUNTIME_PACKAGES="ca-certificates shadow-utils"
 #    INSTALLTIME (content, not a file mtime, so BuildKit's rewrite-timestamp
 #    cannot normalize it) - the runtime never runs dnf/rpm again, so both are
 #    removed wholesale.
-# /etc/ld.so.cache is deliberately kept (needed by the dynamically-linked cgo
-# binary; its content is deterministic given the same libraries).
+#  - ldconfig's aux-cache embeds the mtimes of the just-installed libraries as
+#    seen at install time (again content, not the file's own mtime), so it too
+#    varies per build and is removed. /etc/ld.so.cache is KEPT (needed by the
+#    dynamically-linked cgo binary; its content is deterministic given the same
+#    libraries - it stores no mtimes).
 RUN dnf -y ${AL_RELEASEVER:+--releasever=${AL_RELEASEVER}} install ${RUNTIME_PACKAGES} && \
     dnf clean all && \
-    rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log \
+    rm -rf /var/cache/dnf /var/cache/ldconfig /var/log/dnf* /var/log/hawkey.log \
            /var/lib/rpm /var/lib/dnf /tmp/*
 
 COPY --from=builder /executor /executor

@@ -22,6 +22,10 @@ jobs:
       ready: ${{ steps.check.outputs.ready }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Inspect the SAME ref the build job checks out, so the __TODO__ gate
+          # matches what is actually built (differs from github.ref on dispatch).
+          ref: ${{ github.event.inputs.git_ref || github.ref }}
       - id: check
         run: |
           if grep -v '^[[:space:]]*#' dockerfiles/executor/versions.env | grep -q '__TODO__'; then
