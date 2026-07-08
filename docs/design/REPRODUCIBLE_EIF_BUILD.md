@@ -41,14 +41,15 @@ Dockerfile comments).
 
 ## Pinning the inputs
 
-`versions.env` ships with `__TODO__` placeholders. `build-eif.sh` refuses to run
-(and the CI check stays informational) until every placeholder is resolved. Each
+Every value in `versions.env` is pinned. When bumping the toolchain, set the
+values being replaced to `__TODO__` until re-resolved: `build-eif.sh` refuses to
+run (and the CI check stays informational) while any placeholder remains. Each
 value carries the exact command to resolve it in a comment; in summary:
 
 - **Base image digest** — `docker buildx imagetools inspect amazonlinux:2023 --format '{{.Manifest.Digest}}'`. Builder and runtime share one base so the cgo binary's glibc matches the runtime glibc.
 - **AL2023 releasever** — the versioned repo snapshot (e.g. `2023.6.20250428`) that freezes every `dnf`-installed package at once. Listed at https://cdn.amazonlinux.com/al2023/core/mirrors/ ; also derivable from `/etc/os-release` inside the pinned base.
 - **Go checksum** — from https://go.dev/dl/ for `go<version>.linux-amd64.tar.gz`.
-- **Package names** — `BUILDER_PACKAGES` / `RUNTIME_PACKAGES` / `NITRO_CLI_PACKAGES`; versions are fixed by the releasever, so no per-package EVRs are pinned. Verify the names exist on AL2023 (esp. the NSM package — see the note in `versions.env`).
+- **Package names** — `BUILDER_PACKAGES` / `RUNTIME_PACKAGES` / `NITRO_CLI_PACKAGES`; versions are fixed by the releasever, so no per-package EVRs are pinned. There is no NSM package on AL2023 — the executor's NSM path is pure-Go (see `versions.env`). `NITRO_CLI_PACKAGES` must include `aws-nitro-enclaves-cli-devel`, which ships the enclave blobs that `build-enclave` bakes into the EIF.
 - **BuildKit version** — must be `>= v0.13` for the `rewrite-timestamp` exporter option.
 
 ## Building

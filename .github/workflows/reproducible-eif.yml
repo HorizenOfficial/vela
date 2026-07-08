@@ -51,23 +51,14 @@ jobs:
           ref: ${{ github.event.inputs.git_ref || github.ref }}
           fetch-depth: 0
 
-      - name: Load pinned BuildKit version
-        run: |
-          # shellcheck disable=SC1091
-          . dockerfiles/executor/versions.env
-          echo "BUILDKIT_VERSION=${BUILDKIT_VERSION}" >> "$GITHUB_ENV"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: image=moby/buildkit:${{ env.BUILDKIT_VERSION }}
-
-      - name: Resolve ref
-        id: ref
-        run: echo "ref=${{ github.event.inputs.git_ref || github.ref_name }}" >> "$GITHUB_OUTPUT"
-
+      # No buildx setup step: build-eif.sh creates its own builder pinned to
+      # BUILDKIT_VERSION from versions.env (buildx ships on ubuntu-latest).
       - name: Build EIF
-        run: ./dockerfiles/executor/build-eif.sh "${{ steps.ref.outputs.ref }}" "${{ github.workspace }}/eif-out"
+        env:
+          # env indirection: the ref reaches the shell as data, not as script
+          # source (tag names / dispatch inputs may contain shell metacharacters).
+          GIT_REF: ${{ github.event.inputs.git_ref || github.ref_name }}
+        run: ./dockerfiles/executor/build-eif.sh "$GIT_REF" "$GITHUB_WORKSPACE/eif-out"
 
       - name: Upload measurements
         uses: actions/upload-artifact@v4

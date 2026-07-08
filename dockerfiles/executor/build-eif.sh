@@ -2,9 +2,10 @@
 # =============================================================================
 # Reproducible Executor EIF build (Task 7 / R5). Base: Amazon Linux 2023.
 #
-# Produces a byte-identical EIF (hence identical PCR0/1/2) from a git ref, so a
-# third party can rebuild from a tag and compare PCR0 against the on-chain
-# `proposePcr0Swap` value during the timelock window.
+# Produces an EIF with identical PCR0/1/2 from a git ref (the .eif file itself
+# varies only in nitro-cli's non-measured BuildTime header), so a third party can
+# rebuild from a tag and compare PCR0 against the on-chain `proposePcr0Swap`
+# value during the timelock window.
 #
 # Usage:
 #   dockerfiles/executor/build-eif.sh [GIT_REF] [OUTPUT_DIR]
@@ -36,6 +37,15 @@ OUTPUT_DIR="${2:-${REPO_ROOT}/eif-out}"
 if [ -z "${GIT_REF}" ]; then
   echo "ERROR: no GIT_REF given and HEAD is not a tagged release." >&2
   echo "       pass an explicit ref, e.g. $(basename "$0") v0.3.0" >&2
+  exit 1
+fi
+
+# The build context (Dockerfile included) comes from `git archive ${GIT_REF}`,
+# but versions.env above is sourced from THIS checkout - refuse to mix two
+# revisions, or the pins may not match the archived Dockerfile.
+if [ "$(git -C "${REPO_ROOT}" rev-parse HEAD)" != "$(git -C "${REPO_ROOT}" rev-parse "${GIT_REF}^{commit}")" ]; then
+  echo "ERROR: HEAD is not ${GIT_REF} - versions.env would come from a different revision" >&2
+  echo "       than the archived build context. Run: git checkout ${GIT_REF}" >&2
   exit 1
 fi
 
@@ -119,9 +129,11 @@ docker run --rm \
   > "${OUTPUT_DIR}/measurements.json"
 
 echo ">> Recording blob checksums and build provenance"
+# No fallback: missing blobs means the toolbox lacks aws-nitro-enclaves-cli-devel
+# (the package that ships them) - that is a broken build, not an optional extra.
 docker run --rm "${NITRO_CLI_IMAGE}" \
-  sh -c 'sha256sum /usr/share/nitro_enclaves/blobs/* 2>/dev/null' \
-  > "${OUTPUT_DIR}/blobs.sha256" || true
+  sh -c 'sha256sum /usr/share/nitro_enclaves/blobs/*' \
+  > "${OUTPUT_DIR}/blobs.sha256"
 NITRO_CLI_VERSION="$(docker run --rm "${NITRO_CLI_IMAGE}" rpm -q aws-nitro-enclaves-cli 2>/dev/null || echo unknown)"
 
 cat > "${OUTPUT_DIR}/build-info.json" <<EOF
