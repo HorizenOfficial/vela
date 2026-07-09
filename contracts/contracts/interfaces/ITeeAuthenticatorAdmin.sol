@@ -11,13 +11,46 @@ interface ITeeAuthenticatorAdmin {
   /// @param newPubSecp521r1 New public key.
   event TeeUpdate(address oldTee, address newTee, bytes oldPubSecp521r1, bytes newPubSecp521r1);
 
-  /// @notice Emitted when PCR0 is updated.
-  /// @param oldPcr0 Previous PCR0.
-  /// @param newPcr0 New PCR0.
-  event PcrZeroUpdate(bytes indexed oldPcr0, bytes indexed newPcr0);
+  /// @notice Emitted when a PCR0 swap is proposed.
+  /// @param targetPcr0 Raw PCR0 the swap targets (preimage, non-indexed for off-chain audit).
+  /// @param eta Earliest application time.
+  event Pcr0SwapProposed(bytes targetPcr0, uint256 eta);
+
+  /// @notice Emitted when a PCR0 swap is applied and the target becomes the active image.
+  /// @param pcr0 Raw PCR0 that became active.
+  event Pcr0Swapped(bytes pcr0);
+
+  /// @notice Emitted when a pending PCR0 swap is cancelled.
+  /// @param targetPcr0 Raw PCR0 the cancelled swap targeted.
+  event Pcr0SwapCancelled(bytes targetPcr0);
+
+  /// @notice Emitted when a PCR0 is removed from the accepted set.
+  /// @param pcr0 Raw PCR0 that was removed.
+  event Pcr0Removed(bytes pcr0);
 
   /// @notice PCR0 does not match expected value.
   error InvalidPCR();
+
+  /// @notice PCR0 is not 48 bytes.
+  error InvalidPcr0Length();
+
+  /// @notice A live swap proposal already exists.
+  error SwapAlreadyPending();
+
+  /// @notice No swap proposal is pending.
+  error NoPendingSwap();
+
+  /// @notice The timelock has not elapsed yet.
+  error TimelockNotElapsed();
+
+  /// @notice The swap proposal application window has passed.
+  error SwapProposalExpired();
+
+  /// @notice PCR0 is not in the accepted set.
+  error UnknownPcr0();
+
+  /// @notice The active image cannot be removed.
+  error CannotRemoveActiveImage();
 
   /// @notice Public key length is invalid.
   error InvalidPKLength();
@@ -52,7 +85,25 @@ interface ITeeAuthenticatorAdmin {
   /// @return length Number of step 2 calls needed.
   function getStep2TotalLength() external view returns (uint256);
 
-  /// @notice Updates the PCR0 value.
-  /// @param newPcr0 New PCR0 value.
-  function updatePcr0(bytes calldata newPcr0) external;
+  /// @notice Proposes a swap of the active image to `targetPcr0`.
+  /// @dev Reverts while a live (non-expired) proposal exists; cancel it first.
+  /// @param targetPcr0 Raw PCR0 of the target image (48 bytes).
+  function proposePcr0Swap(bytes calldata targetPcr0) external;
+
+  /// @notice Applies the pending swap: adds the target to the accepted set if new
+  ///         (only after the timelock) and makes it the active image.
+  /// @dev Must be called within the application window after the proposal's eta.
+  function applyPcr0Swap() external;
+
+  /// @notice Cancels the pending swap proposal.
+  function cancelPcr0Swap() external;
+
+  /// @notice Removes a PCR0 from the accepted set.
+  /// @dev Cannot remove the active image, which also keeps the set non-empty.
+  /// @param oldPcr0 Raw PCR0 to remove (48 bytes).
+  function removePcr0(bytes calldata oldPcr0) external;
+
+  /// @notice Returns the number of accepted PCR0 values.
+  /// @return count Size of the accepted set.
+  function getAcceptedPcr0Count() external view returns (uint256 count);
 }

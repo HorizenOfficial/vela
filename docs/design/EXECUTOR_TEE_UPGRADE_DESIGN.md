@@ -161,10 +161,16 @@ struct PendingSwap {
     bool    pending;
 }
 PendingSwap public pendingSwap;
-uint256 public pcr0UpgradeDelay;             // timelock duration; set once in initialize(), NO setter
+uint256 public immutable pcr0UpgradeDelay;   // timelock duration; constructor-set, NO setter
+uint256 public constant PCR0_SWAP_APPLY_WINDOW = 7 days; // proposal validity after eta
 ```
 
-`pcr0UpgradeDelay` is deliberately fixed at deployment (set in `initialize()`, with no owner-callable setter). A runtime-mutable delay would let a compromised owner shorten it to zero and then push a malicious image instantly, defeating [R4](#r4--timelocked-observable-swaps). Different networks can still pick different values by passing a different `initialize()` argument (e.g. a shorter delay on testnet); changing it after deployment would require a full contract upgrade, which is itself governed by the timelocked upgrade authority of `UPGRADABLE_CONTRACTS_DESIGN.md`. (In a non-upgradable contract this would be a constructor-set `immutable`; under UUPS the constructor does not run for proxy state, so the equivalent is an `initialize()`-set storage value with no setter — kept in storage rather than `immutable` for consistency with the immutable→storage conversion that design applies.)
+**Invariant:** `activeImage` is always a member of the accepted set — the constructor seeds
+both together, `applyPcr0Swap` inserts the target before pointing at it, and `removePcr0`
+refuses to remove the active image. This invariant is also what keeps the set non-empty:
+no separate "cannot remove the last entry" guard is needed.
+
+`pcr0UpgradeDelay` is deliberately fixed at deployment (constructor-set `immutable`, with no owner-callable setter). A runtime-mutable delay would let a compromised owner shorten it to zero and then push a malicious image instantly, defeating [R4](#r4--timelocked-observable-swaps). Different networks can still pick different values by passing a different constructor argument (e.g. a shorter delay on testnet). The UUPS conversion is out of scope here (see `UPGRADABLE_CONTRACTS_DESIGN.md`); when it lands, this value moves to an `initialize()`-set storage variable with no setter, together with the other immutable→storage conversions.
 
 ### A single swap flow for upgrades and rollbacks
 
@@ -172,6 +178,11 @@ uint256 public pcr0UpgradeDelay;             // timelock duration; set once in i
 
 ```solidity
 function proposePcr0Swap(bytes calldata targetPcr0) external onlyOwner {
+    if (targetPcr0.length != 48) revert InvalidPcr0Length();
+    // A live proposal must be cancelled explicitly; an expired one may be overwritten.
+    if (pendingSwap.pending && block.timestamp <= pendingSwap.eta + PCR0_SWAP_APPLY_WINDOW) {
+        revert SwapAlreadyPending();
+    }
     pendingSwap = PendingSwap({
         value: targetPcr0,
         eta: block.timestamp + pcr0UpgradeDelay,
@@ -183,6 +194,9 @@ function proposePcr0Swap(bytes calldata targetPcr0) external onlyOwner {
 function applyPcr0Swap() external onlyOwner {
     PendingSwap memory p = pendingSwap;
     if (!p.pending) revert NoPendingSwap();
+    // A proposal is applicable only within a bounded window after eta; afterwards it
+    // expires and a fresh (re-audited) proposal is required.
+    if (block.timestamp > p.eta + PCR0_SWAP_APPLY_WINDOW) revert SwapProposalExpired();
     bytes32 key = keccak256(p.value);
 
     // New images must clear the audit window; already-accepted images may swap now.
@@ -197,12 +211,19 @@ function applyPcr0Swap() external onlyOwner {
     emit Pcr0Swapped(p.value);   // observed by the Manager
 }
 
+// Explicit revocation of a pending (or expired) proposal.
+function cancelPcr0Swap() external onlyOwner {
+    if (!pendingSwap.pending) revert NoPendingSwap();
+    emit Pcr0SwapCancelled(pendingSwap.value);
+    delete pendingSwap;
+}
+
 // Removal only tightens security (it retires a vetted image), so it is not timelocked.
-// Cannot remove the last entry, nor the image that is currently active.
+// Cannot remove the active image — which, by the invariant above, also protects the
+// last remaining entry.
 function removePcr0(bytes calldata oldPcr0) external onlyOwner {
     bytes32 key = keccak256(oldPcr0);
     if (!acceptedPcr0[key]) revert UnknownPcr0();
-    if (acceptedPcr0List.length == 1) revert CannotRemoveLastPcr0();
     if (key == activeImage) revert CannotRemoveActiveImage();
     acceptedPcr0[key] = false;
     // swap-remove from acceptedPcr0List …
@@ -212,9 +233,9 @@ function removePcr0(bytes calldata oldPcr0) external onlyOwner {
 
 The Manager observes `Pcr0Swapped` / reads `activeImage` and drains-and-swaps to the target (see [On-chain upgrade trigger](#on-chain-upgrade-trigger-r8)). Because `applyPcr0Swap` only adds to the set behind the `!acceptedPcr0[key]` guard, re-targeting a value already in the set never duplicates an entry — which is exactly what makes a rollback (`proposePcr0Swap(PCR0_old)` → immediate `applyPcr0Swap()`) cheap and on-chain-tracked. The same `onlyOwner`/multisig authority of [R6](#r6--controlled-upgrade-authority) applies to all three functions.
 
-### Attestation check against the set
+### Attestation check against the active image
 
-`_checkAttestationContent` (`TeeAuthenticator.sol`) currently compares the attestation's PCR field byte-by-byte against the single `pcr0`. It must instead extract the PCR0 bytes from `pcrs` (offset 4) and test membership in `acceptedPcr0`:
+`_checkAttestationContent` (`TeeAuthenticator.sol`) currently compares the attestation's PCR field byte-by-byte against the single `pcr0`. It must instead extract the PCR0 bytes from `pcrs` (offset 4) and require they match `activeImage`:
 
 ```solidity
 function _checkAttestationContent(bytes memory pcrs, bytes memory enclaveKey, bytes memory userData)
@@ -224,13 +245,15 @@ function _checkAttestationContent(bytes memory pcrs, bytes memory enclaveKey, by
     if (enclaveKey.length != PK_LENGTH) revert InvalidPKLength();
 
     bytes memory candidate = _extractPcr0(pcrs);   // pcrs[4 : 4 + PCR0_LENGTH], PCR0 is a fixed 48-byte SHA-384
-    if (!acceptedPcr0[keccak256(candidate)]) revert InvalidPCR();
+    if (keccak256(candidate) != activeImage) revert InvalidPCR();
 }
 ```
 
-All accepted PCR0 values share the same fixed length (48 bytes), so the per-byte loop and `pcr0.length` of the original single-value check are replaced by a fixed-length extraction plus an O(1) set lookup.
+All accepted PCR0 values share the same fixed length (48 bytes), so the per-byte loop and `pcr0.length` of the original single-value check are replaced by a fixed-length extraction plus an O(1) comparison.
 
-This keeps `updateTee` / `updateTeeStep1..4` working unchanged in shape: they continue to record `teeSigner`/`pubSecp521r1` from the attestation, but the embedded `_checkAttestationContent` now accepts any image in the valid set.
+Set membership is deliberately **not** sufficient: `updateTee` is a manual, quiescent-time operation, so only the image the platform is *supposed* to be running (`activeImage`) may register the tee signer. The accepted set governs the swap/rollback lifecycle (which images may become active without a new timelock), not the attestation check. Since `updateTeeStep1..4` spans multiple transactions, `updateTeeStep4` re-runs `_checkAttestationContent` before finalizing, so a swap applied between step 1 and step 4 invalidates the in-flight update instead of registering a signer for a no-longer-active image.
+
+This keeps `updateTee` / `updateTeeStep1..4` working unchanged in shape: they continue to record `teeSigner`/`pubSecp521r1` from the attestation.
 
 **A software upgrade does not re-run `updateTee`.** Today `updateTee` is a one-time first-install operation — it is invoked only by the manual `contracts/scripts/management/updateTee.ts` operator script (and by tests); no Manager/Executor/runtime code calls it. Per [R2](#r2--key-continuity-recover-never-regenerate) a pure software upgrade recovers the *same* key set, so `teeSigner`/`pubSecp521r1` are unchanged and the existing registration stays valid across the swap — the signature path in `ProcessorEndpoint.checkSignature` keeps verifying against the same signer. The only scenario that re-registers the signer is a catastrophic key-set loss requiring a brand-new attestation chain, which is explicitly a non-goal here.
 
@@ -294,7 +317,7 @@ The dependency order that guarantees zero key loss and a clean rollback:
 |---|------|-------------|
 | 1 | Reproducibly build the new EIF; derive `PCR0_new` (and PCR1/PCR2); publish for verification. | n/a |
 | 2 | Add `PCR0_new` to the **KMS key policy** (keep `PCR0_old`). | yes (remove it) |
-| 3 | `proposePcr0Swap(PCR0_new)` on-chain. Old PCR0 still the only accepted/active image. | yes (let the proposal expire) |
+| 3 | `proposePcr0Swap(PCR0_new)` on-chain. Old PCR0 still the only accepted/active image. | yes (`cancelPcr0Swap()`, or let it expire after `eta + PCR0_SWAP_APPLY_WINDOW`) |
 | 4 | *(Audit / timelock window — users may verify the image or withdraw.)* | — |
 | 5 | After `pcr0UpgradeDelay`, `applyPcr0Swap()`: `PCR0_new` joins the accepted set and becomes `activeImage`; `Pcr0Swapped` is emitted. The Manager drains and stops the old enclave; an operator launches the new EIF (manual step); the handshake recovers the key set via KMS. Service resumes. Both PCR0s are now accepted. | yes (instant on-chain rollback — see below) |
 | 6 | After a stability period: `removePcr0(PCR0_old)` on-chain and remove `PCR0_old` from the KMS policy. | this finalizes the upgrade |
@@ -314,8 +337,8 @@ The Manager may be upgraded independently of this sequence, gated only by the [R
 | Manager/Executor version mismatch | Independent upgrades | Typed handshake error (R7); no state mutation |
 | Request interrupted by swap | Drain skipped | Manager drains in-flight work on the on-chain swap signal before stop (R8) |
 | Malicious image pushed by compromised owner | Owner key compromise | Timelock (R4) + reproducible build (R5) give users a window to detect and withdraw |
-| All PCR0 removed | Operator error | `removePcr0` reverts on the last entry (`CannotRemoveLastPcr0`) |
-| Active image accidentally removed | Fat-finger at finalization (step 6): passing `PCR0_new` instead of `PCR0_old` | `removePcr0` reverts (`CannotRemoveActiveImage`); this matters because the mistake would not cause an immediate outage (runtime uses `teeSigner`, not the set) but would leave `activeImage` dangling and block any future `updateTee` re-attestation |
+| Stale proposal applied long after audit | Abandoned proposal + later owner key compromise | Proposals expire `PCR0_SWAP_APPLY_WINDOW` after `eta` (`SwapProposalExpired`); `cancelPcr0Swap` revokes one explicitly |
+| All PCR0 removed / active image accidentally removed | Operator error (e.g. fat-finger at finalization, step 6: passing `PCR0_new` instead of `PCR0_old`) | `removePcr0` reverts (`CannotRemoveActiveImage`); since `activeImage` is always in the set, the same guard keeps the set non-empty. The mistake would not cause an immediate outage (runtime uses `teeSigner`, not the set) but would leave `activeImage` dangling and block any future `updateTee` re-attestation |
 
 ---
 
