@@ -8,6 +8,9 @@ import '@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol';
 contract NoAttestationTeeAuthenticator is AbstractTeeAuthenticator, Ownable {
   address public teeSigner;
   bytes public pubSecp521r1;
+  // keccak256 of the PCR0 the platform should currently be running.
+  // Mirrors TeeAuthenticator.activeImage; permissionless setter for dev/test control.
+  bytes32 public activeImage;
 
   //events
   event TeeUpdate(address oldTee, address newTee, bytes oldPubSecp521r1, bytes newPubSecp521r1);
@@ -29,6 +32,10 @@ contract NoAttestationTeeAuthenticator is AbstractTeeAuthenticator, Ownable {
     emit TeeUpdate(teeSigner, newTeeSigner, pubSecp521r1, newPubSecp521r1);
     teeSigner = newTeeSigner;
     pubSecp521r1 = newPubSecp521r1;
+  }
+
+  function setActiveImage(bytes32 _activeImage) external {
+    activeImage = _activeImage;
   }
 
   function getTeeSigner() public view override returns (address) {

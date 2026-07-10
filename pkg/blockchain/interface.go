@@ -24,6 +24,8 @@ type Client interface {
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
 	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
 	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
+	// GetActiveImage returns keccak256(PCR0) of the enclave image the platform should currently be running.
+	GetActiveImage(ctx context.Context) ([32]byte, error)
 	// ChainID returns the connected chain ID.
 	ChainID(ctx context.Context) (*big.Int, error)
 	// LatestBlockNumber returns the latest block number from the chain.

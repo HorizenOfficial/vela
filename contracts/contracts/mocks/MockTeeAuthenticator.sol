@@ -5,10 +5,17 @@ import '../interfaces/ITeeAuthenticator.sol';
 contract MockTeeAuthenticator is ITeeAuthenticator {
   address public teeSigner;
   bytes public pubSecp521r1;
+  // keccak256 of the PCR0 the platform should currently be running.
+  // Mirrors TeeAuthenticator.activeImage; permissionless setter for test control.
+  bytes32 public activeImage;
 
   constructor(address _teeSigner, bytes memory _pubSecp521r1) {
     teeSigner = _teeSigner;
     pubSecp521r1 = _pubSecp521r1;
+  }
+
+  function setActiveImage(bytes32 _activeImage) external {
+    activeImage = _activeImage;
   }
 
   function checkSignature(

@@ -559,3 +559,25 @@ func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.Pu
 	}
 	return crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
 }
+
+// GetActiveImage returns keccak256(PCR0) of the enclave image the platform
+// should currently be running, as tracked on-chain by the TeeAuthenticator.
+func (c *BlockChainClient) GetActiveImage(ctx context.Context) ([32]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.connected {
+		return [32]byte{}, fmt.Errorf("client not connected, call Connect first")
+	}
+	if c.teeAuthBoundContract == nil || c.teeAuthEndpoint == nil {
+		return [32]byte{}, fmt.Errorf("tee authenticator contract not configured")
+	}
+
+	activeImage, err := bind.Call(c.teeAuthBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.teeAuthEndpoint.PackActiveImage(),
+		c.teeAuthEndpoint.UnpackActiveImage)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("cannot retrieve activeImage: %w", err)
+	}
+	return activeImage, nil
+}

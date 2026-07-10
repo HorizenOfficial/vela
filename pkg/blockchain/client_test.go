@@ -657,3 +657,21 @@ func TestGetTeePublicKey(t *testing.T) {
 	require.NotNil(t, publicKey, "Public key should not be nil")
 	require.Equal(t, key.PublicKey().Bytes(), publicKey.Bytes(), "Public key not equal to the given one")
 }
+
+func TestGetActiveImage(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Set a known value on-chain and read it back through the client.
+	want := [32]byte{0xaa, 0xbb, 0xcc, 0xdd, 0x01, 0x02, 0x03, 0x04}
+	testHelper.SetActiveImage(want)
+
+	activeImage, err := blockchainClient.GetActiveImage(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, want, activeImage, "activeImage read through the client should match the on-chain value")
+
+	// The tee authenticator helper reads the same value.
+	require.Equal(t, want, testHelper.GetSimTeeAuthenticatorHelper().GetActiveImage())
+}
