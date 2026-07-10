@@ -96,13 +96,13 @@ type MockClientRequestHandler struct {
 }
 
 // HandleKeysetRecoveryResult implements ClientRequestHandler.
-func (m *MockClientRequestHandler) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
+func (m *MockClientRequestHandler) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0, version string) error {
 	// For testing purposes, we can just return nil or log something.
 	return nil
 }
 
 // HandleSetKeysetRecoveryRequest implements ClientRequestHandler.
-func (m *MockClientRequestHandler) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
+func (m *MockClientRequestHandler) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0, version string) error {
 	if m.SetKeysetRecoveryFunc != nil {
 		return m.SetKeysetRecoveryFunc(ctx, recv, commPubKey, signingKeyAddr)
 	}

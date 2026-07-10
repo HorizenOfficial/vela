@@ -35,6 +35,9 @@ type AggregatedGetVersionResponse struct {
 	Manager       string `json:"manager,omitempty"`
 	ManagerError  string `json:"managerError,omitempty"`
 	Executor      string `json:"executor,omitempty"`
+	// ExecutorPcr0 is the hex-encoded PCR0 of the running enclave image the
+	// executor reported at handshake, or "" in non-Nitro (TCP/dev) mode.
+	ExecutorPcr0 string `json:"executorPcr0,omitempty"`
 	ExecutorError string `json:"executorError,omitempty"`
 }
 

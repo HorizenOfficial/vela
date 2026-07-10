@@ -232,7 +232,7 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 }
 
 // KeysetRecoveryResult sends a confirmation to the client for the keyset recovery.
-func (c *ClientConnection) KeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
+func (c *ClientConnection) KeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0, version string) error {
 	var errMsg string
 	if result != nil {
 		errMsg = result.Error()
@@ -245,6 +245,8 @@ func (c *ClientConnection) KeysetRecoveryResult(ctx context.Context, result erro
 			Error:          errMsg,
 			CommPubKey:     commPubKey,
 			SigningKeyAddr: signingKeyAddr,
+			Pcr0:           pcr0,
+			Version:        version,
 		},
 	}
 
@@ -257,7 +259,7 @@ func (c *ClientConnection) KeysetRecoveryResult(ctx context.Context, result erro
 }
 
 // SetKeysetRecovery sends a request to the client to set the keyset recovery data.
-func (c *ClientConnection) SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
+func (c *ClientConnection) SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0, version string) error {
 	msg := Message{
 		ID:   generateID(),
 		Type: SetKeysetRecoveryRequestMessage,
@@ -265,6 +267,8 @@ func (c *ClientConnection) SetKeysetRecovery(ctx context.Context, recovery *comm
 			KeySetRecovery: recovery,
 			CommPubKey:     commPubKey,
 			SigningKeyAddr: signingKeyAddr,
+			Pcr0:           pcr0,
+			Version:        version,
 		},
 	}
 

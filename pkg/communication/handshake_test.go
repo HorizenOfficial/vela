@@ -74,7 +74,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 			return fmt.Errorf("simulated restore error")
 		}
 		testLogger.Info("MockExecutor: simulating restoring keyset")
-		return m.conn.KeysetRecoveryResult(ctx, nil, "mock-comm-pub-key", "mock-signing-addr")
+		return m.conn.KeysetRecoveryResult(ctx, nil, "mock-comm-pub-key", "mock-signing-addr", "mock-pcr0", "mock-version")
 	} else {
 		// Simulate generating new keyset
 		newRecoveryData := &common.EnclaveKeySetRecovery{
@@ -83,7 +83,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 			RecoveryCiphertext: []byte("new-recovery"),
 		}
 		testLogger.Info("MockExecutor: simulating new keyset")
-		return m.conn.SetKeysetRecovery(ctx, newRecoveryData, "mock-comm-pub-key", "mock-signing-addr")
+		return m.conn.SetKeysetRecovery(ctx, newRecoveryData, "mock-comm-pub-key", "mock-signing-addr", "mock-pcr0", "mock-version")
 	}
 }
 
@@ -95,6 +95,9 @@ type mockManager struct {
 	setRecoveryError      error
 	handshakeSuccess      bool
 	handshakeSuccessMutex sync.Mutex
+	// captured executor identity from the last handshake message
+	gotPcr0    string
+	gotVersion string
 }
 
 func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
@@ -112,20 +115,26 @@ func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*comm
 	return m.recoveryData, nil
 }
 
-func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
+func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0, version string) error {
 	testLogger.Info("MockExecutor: entering %s", common.FnName())
 	if m.setRecoveryError != nil {
 		return m.setRecoveryError
 	}
 	m.recoveryData = recv
+	m.handshakeSuccessMutex.Lock()
+	m.gotPcr0 = pcr0
+	m.gotVersion = version
+	m.handshakeSuccessMutex.Unlock()
 	return nil
 }
 
-func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
+func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0, version string) error {
 	testLogger.Info("MockManager: entering %s", common.FnName())
 	if result == nil {
 		m.handshakeSuccessMutex.Lock()
 		m.handshakeSuccess = true
+		m.gotPcr0 = pcr0
+		m.gotVersion = version
 		m.handshakeSuccessMutex.Unlock()
 	}
 	return nil
@@ -136,6 +145,12 @@ func (m *mockManager) wasHandshakeSuccessful() bool {
 	m.handshakeSuccessMutex.Lock()
 	defer m.handshakeSuccessMutex.Unlock()
 	return m.handshakeSuccess
+}
+
+func (m *mockManager) capturedIdentity() (pcr0, version string) {
+	m.handshakeSuccessMutex.Lock()
+	defer m.handshakeSuccessMutex.Unlock()
+	return m.gotPcr0, m.gotVersion
 }
 
 func setupHandshakeTest(t *testing.T) (context.Context, *Client, *Server, *mockExecutor, *mockManager) {
@@ -180,6 +195,11 @@ func TestHandshake_FirstConnection(t *testing.T) {
 	require.NoError(t, executor.handshakeError)
 	require.NotNil(t, manager.recoveryData)
 	require.Equal(t, []byte("new-keyset"), manager.recoveryData.KeySetCiphertext)
+
+	// The executor's PCR0 and version are carried in the SetKeysetRecovery message.
+	pcr0, version := manager.capturedIdentity()
+	require.Equal(t, "mock-pcr0", pcr0)
+	require.Equal(t, "mock-version", version)
 }
 
 func TestHandshake_Reconnection(t *testing.T) {
@@ -204,6 +224,11 @@ func TestHandshake_Reconnection(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 	require.True(t, manager.wasHandshakeSuccessful())
+
+	// The executor's PCR0 and version are carried in the KeysetRecoveryResult message.
+	pcr0, version := manager.capturedIdentity()
+	require.Equal(t, "mock-pcr0", pcr0)
+	require.Equal(t, "mock-version", version)
 }
 
 func TestHandshake_ManagerGetError(t *testing.T) {

@@ -409,7 +409,7 @@ func (c *Client) handleKeysetRecoveryResult(ctx context.Context, msg Message) {
 		result = fmt.Errorf("%s", reqData.Error)
 	}
 
-	err = c.requestHandler.HandleKeysetRecoveryResult(ctx, result, reqData.CommPubKey, reqData.SigningKeyAddr)
+	err = c.requestHandler.HandleKeysetRecoveryResult(ctx, result, reqData.CommPubKey, reqData.SigningKeyAddr, reqData.Pcr0, reqData.Version)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -429,7 +429,7 @@ func (c *Client) handleSetKeysetRecoveryRequest(ctx context.Context, msg Message
 		return
 	}
 
-	err = c.requestHandler.HandleSetKeysetRecoveryRequest(ctx, reqData.KeySetRecovery, reqData.CommPubKey, reqData.SigningKeyAddr)
+	err = c.requestHandler.HandleSetKeysetRecoveryRequest(ctx, reqData.KeySetRecovery, reqData.CommPubKey, reqData.SigningKeyAddr, reqData.Pcr0, reqData.Version)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return

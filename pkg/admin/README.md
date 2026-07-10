@@ -104,10 +104,13 @@ Or with an explicit target:
   "type": "response",
   "data": {
     "manager": "v1.2.3",
-    "executor": "v1.2.3"
+    "executor": "v1.2.3",
+    "executorPcr0": "a1b2c3..."
   }
 }
 ```
+
+`executorPcr0` is the hex-encoded PCR0 of the running enclave image, as reported by the Executor during the handshake. It is omitted (empty) in non-Nitro (TCP/dev) mode where no NSM device exists.
 
 #### GetLogLevel
 

@@ -2312,3 +2312,32 @@ func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 	require.True(t, manager.endReorgTime.After(time.Now()),
 		"reorg timer should be in the future (fresh timeout)")
 }
+
+// TestHandleKeysetRecovery_SetsRunningPcr0 verifies the manager records the
+// PCR0 (running image) and version the executor reports during the handshake,
+// for both the recovery-result and set-recovery paths.
+func TestHandleKeysetRecovery_SetsRunningPcr0(t *testing.T) {
+	ctx := context.Background()
+	config := Config{
+		ReorgTimeout:        60,
+		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
+
+	// Recovery-result path (reconnection / restore).
+	_, mgr := setupTestWithConfig(t, ctx, config, true,
+		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
+	require.Empty(t, mgr.RunningPcr0(), "PCR0 should be empty before handshake")
+
+	err := mgr.HandleKeysetRecoveryResult(ctx, nil, "comm-pub-key", "0xsigner", "deadbeef", "v1.2.3")
+	require.NoError(t, err)
+	require.Equal(t, "deadbeef", mgr.RunningPcr0())
+
+	// Set-recovery path (first connection / generate).
+	_, mgr2 := setupTestWithConfig(t, ctx, config, true,
+		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
+	err = mgr2.HandleSetKeysetRecoveryRequest(ctx, &common.EnclaveKeySetRecovery{
+		RecoveryType: common.RecoveryTypeKMS,
+	}, "comm-pub-key", "0xsigner", "cafebabe", "v2.0.0")
+	require.NoError(t, err)
+	require.Equal(t, "cafebabe", mgr2.RunningPcr0())
+}

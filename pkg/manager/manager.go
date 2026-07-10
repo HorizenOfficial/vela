@@ -43,6 +43,16 @@ type SecureProcessorManager struct {
 	endReorgTime      time.Time
 	log               logger.Logger
 	fatalErrChan      chan error // Channel to signal fatal errors to main
+
+	// runningPcr0 is the hex-encoded PCR0 reported by the executor at handshake
+	// (the "running image"); empty in non-Nitro (TCP/dev) mode. executorVersion
+	// is the executor binary version reported alongside it. Guarded by
+	// identityMu, a dedicated lock: the handshake handlers that write these run
+	// on the comm client's reader goroutine while Start holds m.mu, so reusing
+	// m.mu here would deadlock.
+	identityMu      sync.RWMutex
+	runningPcr0     string
+	executorVersion string
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -240,7 +250,7 @@ func (m *SecureProcessorManager) HandleGetKeysetRecoveryRequest(ctx context.Cont
 }
 
 // HandleSetKeysetRecoveryRequest implements communication.ClientRequestHandler.
-func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
+func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0, version string) error {
 	m.log.Info("Manager: Received SetKeysetRecovery message from executor")
 
 	err := m.dataLayer.StoreEnclaveKeySetRecovery(ctx, recv)
@@ -254,6 +264,8 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 	m.log.Info("Manager: KeysetRecovery data stored in data layer")
 	m.log.Info("Manager: Executor's public communication key (P521): %s", commPubKey)
 	m.log.Info("Manager: Executor's signing key address (Secp256k1): %s", signingKeyAddr)
+	m.log.Info("Manager: Executor's pcr0: %s", pcr0)
+	m.setExecutorIdentity(pcr0, version)
 
 	// set the handshake as completed
 	m.completeExecutorHandshake(nil)
@@ -261,7 +273,7 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 }
 
 // HandleKeysetRecoveryResult implements communication.ClientRequestHandler.
-func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
+func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0, version string) error {
 	if result != nil {
 		m.log.Error("Manager: Received KeysetRecoveryResult message from executor with error: %v", result)
 		m.completeExecutorHandshake(result)
@@ -269,9 +281,29 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 		m.log.Info("Manager: Received KeysetRecoveryResult message from executor with success")
 		m.log.Info("Manager: Executor's public communication key (P521): %s", commPubKey)
 		m.log.Info("Manager: Executor's signing key address (Secp256k1): %s", signingKeyAddr)
+		m.setExecutorIdentity(pcr0, version)
 		m.completeExecutorHandshake(nil)
 	}
 	return nil
+}
+
+// setExecutorIdentity records the running image PCR0 and binary version the
+// executor reported at handshake. The PCR0 is the "running image" that Task 5
+// compares (as keccak256(pcr0)) against the on-chain activeImage.
+func (m *SecureProcessorManager) setExecutorIdentity(pcr0, version string) {
+	m.identityMu.Lock()
+	m.runningPcr0 = pcr0
+	m.executorVersion = version
+	m.identityMu.Unlock()
+	m.log.Info("Manager: Executor's running image PCR0: %q, version: %q", pcr0, version)
+}
+
+// RunningPcr0 returns the hex-encoded PCR0 the executor reported at handshake
+// (the running image), or "" if not reported (non-Nitro/dev mode).
+func (m *SecureProcessorManager) RunningPcr0() string {
+	m.identityMu.RLock()
+	defer m.identityMu.RUnlock()
+	return m.runningPcr0
 }
 
 // forwardToExecutor sends an admin command to the executor via the existing
@@ -371,6 +403,7 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			} else {
 				resp.Executor = execVersion
 			}
+			resp.ExecutorPcr0 = m.RunningPcr0()
 			return resp, nil
 		}
 		return m.GetVersion(ctx)

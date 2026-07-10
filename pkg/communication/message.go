@@ -141,6 +141,10 @@ type SetKeysetRecoveryRequestData struct {
 	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
 	CommPubKey     string                        `json:"commPubKey"`
 	SigningKeyAddr string                        `json:"signingKeyAddr"`
+	// Pcr0 is the hex-encoded PCR0 of the running enclave image, or "" in
+	// non-Nitro (TCP/dev) mode. Version is the executor binary version.
+	Pcr0    string `json:"pcr0,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // SetKeysetRecoveryResponseData represents data for a set keyset recovery response message
@@ -152,6 +156,10 @@ type KeysetRecoveryResultData struct {
 	Error          string `json:"error,omitempty"`
 	CommPubKey     string `json:"commPubKey,omitempty"`
 	SigningKeyAddr string `json:"signingKeyAddr,omitempty"`
+	// Pcr0 is the hex-encoded PCR0 of the running enclave image, or "" in
+	// non-Nitro (TCP/dev) mode. Version is the executor binary version.
+	Pcr0    string `json:"pcr0,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // generateID generates a simple unique ID for message correlation

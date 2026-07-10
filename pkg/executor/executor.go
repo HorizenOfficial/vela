@@ -369,6 +369,10 @@ type StatelessExecutor struct {
 	keySet *EnclaveKeySet
 	log    logger.Logger
 
+	// pcr0 is the hex-encoded PCR0 of the running enclave image, read once from
+	// the NSM at startup. Empty in non-Nitro (TCP/dev) mode where no NSM exists.
+	pcr0 string
+
 	// KMS dependencies (nil for Type 0, required for Type 1)
 	kmsClient     kms.KMSClient
 	enclaveHandle kms.EnclaveHandle
@@ -404,6 +408,7 @@ func NewStatelessExecutor(
 		log:              log,
 		kmsClient:        kmsClient,
 		enclaveHandle:    enclaveHandle,
+		pcr0:             readSelfPCR0(log),
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
@@ -411,6 +416,26 @@ func NewStatelessExecutor(
 	executor.server.SetConnectionHandler(executor.handleNewConnection)
 
 	return executor, nil
+}
+
+// readSelfPCR0 reads the enclave's own PCR0 from the NSM once at startup and
+// returns it hex-encoded. In non-Nitro (TCP/dev) mode there is no NSM device,
+// so it logs and returns "" (the dev marker) rather than failing.
+func readSelfPCR0(log logger.Logger) string {
+	pcr0, err := nsmutil.DescribePCRWithSession(func() (NsmSession, error) {
+		s, err := nsm.OpenDefaultSession()
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	}, 0)
+	if err != nil {
+		log.Warn("Executor: could not read PCR0 from NSM (dev/TCP mode?): %v", err)
+		return ""
+	}
+	encoded := hex.EncodeToString(pcr0)
+	log.Info("Executor: running image PCR0: %s", encoded)
+	return encoded
 }
 
 func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn communication.ServerConnection) {
@@ -439,7 +464,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		keySet, err = RestoreEnclaveKeySet(ctx, recoveryData, e.kmsClient, e.enclaveHandle)
 		if err != nil {
 			// Notify manager of failure
-			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
+			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", "", e.pcr0, version.Version); notifyErr != nil {
 				e.log.Error("Executor: failed to send keyset recovery failure to manager: %v", notifyErr)
 			}
 			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
@@ -449,7 +474,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
 		e.log.Info("Executor: Keyset restored successfully, confirming ")
-		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr)
+		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr, e.pcr0, version.Version)
 		if err != nil {
 			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
 		}
@@ -470,7 +495,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		commPubKey := crypto.ExportPublicKeyP521ToHex(keySet.CommunicationKey.PublicKey())
 		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
-		err = conn.SetKeysetRecovery(ctx, newRecoveryData, commPubKey, signingKeyAddr)
+		err = conn.SetKeysetRecovery(ctx, newRecoveryData, commPubKey, signingKeyAddr, e.pcr0, version.Version)
 		if err != nil {
 			return nil, fmt.Errorf("failed to set keyset recovery data: %w", err)
 		}

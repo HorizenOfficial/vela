@@ -85,3 +85,29 @@ Manager                                     Executor
    x (Handshake fails, Manager may terminate)   x (Handshake fails, Executor closes connection)
    |                                            |
 ```
+
+---
+
+### Executor self-identity fields (PCR0 + version)
+
+In addition to the communication public key and signing key address, the Executor
+reports its **running image identity** to the Manager in the two executor→manager
+handshake-result messages:
+
+- `SetKeysetRecoveryRequest` (Scenario 1, new keyset) — `SetKeysetRecoveryRequestData`
+- `KeysetRecoveryResult` (Scenario 2 success, keyset restored) — `KeysetRecoveryResultData`
+
+Both carry two additional fields:
+
+| Field     | Type   | Meaning |
+|-----------|--------|---------|
+| `pcr0`    | string | Hex-encoded PCR0 of the running enclave image, read once from the NSM (`DescribePCR(0)`) at Executor startup. Empty (`""`) in non-Nitro (TCP/dev) mode where no NSM device exists — the **dev marker**. |
+| `version` | string | Executor binary version (`pkg/version.Version`, `"dev"` when built without ldflags). |
+
+The Manager stores the reported `pcr0` as the **running image** (`RunningPcr0()`) and
+the `version`. The running image is what the swap-observation logic compares — as
+`keccak256(pcr0)` — against the on-chain `activeImage` (see Task 5). The Manager also
+surfaces `pcr0` in the aggregated admin `get_version` response (`executorPcr0`).
+
+The fields use `omitempty` and the wire format is newline-delimited JSON, so an older
+peer that does not send them is read as empty values (dev marker / `""`).
