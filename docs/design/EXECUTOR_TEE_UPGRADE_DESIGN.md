@@ -20,21 +20,12 @@ The chosen approach is:
 
 The Manager (which runs outside the TEE) is out of scope here except for two touchpoints it owns in this flow: observing the on-chain swap signal in its polling loop (see [R8](#r8--on-chain-triggered-graceful-drain)) and the protocol-version handshake it shares with the Executor (see [R7](#r7--protocol-version-negotiation)).
 
-> **Status: implemented.** Tasks 1–9 of `EXECUTOR_TEE_UPGRADE_TASKS.md` are done. This
-> document has been reconciled with the code as built; the design sections below now describe
-> the shipped behavior. The one deliberate scope cut vs. the original design is the *capability
-> bitmap* / min-supported-floor idea in [R7](#r7--protocol-version-negotiation): the wire version
-> is a single monotonic `WireProtocolVersion` with an **exact-match** policy (see
-> [Protocol-version handshake](#protocol-version-handshake-r7)). The KMS-policy and emergency
-> procedures live in [`docs/ops/KMS_KEY_POLICY_RUNBOOK.md`](../ops/KMS_KEY_POLICY_RUNBOOK.md);
-> the reproducible build in [`docs/design/REPRODUCIBLE_EIF_BUILD.md`](REPRODUCIBLE_EIF_BUILD.md).
-
 ---
 
 ## Original State (before this work)
 
 This section describes the baseline the design started from; the model described here has
-since been **replaced** by the accepted-set/swap flow implemented below (Task 1).
+since been **replaced** by the accepted-set/swap flow implemented below.
 
 ### What identified an Executor on-chain
 
@@ -45,8 +36,8 @@ since been **replaced** by the accepted-set/swap flow implemented below (Task 1)
 | `bytes public pcr0` | Identity of the enclave **image** (the code) | The EIF build |
 | `address public teeSigner` + `bytes public pubSecp521r1` | Identity of the enclave **keys** | Derived from the `EnclaveKeySet` |
 
-- `pcr0` was set in the constructor and changed by `updatePcr0(bytes newPcr0)`, which emitted `PcrZeroUpdate` and overwrote the single stored value atomically. **(Both `updatePcr0` and `PcrZeroUpdate` were removed in Task 1** — replaced by `proposePcr0Swap`/`applyPcr0Swap`/`cancelPcr0Swap`/`removePcr0` and the `Pcr0Swap*`/`Pcr0Swapped`/`Pcr0Removed` events.)
-- `updateTee(bytes attestation)` verified a fresh attestation, checked its PCR field against the **single** stored `pcr0` in `_checkAttestationContent`, and on success recorded `teeSigner` and `pubSecp521r1`. It now checks against `activeImage` instead (below), but its shape and role are unchanged.
+- `pcr0` was set in the constructor and changed by `updatePcr0(bytes newPcr0)`, which emitted `PcrZeroUpdate` and overwrote the single stored value atomically.
+- `updateTee(bytes attestation)` verified a fresh attestation, checked its PCR field against the **single** stored `pcr0` in `_checkAttestationContent`, and on success recorded `teeSigner` and `pubSecp521r1`.
 - `nitroProver` and `maxVerificationAge` are `immutable`.
 
 There was exactly **one** valid `pcr0` at any time. Updating it was an instantaneous flip: there was no window in which both the old and the new image were accepted.
@@ -62,9 +53,9 @@ This is the linchpin of the whole upgrade design (see [Key Continuity](#key-cont
 
 ### How the Executor is built and run
 
-- The Executor binary is built from `dockerfiles/executor/Dockerfile`, with the git version embedded via ldflags into `pkg/version/version.go` (`Version`, defaulting to `"dev"`). At the time of writing PCR0 was **not** independently reproducible (moving `amazonlinux:2` base tag, unpinned packages, `CGO_ENABLED=1` linking to the base libc, and an unversioned external `.eif` packaging step). Task 7 fixed this — the build is now reproducible from a git tag on Amazon Linux 2023; see [R5](#r5--reproducible-enclave-image) and [`REPRODUCIBLE_EIF_BUILD.md`](REPRODUCIBLE_EIF_BUILD.md).
-- The binary is packaged into a Nitro **Enclave Image File (.eif)** by `nitro-cli build-enclave` (now driven by the versioned `dockerfiles/executor/build-eif.sh`). PCR0/PCR1/PCR2 are produced by that build.
-- The Executor and Manager are separate processes/containers communicating over vsock (production) or TCP (dev). There is **no in-process reload**: an upgrade means stopping the old enclave and launching a new EIF. The Manager's handshake wait is bounded by `HANDSHAKE_TIMEOUT` (default 5s), and the Manager re-dials + re-handshakes on a dropped/ swapped channel (Task 5) — the single-shot, restart-only handshake noted in earlier drafts no longer applies.
+- The Executor binary is built from `dockerfiles/executor/Dockerfile`, with the git version embedded via ldflags into `pkg/version/version.go` (`Version`, defaulting to `"dev"`). At the time of writing PCR0 was **not** independently reproducible (moving `amazonlinux:2` base tag, unpinned packages, `CGO_ENABLED=1` linking to the base libc, and an unversioned external `.eif` packaging step).
+- The binary is packaged into a Nitro **Enclave Image File (.eif)** by `nitro-cli build-enclave`. PCR0/PCR1/PCR2 are produced by that build.
+- The Executor and Manager are separate processes/containers communicating over vsock (production) or TCP (dev). There is **no in-process reload**: an upgrade means stopping the old enclave and launching a new EIF.
 - The version string is informational only (logged at startup, queryable via the admin CLI `get_version` command); it is **not** cryptographically bound and **cannot** be used to enforce anything. PCR0 is the only enforcement point. (The version is obtained on demand via the forwarded `get_version` admin command — it is **not** carried in the handshake.)
 
 ---
@@ -98,7 +89,7 @@ An Executor upgrade must not lose or require re-encryption of any application st
 
 The new enclave image must **recover** the existing `EnclaveKeySet`, never generate a new one. As a corollary, `teeSigner` and `pubSecp521r1` must remain unchanged across a pure software upgrade — only `pcr0` changes. (If the keys were regenerated, both on-chain identities would change *and* all existing state would become permanently undecryptable.)
 
-Two guards enforce this (Task 6):
+Two guards enforce this:
 - **Executor** — `EXECUTOR_EXPECT_EXISTING_KEYSET`: when set (during upgrades), a handshake response reporting no stored recovery data aborts with a fatal typed error instead of generating a keyset, so a wiped/wrong Manager data folder cannot trigger silent regeneration. A genuine first install runs without it.
 - **Manager storage** — the recovery store refuses to overwrite an existing recovery blob with a *different* one (idempotent for an identical blob), so a stale/partial folder cannot clobber the only handle to the keyset.
 
@@ -422,4 +413,5 @@ As built:
 - A dedicated, monotonic `WireProtocolVersion` (`uint32`) constant in `pkg/communication`, **separate from** the informational `version.Version` git string in `pkg/version` (marked non-enforcing in [Original State](#how-the-executor-is-built-and-run)) and from `common.Request.ProtocolVersion` (the on-chain request-level version). The `Wire` prefix disambiguates it from the latter; the handshake carries `WireProtocolVersion`, not the git version.
 - Both sides advertise their `WireProtocolVersion` in the handshake, and a single `IsCompatible(peer)` function encodes the rule. The shipped policy is **exact-match** (equality); the min-supported-floor variant remains a future option encoded in that one function.
 - There is no `(managerVersion, executorVersion)` pair matrix — a single shared wire version governs compatibility, so there is nothing to keep in sync by hand.
+- The bump discipline is **CI-enforced**: `TestWireFingerprintPinnedToProtocolVersion` (`pkg/communication/wire_fingerprint_test.go`) fingerprints the message set — the `MessageType` enum values and every payload struct, recursing into the referenced `pkg/common` types — and fails if it changes without a matching bump of `WireProtocolVersion`. A companion test parses `message.go` so newly added message types and payload structs cannot slip past the fingerprint.
 

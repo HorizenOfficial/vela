@@ -184,6 +184,7 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 - **Interface design**: Prefer small, focused interfaces; accept interfaces, return structs
 - **Testing**: Look for table-driven tests, proper mocking, and edge case coverage
 - **Logging**: Use structured logging (zerolog); avoid fmt.Print in production code
+- **Wire protocol**: Any change to the Manager↔Executor message definitions in `pkg/communication` (payload structs, their fields/JSON tags/types, referenced `pkg/common` wire types, or the `MessageType` enum) must bump `communication.WireProtocolVersion` and update the golden fingerprint. `TestWireFingerprintPinnedToProtocolVersion` enforces this in CI — treat a red fingerprint test as a required version bump, not a test to edit.
 
 ### TypeScript Code (Contracts/Subgraphs)
 - **Type safety**: Avoid `any`; prefer explicit types and interfaces
