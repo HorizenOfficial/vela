@@ -273,7 +273,7 @@ This keeps `updateTee` / `updateTeeStep1..4` working unchanged in shape: they co
 
 The KMS key policy's `kms:RecipientAttestation:PCR0` condition must list the set of accepted PCR0 values. Adding `PCR0_new` (keeping `PCR0_old`) is the off-chain analogue of accepting it on-chain via `applyPcr0Swap` and **must be performed before** the new enclave starts, otherwise the new image's handshake recovery (`DecryptWithAttestation`) will fail. Removing `PCR0_old` is the analogue of `removePcr0` and happens only after the upgrade is confirmed stable.
 
-This is purely an AWS-side configuration change (key policy update); no code change in `pkg/executor/kms`.
+This is purely an AWS-side configuration change (key policy update); no code change in `pkg/executor/kms`. The operational procedure (policy structure, governance controls, and the step-by-step upgrade / rollback / emergency runbooks) is in [`docs/ops/KMS_KEY_POLICY_RUNBOOK.md`](../ops/KMS_KEY_POLICY_RUNBOOK.md).
 
 ### Protocol-version handshake (R7)
 

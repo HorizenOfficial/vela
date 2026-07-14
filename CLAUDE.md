@@ -168,6 +168,8 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 
 **Config Vars vs Dockerfiles:** Whenever a new config variable is added to any Vela component, check whether the dockerfiles (`dockerfiles/`) need updating. In particular, the Executor runs in a Nitro enclave and receives no environment at launch — any config it must see in production has to be baked into the enclave image (`dockerfiles/executor/Dockerfile`), which also changes PCR0.
 
+**TEE Upgrade Ops:** The operational procedure for a TEE (PCR0) upgrade — KMS key-policy structure and governance, and the step-by-step upgrade / rollback / emergency runbooks — is in `docs/ops/KMS_KEY_POLICY_RUNBOOK.md`. The KMS key policy's `kms:RecipientAttestation:PCR0` condition is the off-chain twin of the on-chain accepted PCR0 set in `TeeAuthenticator`; the two must be kept in sync.
+
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
 
 **User Signatures:** When a signature is provided by an external user (e.g. via a wallet), it must be compatible with MetaMask's `personal_sign` format. This means the message is prefixed with `\x19Ethereum Signed Message:\n<length of message>` before hashing and signing. Both Go verification code and Solidity `ecrecover` usage must account for this prefix.
