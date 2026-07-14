@@ -60,6 +60,19 @@ func TestValidate_KMS_MissingBothARNAndRegion(t *testing.T) {
 	assert.Contains(t, err.Error(), "KMS region")
 }
 
+func TestLoadConfig_ExpectExistingKeyset(t *testing.T) {
+	// Defaults to false (genuine first install runs without the guard).
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+	assert.False(t, cfg.ExpectExistingKeyset, "EXECUTOR_EXPECT_EXISTING_KEYSET should default to false")
+
+	// Opt in via env var (set during upgrades).
+	t.Setenv("EXECUTOR_EXPECT_EXISTING_KEYSET", "true")
+	cfg, err = LoadConfig()
+	require.NoError(t, err)
+	assert.True(t, cfg.ExpectExistingKeyset, "EXECUTOR_EXPECT_EXISTING_KEYSET=true should enable the guard")
+}
+
 func TestValidate_KMS_ValidConfig(t *testing.T) {
 	cfg := validExecutorConfig()
 	cfg.KeySetRecoveryType = common.RecoveryTypeKMS

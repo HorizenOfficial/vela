@@ -86,6 +86,10 @@ An Executor upgrade must not lose or require re-encryption of any application st
 
 The new enclave image must **recover** the existing `EnclaveKeySet`, never generate a new one. As a corollary, `teeSigner` and `pubSecp521r1` must remain unchanged across a pure software upgrade — only `pcr0` changes. (If the keys were regenerated, both on-chain identities would change *and* all existing state would become permanently undecryptable.)
 
+Two guards enforce this (Task 6):
+- **Executor** — `EXECUTOR_EXPECT_EXISTING_KEYSET`: when set (during upgrades), a handshake response reporting no stored recovery data aborts with a fatal typed error instead of generating a keyset, so a wiped/wrong Manager data folder cannot trigger silent regeneration. A genuine first install runs without it.
+- **Manager storage** — the recovery store refuses to overwrite an existing recovery blob with a *different* one (idempotent for an identical blob), so a stale/partial folder cannot clobber the only handle to the keyset.
+
 ### R3 — Overlapping Validity Window
 
 There must exist a bounded window during which **both** the old and the new PCR0 are accepted, on-chain and in the KMS key policy. This enables a zero-downtime swap and a clean rollback to the previous image.

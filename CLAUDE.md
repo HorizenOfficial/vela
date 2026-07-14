@@ -164,6 +164,7 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 - `CHANNEL_TYPE` - `tcp` or `vsock`
 - `MANAGER_DATA_FOLDER` / `MANAGER_REPORTS_FOLDER`
 - `CHAIN_PROCESSOR_ADDRESS` / `CHAIN_TEEAUTHENTICATOR_ADDRESS`
+- `EXECUTOR_EXPECT_EXISTING_KEYSET` - when `true`, the Executor treats a "no recovery data" handshake response as fatal instead of generating a new keyset (R2 key-continuity guard; set during TEE upgrades, leave unset on first install)
 
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
 

@@ -17,6 +17,9 @@ const (
 	StorageIsClosed = "storage_is_closed"
 	// NoVersionInDb is a code for when the storage has not version yet.
 	NoVersionInDb = "no_versions_found_in_the_db"
+	// RecoveryDataExists is a code for when a different enclave keyset recovery
+	// blob already exists and would be overwritten (R2 key-continuity guard).
+	RecoveryDataExists = "recovery_data_exists"
 )
 
 // Error is a custom error type used by the storage package.
@@ -68,3 +71,12 @@ func ErrStorageIsClosed(message string) *Error { return NewError(StorageIsClosed
 
 // ErrNoVersionInDb creates a new Error instance with "no_versions_found_in_the_db" code.
 func ErrNoVersionInDb(message string) *Error { return NewError(NoVersionInDb, message) }
+
+// ErrRecoveryDataExists creates a new Error instance with "recovery_data_exists" code.
+func ErrRecoveryDataExists(message string) *Error { return NewError(RecoveryDataExists, message) }
+
+// IsRecoveryDataExists checks if an error is a RecoveryDataExists error.
+func IsRecoveryDataExists(err error) bool {
+	e, ok := err.(*Error)
+	return ok && e.Code == RecoveryDataExists
+}

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -33,6 +34,14 @@ var (
 	admittedProtocolVersion = uint8(0)
 	emptyStateRoot          = [32]byte{}
 )
+
+// ErrUnexpectedKeysetGeneration is returned during the handshake when the
+// Manager reports no stored recovery data (found=false) but the executor is
+// configured with ExpectExistingKeyset (R2/G3). Regenerating a keyset in that
+// situation would overwrite the recovery blob and orphan all encrypted state,
+// so the executor aborts the handshake instead of generating one.
+var ErrUnexpectedKeysetGeneration = errors.New(
+	"manager reported no keyset recovery data but EXECUTOR_EXPECT_EXISTING_KEYSET is set: refusing to generate a new keyset")
 
 const (
 	deployDescriptorFailureMsg = "failed to deploy application"
@@ -503,7 +512,16 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
 		}
 	} else {
-		e.log.Info("Executor: Keyset recovery data not found, generating new keyset (Type %d)...", e.config.KeySetRecoveryType)
+		// R2 key-continuity guard (G3): during an upgrade the Manager must already
+		// hold recovery data. A found=false here means the Manager's data folder is
+		// wiped/wrong; generating a fresh keyset would overwrite the recovery blob
+		// and permanently orphan all encrypted state (and change teeSigner). Abort
+		// the handshake instead.
+		if e.config.ExpectExistingKeyset {
+			e.log.Error("Executor: EXECUTOR_EXPECT_EXISTING_KEYSET is set but manager reported no recovery data — aborting handshake, NOT generating a keyset")
+			return nil, ErrUnexpectedKeysetGeneration
+		}
+		e.log.Warn("Executor: Keyset recovery data not found, GENERATING A NEW KEYSET (Type %d) — this MUST only happen on a genuine first install; on an upgrade it orphans all encrypted state", e.config.KeySetRecoveryType)
 		var newRecoveryData *common.EnclaveKeySetRecovery
 		keySet, newRecoveryData, err = GenerateEnclaveKeySet(
 			ctx,

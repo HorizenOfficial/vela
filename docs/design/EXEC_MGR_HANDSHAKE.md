@@ -155,6 +155,27 @@ normal outcome (`forwardShutdown`) rather than a fatal error.
 
 ---
 
+### Key-continuity guard (Task 6)
+
+To honour R2 (recover, never regenerate), two guards protect the keyset during a
+software upgrade:
+
+- **Executor** — when `EXECUTOR_EXPECT_EXISTING_KEYSET` is set, a
+  `GetKeysetRecoveryResponse` with `DataFound: false` is fatal: `performHandshake`
+  returns `ErrUnexpectedKeysetGeneration` **before** generating a keyset or sending
+  `SetKeysetRecoveryRequest`, so Scenario 1 (new-keyset generation) is disabled.
+  This is set during upgrades, where the Manager must already hold recovery data; a
+  genuine first install runs without it.
+- **Manager** — the recovery store refuses to overwrite an existing recovery blob
+  with a *different* one (typed `recovery_data_exists` error, surfaced through the
+  handshake failure path); re-storing an identical blob is a no-op. A wiped/wrong
+  data folder therefore cannot silently clobber the only handle to the keyset.
+
+The generation path (Scenario 1) also logs loudly (`Warn`) that it must only occur
+on a genuine first install.
+
+---
+
 ### Reconnect & swap observation (Task 5)
 
 Each polling tick the Manager reconciles the connected enclave against the on-chain
