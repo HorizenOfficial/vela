@@ -13,6 +13,14 @@
 #   GIT_REF     tag/commit to build (default: the exact tag on HEAD).
 #   OUTPUT_DIR  where artifacts are written (default: ./eif-out).
 #
+# Environment:
+#   EXPECT_EXISTING_KEYSET  true (default) = upgrade image: the enclave refuses
+#                           to generate a fresh keyset (R2 guard, Task 6).
+#                           false = genesis/first-install image, used once to
+#                           bootstrap the keyset. The two variants have
+#                           different PCR0s; the value is recorded in
+#                           build-info.json.
+#
 # Emits into OUTPUT_DIR:
 #   executor.eif        the enclave image
 #   measurements.json   PCR0/1/2 (from `nitro-cli describe-eif`)
@@ -57,6 +65,16 @@ if grep -v '^[[:space:]]*#' "${SCRIPT_DIR}/versions.env" | grep -q '__TODO__'; t
   exit 1
 fi
 
+# Image variant (Task 6): EXPECT_EXISTING_KEYSET defaults to true (upgrade
+# image). A genesis build sets EXPECT_EXISTING_KEYSET=false in the environment;
+# the value is passed as a build arg (it changes PCR0) and recorded in
+# build-info.json so a verifier knows which variant to rebuild.
+EXPECT_EXISTING_KEYSET="${EXPECT_EXISTING_KEYSET:-true}"
+case "${EXPECT_EXISTING_KEYSET}" in
+  true|false) ;;
+  *) echo "ERROR: EXPECT_EXISTING_KEYSET must be 'true' or 'false', got '${EXPECT_EXISTING_KEYSET}'" >&2; exit 1 ;;
+esac
+
 GIT_VERSION="${GIT_REF}"
 # SOURCE_DATE_EPOCH = commit time of the ref. git archive also stamps this as
 # the mtime of every context file; BuildKit rewrites layer mtimes to it.
@@ -90,6 +108,7 @@ git -C "${REPO_ROOT}" archive --format=tar "${GIT_REF}" | \
     --build-arg GO_VERSION="${GO_VERSION}" \
     --build-arg GO_SHA256="${GO_SHA256}" \
     --build-arg GIT_VERSION="${GIT_VERSION}" \
+    --build-arg EXPECT_EXISTING_KEYSET="${EXPECT_EXISTING_KEYSET}" \
     --build-arg RELEASE=1 \
     --provenance=false \
     --output "type=docker,name=${IMAGE_REF},dest=${IMAGE_TAR},rewrite-timestamp=true" \
@@ -143,6 +162,7 @@ cat > "${OUTPUT_DIR}/build-info.json" <<EOF
   "baseImage": "${BASE_IMAGE}",
   "alReleasever": "${AL_RELEASEVER}",
   "goVersion": "${GO_VERSION}",
+  "expectExistingKeyset": ${EXPECT_EXISTING_KEYSET},
   "nitroCliVersion": "${NITRO_CLI_VERSION}",
   "buildkitVersion": "${BUILDKIT_VERSION}"
 }

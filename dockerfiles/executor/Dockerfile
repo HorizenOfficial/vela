@@ -117,6 +117,17 @@ RUN useradd -m appuser && \
     rm -f /etc/passwd- /etc/group- /etc/shadow- /etc/gshadow- && \
     rm -rf /var/log/lastlog /var/log/faillog
 
+# R2 key-continuity guard (Task 6): an enclave receives no environment at
+# launch, so this MUST be baked into the image - nitro-cli folds ENV into the
+# measured ramdisk, making the guard's state part of PCR0 and thus attestable.
+# Default ON: a release/upgrade image refuses to generate a fresh keyset when
+# the Manager reports no recovery data (a wiped/wrong data folder would orphan
+# all encrypted state). ONLY a genesis (first-install) build may pass
+# EXPECT_EXISTING_KEYSET=false; that image bootstraps the keyset once and must
+# not remain in the accepted PCR0 set / KMS key policy afterwards.
+ARG EXPECT_EXISTING_KEYSET=true
+ENV EXECUTOR_EXPECT_EXISTING_KEYSET=${EXPECT_EXISTING_KEYSET}
+
 USER appuser
 
 ENTRYPOINT ["/executor"]

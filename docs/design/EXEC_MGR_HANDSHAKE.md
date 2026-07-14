@@ -165,7 +165,11 @@ software upgrade:
   returns `ErrUnexpectedKeysetGeneration` **before** generating a keyset or sending
   `SetKeysetRecoveryRequest`, so Scenario 1 (new-keyset generation) is disabled.
   This is set during upgrades, where the Manager must already hold recovery data; a
-  genuine first install runs without it.
+  genuine first install runs without it. In Nitro deployments the flag is baked
+  into the enclave image (`dockerfiles/executor/Dockerfile`, default on; genesis
+  builds opt out via `EXPECT_EXISTING_KEYSET=false`) since an enclave receives no
+  environment at launch — which also makes the guard's state part of PCR0 and
+  attestable. Dev/TCP deployments set the env var directly.
 - **Manager** — the recovery store refuses to overwrite an existing recovery blob
   with a *different* one (typed `recovery_data_exists` error, surfaced through the
   handshake failure path); re-storing an identical blob is a no-op. A wiped/wrong

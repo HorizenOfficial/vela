@@ -72,6 +72,23 @@ enclave does). The script:
 4. emits `executor.eif`, `measurements.json` (PCR0/1/2), `build-info.json`, and
    `blobs.sha256`.
 
+### Image variants (key-continuity guard)
+
+The R2 key-continuity guard (`EXECUTOR_EXPECT_EXISTING_KEYSET`, Task 6) is baked
+into the image as an `ENV` — an enclave receives no environment at launch, and
+baking it makes the guard's state part of PCR0 and thus attestable. The build
+defaults to the **upgrade** variant (guard on); a **genesis** (first-install)
+image is built with:
+
+```bash
+EXPECT_EXISTING_KEYSET=false ./dockerfiles/executor/build-eif.sh v0.3.0 ./eif-out
+```
+
+The two variants have different PCR0s. The value used is recorded in
+`build-info.json`. The genesis image bootstraps the keyset exactly once per
+environment and must then be retired from the accepted PCR0 set and the KMS key
+policy (see the Task 8 runbook).
+
 ## Verifying a release
 
 Given a published release (git tag + expected PCRs), a third party runs:
@@ -86,7 +103,10 @@ CI performs the same build twice on independent runners and fails if any of
 `PCR0`/`PCR1`/`PCR2` differ.
 
 Per release, publish: the git tag, `PCR0`/`PCR1`/`PCR2`, the `nitro-cli`
-version, and the base-image digest.
+version, and the base-image digest. Release images are always the upgrade
+variant (guard on — the default), so verifiers need no extra flag; a genesis
+PCR0, if ever published, must be labeled as such (`expectExistingKeyset: false`
+in `build-info.json`) and verified with the same env knob set.
 
 > **The verifiable output is the PCR set, not the `.eif` file hash.** `nitro-cli`
 > stamps a wall-clock `BuildTime` (and docker `LastTagTime`) into the EIF's

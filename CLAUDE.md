@@ -164,7 +164,9 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 - `CHANNEL_TYPE` - `tcp` or `vsock`
 - `MANAGER_DATA_FOLDER` / `MANAGER_REPORTS_FOLDER`
 - `CHAIN_PROCESSOR_ADDRESS` / `CHAIN_TEEAUTHENTICATOR_ADDRESS`
-- `EXECUTOR_EXPECT_EXISTING_KEYSET` - when `true`, the Executor treats a "no recovery data" handshake response as fatal instead of generating a new keyset (R2 key-continuity guard; set during TEE upgrades, leave unset on first install)
+- `EXECUTOR_EXPECT_EXISTING_KEYSET` - when `true`, the Executor treats a "no recovery data" handshake response as fatal instead of generating a new keyset (R2 key-continuity guard). In Nitro images it is baked in via the Dockerfile (default `true`; genesis/first-install builds pass `EXPECT_EXISTING_KEYSET=false` to `build-eif.sh`); in dev/TCP mode set the env var directly and leave it unset on first install.
+
+**Config Vars vs Dockerfiles:** Whenever a new config variable is added to any Vela component, check whether the dockerfiles (`dockerfiles/`) need updating. In particular, the Executor runs in a Nitro enclave and receives no environment at launch — any config it must see in production has to be baked into the enclave image (`dockerfiles/executor/Dockerfile`), which also changes PCR0.
 
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
 
