@@ -20,24 +20,36 @@ The chosen approach is:
 
 The Manager (which runs outside the TEE) is out of scope here except for two touchpoints it owns in this flow: observing the on-chain swap signal in its polling loop (see [R8](#r8--on-chain-triggered-graceful-drain)) and the protocol-version handshake it shares with the Executor (see [R7](#r7--protocol-version-negotiation)).
 
+> **Status: implemented.** Tasks 1–9 of `EXECUTOR_TEE_UPGRADE_TASKS.md` are done. This
+> document has been reconciled with the code as built; the design sections below now describe
+> the shipped behavior. The one deliberate scope cut vs. the original design is the *capability
+> bitmap* / min-supported-floor idea in [R7](#r7--protocol-version-negotiation): the wire version
+> is a single monotonic `WireProtocolVersion` with an **exact-match** policy (see
+> [Protocol-version handshake](#protocol-version-handshake-r7)). The KMS-policy and emergency
+> procedures live in [`docs/ops/KMS_KEY_POLICY_RUNBOOK.md`](../ops/KMS_KEY_POLICY_RUNBOOK.md);
+> the reproducible build in [`docs/design/REPRODUCIBLE_EIF_BUILD.md`](REPRODUCIBLE_EIF_BUILD.md).
+
 ---
 
-## Current State
+## Original State (before this work)
 
-### What identifies an Executor on-chain
+This section describes the baseline the design started from; the model described here has
+since been **replaced** by the accepted-set/swap flow implemented below (Task 1).
 
-`TeeAuthenticator.sol` holds **two** distinct identities of the running enclave:
+### What identified an Executor on-chain
+
+`TeeAuthenticator.sol` held **two** distinct identities of the running enclave:
 
 | On-chain value | Meaning | Source |
 |----------------|---------|--------|
 | `bytes public pcr0` | Identity of the enclave **image** (the code) | The EIF build |
 | `address public teeSigner` + `bytes public pubSecp521r1` | Identity of the enclave **keys** | Derived from the `EnclaveKeySet` |
 
-- `pcr0` is set in the constructor and can be changed by `updatePcr0(bytes newPcr0)` (`TeeAuthenticator.sol`), which emits `PcrZeroUpdate` and overwrites the single stored value atomically.
-- `updateTee(bytes attestation)` (`TeeAuthenticator.sol`) verifies a fresh attestation, checks its PCR field against the **single** stored `pcr0` in `_checkAttestationContent`, and on success records `teeSigner` and `pubSecp521r1` from the attestation's `userData`/`enclaveKey`.
+- `pcr0` was set in the constructor and changed by `updatePcr0(bytes newPcr0)`, which emitted `PcrZeroUpdate` and overwrote the single stored value atomically. **(Both `updatePcr0` and `PcrZeroUpdate` were removed in Task 1** — replaced by `proposePcr0Swap`/`applyPcr0Swap`/`cancelPcr0Swap`/`removePcr0` and the `Pcr0Swap*`/`Pcr0Swapped`/`Pcr0Removed` events.)
+- `updateTee(bytes attestation)` verified a fresh attestation, checked its PCR field against the **single** stored `pcr0` in `_checkAttestationContent`, and on success recorded `teeSigner` and `pubSecp521r1`. It now checks against `activeImage` instead (below), but its shape and role are unchanged.
 - `nitroProver` and `maxVerificationAge` are `immutable`.
 
-There is exactly **one** valid `pcr0` at any time. Updating it is an instantaneous flip: there is no window in which both the old and the new image are accepted.
+There was exactly **one** valid `pcr0` at any time. Updating it was an instantaneous flip: there was no window in which both the old and the new image were accepted.
 
 ### How the enclave recovers its keys
 
@@ -50,10 +62,10 @@ This is the linchpin of the whole upgrade design (see [Key Continuity](#key-cont
 
 ### How the Executor is built and run
 
-- The Executor binary is built from `dockerfiles/executor/Dockerfile`, with the git version embedded via ldflags into `pkg/version/version.go` (`Version`, defaulting to `"dev"`). The Go layer is already deterministic (pinned Go version, `go.sum`-locked deps), but **PCR0 is not yet independently reproducible from a git tag**: the base image uses the moving `amazonlinux:2` tag with unpinned packages, `CGO_ENABLED=1` links the binary to that base image's libc, and — most importantly — the `.eif` packaging step (`nitro-cli build-enclave`), which is what PCR0 actually measures, is external to this repo and unversioned. Making PCR0 reproducible is [R5](#r5--reproducible-enclave-image).
-- The binary is packaged into a Nitro **Enclave Image File (.eif)** by an external `nitro-cli build-enclave` step (not in this repo). PCR0/PCR1/PCR2 are produced by that build.
-- The Executor and Manager are separate processes/containers communicating over vsock (production) or TCP (dev). There is **no in-process reload**: an upgrade means stopping the old enclave and launching a new EIF. The handshake on reconnect is **blocking and has no timeout** (in `pkg/manager/manager.go`).
-- The version string is informational only (logged at startup, queryable via the admin CLI `get_version` command); it is **not** cryptographically bound and **cannot** be used to enforce anything. PCR0 is the only enforcement point.
+- The Executor binary is built from `dockerfiles/executor/Dockerfile`, with the git version embedded via ldflags into `pkg/version/version.go` (`Version`, defaulting to `"dev"`). At the time of writing PCR0 was **not** independently reproducible (moving `amazonlinux:2` base tag, unpinned packages, `CGO_ENABLED=1` linking to the base libc, and an unversioned external `.eif` packaging step). Task 7 fixed this — the build is now reproducible from a git tag on Amazon Linux 2023; see [R5](#r5--reproducible-enclave-image) and [`REPRODUCIBLE_EIF_BUILD.md`](REPRODUCIBLE_EIF_BUILD.md).
+- The binary is packaged into a Nitro **Enclave Image File (.eif)** by `nitro-cli build-enclave` (now driven by the versioned `dockerfiles/executor/build-eif.sh`). PCR0/PCR1/PCR2 are produced by that build.
+- The Executor and Manager are separate processes/containers communicating over vsock (production) or TCP (dev). There is **no in-process reload**: an upgrade means stopping the old enclave and launching a new EIF. The Manager's handshake wait is bounded by `HANDSHAKE_TIMEOUT` (default 5s), and the Manager re-dials + re-handshakes on a dropped/ swapped channel (Task 5) — the single-shot, restart-only handshake noted in earlier drafts no longer applies.
+- The version string is informational only (logged at startup, queryable via the admin CLI `get_version` command); it is **not** cryptographically bound and **cannot** be used to enforce anything. PCR0 is the only enforcement point. (The version is obtained on demand via the forwarded `get_version` admin command — it is **not** carried in the handshake.)
 
 ---
 
@@ -72,7 +84,7 @@ This is the linchpin of the whole upgrade design (see [Key Continuity](#key-cont
 - Migrating or transforming persisted application state as part of an upgrade (a state migration is a separate operation; this design only guarantees the new image can *read* the old state).
 - Changing the cryptographic scheme of the key set, or re-keying the master key.
 - Automating the EIF build / `nitro-cli` pipeline itself (out of repo).
-- Upgrading the smart contracts' proxy mechanism (covered by `UPGRADABLE_CONTRACTS_DESIGN.md`); this design only adds new logic to `TeeAuthenticator`, which becomes feasible *because* that contract is becoming UUPS-upgradable.
+- Upgrading the smart contracts' proxy mechanism (covered by `UPGRADABLE_CONTRACTS_DESIGN.md`); this design only adds new logic to `TeeAuthenticator`. **The UUPS conversion is out of scope here (G7):** the contract remains plain `Ownable` + constructor, with `pcr0UpgradeDelay` and the initial `acceptedPcr0`/`activeImage` seeded in the constructor. The UUPS-supporting changes (`initialize()`, `immutable`→storage, `__gap`) land with the UUPS conversion itself.
 
 ---
 
@@ -108,7 +120,7 @@ The functions that add/remove accepted PCR0 values must be restricted to the con
 
 ### R7 — Protocol-Version Negotiation
 
-The Manager↔Executor handshake must carry a protocol version / capability descriptor. Incompatible pairs must be rejected with an explicit error rather than blocking indefinitely or corrupting persisted recovery data.
+The Manager↔Executor handshake must carry a wire protocol version. Incompatible pairs must be rejected with an explicit error rather than blocking indefinitely or corrupting persisted recovery data. (Implemented as a single monotonic `WireProtocolVersion` with an exact-match policy; the capability-descriptor variant floated in early drafts was not built.)
 
 ### R8 — On-Chain-Triggered Graceful Drain
 
@@ -144,9 +156,14 @@ The "unsafe"/dev recovery type (master key stored in plaintext recovery data) is
 
 ## On-Chain Changes: `TeeAuthenticator`
 
+> **Implemented in `contracts/contracts/TeeAuthenticator.sol` (Task 1).** The Solidity below is
+> illustrative and matches the shipped contract in shape; the contract also adds a
+> `PCR0_LENGTH = 48` constant and length guards. Go bindings and the Manager read path
+> (`GetActiveImage`, `GetTeeSigner`) landed in Task 2.
+
 ### From a single PCR0 to an accepted set with a swap pointer
 
-Replace the single `bytes public pcr0` with a **set** of accepted values, a **pointer** to the one that should currently be running (`activeImage`), and a timelocked staging area for the next swap.
+The single `bytes public pcr0` is replaced with a **set** of accepted values, a **pointer** to the one that should currently be running (`activeImage`), and a timelocked staging area for the next swap.
 
 ```solidity
 // --- replaces `bytes public pcr0` ---
@@ -239,7 +256,7 @@ The Manager observes `Pcr0Swapped` / reads `activeImage` and drains-and-swaps to
 
 ### Attestation check against the active image
 
-`_checkAttestationContent` (`TeeAuthenticator.sol`) currently compares the attestation's PCR field byte-by-byte against the single `pcr0`. It must instead extract the PCR0 bytes from `pcrs` (offset 4) and require they match `activeImage`:
+`_checkAttestationContent` (`TeeAuthenticator.sol`) extracts the PCR0 bytes from `pcrs` (fixed 48-byte SHA-384 at offset 4) and requires they match `activeImage` (it previously compared byte-by-byte against the single `pcr0`):
 
 ```solidity
 function _checkAttestationContent(bytes memory pcrs, bytes memory enclaveKey, bytes memory userData)
@@ -263,7 +280,7 @@ This keeps `updateTee` / `updateTeeStep1..4` working unchanged in shape: they co
 
 ### Authority and timelock
 
-`proposePcr0Swap` / `applyPcr0Swap` / `removePcr0` are `onlyOwner`, mirroring the controlled-upgrade-authority requirement (R5) of `UPGRADABLE_CONTRACTS_DESIGN.md`. The owner should be a multisig, and `pcr0UpgradeDelay` provides the same user-protection property that the contract-upgrade timelock provides: a compromised owner cannot make a **new** image authoritative without a publicly visible delay during which users can withdraw. (Swaps to an already-accepted image skip the delay precisely because that image already cleared an audit window — switching to it introduces no new code.)
+`proposePcr0Swap` / `applyPcr0Swap` / `cancelPcr0Swap` / `removePcr0` are `onlyOwner`, mirroring the controlled-upgrade-authority requirement ([R6](#r6--controlled-upgrade-authority)) of `UPGRADABLE_CONTRACTS_DESIGN.md`. The owner should be a multisig, and `pcr0UpgradeDelay` provides the same user-protection property that the contract-upgrade timelock provides: a compromised owner cannot make a **new** image authoritative without a publicly visible delay during which users can withdraw. (Swaps to an already-accepted image skip the delay precisely because that image already cleared an audit window — switching to it introduces no new code.)
 
 ---
 
@@ -277,13 +294,27 @@ This is purely an AWS-side configuration change (key policy update); no code cha
 
 ### Protocol-version handshake (R7)
 
-Extend the handshake (`pkg/executor/executor.go` `performHandshake`, and the message types in `pkg/communication`) with a `protocolVersion` (and optionally a capability bitmap). On connect:
+The handshake carries `communication.WireProtocolVersion` (a `uint32`, currently `1`),
+deliberately distinct from the informational `version.Version` git string and from
+`common.Request.ProtocolVersion` (the on-chain request-level version). The exchange
+piggybacks on the **first** request/response pair, so an incompatible peer is rejected
+**before any keyset-recovery data is read, generated, or stored** (`pkg/communication`,
+`performHandshake` in `pkg/executor/executor.go`, `HandleGetKeysetRecoveryRequest` in
+`pkg/manager/manager.go`):
 
-- Manager and Executor exchange their `protocolVersion`.
-- If the pair is incompatible, fail the handshake with a typed error and **do not** mutate persisted recovery data.
-- Add a **timeout** to the Manager's blocking wait (in `pkg/manager/manager.go`) so a failed/incompatible swap surfaces as an explicit error rather than a hang.
+- The Executor sends its version in `GetKeysetRecoveryRequest`; the Manager checks
+  `IsCompatible(peer)` and, on mismatch, fails the handshake with a typed
+  `IncompatibleProtocolError` and returns no recovery data. Otherwise it replies with its
+  own version, which the Executor checks before restoring/generating a keyset.
+- Both-side checks are required for rollout: an old peer omits the field (reads as `0`) and
+  cannot self-check, so the up-to-date peer must reject it.
+- The Manager's wait is bounded by `HANDSHAKE_TIMEOUT` (default 5s), so an
+  incompatible/failed handshake surfaces as an explicit error rather than a hang.
 
-Because Manager and Executor may be upgraded independently, define and document a small compatibility matrix keyed on `protocolVersion`.
+The compatibility policy is **exact-match** (`IsCompatible` = equality; `0`/absent is
+incompatible with any non-zero version) — bump `WireProtocolVersion` on any incompatible
+change to the handshake or message set. The capability-bitmap / min-supported-floor idea
+from the original design was **not** implemented; see [the matrix note](#protocol-version-matrix-a-code-constant-not-a-doc-table).
 
 ### On-chain upgrade trigger (R8)
 
@@ -291,7 +322,9 @@ The swap is initiated by an **on-chain action on `TeeAuthenticator`**, not by a 
 
 The trigger is the `activeImage` pointer set by `applyPcr0Swap`, announced by the `Pcr0Swapped` event (see [A single swap flow](#a-single-swap-flow-for-upgrades-and-rollbacks) above). `activeImage` names the PCR0 the Manager should be running; the Manager compares it against the image it is actually running and, on a mismatch, drains and swaps.
 
-The Manager **already holds the `TeeAuthenticator` binding** (`teeAuthBoundContract` in `pkg/blockchain/client.go`, configured from `CHAIN_TEEAUTHENTICATOR_ADDRESS`); today it is dormant — only the test-only `GetTeePublicKey()` read path exists. The only addition is to read `activeImage` / watch `Pcr0Swapped` in the polling loop (`pkg/manager/manager.go`), next to `GetNextPendingRequest`. No new contract reference and no new configuration are required.
+**How the Manager knows the running image (Task 3 / G1):** the Executor reads its own PCR0 from the NSM (`DescribePCR(0)`) once at startup and reports it in the handshake; the Manager stores it (`RunningPcr0()`) and compares `keccak256(reported pcr0)` against `activeImage`. A dev/TCP executor has no NSM and reports an empty PCR0 (the "dev marker"), so swap observation is skipped there.
+
+The Manager reads `activeImage` via `GetActiveImage` on its `TeeAuthenticator` binding (`pkg/blockchain/client.go`, configured from `CHAIN_TEEAUTHENTICATOR_ADDRESS`) in the polling loop (`pkg/manager/manager.go`), next to `GetNextPendingRequest`. No new contract reference and no new configuration are required.
 
 When `activeImage` differs from the running image, the Manager:
 
@@ -303,13 +336,15 @@ When `activeImage` differs from the running image, the Manager:
 
 The trigger is **level-based and idempotent**: the Manager acts on the *state* of `activeImage`, not on a one-shot event, so a re-delivered `Pcr0Swapped`, a missed event, or a Manager restart all converge to the same outcome — it swaps iff the running image differs from `activeImage`. This also makes rollback uniform: pointing `activeImage` back to `PCR0_old` is just another mismatch the Manager resolves the same way.
 
-The Executor binary version (`pkg/version`) should be returned in the handshake and in the admin CLI `get_version`, so the operator can confirm the running version after the swap.
+**Signer-continuity guard (D2, Task 5):** once per handshake the Manager also compares the Executor's reported signing-key address against the on-chain `teeSigner`. A pure software upgrade recovers the *same* key set, so these must match; a mismatch on a set `teeSigner` means the enclave regenerated its keyset instead of recovering it (silent state orphaning) and is surfaced as a fatal `SignerContinuityError`. It is deferred while `teeSigner` is unset (bootstrap) and runs in every channel mode (it does not depend on PCR0).
+
+After the swap the operator can confirm the running version via the admin CLI `get_version` (which also surfaces the handshake-reported `executorPcr0`). The Executor binary version is obtained on demand through that forwarded `get_version` command — it is **not** carried in the handshake.
 
 > **No designed emergency stop.** There is deliberately no off-chain "stop now" verb. An operator with host access can always terminate the enclave out-of-band (`nitro-cli terminate-enclave` / stopping the supervisor); that is an ungraceful stop — in-flight requests are lost, but no state is lost because the key set and encrypted state are recovered on the next start. Removing a dedicated break-glass command removes a redundant trust path, not a capability.
 
 ### Reproducible build (R5)
 
-The EIF build must be deterministic enough that PCR0/PCR1/PCR2 are a pure function of the source at a given git tag. Practically this means pinning the toolchain (Go 1.24, base image digest, build flags) and the `nitro-cli` version, and publishing — for each release — the git commit, the EIF, and the expected PCR measurements, so third parties can rebuild and compare against the on-chain set during the timelock window.
+The EIF build is deterministic enough that PCR0/PCR1/PCR2 are a pure function of the source at a given git tag: the toolchain (Go 1.24, base-image digest, build flags) and the `nitro-cli` version are pinned, and each release publishes the git tag, the PCR measurements, the `nitro-cli` version, and the base-image digest so third parties can rebuild and compare against the on-chain `proposePcr0Swap` value during the timelock window. Implemented on Amazon Linux 2023 via `dockerfiles/executor/build-eif.sh` (+ `versions.env`) and verified twice-on-independent-runners in CI; see [`REPRODUCIBLE_EIF_BUILD.md`](REPRODUCIBLE_EIF_BUILD.md). Note the R2 key-continuity guard (`EXECUTOR_EXPECT_EXISTING_KEYSET`) is baked into the image as an `ENV`, so it is part of PCR0: the default **upgrade** variant has the guard on, a one-time **genesis** variant has it off, and the two have different PCR0s.
 
 ---
 
@@ -338,7 +373,9 @@ The Manager may be upgraded independently of this sequence, gated only by the [R
 |---------|-------|------------|
 | New enclave can't recover keys | `PCR0_new` not in KMS policy (step 2 skipped/late) | Handshake fails fast (R7 timeout); operator adds PCR0 to policy or rolls back to old EIF |
 | On-chain attestation rejected | `applyPcr0Swap` not yet executed (`PCR0_new` not in set) | `updateTee` reverts with `InvalidPCR`; old PCR0 still serves traffic |
-| Manager/Executor version mismatch | Independent upgrades | Typed handshake error (R7); no state mutation |
+| Manager/Executor version mismatch | Independent upgrades | Typed `IncompatibleProtocolError` on the first handshake message (R7); no recovery data read/generated/stored |
+| New enclave regenerated its keyset instead of recovering it (would orphan all state) | KMS/data-folder issue, or a diverged image | Signer-continuity guard (D2, Task 5): reported signer ≠ on-chain `teeSigner` on a set signer → fatal `SignerContinuityError`, no dispatch |
+| Manager data folder wiped/wrong during an upgrade | Operator error / bad migration | R2 guards (Task 6): with `EXECUTOR_EXPECT_EXISTING_KEYSET` the Executor aborts the handshake on a `found=false` response instead of generating a keyset; the Manager's recovery store refuses to overwrite an existing blob with a different one |
 | Request interrupted by swap | Drain skipped | Manager drains in-flight work on the on-chain swap signal before stop (R8) |
 | Malicious image pushed by compromised owner | Owner key compromise | Timelock (R4) + reproducible build (R5) give users a window to detect and withdraw |
 | Stale proposal applied long after audit | Abandoned proposal + later owner key compromise | Proposals expire `PCR0_SWAP_APPLY_WINDOW` after `eta` (`SwapProposalExpired`); `cancelPcr0Swap` revokes one explicitly |
@@ -360,13 +397,29 @@ Concretely, on each tick the Manager reads `activeImage` and, **before** calling
 
 We consider PCR0 sufficient as the trust anchor for now. PCR1 (kernel) and PCR2 (application) were never checked, and this implementation does not add them.
 
+### Challenge attestation (D1): considered, not adopted
+
+A periodic challenge attestation — the Manager submitting a fresh, nonce-bound attestation
+(nonce = recent block hash in `userData`, a `maxAttestationAge` freshness bound, verified
+against `activeImage`) to prove the `activeImage` enclave is *live and holds the key* — was
+considered per Task 0 and **not adopted**. It would not close the core D1 risk: it cannot
+exclude a parallel rogue image admitted via a **diverged KMS policy** (the rogue image also
+holds the key and could answer challenges, and passive state decryption is undetectable by
+any protocol). The D1 risk is therefore mitigated **preventively** by KMS-policy governance
+and auditability — restricted multi-party `PutKeyPolicy`, external-auditor read access, and
+out-of-band mutation alarms, plus the on-chain↔KMS set-equality invariant — documented in
+[`docs/ops/KMS_KEY_POLICY_RUNBOOK.md`](../ops/KMS_KEY_POLICY_RUNBOOK.md). The signer-continuity
+guard (D2) additionally catches a regenerated keyset at reconnect. A challenge attestation
+remains a possible future defense-in-depth if enclave-to-enclave key handoff (demoting KMS to
+break-glass) is ever pursued.
+
 ### Protocol-version matrix: a code constant, not a doc table
 
-The compatibility matrix for `(managerVersion, executorVersion)` lives in **code as the source of truth**, not as a table in this document. The reason is that the compatibility check is *enforced* at handshake time ([R7](#r7--protocol-version-negotiation)): a doc table cannot reject anything and would inevitably drift from the code that does.
+The compatibility rule lives in **code as the source of truth**, not as a table in this document. The reason is that the compatibility check is *enforced* at handshake time ([R7](#r7--protocol-version-negotiation)): a doc table cannot reject anything and would inevitably drift from the code that does.
 
-Concretely:
+As built:
 
-- Introduce a dedicated, monotonic `ProtocolVersion` constant in `pkg/communication`, **separate from** the informational `version.Version` git string in `pkg/version` (which the [Current State](#how-the-executor-is-built-and-run) explicitly marks as non-enforcing). The handshake carries `ProtocolVersion`, not the git version.
-- Both sides expose their `ProtocolVersion` in the handshake, and a single `IsCompatible(peer)` function encodes the rule (exact-match, or a documented min-supported floor as the protocol evolves). That function is the matrix.
-- This doc records only *where* the constant and the compatibility rule live; it does not duplicate the pairs, so there is nothing to keep in sync by hand.
+- A dedicated, monotonic `WireProtocolVersion` (`uint32`) constant in `pkg/communication`, **separate from** the informational `version.Version` git string in `pkg/version` (marked non-enforcing in [Original State](#how-the-executor-is-built-and-run)) and from `common.Request.ProtocolVersion` (the on-chain request-level version). The `Wire` prefix disambiguates it from the latter; the handshake carries `WireProtocolVersion`, not the git version.
+- Both sides advertise their `WireProtocolVersion` in the handshake, and a single `IsCompatible(peer)` function encodes the rule. The shipped policy is **exact-match** (equality); the min-supported-floor variant remains a future option encoded in that one function.
+- There is no `(managerVersion, executorVersion)` pair matrix — a single shared wire version governs compatibility, so there is nothing to keep in sync by hand.
 
