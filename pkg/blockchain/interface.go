@@ -26,6 +26,8 @@ type Client interface {
 	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
 	// GetActiveImage returns keccak256(PCR0) of the enclave image the platform should currently be running.
 	GetActiveImage(ctx context.Context) ([32]byte, error)
+	// GetTeeSigner returns the on-chain teeSigner address (zero until the first attestation is registered).
+	GetTeeSigner(ctx context.Context) (ethCommon.Address, error)
 	// ChainID returns the connected chain ID.
 	ChainID(ctx context.Context) (*big.Int, error)
 	// LatestBlockNumber returns the latest block number from the chain.

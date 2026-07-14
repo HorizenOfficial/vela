@@ -94,7 +94,17 @@ const (
 	AdminCmdGetLogLevel       = "get_log_level"
 	AdminCmdSetWasmCacheSize  = "set_wasm_cache_size"
 	AdminCmdGetWasmCacheSize  = "get_wasm_cache_size"
+	// AdminCmdShutdown asks the Executor to exit cleanly (drain step 3). It is
+	// forwarded by the Manager over the communication channel, not exposed as an
+	// operator-facing verb on the Manager admin server.
+	AdminCmdShutdown = "shutdown"
 )
+
+// ShutdownResponse is the Executor's acknowledgement of an AdminCmdShutdown.
+type ShutdownResponse struct {
+	// Stopping is always true; the executor exits after sending this ack.
+	Stopping bool `json:"stopping"`
+}
 
 // SupportedLogLevels lists all valid log level strings accepted by SetLogLevel.
 const SupportedLogLevels = "trace, debug, info, warn, error, fatal, panic, disabled"

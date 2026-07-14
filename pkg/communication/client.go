@@ -60,6 +60,12 @@ func (c *Client) Connect(ctx context.Context, idLogTag string) error {
 	c.conn = conn
 	c.reader = bufio.NewReader(conn)
 	c.writer = bufio.NewWriter(conn)
+	// Fresh shutdown channel for this connection: Close() closes it, and a later
+	// Connect() (reconnect) must not reuse an already-closed channel. Both the
+	// reader and cleanup goroutines capture this channel by value so they observe
+	// only their own connection's shutdown.
+	c.shutdown = make(chan struct{})
+	shutdown := c.shutdown
 	c.connected = true
 	c.idLogTag = idLogTag
 
@@ -69,27 +75,52 @@ func (c *Client) Connect(ctx context.Context, idLogTag string) error {
 		idLogTag,
 		c.conn,
 		c.reader,
-		c.shutdown,
+		shutdown,
 		func(ctx context.Context, msg Message) {
 			c.routeIncomingMessage(ctx, msg)
 		},
 		func() {
-			c.Close()
+			c.handleReaderExit(conn)
 		},
 		c.log,
 	)
 
 	// Start the cleanup goroutine for timed-out requests
-	go c.cleanupLoop()
+	go c.cleanupLoop(shutdown)
 
 	return nil
+}
+
+// handleReaderExit tears down the connection when its reader loop exits, but
+// only if that reader still owns the current connection. A reconnect may have
+// already replaced c.conn, in which case a stale reader's exit must not close
+// the new connection.
+func (c *Client) handleReaderExit(conn net.Conn) {
+	c.connLock.Lock()
+	defer c.connLock.Unlock()
+	if c.conn != conn {
+		return
+	}
+	_ = c.closeLocked()
 }
 
 // Close closes the connection and stops all goroutines
 func (c *Client) Close() error {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
+	return c.closeLocked()
+}
 
+// IsConnected reports whether the client currently holds an open connection.
+func (c *Client) IsConnected() bool {
+	c.connLock.Lock()
+	defer c.connLock.Unlock()
+	return c.connected
+}
+
+// closeLocked performs the teardown with c.connLock already held. Idempotent:
+// a no-op if not connected, so a double close never panics on c.shutdown.
+func (c *Client) closeLocked() error {
 	if !c.connected {
 		return nil
 	}
@@ -355,7 +386,13 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message
 		return
 	}
 
-	recv, err := c.requestHandler.HandleGetKeysetRecoveryRequest(ctx)
+	reqData, err := extractData[GetKeysetRecoveryRequestData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	recv, err := c.requestHandler.HandleGetKeysetRecoveryRequest(ctx, reqData.WireProtocolVersion)
 
 	var dataFound bool
 	var respRecv *common.EnclaveKeySetRecovery
@@ -380,8 +417,9 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message
 		ID:   msg.ID,
 		Type: GetKeysetRecoveryResponseMessage,
 		Data: GetKeysetRecoveryResponseData{
-			DataFound:      dataFound,
-			KeySetRecovery: respRecv,
+			DataFound:           dataFound,
+			KeySetRecovery:      respRecv,
+			WireProtocolVersion: WireProtocolVersion,
 		},
 	}
 
@@ -409,7 +447,7 @@ func (c *Client) handleKeysetRecoveryResult(ctx context.Context, msg Message) {
 		result = fmt.Errorf("%s", reqData.Error)
 	}
 
-	err = c.requestHandler.HandleKeysetRecoveryResult(ctx, result, reqData.CommPubKey, reqData.SigningKeyAddr, reqData.Pcr0, reqData.Version)
+	err = c.requestHandler.HandleKeysetRecoveryResult(ctx, result, reqData.CommPubKey, reqData.SigningKeyAddr, reqData.Pcr0)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -429,7 +467,7 @@ func (c *Client) handleSetKeysetRecoveryRequest(ctx context.Context, msg Message
 		return
 	}
 
-	err = c.requestHandler.HandleSetKeysetRecoveryRequest(ctx, reqData.KeySetRecovery, reqData.CommPubKey, reqData.SigningKeyAddr, reqData.Pcr0, reqData.Version)
+	err = c.requestHandler.HandleSetKeysetRecoveryRequest(ctx, reqData.KeySetRecovery, reqData.CommPubKey, reqData.SigningKeyAddr, reqData.Pcr0)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -466,7 +504,7 @@ func (c *Client) sendErrorResponse(requestID string, code string, err error) {
 }
 
 // cleanupLoop periodically cleans up timed-out requests
-func (c *Client) cleanupLoop() {
+func (c *Client) cleanupLoop(shutdown chan struct{}) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -474,7 +512,7 @@ func (c *Client) cleanupLoop() {
 		select {
 		case <-ticker.C:
 			c.cleanupTimedOutRequests()
-		case <-c.shutdown:
+		case <-shutdown:
 			return
 		}
 	}

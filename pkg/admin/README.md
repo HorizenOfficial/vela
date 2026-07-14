@@ -239,6 +239,15 @@ Generates a key attestation document for the Executor's cryptographic keys. Alwa
 }
 ```
 
+#### Shutdown (internal)
+
+`shutdown` (`AdminCmdShutdown`) asks the Executor to exit cleanly. It is **not** an
+operator-facing verb — the Manager admin server does not route it. It is forwarded over the
+communication channel by the Manager's swap-drain sequence (drain step 3): after the
+in-flight request finishes, the Manager sends `shutdown`, the Executor acks with
+`{"stopping": true}` and then exits. The Manager treats the ensuing disconnect as a normal
+outcome, not a fatal error.
+
 ### Error Handling
 
 Errors are returned as `"type": "error"` messages with a `code` and `message` field:

@@ -17,6 +17,10 @@ type ExecutorClient interface {
 	Connect(ctx context.Context, identityLogTag string) error
 	// Close closes the connection to the executor
 	Close() error
+	// IsConnected reports whether the channel to the executor is currently open.
+	// Used by the Manager to detect a dropped connection (executor crash/restart)
+	// and trigger a re-dial + re-handshake before dispatching.
+	IsConnected() bool
 	// SendProcessRequest sends a request to the executor and returns the response
 	// The response includes an optional deanonymization report if the request type was Deanonymize
 	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
@@ -49,8 +53,8 @@ type ExecutorServer interface {
 // allowing the server to send requests to the client.
 type ServerConnection interface {
 	GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error)
-	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0, version string) error
-	KeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0, version string) error
+	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0 string) error
+	KeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0 string) error
 	Close()
 }
 
@@ -59,9 +63,9 @@ type ConnectionHandler func(ctx context.Context, conn ServerConnection)
 
 // ClientRequestHandler defines the interface for handling requests from server (the executor) to client (the manager)
 type ClientRequestHandler interface {
-	HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error)
-	HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0, version string) error
-	HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0, version string) error
+	HandleGetKeysetRecoveryRequest(ctx context.Context, peerProtocolVersion uint32) (*common.EnclaveKeySetRecovery, error)
+	HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0 string) error
+	HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0 string) error
 }
 
 // RequestHandler defines the interface for handling requests in the WASM Executor

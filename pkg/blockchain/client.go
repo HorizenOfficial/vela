@@ -581,3 +581,26 @@ func (c *BlockChainClient) GetActiveImage(ctx context.Context) ([32]byte, error)
 	}
 	return activeImage, nil
 }
+
+// GetTeeSigner returns the on-chain teeSigner address the TeeAuthenticator
+// expects to have signed state updates. It is the zero address until the first
+// attestation is registered via updateTee (i.e. before the TEE is initialized).
+func (c *BlockChainClient) GetTeeSigner(ctx context.Context) (ethCommon.Address, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.connected {
+		return ethCommon.Address{}, fmt.Errorf("client not connected, call Connect first")
+	}
+	if c.teeAuthBoundContract == nil || c.teeAuthEndpoint == nil {
+		return ethCommon.Address{}, fmt.Errorf("tee authenticator contract not configured")
+	}
+
+	signer, err := bind.Call(c.teeAuthBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.teeAuthEndpoint.PackGetTeeSigner(),
+		c.teeAuthEndpoint.UnpackGetTeeSigner)
+	if err != nil {
+		return ethCommon.Address{}, fmt.Errorf("cannot retrieve teeSigner: %w", err)
+	}
+	return signer, nil
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"sync"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
@@ -373,6 +374,11 @@ type StatelessExecutor struct {
 	// the NSM at startup. Empty in non-Nitro (TCP/dev) mode where no NSM exists.
 	pcr0 string
 
+	// shutdownCh is closed once when the Manager requests a graceful shutdown
+	// (AdminCmdShutdown). main() selects on ShutdownRequested() to exit cleanly.
+	shutdownCh   chan struct{}
+	shutdownOnce sync.Once
+
 	// KMS dependencies (nil for Type 0, required for Type 1)
 	kmsClient     kms.KMSClient
 	enclaveHandle kms.EnclaveHandle
@@ -409,6 +415,7 @@ func NewStatelessExecutor(
 		kmsClient:        kmsClient,
 		enclaveHandle:    enclaveHandle,
 		pcr0:             readSelfPCR0(log),
+		shutdownCh:       make(chan struct{}),
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
@@ -438,6 +445,23 @@ func readSelfPCR0(log logger.Logger) string {
 	return encoded
 }
 
+// ShutdownRequested returns a channel that is closed when the Manager has asked
+// the Executor to exit cleanly (AdminCmdShutdown). main() selects on it.
+func (e *StatelessExecutor) ShutdownRequested() <-chan struct{} {
+	return e.shutdownCh
+}
+
+// requestShutdown signals a graceful shutdown exactly once. Safe to call from
+// the admin-command handler goroutine.
+func (e *StatelessExecutor) requestShutdown() {
+	e.shutdownOnce.Do(func() {
+		e.log.Info("Executor: graceful shutdown requested by manager")
+		if e.shutdownCh != nil {
+			close(e.shutdownCh)
+		}
+	})
+}
+
 func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn communication.ServerConnection) {
 	e.log.Info("Executor: New connection established, starting handshake")
 	keySet, err := e.performHandshake(ctx, conn)
@@ -464,7 +488,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		keySet, err = RestoreEnclaveKeySet(ctx, recoveryData, e.kmsClient, e.enclaveHandle)
 		if err != nil {
 			// Notify manager of failure
-			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", "", e.pcr0, version.Version); notifyErr != nil {
+			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", "", e.pcr0); notifyErr != nil {
 				e.log.Error("Executor: failed to send keyset recovery failure to manager: %v", notifyErr)
 			}
 			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
@@ -474,7 +498,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
 		e.log.Info("Executor: Keyset restored successfully, confirming ")
-		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr, e.pcr0, version.Version)
+		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr, e.pcr0)
 		if err != nil {
 			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
 		}
@@ -495,7 +519,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		commPubKey := crypto.ExportPublicKeyP521ToHex(keySet.CommunicationKey.PublicKey())
 		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
-		err = conn.SetKeysetRecovery(ctx, newRecoveryData, commPubKey, signingKeyAddr, e.pcr0, version.Version)
+		err = conn.SetKeysetRecovery(ctx, newRecoveryData, commPubKey, signingKeyAddr, e.pcr0)
 		if err != nil {
 			return nil, fmt.Errorf("failed to set keyset recovery data: %w", err)
 		}
@@ -1283,6 +1307,17 @@ func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType stri
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal version: %w", err)
 		}
+		return resp, nil
+
+	case admin.AdminCmdShutdown:
+		// Ack first, then signal main to exit. The ack is the return value here;
+		// the actual process exit happens asynchronously once main observes
+		// ShutdownRequested(), so the ack is flushed before the server stops.
+		resp, err := json.Marshal(admin.ShutdownResponse{Stopping: true})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal shutdown response: %w", err)
+		}
+		e.requestShutdown()
 		return resp, nil
 
 	case admin.AdminCmdSetWasmCacheSize:

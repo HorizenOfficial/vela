@@ -13,10 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/HorizenOfficial/vela/pkg/admin"
 	"github.com/HorizenOfficial/vela/pkg/blockchain"
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -95,6 +97,13 @@ func (m *MockExecutorClient) Close() error {
 		return f.(func() error)()
 	}
 	return nil
+}
+
+func (m *MockExecutorClient) IsConnected() bool {
+	if f, ok := m.GetMockedFunc("IsConnected"); ok {
+		return f.(func() bool)()
+	}
+	return true
 }
 
 func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
@@ -2314,8 +2323,8 @@ func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 }
 
 // TestHandleKeysetRecovery_SetsRunningPcr0 verifies the manager records the
-// PCR0 (running image) and version the executor reports during the handshake,
-// for both the recovery-result and set-recovery paths.
+// PCR0 (running image) the executor reports during the handshake, for both the
+// recovery-result and set-recovery paths.
 func TestHandleKeysetRecovery_SetsRunningPcr0(t *testing.T) {
 	ctx := context.Background()
 	config := Config{
@@ -2328,7 +2337,7 @@ func TestHandleKeysetRecovery_SetsRunningPcr0(t *testing.T) {
 		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
 	require.Empty(t, mgr.RunningPcr0(), "PCR0 should be empty before handshake")
 
-	err := mgr.HandleKeysetRecoveryResult(ctx, nil, "comm-pub-key", "0xsigner", "deadbeef", "v1.2.3")
+	err := mgr.HandleKeysetRecoveryResult(ctx, nil, "comm-pub-key", "0xsigner", "deadbeef")
 	require.NoError(t, err)
 	require.Equal(t, "deadbeef", mgr.RunningPcr0())
 
@@ -2337,7 +2346,451 @@ func TestHandleKeysetRecovery_SetsRunningPcr0(t *testing.T) {
 		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
 	err = mgr2.HandleSetKeysetRecoveryRequest(ctx, &common.EnclaveKeySetRecovery{
 		RecoveryType: common.RecoveryTypeKMS,
-	}, "comm-pub-key", "0xsigner", "cafebabe", "v2.0.0")
+	}, "comm-pub-key", "0xsigner", "cafebabe")
 	require.NoError(t, err)
 	require.Equal(t, "cafebabe", mgr2.RunningPcr0())
+}
+
+// TestHandleGetKeysetRecoveryRequest_IncompatibleProtocol verifies that an
+// incompatible executor protocol version fails the handshake with a typed
+// error, before any keyset-recovery data is read or exchanged.
+func TestHandleGetKeysetRecoveryRequest_IncompatibleProtocol(t *testing.T) {
+	ctx := context.Background()
+	config := Config{
+		ReorgTimeout:        60,
+		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
+	_, mgr := setupTestWithConfig(t, ctx, config, true,
+		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
+
+	incompatible := communication.WireProtocolVersion + 1
+	recv, err := mgr.HandleGetKeysetRecoveryRequest(ctx, incompatible)
+
+	require.Nil(t, recv, "no recovery data should be returned for an incompatible peer")
+	var incompatErr *communication.IncompatibleProtocolError
+	require.ErrorAs(t, err, &incompatErr)
+	require.Equal(t, incompatible, incompatErr.Peer)
+
+	// The handshake was completed with the typed error — a clean abort, not a timeout.
+	require.ErrorAs(t, mgr.executorHandShake.err, &incompatErr)
+}
+
+// TestHandleGetKeysetRecoveryRequest_CompatibleProceeds verifies a compatible
+// peer is not rejected: the handler proceeds to read recovery data (NotFound on
+// a fresh mock) and does not fail the handshake.
+func TestHandleGetKeysetRecoveryRequest_CompatibleProceeds(t *testing.T) {
+	ctx := context.Background()
+	config := Config{
+		ReorgTimeout:        60,
+		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
+	_, mgr := setupTestWithConfig(t, ctx, config, true,
+		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
+
+	recv, err := mgr.HandleGetKeysetRecoveryRequest(ctx, communication.WireProtocolVersion)
+
+	require.Nil(t, recv)
+	require.Error(t, err, "fresh mock has no recovery data (NotFound)")
+	var incompatErr *communication.IncompatibleProtocolError
+	require.False(t, errors.As(err, &incompatErr), "compatible peer must not yield an incompatibility error")
+	require.NoError(t, mgr.executorHandShake.err, "handshake must not be failed for a compatible peer")
+}
+
+// TestForwardShutdown_ToleratesDisconnect verifies the manager does not treat a
+// missing shutdown ack (executor already exiting / disconnected) as an error —
+// the drain sequence must not turn this into a fatal error.
+func TestForwardShutdown_ToleratesDisconnect(t *testing.T) {
+	_, mgr := setupTest(t)
+	ctx := context.Background()
+
+	// Executor drops the connection instead of acking.
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			require.Equal(t, admin.AdminCmdShutdown, cmdType)
+			return nil, fmt.Errorf("connection closed")
+		},
+	)
+	require.NoError(t, mgr.forwardShutdown(ctx), "disconnect on shutdown must be swallowed")
+
+	// Executor acks cleanly.
+	mgr.executorClient.(*MockExecutorClient).AddMockedFunc("ForwardAdminCommand",
+		func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+			resp, _ := json.Marshal(admin.ShutdownResponse{Stopping: true})
+			return resp, nil
+		},
+	)
+	require.NoError(t, mgr.forwardShutdown(ctx))
+}
+
+// --- Task 5: swap observation / drain / reconnect / signer continuity ---
+
+// newSwapTestManager builds a manager with an initialized handshake and returns
+// it plus its mock blockchain client, for TEE-swap tests.
+func newSwapTestManager(t *testing.T) (*blockchain.MockClient, *SecureProcessorManager) {
+	config := Config{
+		ReorgTimeout:        60,
+		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
+	return setupTestWithConfig(t, context.Background(), config, true,
+		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
+}
+
+// pcr0AndImage returns a hex-encoded PCR0 and its keccak256 (the activeImage).
+func pcr0AndImage(seed byte) (string, [32]byte) {
+	raw := make([]byte, 48)
+	for i := range raw {
+		raw[i] = seed + byte(i)
+	}
+	return hex.EncodeToString(raw), [32]byte(ethCrypto.Keccak256Hash(raw))
+}
+
+func TestMaintainExecutor_MatchDispatches(t *testing.T) {
+	bc, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	pcr0, image := pcr0AndImage(0x10)
+	mgr.setExecutorIdentity(pcr0, "0xabc")
+	bc.SetActiveImage(image)
+	// teeSigner unset (zero) -> signer check deferred, not fatal.
+
+	skip, err := mgr.maintainExecutorForActiveImage(ctx)
+	require.NoError(t, err)
+	require.False(t, skip, "matching image must not skip dispatch")
+	require.False(t, mgr.isDraining())
+}
+
+func TestMaintainExecutor_MismatchDrains(t *testing.T) {
+	bc, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	pcr0, _ := pcr0AndImage(0x20)
+	_, otherImage := pcr0AndImage(0x99) // different image on-chain
+	mgr.setExecutorIdentity(pcr0, "0xabc")
+	bc.SetActiveImage(otherImage)
+
+	var shutdownSent, closed bool
+	mec := mgr.executorClient.(*MockExecutorClient)
+	mec.AddMockedFunc("ForwardAdminCommand", func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+		if cmdType == admin.AdminCmdShutdown {
+			shutdownSent = true
+		}
+		return nil, fmt.Errorf("connection closed")
+	})
+	mec.AddMockedFunc("Close", func() error { closed = true; return nil })
+
+	skip, err := mgr.maintainExecutorForActiveImage(ctx)
+	require.NoError(t, err, "drain is not a fatal error")
+	require.True(t, skip, "mismatch must skip dispatch")
+	require.True(t, mgr.isDraining())
+	require.True(t, shutdownSent, "shutdown must be signaled on drain")
+	require.True(t, closed, "channel must be closed on drain")
+}
+
+func TestMaintainExecutor_DevMarkerProceeds(t *testing.T) {
+	bc, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	// Executor reported no PCR0 (dev/TCP). Any activeImage is ignored.
+	mgr.setExecutorIdentity("", "")
+	bc.SetActiveImage([32]byte{0x01})
+
+	skip, err := mgr.maintainExecutorForActiveImage(ctx)
+	require.NoError(t, err)
+	require.False(t, skip)
+	require.False(t, mgr.isDraining())
+}
+
+func TestVerifySignerContinuity(t *testing.T) {
+	bc, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	signer := ethCommon.HexToAddress("0x1111111111111111111111111111111111111111")
+	mgr.setExecutorIdentity("aa", signer.Hex())
+
+	// Bootstrap: teeSigner unset -> deferred, dispatch proceeds, not verified.
+	skip, err := mgr.verifySignerContinuity(ctx)
+	require.NoError(t, err)
+	require.False(t, skip)
+	mgr.identityMu.RLock()
+	require.False(t, mgr.signerVerified)
+	mgr.identityMu.RUnlock()
+
+	// Matching non-zero teeSigner -> passes and is marked verified.
+	bc.SetTeeSigner(signer)
+	skip, err = mgr.verifySignerContinuity(ctx)
+	require.NoError(t, err)
+	require.False(t, skip)
+	mgr.identityMu.RLock()
+	require.True(t, mgr.signerVerified)
+	mgr.identityMu.RUnlock()
+}
+
+func TestVerifySignerContinuity_MismatchFatal(t *testing.T) {
+	bc, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	mgr.setExecutorIdentity("aa", "0x1111111111111111111111111111111111111111")
+	bc.SetTeeSigner(ethCommon.HexToAddress("0x2222222222222222222222222222222222222222"))
+
+	skip, err := mgr.verifySignerContinuity(ctx)
+	require.False(t, skip)
+	var sce *SignerContinuityError
+	require.ErrorAs(t, err, &sce)
+}
+
+// TestVerifySignerContinuity_TransientErrorSkips verifies a transient teeSigner
+// read error skips dispatch (retry next tick) instead of dispatching unverified,
+// consistent with the activeImage read.
+func TestVerifySignerContinuity_TransientErrorSkips(t *testing.T) {
+	bc, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	mgr.setExecutorIdentity("aa", "0x1111111111111111111111111111111111111111")
+	bc.AddMockedFunc("GetTeeSigner", func(context.Context) (ethCommon.Address, error) {
+		return ethCommon.Address{}, fmt.Errorf("rpc unavailable")
+	})
+
+	skip, err := mgr.verifySignerContinuity(ctx)
+	require.NoError(t, err, "transient read error is not fatal")
+	require.True(t, skip, "transient read error must skip dispatch, not proceed unverified")
+	mgr.identityMu.RLock()
+	require.False(t, mgr.signerVerified)
+	mgr.identityMu.RUnlock()
+}
+
+// TestReconnect_ConcurrentStaleHandshakeCompletion exercises the handShakeMu
+// guard (Fix 1): a detached handler goroutine from a drained connection may call
+// completeExecutorHandshake concurrently with reconnectExecutor swapping in a
+// fresh handshake tracker. Under -race this must not report a data race on the
+// executorHandShake pointer.
+func TestReconnect_ConcurrentStaleHandshakeCompletion(t *testing.T) {
+	_, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	mec := mgr.executorClient.(*MockExecutorClient)
+	mec.AddMockedFunc("Connect", func(ctx context.Context, tag string) error {
+		mgr.completeExecutorHandshake(nil) // the new connection's handshake
+		return nil
+	})
+
+	// A stale detached handler keeps trying to complete the handshake while the
+	// reconnect swaps the tracker pointer underneath it.
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				mgr.completeExecutorHandshake(nil)
+			}
+		}
+	}()
+
+	mgr.identityMu.Lock()
+	mgr.draining = true
+	mgr.identityMu.Unlock()
+
+	require.NoError(t, mgr.reconnectExecutor(ctx))
+	close(stop)
+	wg.Wait()
+}
+
+// TestReconnect_HandshakeFailureClosesAndRetries exercises Fix #2: when the
+// re-handshake fails (Connect succeeds but the handshake never completes and
+// times out), reconnectExecutor must close the half-open client so the next
+// tick can re-dial — instead of wedging forever on "already connected".
+func TestReconnect_HandshakeFailureClosesAndRetries(t *testing.T) {
+	config := Config{
+		ReorgTimeout:        60,
+		HandshakeTimeout:    0, // time.After(0) => the handshake wait times out at once
+		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
+	_, mgr := setupTestWithConfig(t, context.Background(), config, true,
+		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
+	ctx := context.Background()
+
+	// Model the real client's connect/close contract: a second Connect without an
+	// intervening Close returns "already connected" (the wedge Fix #2 prevents).
+	var connectCalls, closeCalls int
+	connected := false
+	mec := mgr.executorClient.(*MockExecutorClient)
+	mec.AddMockedFunc("Connect", func(ctx context.Context, tag string) error {
+		connectCalls++
+		if connected {
+			return fmt.Errorf("already connected")
+		}
+		connected = true
+		return nil // succeeds, but never completes the handshake -> wait times out
+	})
+	mec.AddMockedFunc("Close", func() error {
+		closeCalls++
+		connected = false
+		return nil
+	})
+
+	mgr.identityMu.Lock()
+	mgr.draining = true
+	mgr.identityMu.Unlock()
+
+	// Tick 1: dial succeeds, handshake times out -> reconnect fails and closes.
+	err := mgr.reconnectExecutor(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "handshake failed", "Connect should succeed; the handshake times out")
+	require.Equal(t, 1, connectCalls)
+	require.Equal(t, 1, closeCalls, "half-open client must be closed on handshake failure")
+	require.True(t, mgr.isDraining(), "still draining after a failed reconnect")
+
+	// Tick 2: must re-dial (Close reset the connected state) and again fail on the
+	// handshake — NOT wedge on "already connected".
+	err = mgr.reconnectExecutor(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "handshake failed", "next tick must re-dial, not wedge on 'already connected'")
+	require.Equal(t, 2, connectCalls, "next tick must attempt Connect again")
+	require.Equal(t, 2, closeCalls)
+}
+
+// TestMaintainExecutor_ReconnectsOnConnectionLoss exercises the plain
+// connection-loss path: the executor crashed/restarted with the SAME image, so
+// no swap occurred and draining is never set. maintainExecutorForActiveImage
+// must still detect the dropped channel, re-dial, and re-handshake before
+// dispatching — rather than retrying into a dead connection forever.
+func TestMaintainExecutor_ReconnectsOnConnectionLoss(t *testing.T) {
+	bc, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	pcr0, image := pcr0AndImage(0x40)
+	mgr.setExecutorIdentity(pcr0, "")
+	bc.SetActiveImage(image)
+
+	mec := mgr.executorClient.(*MockExecutorClient)
+	// The channel has dropped: the reader-loop teardown flipped connected off.
+	connected := false
+	mec.AddMockedFunc("IsConnected", func() bool { return connected })
+	// Reconnect models the relaunched enclave (same image) re-handshaking.
+	var connectCalls int
+	mec.AddMockedFunc("Connect", func(ctx context.Context, tag string) error {
+		connectCalls++
+		connected = true
+		mgr.setExecutorIdentity(pcr0, "")
+		mgr.completeExecutorHandshake(nil)
+		return nil
+	})
+
+	// Not draining -> the only reconnect trigger is the dropped connection.
+	require.False(t, mgr.isDraining())
+
+	skip, err := mgr.maintainExecutorForActiveImage(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, connectCalls, "a dropped connection must trigger a re-dial")
+	require.False(t, skip, "after reconnecting to the matching image, dispatch resumes")
+	require.False(t, mgr.isDraining())
+}
+
+// TestStop_DoesNotDeadlockWithInFlightTick guards the Stop lock-ordering fix.
+// processRequestFromChain does its slow work (blockchain reconnect,
+// maintainExecutorForActiveImage → GetActiveImage / reconnect handshake) BEFORE
+// taking m.mu, then acquires m.mu only at dispatch. Stop must flip isRunning and
+// close stopChan under m.mu, then RELEASE m.mu before wg.Wait(). Otherwise a tick
+// already parked in that pre-lock section blocks forever at m.mu.Lock() while Stop
+// blocks forever in wg.Wait() holding m.mu — a lock-ordering deadlock.
+func TestStop_DoesNotDeadlockWithInFlightTick(t *testing.T) {
+	config := Config{
+		ReorgTimeout:        60,
+		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
+	bc, mgr := setupTestWithConfig(t, context.Background(), config, true,
+		&ExecutorHandShake{isComplete: make(chan struct{})}, make(chan struct{}), false)
+	ctx := context.Background()
+
+	// Running a known image that matches on-chain, so maintain does NOT skip and
+	// the tick proceeds all the way to m.mu.Lock() at dispatch (the skip path would
+	// early-return before the lock and never reproduce the deadlock).
+	pcr0, image := pcr0AndImage(0x50)
+	mgr.setExecutorIdentity(pcr0, "")
+	bc.SetActiveImage(image)
+
+	// Block the pre-lock section deterministically inside GetActiveImage. The mock
+	// holds only the MockClient's own lock here, never the manager's m.mu.
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	bc.AddMockedFunc("GetActiveImage", func(context.Context) ([32]byte, error) {
+		close(entered)
+		<-release
+		return image, nil
+	})
+
+	// Register a poll-like goroutine in m.wg, exactly as pollBlockchain does.
+	mgr.wg.Add(1)
+	go func() {
+		defer mgr.wg.Done()
+		_ = mgr.processRequestFromChain(ctx)
+	}()
+
+	<-entered // the tick is now parked in the pre-lock section
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- mgr.Stop() }()
+
+	// Give Stop time to take m.mu, flip isRunning, close stopChan, and reach
+	// wg.Wait(); then unblock the tick so it advances to m.mu.Lock() at dispatch.
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop deadlocked: held m.mu across wg.Wait() while an in-flight tick needed it")
+	}
+
+	// The tick must have exited via the !isRunning guard, not dispatched.
+	mgr.mu.Lock()
+	running := mgr.isRunning
+	mgr.mu.Unlock()
+	require.False(t, running, "Stop must leave the manager not running")
+}
+
+// TestSwapDrainReconnect_Converges walks the full swap cycle: an activeImage
+// change drains the old enclave, a reconnect re-handshakes the relaunched
+// enclave whose PCR0 matches, and dispatch resumes. Also covers rollback (the
+// activeImage is simply re-pointed) and level-based convergence.
+func TestSwapDrainReconnect_Converges(t *testing.T) {
+	bc, mgr := newSwapTestManager(t)
+	ctx := context.Background()
+
+	oldPcr0, _ := pcr0AndImage(0x30)
+	newPcr0, newImage := pcr0AndImage(0x31)
+
+	// Running the old image; chain now points activeImage at the new image.
+	mgr.setExecutorIdentity(oldPcr0, "")
+	bc.SetActiveImage(newImage)
+
+	mec := mgr.executorClient.(*MockExecutorClient)
+	mec.AddMockedFunc("ForwardAdminCommand", func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
+		return nil, fmt.Errorf("connection closed")
+	})
+	mec.AddMockedFunc("Close", func() error { return nil })
+	// Reconnect simulates the relaunched (new-image) enclave handshaking.
+	mec.AddMockedFunc("Connect", func(ctx context.Context, tag string) error {
+		mgr.setExecutorIdentity(newPcr0, "")
+		mgr.completeExecutorHandshake(nil)
+		return nil
+	})
+
+	// Tick 1: mismatch -> drain.
+	skip, err := mgr.maintainExecutorForActiveImage(ctx)
+	require.NoError(t, err)
+	require.True(t, skip)
+	require.True(t, mgr.isDraining())
+
+	// Tick 2: draining -> reconnect to new enclave, whose PCR0 matches -> resume.
+	skip, err = mgr.maintainExecutorForActiveImage(ctx)
+	require.NoError(t, err)
+	require.False(t, skip, "after reconnect to the matching image, dispatch resumes")
+	require.False(t, mgr.isDraining())
+	require.Equal(t, newPcr0, mgr.RunningPcr0())
 }
