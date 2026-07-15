@@ -383,14 +383,6 @@ func (m *SecureProcessorManager) RunningPcr0() string {
 	return m.runningPcr0
 }
 
-// ReportedSigner returns the executor's signing-key address reported at
-// handshake (hex, "0x…"), or "" if not reported.
-func (m *SecureProcessorManager) ReportedSigner() string {
-	m.identityMu.RLock()
-	defer m.identityMu.RUnlock()
-	return m.reportedSigner
-}
-
 // forwardToExecutor sends an admin command to the executor via the existing
 // communication channel (ForwardAdminCommand) and returns the response data.
 func (m *SecureProcessorManager) forwardToExecutor(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
