@@ -143,6 +143,26 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
   }
 
   /// @inheritdoc ITeeAuthenticatorAdmin
+  function getAcceptedPcr0List() external view returns (bytes32[] memory) {
+    return acceptedPcr0List;
+  }
+
+  /// @inheritdoc ITeeAuthenticatorAdmin
+  function getPendingSwap()
+    external
+    view
+    returns (bytes memory targetPcr0, uint256 eta, bool pending)
+  {
+    PendingSwap memory p = pendingSwap;
+    return (p.value, p.eta, p.pending);
+  }
+
+  /// @inheritdoc ITeeAuthenticatorAdmin
+  function getActiveImage() external view returns (bytes32) {
+    return activeImage;
+  }
+
+  /// @inheritdoc ITeeAuthenticatorAdmin
   function updateTee(bytes calldata attestation) external onlyOwner {
     bytes32 attestationHash = keccak256(attestation);
     if (_usedAttestations[attestationHash]) revert AttestationAlreadyUsed();

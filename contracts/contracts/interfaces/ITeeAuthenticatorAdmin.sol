@@ -106,4 +106,25 @@ interface ITeeAuthenticatorAdmin {
   /// @notice Returns the number of accepted PCR0 values.
   /// @return count Size of the accepted set.
   function getAcceptedPcr0Count() external view returns (uint256 count);
+
+  /// @notice Returns the full accepted PCR0 set.
+  /// @dev Entries are keccak256 hashes of the 48-byte PCR0 preimages, not the preimages.
+  /// @return The accepted PCR0 hashes.
+  function getAcceptedPcr0List() external view returns (bytes32[] memory);
+
+  /// @notice Returns the current pending PCR0 swap proposal.
+  /// @dev `targetPcr0` is the raw 48-byte preimage (not a hash); when no swap is
+  ///      pending it is empty and `pending` is false.
+  /// @return targetPcr0 Raw PCR0 preimage the swap targets.
+  /// @return eta Earliest application time.
+  /// @return pending Whether a swap proposal is currently stored.
+  function getPendingSwap()
+    external
+    view
+    returns (bytes memory targetPcr0, uint256 eta, bool pending);
+
+  /// @notice Returns the active image.
+  /// @dev This is the keccak256 hash of the active PCR0 preimage, not the preimage.
+  /// @return The active image hash.
+  function getActiveImage() external view returns (bytes32);
 }

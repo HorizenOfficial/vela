@@ -328,4 +328,84 @@ describe('TeeAuthenticator PCR0 swap flow', function () {
       );
     });
   });
+
+  describe('read accessors', function () {
+    describe('getActiveImage', function () {
+      it('returns the keccak256 of the constructor PCR0', async () => {
+        const { teeAuthenticator, initialPcr0 } = await deployTeeAuthenticatorFixture();
+
+        expect(await teeAuthenticator.getActiveImage()).to.equal(pcr0Key(initialPcr0));
+      });
+
+      it('tracks the active image across a swap', async () => {
+        const { teeAuthenticator } = await deployTeeAuthenticatorFixture();
+        const target = getRandomHexString(PCR0_LENGTH);
+        await swapTo(teeAuthenticator, target, PCR0_UPGRADE_DELAY);
+
+        expect(await teeAuthenticator.getActiveImage()).to.equal(pcr0Key(target));
+      });
+    });
+
+    describe('getAcceptedPcr0List', function () {
+      it('returns exactly the accepted hashes and stays consistent as the set grows and shrinks', async () => {
+        const { teeAuthenticator, initialPcr0 } = await deployTeeAuthenticatorFixture();
+
+        expect(await teeAuthenticator.getAcceptedPcr0List()).to.deep.equal([pcr0Key(initialPcr0)]);
+
+        // propose + apply grows the set.
+        const target = getRandomHexString(PCR0_LENGTH);
+        await swapTo(teeAuthenticator, target, PCR0_UPGRADE_DELAY);
+
+        const grown = await teeAuthenticator.getAcceptedPcr0List();
+        expect(grown).to.deep.equal([pcr0Key(initialPcr0), pcr0Key(target)]);
+        expect(grown.length).to.equal(await teeAuthenticator.getAcceptedPcr0Count());
+
+        // removePcr0 shrinks it (swap-remove leaves the surviving members).
+        await (await teeAuthenticator.removePcr0(initialPcr0)).wait();
+
+        const shrunk = await teeAuthenticator.getAcceptedPcr0List();
+        expect(shrunk).to.deep.equal([pcr0Key(target)]);
+        expect(shrunk.length).to.equal(await teeAuthenticator.getAcceptedPcr0Count());
+      });
+    });
+
+    describe('getPendingSwap', function () {
+      it('returns the raw preimage, eta and pending=true after proposePcr0Swap', async () => {
+        const { teeAuthenticator } = await deployTeeAuthenticatorFixture();
+        const target = getRandomHexString(PCR0_LENGTH);
+
+        const tx = await teeAuthenticator.proposePcr0Swap(target);
+        const receipt = await tx.wait();
+        const eta = BigInt((await ethers.provider.getBlock(receipt!.blockNumber))!.timestamp);
+
+        const [targetPcr0, returnedEta, pending] = await teeAuthenticator.getPendingSwap();
+        expect(targetPcr0).to.equal(target);
+        expect(returnedEta).to.equal(eta + BigInt(PCR0_UPGRADE_DELAY));
+        expect(pending).to.equal(true);
+      });
+
+      it('returns empty preimage and pending=false after applyPcr0Swap', async () => {
+        const { teeAuthenticator } = await deployTeeAuthenticatorFixture();
+        const target = getRandomHexString(PCR0_LENGTH);
+        await swapTo(teeAuthenticator, target, PCR0_UPGRADE_DELAY);
+
+        const [targetPcr0, returnedEta, pending] = await teeAuthenticator.getPendingSwap();
+        expect(targetPcr0).to.equal('0x');
+        expect(returnedEta).to.equal(0n);
+        expect(pending).to.equal(false);
+      });
+
+      it('returns empty preimage and pending=false after cancelPcr0Swap', async () => {
+        const { teeAuthenticator } = await deployTeeAuthenticatorFixture();
+
+        await (await teeAuthenticator.proposePcr0Swap(getRandomHexString(PCR0_LENGTH))).wait();
+        await (await teeAuthenticator.cancelPcr0Swap()).wait();
+
+        const [targetPcr0, returnedEta, pending] = await teeAuthenticator.getPendingSwap();
+        expect(targetPcr0).to.equal('0x');
+        expect(returnedEta).to.equal(0n);
+        expect(pending).to.equal(false);
+      });
+    });
+  });
 });
