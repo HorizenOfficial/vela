@@ -8,22 +8,8 @@ import (
 	"runtime"
 )
 
-func (rt RequestType) ToUint8() (uint8, error) {
-	switch rt {
-	case Deploy:
-		return 0, nil
-	case Process:
-		return 1, nil
-	case Deanonymize:
-		return 2, nil
-	case AssociateKey:
-		return 3, nil
-	case TrustProcess:
-		return 4, nil
-	default:
-		return 0, fmt.Errorf("unknown RequestType: %s", rt)
-	}
-}
+// RequestType.ToUint8 moved to vela-common-go/wire with the type (methods
+// cannot be defined on the aliased non-local type).
 
 func FnName() string {
 	pc, _, _, _ := runtime.Caller(1)

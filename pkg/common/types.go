@@ -9,6 +9,7 @@ import (
 	"time"
 
 	velacommon "github.com/HorizenOfficial/vela-common-go/common"
+	"github.com/HorizenOfficial/vela-common-go/wire"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
@@ -28,39 +29,18 @@ func NewApplicationId(id uint64) ApplicationIdType {
 	return velacommon.NewApplicationId(id)
 }
 
-// RequestType represents the type of request being sent to the TEE
-type RequestType uint8
+// RequestType moved to the zero-dependency vela-common-go/wire leaf so TinyGo
+// WASM guests can dispatch on it without this package's go-ethereum import
+// closure; aliased here so existing call sites keep working.
+type RequestType = wire.RequestType
 
 const (
-	// Deploy represents a request to deploy a new application
-	Deploy RequestType = iota
-	// Process is used for processing a batch of requests
-	Process
-	// Deanonymize is used for deanonymization requests
-	Deanonymize
-	// AssociateKey records an association between an Ethereum address and a Secp521r1_PubKey
-	AssociateKey
-	// TrustProcess is analogous to Process but its Payload is sent in clear text
-	// (not encrypted toward the enclave communication key).
-	TrustProcess
+	Deploy       = wire.Deploy
+	Process      = wire.Process
+	Deanonymize  = wire.Deanonymize
+	AssociateKey = wire.AssociateKey
+	TrustProcess = wire.TrustProcess
 )
-
-func (rt RequestType) String() string {
-	switch rt {
-	case Deploy:
-		return "deploy"
-	case Process:
-		return "process"
-	case Deanonymize:
-		return "deanonymize"
-	case AssociateKey:
-		return "associatekey"
-	case TrustProcess:
-		return "trustprocess"
-	default:
-		return "unknown"
-	}
-}
 
 // Request represents a request to the system
 type Request struct {
