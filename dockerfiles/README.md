@@ -30,9 +30,9 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
     > has no recovery data — which is exactly the situation on a first start. In this
     > dev compose the flag is forwarded from `.env` at runtime, and `.env.dev` sets
     > it to `false`, so a fresh environment bootstraps normally without rebuilding
-    > the image. Make sure your `.env` contains `EXECUTOR_EXPECT_EXISTING_KEYSET=false`
-    > if you created it before this variable was added.
-
+    > the image. The Docker compose sets it to `false` if the variable is missing in `.env`.
+    > If you want the guard on, put `EXECUTOR_EXPECT_EXISTING_KEYSET=true` in your `.env`.
+ 
 2) Switch to "dockerfiles" folder
 
     ```
