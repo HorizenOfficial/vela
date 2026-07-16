@@ -61,6 +61,11 @@ type SecureProcessorManager struct {
 	// m.mu here would deadlock.
 	identityMu  sync.RWMutex
 	runningPcr0 string
+	// runningImageHash caches keccak256(pcr0) — the value compared against the
+	// on-chain activeImage — computed once per handshake in setExecutorIdentity.
+	// nil when no PCR0 was reported (dev/TCP mode); a bad-hex PCR0 is rejected at
+	// handshake and never reaches here.
+	runningImageHash *ethCommon.Hash
 	// reportedSigner is the executor's signing-key address reported at handshake
 	// (hex, "0x…"), used for the signer-continuity check against on-chain teeSigner.
 	reportedSigner string
@@ -338,7 +343,11 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 	m.log.Info("Manager: Executor's public communication key (P521): %s", commPubKey)
 	m.log.Info("Manager: Executor's signing key address (Secp256k1): %s", signingKeyAddr)
 	m.log.Info("Manager: Executor's pcr0: %s", pcr0)
-	m.setExecutorIdentity(pcr0, signingKeyAddr)
+	if err := m.setExecutorIdentity(pcr0, signingKeyAddr); err != nil {
+		m.log.Error("Manager: %v", err)
+		m.completeExecutorHandshake(err)
+		return err
+	}
 
 	// set the handshake as completed
 	m.completeExecutorHandshake(nil)
@@ -354,7 +363,11 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 		m.log.Info("Manager: Received KeysetRecoveryResult message from executor with success")
 		m.log.Info("Manager: Executor's public communication key (P521): %s", commPubKey)
 		m.log.Info("Manager: Executor's signing key address (Secp256k1): %s", signingKeyAddr)
-		m.setExecutorIdentity(pcr0, signingKeyAddr)
+		if err := m.setExecutorIdentity(pcr0, signingKeyAddr); err != nil {
+			m.log.Error("Manager: %v", err)
+			m.completeExecutorHandshake(err)
+			return err
+		}
 		m.completeExecutorHandshake(nil)
 	}
 	return nil
@@ -365,14 +378,38 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 // keccak256(pcr0)) against the on-chain activeImage; the signer feeds the
 // signer-continuity check. A fresh handshake re-arms the signer check (a
 // reconnect may bring a different enclave).
-func (m *SecureProcessorManager) setExecutorIdentity(pcr0, signingKeyAddr string) {
+//
+// The image hash is computed once here rather than on every activeImage check.
+// An empty PCR0 (dev/TCP mode) leaves the hash nil; a non-empty PCR0 that is not
+// valid hex is rejected — the identity is left unchanged and the handshake fails.
+func (m *SecureProcessorManager) setExecutorIdentity(pcr0, signingKeyAddr string) error {
+	var imageHash *ethCommon.Hash
+	if pcr0 != "" {
+		rawPcr0, err := hex.DecodeString(pcr0)
+		if err != nil {
+			return fmt.Errorf("executor reported PCR0 %q is not valid hex: %w", pcr0, err)
+		}
+		h := ethCrypto.Keccak256Hash(rawPcr0)
+		imageHash = &h
+	}
+
 	m.identityMu.Lock()
 	m.runningPcr0 = pcr0
+	m.runningImageHash = imageHash
 	m.reportedSigner = signingKeyAddr
 	m.signerVerified = false // re-arm the signer check for this (re)handshake
 	m.identityMu.Unlock()
 
 	m.log.Info("Manager: Executor's running image PCR0: %q, signer: %q", pcr0, signingKeyAddr)
+	return nil
+}
+
+// runningImageHashCopy returns the cached keccak256(pcr0) image hash under the
+// identity lock, or nil in dev/TCP mode (no PCR0 reported).
+func (m *SecureProcessorManager) runningImageHashCopy() *ethCommon.Hash {
+	m.identityMu.RLock()
+	defer m.identityMu.RUnlock()
+	return m.runningImageHash
 }
 
 // RunningPcr0 returns the hex-encoded PCR0 the executor reported at handshake
@@ -641,11 +678,11 @@ func (m *SecureProcessorManager) maintainExecutorForActiveImage(ctx context.Cont
 		// Reconnected + re-handshaked; fall through to re-evaluate the image.
 	}
 
-	running := m.RunningPcr0()
-	if running != "" {
+	if runningHash := m.runningImageHashCopy(); runningHash != nil {
 		// Nitro executor: reconcile the running image against the on-chain
-		// activeImage. Dev/TCP executors report no PCR0 and skip this block, but
-		// still run the signer-continuity check below (it does not need PCR0).
+		// activeImage. Dev/TCP executors report no PCR0 (nil hash) and skip this
+		// block, but still run the signer-continuity check below (it does not need
+		// PCR0). The hash was computed once at handshake (setExecutorIdentity).
 		activeImage, err := m.blockchainClient.GetActiveImage(ctx)
 		if err != nil {
 			// Transient chain read error during the swap window must not be fatal.
@@ -653,17 +690,11 @@ func (m *SecureProcessorManager) maintainExecutorForActiveImage(ctx context.Cont
 			return true, nil
 		}
 
-		rawPcr0, decErr := hex.DecodeString(running)
-		if decErr != nil {
-			m.log.Warn("Manager: reported PCR0 %q is not valid hex, skipping swap check: %v", running, decErr)
-		} else {
-			runningHash := ethCrypto.Keccak256Hash(rawPcr0)
-			if !bytes.Equal(runningHash[:], activeImage[:]) {
-				m.log.Warn("Manager: running image keccak(pcr0)=%s != activeImage %x — TEE swap detected, draining",
-					runningHash.Hex(), activeImage)
-				m.drainExecutor(ctx)
-				return true, nil
-			}
+		if !bytes.Equal(runningHash[:], activeImage[:]) {
+			m.log.Warn("Manager: running image keccak(pcr0)=%s != activeImage %x — TEE swap detected, draining",
+				runningHash.Hex(), activeImage)
+			m.drainExecutor(ctx)
+			return true, nil
 		}
 	}
 
