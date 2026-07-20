@@ -761,7 +761,9 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 		}
 	}
 	// Process the request
+	executorStart := time.Now()
 	updatePayload, updatedState, deanonymizationReport, err := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
+	m.log.Info("Manager: executor round-trip for request %s: executor_roundtrip_ms=%d", req.RequestID, time.Since(executorStart).Milliseconds())
 	if err != nil {
 		// Fallback case: executor couldn't create signed payload. Retry on next poll, no state to store
 		return err

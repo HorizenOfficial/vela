@@ -19,6 +19,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/testutil"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	ethCommon "github.com/ethereum/go-ethereum/common"
+	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ type FullStackSystemTestSuite struct {
 
 // NewFullStackSystemTestSuite creates a system test suite backed by a real
 // simulated Ethereum chain.
-func NewFullStackSystemTestSuite(t *testing.T, appType string, mgrLogCfg *logger.Config, excLogCfg *logger.Config) *FullStackSystemTestSuite {
+func NewFullStackSystemTestSuite(t *testing.T, appType string, mgrLogCfg *logger.Config, excLogCfg *logger.Config, simOpts ...blockchainTestutil.SimTestHelperOption) *FullStackSystemTestSuite {
 	mgrConfig, err := manager.LoadConfig()
 	require.NoError(t, err)
 	execConfig, err := executor.LoadConfig()
@@ -53,7 +54,7 @@ func NewFullStackSystemTestSuite(t *testing.T, appType string, mgrLogCfg *logger
 	ctx := context.Background()
 	keySet, newRecoveryData, err := executor.GenerateEnclaveKeySet(ctx, execConfig.KeySetRecoveryType, nil, nil, "")
 	require.NoError(t, err)
-	return NewFullStackSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLogCfg, excLogCfg)
+	return NewFullStackSystemTestSuiteWithConfigs(t, appType, mgrConfig, execConfig, keySet, newRecoveryData, mgrLogCfg, excLogCfg, simOpts...)
 }
 
 // NewWasmRuntimeSuite is the one-call bootstrap for full-stack tests that need
@@ -63,12 +64,12 @@ func NewFullStackSystemTestSuite(t *testing.T, appType string, mgrLogCfg *logger
 // "wasm-runtime". The artifacts path is overridden with a temp dir by
 // TestSuiteCore during construction; the env var only needs to exist so
 // manager.LoadConfig passes.
-func NewWasmRuntimeSuite(t *testing.T) *FullStackSystemTestSuite {
+func NewWasmRuntimeSuite(t *testing.T, simOpts ...blockchainTestutil.SimTestHelperOption) *FullStackSystemTestSuite {
 	t.Helper()
 	t.Setenv("MANAGER_ARTIFACTS_PATH", t.TempDir())
 	t.Setenv("EXECUTOR_KEYSET_RECOVERY_TYPE", "0")
 	logCfg := &logger.Config{Kind: "zerolog", Console: true, ConsoleLevel: "info", ConsoleColor: false}
-	return NewFullStackSystemTestSuite(t, "wasm-runtime", logCfg, logCfg)
+	return NewFullStackSystemTestSuite(t, "wasm-runtime", logCfg, logCfg, simOpts...)
 }
 
 func NewFullStackSystemTestSuiteWithConfigs(
@@ -80,8 +81,9 @@ func NewFullStackSystemTestSuiteWithConfigs(
 	recoveryData *common.EnclaveKeySetRecovery,
 	mgrLogCfg *logger.Config,
 	excLogCfg *logger.Config,
+	simOpts ...blockchainTestutil.SimTestHelperOption,
 ) *FullStackSystemTestSuite {
-	return newFullStackSuiteInternal(t, appType, mgrConfig, execConfig, keySet, recoveryData, mgrLogCfg, excLogCfg, nil)
+	return newFullStackSuiteInternal(t, appType, mgrConfig, execConfig, keySet, recoveryData, mgrLogCfg, excLogCfg, nil, simOpts...)
 }
 
 // NewFullStackSystemTestSuiteWithTeeSigner is the attestation-rejection variant
@@ -130,6 +132,7 @@ func newFullStackSuiteInternal(
 	mgrLogCfg *logger.Config,
 	excLogCfg *logger.Config,
 	teeSignerOverride *ethCommon.Address,
+	simOpts ...blockchainTestutil.SimTestHelperOption,
 ) *FullStackSystemTestSuite {
 	// Deploy the mock TEE authenticator pre-populated with the executor's real
 	// signing address and P521 communication pubkey. The MockTeeAuthenticator
@@ -156,9 +159,10 @@ func newFullStackSuiteInternal(
 	}
 	teePubKeyBytes := keySet.CommunicationKey.PublicKey().Bytes()
 
-	// Create SimTestHelper with auto-mining enabled (mines every 1s)
+	// Create SimTestHelper with auto-mining enabled (default block time 1s,
+	// overridable via WithAutoMineInterval in simOpts)
 	autoMining := true
-	simHelper := blockchainTestutil.NewSimTestHelper(t, autoMining, useMockTeeAuth, &teeSignerAddr, teePubKeyBytes)
+	simHelper := blockchainTestutil.NewSimTestHelper(t, autoMining, useMockTeeAuth, &teeSignerAddr, teePubKeyBytes, simOpts...)
 
 	// Create a real BlockChainClient connected to the simulated backend
 	realClient := blockchain.SetupNewBlockChainClientConnected(
@@ -167,6 +171,10 @@ func newFullStackSuiteInternal(
 		simHelper.TeeSignerAddress,
 		simHelper.ManagerAccount,
 	)
+	// Attach a logger built from the manager's log config so instrumentation
+	// lines (e.g. mine_wait_ms) land in the same sink as the manager's own
+	// logs — the benchmark harness parses them from there.
+	realClient.SetLogger(logger.NewLogger(mgrLogCfg))
 
 	// Create in-process subgraph
 	subgraphImpl := NewInProcessSubgraph()
@@ -339,6 +347,36 @@ func (s *FullStackSystemTestSuite) SubmitRequest(req *common.Request) error {
 	s.wrappedClient.markPending(req.RequestID)
 
 	return nil
+}
+
+// SubmitRequestNoWait submits a non-deploy request on-chain WITHOUT waiting
+// for the transaction to be mined, so callers can pre-fill the pending queue
+// faster than one request per block (benchmark harness). The contract-assigned
+// request ID is NOT resolved here — observe it from the RequestSubmitted event
+// once the transaction is mined. The request is not registered for completion
+// tracking either; benchmark callers track completions from chain events.
+func (s *FullStackSystemTestSuite) SubmitRequestNoWait(req *common.Request) (*ethTypes.Transaction, error) {
+	if req.RequestType == common.Deploy {
+		return nil, fmt.Errorf("SubmitRequestNoWait does not support deploy requests")
+	}
+	sender, err := s.GetTransactOpts(req.Sender)
+	if err != nil {
+		return nil, err
+	}
+	assetAmount := big.NewInt(0)
+	if req.AssetAmount != nil {
+		assetAmount = req.AssetAmount.ToInt()
+	}
+	tx := s.simHelper.SubmitRequestFromUser(
+		req.ApplicationID,
+		req.RequestType,
+		req.Payload,
+		req.TokenAddress,
+		assetAmount,
+		req.MaxFeeValue.ToInt(),
+		sender,
+	)
+	return tx, nil
 }
 
 // AssertRequestCompleted polls until the manager has processed the request
