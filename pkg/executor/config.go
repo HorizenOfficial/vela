@@ -65,6 +65,13 @@ type Config struct {
 	// MaxCachedModules is the maximum number of WASM modules to keep in the LRU cache.
 	// 0 means unlimited.
 	MaxCachedModules int
+
+	// MaxGuestMemoryBytes caps the linear memory a single WASM guest can grow to.
+	// 0 means the 2 GiB default, which is also the maximum allowed value (the
+	// host ABI exchanges guest pointers as signed 32-bit offsets). Note that the
+	// worst-case enclave RAM usage is roughly MaxCachedModules * MaxGuestMemoryBytes,
+	// so size the two together against the enclave memory budget.
+	MaxGuestMemoryBytes int64
 }
 
 const confFileName = "executor.conf"
@@ -132,6 +139,7 @@ func LoadConfig() (*Config, error) {
 		LogNetworkLevel:     common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
 		CommunicationParams:  communicationParams,
 		MaxCachedModules:     int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
+		MaxGuestMemoryBytes:  common.GetConfigVarInt64("EXECUTOR_MAX_GUEST_MEMORY_BYTES", 0, fileProperties),
 	}, nil
 }
 
@@ -178,6 +186,19 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf(
 			"EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC must be > 0 (seconds), got %d",
 			c.CommunicationParams.RequestTimeoutSec))
+	}
+
+	// --- Guest memory cap ---
+	// The WASM host ABI exchanges guest pointers as signed 32-bit offsets, so a
+	// guest may never grow past 2 GiB (see pkg/wasm maxGuestMemoryCeilingBytes —
+	// duplicated here to avoid linking libwasmtime into every pkg/executor
+	// consumer). 0 selects the 2 GiB default; anything else must be in range
+	// rather than silently clamped, so a misconfigured operator finds out at startup.
+	const maxGuestMemoryCeilingBytes = 2 << 30
+	if c.MaxGuestMemoryBytes < 0 || c.MaxGuestMemoryBytes > maxGuestMemoryCeilingBytes {
+		errs = append(errs, fmt.Sprintf(
+			"EXECUTOR_MAX_GUEST_MEMORY_BYTES must be between 0 (default: 2 GiB) and %d (2 GiB), got %d",
+			int64(maxGuestMemoryCeilingBytes), c.MaxGuestMemoryBytes))
 	}
 
 	// --- KMS configuration ---

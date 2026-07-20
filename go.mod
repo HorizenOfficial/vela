@@ -10,7 +10,6 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
 	github.com/aws/aws-sdk-go-v2/service/kms v1.49.5
-	github.com/bytecodealliance/wasmtime-go v1.0.0
 	github.com/elliotchance/orderedmap/v3 v3.1.0
 	github.com/ethereum/go-ethereum v1.17.2
 	github.com/fxamacker/cbor/v2 v2.2.0
@@ -58,6 +57,7 @@ require (
 	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
+	github.com/bytecodealliance/wasmtime-go/v42 v42.0.0
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect

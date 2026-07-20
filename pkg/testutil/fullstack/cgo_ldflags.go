@@ -1,7 +1,7 @@
 package fullstack
 
 // Problem:
-// wasmtime-go (v1.0.0) ships a pre-built libwasmtime.a that statically includes
+// wasmtime-go ships a pre-built libwasmtime.a that statically includes
 // zstd C sources (used internally by wasmtime's compiled-module cache). Meanwhile,
 // go-ethereum transitively imports github.com/DataDog/zstd (v1.4.5), which compiles
 // the same zstd C library via cgo. When both end up in the same binary — as they do

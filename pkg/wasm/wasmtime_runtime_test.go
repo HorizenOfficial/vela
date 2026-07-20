@@ -10,7 +10,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	"github.com/bytecodealliance/wasmtime-go"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v42"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -127,7 +127,8 @@ func TestWriteToMemory_NilModuleStore(t *testing.T) {
 
 	// Create a valid memory object, but instance can be nil
 	// since it's not reached when data is empty.
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -161,7 +162,8 @@ func TestWriteToMemory_NilData(t *testing.T) {
 
 	// Create a valid memory object, but instance can be nil
 	// since it's not reached when data is empty.
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -191,7 +193,8 @@ func TestExtractResultBytes(t *testing.T) {
 
 	// Setup a mock memory for testing, using the runtime's store
 	// 1 is the minimum size in WebAssembly pages (WebAssembly page size = 64 KiB (65,536 bytes))
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -451,4 +454,63 @@ func TestProcessRequest_DispatchesByRequestType(t *testing.T) {
 	procState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
 	require.Nil(t, failure, "Process must succeed via process_request")
 	require.Equal(t, []byte{1}, procState, "Process must dispatch to process_request (state=[1])")
+}
+
+func TestSetMaxGuestMemoryBytes(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	// The default is the 2 GiB ceiling
+	require.Equal(t, int64(maxGuestMemoryCeilingBytes), runtime.GetMaxGuestMemoryBytes())
+
+	// In-range values are applied as-is
+	runtime.SetMaxGuestMemoryBytes(512 * 1024 * 1024)
+	require.Equal(t, int64(512*1024*1024), runtime.GetMaxGuestMemoryBytes())
+
+	// Out-of-range values fall back to the ceiling
+	for _, invalid := range []int64{0, -1, maxGuestMemoryCeilingBytes + 1} {
+		runtime.SetMaxGuestMemoryBytes(invalid)
+		require.Equal(t, int64(maxGuestMemoryCeilingBytes), runtime.GetMaxGuestMemoryBytes())
+	}
+}
+
+// TestGuestMemoryCapEnforced verifies that stores created by the runtime refuse
+// guest memory growth beyond the configured cap: memory.grow reports failure
+// (-1) to the guest instead of growing.
+func TestGuestMemoryCapEnforced(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	const pageSize = 64 * 1024
+	runtime.SetMaxGuestMemoryBytes(2 * pageSize)
+
+	wasmBytes, err := wasmtime.Wat2Wasm(`(module
+		(memory (export "memory") 1)
+		(func (export "grow") (param i32) (result i32)
+			local.get 0
+			memory.grow))`)
+	require.NoError(t, err)
+
+	module, err := wasmtime.NewModule(runtime.engine, wasmBytes)
+	require.NoError(t, err)
+
+	runtime.moduleLock.Lock()
+	store := runtime.newModuleStore()
+	runtime.moduleLock.Unlock()
+
+	instance, err := wasmtime.NewInstance(store, module, nil)
+	require.NoError(t, err)
+
+	grow := instance.GetFunc(store, "grow")
+	require.NotNil(t, grow)
+
+	// 1 -> 2 pages: within the cap, returns the previous size in pages
+	res, err := grow.Call(store, int32(1))
+	require.NoError(t, err)
+	require.Equal(t, int32(1), res)
+
+	// 2 -> 3 pages: beyond the cap, the guest sees a failed grow
+	res, err = grow.Call(store, int32(1))
+	require.NoError(t, err)
+	require.Equal(t, int32(-1), res)
 }

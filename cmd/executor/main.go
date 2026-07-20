@@ -61,6 +61,9 @@ func main() {
 
 	// Create the WASM runtime
 	runtime := wasm.NewWasmtimeRuntime(log, config.MaxCachedModules)
+	if config.MaxGuestMemoryBytes > 0 {
+		runtime.SetMaxGuestMemoryBytes(config.MaxGuestMemoryBytes)
+	}
 
 	// Create the appropriate server based on configuration
 	var server communication.ExecutorServer

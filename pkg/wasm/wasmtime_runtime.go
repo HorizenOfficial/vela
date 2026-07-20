@@ -21,12 +21,31 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	"github.com/bytecodealliance/wasmtime-go"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v42"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // Address is a local definition of a 20-byte address.
 type Address [20]byte
+
+// maxGuestMemoryCeilingBytes is both the default and the maximum allowed value
+// for the per-guest linear memory cap. The runtime refuses growth beyond the
+// cap (the guest sees a failed memory.grow), protecting the enclave's fixed
+// RAM from a buggy or malicious app. The 2 GiB ceiling is a hard ABI
+// constraint: the host exchanges guest pointers as signed int32 offsets (see
+// writeToMemory and extractResultBytes), so no guest offset may reach 2 GiB.
+const maxGuestMemoryCeilingBytes = 2 << 30
+
+// newModuleStore creates a per-module store with the guest memory cap applied.
+// Must be called with moduleLock held (write lock), which also guards
+// maxGuestMemoryBytes.
+func (r *WasmtimeRuntime) newModuleStore() *wasmtime.Store {
+	store := wasmtime.NewStore(r.engine)
+	// -1 keeps the wasmtime default for limits we don't want to override
+	// (table elements, instance/table/memory counts).
+	store.Limiter(r.maxGuestMemoryBytes, -1, -1, -1, -1)
+	return store
+}
 
 // ApplicationModule contains the compiled module, its instantiated instance,
 // the module-specific store, the exported memory, and convenience handles.
@@ -50,6 +69,20 @@ func (m *ApplicationModule) Close() {
 			m.cleanupFds()
 		}
 
+		// Explicitly release the native wasmtime state instead of waiting for a
+		// Go GC finalizer pass: the Go GC does not see the weight of the guest
+		// linear memory held by the store, so relying on finalizers can keep
+		// hundreds of MB allocated inside the enclave long after eviction.
+		// Closing the store frees the instance, its memory and funcs; closing
+		// the module frees the compiled code. Both are safe to call once here
+		// because the runtime never uses an ApplicationModule after Close.
+		if m.store != nil {
+			m.store.Close()
+		}
+		if m.module != nil {
+			m.module.Close()
+		}
+
 		// Clear references to WASM resources
 		m.instance = nil
 		m.module = nil
@@ -68,6 +101,9 @@ type WasmtimeRuntime struct {
 	maxCachedModules int                                        // 0 = unlimited
 	accessOrder      *list.List                                 // LRU order: front = most recent, back = least recent
 	accessElements   map[common.ApplicationIdType]*list.Element // O(1) lookup into accessOrder
+	// maxGuestMemoryBytes caps the linear memory of each guest store created
+	// from now on; always in (0, maxGuestMemoryCeilingBytes]. Guarded by moduleLock.
+	maxGuestMemoryBytes int64
 }
 
 // NewWasmtimeRuntime creates a new wasmtime runtime instance.
@@ -79,12 +115,13 @@ func NewWasmtimeRuntime(log logger.Logger, maxCachedModules int) *WasmtimeRuntim
 	engine := wasmtime.NewEngine()
 
 	return &WasmtimeRuntime{
-		engine:           engine,
-		modules:          make(map[common.ApplicationIdType]*ApplicationModule),
-		log:              log,
-		maxCachedModules: maxCachedModules,
-		accessOrder:      list.New(),
-		accessElements:   make(map[common.ApplicationIdType]*list.Element),
+		engine:              engine,
+		modules:             make(map[common.ApplicationIdType]*ApplicationModule),
+		log:                 log,
+		maxCachedModules:    maxCachedModules,
+		accessOrder:         list.New(),
+		accessElements:      make(map[common.ApplicationIdType]*list.Element),
+		maxGuestMemoryBytes: maxGuestMemoryCeilingBytes,
 	}
 }
 
@@ -172,11 +209,12 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 
 	// Safely get a snapshot of the memory data and perform bounds checks
 	memData := module.memory.UnsafeData(module.store)
-	// note: the wasmtime uses a doubling of the store size when more memory is required and the UnsafeData() panics if we use a 4GB size.
-	// As a consequence we can not have more than 2GB of memory allocated.
-	// In other words: When the internal store grows from 2 GB -> 4 GB, UnsafeData call suddenly fails, but we are not actually running
-	// out of Wasm memory, we are hitting a Go-side API limitation caused by Wasmtime’s internal buffer resize.
-	// As a side effect we also could safely use an int32 ptr as the offset (avoid using uint32 cast)
+	// note: guest memory is capped at <= maxGuestMemoryCeilingBytes (2 GiB) via the
+	// store's Limiter (see newModuleStore), so every guest offset fits in a positive
+	// int32 and we can use the returned ptr directly without an unsigned cast.
+	// (The wasmtime-go v1 limitation where UnsafeData panicked when memory reached
+	// 4 GiB is gone — v42 builds the slice with unsafe.Slice — the bound below is
+	// the deliberate cap, not an API workaround.)
 
 	// Convert the signed int32 pointer to its true unsigned 32-bit value (uint32)
 	// This correctly interprets the bits of an address as a large positive number.
@@ -252,7 +290,7 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	}
 
 	// Create a per-module store
-	store := wasmtime.NewStore(r.engine)
+	store := r.newModuleStore()
 	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
@@ -390,7 +428,7 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 	}
 
 	// Create a per-module store
-	store := wasmtime.NewStore(r.engine)
+	store := r.newModuleStore()
 	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
@@ -859,6 +897,12 @@ func (r *WasmtimeRuntime) Close() error {
 
 	r.accessOrder.Init()
 	r.accessElements = make(map[common.ApplicationIdType]*list.Element)
+	// Deterministically free the engine's native state (compiled-code caches
+	// etc.). The engine is refcounted at the C level, so any store not tracked
+	// in r.modules keeps its share alive until it is closed or collected.
+	if r.engine != nil {
+		r.engine.Close()
+	}
 	r.engine = nil
 	r.log.Info("Wasmtime Runtime: Wasmtime runtime closed successfully")
 	return nil
@@ -910,6 +954,31 @@ func (r *WasmtimeRuntime) GetMaxCachedModules() int {
 	return r.maxCachedModules
 }
 
+// SetMaxGuestMemoryBytes updates the per-guest linear memory cap. The cap is
+// applied to stores created from now on; modules already cached keep the cap
+// they were created with. Values <= 0 or above the 2 GiB ABI ceiling are
+// replaced with the ceiling (see maxGuestMemoryCeilingBytes) and reported.
+func (r *WasmtimeRuntime) SetMaxGuestMemoryBytes(maxBytes int64) {
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	if maxBytes <= 0 || maxBytes > maxGuestMemoryCeilingBytes {
+		r.log.Warn("Runtime: requested guest memory cap %d out of range, using ceiling %d", maxBytes, int64(maxGuestMemoryCeilingBytes))
+		maxBytes = maxGuestMemoryCeilingBytes
+	}
+
+	r.log.Info("Runtime: Setting maxGuestMemoryBytes from %d to %d", r.maxGuestMemoryBytes, maxBytes)
+	r.maxGuestMemoryBytes = maxBytes
+}
+
+// GetMaxGuestMemoryBytes returns the per-guest linear memory cap applied to
+// newly created stores.
+func (r *WasmtimeRuntime) GetMaxGuestMemoryBytes() int64 {
+	r.moduleLock.RLock()
+	defer r.moduleLock.RUnlock()
+	return r.maxGuestMemoryBytes
+}
+
 // ToWasmType converts ApplicationIdType (uint64) to the WASM i64 representation
 // (int64). WASM has no unsigned integer types — i64 carries 64 bits regardless of
 // signedness, so the bit pattern passes through unchanged.
@@ -939,20 +1008,27 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 
 	// we allocate a buffer wher the results will be stored
 	const resultSize = 2 * 8 // 2 int64 values, 8 bytes each
-	resultPtrValue, err := allocateFunc.Call(appModule.store, int32(resultSize))
+	rawResultPtr, err := allocateFunc.Call(appModule.store, int32(resultSize))
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to allocate memory for results: %w", err)
 	}
 
-	// ensure we free the input buffer after allocate returns
-	if appModule.deallocate != nil && resultPtrValue != 0 {
+	resultPtr, err := toInt32(rawResultPtr)
+	if err != nil {
+		return 0, 0, fmt.Errorf("allocate returned unexpected value: %w", err)
+	}
+	if resultPtr == 0 {
+		return 0, 0, fmt.Errorf("allocate returned null pointer (0)")
+	}
+
+	// ensure we free the result buffer on exit
+	if appModule.deallocate != nil {
 		defer func() {
-			_, _ = appModule.deallocate.Call(appModule.store, resultPtrValue, resultSize)
+			_, _ = appModule.deallocate.Call(appModule.store, resultPtr, int32(resultSize))
 		}()
 	}
 
 	// according to ABI C interface, tinygo uses an inout ptr to store return values, even the signature is different
-	resultPtr := resultPtrValue.(int32) // Get the pointer/address
 	_, err = statsFunc.Call(appModule.store, resultPtr)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to call func: %w", err)
