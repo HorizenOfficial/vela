@@ -878,6 +878,18 @@ func (r *WasmtimeRuntime) removeFromAccessOrder(appId common.ApplicationIdType) 
 }
 
 // cleanupModule releases all resources associated with a single ApplicationModule.
+//
+// CONCURRENCY CAVEAT: module.Close() calls store.Close(), which frees the
+// native wasmtime state immediately (rather than at a GC finalizer pass). This
+// is only safe because the runtime is driven serially: callers such as Deposit
+// and ProcessRequest fetch a module under moduleLock but then execute the guest
+// call AFTER releasing the lock, so a concurrent load for a different appId
+// could otherwise pick that same module as the LRU eviction victim and close
+// its store out from under the in-flight call (use-after-free / panic). Before
+// enabling concurrent execution (see the per-goroutine-instance TODOs in
+// integration_test.go), eviction-close must be gated on the module not being in
+// use — e.g. refcounting live calls or deferring Close until the last caller
+// finishes.
 func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *ApplicationModule) {
 	r.log.Info("Cleaning up module %d", appId)
 	module.Close()
