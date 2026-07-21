@@ -271,11 +271,11 @@ The contract needs **per-application pending queues**. Each application maintain
 
 Side benefits:
 
-- A permanently failing request for application A blocks A's queue at the structural level. **Note:** this does not by itself isolate other applications — the oldest-first selection (section 4.3) keeps selecting the blocked application, stalling the whole system. See section 7.4.
+- A permanently failing request for application A blocks A's queue at the structural level. **Note:** this does not by itself isolate other applications — the round-robin selection (section 4.3) is enforced on-chain, so the cursor cannot advance past the blocked application and the whole system stalls. See section 7.4.
 - Deploy handling becomes trivial: each deploy derives a unique `applicationId` from its `requestId` at submission, and regular requests for that application can only be submitted after the deploy completes (`validApplicationId` requires a non-zero state root). A pending deploy is therefore always **alone in its application's queue** — it can never appear in the middle of a batch.
 - Per-application queues enable a deterministic application selection algorithm (section 4.3).
 
-### 4.3. Required: fetching with oldest-first application selection
+### 4.3. Required: fetching with round-robin application selection
 
 `GetPendingRequestsWithStateRoot` does **not** receive an `applicationId` parameter. Instead, the contract selects the application to serve:
 
@@ -284,23 +284,31 @@ GetPendingRequestsWithStateRoot(maxCount uint64) (uint64, []*common.Request, [32
 //                                                 ↑ applicationId (selected by contract)
 ```
 
-The contract iterates over all per-application queues, compares the block timestamp of each queue's head request, and returns up to `maxCount` requests from the application with the oldest head. The application's state root and `applicationId` are returned alongside the requests.
+The contract reuses the existing array of deployed applications (`_deployedAppIds`, `ProcessorEndpoint.sol:40`) and adds a single piece of new state: a round-robin cursor into it. No per-queue bookkeeping is needed — the array is append-only (deploys only ever add to it), so the enqueue and dequeue paths are untouched.
 
-Two exceptions to the plain oldest-first rule:
+- **Selection**: starting at the cursor, scan `_deployedAppIds` (wrapping around) for the first application with a non-empty queue. The view returns up to `maxCount` of its requests, together with its state root and `applicationId`. If no application has pending work, the view returns an empty request list and the cursor stays put.
+- **Enforcement**: any state update that dequeues from a per-application queue — `batchStateUpdate()` and `stateUpdate()` alike — recomputes the same scan, requires the submitted `applicationId` to be the scan's result, and sets the cursor just past it. Trigger-queue processing bypasses the cursor (see below). Selection is not a convention the manager follows — it is a rule the contract enforces.
 
-- **Trigger queue precedence.** If the global trigger queue is non-empty, its head (a TRUSTPROCESS request) is returned alone, before any per-application selection — preserving the existing priority semantics (section 5.1).
-- **Trigger applications capped at one.** If the selected application has a registered trigger contract, at most one request is returned regardless of `maxCount` (section 5.4).
+Because the scan skips empty queues, round-robin is work-conserving: a single busy application gets every batch when nothing else is pending.
 
-If multiple queue heads share the same timestamp (requests enqueued in the same block), the contract picks deterministically (e.g., lowest `applicationId`). The exact tie-breaking rule does not affect correctness — it only needs to be deterministic so that any observer can verify the selection.
+The scan costs one queue-emptiness storage read per skipped application, so enforcement is O(number of deployed apps) in the worst case. Deploys are permissioned (`DEPLOYAPP` role), so the array stays small and this is negligible; if the platform ever hosts hundreds of mostly-idle applications, revisit with an actively maintained non-empty-queue index.
 
-**Why the contract selects the application — not the manager:**
+Two exceptions to the plain round-robin rule:
 
-- **Anti-censorship.** If the manager chose which application to process next, a malicious or biased manager could starve specific applications by never selecting them. Moving the selection into the contract removes this discretion.
-- **Single verifiable algorithm.** The oldest-first rule is simple, deterministic, and can be verified by any on-chain observer or off-chain auditor. There is one algorithm, one place it runs (the contract), and one way to check it.
+- **Trigger queue precedence.** If the global trigger queue is non-empty, its head (a TRUSTPROCESS request) is returned alone, before any per-application selection — preserving the existing priority semantics (section 5.1). Processing it does not advance the cursor; rotation resumes where it paused.
+- **Trigger applications capped at one.** If the selected application has a registered trigger contract, at most one request is returned regardless of `maxCount` (section 5.4). Processing it advances the cursor like any other turn.
+
+**Why round-robin — and why the contract selects, not the manager:**
+
+- **Anti-censorship, enforced.** If the manager chose which application to process next, a malicious or biased manager could starve specific applications by never selecting them. With the cursor check in the state-update functions, the selection is enforced on-chain — the manager cannot bypass the view and submit for an application out of turn.
+- **Fairness for low-traffic applications.** Each application with pending work gets an equal share of batches. An application submitting one request is served after at most one batch per other active application — it never waits behind another application's entire backlog.
+- **Simplicity.** No timestamp comparisons, no tie-breaking rules — the cursor is the whole algorithm.
+
+> **Alternative considered — oldest-first.** Selecting the application whose queue head has the oldest block timestamp approximates global FIFO across applications. It was rejected for two reasons. First, enforcement cost: verifying "this application had the oldest head" inside a state-update transaction requires reading *every* queue head's timestamp on *every* call to find the minimum, whereas the round-robin scan reads only queue-emptiness flags and stops at the first non-empty queue. Second, fairness: global FIFO means a high-volume application imposes its entire queue latency on low-traffic applications. Cross-application submission order is not worth preserving — applications are fully independent, so nothing depends on it.
 
 ### 4.4. Manager: one batch per poll
 
-The manager processes one batch per poll cycle. It does not choose which application to serve — the contract does (section 4.3). Each batch is self-contained: its own encrypted state, WASM module, state root, and on-chain transaction. The contract's oldest-first selection ensures fair round-robin across applications with pending work.
+The manager processes one batch per poll cycle. It does not choose which application to serve — the contract does (section 4.3). Each batch is self-contained: its own encrypted state, WASM module, state root, and on-chain transaction. The contract's round-robin selection gives every application with pending work an equal share of batches.
 
 **Sequential vs parallel batches:** The initial implementation processes one batch per poll cycle — the simplest approach with no additional complexity. If throughput across many active applications becomes a bottleneck, the manager could process multiple batches per poll cycle by calling `GetPendingRequestsWithStateRoot` repeatedly and submitting batches without waiting for mining between them. Since different applications use independent state roots, there are no nonce-ordering or state-chaining conflicts between batches for different applications. This is the multi-application analog of the "combining approaches" note in section 3.4 and can be deferred.
 
@@ -314,8 +322,9 @@ The executor already processes work scoped to a single application — one WASM 
 |---|---|---|
 | Contract: state storage | `mapping(uint64 => bytes32) applicationStateRoots` | Already implemented |
 | Contract: queue | Single global queue → `mapping(uint64 => Queue) pendingQueues` (trigger queue stays global) | Required |
-| Contract: `batchStateUpdate()` | New function; reads/writes `applicationStateRoots[applicationId]` | Required |
-| Contract: view functions | `GetPendingRequestsWithStateRoot(maxCount)` with oldest-first selection; trigger queue precedence | Required |
+| Contract: `batchStateUpdate()` | New function; reads/writes `applicationStateRoots[applicationId]`; requires `applicationId` to match the round-robin scan and advances the cursor | Required |
+| Contract: round-robin tracking | Cursor into the existing `_deployedAppIds` array; scan skips empty queues | Required |
+| Contract: view functions | `GetPendingRequestsWithStateRoot(maxCount)` serving the scan result; trigger queue precedence | Required |
 | Manager: poll loop | One batch per poll cycle; contract selects the application | Required |
 | Manager: state storage | Keyed by `applicationId` | Already implemented |
 | Executor | Batch protocol only (section 6, Stage 2) | Required |
@@ -380,7 +389,7 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
 
 **Steps:**
 
-1. Replace the single global `_requestQueue` with `mapping(uint64 => RequestQueue) pendingQueues`. Enqueue into `pendingQueues[applicationId]`; `_triggerQueue` remains a single global priority queue. Update `getNextPendingRequest()`, `isCurrentPendingRequest()`, `getPendingRequests*()` and the queue-size cap (`maxQueueSize`) accordingly — decide whether the cap is per-application or aggregate.
+1. Replace the single global `_requestQueue` with `mapping(uint64 => RequestQueue) pendingQueues`. Enqueue into `pendingQueues[applicationId]`; `_triggerQueue` remains a single global priority queue. Add the round-robin cursor into `_deployedAppIds` and the shared scan helper (first app with a non-empty queue, starting at the cursor, wrapping — section 4.3). Update `getNextPendingRequest()`, `isCurrentPendingRequest()`, `getPendingRequests*()` and the queue-size cap (`maxQueueSize`) accordingly — decide whether the cap is per-application or aggregate.
 
 2. Extract the body of `stateUpdate()` into an internal function `_processOneStateUpdate()` that takes the same parameters and performs all validation, state updates, event emission, refunds, withdrawals, trigger invocation, and request dequeuing.
 
@@ -388,6 +397,7 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
 
 4. Add `batchStateUpdate(uint64 applicationId, BatchEntry[] calldata entries, bytes calldata batchSignature)` that:
    - Reverts if `triggerContracts[applicationId]` is set (section 5.4)
+   - Requires `applicationId` to match the round-robin scan result and sets the cursor just past it (section 4.3); the same check applies to `stateUpdate()` when dequeuing from a per-application queue (trigger-queue processing bypasses it)
    - Verifies the batch signature: recover the signer from `keccak256(abi.encode(hash(entries[0]), hash(entries[1]), ...))` and `batchSignature`, verify it matches the registered TEE signer. One `ecrecover` call for the entire batch. This requires a new verification function on the TEE authenticator (e.g., `checkBatchSignature(bytes32[] entryHashes, bytes signature)` in `ITeeAuthenticator` / `AbstractTeeAuthenticator`) — the existing `checkSignature()` hashes a single `SignatureParams` struct and cannot verify a batch message.
    - Reads `applicationStateRoots[applicationId]` from storage once into a local variable
    - Loops over entries, calling `_processOneStateUpdate()` for each (signature verification is already done — `_processOneStateUpdate` skips per-entry `ecrecover`), dequeuing from `pendingQueues[applicationId]`
@@ -395,7 +405,7 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
    - Writes `applicationStateRoots[applicationId]` to storage once at the end of the loop (not per iteration)
    - Emits individual entry hashes in events for off-chain verifiability
 
-5. Add the `GetPendingRequestsWithStateRoot(maxCount)` view with oldest-first application selection, trigger-queue precedence, and the trigger-app cap (section 4.3).
+5. Add the `GetPendingRequestsWithStateRoot(maxCount)` view serving the round-robin scan result, with trigger-queue precedence and the trigger-app cap (section 4.3).
 
 6. Define the `BatchEntry` struct containing per-request fields: `prevStateRoot`, `newStateRoot`, `processedRequestId`, `events`, `eventSubTypes`, `withdrawalRequests`, `refund`, `applicationFees`, `errorCode`, `errorMsg`.
 
@@ -409,7 +419,9 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
    - Batch signature signed by wrong key (reverts)
    - `batchStateUpdate()` for an application with a registered trigger (reverts)
    - Mixed-app enqueue: requests for A, B, A — selection returns both A requests; B's queue untouched
-   - Oldest-first selection across applications, including same-timestamp tie-breaking
+   - Round-robin rotation: batches for A, B alternate while both have pending work; cursor skips an application whose queue empties
+   - Cursor enforcement: `batchStateUpdate()` (and `stateUpdate()` on a per-application queue) for an application other than the round-robin scan result reverts
+   - Scan correctness: applications with empty queues are skipped; scan wraps past the end of `_deployedAppIds`; all queues empty → view returns no requests and the cursor is unchanged
    - Trigger queue precedence: pending TRUSTPROCESS returned alone before any batch selection
    - Trigger application selected: at most one request returned regardless of `maxCount`
    - Gas measurement: compare `batchStateUpdate(N entries)` vs N × `stateUpdate()`
@@ -551,7 +563,7 @@ Refactor the manager's poll loop to fetch multiple requests and route them throu
    - Hard failure mid-batch: executor returns partial results, manager submits only processed requests, remaining stay pending
    - Hard failure on first request: nothing submitted, retry next poll
 
-6. Integration test: submit 5 requests for one application on-chain, verify all processed in one poll cycle via a single `batchStateUpdate()` transaction; interleave requests for a second application and verify oldest-first selection serves both across polls.
+6. Integration test: submit 5 requests for one application on-chain, verify all processed in one poll cycle via a single `batchStateUpdate()` transaction; interleave requests for a second application and verify round-robin selection alternates between both across polls.
 
 **Files changed:**
 - `pkg/manager/config.go`
@@ -652,7 +664,7 @@ Request 5: not executed             ← remains pending
 
 The manager submits a `batchStateUpdate()` with only the results for requests 1-2. Requests 3-5 remain in the application's on-chain queue and will be retried on the next poll.
 
-> **Note:** Some hard failures are transient (encryption failure — likely a system issue that will resolve). Others are permanent for this executor (tampered `applicationId`). In the permanent case, the request blocks the queue head — every subsequent poll will stop at the same request. This is the same behavior as today's single-request processing: the manager retries and fails each poll. Despite per-application queues (section 4.2), the blockage is **not** confined to the affected application: the oldest-first selection keeps returning the blocked application on every poll, stalling all other applications too. See section 7.4.
+> **Note:** Some hard failures are transient (encryption failure — likely a system issue that will resolve). Others are permanent for this executor (tampered `applicationId`). In the permanent case, the request blocks the queue head — every subsequent poll will stop at the same request. This is the same behavior as today's single-request processing: the manager retries and fails each poll. Despite per-application queues (section 4.2), the blockage is **not** confined to the affected application: the enforced round-robin cursor cannot advance past the blocked application, so all other applications stall too. See section 7.4.
 
 ### 7.3. Executor batch pseudocode
 
@@ -704,19 +716,19 @@ If batch signing fails after processing, all results are discarded and the execu
 
 ### 7.4. System-wide head-of-line blocking — open issue
 
-Per-application queues (section 4.2) confine a permanently failing request to its own queue *structurally*, but the oldest-first application selection (section 4.3) re-globalizes the blockage:
+Per-application queues (section 4.2) confine a permanently failing request to its own queue *structurally*, but the enforced round-robin selection (section 4.3) re-globalizes the blockage:
 
 1. Application A's head request hard-fails permanently (e.g., tampered `applicationId`). It is never dequeued — soft failures produce an error payload and advance the queue; hard failures leave the request at the head.
-2. `GetPendingRequestsWithStateRoot` selects the application with the oldest queue head. A stuck request only gets older, so once A's head is the oldest, the contract selects A on **every** poll.
-3. The manager gets a hard failure on request 1, `processedCount == 0`, submits nothing. Next poll: the contract picks A again.
+2. When the cursor reaches A, the contract serves A and only accepts a state update for A. The manager gets a hard failure on request 1, `processedCount == 0`, and can submit nothing.
+3. The cursor never advances — a cursor advance requires a successful state update for A. Every subsequent poll selects A again.
 
-Result: one poisoned request stalls **all** applications, not just A. The manager cannot skip A — it has no discretion over selection by design (anti-censorship, section 4.3), and the contract as specified has no mechanism to move past a blocked head.
+Result: one poisoned request stalls **all** applications, not just A. The manager cannot skip A — the cursor check in the state-update functions rejects submissions for any other application. This is a property of *any* contract-enforced selection, not of round-robin specifically: whatever algorithm the contract enforces, a request that can never be processed blocks the rotation at its turn.
 
 **Possible solutions**, in order of how much they preserve the anti-censorship goal:
 
-1. **On-chain failure escalation.** The manager reports the hard failure on-chain (e.g., `markRequestBlocked(requestId)`, possibly gated by a timeout or evidence requirement). The contract moves the request to a parked state or the queue tail, and oldest-first selection naturally moves on. Verifiable, deterministic, auditable.
-2. **Request expiry.** Section 7.2 mentions expiry as out of scope; oldest-first selection effectively makes it in scope, because expiry becomes the only *automatic* unblocking mechanism — once the blocked head expires, selection moves on without intervention.
-3. **Manager-supplied skip/exclusion parameter** on the view call. Simplest, but reintroduces exactly the discretion section 4.3 removes — a manager could "skip" any application indefinitely. Note that the manager can already censor by idling; the real anti-censorship property is *detectability*, so an on-chain skip event with an emitted audit trail could be acceptable.
+1. **On-chain failure escalation.** The manager reports the hard failure on-chain (e.g., `markRequestBlocked(requestId)`, possibly gated by a timeout or evidence requirement). The contract moves the request to a parked state or the queue tail and advances the cursor, so rotation moves on. Verifiable, deterministic, auditable.
+2. **Request expiry.** Section 7.2 mentions expiry as out of scope; enforced selection effectively makes it in scope, because expiry becomes the only *automatic* unblocking mechanism — once the blocked head expires, the queue advances (or empties, letting the scan skip the application) and rotation moves on.
+3. **Manager-supplied skip/exclusion parameter** on the state-update call. Simplest, but reintroduces exactly the discretion section 4.3 removes — a manager could "skip" any application indefinitely. Note that the manager can already censor by idling; the real anti-censorship property is *detectability*, so an on-chain skip event with an emitted audit trail could be acceptable.
 
 A mechanism from this list must be chosen before the design is complete; until then, a permanently failing request is a system-wide blocker.
 
