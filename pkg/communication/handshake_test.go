@@ -1,9 +1,12 @@
 package communication
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"sync"
 	"testing"
@@ -276,6 +279,79 @@ func TestHandshake_ManagerSetError(t *testing.T) {
 	require.Error(t, executor.handshakeError)
 	require.Contains(t, executor.handshakeError.Error(), "Test Set Error")
 	require.Nil(t, manager.recoveryData)
+}
+
+// TestExecutorRejectsIncompatibleManagerVersion is the executor-side mirror of
+// the manager-side TestHandleGetKeysetRecoveryRequest_IncompatibleProtocol: a
+// manager advertising an incompatible wire-protocol version (here 0, the "old
+// manager (v0)" rollout case that cannot run its own check) must make the
+// executor abort in GetKeysetRecovery with a typed IncompatibleProtocolError,
+// before any keyset is restored or generated. Both directions must enforce this
+// so an incompatible pair never mutates keyset-recovery data.
+func TestExecutorRejectsIncompatibleManagerVersion(t *testing.T) {
+	ctx := context.Background()
+
+	// net.Pipe gives us the executor's end and the (fake) manager's end. The
+	// ClientConnection is wired exactly as Server.handleNewClient does so the
+	// real ClientConnection.GetKeysetRecovery version check is exercised.
+	executorEnd, managerEnd := net.Pipe()
+	c := &ClientConnection{
+		conn:            executorEnd,
+		reader:          bufio.NewReader(executorEnd),
+		writer:          bufio.NewWriter(executorEnd),
+		connected:       true,
+		pendingRequests: make(map[string]*PendingRequest),
+		shutdown:        make(chan struct{}),
+		reqTimeout:      commParams.RequestTimeoutSec * time.Second,
+		idLogTag:        "Executor",
+		log:             testLogger,
+	}
+	go MessageReaderLoop(ctx, "Executor", c.conn, c.reader, c.shutdown,
+		func(ctx context.Context, msg Message) { c.routeIncomingMessage(ctx, msg, nil) },
+		c.internalClose, testLogger)
+	defer c.internalClose()
+
+	// Simulate an OLD manager (wire-protocol version 0). To prove the version
+	// check fires FIRST, it also claims to hold recovery data — which the
+	// executor must never use once the versions are found incompatible.
+	managerReader := bufio.NewReader(managerEnd)
+	go func() {
+		reqBytes, err := ReadMessageFromSocket(managerEnd, managerReader, "OldManager", testLogger)
+		if err != nil {
+			return
+		}
+		var req Message
+		if err := json.Unmarshal(reqBytes, &req); err != nil {
+			return
+		}
+		resp := Message{
+			ID:   req.ID,
+			Type: GetKeysetRecoveryResponseMessage,
+			Data: GetKeysetRecoveryResponseData{
+				DataFound: true,
+				KeySetRecovery: &common.EnclaveKeySetRecovery{
+					RecoveryType:     common.RecoveryTypeKMS,
+					KeySetCiphertext: []byte("must-not-be-used"),
+				},
+				WireProtocolVersion: 0,
+			},
+		}
+		out, _ := json.Marshal(resp)
+		out = append(out, MsgDelimiter)
+		_, _ = managerEnd.Write(out)
+	}()
+
+	found, recoveryData, err := c.GetKeysetRecovery(ctx)
+
+	// Abort with a typed incompatibility error naming the old peer version 0.
+	var incompatErr *IncompatibleProtocolError
+	require.ErrorAs(t, err, &incompatErr)
+	require.Equal(t, uint32(0), incompatErr.Peer, "the old manager's version 0 must be reported")
+	require.Equal(t, WireProtocolVersion, incompatErr.Local)
+
+	// No recovery data is surfaced, so performHandshake restores/generates nothing.
+	require.False(t, found, "an incompatible peer must not signal found recovery data")
+	require.Nil(t, recoveryData, "recovery data must not be surfaced despite DataFound=true")
 }
 
 func TestHandshake_ExecutorRestoreFailure(t *testing.T) {

@@ -2351,6 +2351,43 @@ func TestHandleKeysetRecovery_SetsRunningPcr0(t *testing.T) {
 	require.Equal(t, "cafebabe", mgr2.RunningPcr0())
 }
 
+// TestHandleSetKeysetRecoveryRequest_StoreExistsFailsHandshake verifies that
+// when the data layer refuses to overwrite an existing keyset recovery blob
+// (ErrRecoveryDataExists — the R2 key-continuity guard), the error is surfaced
+// by HandleSetKeysetRecoveryRequest and the handshake is failed loudly with the
+// same typed error rather than silently completing.
+func TestHandleSetKeysetRecoveryRequest_StoreExistsFailsHandshake(t *testing.T) {
+	ctx := context.Background()
+	config := Config{
+		ReorgTimeout:        60,
+		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+	}
+	_, mgr := setupTestWithConfig(t, ctx, config, true,
+		&ExecutorHandShake{isComplete: make(chan struct{})}, nil, false)
+
+	storeErr := storageErrors.ErrRecoveryDataExists(
+		"refusing to overwrite existing enclave keyset recovery data")
+	mgr.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("StoreEnclaveKeySetRecovery",
+		func(context.Context, *common.EnclaveKeySetRecovery) error {
+			return storeErr
+		})
+
+	err := mgr.HandleSetKeysetRecoveryRequest(ctx, &common.EnclaveKeySetRecovery{
+		RecoveryType: common.RecoveryTypeKMS,
+	}, "comm-pub-key", "0xsigner", "deadbeef")
+
+	// The typed store error is surfaced to the caller.
+	require.ErrorIs(t, err, storeErr)
+	require.True(t, storageErrors.IsRecoveryDataExists(err),
+		"the returned error must be the RecoveryDataExists guard error")
+
+	// The handshake was completed loudly with the same error — not silently succeeded.
+	require.ErrorIs(t, mgr.executorHandShake.err, storeErr,
+		"the handshake must fail with the store error")
+	require.ErrorIs(t, mgr.waitForExecutorHandshake(), storeErr,
+		"waitForExecutorHandshake must surface the store error")
+}
+
 // TestHandleGetKeysetRecoveryRequest_IncompatibleProtocol verifies that an
 // incompatible executor protocol version fails the handshake with a typed
 // error, before any keyset-recovery data is read or exchanged.
