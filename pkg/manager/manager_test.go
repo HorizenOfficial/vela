@@ -146,15 +146,9 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 	}
 
 	if appState == nil {
-		failurePayload := &common.UpdatePayload{
-			ApplicationID: req.ApplicationID,
-			RequestID:     req.RequestID,
-			PrevStateRoot: [32]byte{},
-			NewStateRoot:  [32]byte{},
-			ErrorCode:     uint8(apperrors.CodeAppStateNotFound.Category.Category),
-			ErrorMsg:      "application state not found",
-		}
-		return failurePayload, nil, nil, nil
+		// Mirrors the real executor: app existence is validated on-chain, so a
+		// nil state is a hard failure, not a signed error payload.
+		return nil, nil, nil, fmt.Errorf("state not found for application %d", req.ApplicationID)
 	}
 
 	if string(req.Payload) == "invalid" {
@@ -184,6 +178,13 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, PrevStateRoot: appState.StateRoot, NewStateRoot: stateRoot},
 		&common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, report, nil
+}
+
+func (m *MockExecutorClient) SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+	if f, ok := m.GetMockedFunc("SendBatchProcessRequest"); ok {
+		return f.(func(context.Context, []*common.Request, *common.ApplicationState, []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error))(ctx, requests, appState, wasmModule)
+	}
+	return nil, nil, nil, nil, 0, fmt.Errorf("batch process request not supported in mock")
 }
 
 func (m *MockExecutorClient) ForwardAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
@@ -915,7 +916,8 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	oldDbVersion, err := manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
-	// Simulate application state not found. In this case, it should call SendProcessRequest and return a failure payload, then submitStateOnChain is called but the state is not stored in the data layer
+	// Simulate application state not found. SendProcessRequest is still called with a nil
+	// state, but the executor rejects it with a hard error: the request stays pending.
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
 		return nil, storageErrors.ErrNotFound("application state not found")
 	})
@@ -923,15 +925,13 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Failure in GetApplicationState. If the application wasn't already deployed, SendProcessRequest is called
 	failure := manager.processProcessRequest(context.Background(), request)
-	require.NoError(t, failure)
+	require.Error(t, failure)
+	require.ErrorContains(t, failure, "state not found for application")
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
-	failedRequests := mockBCClient.GetFailedRequests()
-	require.Equal(t, 1, len(failedRequests), "expected 1 failed request")
-	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	require.Empty(t, mockBCClient.GetFailedRequests())
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
@@ -949,7 +949,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.ErrorContains(t, failure, expectedError)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
@@ -963,7 +963,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.ErrorContains(t, failure, expectedError)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetWASMBytecode")
 
@@ -978,7 +978,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Contains(t, failure.Error(), expectedError)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
 
@@ -993,7 +993,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Contains(t, failure.Error(), expectedError)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 
@@ -1016,7 +1016,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Equal(t, oldDbVersion, newDbVersion)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	// Test blockchain failure for any other errors but reorgs.
 	// The local db should be reverted to the previous state
@@ -1035,7 +1035,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Equal(t, oldDbVersion, newDbVersion)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	// Same test but with an error payload for the SubmitStateUpdate
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
@@ -1056,7 +1056,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	require.Equal(t, oldDbVersion, newDbVersion)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
-	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
+	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
 	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")

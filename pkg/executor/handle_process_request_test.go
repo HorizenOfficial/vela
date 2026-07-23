@@ -122,16 +122,33 @@ func TestHandleProcessRequest_FeeBelowMinimum(t *testing.T) {
 }
 
 func TestHandleProcessRequest_NilAppState(t *testing.T) {
+	// App existence is validated on-chain (validApplicationId modifier), so a nil
+	// state here means tampering or manager-side state loss: hard failure, no
+	// signed error payload.
 	exec := newTestExecutor(t, NewMockRuntime(testLogger))
 	req := newProcessRequest()
 
-	payload, _, _, err := exec.HandleProcessRequest(context.Background(), req, nil, nil)
-	require.NoError(t, err)
-	require.NotNil(t, payload)
-	require.Equal(t, uint8(apperrors.CategoryAppNotDeployedMeta.Category), payload.ErrorCode)
-	require.Contains(t, payload.ErrorMsg, "state not found for application")
-	require.Equal(t, [32]byte{}, payload.PrevStateRoot)
-	require.Equal(t, [32]byte{}, payload.NewStateRoot)
+	payload, state, _, err := exec.HandleProcessRequest(context.Background(), req, nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "state not found for application")
+	require.Nil(t, payload)
+	require.Nil(t, state)
+}
+
+func TestHandleProcessRequest_ApplicationIdMismatch(t *testing.T) {
+	// The manager pairs request and state by applicationId, so a mismatch is
+	// evidence of a bug or tampering: hard failure, no signed error payload.
+	exec := newTestExecutor(t, NewMockRuntime(testLogger))
+	req := newProcessRequest()
+	req.ApplicationID = common.NewApplicationId(2)
+
+	appState := buildEncryptedAppState(t, exec, nil, nil) // ApplicationID = 1
+
+	payload, state, _, err := exec.HandleProcessRequest(context.Background(), req, appState, []byte("wasm"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match")
+	require.Nil(t, payload)
+	require.Nil(t, state)
 }
 
 func TestHandleProcessRequest_UnsupportedRequestType(t *testing.T) {

@@ -29,9 +29,17 @@ var (
 
 // MockRequestHandler is a mock implementation of the RequestHandler interface for testing
 type MockRequestHandler struct {
-	ProcessRequestFunc func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
-	DeployAppFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
-	AdminCommandFunc   func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
+	ProcessRequestFunc      func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
+	BatchProcessRequestFunc func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error)
+	DeployAppFunc           func(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
+	AdminCommandFunc        func(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error)
+}
+
+func (m *MockRequestHandler) HandleBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+	if m.BatchProcessRequestFunc != nil {
+		return m.BatchProcessRequestFunc(ctx, requests, appState, wasmModule)
+	}
+	return nil, nil, nil, nil, 0, fmt.Errorf("batch process request not supported in mock")
 }
 
 func (m *MockRequestHandler) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {

@@ -601,7 +601,6 @@ The current executor has two distinct error types, and the batch must handle the
 The executor produces an `UpdatePayload` with `prevStateRoot == newStateRoot` (state unchanged) and a non-zero `ErrorCode`. The error payload is not individually signed — it is covered by the batch signature alongside all other entries. The contract marks the request as `FAILED`, collects the minimum fee, refunds the rest, and advances the application's queue head.
 
 This happens for application-level errors where the executor has a valid stateRoot and can produce an error payload (see `HandleProcessRequest` in `pkg/executor/executor.go`):
-- App state not found
 - WASM execution failure — deposit or process
 - Insufficient fuel
 - Payload decryption failure
@@ -646,6 +645,7 @@ The executor returns a plain error — no signed payload. The manager cannot sub
 
 This happens for system-level errors, or for fields already validated on-chain whose unexpected value at the executor is evidence of tampering between the chain and the executor:
 - `validateRequest()` failure: wrong `applicationId`, wrong `protocolVersion`, fee below minimum (all validated on-chain)
+- App state not found — app existence is validated on-chain by the `validApplicationId` modifier in `ProcessorEndpoint`, so a nil state at the executor means tampering or manager-side state loss
 - Unsupported request type
 - State decryption failure
 - AES state encryption failure
