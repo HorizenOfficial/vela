@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import '@openzeppelin/contracts/access/AccessControl.sol';
-import '@openzeppelin/contracts/utils/ReentrancyGuard.sol';
+import '@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol';
+import '@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol';
+import '@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol';
+import '@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol';
+import '@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol';
 import '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
-import '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
 import '@openzeppelin/contracts/utils/Strings.sol';
 
 import './interfaces/ITeeAuthenticator.sol';
@@ -19,7 +21,14 @@ import './interfaces/ITrigger.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard, EIP712 {
+contract ProcessorEndpoint is
+  Initializable,
+  AccessControlUpgradeable,
+  IProcessorEndpoint,
+  ReentrancyGuardUpgradeable,
+  EIP712Upgradeable,
+  UUPSUpgradeable
+{
   using SafeERC20 for IERC20;
 
   struct RequestQueue {
@@ -38,11 +47,11 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   //state variables
   mapping(uint64 => bytes32) public applicationStateRoots;
   uint64[] private _deployedAppIds;
-  uint256 public maxNumOfApplications = 10;
-  uint256 public availableDeploySlots = maxNumOfApplications;
+  uint256 public maxNumOfApplications;
+  uint256 public availableDeploySlots;
 
   RequestQueue private _requestQueue;
-  uint256 public maxQueueSize = 10;
+  uint256 public maxQueueSize;
 
   ITeeAuthenticator public teeAuthenticator;
   IAuthorityRegistry public authorityRegistry;
@@ -82,6 +91,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   // FIFO queue populated by trigger contracts; served before the normal queue
   RequestQueue private _triggerQueue;
 
+  // --- storage buffer (must always be last, see UPGRADABLE_CONTRACTS_DESIGN.md) ---
+  uint256[50] private __gap;
+
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
     _;
@@ -92,6 +104,11 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     _;
   }
 
+  /// @custom:oz-upgrades-unsafe-allow constructor
+  constructor() {
+    _disableInitializers();
+  }
+
   /// @param _teeAuthenticator Contract used to verify update signatures.
   /// @param _authorityRegistry Registry for authority checks.
   /// @param updateStatusOperator Initial operator for status updates.
@@ -100,7 +117,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
   /// @param _tokenAllowlist External token allowlist contract.
-  constructor(
+  function initialize(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
@@ -108,7 +125,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     address resetOperator,
     uint256 _minFeePerRequest,
     ITokenAllowlist _tokenAllowlist
-  ) EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {
+  ) external initializer {
     if (
       address(_teeAuthenticator) == address(0) ||
       address(_authorityRegistry) == address(0) ||
@@ -116,6 +133,15 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       admin == address(0) ||
       address(_tokenAllowlist) == address(0)
     ) revert AddressCantBeZero();
+
+    __AccessControl_init();
+    __ReentrancyGuard_init();
+    __EIP712_init('Vela', Strings.toString(PROTOCOL_VERSION));
+    __UUPSUpgradeable_init();
+
+    maxNumOfApplications = 10;
+    availableDeploySlots = maxNumOfApplications;
+    maxQueueSize = 10;
 
     teeAuthenticator = _teeAuthenticator;
     authorityRegistry = _authorityRegistry;
@@ -130,6 +156,9 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       _grantRole(RESET_OPERATOR, resetOperator);
     }
   }
+
+  /// @dev Restricts UUPS upgrades to the ADMIN role.
+  function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN) {}
 
   // @notice receive ETH (sent back by trigger contracts)
   receive() external payable {}

@@ -4,16 +4,27 @@ pragma solidity ^0.8.28;
 import './AbstractTeeAuthenticator.sol';
 import './interfaces/INitroProver.sol';
 import './interfaces/ITeeAuthenticatorAdmin.sol';
-import '@openzeppelin/contracts/access/Ownable.sol';
+import '@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol';
+import '@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol';
+import '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
 import '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 import '@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol';
 
 /// @title TeeAuthenticator
 /// @notice Attestation-based tee signer and key manager.
-contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, Ownable {
-  INitroProver public immutable nitroProver;
+contract TeeAuthenticator is
+  Initializable,
+  AbstractTeeAuthenticator,
+  ITeeAuthenticatorAdmin,
+  OwnableUpgradeable,
+  UUPSUpgradeable
+{
+  // `immutable` variables are embedded in bytecode and invisible to the proxy's
+  // storage, so they are regular storage variables here (see
+  // UPGRADABLE_CONTRACTS_DESIGN.md).
+  INitroProver public nitroProver;
   bytes public pcr0;
-  uint256 public immutable maxVerificationAge;
+  uint256 public maxVerificationAge;
 
   address public teeSigner;
   bytes public pubSecp521r1;
@@ -35,20 +46,34 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
   bytes[] private _attestation_decoded;
   bytes private _buf;
 
+  // --- storage buffer (must always be last, see UPGRADABLE_CONTRACTS_DESIGN.md) ---
+  uint256[50] private __gap;
+
+  /// @custom:oz-upgrades-unsafe-allow constructor
+  constructor() {
+    _disableInitializers();
+  }
+
   /// @param owner Owner address.
   /// @param _nitroProver Nitro prover contract.
   /// @param _pcr0 Initial PCR0 value.
   /// @param _maxVerificationAge Max age for attestation validity.
-  constructor(
+  function initialize(
     address owner,
     INitroProver _nitroProver,
     bytes memory _pcr0,
     uint256 _maxVerificationAge
-  ) Ownable(owner) {
+  ) external initializer {
+    __Ownable_init(owner);
+    __UUPSUpgradeable_init();
+
     pcr0 = _pcr0;
     nitroProver = _nitroProver;
     maxVerificationAge = _maxVerificationAge;
   }
+
+  /// @dev Restricts UUPS upgrades to the owner.
+  function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
   /// @inheritdoc ITeeAuthenticatorAdmin
   function updateTee(bytes calldata attestation) external onlyOwner {

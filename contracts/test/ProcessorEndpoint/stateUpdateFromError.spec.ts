@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 import {
   ETH_TOKEN,
@@ -166,14 +166,18 @@ describe('ProcessorEndpoint Test', function () {
       await teeSigner.getAddress(),
       pk
     );
-    const processorEndpointWithNoAttestation = await fixture.processorEndpointFactory.deploy(
-      await teeAuthenticator.getAddress(),
-      await fixture.authorityRegistry.getAddress(),
-      fixture.updateStatusOperator,
-      fixture.admin,
-      fixture.resetOperator,
-      fixture.minFeePerRequest,
-      await fixture.sharedTokenAllowlist.getAddress()
+    const processorEndpointWithNoAttestation = await upgrades.deployProxy(
+      fixture.processorEndpointFactory,
+      [
+        await teeAuthenticator.getAddress(),
+        await fixture.authorityRegistry.getAddress(),
+        fixture.updateStatusOperator,
+        fixture.admin,
+        fixture.resetOperator,
+        fixture.minFeePerRequest,
+        await fixture.sharedTokenAllowlist.getAddress(),
+      ],
+      { kind: 'uups' }
     );
 
     const { applicationId: appId } = await fixture.bootstrapApplication(

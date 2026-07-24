@@ -27,6 +27,21 @@ npx hardhat run scripts/deploy/all.ts
 npx hardhat run scripts/deploy/authorityRegistry.ts
 ```
 
+## Upgrading contracts
+
+`ProcessorEndpoint`, `TeeAuthenticator`, and `AuthorityRegistry` are deployed behind UUPS proxies (see [`docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`](../docs/design/UPGRADABLE_CONTRACTS_DESIGN.md)), so their address stays stable across upgrades. The `scripts/upgrade/` folder contains one script per upgradable contract, each requiring the existing proxy address as an environment variable:
+
+```bash
+# Upgrade ProcessorEndpoint's implementation, keeping its proxy address unchanged
+PROXY_PROCESSOR_ENDPOINT=0x... npx hardhat run scripts/upgrade/processorEndpoint.ts
+
+# Same pattern for the other two upgradable contracts
+PROXY_TEE_AUTHENTICATOR=0x... npx hardhat run scripts/upgrade/teeAuthenticator.ts
+PROXY_AUTHORITY_REGISTRY=0x... npx hardhat run scripts/upgrade/authorityRegistry.ts
+```
+
+`@openzeppelin/hardhat-upgrades` validates storage-layout compatibility between the old and new implementation before upgrading. If the new version adds state that must be seeded, set `REINITIALIZE_FN`/`REINITIALIZE_ARGS` (see the design doc's "New Upgrade Scripts" section for details).
+
 ## Management scripts
 
 The `scripts/management/` folder contains utilities to operate the deployed contracts from the admin account, for example:

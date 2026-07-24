@@ -1,4 +1,4 @@
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 import CertManagerArtifact from '../../nitro_prover/CertManager.json';
 import NitroProverArtifact from '../../nitro_prover/NitroProver.json';
 
@@ -33,17 +33,24 @@ async function deploy() {
     _pcr0: ${process.env.TEE_PCR0},
     _maxVerificationAge: ${process.env.TEE_MAX_VERIFICATION_AGE}
   `);
-  //deploy TeeAuthenticator
+  //deploy TeeAuthenticator (proxy)
   const TeeAuthenticator = await ethers.getContractFactory('TeeAuthenticator');
-  const teeAuthenticator = await TeeAuthenticator.deploy(
-    process.env.TEE_OWNER!,
-    nitroProverAddress,
-    process.env.TEE_PCR0!,
-    process.env.TEE_MAX_VERIFICATION_AGE!
+  const teeAuthenticator = await upgrades.deployProxy(
+    TeeAuthenticator,
+    [
+      process.env.TEE_OWNER!,
+      nitroProverAddress,
+      process.env.TEE_PCR0!,
+      process.env.TEE_MAX_VERIFICATION_AGE!,
+    ],
+    { kind: 'uups' }
   );
-  await teeAuthenticator.deploymentTransaction()!.wait();
+  await teeAuthenticator.waitForDeployment();
 
-  console.log(`TeeAuthenticator deployed at ${await teeAuthenticator.getAddress()}`);
+  console.log(`TeeAuthenticator proxy deployed at ${await teeAuthenticator.getAddress()}`);
+  console.log(
+    `TeeAuthenticator implementation deployed at ${await upgrades.erc1967.getImplementationAddress(await teeAuthenticator.getAddress())}`
+  );
 }
 
 deploy()

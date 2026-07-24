@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 import { Signer } from 'ethers';
 import CertManagerArtifact from '../nitro_prover/CertManager.json';
 import NitroProverArtifact from '../nitro_prover/NitroProver.json';
@@ -41,15 +41,14 @@ describe('TeeAuthenticator Test', function () {
     await nitroProver.deploymentTransaction()!.wait();
     const nitroProverAddress = await nitroProver.getAddress();
 
-    //deploy TeeAuthenticator
+    //deploy TeeAuthenticator (proxy)
     const TeeAuthenticator = await ethers.getContractFactory('TeeAuthenticator');
-    teeAuthenticator = await TeeAuthenticator.deploy(
-      signers[0],
-      nitroProverAddress,
-      PCR0,
-      TEE_MAX_VERIFICATION_AGE
+    teeAuthenticator = await upgrades.deployProxy(
+      TeeAuthenticator,
+      [await signers[0].getAddress(), nitroProverAddress, PCR0, TEE_MAX_VERIFICATION_AGE],
+      { kind: 'uups' }
     );
-    await teeAuthenticator.deploymentTransaction()!.wait();
+    await teeAuthenticator.waitForDeployment();
   });
 
   it('should verify valid attestation (on TeeAuthenticator - steps)', async function () {

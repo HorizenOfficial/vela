@@ -106,6 +106,10 @@ User  ─────►  Proxy (same address, same state)
 | [ERC-1822](https://eips.ethereum.org/EIPS/eip-1822) | Defines the UUPS upgrade pattern: upgrade logic lives inside the implementation, not in a separate proxy admin. OpenZeppelin's `UUPSUpgradeable` is the canonical implementation. |
 | [OpenZeppelin `Initializable`](https://docs.openzeppelin.com/contracts/5.x/api/proxy#Initializable) | Provides the `initializer` and `reinitializer` modifiers and the `_disableInitializers()` helper that must be called in the implementation's constructor to prevent direct initialisation of the implementation contract (see R4). |
 
+### Go Test Tooling
+
+`pkg/blockchain/testutil/sim_test_helper.go` deploys `AuthorityRegistry` and `ProcessorEndpoint` against a simulated backend for Go tests. It mirrors `upgrades.deployProxy` by hand: deploy the bare implementation, then deploy an `ERC1967Proxy` (bound via a dedicated `erc1967proxy` Go package, generated the same way as the other contract bindings — see `client_test.go`'s `go:generate` directives) with ABI-encoded `initialize(...)` calldata, and treat the proxy address as the contract's address for all subsequent calls. `TeeAuthenticator`/`AuthorityRegistry`'s combined-json abigen output pulls in OpenZeppelin's `Errors.sol` library, whose generated Go type is literally named `Errors` and shadows the stdlib `errors` package inside abigen's own generated methods; both bindings (and the new `erc1967proxy` one) isolate their own abi/bin via `jq` before invoking `abigen`, the same workaround already used for `MockERC20`/`TestTrigger`.
+
 ### Deployment Flow
 
 For each contract the deployment sequence is:
@@ -190,13 +194,18 @@ function initialize(
     IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
     address admin,
-    uint256 _minFeePerRequest
+    address resetOperator,
+    uint256 _minFeePerRequest,
+    ITokenAllowlist _tokenAllowlist
 ) external initializer {
     // zero-address guards (same as current constructor)
     __AccessControl_init();
     __ReentrancyGuard_init();
+    __EIP712_init('Vela', Strings.toString(PROTOCOL_VERSION));
     __UUPSUpgradeable_init();
-    // ... assign storage variables
+    // ... assign storage variables (including the inline defaults for
+    // maxNumOfApplications/availableDeploySlots/maxQueueSize, which are only
+    // executed by a plain constructor and must be set explicitly here)
 }
 ```
 
@@ -226,30 +235,36 @@ Existing variables must remain in declaration order, unchanged. The `__gap` buff
 ```solidity
 // --- existing variables (order locked) ---
 mapping(uint64 => bytes32) public applicationStateRoots;
+uint64[] private _deployedAppIds;
 uint256 public maxNumOfApplications;
 uint256 public availableDeploySlots;
-mapping(bytes32 => Structs.PendingRequest) public requestById;
-mapping(uint256 => bytes32) private _requestIdByOrder;
-uint256 private _head;
-uint256 private _tail;
+RequestQueue private _requestQueue;
 uint256 public maxQueueSize;
 ITeeAuthenticator public teeAuthenticator;
 IAuthorityRegistry public authorityRegistry;
-mapping(address => uint256) public payments;
-uint256 private _totalDeposits;
-mapping(uint64 => uint256) public appLockedFunds;
+ITokenAllowlist public tokenAllowlist;
+mapping(address => mapping(address => uint256)) public pendingClaims;
+mapping(address => uint256) public totalPendingClaims;
+mapping(uint64 => mapping(address => uint256)) public appCustody;
+mapping(address => uint256) public totalAppCustody;
 uint256 public minFeePerRequest;
 address payable public feeCollector;
+mapping(address => uint256) public facilitatorNonces;
+mapping(uint64 => ITrigger) public triggerContracts;
+mapping(address => uint64) public triggersToAppIds;
+RequestQueue private _triggerQueue;
 
 // --- storage buffer (must always be last) ---
 uint256[50] private __gap;
 ```
 
+(Field-level docs are omitted above for brevity — see `ProcessorEndpoint.sol` for the authoritative, commented list. `RequestQueue` is itself a struct of mappings/counters; its internal layout is likewise order-locked.)
+
 ### Per-Contract Notes
 
 | Contract | Base contracts to replace | Additional notes |
 |----------|--------------------------|-----------------|
-| `ProcessorEndpoint` | `AccessControl` → `AccessControlUpgradeable`, `ReentrancyGuard` → `ReentrancyGuardUpgradeable` | No other changes to contract logic. |
+| `ProcessorEndpoint` | `AccessControl` → `AccessControlUpgradeable`, `ReentrancyGuard` → `ReentrancyGuardUpgradeable`, `EIP712` → `EIP712Upgradeable` | `EIP712`'s domain separator (`name`/`version`) is set via `__EIP712_init` inside `initialize`, replacing the constructor-only `EIP712('Vela', ...)` base-constructor call. |
 | `TeeAuthenticator` | `Ownable` → `OwnableUpgradeable` | `nitroProver` and `maxVerificationAge` are currently `immutable`. `immutable` variables are embedded in bytecode and invisible to the proxy's storage, so they must be converted to regular storage variables. The minor gas cost on reads is accepted given the low call frequency of attestation-related functions. |
 | `AuthorityRegistry` | `Ownable` → `OwnableUpgradeable` | No other changes to contract logic. |
 

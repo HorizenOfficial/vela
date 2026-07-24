@@ -1,4 +1,4 @@
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 
 async function deploy() {
   const deployer = (await ethers.getSigners())[0];
@@ -20,21 +20,28 @@ async function deploy() {
   const tokenAllowlistAddr = await tokenAllowlist.getAddress();
   console.log(`TokenAllowlist deployed at ${tokenAllowlistAddr}`);
 
-  // 2) ProcessorEndpoint
+  // 2) ProcessorEndpoint (proxy)
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');
-  const processorEndpoint = await ProcessorEndpoint.deploy(
-    process.env.TEE_AUTHENTICATOR!,
-    process.env.AUTHORITY_REGISTRY!,
-    process.env.UPDATE_STATUS_OPERATOR!,
-    process.env.ADMIN!,
-    process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000',
-    process.env.MIN_FEE_PER_REQUEST!,
-    tokenAllowlistAddr
+  const processorEndpoint = await upgrades.deployProxy(
+    ProcessorEndpoint,
+    [
+      process.env.TEE_AUTHENTICATOR!,
+      process.env.AUTHORITY_REGISTRY!,
+      process.env.UPDATE_STATUS_OPERATOR!,
+      process.env.ADMIN!,
+      process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000',
+      process.env.MIN_FEE_PER_REQUEST!,
+      tokenAllowlistAddr,
+    ],
+    { kind: 'uups' }
   );
-  await processorEndpoint.deploymentTransaction()!.wait();
+  await processorEndpoint.waitForDeployment();
 
   console.log(`TokenAllowlist deployed at ${tokenAllowlistAddr}`);
-  console.log(`ProcessorEndpoint deployed at ${await processorEndpoint.getAddress()}`);
+  console.log(`ProcessorEndpoint proxy deployed at ${await processorEndpoint.getAddress()}`);
+  console.log(
+    `ProcessorEndpoint implementation deployed at ${await upgrades.erc1967.getImplementationAddress(await processorEndpoint.getAddress())}`
+  );
 }
 
 deploy()

@@ -1,5 +1,5 @@
 import { Signer } from 'ethers';
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 import { BYTES_ZERO, BYTES32_ZERO } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
@@ -16,9 +16,10 @@ export async function deployProcessorEndpointFixture() {
   const defaultAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
 
   const AuthorityRegistry = await ethers.getContractFactory('AuthorityRegistry');
-  const authorityRegistry = await AuthorityRegistry.deploy(
-    await signers[0].getAddress(),
-    await defaultAuthority.getAddress()
+  const authorityRegistry = await upgrades.deployProxy(
+    AuthorityRegistry,
+    [await signers[0].getAddress(), await defaultAuthority.getAddress()],
+    { kind: 'uups' }
   );
 
   const MockTeeAuthenticator = await ethers.getContractFactory('MockTeeAuthenticator');
@@ -39,14 +40,18 @@ export async function deployProcessorEndpointFixture() {
 
   async function deployProcessorEndpoint(resetOperatorOverride?: string) {
     const tokenAllowlist = await deployTokenAllowlist();
-    const processorEndpoint = await processorEndpointFactory.deploy(
-      await teeAuthenticator.getAddress(),
-      await authorityRegistry.getAddress(),
-      updateStatusOperator,
-      admin,
-      resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator,
-      minFeePerRequest,
-      await tokenAllowlist.getAddress()
+    const processorEndpoint = await upgrades.deployProxy(
+      processorEndpointFactory,
+      [
+        await teeAuthenticator.getAddress(),
+        await authorityRegistry.getAddress(),
+        updateStatusOperator,
+        admin,
+        resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator,
+        minFeePerRequest,
+        await tokenAllowlist.getAddress(),
+      ],
+      { kind: 'uups' }
     );
     return { processorEndpoint, tokenAllowlist };
   }

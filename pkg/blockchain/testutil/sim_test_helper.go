@@ -18,6 +18,7 @@ import (
 	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/authority"
 	defaultauthority "github.com/HorizenOfficial/vela/pkg/blockchain/contracts/defaultauthoritychecker"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/erc1967proxy"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mockerc20"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mocktee"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/guardedtrigger"
@@ -89,6 +90,43 @@ func (s *SimTestHelper) GetEthBalance(addr ethCommon.Address) *big.Int {
 	return bal
 }
 
+// deployUUPSProxy deploys implMeta's bytecode as a bare implementation
+// contract (its constructor only calls _disableInitializers()), then deploys
+// an ERC1967Proxy pointing at it that atomically calls initData (built via the
+// target contract's PackInitialize). This mirrors what
+// @openzeppelin/hardhat-upgrades' upgrades.deployProxy does on the Solidity
+// test side for the same contracts (see
+// docs/design/UPGRADABLE_CONTRACTS_DESIGN.md). Returns the proxy address,
+// which callers must treat as the contract's canonical address — the
+// implementation address is an internal detail.
+func (s *SimTestHelper) deployUUPSProxy(implMeta *bind.MetaData, initData []byte, deployer bind.DeployFn) ethCommon.Address {
+	implDeployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{implMeta},
+	}
+	implDeployRes, err := bind.LinkAndDeploy(&implDeployParams, deployer)
+	require.NoError(s.t, err)
+	implAddress, implTx := implDeployRes.Addresses[implMeta.ID], implDeployRes.Txs[implMeta.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), implTx.Hash())
+	require.NoError(s.t, err)
+
+	proxyContract := erc1967proxy.NewERC1967Proxy()
+	proxyInput := proxyContract.PackConstructor(implAddress, initData)
+	proxyDeployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&erc1967proxy.ERC1967ProxyMetaData},
+		Inputs:    map[string][]byte{erc1967proxy.ERC1967ProxyMetaData.ID: proxyInput},
+	}
+	proxyDeployRes, err := bind.LinkAndDeploy(&proxyDeployParams, deployer)
+	require.NoError(s.t, err)
+	proxyAddress := proxyDeployRes.Addresses[erc1967proxy.ERC1967ProxyMetaData.ID]
+	proxyTx := proxyDeployRes.Txs[erc1967proxy.ERC1967ProxyMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), proxyTx.Hash())
+	require.NoError(s.t, err)
+
+	return proxyAddress
+}
+
 func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethCommon.Address, teePubSecp521r1 []byte) {
 	// use the default deployer: it simply creates, signs and submits the deployment transactions
 	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
@@ -148,28 +186,15 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	s.DefaultAuthorityAddress = defaultDeployRes.Addresses[defaultauthority.DefaultAuthorityMetaData.ID]
 	s.sim.Commit()
 
-	// 2) Deploy AuthorityRegistry with (owner, defaultAuthority)
+	// 2) Deploy AuthorityRegistry (proxy) with (owner, defaultAuthority)
 	authorityContract := *authority.NewAuthorityRegistry()
 
-	constructorInput := authorityContract.PackConstructor(
-		s.Deployer.From,  // owner
-		s.DefaultAuthorityAddress,  // default authority contract
+	authorityInitData := authorityContract.PackInitialize(
+		s.Deployer.From,          // owner
+		s.DefaultAuthorityAddress, // default authority contract
 	)
 
-	deployParams := bind.DeploymentParams{
-		Contracts: []*bind.MetaData{&authority.AuthorityRegistryMetaData},
-		Inputs:    map[string][]byte{authority.AuthorityRegistryMetaData.ID: constructorInput},
-	}
-
-	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
-	require.NoError(s.t, err)
-
-	s.AuthorityAddress, tx = deployRes.Addresses[authority.AuthorityRegistryMetaData.ID], deployRes.Txs[authority.AuthorityRegistryMetaData.ID]
-	s.sim.Commit()
-
-
-	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
-	require.NoError(s.t, err)
+	s.AuthorityAddress = s.deployUUPSProxy(&authority.AuthorityRegistryMetaData, authorityInitData, deployer)
 	fmt.Printf("Authority contract deployed at address 0x%x\n", s.AuthorityAddress)
 
 	// 3) Deploy TokenAllowlist
@@ -190,28 +215,12 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	s.tokenAllowlistContract = tokenallowlist.NewTokenAllowlist()
 	s.tokenAllowlistInstance = s.tokenAllowlistContract.Instance(s.sim.Client(), s.TokenAllowlistAddress)
 
-	// 4) Deploy ProcessorEndpoint
+	// 4) Deploy ProcessorEndpoint (proxy)
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5), s.TokenAllowlistAddress)
-	// set up params to deploy an instance of the ProcessorEndpoint contract
-	deployParams = bind.DeploymentParams{
-		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},
-		Inputs:    map[string][]byte{processorendpoint.ProcessorEndpointMetaData.ID: constructorInput},
-	}
+	processorInitData := contract.PackInitialize(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5), s.TokenAllowlistAddress)
 
-	// create and submit the contract deployment
-	deployRes, err = bind.LinkAndDeploy(&deployParams, deployer)
-	require.NoError(s.t, err)
-
-	s.ProcessorContractAddress, tx = deployRes.Addresses[processorendpoint.ProcessorEndpointMetaData.ID], deployRes.Txs[processorendpoint.ProcessorEndpointMetaData.ID]
-
-	// call Commit to make the simulated backend mine a block
-	s.sim.Commit()
-
-	// wait for the pending contract to be deployed on-chain
-	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
-	require.NoError(s.t, err)
+	s.ProcessorContractAddress = s.deployUUPSProxy(&processorendpoint.ProcessorEndpointMetaData, processorInitData, deployer)
 	fmt.Printf("Processor Endpoint contract deployed at address 0x%x\n", s.ProcessorContractAddress)
 
 }

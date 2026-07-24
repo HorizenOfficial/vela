@@ -1,5 +1,6 @@
 import { expect } from 'chai';
-import { ADDRESS_ZERO, BYTES32_ZERO } from '../util';
+import { ethers, upgrades } from 'hardhat';
+import { ADDRESS_ZERO } from '../util';
 import { deployProcessorEndpointFixture } from './fixture';
 
 describe('ProcessorEndpoint Test', function () {
@@ -27,76 +28,132 @@ describe('ProcessorEndpoint Test', function () {
     } = await deployProcessorEndpointFixture());
   });
 
-  describe('constructor', function () {
+  describe('initialize', function () {
     describe('unhappy paths', function () {
       it('reverts when teeAuthenticator is zero address', async () => {
         await expect(
-          processorEndpointFactory.deploy(
-            ADDRESS_ZERO,
-            await authorityRegistry.getAddress(),
-            updateStatusOperator,
-            admin,
-            ADDRESS_ZERO,
-            minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+          upgrades.deployProxy(
+            processorEndpointFactory,
+            [
+              ADDRESS_ZERO,
+              await authorityRegistry.getAddress(),
+              updateStatusOperator,
+              admin,
+              ADDRESS_ZERO,
+              minFeePerRequest,
+              await sharedTokenAllowlist.getAddress(),
+            ],
+            { kind: 'uups' }
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
 
       it('reverts when authorityRegistry is zero address', async () => {
         await expect(
-          processorEndpointFactory.deploy(
-            await teeAuthenticator.getAddress(),
-            ADDRESS_ZERO,
-            updateStatusOperator,
-            admin,
-            ADDRESS_ZERO,
-            minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+          upgrades.deployProxy(
+            processorEndpointFactory,
+            [
+              await teeAuthenticator.getAddress(),
+              ADDRESS_ZERO,
+              updateStatusOperator,
+              admin,
+              ADDRESS_ZERO,
+              minFeePerRequest,
+              await sharedTokenAllowlist.getAddress(),
+            ],
+            { kind: 'uups' }
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
 
       it('reverts when updateStatusOperator is zero address', async () => {
         await expect(
-          processorEndpointFactory.deploy(
-            await teeAuthenticator.getAddress(),
-            await authorityRegistry.getAddress(),
-            ADDRESS_ZERO,
-            admin,
-            ADDRESS_ZERO,
-            minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+          upgrades.deployProxy(
+            processorEndpointFactory,
+            [
+              await teeAuthenticator.getAddress(),
+              await authorityRegistry.getAddress(),
+              ADDRESS_ZERO,
+              admin,
+              ADDRESS_ZERO,
+              minFeePerRequest,
+              await sharedTokenAllowlist.getAddress(),
+            ],
+            { kind: 'uups' }
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
 
       it('reverts when admin is zero address', async () => {
         await expect(
-          processorEndpointFactory.deploy(
-            await teeAuthenticator.getAddress(),
-            await authorityRegistry.getAddress(),
-            updateStatusOperator,
-            ADDRESS_ZERO,
-            ADDRESS_ZERO,
-            minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+          upgrades.deployProxy(
+            processorEndpointFactory,
+            [
+              await teeAuthenticator.getAddress(),
+              await authorityRegistry.getAddress(),
+              updateStatusOperator,
+              ADDRESS_ZERO,
+              ADDRESS_ZERO,
+              minFeePerRequest,
+              await sharedTokenAllowlist.getAddress(),
+            ],
+            { kind: 'uups' }
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
 
       it('reverts when tokenAllowlist is zero address', async () => {
         await expect(
-          processorEndpointFactory.deploy(
+          upgrades.deployProxy(
+            processorEndpointFactory,
+            [
+              await teeAuthenticator.getAddress(),
+              await authorityRegistry.getAddress(),
+              updateStatusOperator,
+              admin,
+              ADDRESS_ZERO,
+              minFeePerRequest,
+              ADDRESS_ZERO,
+            ],
+            { kind: 'uups' }
+          )
+        ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
+      });
+
+      it('reverts when initialize is called a second time', async () => {
+        const { processorEndpoint, tokenAllowlist } = await deployProcessorEndpoint();
+
+        await expect(
+          processorEndpoint.initialize(
             await teeAuthenticator.getAddress(),
             await authorityRegistry.getAddress(),
             updateStatusOperator,
             admin,
-            ADDRESS_ZERO,
+            resetOperator,
             minFeePerRequest,
-            ADDRESS_ZERO
+            await tokenAllowlist.getAddress()
           )
-        ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidInitialization');
+      });
+
+      it('reverts when initialize is called directly on the implementation', async () => {
+        const { processorEndpoint, tokenAllowlist } = await deployProcessorEndpoint();
+        const implementationAddress = await upgrades.erc1967.getImplementationAddress(
+          await processorEndpoint.getAddress()
+        );
+        const implementation = processorEndpointFactory.attach(implementationAddress);
+
+        await expect(
+          implementation.initialize(
+            await teeAuthenticator.getAddress(),
+            await authorityRegistry.getAddress(),
+            updateStatusOperator,
+            admin,
+            resetOperator,
+            minFeePerRequest,
+            await tokenAllowlist.getAddress()
+          )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidInitialization');
       });
     });
 
@@ -139,6 +196,41 @@ describe('ProcessorEndpoint Test', function () {
         const resetRole = await processorEndpoint.RESET_OPERATOR();
         expect(await processorEndpoint.hasRole(resetRole, ADDRESS_ZERO)).to.equal(false);
       });
+    });
+  });
+
+  describe('upgradeability', function () {
+    it('reverts when a non-admin attempts to upgrade', async () => {
+      const { processorEndpoint } = await deployProcessorEndpoint();
+      const otherImplementation = await processorEndpointFactory.deploy();
+      await otherImplementation.waitForDeployment();
+
+      const signers = await ethers.getSigners();
+      await expect(
+        processorEndpoint
+          .connect(signers[4])
+          .upgradeToAndCall(await otherImplementation.getAddress(), '0x')
+      ).to.be.revertedWithCustomError(processorEndpoint, 'AccessControlUnauthorizedAccount');
+    });
+
+    it('preserves storage across an upgrade to a new implementation', async () => {
+      const { processorEndpoint } = await deployProcessorEndpoint();
+      const proxyAddress = await processorEndpoint.getAddress();
+
+      const teeAuthenticatorBefore = await processorEndpoint.teeAuthenticator();
+      const minFeeBefore = await processorEndpoint.minFeePerRequest();
+      const maxQueueSizeBefore = await processorEndpoint.maxQueueSize();
+
+      // Upgrades must be sent by an ADMIN role holder — `admin` (signers[2]) per the fixture.
+      const signers = await ethers.getSigners();
+      const adminFactory = await ethers.getContractFactory('ProcessorEndpoint', signers[2]);
+      const upgraded = await upgrades.upgradeProxy(proxyAddress, adminFactory);
+      await upgraded.waitForDeployment();
+
+      expect(await upgraded.getAddress()).to.equal(proxyAddress);
+      expect(await upgraded.teeAuthenticator()).to.equal(teeAuthenticatorBefore);
+      expect(await upgraded.minFeePerRequest()).to.equal(minFeeBefore);
+      expect(await upgraded.maxQueueSize()).to.equal(maxQueueSizeBefore);
     });
   });
 });

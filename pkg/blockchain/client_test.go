@@ -23,7 +23,14 @@ import (
 //go:generate abigen --v2 --combined-json ../../contract_abis/NoAttestationTeeAuthenticatorAbi/combined.json --pkg noattestationtee --type NoAttestationTeeAuthenticator --out ./contracts/noattestationtee/NoAttestationTeeAuthenticator.go
 //go:generate mkdir -p ./contracts/authority
 //go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/AuthorityRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/AuthorityRegistryAbi --overwrite
-//go:generate abigen --v2 --combined-json ../../contract_abis/AuthorityRegistryAbi/combined.json --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
+// Isolate AuthorityRegistry's own abi/bin rather than passing the whole
+// --combined-json to abigen: since it became UUPS-upgradeable (see
+// docs/design/UPGRADABLE_CONTRACTS_DESIGN.md) its combined-json output pulls
+// in OpenZeppelin's Errors.sol library, whose generated `Errors` type shadows
+// the stdlib `errors` package in abigen's own output and fails to compile.
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/AuthorityRegistry.sol:AuthorityRegistry\"].abi' ../../contract_abis/AuthorityRegistryAbi/combined.json > ../../contract_abis/AuthorityRegistryAbi/AuthorityRegistry.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/AuthorityRegistry.sol:AuthorityRegistry\"].bin' ../../contract_abis/AuthorityRegistryAbi/combined.json > ../../contract_abis/AuthorityRegistryAbi/AuthorityRegistry.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/AuthorityRegistryAbi/AuthorityRegistry.abi --bin ../../contract_abis/AuthorityRegistryAbi/AuthorityRegistry.bin --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
 // MockERC20 binding pipeline deviates from the --combined-json pattern used by
 // the other contracts above. MockERC20 declares `is ERC20, ERC20Permit`, and
 // both parents inherit OpenZeppelin's EIP712. With --combined-json, abigen
@@ -48,6 +55,18 @@ import (
 //go:generate mkdir -p ./contracts/guardedtrigger
 //go:generate solc --via-ir --abi --bin ../../contracts/contracts/mocks/GuardedTrigger.sol --base-path ../.. --include-path ../../contracts/node_modules -o ../../contract_abis/GuardedTriggerAbi --overwrite
 //go:generate abigen --v2 --abi ../../contract_abis/GuardedTriggerAbi/GuardedTrigger.abi --bin ../../contract_abis/GuardedTriggerAbi/GuardedTrigger.bin --pkg guardedtrigger --type GuardedTrigger --out ./contracts/guardedtrigger/GuardedTrigger.go
+// ERC1967Proxy is the plain (non-upgradeable) proxy shell deployed in front of
+// ProcessorEndpoint/TeeAuthenticator/AuthorityRegistry (see
+// docs/design/UPGRADABLE_CONTRACTS_DESIGN.md). Only used by test setup to stand
+// up those contracts behind a proxy, mirroring @openzeppelin/hardhat-upgrades'
+// deployProxy on the Solidity test side.
+//go:generate mkdir -p ./contracts/erc1967proxy
+//go:generate solc --via-ir --combined-json abi,bin ../../contracts/node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ERC1967ProxyAbi --overwrite
+// Isolated abi/bin (see the AuthorityRegistry/TeeAuthenticator comments
+// above) to avoid abigen's `Errors` vs stdlib `errors` naming collision.
+//go:generate sh -c "jq -r '.contracts[\"contracts/node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy\"].abi' ../../contract_abis/ERC1967ProxyAbi/combined.json > ../../contract_abis/ERC1967ProxyAbi/ERC1967Proxy.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy\"].bin' ../../contract_abis/ERC1967ProxyAbi/combined.json > ../../contract_abis/ERC1967ProxyAbi/ERC1967Proxy.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/ERC1967ProxyAbi/ERC1967Proxy.abi --bin ../../contract_abis/ERC1967ProxyAbi/ERC1967Proxy.bin --pkg erc1967proxy --type ERC1967Proxy --out ./contracts/erc1967proxy/ERC1967Proxy.go
 
 
 func SetupNewBlockChainClient(testHelper *testutil.SimTestHelper) *BlockChainClient {

@@ -30,7 +30,17 @@ import (
 //go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi --bin ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
 //go:generate mkdir -p ./contracts/tee
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
-//go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
+// Isolate TeeAuthenticator's own abi/bin (rather than passing the whole
+// --combined-json to abigen): since TeeAuthenticator became UUPS-upgradeable
+// (see docs/design/UPGRADABLE_CONTRACTS_DESIGN.md) its combined-json output
+// pulls in OpenZeppelin's Errors.sol library, whose generated `Errors` type
+// shadows the stdlib `errors` package in abigen's own output and fails to
+// compile. The per-contract abi/bin (same pattern as ProcessorEndpoint above
+// and MockERC20/TestTrigger in client_test.go) avoids pulling in sibling
+// contracts entirely.
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TeeAuthenticator.sol:TeeAuthenticator\"].abi' ../../contract_abis/TeeAuthenticatorAbi/combined.json > ../../contract_abis/TeeAuthenticatorAbi/TeeAuthenticator.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TeeAuthenticator.sol:TeeAuthenticator\"].bin' ../../contract_abis/TeeAuthenticatorAbi/combined.json > ../../contract_abis/TeeAuthenticatorAbi/TeeAuthenticator.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/TeeAuthenticatorAbi/TeeAuthenticator.abi --bin ../../contract_abis/TeeAuthenticatorAbi/TeeAuthenticator.bin --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
 //go:generate mkdir -p ./contracts/tokenallowlist
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TokenAllowlist.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TokenAllowlistAbi --overwrite
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TokenAllowlist.sol:TokenAllowlist\"].abi' ../../contract_abis/TokenAllowlistAbi/combined.json > ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.abi"
