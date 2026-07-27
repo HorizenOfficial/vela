@@ -22,7 +22,6 @@ import (
 //
 //	[100..173] process_request result: 4-byte LE length (70) + JSON {"state":[1],...}
 //	[200..273] trusted_request result: 4-byte LE length (70) + JSON {"state":[2],...}
-//	[300..328] load_module result:     4-byte LE length (25) + JSON {"state":[],"fuel":"0x1"}
 //	[500..~  ] scratch area for allocate — the host writes payload/state here; the
 //	           WASM functions ignore all input params and return the fixed offsets above.
 //
@@ -32,7 +31,6 @@ import (
 //	  (appId, senderPtr, senderLen, requestType, payloadPtr, payloadLen, statePtr, stateLen)
 //	trusted_request (param i64 i32 i32 i32 i32) (result i32)
 //	  (appId, payloadPtr, payloadLen, statePtr, stateLen)
-//	load_module (param i64) (result i32)       — called by getOrLoadModule on first load
 //	allocate    (param i32) (result i32)       — always returns scratch offset 500
 //	deallocate  (param i32 i32)                — no-op
 const dispatchTestWat = `(module
@@ -54,18 +52,6 @@ const dispatchTestWat = `(module
     "\7b\22\73\74\61\74\65\22\3a\5b\32\5d\2c\22\65\76\65\6e\74\73\22\3a\5b\5d\2c"
     "\22\61\70\70\45\76\65\6e\74\73\22\3a\5b\5d\2c\22\77\69\74\68\64\72\61\77\61"
     "\6c\73\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
-  )
-
-  ;; load_module result at offset 300:
-  ;;   4-byte LE length = 25 (0x19) followed by JSON {"state":[],"fuel":"0x1"}
-  (data (i32.const 300)
-    "\19\00\00\00"
-    "\7b\22\73\74\61\74\65\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
-  )
-
-  ;; load_module: called by getOrLoadModule during module warm-up; returns fixed offset 300
-  (func (export "load_module") (param i64) (result i32)
-    i32.const 300
   )
 
   ;; allocate: always returns scratch offset 500 (host writes payload/state here)
