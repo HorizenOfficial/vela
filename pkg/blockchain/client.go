@@ -314,6 +314,46 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 	return req, stateRoot, nil
 }
 
+// GetPendingRequestsWithStateRoot fetches up to maxCount pending requests for the
+// application selected by the contract, together with its applicationId and on-chain
+// state root.
+//
+// STUB: the ProcessorEndpoint contract does not yet expose the batch view
+// (per-application queues + round-robin selection, see docs/design/BATCH_EXECUTION.md
+// section 4). Until it does, this delegates to GetNextPendingRequest, so a batch
+// always contains at most one request. maxCount is accepted for API compatibility
+// but ignored.
+func (c *BlockChainClient) GetPendingRequestsWithStateRoot(ctx context.Context, maxCount uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+	req, stateRoot, err := c.GetNextPendingRequest(ctx)
+	if err != nil {
+		return 0, nil, [32]byte{}, err
+	}
+	if req == nil {
+		return 0, nil, stateRoot, nil
+	}
+	return req.ApplicationID, []*common.Request{req}, stateRoot, nil
+}
+
+// SubmitBatchStateUpdate submits a batch of per-request update payloads together with
+// a single batch signature covering all entry hashes.
+//
+// STUB: the ProcessorEndpoint contract does not yet expose batchStateUpdate() (see
+// docs/design/BATCH_EXECUTION.md section 3.2). Until it does, this submits the batch
+// through the single-request stateUpdate() path. This works only for a size-1 batch:
+// the batch payloads are unsigned individually, but a 1-entry batch hashes identically
+// to the single-request message (MsgToSignBuilder.BuildBatchMsgHash), so the batch
+// signature verifies on-chain when attached to the lone payload. A batch of >1 cannot
+// be replayed this way and is rejected loudly rather than silently dropping entries.
+func (c *BlockChainClient) SubmitBatchStateUpdate(ctx context.Context, updates []*common.UpdatePayload, batchSignature []byte) error {
+	if len(updates) != 1 {
+		return fmt.Errorf("SubmitBatchStateUpdate stub supports only size-1 batches, got %d: batchStateUpdate() is not yet supported by the ProcessorEndpoint contract", len(updates))
+	}
+	// The single payload is unsigned; the batch signature (== single-request
+	// signature for a 1-entry batch) is what stateUpdate() verifies on-chain.
+	updates[0].Signature = batchSignature
+	return c.SubmitStateUpdate(ctx, updates[0])
+}
+
 func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) error {
 	if c.account == nil {
 		return fmt.Errorf("client not configured for signing transactions")

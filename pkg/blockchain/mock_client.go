@@ -202,6 +202,38 @@ func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request
 
 }
 
+// GetPendingRequestsWithStateRoot returns up to maxCount pending requests for a single
+// application (the one at the queue head), together with its applicationId and state
+// root. Unlike the real client stub, the mock implements the batch semantics fully so
+// tests can exercise multi-request batches: a batch is scoped to one application, so
+// only the head application's requests are returned, in queue order.
+func (c *MockClient) GetPendingRequestsWithStateRoot(ctx context.Context, maxCount uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+	if f, ok := c.GetMockedFunc("GetPendingRequestsWithStateRoot"); ok {
+		return f.(func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error))(ctx, maxCount)
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if maxCount == 0 || c.pendingRequests.Len() == 0 {
+		return 0, nil, [32]byte{}, nil
+	}
+
+	appID := c.pendingRequests.Front().Value.ApplicationID
+	requests := make([]*common.Request, 0, maxCount)
+	for req := range c.pendingRequests.Values() {
+		if req.ApplicationID != appID {
+			continue
+		}
+		requests = append(requests, req)
+		if uint64(len(requests)) == maxCount {
+			break
+		}
+	}
+
+	return appID, requests, c.stateRoots[appID], nil
+}
+
 
 func (c *MockClient) GetCompletedRequests() []*common.Request {
 	c.mu.RLock()
@@ -297,6 +329,73 @@ func (c *MockClient) SubmitStateUpdate(ctx context.Context, update *common.Updat
 		}
 		*withdrawals = append(*withdrawals, update.Withdrawals...)
 	}
+
+	return nil
+}
+
+// SubmitBatchStateUpdate applies a batch of per-request update payloads atomically,
+// mirroring the all-or-nothing semantics of the contract's batchStateUpdate(): every
+// entry must correspond to a pending request before any mutation happens. The mock
+// does not verify signatures; the batch signature is attached to the first (unsigned)
+// payload for record-keeping. Per-entry effects (completion, failure marking, events,
+// withdrawals) happen in the loop, but the application state root is written once at
+// the end to the final entry's NewStateRoot — matching the contract's single storage
+// write. The executor chains the root through the batch, so the last entry's
+// NewStateRoot is the final root whether or not that entry was a soft failure.
+func (c *MockClient) SubmitBatchStateUpdate(ctx context.Context, updates []*common.UpdatePayload, batchSignature []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if f, ok := c.GetMockedFunc("SubmitBatchStateUpdate"); ok {
+		return f.(func(context.Context, []*common.UpdatePayload, []byte) error)(ctx, updates, batchSignature)
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	// Atomic precondition: every entry must map to a pending request.
+	for _, update := range updates {
+		if !c.pendingRequests.Has(update.RequestID) {
+			return fmt.Errorf("request not found: %s", update.RequestID)
+		}
+	}
+
+	for i, update := range updates {
+		if i == 0 && update.Signature == nil {
+			update.Signature = batchSignature
+		}
+		c.pendingRequests.Delete(update.RequestID)
+
+		if update.ErrorCode != 0 {
+			// Soft failure: mark failed, state unchanged (prevStateRoot == newStateRoot).
+			req, _ := c.requests.Get(update.RequestID)
+			c.failedRequests.Set(update.RequestID, req)
+			continue
+		}
+
+		c.updatePayloads[update.RequestID] = update
+
+		c.emitEvents(update.Events)
+
+		if len(update.Withdrawals) > 0 {
+			withdrawals, exists := c.withdrawals[update.ApplicationID]
+			if !exists {
+				withdrawals = &[]common.Withdrawal{}
+				c.withdrawals[update.ApplicationID] = withdrawals
+			}
+			*withdrawals = append(*withdrawals, update.Withdrawals...)
+		}
+	}
+
+	// Single state-root write at the end of the batch, to the final entry's root.
+	final := updates[len(updates)-1]
+	c.states[final.ApplicationID] = &common.ApplicationState{
+		ApplicationID:  final.ApplicationID,
+		StateRoot:      final.NewStateRoot,
+		EncryptedState: nil, // State is stored separately in the data layer
+	}
+	c.stateRoots[final.ApplicationID] = final.NewStateRoot
 
 	return nil
 }

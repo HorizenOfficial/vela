@@ -12,15 +12,16 @@ import (
 
 // eventBroadcastingClient wraps a real blockchain.Client (typically a BlockChainClient
 // connected to the simulated backend) and intercepts:
-//   - GetNextPendingRequest — to cache each request's RequestType, so
-//     SubmitStateUpdate can classify the completion the same way the contract
-//     does (DeployRequestCompleted vs RequestCompleted).
-//   - SubmitStateUpdate — to broadcast events, track completions, store
-//     update payloads, accumulate withdrawals, and notify the in-process
-//     subgraph. Errors from the underlying call are also captured on a
-//     channel so negative-path tests (e.g., TEE attestation rejection) can
-//     assert on the exact revert reason rather than waiting for an outer
-//     timeout.
+//   - GetNextPendingRequest / GetPendingRequestsWithStateRoot — to cache each
+//     request's RequestType, so SubmitStateUpdate / SubmitBatchStateUpdate can classify the completion
+//     the same way the contract does (DeployRequestCompleted vs
+//     RequestCompleted), and to track TRUSTPROCESS requests for test discovery.
+//   - SubmitStateUpdate / SubmitBatchStateUpdate — to broadcast events, track
+//     completions, store update payloads, accumulate withdrawals, and notify
+//     the in-process subgraph. Errors from the underlying call are also
+//     captured on a channel so negative-path tests (e.g., TEE attestation
+//     rejection) can assert on the exact revert reason rather than waiting for
+//     an outer timeout.
 //
 // All other Client methods are delegated to the underlying client unchanged.
 type eventBroadcastingClient struct {
@@ -29,7 +30,7 @@ type eventBroadcastingClient struct {
 	mu             sync.Mutex
 	eventChannel   chan<- interface{}
 	pendingIDs     map[common.RequestIdType]struct{}
-	requestTypes   map[common.RequestIdType]common.RequestType // cached from GetNextPendingRequest
+	requestTypes   map[common.RequestIdType]common.RequestType // cached from GetNextPendingRequest / GetPendingRequestsWithStateRoot
 	completedIDs   map[common.RequestIdType]struct{}
 	failedIDs      map[common.RequestIdType]struct{}
 	updatePayloads map[common.RequestIdType]*common.UpdatePayload
@@ -85,13 +86,44 @@ func (c *eventBroadcastingClient) GetNextPendingRequest(ctx context.Context) (*c
 	}
 	if req != nil {
 		c.mu.Lock()
-		c.requestTypes[req.RequestID] = req.RequestType
-		if req.RequestType == common.TrustProcess && !containsRequestID(c.trustProcessIDs, req.RequestID) {
-			c.trustProcessIDs = append(c.trustProcessIDs, req.RequestID)
-		}
+		c.cacheRequestLocked(req)
 		c.mu.Unlock()
 	}
 	return req, stateRoot, nil
+}
+
+// GetPendingRequestsWithStateRoot delegates to the real client (the contract selects
+// the application and returns up to maxCount of its pending requests) and caches each
+// request's RequestType so a later SubmitBatchStateUpdate/SubmitStateUpdate can
+// classify the completion canonically. This is the batch-path counterpart of
+// GetNextPendingRequest — tests that drive the manager through batching rely on it to
+// populate the same request-type and TRUSTPROCESS bookkeeping.
+func (c *eventBroadcastingClient) GetPendingRequestsWithStateRoot(ctx context.Context, maxCount uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+	appID, requests, stateRoot, err := c.Client.GetPendingRequestsWithStateRoot(ctx, maxCount)
+	if err != nil {
+		return appID, requests, stateRoot, err
+	}
+	if len(requests) > 0 {
+		c.mu.Lock()
+		for _, req := range requests {
+			if req != nil {
+				c.cacheRequestLocked(req)
+			}
+		}
+		c.mu.Unlock()
+	}
+	return appID, requests, stateRoot, nil
+}
+
+// cacheRequestLocked records a fetched request's RequestType so a later state update
+// can classify its completion the same way the contract does, and tracks TRUSTPROCESS
+// requests (enqueued on-chain by a trigger, not submitted by the test) so tests can
+// discover them. Callers must hold c.mu.
+func (c *eventBroadcastingClient) cacheRequestLocked(req *common.Request) {
+	c.requestTypes[req.RequestID] = req.RequestType
+	if req.RequestType == common.TrustProcess && !containsRequestID(c.trustProcessIDs, req.RequestID) {
+		c.trustProcessIDs = append(c.trustProcessIDs, req.RequestID)
+	}
 }
 
 func containsRequestID(ids []common.RequestIdType, id common.RequestIdType) bool {
@@ -120,7 +152,42 @@ func (c *eventBroadcastingClient) SubmitStateUpdate(ctx context.Context, update 
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.recordUpdateLocked(update)
+	return nil
+}
 
+// SubmitBatchStateUpdate delegates the batch to the real client and then records
+// each entry's result for test observation, mirroring SubmitStateUpdate. The batch
+// is atomic on-chain, so bookkeeping runs only after the underlying call succeeds;
+// on error the reason is captured on stateUpdateErrors (like SubmitStateUpdate) and
+// no entry is recorded. Batches never contain deploy requests — deploys are always
+// processed individually — so every entry classifies as a non-deploy completion.
+func (c *eventBroadcastingClient) SubmitBatchStateUpdate(ctx context.Context, updates []*common.UpdatePayload, batchSignature []byte) error {
+	// Delegate to the real blockchain client (single on-chain transaction)
+	err := c.Client.SubmitBatchStateUpdate(ctx, updates, batchSignature)
+	if err != nil {
+		// Non-blocking capture so tests can assert on the specific revert
+		// reason. Still propagate the error to the manager unchanged.
+		select {
+		case c.stateUpdateErrors <- err:
+		default:
+		}
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, update := range updates {
+		c.recordUpdateLocked(update)
+	}
+	return nil
+}
+
+// recordUpdateLocked records the effect of a successfully-submitted update payload
+// for test observation: it clears pending state, classifies the completion, and
+// tracks failures/completions, stored payloads, broadcast events, and withdrawals.
+// Callers must hold c.mu.
+func (c *eventBroadcastingClient) recordUpdateLocked(update *common.UpdatePayload) {
 	// Remove from pending
 	delete(c.pendingIDs, update.RequestID)
 
@@ -138,7 +205,7 @@ func (c *eventBroadcastingClient) SubmitStateUpdate(ctx context.Context, update 
 		if c.onStateUpdate != nil {
 			c.onStateUpdate(update, isDeploy)
 		}
-		return nil
+		return
 	}
 
 	// Mark as completed
@@ -168,8 +235,6 @@ func (c *eventBroadcastingClient) SubmitStateUpdate(ctx context.Context, update 
 	if c.onStateUpdate != nil {
 		c.onStateUpdate(update, isDeploy)
 	}
-
-	return nil
 }
 
 // waitForRequestCompletion polls until the request is completed or failed, or times out.

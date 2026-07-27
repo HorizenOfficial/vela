@@ -28,6 +28,7 @@ func validManagerConfig() *Config {
 		BlockchainConnectTimeout:  10,
 		CommunicationParams:       common.CommunicationParams{RequestTimeoutSec: 30},
 		AdminCommunicationParams:  common.CommunicationParams{RequestTimeoutSec: 30},
+		MaxBatchSize:              5,
 	}
 }
 
@@ -251,4 +252,13 @@ func TestLoadConfig_UsesConfiguredArtifactAndReportPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, artifactsDir, cfg.ArtifactsPath)
 	require.Equal(t, reportsDir, cfg.DeanonymizationReportPath)
+}
+
+func TestValidate_MaxBatchSize_Zero(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.MaxBatchSize = 0
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MAX_BATCH_SIZE")
 }

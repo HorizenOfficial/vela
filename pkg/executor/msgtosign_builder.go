@@ -101,10 +101,22 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 }
 
 // BuildBatchMsgHash builds the Ethereum personal_sign hash covering all batch
-// entries: TextHash(keccak256(entryHash_0 || ... || entryHash_N-1)).
-// The concatenation of the 32-byte entry hashes matches
-// keccak256(abi.encode(hash(entries[0]), hash(entries[1]), ...)) on the
-// contract side (ABI encoding of static bytes32 values is plain concatenation).
+// entries: TextHash(entryHash_0 || entryHash_1 || ... || entryHash_N-1).
+//
+// The entry hashes are concatenated and TextHash-ed directly, WITHOUT an
+// intermediate keccak256 over the concatenation. Two properties make this
+// unambiguous and safe:
+//   - Injectivity: every entry hash is a fixed 32-byte keccak256 output, so a
+//     concatenation of N of them splits exactly one way. This relies on the
+//     per-entry hash staying fixed-length — do not make buildEntryHash variable.
+//   - Length binding: the personal_sign prefix commits to the total byte length
+//     (32*N), so batches of different sizes can never collide.
+//
+// A consequence is that a single-entry batch hashes identically to BuildMsgHash of
+// that entry, so single-request and batch submission share one signing scheme (and
+// a 1-entry batch signature verifies on the single-request stateUpdate() path).
+// The contract side must reconstruct the same digest: TextHash of the concatenated
+// entry hashes using a DYNAMIC length prefix (32*N), not a fixed length.
 func (b *MsgToSignBuilder) BuildBatchMsgHash(updatePayloads []*common.UpdatePayload) ([]byte, error) {
 	if len(updatePayloads) == 0 {
 		return nil, fmt.Errorf("no payloads to hash")
@@ -119,7 +131,7 @@ func (b *MsgToSignBuilder) BuildBatchMsgHash(updatePayloads []*common.UpdatePayl
 		concatenated = append(concatenated, entryHash...)
 	}
 
-	return accounts.TextHash(ethCrypto.Keccak256(concatenated)), nil
+	return accounts.TextHash(concatenated), nil
 }
 
 // buildEntryHash computes keccak256 of the ABI-encoded payload fields, without

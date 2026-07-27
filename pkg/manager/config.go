@@ -60,6 +60,11 @@ type Config struct {
 	// Only used by "versioned_leveldb".
 	DataLayerNumOfVersions int
 
+	// MaxBatchSize is the maximum number of requests fetched and processed per poll
+	// cycle, per batch (a batch is scoped to a single application). See
+	// docs/design/BATCH_EXECUTION.md.
+	MaxBatchSize int
+
 	// DeanonymizationReportPath is the path to a folder where to store deanonymization reports.
 	DeanonymizationReportPath string
 
@@ -199,6 +204,7 @@ func LoadConfig() (*Config, error) {
 		DataLayerType:             "versioned_leveldb",
 		DataLayerDBPath:           common.GetConfigVar("MANAGER_DATA_FOLDER", "", fileProperties),
 		DataLayerNumOfVersions:    10,
+		MaxBatchSize:              int(common.GetConfigVarInt64("MAX_BATCH_SIZE", 5, fileProperties)),
 		DeanonymizationReportPath: common.GetConfigVar("MANAGER_REPORTS_FOLDER", "/tmp/vela-data/manager_reports", fileProperties),
 		ArtifactsPath:             common.GetConfigVar("MANAGER_ARTIFACTS_PATH", "", fileProperties),
 		LogKind:                   common.GetConfigVar("MANAGER_LOG_KIND", "zeronetwork", fileProperties),
@@ -311,6 +317,15 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf(
 			"MANAGER_ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC must be > 0 (seconds), got %d",
 			c.AdminCommunicationParams.RequestTimeoutSec))
+	}
+
+	// --- Batch size ---
+	// MaxBatchSize caps the requests fetched and processed per poll cycle. It feeds
+	// GetPendingRequestsWithStateRoot(maxCount); a zero or negative value would fetch
+	// nothing and stall request processing.
+	if c.MaxBatchSize <= 0 {
+		errs = append(errs, fmt.Sprintf(
+			"MAX_BATCH_SIZE must be > 0, got %d", c.MaxBatchSize))
 	}
 
 	// --- Directory uniqueness ---

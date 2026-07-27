@@ -76,9 +76,9 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	var results []*common.UpdatePayload
 	var reports []*common.DeanonymizationReport
 	// processed counts the input requests that were handled (a payload was
-	// produced). It tracks progress through the input queue and is kept
-	// distinct from len(results) so the manager can advance its on-chain
-	// cursor by requests consumed, not by payloads emitted.
+	// produced, successful or an error payload), so it always equals
+	// len(results). It is returned separately as processedCount because the
+	// manager compares it against len(requests) to detect a hard stop.
 	processed := 0
 
 	for i, req := range requests {
