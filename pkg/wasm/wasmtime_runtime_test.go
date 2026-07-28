@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
@@ -166,6 +167,28 @@ const appErrorProcessRequestWat = `(module
   (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100
+  )
+)`
+
+// noAllocateWat loads successfully but has no `allocate` export, so the host
+// cannot write the request into guest memory. That is a static defect in the
+// module, not a guest fault: re-instantiating cannot fix it, so the module must
+// stay cached instead of being recompiled on every request forever.
+// Reachable in practice because writeToMemory returns early for empty data, so
+// such a module can pass a deploy that has no constructor params.
+// Used by TestHostSideFailureKeepsModuleCached.
+const noAllocateWat = `(module
+  (memory (export "memory") 1)
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+
+  ;; no allocate export, no deallocate export
 
   (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
     i32.const 100
@@ -597,7 +620,9 @@ func TestConcurrentExecutionAndEvictionIsSafe(t *testing.T) {
 }
 
 // isCached reports whether a module for appId is currently in the LRU cache.
-func (r *WasmtimeRuntime) isCached(appId common.ApplicationIdType) bool {
+// A plain helper rather than a method, to avoid extending the production type
+// from a test file.
+func isCached(r *WasmtimeRuntime, appId common.ApplicationIdType) bool {
 	r.moduleLock.RLock()
 	defer r.moduleLock.RUnlock()
 	_, exists := r.modules[appId]
@@ -624,14 +649,14 @@ func TestGuestTrapEvictsModule(t *testing.T) {
 	_, _, _, _, _, _, failure := runtime.ProcessRequest(
 		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
 	require.NotNil(t, failure, "a trapping guest must fail the request")
-	require.False(t, runtime.isCached(appId), "a module whose guest trapped must not stay cached")
+	require.False(t, isCached(runtime, appId), "a module whose guest trapped must not stay cached")
 
 	// The app must still be usable: the next request reloads it and traps again
 	// rather than, say, panicking on a closed store.
 	_, _, _, _, _, _, failure = runtime.ProcessRequest(
 		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
 	require.NotNil(t, failure, "the reloaded module must trap again, not crash")
-	require.False(t, runtime.isCached(appId))
+	require.False(t, isCached(runtime, appId))
 }
 
 // TestAppErrorKeepsModuleCached is the counterpart to TestGuestTrapEvictsModule:
@@ -651,7 +676,86 @@ func TestAppErrorKeepsModuleCached(t *testing.T) {
 		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
 	require.NotNil(t, failure, "the guest reported an application error")
 	require.Contains(t, failure.Error(), "boom")
-	require.True(t, runtime.isCached(appId), "an application-level error must not evict the module")
+	require.True(t, isCached(runtime, appId), "an application-level error must not evict the module")
+}
+
+// TestHostSideFailureKeepsModuleCached is the third case alongside
+// TestGuestTrapEvictsModule and TestAppErrorKeepsModuleCached: a failure that is
+// neither a guest fault nor an application error, but a static defect in the
+// module (here, a missing `allocate` export). Evicting on those would recompile
+// the module on every request for as long as the app keeps being called, which is
+// wasted work and cheap amplification for anyone able to deploy such an app.
+func TestHostSideFailureKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(noAllocateWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		_, _, _, _, _, _, failure := runtime.ProcessRequest(
+			ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+		require.NotNil(t, failure, "writing to guest memory must fail without an allocate export")
+		require.True(t, isCached(runtime, appId),
+			"a host-side failure must not evict the module (iteration %d)", i)
+	}
+}
+
+// TestTryAcquireExecLock covers the bounded acquire that keeps Close from hanging
+// behind a runaway guest.
+func TestTryAcquireExecLock(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	// Free: acquired immediately.
+	require.True(t, runtime.tryAcquireExecLock(time.Second))
+	runtime.execLock.Unlock()
+
+	// Held: gives up after the timeout instead of blocking forever.
+	runtime.execLock.Lock()
+	start := time.Now()
+	require.False(t, runtime.tryAcquireExecLock(50*time.Millisecond))
+	require.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond, "must wait for the full timeout")
+	runtime.execLock.Unlock()
+
+	// Released while waiting: acquired rather than timing out.
+	runtime.execLock.Lock()
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		runtime.execLock.Unlock()
+	}()
+	require.True(t, runtime.tryAcquireExecLock(5*time.Second))
+	runtime.execLock.Unlock()
+}
+
+// TestCloseDoesNotHangOnStuckGuest asserts that shutdown completes even when a
+// guest call never returns. Guest execution is unbounded today (no fuel, no epoch
+// deadline — see newPinnedEngine), and execLock is held across guest calls, so
+// without the bounded acquire in Close this would hang forever and the executor
+// could never shut down gracefully.
+//
+// A held execLock stands in for the runaway guest: it is the same state the
+// runtime would be in, without needing to burn a core spinning inside wasmtime.
+func TestCloseDoesNotHangOnStuckGuest(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+
+	runtime.execLock.Lock() // simulate a guest call that never returns
+	defer runtime.execLock.Unlock()
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- runtime.Close() }()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "Close must report that it gave up rather than claiming success")
+		require.GreaterOrEqual(t, time.Since(start), shutdownExecLockTimeout)
+	case <-time.After(shutdownExecLockTimeout + 10*time.Second):
+		t.Fatal("Close hung waiting for an in-flight guest call")
+	}
 }
 
 func TestSetMaxGuestMemoryBytes(t *testing.T) {
