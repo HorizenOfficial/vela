@@ -121,6 +121,13 @@ means unlimited. Always targets the executor.
 The initial value is set via the `EXECUTOR_MAX_CACHED_MODULES` environment
 variable (default `0`).
 
+Note that this limit governs enclave RAM usage together with
+`EXECUTOR_MAX_GUEST_MEMORY_BYTES`, the per-guest linear memory cap (default and
+maximum `2 GiB`): worst-case usage is roughly the product of the two. When
+raising the cache size at runtime, check the result against the enclave's memory
+budget. The memory cap itself is start-up only and cannot be tuned via the admin
+CLI.
+
 ### Targets
 
 | Value      | Behaviour                                              |

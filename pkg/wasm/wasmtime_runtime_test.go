@@ -5,12 +5,13 @@ import (
 	"encoding/binary"
 	"math"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	"github.com/bytecodealliance/wasmtime-go"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v42"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +75,89 @@ const dispatchTestWat = `(module
   )
 )`
 
+// spinningProcessRequestWat is dispatchTestWat reduced to the process_request
+// path, with a busy loop inside the export so the guest call takes long enough to
+// still be running when another goroutine evicts the module.
+// Used by TestConcurrentExecutionAndEvictionIsSafe: with an instantaneous export
+// the eviction never lands inside the call and the test passes even when the
+// serialization it checks is removed.
+const spinningProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100 (same layout as dispatchTestWat)
+  (data (i32.const 100)
+    "\46\00\00\00"
+    "\7b\22\73\74\61\74\65\22\3a\5b\31\5d\2c\22\65\76\65\6e\74\73\22\3a\5b\5d\2c"
+    "\22\61\70\70\45\76\65\6e\74\73\22\3a\5b\5d\2c\22\77\69\74\68\64\72\61\77\61"
+    "\6c\73\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
+  )
+
+  ;; load_module result at offset 300
+  (data (i32.const 300)
+    "\19\00\00\00"
+    "\7b\22\73\74\61\74\65\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
+  )
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  ;; process_request: spins, then returns the fixed result offset 100
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    (local $i i32)
+    (local.set $i (i32.const 20000000))
+    (block $done
+      (loop $spin
+        (br_if $done (i32.eqz (local.get $i)))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br $spin)
+      )
+    )
+    i32.const 100
+  )
+)`
+
+// trappingProcessRequestWat loads successfully but traps (unreachable) inside
+// process_request, the shape a TinyGo panic takes — including the out-of-memory
+// panic the guest memory cap makes reachable. Used by TestGuestTrapEvictsModule.
+const trappingProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    unreachable
+  )
+)`
+
+// appErrorProcessRequestWat returns a well-formed ProcessResult carrying an
+// application-level error. That is a normal rejection by a healthy guest, not a
+// fault, so the module must stay cached. Used by TestAppErrorKeepsModuleCached.
+const appErrorProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100: 4-byte LE length (84 = 0x54) + JSON
+  ;; {"state":[],"events":[],"appEvents":[],"withdrawals":[],"fuel":"0x1","error":"boom"}
+  (data (i32.const 100) "\54\00\00\00"
+    "{\"state\":[],\"events\":[],\"appEvents\":[],\"withdrawals\":[],\"fuel\":\"0x1\",\"error\":\"boom\"}")
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100
+  )
+)`
+
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
@@ -113,7 +197,8 @@ func TestWriteToMemory_NilModuleStore(t *testing.T) {
 
 	// Create a valid memory object, but instance can be nil
 	// since it's not reached when data is empty.
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -147,7 +232,8 @@ func TestWriteToMemory_NilData(t *testing.T) {
 
 	// Create a valid memory object, but instance can be nil
 	// since it's not reached when data is empty.
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -177,7 +263,8 @@ func TestExtractResultBytes(t *testing.T) {
 
 	// Setup a mock memory for testing, using the runtime's store
 	// 1 is the minimum size in WebAssembly pages (WebAssembly page size = 64 KiB (65,536 bytes))
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -437,4 +524,226 @@ func TestProcessRequest_DispatchesByRequestType(t *testing.T) {
 	procState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
 	require.Nil(t, failure, "Process must succeed via process_request")
 	require.Equal(t, []byte{1}, procState, "Process must dispatch to process_request (state=[1])")
+}
+
+// TestConcurrentExecutionAndEvictionIsSafe drives guest execution and LRU
+// eviction from separate goroutines, which is the exact overlap execLock exists
+// to prevent: ProcessRequest fetches its module under moduleLock but calls into
+// it after releasing that lock, so without execLock a concurrent load for another
+// app can pick the in-use module as the eviction victim and store.Close() it
+// mid-call. That frees native wasmtime state while guest code is running on it —
+// a segfault, not a Go panic, so no recover() would catch it and the enclave dies.
+//
+// maxCachedModules is 1, so every load by one worker evicts the module the other
+// worker is using, and the guest export spins (spinningProcessRequestWat) so the
+// eviction lands while the call is still running. The transport already dispatches
+// each inbound message in its own goroutine (pkg/communication/shared_impl.go), so
+// this is the shape a second in-flight request would take.
+//
+// This has been verified to be a real regression test: with the execLock
+// acquisitions removed it crashes the test binary with SIGSEGV inside native
+// wasmtime code, within the first few iterations. Note that it cannot be a Go
+// test failure — the process dies — and that -race does not report it, since the
+// conflict is on memory the Go race detector does not track.
+func TestConcurrentExecutionAndEvictionIsSafe(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 1) // cache holds exactly one module
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(spinningProcessRequestWat)
+	require.NoError(t, err)
+
+	const (
+		workers    = 2
+		iterations = 50
+	)
+
+	ctx := context.Background()
+	payload := []byte("{}")
+	state := []byte("{}")
+
+	var wg sync.WaitGroup
+	for worker := 1; worker <= workers; worker++ {
+		wg.Add(1)
+		appId := common.NewApplicationId(uint64(worker))
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				// assert (not require): require calls FailNow, which must not be
+				// invoked from a non-test goroutine.
+				gotState, _, _, _, _, _, failure := runtime.ProcessRequest(
+					ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
+				if !assert.Nil(t, failure, "app %d iteration %d must succeed", appId, i) {
+					return
+				}
+				assert.Equal(t, []byte{1}, gotState, "app %d iteration %d returned unexpected state", appId, i)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// isCached reports whether a module for appId is currently in the LRU cache.
+func (r *WasmtimeRuntime) isCached(appId common.ApplicationIdType) bool {
+	r.moduleLock.RLock()
+	defer r.moduleLock.RUnlock()
+	_, exists := r.modules[appId]
+	return exists
+}
+
+// TestGuestTrapEvictsModule verifies that a module whose guest trapped is dropped
+// from the cache instead of serving the next request on a heap left in an unknown
+// state (see evictFaultedModule).
+//
+// This also exercises the defer ordering the eviction depends on: the deallocate
+// defers registered for the payload/state writes must run BEFORE the store is
+// closed, otherwise they would call into freed memory.
+func TestGuestTrapEvictsModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(trappingProcessRequestWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "a trapping guest must fail the request")
+	require.False(t, runtime.isCached(appId), "a module whose guest trapped must not stay cached")
+
+	// The app must still be usable: the next request reloads it and traps again
+	// rather than, say, panicking on a closed store.
+	_, _, _, _, _, _, failure = runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "the reloaded module must trap again, not crash")
+	require.False(t, runtime.isCached(appId))
+}
+
+// TestAppErrorKeepsModuleCached is the counterpart to TestGuestTrapEvictsModule:
+// a guest that cleanly reports an application-level error is healthy, so evicting
+// it would throw away a valid compiled module on every rejected request.
+func TestAppErrorKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(appErrorProcessRequestWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "the guest reported an application error")
+	require.Contains(t, failure.Error(), "boom")
+	require.True(t, runtime.isCached(appId), "an application-level error must not evict the module")
+}
+
+func TestSetMaxGuestMemoryBytes(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	// The default is the 2 GiB ceiling
+	require.Equal(t, int64(maxGuestMemoryCeilingBytes), runtime.GetMaxGuestMemoryBytes())
+
+	// In-range values are applied as-is
+	runtime.SetMaxGuestMemoryBytes(512 * 1024 * 1024)
+	require.Equal(t, int64(512*1024*1024), runtime.GetMaxGuestMemoryBytes())
+
+	// Out-of-range values fall back to the ceiling
+	for _, invalid := range []int64{0, -1, maxGuestMemoryCeilingBytes + 1} {
+		runtime.SetMaxGuestMemoryBytes(invalid)
+		require.Equal(t, int64(maxGuestMemoryCeilingBytes), runtime.GetMaxGuestMemoryBytes())
+	}
+}
+
+// TestGuestMemoryCapEnforced verifies that stores created by the runtime refuse
+// guest memory growth beyond the configured cap: memory.grow reports failure
+// (-1) to the guest instead of growing.
+func TestGuestMemoryCapEnforced(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	const pageSize = 64 * 1024
+	runtime.SetMaxGuestMemoryBytes(2 * pageSize)
+
+	wasmBytes, err := wasmtime.Wat2Wasm(`(module
+		(memory (export "memory") 1)
+		(func (export "grow") (param i32) (result i32)
+			local.get 0
+			memory.grow))`)
+	require.NoError(t, err)
+
+	module, err := wasmtime.NewModule(runtime.engine, wasmBytes)
+	require.NoError(t, err)
+	defer module.Close()
+
+	runtime.moduleLock.Lock()
+	store := runtime.newModuleStore()
+	runtime.moduleLock.Unlock()
+	defer store.Close()
+
+	instance, err := wasmtime.NewInstance(store, module, nil)
+	require.NoError(t, err)
+
+	grow := instance.GetFunc(store, "grow")
+	require.NotNil(t, grow)
+
+	// 1 -> 2 pages: within the cap, returns the previous size in pages
+	res, err := grow.Call(store, int32(1))
+	require.NoError(t, err)
+	require.Equal(t, int32(1), res)
+
+	// 2 -> 3 pages: beyond the cap, the guest sees a failed grow
+	res, err = grow.Call(store, int32(1))
+	require.NoError(t, err)
+	require.Equal(t, int32(-1), res)
+}
+
+// TestPinnedEngineRejectsDisabledProposals verifies that the explicitly pinned
+// feature set in newPinnedEngine is actually enforced: a module using a proposal
+// this runtime disables must fail to compile rather than being silently accepted
+// because a future wasmtime enables it by default.
+//
+// Both cases matter for the enclave RAM budget: the guest memory cap is applied
+// per linear memory, so extra (or shared) memories would multiply the worst-case
+// RAM a single app can hold. See newPinnedEngine and newModuleStore.
+func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	testCases := []struct {
+		name string
+		wat  string
+	}{
+		{
+			name: "multi-memory",
+			wat: `(module
+				(memory (export "memory") 1)
+				(memory 1))`,
+		},
+		{
+			name: "shared memory (threads)",
+			wat: `(module
+				(memory (export "memory") 1 1 shared))`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Wat2Wasm is proposal-agnostic and encodes both of these fine; the
+			// rejection must come from the engine's pinned feature set. Note that
+			// wasmtime v42's *default* engine compiles both of these successfully,
+			// which is exactly why the set is pinned explicitly.
+			wasmBytes, err := wasmtime.Wat2Wasm(tc.wat)
+			require.NoError(t, err)
+
+			module, err := wasmtime.NewModule(runtime.engine, wasmBytes)
+			if err == nil {
+				module.Close()
+				t.Fatalf("expected the pinned engine to reject a %s module, but it compiled", tc.name)
+			}
+		})
+	}
 }
