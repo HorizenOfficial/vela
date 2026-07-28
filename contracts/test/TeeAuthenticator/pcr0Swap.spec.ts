@@ -369,6 +369,77 @@ describe('TeeAuthenticator PCR0 swap flow', function () {
       });
     });
 
+    describe('isAcceptedPcr0', function () {
+      it('returns true for the constructor PCR0 and false for an unknown one', async () => {
+        const { teeAuthenticator, initialPcr0 } = await deployTeeAuthenticatorFixture();
+
+        expect(await teeAuthenticator.isAcceptedPcr0(initialPcr0)).to.equal(true);
+        expect(await teeAuthenticator.isAcceptedPcr0(getRandomHexString(PCR0_LENGTH))).to.equal(
+          false
+        );
+      });
+
+      it('stays false for a proposed target until the swap is applied', async () => {
+        const { teeAuthenticator } = await deployTeeAuthenticatorFixture();
+        const target = getRandomHexString(PCR0_LENGTH);
+
+        await (await teeAuthenticator.proposePcr0Swap(target)).wait();
+        expect(await teeAuthenticator.isAcceptedPcr0(target)).to.equal(false);
+
+        await time.increase(PCR0_UPGRADE_DELAY + 1);
+        await (await teeAuthenticator.applyPcr0Swap()).wait();
+        expect(await teeAuthenticator.isAcceptedPcr0(target)).to.equal(true);
+      });
+
+      it('keeps the previous image accepted after a swap', async () => {
+        const { teeAuthenticator, initialPcr0 } = await deployTeeAuthenticatorFixture();
+        const target = getRandomHexString(PCR0_LENGTH);
+        await swapTo(teeAuthenticator, target, PCR0_UPGRADE_DELAY);
+
+        expect(await teeAuthenticator.isAcceptedPcr0(initialPcr0)).to.equal(true);
+        expect(await teeAuthenticator.isAcceptedPcr0(target)).to.equal(true);
+      });
+
+      it('returns false after the PCR0 is removed', async () => {
+        const { teeAuthenticator, initialPcr0 } = await deployTeeAuthenticatorFixture();
+        await swapTo(teeAuthenticator, getRandomHexString(PCR0_LENGTH), PCR0_UPGRADE_DELAY);
+
+        await (await teeAuthenticator.removePcr0(initialPcr0)).wait();
+
+        expect(await teeAuthenticator.isAcceptedPcr0(initialPcr0)).to.equal(false);
+      });
+
+      it('agrees with the acceptedPcr0 mapping and the accepted list', async () => {
+        const { teeAuthenticator, initialPcr0 } = await deployTeeAuthenticatorFixture();
+        const target = getRandomHexString(PCR0_LENGTH);
+        await swapTo(teeAuthenticator, target, PCR0_UPGRADE_DELAY);
+
+        for (const pcr0 of [initialPcr0, target]) {
+          const key = pcr0Key(pcr0);
+          expect(await teeAuthenticator.isAcceptedPcr0(pcr0)).to.equal(
+            await teeAuthenticator.acceptedPcr0(key)
+          );
+          expect(await teeAuthenticator.getAcceptedPcr0List()).to.include(key);
+        }
+      });
+
+      it('returns false for wrong-length input instead of reverting', async () => {
+        const { teeAuthenticator, initialPcr0 } = await deployTeeAuthenticatorFixture();
+
+        expect(await teeAuthenticator.isAcceptedPcr0('0x')).to.equal(false);
+        expect(await teeAuthenticator.isAcceptedPcr0(initialPcr0 + 'ff')).to.equal(false);
+        expect(await teeAuthenticator.isAcceptedPcr0(initialPcr0.slice(0, -2))).to.equal(false);
+      });
+
+      it('is callable by a non-owner', async () => {
+        const { teeAuthenticator, signers, initialPcr0 } = await deployTeeAuthenticatorFixture();
+
+        expect(await teeAuthenticator.connect(signers[1]).isAcceptedPcr0(initialPcr0)).to.equal(
+          true
+        );
+      });
+    });
+
     describe('getPendingSwap', function () {
       it('returns the raw preimage, eta and pending=true after proposePcr0Swap', async () => {
         const { teeAuthenticator } = await deployTeeAuthenticatorFixture();

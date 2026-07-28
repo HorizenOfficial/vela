@@ -521,7 +521,8 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 			e.log.Error("Executor: EXECUTOR_EXPECT_EXISTING_KEYSET is set but manager reported no recovery data — aborting handshake, NOT generating a keyset")
 			return nil, ErrUnexpectedKeysetGeneration
 		}
-		e.log.Warn("Executor: Keyset recovery data not found, GENERATING A NEW KEYSET (Type %d) — this MUST only happen on a genuine first install; on an upgrade it orphans all encrypted state", e.config.KeySetRecoveryType)
+		//Keyset recovery data not found — this MUST only happen on a genuine first install; on an upgrade it orphans all encrypted state
+		e.log.Warn("Executor: Keyset recovery data not found, GENERATING A NEW KEYSET (Type %d)", e.config.KeySetRecoveryType)
 		var newRecoveryData *common.EnclaveKeySetRecovery
 		keySet, newRecoveryData, err = GenerateEnclaveKeySet(
 			ctx,

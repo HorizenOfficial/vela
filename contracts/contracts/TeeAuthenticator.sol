@@ -148,6 +148,11 @@ contract TeeAuthenticator is AbstractTeeAuthenticator, ITeeAuthenticatorAdmin, O
   }
 
   /// @inheritdoc ITeeAuthenticatorAdmin
+  function isAcceptedPcr0(bytes calldata pcr0) external view returns (bool) {
+    return acceptedPcr0[keccak256(pcr0)];
+  }
+
+  /// @inheritdoc ITeeAuthenticatorAdmin
   function getPendingSwap()
     external
     view

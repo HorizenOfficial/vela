@@ -112,6 +112,11 @@ interface ITeeAuthenticatorAdmin {
   /// @return The accepted PCR0 hashes.
   function getAcceptedPcr0List() external view returns (bytes32[] memory);
 
+  /// @notice Checks whether a PCR0 is in the accepted set.
+  /// @param pcr0 Raw PCR0 preimage to check (48 bytes).
+  /// @return accepted True if `pcr0` is accepted.
+  function isAcceptedPcr0(bytes calldata pcr0) external view returns (bool accepted);
+
   /// @notice Returns the current pending PCR0 swap proposal.
   /// @dev `targetPcr0` is the raw 48-byte preimage (not a hash); when no swap is
   ///      pending it is empty and `pending` is false.
