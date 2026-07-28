@@ -363,7 +363,6 @@ The Manager may be upgraded independently of this sequence, gated only by the [R
 | Failure | Cause | Mitigation |
 |---------|-------|------------|
 | New enclave can't recover keys | `PCR0_new` not in KMS policy (step 2 skipped/late) | Handshake fails fast (R7 timeout); operator adds PCR0 to policy or rolls back to old EIF |
-| On-chain attestation rejected | `applyPcr0Swap` not yet executed (`PCR0_new` not in set) | `updateTee` reverts with `InvalidPCR`; old PCR0 still serves traffic |
 | Manager/Executor version mismatch | Independent upgrades | Typed `IncompatibleProtocolError` on the first handshake message (R7); no recovery data read/generated/stored |
 | New enclave regenerated its keyset instead of recovering it (would orphan all state) | KMS/data-folder issue, or a diverged image | Signer-continuity guard (D2, Task 5): reported signer ≠ on-chain `teeSigner` on a set signer → fatal `SignerContinuityError`, no dispatch |
 | Manager data folder wiped/wrong during an upgrade | Operator error / bad migration | R2 guards (Task 6): with `EXECUTOR_EXPECT_EXISTING_KEYSET` the Executor aborts the handshake on a `found=false` response instead of generating a keyset; the Manager's recovery store refuses to overwrite an existing blob with a different one |
