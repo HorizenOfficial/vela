@@ -380,13 +380,13 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 		return nil, big.NewInt(0), fmt.Errorf("failed to deploy module: %s", deployResult.Error)
 	}
 
-	success = true // Disables the deferred cleanup
-
 	// A module for this appId should not exist at deploy time. If it does,
 	// it indicates a duplicate deploy or an unexpected state.
 	if _, exists := r.modules[appId]; exists {
 		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
 	}
+
+	success = true // Disables the deferred cleanup
 
 	// Store the module in the runtime registry and update LRU
 	r.modules[appId] = appModule
