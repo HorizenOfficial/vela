@@ -127,6 +127,35 @@ type WasmtimeRuntime struct {
 	// maxGuestMemoryBytes caps the linear memory of each guest store created
 	// from now on; always in (0, maxGuestMemoryCeilingBytes]. Guarded by moduleLock.
 	maxGuestMemoryBytes int64
+
+	// execLock serializes guest execution against module teardown. It is held for
+	// the whole duration of every operation that runs guest code or closes a
+	// module, so a store can never be freed while another goroutine is calling
+	// into it.
+	//
+	// moduleLock alone is not sufficient: Deposit and ProcessRequest look the
+	// module up under moduleLock but release it before calling into the guest, so
+	// a concurrent load for a different appId could pick that same module as the
+	// LRU eviction victim and close its store mid-call. Since Close frees the
+	// native wasmtime state immediately rather than at a GC finalizer pass, that
+	// is a use-after-free — a native segfault inside the enclave.
+	//
+	// The transport dispatches every inbound message in its own goroutine (see
+	// pkg/communication/shared_impl.go), so the only thing preventing this today
+	// is that the manager happens to submit one request at a time — an invariant
+	// no code enforces. This makes the serialization explicit, and costs nothing
+	// while execution is serial anyway.
+	//
+	// Lock ordering: acquire execLock BEFORE moduleLock, never the reverse, and
+	// never acquire it from a function that already holds moduleLock. Holding it
+	// across a guest call cannot deadlock because guest code cannot re-enter the
+	// runtime: only WASI is defined on the linker, there are no custom host funcs.
+	//
+	// TODO: when per-goroutine instances land (see the TODOs in
+	// app/simple/integration_test.go), replace this with refcounting the live
+	// calls per module and deferring Close until the last caller finishes, so
+	// that independent apps can execute in parallel.
+	execLock sync.Mutex
 }
 
 // newPinnedEngine builds the wasmtime engine with an explicitly pinned WASM
@@ -346,6 +375,10 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.Appl
 
 // LoadModule loads a WASM module and returns initial state and state root
 func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
+	// Runs guest code (load_module) and may evict/close other modules.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
@@ -484,6 +517,10 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 // instantiate without calling any guest function, eliminating the unnecessary load_module
 // guest call during cache warm-up.
 func (r *WasmtimeRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
+	// Runs guest code (deploy) and may evict/close other modules.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
@@ -628,6 +665,12 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, *big.Int, *apperrors.RequestFailure) {
 	r.log.Info("Wasmtime Runtime: Processing deposit for application %d (token: %v, value: %v wei for sender: %v)", appId, tokenAddress, depositAmount, sender)
 
+	// Held across the guest call: the module is fetched under moduleLock but
+	// executed after releasing it, so only execLock keeps a concurrent eviction
+	// from closing this store mid-call.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	if depositAmount == nil {
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be nil")
 	}
@@ -718,6 +761,12 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 // ProcessRequest processes a request and returns the new state, events, withdrawals, and optionally a deanonymization report
 func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	r.log.Info("Wasmtime Runtime: Processing request for application %d (type: %s, payload size: %d, state size: %d)", appId, requestType, len(payload), len(state))
+
+	// Held across the guest call: the module is fetched under moduleLock but
+	// executed after releasing it, so only execLock keeps a concurrent eviction
+	// from closing this store mid-call.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
 
 	wasmAppId, err := ToWasmType(appId)
 	if err != nil {
@@ -960,17 +1009,14 @@ func (r *WasmtimeRuntime) removeFromAccessOrder(appId common.ApplicationIdType) 
 
 // cleanupModule releases all resources associated with a single ApplicationModule.
 //
-// CONCURRENCY CAVEAT: module.Close() calls store.Close(), which frees the
-// native wasmtime state immediately (rather than at a GC finalizer pass). This
-// is only safe because the runtime is driven serially: callers such as Deposit
-// and ProcessRequest fetch a module under moduleLock but then execute the guest
-// call AFTER releasing the lock, so a concurrent load for a different appId
-// could otherwise pick that same module as the LRU eviction victim and close
-// its store out from under the in-flight call (use-after-free / panic). Before
-// enabling concurrent execution (see the per-goroutine-instance TODOs in
-// integration_test.go), eviction-close must be gated on the module not being in
-// use — e.g. refcounting live calls or deferring Close until the last caller
-// finishes.
+// CONCURRENCY: module.Close() calls store.Close(), which frees the native
+// wasmtime state immediately (rather than at a GC finalizer pass), so it must
+// never run while another goroutine is calling into that store — that would be a
+// use-after-free, i.e. a native segfault inside the enclave. Callers must hold
+// BOTH execLock and moduleLock: moduleLock alone does not cover the guest call,
+// because Deposit and ProcessRequest execute after releasing it. See the execLock
+// declaration for the full rationale and for what needs to change here to allow
+// concurrent execution (refcounting live calls per module).
 func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *ApplicationModule) {
 	r.log.Info("Cleaning up module %d", appId)
 	module.Close()
@@ -979,6 +1025,11 @@ func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *
 // Close closes the wasmtime runtime and cleans up resources
 func (r *WasmtimeRuntime) Close() error {
 	r.log.Info("Wasmtime Runtime: Closing wasmtime runtime")
+
+	// Closes every module and the engine, so it must not overlap an in-flight
+	// guest call.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
 
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
@@ -1011,6 +1062,10 @@ func (r *WasmtimeRuntime) Close() error {
 // its own lock — Go's sync.RWMutex is not reentrant, so calling one from the
 // other would deadlock.
 func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
+	// Closes a module, so it must not overlap an in-flight guest call.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
@@ -1051,6 +1106,8 @@ func (r *WasmtimeRuntime) GetMaxCachedModules() int {
 // applied to stores created from now on; modules already cached keep the cap
 // they were created with. Values <= 0 or above the 2 GiB ABI ceiling are
 // replaced with the ceiling (see maxGuestMemoryCeilingBytes) and reported.
+// Clamps rather than rejecting (unlike pkg/executor.Config.Validate, which fails
+// at start-up) so a late call cannot take a running enclave down.
 func (r *WasmtimeRuntime) SetMaxGuestMemoryBytes(maxBytes int64) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
@@ -1083,6 +1140,10 @@ func ToWasmType(aid common.ApplicationIdType) (int64, error) {
 // the values returned from the wasm guest, without using marshal/unmarshal into json structs.
 // This implementation is here mostly as a reference on how to handle a multireturn exported func
 func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (int64, int64, error) {
+	// Held across the guest call, see the execLock declaration.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
@@ -1146,6 +1207,10 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 
 // retrieves statistics from guest memory allocation (second version)
 func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (int64, int64, error) {
+	// Held across the guest call, see the execLock declaration.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)

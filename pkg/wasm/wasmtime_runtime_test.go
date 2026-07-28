@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -85,6 +86,48 @@ const dispatchTestWat = `(module
   ;; trusted_request: 5-arg ABI (no sender, no request_type) — returns fixed offset 200
   (func (export "trusted_request") (param i64 i32 i32 i32 i32) (result i32)
     i32.const 200
+  )
+)`
+
+// spinningProcessRequestWat is dispatchTestWat reduced to the process_request
+// path, with a busy loop inside the export so the guest call takes long enough to
+// still be running when another goroutine evicts the module.
+// Used by TestConcurrentExecutionAndEvictionIsSafe: with an instantaneous export
+// the eviction never lands inside the call and the test passes even when the
+// serialization it checks is removed.
+const spinningProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100 (same layout as dispatchTestWat)
+  (data (i32.const 100)
+    "\46\00\00\00"
+    "\7b\22\73\74\61\74\65\22\3a\5b\31\5d\2c\22\65\76\65\6e\74\73\22\3a\5b\5d\2c"
+    "\22\61\70\70\45\76\65\6e\74\73\22\3a\5b\5d\2c\22\77\69\74\68\64\72\61\77\61"
+    "\6c\73\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
+  )
+
+  ;; load_module result at offset 300
+  (data (i32.const 300)
+    "\19\00\00\00"
+    "\7b\22\73\74\61\74\65\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
+  )
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  ;; process_request: spins, then returns the fixed result offset 100
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    (local $i i32)
+    (local.set $i (i32.const 20000000))
+    (block $done
+      (loop $spin
+        (br_if $done (i32.eqz (local.get $i)))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br $spin)
+      )
+    )
+    i32.const 100
   )
 )`
 
@@ -454,6 +497,62 @@ func TestProcessRequest_DispatchesByRequestType(t *testing.T) {
 	procState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
 	require.Nil(t, failure, "Process must succeed via process_request")
 	require.Equal(t, []byte{1}, procState, "Process must dispatch to process_request (state=[1])")
+}
+
+// TestConcurrentExecutionAndEvictionIsSafe drives guest execution and LRU
+// eviction from separate goroutines, which is the exact overlap execLock exists
+// to prevent: ProcessRequest fetches its module under moduleLock but calls into
+// it after releasing that lock, so without execLock a concurrent load for another
+// app can pick the in-use module as the eviction victim and store.Close() it
+// mid-call. That frees native wasmtime state while guest code is running on it —
+// a segfault, not a Go panic, so no recover() would catch it and the enclave dies.
+//
+// maxCachedModules is 1, so every load by one worker evicts the module the other
+// worker is using, and the guest export spins (spinningProcessRequestWat) so the
+// eviction lands while the call is still running. The transport already dispatches
+// each inbound message in its own goroutine (pkg/communication/shared_impl.go), so
+// this is the shape a second in-flight request would take.
+//
+// This has been verified to be a real regression test: with the execLock
+// acquisitions removed it crashes the test binary with SIGSEGV inside native
+// wasmtime code, within the first few iterations. Note that it cannot be a Go
+// test failure — the process dies — and that -race does not report it, since the
+// conflict is on memory the Go race detector does not track.
+func TestConcurrentExecutionAndEvictionIsSafe(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 1) // cache holds exactly one module
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(spinningProcessRequestWat)
+	require.NoError(t, err)
+
+	const (
+		workers    = 2
+		iterations = 50
+	)
+
+	ctx := context.Background()
+	payload := []byte("{}")
+	state := []byte("{}")
+
+	var wg sync.WaitGroup
+	for worker := 1; worker <= workers; worker++ {
+		wg.Add(1)
+		appId := common.NewApplicationId(uint64(worker))
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				// assert (not require): require calls FailNow, which must not be
+				// invoked from a non-test goroutine.
+				gotState, _, _, _, _, _, failure := runtime.ProcessRequest(
+					ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
+				if !assert.Nil(t, failure, "app %d iteration %d must succeed", appId, i) {
+					return
+				}
+				assert.Equal(t, []byte{1}, gotState, "app %d iteration %d returned unexpected state", appId, i)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestSetMaxGuestMemoryBytes(t *testing.T) {
