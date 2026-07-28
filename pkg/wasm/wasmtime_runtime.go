@@ -688,6 +688,18 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("failed to get or load module: %v", err))
 	}
 
+	// Drop the module if the guest faults: its heap is left in an unknown state
+	// and must not serve the next request (see evictFaultedModule). Registered
+	// BEFORE the deallocate defers below so that, defers being LIFO, the store is
+	// closed only after those have run — closing it first would leave them
+	// calling into freed memory.
+	guestFaulted := false
+	defer func() {
+		if guestFaulted {
+			r.evictFaultedModule(appId)
+		}
+	}()
+
 	// Get the deposit function
 	depositFunc := appModule.instance.GetFunc(appModule.store, "deposit")
 	if depositFunc == nil {
@@ -697,6 +709,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
+		guestFaulted = true // guest allocate failed or trapped
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write sender to memory: %v", err))
 	}
 	if appModule.deallocate != nil && senderPtr != 0 {
@@ -706,6 +719,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	tokenBytes := tokenAddress.Bytes()
 	tokenPtr, err := r.writeToMemory(appModule, tokenBytes)
 	if err != nil {
+		guestFaulted = true // guest allocate failed or trapped
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write token address to memory: %v", err))
 	}
 	if appModule.deallocate != nil && tokenPtr != 0 {
@@ -714,6 +728,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
+		guestFaulted = true // guest allocate failed or trapped
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
@@ -723,6 +738,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	valueBytes := depositAmount.Bytes()
 	valuePtr, err := r.writeToMemory(appModule, valueBytes)
 	if err != nil {
+		guestFaulted = true // guest allocate failed or trapped
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write value to memory: %v", err))
 	}
 	if appModule.deallocate != nil && valuePtr != 0 {
@@ -732,12 +748,16 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	// Guest ABI: deposit(appId, senderPtr, senderLen, tokenPtr, tokenLen, valuePtr, valueLen, statePtr, stateLen)
 	result, err := depositFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), tokenPtr, int32(len(tokenBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
 	if err != nil {
-		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, fmt.Sprintf("failed to call deposit: %v", err)) // TODO some standard way of getting errors here?
+		// trap inside the guest
+		guestFaulted = true
+		// TODO some standard way of getting errors here?
+		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, fmt.Sprintf("failed to call deposit: %v", err))
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
+		guestFaulted = true // bad result pointer or trap while reading it back
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
 	}
 
@@ -746,6 +766,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	// Deserialize the result
 	var depositResult appCommon.DepositResult
 	if err := json.Unmarshal(resultBytes, &depositResult); err != nil {
+		guestFaulted = true // guest produced a result the host cannot parse
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal deposit result: %v", err))
 	}
 
@@ -783,6 +804,19 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, fmt.Sprintf("failed to get or load module: %v", err))
 	}
 
+	// Drop the module if the guest faults: its heap is left in an unknown state
+	// and must not serve the next request (see evictFaultedModule). Registered
+	// BEFORE the deallocate defers below so that, defers being LIFO, the store is
+	// closed only after those have run — closing it first would leave them
+	// calling into freed memory. Covers both the TrustProcess branch and the
+	// process_request path.
+	guestFaulted := false
+	defer func() {
+		if guestFaulted {
+			r.evictFaultedModule(appId)
+		}
+	}()
+
 	// TRUSTPROCESS dispatch (Phase 11.1): TrustProcess requests are routed to the
 	// dedicated `trusted_request` WASM export, which takes NEITHER sender (the
 	// trusted path never reads it) NOR request_type (implicit for this export).
@@ -796,6 +830,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		// No sender write (D-05). Only payload + state are passed to the guest.
 		payloadPtr, err := r.writeToMemory(appModule, payload)
 		if err != nil {
+			guestFaulted = true // guest allocate failed or trapped
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write payload to memory: %v", err))
 		}
 		if appModule.deallocate != nil && payloadPtr != 0 {
@@ -804,6 +839,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 		statePtr, err := r.writeToMemory(appModule, state)
 		if err != nil {
+			guestFaulted = true // guest allocate failed or trapped
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
 		}
 		if appModule.deallocate != nil && statePtr != 0 {
@@ -813,16 +849,19 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		// Guest ABI: trusted_request(appId, payloadPtr, payloadLen, statePtr, stateLen)
 		result, err := trustedFunc.Call(appModule.store, wasmAppId, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 		if err != nil {
+			guestFaulted = true // trap inside the guest
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call trusted_request: %v", err))
 		}
 
 		resultBytes, err := r.extractResultBytes(result, appModule)
 		if err != nil {
+			guestFaulted = true // bad result pointer or trap while reading it back
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
 		}
 
 		var processResult appCommon.ProcessResult
 		if err := json.Unmarshal(resultBytes, &processResult); err != nil {
+			guestFaulted = true // guest produced a result the host cannot parse
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal process result: %v", err))
 		}
 		if processResult.Error != "" {
@@ -842,6 +881,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
+		guestFaulted = true // guest allocate failed or trapped
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write sender to memory: %v", err))
 	}
 	if appModule.deallocate != nil && senderPtr != 0 {
@@ -850,6 +890,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	payloadPtr, err := r.writeToMemory(appModule, payload)
 	if err != nil {
+		guestFaulted = true // guest allocate failed or trapped
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write payload to memory: %v", err))
 	}
 	if appModule.deallocate != nil && payloadPtr != 0 {
@@ -858,6 +899,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
+		guestFaulted = true // guest allocate failed or trapped
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
@@ -869,18 +911,21 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	// requestType is passed as int32 to the WASM module
 	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), int32(requestType), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
+		guestFaulted = true // trap inside the guest
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call process_request: %v", err))
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
+		guestFaulted = true // bad result pointer or trap while reading it back
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
 	}
 
 	// Deserialize the result
 	var processResult appCommon.ProcessResult
 	if err := json.Unmarshal(resultBytes, &processResult); err != nil {
+		guestFaulted = true // guest produced a result the host cannot parse
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal process result: %v", err))
 	}
 
@@ -1020,6 +1065,37 @@ func (r *WasmtimeRuntime) removeFromAccessOrder(appId common.ApplicationIdType) 
 func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *ApplicationModule) {
 	r.log.Info("Cleaning up module %d", appId)
 	module.Close()
+}
+
+// evictFaultedModule drops a module from the cache after its guest faulted, so
+// that the next request for that app gets a freshly instantiated one.
+//
+// A trap unwinds the guest without running any of its cleanup, so the instance is
+// left with a heap in an unknown state: whatever was allocated before the trap is
+// never freed and the allocator's own bookkeeping may be inconsistent. Keeping
+// that instance in the LRU means the next request runs on the damaged heap, and
+// the leak accumulates until the module happens to be evicted for capacity. The
+// guest memory cap makes this materially more likely, since exceeding it makes
+// TinyGo panic (a trap) rather than growing memory.
+//
+// Cheap by design: the cost of being wrong here is one recompile plus
+// re-instantiation on the next request for that app.
+//
+// Must be called with execLock held and moduleLock NOT held — it closes the
+// store, see cleanupModule.
+func (r *WasmtimeRuntime) evictFaultedModule(appId common.ApplicationIdType) {
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	module, exists := r.modules[appId]
+	if !exists {
+		return
+	}
+
+	r.log.Warn("Runtime: evicting module %d after a guest fault, it will be reloaded on the next request", appId)
+	r.cleanupModule(appId, module)
+	delete(r.modules, appId)
+	r.removeFromAccessOrder(appId)
 }
 
 // Close closes the wasmtime runtime and cleans up resources

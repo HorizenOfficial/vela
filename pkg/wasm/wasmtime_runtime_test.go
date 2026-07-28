@@ -131,6 +131,47 @@ const spinningProcessRequestWat = `(module
   )
 )`
 
+// trappingProcessRequestWat loads successfully but traps (unreachable) inside
+// process_request, the shape a TinyGo panic takes — including the out-of-memory
+// panic the guest memory cap makes reachable. Used by TestGuestTrapEvictsModule.
+const trappingProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    unreachable
+  )
+)`
+
+// appErrorProcessRequestWat returns a well-formed ProcessResult carrying an
+// application-level error. That is a normal rejection by a healthy guest, not a
+// fault, so the module must stay cached. Used by TestAppErrorKeepsModuleCached.
+const appErrorProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100: 4-byte LE length (84 = 0x54) + JSON
+  ;; {"state":[],"events":[],"appEvents":[],"withdrawals":[],"fuel":"0x1","error":"boom"}
+  (data (i32.const 100) "\54\00\00\00"
+    "{\"state\":[],\"events\":[],\"appEvents\":[],\"withdrawals\":[],\"fuel\":\"0x1\",\"error\":\"boom\"}")
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100
+  )
+)`
+
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
@@ -553,6 +594,64 @@ func TestConcurrentExecutionAndEvictionIsSafe(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// isCached reports whether a module for appId is currently in the LRU cache.
+func (r *WasmtimeRuntime) isCached(appId common.ApplicationIdType) bool {
+	r.moduleLock.RLock()
+	defer r.moduleLock.RUnlock()
+	_, exists := r.modules[appId]
+	return exists
+}
+
+// TestGuestTrapEvictsModule verifies that a module whose guest trapped is dropped
+// from the cache instead of serving the next request on a heap left in an unknown
+// state (see evictFaultedModule).
+//
+// This also exercises the defer ordering the eviction depends on: the deallocate
+// defers registered for the payload/state writes must run BEFORE the store is
+// closed, otherwise they would call into freed memory.
+func TestGuestTrapEvictsModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(trappingProcessRequestWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "a trapping guest must fail the request")
+	require.False(t, runtime.isCached(appId), "a module whose guest trapped must not stay cached")
+
+	// The app must still be usable: the next request reloads it and traps again
+	// rather than, say, panicking on a closed store.
+	_, _, _, _, _, _, failure = runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "the reloaded module must trap again, not crash")
+	require.False(t, runtime.isCached(appId))
+}
+
+// TestAppErrorKeepsModuleCached is the counterpart to TestGuestTrapEvictsModule:
+// a guest that cleanly reports an application-level error is healthy, so evicting
+// it would throw away a valid compiled module on every rejected request.
+func TestAppErrorKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(appErrorProcessRequestWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "the guest reported an application error")
+	require.Contains(t, failure.Error(), "boom")
+	require.True(t, runtime.isCached(appId), "an application-level error must not evict the module")
 }
 
 func TestSetMaxGuestMemoryBytes(t *testing.T) {
