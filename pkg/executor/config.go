@@ -24,6 +24,14 @@ type Config struct {
 	// Type 1: AWS KMS - masterKey encrypted with KMS using Nitro attestation
 	KeySetRecoveryType common.RecoveryType
 
+	// ExpectExistingKeyset enforces the R2 key-continuity guard (G3): when true, a
+	// handshake response reporting no stored recovery data (found=false) is a fatal
+	// error instead of triggering fresh keyset generation. Set during upgrades so a
+	// wiped/wrong Manager data folder cannot silently orphan all encrypted state by
+	// letting the new enclave generate and store a fresh keyset. Leave unset on a
+	// genuine first install.
+	ExpectExistingKeyset bool
+
 	// KMS Configuration (used when KeySetRecoveryType == RecoveryTypeKMS)
 	// KMSKeyARN is the ARN of the AWS KMS key used for envelope encryption.
 	// Required when KeySetRecoveryType is RecoveryTypeKMS.
@@ -113,23 +121,26 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid EXECUTOR_KEYSET_RECOVERY_TYPE: %d", keySetRecoveryType)
 	}
 
+	expectExistingKeyset := common.GetConfigVarBool("EXECUTOR_EXPECT_EXISTING_KEYSET", false, fileProperties)
+
 	return &Config{
-		ChannelType:         channelType,
-		ChannelParams:       channelServerConnectionParams,
-		KeySetRecoveryType:  keySetRecoveryType,
-		KMSKeyARN:           kmsKeyARN,
-		KMSRegion:           kmsRegion,
-		KMSProxyPort:        kmsProxyPort,
-		FuelPricePerUnit:    big.NewInt(common.GetConfigVarInt64("EXECUTOR_FUEL_PRICE_PER_UNIT", 1, fileProperties)),
-		MinFeePerRequest:    big.NewInt(common.GetConfigVarInt64("EXECUTOR_MIN_FEE_PER_REQUEST", 10, fileProperties)),
-		LogKind:             common.GetConfigVar("EXECUTOR_LOG_KIND", "zeronetwork", fileProperties),
-		LogConsole:          common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE", true, fileProperties),
-		LogConsoleLevel:     common.GetConfigVar("EXECUTOR_LOG_CONSOLE_LEVEL", "info", fileProperties),
-		LogConsoleColor:     common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE_COLOR", false, fileProperties),
-		LogFileName:         common.GetConfigVar("EXECUTOR_LOG_FILE_NAME", "", fileProperties),
-		LogFileLevel:        common.GetConfigVar("EXECUTOR_LOG_FILE_LEVEL", "info", fileProperties),
-		LogChannelParams:    logClientConnectionParams,
-		LogNetworkLevel:     common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
+		ChannelType:          channelType,
+		ChannelParams:        channelServerConnectionParams,
+		KeySetRecoveryType:   keySetRecoveryType,
+		ExpectExistingKeyset: expectExistingKeyset,
+		KMSKeyARN:            kmsKeyARN,
+		KMSRegion:            kmsRegion,
+		KMSProxyPort:         kmsProxyPort,
+		FuelPricePerUnit:     big.NewInt(common.GetConfigVarInt64("EXECUTOR_FUEL_PRICE_PER_UNIT", 1, fileProperties)),
+		MinFeePerRequest:     big.NewInt(common.GetConfigVarInt64("EXECUTOR_MIN_FEE_PER_REQUEST", 10, fileProperties)),
+		LogKind:              common.GetConfigVar("EXECUTOR_LOG_KIND", "zeronetwork", fileProperties),
+		LogConsole:           common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE", true, fileProperties),
+		LogConsoleLevel:      common.GetConfigVar("EXECUTOR_LOG_CONSOLE_LEVEL", "info", fileProperties),
+		LogConsoleColor:      common.GetConfigVarBool("EXECUTOR_LOG_CONSOLE_COLOR", false, fileProperties),
+		LogFileName:          common.GetConfigVar("EXECUTOR_LOG_FILE_NAME", "", fileProperties),
+		LogFileLevel:         common.GetConfigVar("EXECUTOR_LOG_FILE_LEVEL", "info", fileProperties),
+		LogChannelParams:     logClientConnectionParams,
+		LogNetworkLevel:      common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
 		CommunicationParams:  communicationParams,
 		MaxCachedModules:     int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
 	}, nil

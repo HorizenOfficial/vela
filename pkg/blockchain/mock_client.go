@@ -44,6 +44,8 @@ type MockClient struct {
 	stateRoots       map[common.ApplicationIdType][32]byte   // per-app state roots (mirrors contract's applicationStateRoots)
 	chainID          *big.Int
 	blockNumber      uint64
+	activeImage      [32]byte          // keccak256(PCR0) reported by GetActiveImage
+	teeSigner        ethCommon.Address // address reported by GetTeeSigner
 	*testutil.MockFunctions
 }
 
@@ -388,6 +390,42 @@ func (c *MockClient) Claim(_ context.Context, _ ethCommon.Address, _ ethCommon.A
 func (c *MockClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error) {
 	key, err := crypto.GeneratePrivateKeyP521()
 	return key.PublicKey(), err
+}
+
+// GetActiveImage returns the configured mock active image (zero by default).
+func (c *MockClient) GetActiveImage(ctx context.Context) ([32]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if f, ok := c.GetMockedFunc("GetActiveImage"); ok {
+		return f.(func(context.Context) ([32]byte, error))(ctx)
+	}
+	return c.activeImage, nil
+}
+
+// SetActiveImage sets the value returned by GetActiveImage.
+func (c *MockClient) SetActiveImage(img [32]byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.activeImage = img
+}
+
+// GetTeeSigner returns the configured mock teeSigner (zero address by default).
+func (c *MockClient) GetTeeSigner(ctx context.Context) (ethCommon.Address, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if f, ok := c.GetMockedFunc("GetTeeSigner"); ok {
+		return f.(func(context.Context) (ethCommon.Address, error))(ctx)
+	}
+	return c.teeSigner, nil
+}
+
+// SetTeeSigner sets the value returned by GetTeeSigner.
+func (c *MockClient) SetTeeSigner(addr ethCommon.Address) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.teeSigner = addr
 }
 
 // Close closes the blockchain client

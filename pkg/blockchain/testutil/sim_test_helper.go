@@ -647,6 +647,24 @@ func (s *SimTestHelper) GetSimTeeAuthenticatorHelper() *SimTeeAuthenticatorHelpe
 	return NewSimTeeAuthenticatorHelper(s.t, s.TeeSignerAddress, s.sim.Client())
 }
 
+// SetActiveImage sets the activeImage on the deployed TEE authenticator. The
+// setActiveImage(bytes32) selector is identical across the MockTeeAuthenticator
+// and NoAttestationTeeAuthenticator test contracts, so the mocktee binding is
+// used to pack the call regardless of which variant is deployed.
+func (s *SimTestHelper) SetActiveImage(activeImage [32]byte) {
+	instance := mocktee.NewMockTeeAuthenticator().Instance(s.sim.Client(), s.TeeSignerAddress)
+	tx, err := bind.Transact(
+		instance,
+		s.Deployer,
+		mocktee.NewMockTeeAuthenticator().PackSetActiveImage(activeImage),
+	)
+	require.NoError(s.t, err, "failed to set activeImage")
+	if !s.autoMining {
+		s.sim.Commit()
+	}
+	s.WaitMined(tx)
+}
+
 // --- MockERC20 infrastructure ---
 
 // DeployMockERC20 deploys a MockERC20 token contract on the simulated chain

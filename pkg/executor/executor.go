@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
+	"sync"
 
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/hf/nsm"
@@ -32,6 +34,14 @@ var (
 	admittedProtocolVersion = uint8(0)
 	emptyStateRoot          = [32]byte{}
 )
+
+// ErrUnexpectedKeysetGeneration is returned during the handshake when the
+// Manager reports no stored recovery data (found=false) but the executor is
+// configured with ExpectExistingKeyset (R2/G3). Regenerating a keyset in that
+// situation would overwrite the recovery blob and orphan all encrypted state,
+// so the executor aborts the handshake instead of generating one.
+var ErrUnexpectedKeysetGeneration = errors.New(
+	"manager reported no keyset recovery data but EXECUTOR_EXPECT_EXISTING_KEYSET is set: refusing to generate a new keyset")
 
 const (
 	deployDescriptorFailureMsg = "failed to deploy application"
@@ -369,6 +379,15 @@ type StatelessExecutor struct {
 	keySet *EnclaveKeySet
 	log    logger.Logger
 
+	// pcr0 is the hex-encoded PCR0 of the running enclave image, read once from
+	// the NSM at startup. Empty in non-Nitro (TCP/dev) mode where no NSM exists.
+	pcr0 string
+
+	// shutdownCh is closed once when the Manager requests a graceful shutdown
+	// (AdminCmdShutdown). main() selects on ShutdownRequested() to exit cleanly.
+	shutdownCh   chan struct{}
+	shutdownOnce sync.Once
+
 	// KMS dependencies (nil for Type 0, required for Type 1)
 	kmsClient     kms.KMSClient
 	enclaveHandle kms.EnclaveHandle
@@ -404,6 +423,8 @@ func NewStatelessExecutor(
 		log:              log,
 		kmsClient:        kmsClient,
 		enclaveHandle:    enclaveHandle,
+		pcr0:             readSelfPCR0(log),
+		shutdownCh:       make(chan struct{}),
 	}
 	// Set this executor as the request handler
 	executor.server.SetRequestHandler(executor)
@@ -411,6 +432,43 @@ func NewStatelessExecutor(
 	executor.server.SetConnectionHandler(executor.handleNewConnection)
 
 	return executor, nil
+}
+
+// readSelfPCR0 reads the enclave's own PCR0 from the NSM once at startup and
+// returns it hex-encoded. In non-Nitro (TCP/dev) mode there is no NSM device,
+// so it logs and returns "" (the dev marker) rather than failing.
+func readSelfPCR0(log logger.Logger) string {
+	pcr0, err := nsmutil.DescribePCRWithSession(func() (NsmSession, error) {
+		s, err := nsm.OpenDefaultSession()
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	}, 0)
+	if err != nil {
+		log.Warn("Executor: could not read PCR0 from NSM (dev/TCP mode?): %v", err)
+		return ""
+	}
+	encoded := hex.EncodeToString(pcr0)
+	log.Info("Executor: running image PCR0: %s", encoded)
+	return encoded
+}
+
+// ShutdownRequested returns a channel that is closed when the Manager has asked
+// the Executor to exit cleanly (AdminCmdShutdown). main() selects on it.
+func (e *StatelessExecutor) ShutdownRequested() <-chan struct{} {
+	return e.shutdownCh
+}
+
+// requestShutdown signals a graceful shutdown exactly once. Safe to call from
+// the admin-command handler goroutine.
+func (e *StatelessExecutor) requestShutdown() {
+	e.shutdownOnce.Do(func() {
+		e.log.Info("Executor: graceful shutdown requested by manager")
+		if e.shutdownCh != nil {
+			close(e.shutdownCh)
+		}
+	})
 }
 
 func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn communication.ServerConnection) {
@@ -439,7 +497,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		keySet, err = RestoreEnclaveKeySet(ctx, recoveryData, e.kmsClient, e.enclaveHandle)
 		if err != nil {
 			// Notify manager of failure
-			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
+			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", "", e.pcr0); notifyErr != nil {
 				e.log.Error("Executor: failed to send keyset recovery failure to manager: %v", notifyErr)
 			}
 			return nil, fmt.Errorf("failed to restore enclave keyset: %w", err)
@@ -449,12 +507,22 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
 		e.log.Info("Executor: Keyset restored successfully, confirming ")
-		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr)
+		err = conn.KeysetRecoveryResult(ctx, nil, commPubKey, signingKeyAddr, e.pcr0)
 		if err != nil {
 			return nil, fmt.Errorf("failed to confirm keyset recovery: %w", err)
 		}
 	} else {
-		e.log.Info("Executor: Keyset recovery data not found, generating new keyset (Type %d)...", e.config.KeySetRecoveryType)
+		// R2 key-continuity guard (G3): during an upgrade the Manager must already
+		// hold recovery data. A found=false here means the Manager's data folder is
+		// wiped/wrong; generating a fresh keyset would overwrite the recovery blob
+		// and permanently orphan all encrypted state (and change teeSigner). Abort
+		// the handshake instead.
+		if e.config.ExpectExistingKeyset {
+			e.log.Error("Executor: EXECUTOR_EXPECT_EXISTING_KEYSET is set but manager reported no recovery data — aborting handshake, NOT generating a keyset")
+			return nil, ErrUnexpectedKeysetGeneration
+		}
+		//Keyset recovery data not found — this MUST only happen on a genuine first install; on an upgrade it orphans all encrypted state
+		e.log.Warn("Executor: Keyset recovery data not found, GENERATING A NEW KEYSET (Type %d)", e.config.KeySetRecoveryType)
 		var newRecoveryData *common.EnclaveKeySetRecovery
 		keySet, newRecoveryData, err = GenerateEnclaveKeySet(
 			ctx,
@@ -470,7 +538,7 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 		commPubKey := crypto.ExportPublicKeyP521ToHex(keySet.CommunicationKey.PublicKey())
 		signingKeyAddr := keySet.SigningKey.PublicKey().Address()
 
-		err = conn.SetKeysetRecovery(ctx, newRecoveryData, commPubKey, signingKeyAddr)
+		err = conn.SetKeysetRecovery(ctx, newRecoveryData, commPubKey, signingKeyAddr, e.pcr0)
 		if err != nil {
 			return nil, fmt.Errorf("failed to set keyset recovery data: %w", err)
 		}
@@ -1258,6 +1326,17 @@ func (e *StatelessExecutor) HandleAdminCommand(ctx context.Context, cmdType stri
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal version: %w", err)
 		}
+		return resp, nil
+
+	case admin.AdminCmdShutdown:
+		// Ack first, then signal main to exit. The ack is the return value here;
+		// the actual process exit happens asynchronously once main observes
+		// ShutdownRequested(), so the ack is flushed before the server stops.
+		resp, err := json.Marshal(admin.ShutdownResponse{Stopping: true})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal shutdown response: %w", err)
+		}
+		e.requestShutdown()
 		return resp, nil
 
 	case admin.AdminCmdSetWasmCacheSize:

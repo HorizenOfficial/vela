@@ -12,6 +12,38 @@ import (
 
 const MsgDelimiter = byte('\n')
 
+// WireProtocolVersion is the Manager<->Executor wire-protocol version. It is
+// deliberately distinct from pkg/version.Version (the binary/release version)
+// and from common.Request.ProtocolVersion (the on-chain, per-request version) —
+// hence the "Wire" prefix, to avoid confusion with the latter. Bump it on any
+// incompatible change to the handshake or message set.
+//
+// The version is exchanged during the handshake. The wire format is
+// newline-delimited JSON and peers that predate this field neither send nor
+// parse it, so an absent field unmarshals as 0 — the implicit "legacy" version.
+const WireProtocolVersion uint32 = 1
+
+// IsCompatible reports whether a peer advertising wire-protocol version peer can
+// interoperate with this build. Current policy: exact match. A peer that does
+// not send the field is read as version 0 and is therefore incompatible with
+// any non-zero WireProtocolVersion — which is the intended enforcement.
+func IsCompatible(peer uint32) bool {
+	return peer == WireProtocolVersion
+}
+
+// IncompatibleProtocolError is returned when the Manager and Executor advertise
+// incompatible protocol versions during the handshake. It is a typed error so
+// callers can distinguish it and fail the handshake without mutating any
+// keyset-recovery data.
+type IncompatibleProtocolError struct {
+	Local uint32
+	Peer  uint32
+}
+
+func (e *IncompatibleProtocolError) Error() string {
+	return fmt.Sprintf("incompatible protocol version: local=%d peer=%d", e.Local, e.Peer)
+}
+
 // MessageType represents the type of message being sent
 type MessageType int
 
@@ -128,12 +160,20 @@ type ErrorData struct {
 
 // GetKeysetRecoveryRequestData represents data for a message from executor to manager
 type GetKeysetRecoveryRequestData struct {
+	// WireProtocolVersion is the executor's wire-protocol version, exchanged as
+	// the first handshake message so the manager can reject an incompatible peer
+	// before any keyset-recovery data is exchanged. Absent => 0 (legacy).
+	WireProtocolVersion uint32 `json:"wireProtocolVersion,omitempty"`
 }
 
 // GetKeysetRecoveryResponseData represents data for a message from manager to executor
 type GetKeysetRecoveryResponseData struct {
 	DataFound      bool                          `json:"dataFound"`
 	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
+	// WireProtocolVersion is the manager's wire-protocol version, so the executor
+	// can reject an incompatible peer before restoring/generating a keyset.
+	// Absent => 0 (legacy).
+	WireProtocolVersion uint32 `json:"wireProtocolVersion,omitempty"`
 }
 
 // SetKeysetRecoveryRequestData represents data for a set keyset recovery request message
@@ -141,6 +181,9 @@ type SetKeysetRecoveryRequestData struct {
 	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
 	CommPubKey     string                        `json:"commPubKey"`
 	SigningKeyAddr string                        `json:"signingKeyAddr"`
+	// Pcr0 is the hex-encoded PCR0 of the running enclave image, or "" in
+	// non-Nitro (TCP/dev) mode.
+	Pcr0 string `json:"pcr0,omitempty"`
 }
 
 // SetKeysetRecoveryResponseData represents data for a set keyset recovery response message
@@ -152,6 +195,9 @@ type KeysetRecoveryResultData struct {
 	Error          string `json:"error,omitempty"`
 	CommPubKey     string `json:"commPubKey,omitempty"`
 	SigningKeyAddr string `json:"signingKeyAddr,omitempty"`
+	// Pcr0 is the hex-encoded PCR0 of the running enclave image, or "" in
+	// non-Nitro (TCP/dev) mode.
+	Pcr0 string `json:"pcr0,omitempty"`
 }
 
 // generateID generates a simple unique ID for message correlation

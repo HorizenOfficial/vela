@@ -1,0 +1,447 @@
+# Upgradable Executor (TEE) Software
+
+## Summary
+
+This document describes the design to upgrade the **Executor** software that runs inside the AWS Nitro Enclave (the TEE), without losing the encrypted state of any application and without breaking the chain-of-trust that anchors the system to a known enclave image.
+
+Upgrading the Executor is fundamentally harder than upgrading any other component because the Executor binary is measured into **PCR0**, and PCR0 is the trust anchor of the whole platform:
+
+- the on-chain `TeeAuthenticator` contract stores `pcr0` and rejects any attestation that does not match it;
+- the AWS KMS key policy gates every decryption on a `kms:RecipientAttestation:PCR0` condition.
+
+Changing the Executor binary changes PCR0, which simultaneously invalidates the on-chain attestation path and the KMS key-recovery path. This design makes that change a **controlled, reversible, auditable** operation.
+
+The chosen approach is:
+
+- **On-chain PCR0:** replace the single `pcr0` value with a **set of accepted PCR0 values**, each updated through a **timelock**, so old and new images are valid simultaneously during a grace window.
+- **Orchestration:** drain pending requests without accepting new ones before the switch, triggered by an **on-chain action on `TeeAuthenticator`**, observed by the Manager's existing polling loop (no in-process hot-reload, no separate off-chain command). Every upgrade is therefore recorded on-chain.
+- **Key continuity:** the enclave key set is **recovered, never regenerated**, by allowing the new PCR0 in the KMS key policy. No re-encryption of state or of the master key is required.
+- **Verifiability:** the enclave image build must be **reproducible**, so anyone can rebuild the EIF from a tag and confirm the PCR0 registered on-chain.
+
+The Manager (which runs outside the TEE) is out of scope here except for two touchpoints it owns in this flow: observing the on-chain swap signal in its polling loop (see [R8](#r8--on-chain-triggered-graceful-drain)) and the protocol-version handshake it shares with the Executor (see [R7](#r7--protocol-version-negotiation)).
+
+---
+
+## Original State (before this work)
+
+This section describes the baseline the design started from; the model described here has
+since been **replaced** by the accepted-set/swap flow implemented below.
+
+### What identified an Executor on-chain
+
+`TeeAuthenticator.sol` held **two** distinct identities of the running enclave:
+
+| On-chain value | Meaning | Source |
+|----------------|---------|--------|
+| `bytes public pcr0` | Identity of the enclave **image** (the code) | The EIF build |
+| `address public teeSigner` + `bytes public pubSecp521r1` | Identity of the enclave **keys** | Derived from the `EnclaveKeySet` |
+
+- `pcr0` was set in the constructor and changed by `updatePcr0(bytes newPcr0)`, which emitted `PcrZeroUpdate` and overwrote the single stored value atomically.
+- `updateTee(bytes attestation)` verified a fresh attestation, checked its PCR field against the **single** stored `pcr0` in `_checkAttestationContent`, and on success recorded `teeSigner` and `pubSecp521r1`.
+- `nitroProver` and `maxVerificationAge` are `immutable`.
+
+There was exactly **one** valid `pcr0` at any time. Updating it was an instantaneous flip: there was no window in which both the old and the new image were accepted.
+
+### How the enclave recovers its keys
+
+The enclave key set (master AES key plus the derived P521 / secp256k1 / X25519 keys) is the root of all encrypted application state. It is established once and **recovered** on every subsequent start via the handshake (`docs/design/EXEC_MGR_HANDSHAKE.md`):
+
+- The Manager persists opaque recovery data and returns it to the Executor on connect (`performHandshake` in `pkg/executor/executor.go`).
+- For the KMS-backed recovery type, the master key is stored as a KMS-encrypted `CiphertextBlob`. On recovery the enclave generates a fresh attestation and calls `DecryptWithAttestation(blob, attestationDoc)` (`pkg/executor/kms/kms_client.go`). **KMS decides whether to decrypt based solely on the key policy's PCR0 condition matched against the attestation — not on the contents of the blob.**
+
+This is the linchpin of the whole upgrade design (see [Key Continuity](#key-continuity-the-linchpin)).
+
+### How the Executor is built and run
+
+- The Executor binary is built from `dockerfiles/executor/Dockerfile`, with the git version embedded via ldflags into `pkg/version/version.go` (`Version`, defaulting to `"dev"`). At the time of writing PCR0 was **not** independently reproducible (moving `amazonlinux:2` base tag, unpinned packages, `CGO_ENABLED=1` linking to the base libc, and an unversioned external `.eif` packaging step).
+- The binary is packaged into a Nitro **Enclave Image File (.eif)** by `nitro-cli build-enclave`. PCR0/PCR1/PCR2 are produced by that build.
+- The Executor and Manager are separate processes/containers communicating over vsock (production) or TCP (dev). There is **no in-process reload**: an upgrade means stopping the old enclave and launching a new EIF.
+- The version string is informational only (logged at startup, queryable via the admin CLI `get_version` command); it is **not** cryptographically bound and **cannot** be used to enforce anything. PCR0 is the only enforcement point. (The version is obtained on demand via the forwarded `get_version` admin command — it is **not** carried in the handshake.)
+
+---
+
+## Goals
+
+- Replace the Executor binary / enclave image with a new version while **preserving all encrypted application state and the enclave key set**.
+- Allow the old and new enclave images to be **simultaneously valid** for a bounded grace window (zero-downtime swap and clean rollback).
+- Make every PCR0 change **timelocked and observable on-chain**, giving users a window to audit the new image and withdraw funds before it becomes authoritative.
+- Keep the enclave image **reproducibly buildable** so the on-chain PCR0 can be independently verified.
+- Detect and cleanly **reject incompatible Manager/Executor version pairs** instead of corrupting state or hanging.
+
+## Non-Goals
+
+- Upgrading the **Manager** binary (standard container/binary swap; this design only adds the two Manager touchpoints it needs — the swap-signal read of [R8](#r8--on-chain-triggered-graceful-drain) and the protocol-version handshake of [R7](#r7--protocol-version-negotiation)).
+- In-process hot-reload of the Executor (always a process/enclave restart).
+- Migrating or transforming persisted application state as part of an upgrade (a state migration is a separate operation; this design only guarantees the new image can *read* the old state).
+- Changing the cryptographic scheme of the key set, or re-keying the master key.
+- Automating the EIF build / `nitro-cli` pipeline itself (out of repo).
+- Upgrading the smart contracts' proxy mechanism (covered by `UPGRADABLE_CONTRACTS_DESIGN.md`); this design only adds new logic to `TeeAuthenticator`. **The UUPS conversion is out of scope here (G7):** the contract remains plain `Ownable` + constructor, with `pcr0UpgradeDelay` and the initial `acceptedPcr0`/`activeImage` seeded in the constructor. The UUPS-supporting changes (`initialize()`, `immutable`→storage, `__gap`) land with the UUPS conversion itself.
+
+---
+
+## Requirements
+
+### R1 — No State Loss
+
+An Executor upgrade must not lose or require re-encryption of any application state. The new image must read the existing encrypted state with the recovered key set.
+
+### R2 — Key Continuity (Recover, Never Regenerate)
+
+The new enclave image must **recover** the existing `EnclaveKeySet`, never generate a new one. As a corollary, `teeSigner` and `pubSecp521r1` must remain unchanged across a pure software upgrade — only `pcr0` changes. (If the keys were regenerated, both on-chain identities would change *and* all existing state would become permanently undecryptable.)
+
+Two guards enforce this:
+- **Executor** — `EXECUTOR_EXPECT_EXISTING_KEYSET`: when set (during upgrades), a handshake response reporting no stored recovery data aborts with a fatal typed error instead of generating a keyset, so a wiped/wrong Manager data folder cannot trigger silent regeneration. A genuine first install runs without it.
+- **Manager storage** — the recovery store refuses to overwrite an existing recovery blob with a *different* one (idempotent for an identical blob), so a stale/partial folder cannot clobber the only handle to the keyset.
+
+### R3 — Overlapping Validity Window
+
+There must exist a bounded window during which **both** the old and the new PCR0 are accepted, on-chain and in the KMS key policy. This enables a zero-downtime swap and a clean rollback to the previous image.
+
+### R4 — Timelocked, Observable Swaps
+
+Activating a **previously-unseen** PCR0 must be a two-step, timelocked operation that emits events at proposal and at application time — no new image may become runnable instantly, so users get an audit window. Swapping to a PCR0 that is **already in the accepted set** (e.g. a rollback to the prior image) carries no un-audited code and therefore needs no timelock: it may be applied immediately. Every swap, timelocked or not, is recorded on-chain.
+
+### R5 — Reproducible Enclave Image
+
+The enclave image must be reproducibly buildable from a git reference so that the PCR0/PCR1/PCR2 registered on-chain can be independently recomputed and verified by third parties during the timelock window.
+
+### R6 — Controlled Upgrade Authority
+
+The functions that add/remove accepted PCR0 values must be restricted to the contract owner/admin (the same authority model and multisig/timelock guidance as `UPGRADABLE_CONTRACTS_DESIGN.md`).
+
+### R7 — Protocol-Version Negotiation
+
+The Manager↔Executor handshake must carry a wire protocol version. Incompatible pairs must be rejected with an explicit error rather than blocking indefinitely or corrupting persisted recovery data. (Implemented as a single monotonic `WireProtocolVersion` with an exact-match policy; the capability-descriptor variant floated in early drafts was not built.)
+
+### R8 — On-Chain-Triggered Graceful Drain
+
+The swap must be initiated by an on-chain action on `TeeAuthenticator` (so every upgrade is recorded), observed idempotently by the Manager. On that signal, in-flight requests must be drained before the old enclave is stopped; the swap must not interrupt a request mid-execution. There is no separate off-chain upgrade command and no designed emergency-stop verb.
+
+---
+
+## Key Continuity: the Linchpin
+
+The single fact that makes this design tractable:
+
+> The master key is stored as a KMS-encrypted `CiphertextBlob`. KMS will decrypt it for **any** enclave whose attestation satisfies the key policy's PCR0 condition. The blob itself is **not** bound to a specific PCR0.
+
+Therefore a new Executor image (new PCR0) can decrypt the **same, unchanged** recovery blob — provided the KMS key policy is updated to also accept the new PCR0. No re-encryption of the master key, and no re-encryption of any application state, is ever required.
+
+```
+Old enclave (PCR0_old) ──attestation(PCR0_old)──► KMS ──┐
+                                                         ├─ policy accepts {PCR0_old, PCR0_new}
+New enclave (PCR0_new) ──attestation(PCR0_new)──► KMS ──┘
+                                                         │
+                              same CiphertextBlob ───────┘ ──► master key ──► all state readable
+```
+
+Concretely, the only inputs that must change to admit a new image are:
+
+1. **KMS key policy** — add `PCR0_new` to the `kms:RecipientAttestation:PCR0` condition (keep `PCR0_old` during the grace window).
+2. **On-chain `TeeAuthenticator`** — add `PCR0_new` to the set of accepted PCR0 values.
+3. **Manager/Executor protocol** — ensure the version pair is compatible.
+
+The "unsafe"/dev recovery type (master key stored in plaintext recovery data) is trivially portable and needs none of the KMS steps.
+
+---
+
+## On-Chain Changes: `TeeAuthenticator`
+
+> **Implemented in `contracts/contracts/TeeAuthenticator.sol` (Task 1).** The Solidity below is
+> illustrative and matches the shipped contract in shape; the contract also adds a
+> `PCR0_LENGTH = 48` constant and length guards. Go bindings and the Manager read path
+> (`GetActiveImage`, `GetTeeSigner`) landed in Task 2.
+
+### From a single PCR0 to an accepted set with a swap pointer
+
+The single `bytes public pcr0` is replaced with a **set** of accepted values, a **pointer** to the one that should currently be running (`activeImage`), and a timelocked staging area for the next swap.
+
+```solidity
+// --- replaces `bytes public pcr0` ---
+
+// Accepted PCR0 values, keyed by keccak256(pcr0) for O(1) membership checks.
+mapping(bytes32 => bool) public acceptedPcr0;
+bytes32[] public acceptedPcr0List;          // for enumeration / off-chain audit
+
+// The PCR0 the Manager should currently be running (keccak256 of the target).
+bytes32 public activeImage;
+
+// Timelock staging for a pending swap.
+struct PendingSwap {
+    bytes   value;
+    uint256 eta;        // earliest application time
+    bool    pending;
+}
+PendingSwap public pendingSwap;
+uint256 public immutable pcr0UpgradeDelay;   // timelock duration; constructor-set, NO setter
+uint256 public constant PCR0_SWAP_APPLY_WINDOW = 7 days; // proposal validity after eta
+```
+
+**Invariant:** `activeImage` is always a member of the accepted set — the constructor seeds
+both together, `applyPcr0Swap` inserts the target before pointing at it, and `removePcr0`
+refuses to remove the active image. This invariant is also what keeps the set non-empty:
+no separate "cannot remove the last entry" guard is needed.
+
+`pcr0UpgradeDelay` is deliberately fixed at deployment (constructor-set `immutable`, with no owner-callable setter). A runtime-mutable delay would let a compromised owner shorten it to zero and then push a malicious image instantly, defeating [R4](#r4--timelocked-observable-swaps). Different networks can still pick different values by passing a different constructor argument (e.g. a shorter delay on testnet). The UUPS conversion is out of scope here (see `UPGRADABLE_CONTRACTS_DESIGN.md`); when it lands, this value moves to an `initialize()`-set storage variable with no setter, together with the other immutable→storage conversions.
+
+### A single swap flow for upgrades and rollbacks
+
+`proposePcr0Swap` / `applyPcr0Swap` drive **every** change of the running image. `applyPcr0Swap` adds the target to the accepted set if it is new, sets it as `activeImage`, and emits the signal the Manager observes. The timelock is enforced **only when the target is not yet accepted** — a swap to an already-accepted PCR0 (used in case of a rollback to the previously-audited image) applies immediately.
+
+```solidity
+function proposePcr0Swap(bytes calldata targetPcr0) external onlyOwner {
+    if (targetPcr0.length != 48) revert InvalidPcr0Length();
+    // A live proposal must be cancelled explicitly; an expired one may be overwritten.
+    if (pendingSwap.pending && block.timestamp <= pendingSwap.eta + PCR0_SWAP_APPLY_WINDOW) {
+        revert SwapAlreadyPending();
+    }
+    pendingSwap = PendingSwap({
+        value: targetPcr0,
+        eta: block.timestamp + pcr0UpgradeDelay,
+        pending: true
+    });
+    emit Pcr0SwapProposed(targetPcr0, pendingSwap.eta);
+}
+
+function applyPcr0Swap() external onlyOwner {
+    PendingSwap memory p = pendingSwap;
+    if (!p.pending) revert NoPendingSwap();
+    // A proposal is applicable only within a bounded window after eta; afterwards it
+    // expires and a fresh (re-audited) proposal is required.
+    if (block.timestamp > p.eta + PCR0_SWAP_APPLY_WINDOW) revert SwapProposalExpired();
+    bytes32 key = keccak256(p.value);
+
+    // New images must clear the audit window; already-accepted images may swap now.
+    if (!acceptedPcr0[key]) {
+        if (block.timestamp < p.eta) revert TimelockNotElapsed();
+        acceptedPcr0[key] = true;
+        acceptedPcr0List.push(key);
+    }
+
+    activeImage = key;
+    delete pendingSwap;
+    emit Pcr0Swapped(p.value);   // observed by the Manager
+}
+
+// Explicit revocation of a pending (or expired) proposal.
+function cancelPcr0Swap() external onlyOwner {
+    if (!pendingSwap.pending) revert NoPendingSwap();
+    emit Pcr0SwapCancelled(pendingSwap.value);
+    delete pendingSwap;
+}
+
+// Removal only tightens security (it retires a vetted image), so it is not timelocked.
+// Cannot remove the active image — which, by the invariant above, also protects the
+// last remaining entry.
+function removePcr0(bytes calldata oldPcr0) external onlyOwner {
+    bytes32 key = keccak256(oldPcr0);
+    if (!acceptedPcr0[key]) revert UnknownPcr0();
+    if (key == activeImage) revert CannotRemoveActiveImage();
+    acceptedPcr0[key] = false;
+    // swap-remove from acceptedPcr0List …
+    emit Pcr0Removed(oldPcr0);
+}
+```
+
+The Manager observes `Pcr0Swapped` / reads `activeImage` and drains-and-swaps to the target (see [On-chain upgrade trigger](#on-chain-upgrade-trigger-r8)). Because `applyPcr0Swap` only adds to the set behind the `!acceptedPcr0[key]` guard, re-targeting a value already in the set never duplicates an entry — which is exactly what makes a rollback (`proposePcr0Swap(PCR0_old)` → immediate `applyPcr0Swap()`) cheap and on-chain-tracked. The same `onlyOwner`/multisig authority of [R6](#r6--controlled-upgrade-authority) applies to all three functions.
+
+### Attestation check against the active image
+
+`_checkAttestationContent` (`TeeAuthenticator.sol`) extracts the PCR0 bytes from `pcrs` (fixed 48-byte SHA-384 at offset 4) and requires they match `activeImage` (it previously compared byte-by-byte against the single `pcr0`):
+
+```solidity
+function _checkAttestationContent(bytes memory pcrs, bytes memory enclaveKey, bytes memory userData)
+    internal view
+{
+    if (userData.length != 20) revert InvalidUserDataLength();
+    if (enclaveKey.length != PK_LENGTH) revert InvalidPKLength();
+
+    bytes memory candidate = _extractPcr0(pcrs);   // pcrs[4 : 4 + PCR0_LENGTH], PCR0 is a fixed 48-byte SHA-384
+    if (keccak256(candidate) != activeImage) revert InvalidPCR();
+}
+```
+
+All accepted PCR0 values share the same fixed length (48 bytes), so the per-byte loop and `pcr0.length` of the original single-value check are replaced by a fixed-length extraction plus an O(1) comparison.
+
+Set membership is deliberately **not** sufficient: `updateTee` is a manual, quiescent-time operation, so only the image the platform is *supposed* to be running (`activeImage`) may register the tee signer. The accepted set governs the swap/rollback lifecycle (which images may become active without a new timelock), not the attestation check. Since `updateTeeStep1..4` spans multiple transactions, `updateTeeStep4` re-runs `_checkAttestationContent` before finalizing, so a swap applied between step 1 and step 4 invalidates the in-flight update instead of registering a signer for a no-longer-active image.
+
+This keeps `updateTee` / `updateTeeStep1..4` working unchanged in shape: they continue to record `teeSigner`/`pubSecp521r1` from the attestation.
+
+**A software upgrade does not re-run `updateTee`.** Today `updateTee` is a one-time first-install operation — it is invoked only by the manual `contracts/scripts/management/updateTee.ts` operator script (and by tests); no Manager/Executor/runtime code calls it. Per [R2](#r2--key-continuity-recover-never-regenerate) a pure software upgrade recovers the *same* key set, so `teeSigner`/`pubSecp521r1` are unchanged and the existing registration stays valid across the swap — the signature path in `ProcessorEndpoint.checkSignature` keeps verifying against the same signer. The only scenario that re-registers the signer is a catastrophic key-set loss requiring a brand-new attestation chain, which is explicitly a non-goal here.
+
+### Authority and timelock
+
+`proposePcr0Swap` / `applyPcr0Swap` / `cancelPcr0Swap` / `removePcr0` are `onlyOwner`, mirroring the controlled-upgrade-authority requirement ([R6](#r6--controlled-upgrade-authority)) of `UPGRADABLE_CONTRACTS_DESIGN.md`. The owner should be a multisig, and `pcr0UpgradeDelay` provides the same user-protection property that the contract-upgrade timelock provides: a compromised owner cannot make a **new** image authoritative without a publicly visible delay during which users can withdraw. (Swaps to an already-accepted image skip the delay precisely because that image already cleared an audit window — switching to it introduces no new code.)
+
+---
+
+## Off-Chain Changes
+
+### KMS key policy
+
+The KMS key policy's `kms:RecipientAttestation:PCR0` condition must list the set of accepted PCR0 values. Adding `PCR0_new` (keeping `PCR0_old`) is the off-chain analogue of accepting it on-chain via `applyPcr0Swap` and **must be performed before** the new enclave starts, otherwise the new image's handshake recovery (`DecryptWithAttestation`) will fail. Removing `PCR0_old` is the analogue of `removePcr0` and happens only after the upgrade is confirmed stable.
+
+This is purely an AWS-side configuration change (key policy update); no code change in `pkg/executor/kms`. The operational procedure (policy structure, governance controls, and the step-by-step upgrade / rollback / emergency runbooks) is in [`docs/ops/KMS_KEY_POLICY_RUNBOOK.md`](../ops/KMS_KEY_POLICY_RUNBOOK.md).
+
+### Protocol-version handshake (R7)
+
+The handshake carries `communication.WireProtocolVersion` (a `uint32`, currently `1`),
+deliberately distinct from the informational `version.Version` git string and from
+`common.Request.ProtocolVersion` (the on-chain request-level version). The exchange
+piggybacks on the **first** request/response pair, so an incompatible peer is rejected
+**before any keyset-recovery data is read, generated, or stored** (`pkg/communication`,
+`performHandshake` in `pkg/executor/executor.go`, `HandleGetKeysetRecoveryRequest` in
+`pkg/manager/manager.go`):
+
+- The Executor sends its version in `GetKeysetRecoveryRequest`; the Manager checks
+  `IsCompatible(peer)` and, on mismatch, fails the handshake with a typed
+  `IncompatibleProtocolError` and returns no recovery data. Otherwise it replies with its
+  own version, which the Executor checks before restoring/generating a keyset.
+- Both-side checks are required for rollout: an old peer omits the field (reads as `0`) and
+  cannot self-check, so the up-to-date peer must reject it.
+- The Manager's wait is bounded by `HANDSHAKE_TIMEOUT` (default 5s), so an
+  incompatible/failed handshake surfaces as an explicit error rather than a hang.
+
+The compatibility policy is **exact-match** (`IsCompatible` = equality; `0`/absent is
+incompatible with any non-zero version) — bump `WireProtocolVersion` on any incompatible
+change to the handshake or message set. The capability-bitmap / min-supported-floor idea
+from the original design was **not** implemented; see [the matrix note](#protocol-version-matrix-a-code-constant-not-a-doc-table).
+
+### On-chain upgrade trigger (R8)
+
+The swap is initiated by an **on-chain action on `TeeAuthenticator`**, not by a separate off-chain command. This keeps a single, immutable record of every upgrade *and rollback* (who, when, target image) under the same authority that already governs the PCR0 set, and reuses the Manager's existing connection to that contract.
+
+The trigger is the `activeImage` pointer set by `applyPcr0Swap`, announced by the `Pcr0Swapped` event (see [A single swap flow](#a-single-swap-flow-for-upgrades-and-rollbacks) above). `activeImage` names the PCR0 the Manager should be running; the Manager compares it against the image it is actually running and, on a mismatch, drains and swaps.
+
+**How the Manager knows the running image (Task 3 / G1):** the Executor reads its own PCR0 from the NSM (`DescribePCR(0)`) once at startup and reports it in the handshake; the Manager stores it (`RunningPcr0()`) and compares `keccak256(reported pcr0)` against `activeImage`. A dev/TCP executor has no NSM and reports an empty PCR0 (the "dev marker"), so swap observation is skipped there.
+
+The Manager reads `activeImage` via `GetActiveImage` on its `TeeAuthenticator` binding (`pkg/blockchain/client.go`, configured from `CHAIN_TEEAUTHENTICATOR_ADDRESS`) in the polling loop (`pkg/manager/manager.go`), next to `GetNextPendingRequest`. No new contract reference and no new configuration are required.
+
+When `activeImage` differs from the running image, the Manager:
+
+1. Stops dispatching new requests (stops consuming from `GetNextPendingRequest`).
+2. Lets in-flight requests complete (drain).
+3. Signals the Executor to exit cleanly and closes the channel.
+4. An operator launches the EIF matching `activeImage` on the parent host. Staging the artifact and resolving `activeImage` (a PCR0 hash) to a concrete `.eif` file is a **manual operational procedure, out of scope for this document**.
+5. The Manager reconnects; the handshake recovers the key set under the new PCR0 (now accepted by KMS) and resumes dispatching.
+
+The trigger is **level-based and idempotent**: the Manager acts on the *state* of `activeImage`, not on a one-shot event, so a re-delivered `Pcr0Swapped`, a missed event, or a Manager restart all converge to the same outcome — it swaps iff the running image differs from `activeImage`. This also makes rollback uniform: pointing `activeImage` back to `PCR0_old` is just another mismatch the Manager resolves the same way.
+
+**Signer-continuity guard (D2, Task 5):** once per handshake the Manager also compares the Executor's reported signing-key address against the on-chain `teeSigner`. A pure software upgrade recovers the *same* key set, so these must match; a mismatch on a set `teeSigner` means the enclave regenerated its keyset instead of recovering it (silent state orphaning) and is surfaced as a fatal `SignerContinuityError`. It is deferred while `teeSigner` is unset (bootstrap) and runs in every channel mode (it does not depend on PCR0).
+
+After the swap the operator can confirm the running version via the admin CLI `get_version` (which also surfaces the handshake-reported `executorPcr0`). The Executor binary version is obtained on demand through that forwarded `get_version` command — it is **not** carried in the handshake.
+
+> **No designed emergency stop.** There is deliberately no off-chain "stop now" verb. An operator with host access can always terminate the enclave out-of-band (`nitro-cli terminate-enclave` / stopping the supervisor); that is an ungraceful stop — in-flight requests are lost, but no state is lost because the key set and encrypted state are recovered on the next start. Removing a dedicated break-glass command removes a redundant trust path, not a capability.
+
+### Reproducible build (R5)
+
+The EIF build is deterministic enough that PCR0/PCR1/PCR2 are a pure function of the source at a given git tag: the toolchain (Go 1.24, base-image digest, build flags) and the `nitro-cli` version are pinned, and each release publishes the git tag, the PCR measurements, the `nitro-cli` version, and the base-image digest so third parties can rebuild and compare against the on-chain `proposePcr0Swap` value during the timelock window. Implemented on Amazon Linux 2023 via `dockerfiles/executor/build-eif.sh` (+ `versions.env`) and verified twice-on-independent-runners in CI; see [`REPRODUCIBLE_EIF_BUILD.md`](REPRODUCIBLE_EIF_BUILD.md). Note the R2 key-continuity guard (`EXECUTOR_EXPECT_EXISTING_KEYSET`) is baked into the image as an `ENV`, so it is part of PCR0: the default **upgrade** variant has the guard on, a one-time **genesis** variant has it off, and the two have different PCR0s.
+
+---
+
+## Safe Upgrade Sequence
+
+The dependency order that guarantees zero key loss and a clean rollback:
+
+| # | Step | Reversible? |
+|---|------|-------------|
+| 1 | Reproducibly build the new EIF; derive `PCR0_new` (and PCR1/PCR2); publish for verification. | n/a |
+| 2 | Add `PCR0_new` to the **KMS key policy** (keep `PCR0_old`). | yes (remove it) |
+| 3 | `proposePcr0Swap(PCR0_new)` on-chain. Old PCR0 still the only accepted/active image. | yes (`cancelPcr0Swap()`, or let it expire after `eta + PCR0_SWAP_APPLY_WINDOW`) |
+| 4 | *(Audit / timelock window — users may verify the image or withdraw.)* | — |
+| 5 | After `pcr0UpgradeDelay`, `applyPcr0Swap()`: `PCR0_new` joins the accepted set and becomes `activeImage`; `Pcr0Swapped` is emitted. The Manager drains and stops the old enclave; an operator launches the new EIF (manual step) after waiting some blocks in order to avoid reorgs; the handshake recovers the key set via KMS. Service resumes. Both PCR0s are now accepted. | yes (instant on-chain rollback — see below) |
+| 6 | After a stability period: `removePcr0(PCR0_old)` on-chain and remove `PCR0_old` from the KMS policy. | this finalizes the upgrade |
+
+**Rollback** before step 6 is an **instant, on-chain, tracked** operation: `proposePcr0Swap(PCR0_old)` → `applyPcr0Swap()`. The timelock is skipped because `PCR0_old` is still in the accepted set, so `applyPcr0Swap` re-points `activeImage` to it immediately; the Manager sees the mismatch and swaps back, recovering the same key set. After step 6 the old image is retired, so rolling back to it again requires a fresh **timelocked** `proposePcr0Swap(PCR0_old)` (it must re-clear the audit window). For a true emergency where the chain is unusable, the out-of-band host relaunch described under [On-chain upgrade trigger](#on-chain-upgrade-trigger-r8) remains available.
+
+The Manager may be upgraded independently of this sequence, gated only by the [R7](#r7--protocol-version-negotiation) compatibility check.
+
+---
+
+## Failure Modes
+
+| Failure | Cause | Mitigation |
+|---------|-------|------------|
+| New enclave can't recover keys | `PCR0_new` not in KMS policy (step 2 skipped/late) | Handshake fails fast (R7 timeout); operator adds PCR0 to policy or rolls back to old EIF |
+| Manager/Executor version mismatch | Independent upgrades | Typed `IncompatibleProtocolError` on the first handshake message (R7); no recovery data read/generated/stored |
+| New enclave regenerated its keyset instead of recovering it (would orphan all state) | KMS/data-folder issue, or a diverged image | Signer-continuity guard (D2, Task 5): reported signer ≠ on-chain `teeSigner` on a set signer → fatal `SignerContinuityError`, no dispatch |
+| Manager data folder wiped/wrong during an upgrade | Operator error / bad migration | R2 guards (Task 6): with `EXECUTOR_EXPECT_EXISTING_KEYSET` the Executor aborts the handshake on a `found=false` response instead of generating a keyset; the Manager's recovery store refuses to overwrite an existing blob with a different one |
+| Request interrupted by swap | Drain skipped | Manager drains in-flight work on the on-chain swap signal before stop (R8) |
+| Malicious image pushed by compromised owner | Owner key compromise | Timelock (R4) + reproducible build (R5) give users a window to detect and withdraw |
+| Stale proposal applied long after audit | Abandoned proposal + later owner key compromise | Proposals expire `PCR0_SWAP_APPLY_WINDOW` after `eta` (`SwapProposalExpired`); `cancelPcr0Swap` revokes one explicitly |
+| All PCR0 removed / active image accidentally removed | Operator error (e.g. fat-finger at finalization, step 6: passing `PCR0_new` instead of `PCR0_old`) | `removePcr0` reverts (`CannotRemoveActiveImage`); since `activeImage` is always in the set, the same guard keeps the set non-empty. The mistake would not cause an immediate outage (runtime uses `teeSigner`, not the set) but would leave `activeImage` dangling and block any future `updateTee` re-attestation |
+
+---
+
+## Implementation Notes
+
+### Swap-signal observation: poll `activeImage`, don't subscribe to `Pcr0Swapped`
+
+The Manager learns it must swap by **reading the `activeImage` state variable on its existing polling loop**, not by subscribing to the `Pcr0Swapped` event. The event is retained purely as an on-chain/subgraph audit record; it is not on the Manager's control path.
+
+Concretely, on each tick the Manager reads `activeImage` and, **before** calling `GetNextPendingRequest`, compares it against the image it is running: on a match it dispatches as today; on a mismatch it enters drain mode (stops consuming new requests, lets in-flight work finish, signals the Executor to exit). Gating dispatch on the check ensures a pending swap immediately halts new work.
+
+**Poll interval / drain latency.** Reuse the existing `BlockchainPollingInterval`; do not add a separate cadence. Drain latency is bounded by one poll interval, which is acceptable for an operator-initiated, timelocked upgrade.
+
+### PCR1/PCR2
+
+We consider PCR0 sufficient as the trust anchor for now. PCR1 (kernel) and PCR2 (application) were never checked, and this implementation does not add them.
+
+### Challenge attestation (D1): considered, not adopted
+
+A periodic challenge attestation — the Manager submitting a fresh, nonce-bound attestation
+(nonce = recent block hash in `userData`, a `maxAttestationAge` freshness bound, verified
+against `activeImage`) to prove the `activeImage` enclave is *live and holds the key* — was
+considered per Task 0 and **not adopted**. It would not close the core D1 risk: it cannot
+exclude a parallel rogue image admitted via a **diverged KMS policy** (the rogue image also
+holds the key and could answer challenges, and passive state decryption is undetectable by
+any protocol). The D1 risk is therefore mitigated **preventively** by KMS-policy governance
+and auditability — restricted multi-party `PutKeyPolicy`, external-auditor read access, and
+out-of-band mutation alarms, plus the on-chain↔KMS set-equality invariant — documented in
+[`docs/ops/KMS_KEY_POLICY_RUNBOOK.md`](../ops/KMS_KEY_POLICY_RUNBOOK.md). The signer-continuity
+guard (D2) additionally catches a regenerated keyset at reconnect. A challenge attestation
+remains a possible future defense-in-depth if enclave-to-enclave key handoff (demoting KMS to
+break-glass) is ever pursued.
+
+### Protocol-version matrix: a code constant, not a doc table
+
+The compatibility rule lives in **code as the source of truth**, not as a table in this document. The reason is that the compatibility check is *enforced* at handshake time ([R7](#r7--protocol-version-negotiation)): a doc table cannot reject anything and would inevitably drift from the code that does.
+
+As built:
+
+- A dedicated, monotonic `WireProtocolVersion` (`uint32`) constant in `pkg/communication`, **separate from** the informational `version.Version` git string in `pkg/version` (marked non-enforcing in [Original State](#how-the-executor-is-built-and-run)) and from `common.Request.ProtocolVersion` (the on-chain request-level version). The `Wire` prefix disambiguates it from the latter; the handshake carries `WireProtocolVersion`, not the git version.
+- Both sides advertise their `WireProtocolVersion` in the handshake, and a single `IsCompatible(peer)` function encodes the rule. The shipped policy is **exact-match** (equality); the min-supported-floor variant remains a future option encoded in that one function.
+- There is no `(managerVersion, executorVersion)` pair matrix — a single shared wire version governs compatibility, so there is nothing to keep in sync by hand.
+- The bump discipline is **CI-enforced**: `TestWireFingerprintPinnedToProtocolVersion` (`pkg/communication/wire_fingerprint_test.go`) fingerprints the message set — the `MessageType` enum values and every payload struct, recursing into the referenced `pkg/common` types — and fails if it changes without a matching bump of `WireProtocolVersion`. A companion test parses `message.go` so newly added message types and payload structs cannot slip past the fingerprint.
+
+---
+
+## Limitations and Future Extensions
+
+### The trust gap in the current design
+
+The current design controls **which** images are *allowed* to run (the on-chain accepted PCR0 set and the `activeImage` pointer) and **which** images are *allowed to recover the master key* (the KMS key policy's `kms:RecipientAttestation:PCR0` condition). What it does **not** provide is a strong, publicly-verifiable guarantee that, after an upgrade, the old image has genuinely stopped and only the intended new image retains access to the master key.
+
+Concretely, the on-chain state records *intent* — `activeImage` says which PCR0 the Manager *should* be running — but it does not, by itself, prove that the old enclave was actually torn down or that it can no longer decrypt state. During the overlapping-validity window ([R3](#r3--overlapping-validity-window)) **both** `PCR0_old` and `PCR0_new` can recover the key set by design, which is exactly what makes zero-downtime swaps and rollbacks possible — but it also means that, for that window, the accepted set alone tells an observer nothing about which image is live.
+
+The only place where an actual exclusivity guarantee materializes today is the **KMS key policy**: once the finalization step ([Safe Upgrade Sequence](#safe-upgrade-sequence), step 6) removes `PCR0_old` from the `kms:RecipientAttestation:PCR0` condition, only an enclave attesting to `PCR0_new` can decrypt the master key, and therefore only the intended TEE can run the platform. This is a real guarantee, but it has two significant weaknesses:
+
+- **It is not easily auditable.** Inspecting the KMS key policy requires privileged AWS access to the account that owns the key. An ordinary user or third-party auditor cannot independently confirm the policy's current PCR0 condition.
+- **It is not anchored on-chain.** The guarantee lives in AWS-side configuration, entirely off the chain that anchors the rest of the trust model. There is no on-chain, tamper-evident record proving that the old image was actually cut off from the master key, so the property that a verifier most cares about — *exclusive* control by the intended TEE — is exactly the one that is least visible.
+
+In short: the chain records what the admin *intended*; the enforcement of exclusivity lives in an off-chain, privileged, non-auditable KMS policy. This is acceptable as an interim design but is not the end state.
+
+### The KMS-free end state
+
+In the final version of Vela **the KMS is removed entirely**. The master key is no longer escrowed by an external service: it is **generated inside the TEE on first boot** and thereafter **handed off directly from one TEE to the next** during an upgrade, TEE-to-TEE, without any third party ever holding it. This closes the trust gap above by making key custody a property of the enclaves themselves — attested end to end — rather than of an off-chain policy.
+
+In that model the swap primitives introduced by this design (`proposePcr0Swap` / `applyPcr0Swap`, the accepted PCR0 set, the timelock) are **reused unchanged as the coordination layer**, but they gain a second role: the on-chain proposal becomes the authenticated instruction that authorizes the key handoff. The upgrade flow becomes:
+
+1. **`proposePcr0Swap(PCR0_new)`** — the admin proposes the swap from the current image `PCR0_old` to `PCR0_new` on-chain, exactly as today. This on-chain record is now also the authorization that the outgoing TEE will check before releasing the key.
+2. **`applyPcr0Swap()`** — after the timelock window elapses, the admin applies the swap. The old TEE **stops processing requests** and the new TEE **begins**, now holding the key it received directly from its predecessor.
+3. **New TEE requests the key** — a new enclave is launched with `PCR0_new`. It contacts the running (old) TEE and issues a **key-transfer request, presenting its own attestation document / certificate** (binding its `PCR0_new` and its ephemeral transport public key).
+4. **Old TEE verifies and releases** — the outgoing TEE verifies that (a) the presented attestation is **authentic** (valid Nitro attestation chain), and (b) the attested `PCR0_new` **matches the target of the swap** read from `TeeAuthenticator` on-chain. Only if both checks pass does it **seal the master key to the new TEE's attested transport key and transmit it**. The on-chain proposal is what prevents the outgoing TEE from handing the key to an arbitrary requester: the target PCR0 must have been publicly proposed and apply, and it inherits the same timelock/audit window as today.
+The key advantage over the current design is that **exclusivity becomes attested and on-chain-anchored rather than KMS-policy-anchored**: the handoff is gated by an authenticated attestation check against an on-chain proposal, no external service ever holds the key, and the outgoing TEE's refusal-by-default (it releases the key *only* to an image matching the on-chain target) replaces the KMS key policy as the enforcement point. The property that "only the intended TEE has the key" is then a consequence of the enclaves' own attested behavior, coordinated through the same on-chain swap record this document already defines — no privileged, non-auditable off-chain configuration required.
+
+This end state is **out of scope for the present design**, which targets the KMS-backed deployment; it is documented here to record the intended evolution and to show that the on-chain swap machinery introduced now is forward-compatible with it.
+

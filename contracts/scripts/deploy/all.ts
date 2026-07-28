@@ -10,6 +10,7 @@ import * as path from 'path';
   For full TEE attestation (default):
     TEE_MAX_VERIFICATION_AGE: tolerance from expiration of the attestation to be still considered valid
     TEE_PCR0: PCR0 of the Nitro application
+    TEE_PCR0_UPGRADE_DELAY: timelock (seconds) before a swap to a new PCR0 can be applied
 
   For no-attestation mode (TEE_NO_ATTESTATION=true):
     TEE_SIGNER_ADDRESS: ethereum address of the executor's signing key
@@ -71,7 +72,8 @@ async function deployTeeAuthenticator(deployer: any, deployerAddress: string): P
     deployerAddress,
     nitroProverAddress,
     process.env.TEE_PCR0!,
-    process.env.TEE_MAX_VERIFICATION_AGE!
+    process.env.TEE_MAX_VERIFICATION_AGE!,
+    process.env.TEE_PCR0_UPGRADE_DELAY!
   );
   await teeAuthenticator.deploymentTransaction()!.wait();
   const addr = await teeAuthenticator.getAddress();

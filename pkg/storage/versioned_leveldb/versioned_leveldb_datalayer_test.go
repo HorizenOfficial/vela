@@ -827,6 +827,63 @@ func TestVersionedLevelDBDataLayer(t *testing.T) {
 		}
 	})
 
+	t.Run("StoreEnclaveKeySetRecovery_IdempotentSameBlob", func(t *testing.T) {
+		// Re-storing an identical recovery blob is a no-op and must not error
+		// (the exists-guard only rejects a *different* blob).
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
+		require.NoError(t, err)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+		recoveryData := &common.EnclaveKeySetRecovery{
+			RecoveryType:       common.RecoveryTypeKMS,
+			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
+			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
+		}
+		require.NoError(t, store.StoreEnclaveKeySetRecovery(ctx, recoveryData))
+		require.NoError(t, store.StoreEnclaveKeySetRecovery(ctx, recoveryData),
+			"re-storing an identical blob should succeed")
+
+		got, err := store.GetEnclaveKeySetRecovery(ctx)
+		require.NoError(t, err)
+		if diff := cmp.Diff(recoveryData, got); diff != "" {
+			t.Errorf("Retrieved EnclaveKeySetRecovery mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("StoreEnclaveKeySetRecovery_RejectsDifferentBlob", func(t *testing.T) {
+		// Overwriting an existing recovery blob with a *different* one must be
+		// refused (R2/G3): a wiped/wrong data folder must not silently orphan
+		// encrypted state by replacing the recovery blob.
+		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")
+		require.NoError(t, err)
+		t.Cleanup(func() { os.RemoveAll(tempDir) })
+		store := createStore(t, filepath.Join(tempDir, "test.db"), 5)
+		original := &common.EnclaveKeySetRecovery{
+			RecoveryType:       common.RecoveryTypeKMS,
+			KeySetCiphertext:   []byte{0x01, 0x02, 0x03},
+			RecoveryCiphertext: []byte{0x04, 0x05, 0x06},
+		}
+		require.NoError(t, store.StoreEnclaveKeySetRecovery(ctx, original))
+
+		different := &common.EnclaveKeySetRecovery{
+			RecoveryType:       common.RecoveryTypeKMS,
+			KeySetCiphertext:   []byte{0xAA, 0xBB, 0xCC},
+			RecoveryCiphertext: []byte{0xDD, 0xEE, 0xFF},
+		}
+		err = store.StoreEnclaveKeySetRecovery(ctx, different)
+		require.Error(t, err, "overwriting with a different blob must be rejected")
+		var storageErr *storageErrors.Error
+		require.True(t, errors.As(err, &storageErr))
+		assert.Equal(t, storageErrors.RecoveryDataExists, storageErr.Code)
+
+		// The original blob must be preserved.
+		got, err := store.GetEnclaveKeySetRecovery(ctx)
+		require.NoError(t, err)
+		if diff := cmp.Diff(original, got); diff != "" {
+			t.Errorf("original recovery data must be preserved (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("GetNonExistentEnclaveKeySetRecovery", func(t *testing.T) {
 		// Ensures that trying to get non-existent recovery data returns a 'NotFound' error.
 		tempDir, err := os.MkdirTemp(testVersionedLevelDBBaseDir, "versioned-leveldb-test-")

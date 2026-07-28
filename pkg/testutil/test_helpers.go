@@ -11,6 +11,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/executor"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	"github.com/HorizenOfficial/vela/pkg/manager"
+	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,6 +67,32 @@ func NewSystemTestSuiteWithConfigs(
 
 func (s *SystemTestSuite) SubmitRequest(req *common.Request) error {
 	return s.blockchainClient.SendRequestToChain(s.ctx, req)
+}
+
+// RestartAll stops and rebuilds the manager + executor while reusing the SAME
+// MockClient (its on-chain state and configured teeSigner survive Close, which
+// only clears event subscribers) and re-opening the persisted LevelDB data
+// layer. The event channel is re-subscribed to the reused client. Used by the
+// TEE-upgrade R2 test to prove the keyset is recovered — not regenerated —
+// across a coupled manager+executor restart.
+func (s *SystemTestSuite) RestartAll() error {
+	if err := s.TestSuiteCore.RestartCore(s.blockchainClient); err != nil {
+		return err
+	}
+	// RestartCore rebuilt manager+executor; the MockClient's Close dropped its
+	// event subscribers, so re-subscribe the suite's event channel.
+	return s.blockchainClient.SubscribeToEvents(s.Context(), s.EventChannel())
+}
+
+// SetTeeSigner sets the address returned by the mock chain's GetTeeSigner,
+// standing in for the on-chain teeSigner used by the signer-continuity check.
+func (s *SystemTestSuite) SetTeeSigner(addr ethCommon.Address) {
+	s.blockchainClient.SetTeeSigner(addr)
+}
+
+// SetActiveImage sets the value returned by the mock chain's GetActiveImage.
+func (s *SystemTestSuite) SetActiveImage(img [32]byte) {
+	s.blockchainClient.SetActiveImage(img)
 }
 
 func (s *SystemTestSuite) WaitForAppStateInBlockchain(appID common.ApplicationIdType, timeout time.Duration) (*common.ApplicationState, error) {

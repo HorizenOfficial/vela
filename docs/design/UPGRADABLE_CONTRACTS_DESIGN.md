@@ -250,7 +250,7 @@ uint256[50] private __gap;
 | Contract | Base contracts to replace | Additional notes |
 |----------|--------------------------|-----------------|
 | `ProcessorEndpoint` | `AccessControl` → `AccessControlUpgradeable`, `ReentrancyGuard` → `ReentrancyGuardUpgradeable` | No other changes to contract logic. |
-| `TeeAuthenticator` | `Ownable` → `OwnableUpgradeable` | `nitroProver` and `maxVerificationAge` are currently `immutable`. `immutable` variables are embedded in bytecode and invisible to the proxy's storage, so they must be converted to regular storage variables. The minor gas cost on reads is accepted given the low call frequency of attestation-related functions. |
+| `TeeAuthenticator` | `Ownable` → `OwnableUpgradeable` | `nitroProver` and `maxVerificationAge` are currently `immutable`. `immutable` variables are embedded in bytecode and invisible to the proxy's storage, so they must be converted to regular storage variables. The minor gas cost on reads is accepted given the low call frequency of attestation-related functions. The Executor TEE upgrade work (`EXECUTOR_TEE_UPGRADE_TASKS.md`, G7) deliberately kept the contract `Ownable` + constructor: seeding of `acceptedPcr0` / `activeImage` / `pcr0UpgradeDelay` happens in the constructor and must move into `initialize()` as part of this conversion. |
 | `AuthorityRegistry` | `Ownable` → `OwnableUpgradeable` | No other changes to contract logic. |
 
 ---

@@ -129,11 +129,15 @@ func main() {
 	}
 	log.Info("Executor started")
 
-	// Wait for shutdown signal
-	<-sigChan
+	// Wait for a shutdown signal: either an OS signal (Ctrl+C / SIGTERM) or a
+	// graceful-shutdown request forwarded by the Manager (drain step 3).
+	select {
+	case <-sigChan:
+		log.Info("Received shutdown signal. Shutting down gracefully...")
+	case <-exec.ShutdownRequested():
+		log.Info("Received graceful shutdown request from manager. Shutting down...")
+	}
 	signal.Stop(sigChan)
-	// Handle shutdown signal (Ctrl+C or SIGTERM)
-	log.Info("Received shutdown signal. Shutting down gracefully...")
 	
 	// Stop the executor
 	cancel()

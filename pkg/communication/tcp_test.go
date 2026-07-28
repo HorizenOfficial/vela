@@ -96,20 +96,20 @@ type MockClientRequestHandler struct {
 }
 
 // HandleKeysetRecoveryResult implements ClientRequestHandler.
-func (m *MockClientRequestHandler) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
+func (m *MockClientRequestHandler) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0 string) error {
 	// For testing purposes, we can just return nil or log something.
 	return nil
 }
 
 // HandleSetKeysetRecoveryRequest implements ClientRequestHandler.
-func (m *MockClientRequestHandler) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
+func (m *MockClientRequestHandler) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0 string) error {
 	if m.SetKeysetRecoveryFunc != nil {
 		return m.SetKeysetRecoveryFunc(ctx, recv, commPubKey, signingKeyAddr)
 	}
 	return nil
 }
 
-func (m *MockClientRequestHandler) HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
+func (m *MockClientRequestHandler) HandleGetKeysetRecoveryRequest(ctx context.Context, peerProtocolVersion uint32) (*common.EnclaveKeySetRecovery, error) {
 	if m.GetKeysetRecoveryFunc != nil {
 		return m.GetKeysetRecoveryFunc(ctx)
 	}
@@ -548,4 +548,51 @@ func reserveTCPAddress(t *testing.T) string {
 	defer listener.Close()
 
 	return listener.Addr().String()
+}
+
+// TestClient_ReconnectAfterClose verifies the client can Connect again after a
+// Close (the reconnect rework: a fresh shutdown channel per connection, and
+// connected re-arming). A request must succeed on the second connection.
+func TestClient_ReconnectAfterClose(t *testing.T) {
+	serverHandler := &MockRequestHandler{}
+	ctx := context.Background()
+
+	factory := NewTCPConnectionFactory(":8087")
+	server := NewServer(factory, commParams, testLogger)
+	server.SetRequestHandler(serverHandler)
+	require.NoError(t, server.Start(ctx, "Server"))
+	defer server.Stop()
+
+	client := NewClient(factory, commParams, testLogger)
+
+	// First connection.
+	require.NoError(t, client.Connect(ctx, "Client"))
+	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, client.Close())
+
+	// Reconnect: must not error with "already connected" and must work.
+	require.NoError(t, client.Connect(ctx, "Client"))
+	defer client.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	req := &common.Request{
+		ProtocolVersion: 0,
+		ApplicationID:   ApplicationId,
+		RequestID:       testutil.GenerateRandomRequestID(),
+		RequestType:     common.Process,
+		Payload:         []byte("after-reconnect"),
+		Timestamp:       common.ToBig(new(big.Int).SetInt64(time.Now().Unix())),
+		Sender:          senderAddress,
+		TokenAddress:    velacommon.ETH_TOKEN,
+		AssetAmount:     common.NewBig(0),
+		MaxFeeValue:     common.NewBig(100),
+	}
+	appState := &common.ApplicationState{
+		ApplicationID:  ApplicationId,
+		StateRoot:      sha256.Sum256([]byte("state")),
+		EncryptedState: []byte("state"),
+	}
+	updatePayload, _, _, failure := client.SendProcessRequest(ctx, req, appState, []byte("wasm"))
+	require.Nil(t, failure)
+	require.Equal(t, req.ApplicationID, updatePayload.ApplicationID)
 }
