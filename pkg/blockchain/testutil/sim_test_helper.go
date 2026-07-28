@@ -216,7 +216,27 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 
 }
 
-func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeSigner *ethCommon.Address, teePubSecp521r1 []byte) *SimTestHelper {
+// SimTestHelperOption customizes SimTestHelper construction.
+type SimTestHelperOption func(*simTestHelperOptions)
+
+type simTestHelperOptions struct {
+	autoMineInterval time.Duration
+}
+
+// WithAutoMineInterval sets the auto-mining block interval (the emulated block
+// time). Defaults to 1s. Only meaningful when autoMining is enabled.
+func WithAutoMineInterval(d time.Duration) SimTestHelperOption {
+	return func(o *simTestHelperOptions) {
+		o.autoMineInterval = d
+	}
+}
+
+func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeSigner *ethCommon.Address, teePubSecp521r1 []byte, opts ...SimTestHelperOption) *SimTestHelper {
+
+	options := simTestHelperOptions{autoMineInterval: time.Second}
+	for _, opt := range opts {
+		opt(&options)
+	}
 
 	helper := &SimTestHelper{
 		t:                       t,
@@ -266,7 +286,7 @@ func NewSimTestHelper(t *testing.T, autoMining bool, useMockContracts bool, teeS
 		go func() {
 			defer helper.autoMineWG.Done()
 			fmt.Println("Auto mining enabled")
-			ticker := time.NewTicker(time.Second)
+			ticker := time.NewTicker(options.autoMineInterval)
 			defer ticker.Stop()
 			for {
 				select {
@@ -474,6 +494,17 @@ func (s *SimTestHelper) MineBlock() ethCommon.Hash {
 func (s *SimTestHelper) WaitMined(tx *ethTypes.Transaction) {
 	_, err := bind.WaitMined(context.Background(), s.sim.Client(), tx.Hash())
 	require.NoError(s.t, err, "error waiting for tx inclusion")
+}
+
+// SetQueueThreshold raises/lowers the ProcessorEndpoint's maxQueueSize (the
+// pending-queue cap, default 10 on-chain) via the admin role held by the
+// Deployer. Benchmarks pre-filling more than 10 requests must raise it, or
+// the excess submissions revert with QueueThresholdExceeded.
+func (s *SimTestHelper) SetQueueThreshold(threshold *big.Int) {
+	tx, err := bind.Transact(s.processEndpointInstance, s.Deployer,
+		s.processEndpointContract.PackUpdateQueueThreshold(threshold))
+	require.NoError(s.t, err, "failed to update queue threshold")
+	s.WaitMined(tx)
 }
 
 func (s *SimTestHelper) GetStateRoot(applicationId common.ApplicationIdType) [32]byte {
