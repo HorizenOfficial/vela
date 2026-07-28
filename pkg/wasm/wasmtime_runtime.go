@@ -34,16 +34,39 @@ type Address [20]byte
 // RAM from a buggy or malicious app. The 2 GiB ceiling is a hard ABI
 // constraint: the host exchanges guest pointers as signed int32 offsets (see
 // writeToMemory and extractResultBytes), so no guest offset may reach 2 GiB.
-const maxGuestMemoryCeilingBytes = 2 << 30
+const maxGuestMemoryCeilingBytes = 2 * 1024 * 1024 * 1024
+
+// Per-store resource limits passed to wasmtime's store limiter.
+const (
+	// limiterKeepDefault is the sentinel the limiter accepts for "leave the
+	// engine default in place for this limit".
+	limiterKeepDefault = -1
+
+	// maxInstancesPerStore and maxMemoriesPerStore pin the counts the guest
+	// memory cap is accounted against. The cap is enforced per linear memory,
+	// not per store, so without these a guest declaring N memories could use N
+	// times the cap and break the enclave RAM budget documented in
+	// pkg/executor.Config (MaxCachedModules * MaxGuestMemoryBytes). Each store
+	// holds exactly one instance with its single exported memory.
+	maxInstancesPerStore = 1
+	maxMemoriesPerStore  = 1
+)
 
 // newModuleStore creates a per-module store with the guest memory cap applied.
 // Must be called with moduleLock held (write lock), which also guards
 // maxGuestMemoryBytes.
 func (r *WasmtimeRuntime) newModuleStore() *wasmtime.Store {
 	store := wasmtime.NewStore(r.engine)
-	// -1 keeps the wasmtime default for limits we don't want to override
-	// (table elements, instance/table/memory counts).
-	store.Limiter(r.maxGuestMemoryBytes, -1, -1, -1, -1)
+	// Signature: Limiter(memorySize, tableElements, instances, tables, memories).
+	// Multi-memory is also disabled at the engine level (see newPinnedEngine);
+	// maxMemoriesPerStore is the second half of that defence.
+	store.Limiter(
+		r.maxGuestMemoryBytes,
+		limiterKeepDefault,
+		maxInstancesPerStore,
+		limiterKeepDefault,
+		maxMemoriesPerStore,
+	)
 	return store
 }
 
@@ -106,13 +129,68 @@ type WasmtimeRuntime struct {
 	maxGuestMemoryBytes int64
 }
 
+// newPinnedEngine builds the wasmtime engine with an explicitly pinned WASM
+// feature set instead of inheriting wasmtime's defaults.
+//
+// Rationale: the executor re-executes guest code inside the enclave and the
+// resulting state is committed on-chain, so the set of accepted WASM features
+// is part of this system's observable behaviour. Tracking upstream defaults
+// would silently widen it on every dependency bump (the v42 default set is much
+// wider than the v1.0 one this replaced) and would admit features whose results
+// are host-dependent. Every knob wasmtime v42 exposes is therefore set here
+// explicitly: adding a proposal must be a deliberate, reviewed change.
+//
+// Enabled features are the ones TinyGo emits, all deterministic per spec.
+// Disabled ones are either host-dependent (relaxed SIMD), incompatible with the
+// host ABI (memory64 widens guest pointers past the int32 offsets used by
+// writeToMemory/extractResultBytes), incompatible with the enclave RAM budget
+// (multi-memory, threads' shared memories), or simply unused surface.
+//
+// NOTE: when bumping wasmtime, check the release notes for newly added
+// proposals and pin them here too.
+func newPinnedEngine() *wasmtime.Engine {
+	config := wasmtime.NewConfig()
+
+	// --- Enabled: required by TinyGo-generated modules, deterministic ---
+	config.SetWasmBulkMemory(true)     // memory.copy / memory.fill
+	config.SetWasmMultiValue(true)     // multi-result functions
+	config.SetWasmReferenceTypes(true) // funcref tables behind call_indirect
+	config.SetWasmSIMD(true)           // fixed-width SIMD: results are spec-defined
+
+	// --- Disabled: host-dependent results ---
+	// Relaxed SIMD instructions are explicitly allowed to differ between host
+	// architectures, which would make guest results depend on the machine the
+	// enclave runs on. If it is ever enabled, deterministic mode is mandatory.
+	config.SetWasmRelaxedSIMD(false)
+
+	// --- Disabled: incompatible with the host ABI or the RAM budget ---
+	config.SetWasmMemory64(false)    // guest pointers must stay in int32 range
+	config.SetWasmMultiMemory(false) // one memory per store, see newModuleStore
+	config.SetWasmThreads(false)     // shared memories escape the per-store cap
+
+	// --- Disabled: unused surface ---
+	config.SetWasmTailCall(false)
+	config.SetWasmFunctionReferences(false)
+	config.SetWasmGC(false)
+	config.SetWasmWideArithmetic(false)
+
+	// Replace NaN payloads with a single canonical value. Not required by the
+	// WASM spec and off by default, but NaN bit patterns are otherwise
+	// host-dependent, which is the same reproducibility concern as relaxed SIMD.
+	// Costs a few percent on float-heavy guests; the guests here are state
+	// machines, so the trade is worth it.
+	config.SetCraneliftNanCanonicalization(true)
+
+	return wasmtime.NewEngineWithConfig(config)
+}
+
 // NewWasmtimeRuntime creates a new wasmtime runtime instance.
 // maxCachedModules controls the LRU cache size: 0 means unlimited.
 func NewWasmtimeRuntime(log logger.Logger, maxCachedModules int) *WasmtimeRuntime {
 	log.Info("Runtime: Initializing wasmtime runtime (maxCachedModules=%d)", maxCachedModules)
 
-	// Create a new engine with default configuration
-	engine := wasmtime.NewEngine()
+	// Create the engine with an explicitly pinned WASM feature set
+	engine := newPinnedEngine()
 
 	return &WasmtimeRuntime{
 		engine:              engine,
@@ -519,13 +597,16 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 		return nil, big.NewInt(0), fmt.Errorf("failed to deploy module: %s", deployResult.Error)
 	}
 
-	success = true // Disables the deferred cleanup
-
 	// A module for this appId should not exist at deploy time. If it does,
-	// it indicates a duplicate deploy or an unexpected state.
+	// it indicates a duplicate deploy or an unexpected state. Checked BEFORE
+	// success is set, so this path still runs the deferred cleanup: the module
+	// never enters r.modules, so nothing else would ever close its log FIFOs
+	// (leaking the fds and the log-forwarding goroutine).
 	if _, exists := r.modules[appId]; exists {
 		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
 	}
+
+	success = true // Disables the deferred cleanup
 
 	// Store the module in the runtime registry and update LRU
 	r.modules[appId] = appModule

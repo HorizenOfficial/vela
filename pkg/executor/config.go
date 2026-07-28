@@ -137,9 +137,9 @@ func LoadConfig() (*Config, error) {
 		LogFileLevel:        common.GetConfigVar("EXECUTOR_LOG_FILE_LEVEL", "info", fileProperties),
 		LogChannelParams:    logClientConnectionParams,
 		LogNetworkLevel:     common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
-		CommunicationParams:  communicationParams,
-		MaxCachedModules:     int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
-		MaxGuestMemoryBytes:  common.GetConfigVarInt64("EXECUTOR_MAX_GUEST_MEMORY_BYTES", 0, fileProperties),
+		CommunicationParams: communicationParams,
+		MaxCachedModules:    int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
+		MaxGuestMemoryBytes: common.GetConfigVarInt64("EXECUTOR_MAX_GUEST_MEMORY_BYTES", 0, fileProperties),
 	}, nil
 }
 
@@ -194,7 +194,7 @@ func (c *Config) Validate() error {
 	// duplicated here to avoid linking libwasmtime into every pkg/executor
 	// consumer). 0 selects the 2 GiB default; anything else must be in range
 	// rather than silently clamped, so a misconfigured operator finds out at startup.
-	const maxGuestMemoryCeilingBytes = 2 << 30
+	const maxGuestMemoryCeilingBytes = 2 * 1024 * 1024 * 1024
 	if c.MaxGuestMemoryBytes < 0 || c.MaxGuestMemoryBytes > maxGuestMemoryCeilingBytes {
 		errs = append(errs, fmt.Sprintf(
 			"EXECUTOR_MAX_GUEST_MEMORY_BYTES must be between 0 (default: 2 GiB) and %d (2 GiB), got %d",

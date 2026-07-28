@@ -493,10 +493,12 @@ func TestGuestMemoryCapEnforced(t *testing.T) {
 
 	module, err := wasmtime.NewModule(runtime.engine, wasmBytes)
 	require.NoError(t, err)
+	defer module.Close()
 
 	runtime.moduleLock.Lock()
 	store := runtime.newModuleStore()
 	runtime.moduleLock.Unlock()
+	defer store.Close()
 
 	instance, err := wasmtime.NewInstance(store, module, nil)
 	require.NoError(t, err)
@@ -513,4 +515,51 @@ func TestGuestMemoryCapEnforced(t *testing.T) {
 	res, err = grow.Call(store, int32(1))
 	require.NoError(t, err)
 	require.Equal(t, int32(-1), res)
+}
+
+// TestPinnedEngineRejectsDisabledProposals verifies that the explicitly pinned
+// feature set in newPinnedEngine is actually enforced: a module using a proposal
+// this runtime disables must fail to compile rather than being silently accepted
+// because a future wasmtime enables it by default.
+//
+// Both cases matter for the enclave RAM budget: the guest memory cap is applied
+// per linear memory, so extra (or shared) memories would multiply the worst-case
+// RAM a single app can hold. See newPinnedEngine and newModuleStore.
+func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	testCases := []struct {
+		name string
+		wat  string
+	}{
+		{
+			name: "multi-memory",
+			wat: `(module
+				(memory (export "memory") 1)
+				(memory 1))`,
+		},
+		{
+			name: "shared memory (threads)",
+			wat: `(module
+				(memory (export "memory") 1 1 shared))`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Wat2Wasm is proposal-agnostic and encodes both of these fine; the
+			// rejection must come from the engine's pinned feature set. Note that
+			// wasmtime v42's *default* engine compiles both of these successfully,
+			// which is exactly why the set is pinned explicitly.
+			wasmBytes, err := wasmtime.Wat2Wasm(tc.wat)
+			require.NoError(t, err)
+
+			module, err := wasmtime.NewModule(runtime.engine, wasmBytes)
+			if err == nil {
+				module.Close()
+				t.Fatalf("expected the pinned engine to reject a %s module, but it compiled", tc.name)
+			}
+		})
+	}
 }
