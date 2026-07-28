@@ -104,10 +104,13 @@ Or with an explicit target:
   "type": "response",
   "data": {
     "manager": "v1.2.3",
-    "executor": "v1.2.3"
+    "executor": "v1.2.3",
+    "executorPcr0": "a1b2c3..."
   }
 }
 ```
+
+`executorPcr0` is the hex-encoded PCR0 of the running enclave image, as reported by the Executor during the handshake. It is omitted (empty) in non-Nitro (TCP/dev) mode where no NSM device exists.
 
 #### GetLogLevel
 
@@ -235,6 +238,15 @@ Generates a key attestation document for the Executor's cryptographic keys. Alwa
   "data": "<base64-encoded-attestation>"
 }
 ```
+
+#### Shutdown (internal)
+
+`shutdown` (`AdminCmdShutdown`) asks the Executor to exit cleanly. It is **not** an
+operator-facing verb — the Manager admin server does not route it. It is forwarded over the
+communication channel by the Manager's swap-drain sequence (drain step 3): after the
+in-flight request finishes, the Manager sends `shutdown`, the Executor acks with
+`{"stopping": true}` and then exits. The Manager treats the ensuing disconnect as a normal
+outcome, not a fatal error.
 
 ### Error Handling
 

@@ -15,3 +15,6 @@ contract_abis/
 /contracts/typechain/
 bin/
 .claude/settings.json
+
+# Reproducible EIF build artifacts (dockerfiles/executor/build-eif.sh)
+/eif-out/

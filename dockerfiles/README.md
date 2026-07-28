@@ -18,6 +18,21 @@ It starts a dev chain using [Foundry Anvil](https://getfoundry.sh/anvil/overview
     docker build -t horizen/cce-subgraph-deployer -f dockerfiles/subgraph-deployer/Dockerfile .
     ```
 
+    > The `cce-executor` command above is a convenient **dev** build (unpinned,
+    > version auto-detected from `.git`). For a **reproducible** enclave image
+    > whose `PCR0`/`PCR1`/`PCR2` can be verified against the on-chain value, use
+    > `dockerfiles/executor/build-eif.sh` instead — see
+    > [`docs/design/REPRODUCIBLE_EIF_BUILD.md`](../docs/design/REPRODUCIBLE_EIF_BUILD.md).
+
+    > The executor image bakes the key-continuity guard
+    > `EXECUTOR_EXPECT_EXISTING_KEYSET=true` (the production upgrade variant): with
+    > the guard on, the Executor refuses to bootstrap a new keyset when the Manager
+    > has no recovery data — which is exactly the situation on a first start. In this
+    > dev compose the flag is forwarded from `.env` at runtime, and `.env.dev` sets
+    > it to `false`, so a fresh environment bootstraps normally without rebuilding
+    > the image. The Docker compose sets it to `false` if the variable is missing in `.env`.
+    > If you want the guard on, put `EXECUTOR_EXPECT_EXISTING_KEYSET=true` in your `.env`.
+ 
 2) Switch to "dockerfiles" folder
 
     ```
@@ -72,6 +87,7 @@ For WASM deploy v1, ensure these are configured consistently in `.env`:
 - **Chain data deleted** (`docker volume rm dockerfiles_horizen-cce-chain-data`): the deployer detects contracts are missing from the chain and redeploys.
 - **Deploy data deleted** (`docker volume rm dockerfiles_horizen-cce-deploy-data`): the deployer redeploys (same addresses since Anvil is deterministic with the same nonce).
 - **Contracts modified**: rebuild the deployer image, delete both volumes, and restart.
+- **Manager data deleted** (`docker volume rm dockerfiles_horizen-cce-manager-data`): the keyset recovery data is lost, so the Executor must bootstrap a fresh keyset on the next start. This works only with `EXECUTOR_EXPECT_EXISTING_KEYSET=false` in `.env` (the `.env.dev` default); with `true` the Executor aborts the handshake instead of generating a keyset — useful to reproduce the production upgrade guard, fatal on a first start. Also delete the chain volume: the on-chain `teeSigner` registered by the old keyset no longer matches the new one.
 
 ## Where to go next
 The system is up and running, and you can deploy an app on-chain via the descriptor flow. Each deploy derives its own `applicationId` from the on-chain `requestId`, so there is no need to rename the WASM file or reserve a fixed id.

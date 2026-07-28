@@ -31,7 +31,8 @@ async function deploy() {
     owner: ${process.env.TEE_OWNER},
     _nitroProver: ${nitroProverAddress},
     _pcr0: ${process.env.TEE_PCR0},
-    _maxVerificationAge: ${process.env.TEE_MAX_VERIFICATION_AGE}
+    _maxVerificationAge: ${process.env.TEE_MAX_VERIFICATION_AGE},
+    _pcr0UpgradeDelay: ${process.env.TEE_PCR0_UPGRADE_DELAY}
   `);
   //deploy TeeAuthenticator
   const TeeAuthenticator = await ethers.getContractFactory('TeeAuthenticator');
@@ -39,7 +40,8 @@ async function deploy() {
     process.env.TEE_OWNER!,
     nitroProverAddress,
     process.env.TEE_PCR0!,
-    process.env.TEE_MAX_VERIFICATION_AGE!
+    process.env.TEE_MAX_VERIFICATION_AGE!,
+    process.env.TEE_PCR0_UPGRADE_DELAY!
   );
   await teeAuthenticator.deploymentTransaction()!.wait();
 

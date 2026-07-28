@@ -1,6 +1,7 @@
 package versioned_leveldb
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -274,8 +275,22 @@ func (s *LevelDBEnclaveKeyStore) StoreEnclaveKeySetRecovery(ctx context.Context,
 		return fmt.Errorf("failed to marshal enclave key set recovery data: %w", err)
 	}
 	key := []byte(enclaveKeyRecoveryPrefix)
-	err = s.adapter.Put(key, value)
+
+	// R2 key-continuity guard (G3): the recovery blob is the only handle to the
+	// keyset that decrypts all app state. Refuse to overwrite an existing blob
+	// with a *different* one — a wiped/wrong data folder would otherwise let a
+	// freshly generated keyset silently replace it and orphan all encrypted
+	// state. Re-storing an identical blob is a no-op.
+	existing, err := s.adapter.Get(key)
 	if err != nil {
+		return fmt.Errorf("failed to read existing enclave key set recovery data: %w", err)
+	}
+	if existing != nil && !bytes.Equal(existing, value) {
+		return storageErrors.ErrRecoveryDataExists(
+			"refusing to overwrite existing enclave key set recovery data with a different blob")
+	}
+
+	if err = s.adapter.Put(key, value); err != nil {
 		return fmt.Errorf("failed to store enclave key set recovery data in LevelDB: %w", err)
 	}
 	return nil

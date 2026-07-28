@@ -3,6 +3,7 @@ package manager
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	ethCommon "github.com/ethereum/go-ethereum/common"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/HorizenOfficial/vela/pkg/admin"
 	"github.com/HorizenOfficial/vela/pkg/blockchain"
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -38,11 +41,48 @@ type SecureProcessorManager struct {
 	mu                sync.RWMutex
 	isRunning         bool
 	executorHandShake *ExecutorHandShake
+	// handShakeMu guards the executorHandShake pointer (NOT its internal fields,
+	// which are protected by their own sync.Once). The comm layer dispatches
+	// message handlers on detached goroutines (shared_impl.go), so a late
+	// handshake handler from a drained connection can call
+	// completeExecutorHandshake concurrently with reconnectExecutor swapping in a
+	// fresh tracker — an unsynchronized pointer read/write without this lock.
+	handShakeMu       sync.RWMutex
 	stopChan          chan struct{} // Channel to signal the polling loop to stop
 	wg                sync.WaitGroup
 	endReorgTime      time.Time
 	log               logger.Logger
 	fatalErrChan      chan error // Channel to signal fatal errors to main
+
+	// runningPcr0 is the hex-encoded PCR0 reported by the executor at handshake
+	// (the "running image"); empty in non-Nitro (TCP/dev) mode. Guarded by
+	// identityMu, a dedicated lock: the handshake handlers that write these run
+	// on the comm client's reader goroutine while Start holds m.mu, so reusing
+	// m.mu here would deadlock.
+	identityMu  sync.RWMutex
+	runningPcr0 string
+	// runningImageHash caches keccak256(pcr0) — the value compared against the
+	// on-chain activeImage — computed once per handshake in setExecutorIdentity.
+	// nil when no PCR0 was reported (dev/TCP mode); a bad-hex PCR0 is rejected at
+	// handshake and never reaches here.
+	runningImageHash *ethCommon.Hash
+	// reportedSigner is the executor's signing-key address reported at handshake
+	// (hex, "0x…"), used for the signer-continuity check against on-chain teeSigner.
+	reportedSigner string
+
+	// draining is set once a PCR0/activeImage mismatch is observed: the manager
+	// stops dispatching new requests, signals the executor to shut down, and
+	// waits to reconnect to the swapped-in enclave.
+	//
+	// signerVerified records that the post-handshake signer-continuity check has
+	// passed for the current connection; reset on each (re)handshake.
+	//
+	// Both are guarded by identityMu (NOT m.mu): the handshake handlers that
+	// reset them run on the comm reader goroutine while Start holds m.mu, so
+	// using m.mu here would deadlock (see Task 3). Lock order is always
+	// m.mu → identityMu; nothing takes identityMu then m.mu.
+	draining       bool
+	signerVerified bool
 }
 
 // NewSecureProcessorManager creates a new SecureProcessorManager
@@ -76,24 +116,43 @@ func (m *SecureProcessorManager) FatalErrChan() <-chan error {
 	return m.fatalErrChan
 }
 
+// currentHandShake returns the active handshake tracker under handShakeMu.
+func (m *SecureProcessorManager) currentHandShake() *ExecutorHandShake {
+	m.handShakeMu.RLock()
+	defer m.handShakeMu.RUnlock()
+	return m.executorHandShake
+}
+
+// resetHandShake installs a fresh single-shot handshake tracker for a new
+// connection and returns it. The swap is guarded by handShakeMu so it cannot
+// race a concurrent pointer read from a (possibly stale) handshake handler
+// goroutine.
+func (m *SecureProcessorManager) resetHandShake() *ExecutorHandShake {
+	m.handShakeMu.Lock()
+	defer m.handShakeMu.Unlock()
+	m.executorHandShake = &ExecutorHandShake{isComplete: make(chan struct{})}
+	return m.executorHandShake
+}
+
 func (m *SecureProcessorManager) waitForExecutorHandshake() error {
 	m.log.Info("Manager: Waiting for the executor to complete the handshake...")
+	hs := m.currentHandShake()
 
 	select {
-	case <-m.executorHandShake.isComplete:
+	case <-hs.isComplete:
 		// Handshake completed (successfully or with error)
 	case <-time.After(time.Duration(m.config.HandshakeTimeout) * time.Second):
 		// Handshake timed out
-		m.executorHandShake.once.Do(func() {
+		hs.once.Do(func() {
 			m.log.Warn("Manager: Handshake timed out after %d seconds", m.config.HandshakeTimeout)
-			m.executorHandShake.err = fmt.Errorf("handshake timed out after %d seconds", m.config.HandshakeTimeout)
-			close(m.executorHandShake.isComplete)
+			hs.err = fmt.Errorf("handshake timed out after %d seconds", m.config.HandshakeTimeout)
+			close(hs.isComplete)
 		})
 	}
 
-	if m.executorHandShake.err != nil {
-		m.log.Error("Manager: ... executor completed handshake with error: %v", m.executorHandShake.err)
-		return m.executorHandShake.err
+	if hs.err != nil {
+		m.log.Error("Manager: ... executor completed handshake with error: %v", hs.err)
+		return hs.err
 	}
 	m.log.Info("Manager: ... executor completed handshake! Continuing execution.")
 	return nil
@@ -104,16 +163,17 @@ func (m *SecureProcessorManager) completeExecutorHandshake(handshakeErr error) {
 	// We have just one go routine that completes the handshake, but to be on the safe side
 	// sync.Once guarantees that no matter how many goroutines attempt to mark the handshake complete, the
 	// channel is only closed once.
-	m.executorHandShake.once.Do(func() {
+	hs := m.currentHandShake()
+	hs.once.Do(func() {
 		if handshakeErr != nil {
 			m.log.Error("Manager: Handshake completed with error: %v", handshakeErr)
-			m.executorHandShake.err = handshakeErr
+			hs.err = handshakeErr
 		} else {
 			m.log.Info("Manager: setting handshake as completed")
 		}
 		// When a channel is closed all current receivers unblock immediately, all future receives <-ch also
 		// return instantly (zero value) and the channel transitions into a permanent done state
-		close(m.executorHandShake.isComplete)
+		close(hs.isComplete)
 	})
 }
 
@@ -183,22 +243,41 @@ func (m *SecureProcessorManager) Start(ctx context.Context) error {
 // Stop stops the manager
 func (m *SecureProcessorManager) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if !m.isRunning {
+		m.mu.Unlock()
 		return nil
 	}
 
-	// Signal the polling loop to stop
+	// Flip isRunning and signal the polling loop to stop under m.mu, then RELEASE
+	// m.mu before waiting. processRequestFromChain does its blocking work
+	// (blockchain reconnect, maintainExecutorForActiveImage) lock-free and only
+	// takes m.mu at dispatch; if Stop held m.mu across wg.Wait(), a tick already in
+	// that pre-lock section would block forever at m.mu.Lock() while Stop blocked
+	// forever in wg.Wait() — a lock-ordering deadlock. With isRunning already
+	// false, a mid-flight tick instead acquires m.mu, sees !isRunning, and exits
+	// without dispatching.
+	m.isRunning = false
 	select {
 	case <-m.stopChan:
 	// already closed
 	default:
 		close(m.stopChan)
 	}
+	m.mu.Unlock()
 
-	// Wait for the polling loop to stop
+	// Wait for the polling loop to stop (without holding m.mu).
 	m.wg.Wait()
+
+	// Teardown runs without m.mu: the polling goroutine has exited, the clients
+	// have their own internal locks, and isRunning is already false so no request
+	// path will dispatch. If a teardown step fails, restore isRunning=true so the
+	// stop is not considered complete and the operator can retry Stop().
+	stopFailed := func(err error) error {
+		m.mu.Lock()
+		m.isRunning = true
+		m.mu.Unlock()
+		return err
+	}
 
 	// Stop the admin server
 	if m.adminServer != nil {
@@ -209,26 +288,35 @@ func (m *SecureProcessorManager) Stop() error {
 
 	// Close the executor client
 	if err := m.executorClient.Close(); err != nil {
-		return fmt.Errorf("failed to close executor client: %w", err)
+		return stopFailed(fmt.Errorf("failed to close executor client: %w", err))
 	}
 
 	// Close the blockchain client
 	if err := m.blockchainClient.Close(); err != nil {
-		return fmt.Errorf("failed to close blockchain client: %w", err)
+		return stopFailed(fmt.Errorf("failed to close blockchain client: %w", err))
 	}
 
 	// Close the data layer
 	if err := m.dataLayer.Close(); err != nil {
-		return fmt.Errorf("failed to close data layer: %w", err)
+		return stopFailed(fmt.Errorf("failed to close data layer: %w", err))
 	}
 
-	m.isRunning = false
 	return nil
 }
 
 // HandleGetKeysetRecoveryRequest implements the ClientRequestHandler interface.
-func (m *SecureProcessorManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
-	m.log.Info("Manager: Received GetKeysetRecovery message from executor")
+func (m *SecureProcessorManager) HandleGetKeysetRecoveryRequest(ctx context.Context, peerProtocolVersion uint32) (*common.EnclaveKeySetRecovery, error) {
+	m.log.Info("Manager: Received GetKeysetRecovery message from executor (protocol version %d)", peerProtocolVersion)
+
+	// Reject an incompatible executor before any keyset-recovery data is read or
+	// exchanged. Fail the handshake with a typed error so startup aborts cleanly
+	// instead of timing out.
+	if !communication.IsCompatible(peerProtocolVersion) {
+		err := &communication.IncompatibleProtocolError{Local: communication.WireProtocolVersion, Peer: peerProtocolVersion}
+		m.log.Error("Manager: %v — failing handshake, no recovery data exchanged", err)
+		m.completeExecutorHandshake(err)
+		return nil, err
+	}
 
 	recv, err := m.dataLayer.GetEnclaveKeySetRecovery(ctx)
 	if err != nil {
@@ -240,7 +328,7 @@ func (m *SecureProcessorManager) HandleGetKeysetRecoveryRequest(ctx context.Cont
 }
 
 // HandleSetKeysetRecoveryRequest implements communication.ClientRequestHandler.
-func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
+func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0 string) error {
 	m.log.Info("Manager: Received SetKeysetRecovery message from executor")
 
 	err := m.dataLayer.StoreEnclaveKeySetRecovery(ctx, recv)
@@ -254,6 +342,12 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 	m.log.Info("Manager: KeysetRecovery data stored in data layer")
 	m.log.Info("Manager: Executor's public communication key (P521): %s", commPubKey)
 	m.log.Info("Manager: Executor's signing key address (Secp256k1): %s", signingKeyAddr)
+	m.log.Info("Manager: Executor's pcr0: %s", pcr0)
+	if err := m.setExecutorIdentity(pcr0, signingKeyAddr); err != nil {
+		m.log.Error("Manager: %v", err)
+		m.completeExecutorHandshake(err)
+		return err
+	}
 
 	// set the handshake as completed
 	m.completeExecutorHandshake(nil)
@@ -261,7 +355,7 @@ func (m *SecureProcessorManager) HandleSetKeysetRecoveryRequest(ctx context.Cont
 }
 
 // HandleKeysetRecoveryResult implements communication.ClientRequestHandler.
-func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
+func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0 string) error {
 	if result != nil {
 		m.log.Error("Manager: Received KeysetRecoveryResult message from executor with error: %v", result)
 		m.completeExecutorHandshake(result)
@@ -269,9 +363,61 @@ func (m *SecureProcessorManager) HandleKeysetRecoveryResult(ctx context.Context,
 		m.log.Info("Manager: Received KeysetRecoveryResult message from executor with success")
 		m.log.Info("Manager: Executor's public communication key (P521): %s", commPubKey)
 		m.log.Info("Manager: Executor's signing key address (Secp256k1): %s", signingKeyAddr)
+		if err := m.setExecutorIdentity(pcr0, signingKeyAddr); err != nil {
+			m.log.Error("Manager: %v", err)
+			m.completeExecutorHandshake(err)
+			return err
+		}
 		m.completeExecutorHandshake(nil)
 	}
 	return nil
+}
+
+// setExecutorIdentity records the running image PCR0 and signing-key address the
+// executor reported at handshake. The PCR0 is the "running image" compared (as
+// keccak256(pcr0)) against the on-chain activeImage; the signer feeds the
+// signer-continuity check. A fresh handshake re-arms the signer check (a
+// reconnect may bring a different enclave).
+//
+// The image hash is computed once here rather than on every activeImage check.
+// An empty PCR0 (dev/TCP mode) leaves the hash nil; a non-empty PCR0 that is not
+// valid hex is rejected — the identity is left unchanged and the handshake fails.
+func (m *SecureProcessorManager) setExecutorIdentity(pcr0, signingKeyAddr string) error {
+	var imageHash *ethCommon.Hash
+	if pcr0 != "" {
+		rawPcr0, err := hex.DecodeString(pcr0)
+		if err != nil {
+			return fmt.Errorf("executor reported PCR0 %q is not valid hex: %w", pcr0, err)
+		}
+		h := ethCrypto.Keccak256Hash(rawPcr0)
+		imageHash = &h
+	}
+
+	m.identityMu.Lock()
+	m.runningPcr0 = pcr0
+	m.runningImageHash = imageHash
+	m.reportedSigner = signingKeyAddr
+	m.signerVerified = false // re-arm the signer check for this (re)handshake
+	m.identityMu.Unlock()
+
+	m.log.Info("Manager: Executor's running image PCR0: %q, signer: %q", pcr0, signingKeyAddr)
+	return nil
+}
+
+// runningImageHashCopy returns the cached keccak256(pcr0) image hash under the
+// identity lock, or nil in dev/TCP mode (no PCR0 reported).
+func (m *SecureProcessorManager) runningImageHashCopy() *ethCommon.Hash {
+	m.identityMu.RLock()
+	defer m.identityMu.RUnlock()
+	return m.runningImageHash
+}
+
+// RunningPcr0 returns the hex-encoded PCR0 the executor reported at handshake
+// (the running image), or "" if not reported (non-Nitro/dev mode).
+func (m *SecureProcessorManager) RunningPcr0() string {
+	m.identityMu.RLock()
+	defer m.identityMu.RUnlock()
+	return m.runningPcr0
 }
 
 // forwardToExecutor sends an admin command to the executor via the existing
@@ -308,6 +454,19 @@ func (m *SecureProcessorManager) forwardGetLogLevel(ctx context.Context) (string
 		return "", fmt.Errorf("failed to parse executor log level: %v", err)
 	}
 	return execLevel, nil
+}
+
+// forwardShutdown asks the executor to exit cleanly (drain step 3). The executor
+// acks and then closes the connection, so a disconnect immediately after sending
+// is an expected outcome, not a failure — callers should not treat it as fatal.
+func (m *SecureProcessorManager) forwardShutdown(ctx context.Context) error {
+	_, err := m.forwardToExecutor(ctx, admin.AdminCmdShutdown, nil)
+	if err != nil {
+		// The executor may drop the connection before/around acking; log and
+		// swallow — the shutdown intent was delivered.
+		m.log.Warn("Manager: shutdown ack not received (executor likely already exiting): %v", err)
+	}
+	return nil
 }
 
 // forwardGetVersion forwards a GetVersion command to the executor only.
@@ -371,6 +530,7 @@ func (m *SecureProcessorManager) ExecuteCommand(ctx context.Context, msg admin.A
 			} else {
 				resp.Executor = execVersion
 			}
+			resp.ExecutorPcr0 = m.RunningPcr0()
 			return resp, nil
 		}
 		return m.GetVersion(ctx)
@@ -478,6 +638,180 @@ func (m *SecureProcessorManager) GetLogLevel(ctx context.Context) (string, error
 	return admin.HandleGetLogLevel(m.log, "Manager")
 }
 
+// SignerContinuityError signals that the executor's signing-key address no
+// longer matches the on-chain teeSigner — i.e. the enclave regenerated its
+// keyset instead of recovering it (silent orphan). It is fatal.
+type SignerContinuityError struct {
+	Reported string
+	OnChain  string
+}
+
+func (e *SignerContinuityError) Error() string {
+	return fmt.Sprintf("signer-continuity check failed: executor signer %q != on-chain teeSigner %q (keyset likely regenerated)", e.Reported, e.OnChain)
+}
+
+func (m *SecureProcessorManager) isDraining() bool {
+	m.identityMu.RLock()
+	defer m.identityMu.RUnlock()
+	return m.draining
+}
+
+// maintainExecutorForActiveImage reconciles the connected enclave against the
+// on-chain activeImage before any request is dispatched (level-based on
+// activeImage, so a Manager restart converges to the same outcome). It returns
+// skip=true when the caller must not dispatch this tick (transient read error,
+// draining, or reconnecting), and a non-nil error only for the fatal
+// signer-continuity mismatch.
+func (m *SecureProcessorManager) maintainExecutorForActiveImage(ctx context.Context) (skip bool, fatal error) {
+	// Bring the executor back before dispatching if either the channel is down.
+	// Two triggers: (1) we drained it for a TEE swap; (2) the channel dropped
+	// underneath us (executor crash/restart, same image — draining is never set
+	// in this case). Both need a re-dial + re-handshake, which also refreshes the
+	// reported PCR0/signer we verify below; without this the Manager would retry
+	// into a dead connection forever and the relaunched executor, waiting for a
+	// handshake that never comes, could not recover its keyset.
+	if m.isDraining() || !m.executorClient.IsConnected() {
+		if err := m.reconnectExecutor(ctx); err != nil {
+			m.log.Warn("Manager: executor not connected yet, will retry next tick: %v", err)
+			return true, nil
+		}
+		// Reconnected + re-handshaked; fall through to re-evaluate the image.
+	}
+
+	if runningHash := m.runningImageHashCopy(); runningHash != nil {
+		// Nitro executor: reconcile the running image against the on-chain
+		// activeImage. Dev/TCP executors report no PCR0 (nil hash) and skip this
+		// block, but still run the signer-continuity check below (it does not need
+		// PCR0). The hash was computed once at handshake (setExecutorIdentity).
+		activeImage, err := m.blockchainClient.GetActiveImage(ctx)
+		if err != nil {
+			// Transient chain read error during the swap window must not be fatal.
+			m.log.Warn("Manager: could not read activeImage (retry next tick): %v", err)
+			return true, nil
+		}
+
+		if !bytes.Equal(runningHash[:], activeImage[:]) {
+			m.log.Warn("Manager: running image keccak(pcr0)=%s != activeImage %x — TEE swap detected, draining",
+				runningHash.Hex(), activeImage)
+			m.drainExecutor(ctx)
+			return true, nil
+		}
+	}
+
+	// Verify signer continuity once per handshake before dispatching anything.
+	// Runs in every channel mode (it compares the reported signing key against
+	// on-chain teeSigner and does not depend on PCR0), so TCP deployments and the
+	// system suite exercise it too.
+	if skip, err := m.verifySignerContinuity(ctx); err != nil {
+		return false, err
+	} else if skip {
+		return true, nil
+	}
+	return false, nil
+}
+
+// drainExecutor enters drain mode: it signals the executor to exit cleanly and
+// closes the channel. Idempotent within a drain episode (the shutdown is sent
+// once; reconnectExecutor clears the flag on a successful re-handshake).
+func (m *SecureProcessorManager) drainExecutor(ctx context.Context) {
+	m.identityMu.Lock()
+	already := m.draining
+	m.draining = true
+	m.identityMu.Unlock()
+	if already {
+		return
+	}
+
+	m.log.Warn("Manager: entering drain — signaling executor shutdown and closing channel")
+	// forwardShutdown tolerates the post-ack disconnect; never fatal.
+	_ = m.forwardShutdown(ctx)
+	if err := m.executorClient.Close(); err != nil {
+		m.log.Warn("Manager: error closing executor channel during drain: %v", err)
+	}
+}
+
+// reconnectExecutor re-dials the executor and performs a fresh handshake. It
+// re-arms the single-shot handshake state and, on success, exits drain mode.
+// Called only from the polling goroutine (before m.mu), so it may block on the
+// handshake without risking Stop() or the handshake-handler deadlock.
+func (m *SecureProcessorManager) reconnectExecutor(ctx context.Context) error {
+	m.log.Info("Manager: attempting to reconnect to executor...")
+	// Install a fresh single-shot handshake tracker for the new connection.
+	// resetHandShake swaps the pointer under handShakeMu so it cannot race a late
+	// handshake handler from the drained connection (the comm layer dispatches
+	// handlers on detached goroutines, so one may outlive the old reader).
+	m.resetHandShake()
+
+	if err := m.executorClient.Connect(ctx, "Manager"); err != nil {
+		return fmt.Errorf("executor connect failed: %w", err)
+	}
+	if err := m.waitForExecutorHandshake(); err != nil {
+		// Tear down the half-open connection so the next tick can re-dial. Without
+		// this, the client stays connected and every future Connect fails with
+		// "already connected", wedging the drain permanently (e.g. a frozen or
+		// half-open executor that never closes its end).
+		if cerr := m.executorClient.Close(); cerr != nil {
+			m.log.Warn("Manager: error closing executor after failed reconnect handshake: %v", cerr)
+		}
+		return fmt.Errorf("executor handshake failed: %w", err)
+	}
+
+	m.identityMu.Lock()
+	m.draining = false
+	m.identityMu.Unlock()
+	m.log.Info("Manager: reconnected to executor and completed handshake")
+	return nil
+}
+
+// verifySignerContinuity compares the executor's handshake-reported signing
+// address against the on-chain teeSigner, once per handshake. It returns
+// skip=true when the caller must not dispatch this tick (a transient teeSigner
+// read error — consistent with the activeImage read), and a non-nil error only
+// for a confirmed mismatch on a set teeSigner, which is fatal.
+//
+// It is deferred (skip=false, no error — dispatch proceeds) while teeSigner is
+// unset (the legitimate bootstrap window before the first updateTee) or the
+// executor reported no signing address: neither proves a regeneration, and the
+// first state update reverts on-chain if the signer is actually wrong.
+func (m *SecureProcessorManager) verifySignerContinuity(ctx context.Context) (skip bool, fatal error) {
+	m.identityMu.RLock()
+	already := m.signerVerified
+	reported := m.reportedSigner
+	m.identityMu.RUnlock()
+	if already {
+		return false, nil
+	}
+
+	onchain, err := m.blockchainClient.GetTeeSigner(ctx)
+	if err != nil {
+		// Transient read error: retry next tick rather than dispatch unverified
+		// (matches the activeImage read above).
+		m.log.Warn("Manager: could not read on-chain teeSigner (retry next tick): %v", err)
+		return true, nil
+	}
+
+	if onchain == (ethCommon.Address{}) {
+		// teeSigner not yet set (pre-updateTee bootstrap) — nothing to compare.
+		m.log.Info("Manager: on-chain teeSigner not set yet, deferring signer-continuity check")
+		return false, nil
+	}
+
+	if reported == "" {
+		m.log.Warn("Manager: executor reported no signing address; deferring signer-continuity check")
+		return false, nil
+	}
+
+	if !ethCommon.IsHexAddress(reported) || ethCommon.HexToAddress(reported) != onchain {
+		return false, &SignerContinuityError{Reported: reported, OnChain: onchain.Hex()}
+	}
+
+	m.identityMu.Lock()
+	m.signerVerified = true
+	m.identityMu.Unlock()
+	m.log.Info("Manager: signer-continuity check passed (signer %s matches on-chain teeSigner)", onchain.Hex())
+	return false, nil
+}
+
 // pollBlockchain polls the blockchain for new requests
 func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 	defer m.wg.Done()
@@ -518,6 +852,16 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 			return nil
 		}
 		m.log.Info("Manager: connected to blockchain node at %s", m.config.RpcURL)
+	}
+
+	// Reconcile the connected enclave against the on-chain activeImage (TEE swap
+	// observation, drain, reconnect, and signer-continuity check) before taking
+	// m.mu. reconnectExecutor may block on the handshake, which must not be done
+	// under m.mu.
+	if skip, err := m.maintainExecutorForActiveImage(ctx); err != nil {
+		return err // fatal (signer-continuity mismatch)
+	} else if skip {
+		return nil // draining / reconnecting / transient read — no dispatch this tick
 	}
 
 	m.mu.Lock()

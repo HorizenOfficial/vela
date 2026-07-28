@@ -293,26 +293,27 @@ func (s *TestSuiteCore) StopManager() error {
 	return err
 }
 
-// RestartCore stops both manager and executor and rebuilds them from
-// scratch. Used by each suite's public RestartAll() to handle the parts that
-// are independent of suite type; the caller must pass a freshly-constructed
-// blockchainClient because manager.Stop() closes the one the previous
-// manager owned (production-realistic behavior).
+// RestartCore stops both manager and executor and rebuilds them from scratch,
+// modelling a coupled restart (both processes dying together, as in a host
+// reboot). Used by each suite's public RestartAll() to handle the parts that
+// are independent of suite type.
 //
-// The preserved on-disk data — specifically the LevelDB dbPath — carries
-// the keyset-recovery blob stored at initial startup. RestartCore re-opens
-// the data layer at the same path; the fresh manager serves the stored
-// recovery blob during the fresh executor's Type-0 handshake, and the
-// executor restores its original keyset. Used by tests that need to prove
-// state survives a coupled process restart (both containers dying
-// together, as in a host reboot).
+// blockchainClient handling differs by suite: a real client (fullstack) must be
+// freshly constructed because manager.Stop() closes the one the previous manager
+// owned, whereas the mock suite passes the SAME MockClient back — its Close only
+// drops event subscribers, and its on-chain state (and configured teeSigner)
+// must survive the restart.
 //
-// Why both at once rather than executor-only: the manager has no
-// auto-reconnect logic for the executor channel. A solo executor restart
-// in the current design would leave the manager with a dead connection
-// forever. When that gap is fixed, a StopExecutor + StartExecutor flow
-// without the manager side becomes meaningful as a separate, stronger
-// test.
+// The preserved on-disk data — specifically the LevelDB dbPath — carries the
+// keyset-recovery blob stored at initial startup. RestartCore re-opens the data
+// layer at the same path; the fresh manager serves the stored recovery blob
+// during the fresh executor's Type-0 handshake, and the executor restores its
+// original keyset.
+//
+// For an executor-only relaunch (the manager stays up and its polling-loop
+// reconnect re-dials — the production crash/relaunch path enabled by Task 5),
+// use RestartExecutorOnly instead: that is the stronger, non-coupled reconnect
+// test and works with any data-layer backend since the manager never stops.
 func (s *TestSuiteCore) RestartCore(freshBlockchainClient blockchain.Client) error {
 	if err := s.StopManager(); err != nil {
 		return fmt.Errorf("stop manager: %w", err)
@@ -342,27 +343,19 @@ func (s *TestSuiteCore) RestartCore(freshBlockchainClient blockchain.Client) err
 	s.dataLayer = newDataLayer
 	s.blockchainClient = freshBlockchainClient
 
-	// Rebuild executor: fresh comm server (shutdownChan is single-use in
-	// Server.Stop, so reuse isn't possible), fresh runtime (Wasmtime closes
-	// on executor.Close and isn't reusable), fresh executor over the SAME
-	// config and factory so it lands on the same port the manager will dial.
-	server := communication.NewServer(s.excFactory, commParams, s.excLog)
-	var runtime executor.Runtime
-	switch s.appType {
-	case "mock-runtime":
-		runtime = executor.NewMockRuntime(s.excLog)
-	default:
-		runtime = wasm.NewWasmtimeRuntime(s.excLog, 0)
-	}
-	exec, err := executor.NewStatelessExecutor(s.execConfig, runtime, server, s.excLog, nil, nil)
+	// Rebuild executor over the SAME config and factory so it lands on the same
+	// port the manager will dial.
+	exec, err := s.buildExecutorInstance()
 	if err != nil {
 		return fmt.Errorf("new executor: %w", err)
 	}
 	s.executor = exec
 
-	// Rebuild manager: fresh executor client (its handshake state is
-	// sync.Once-latched so a reuse can't handshake again), fresh data layer
-	// handle, caller-supplied fresh blockchain client.
+	// Rebuild manager: fresh executor client for symmetry with production (a new
+	// manager process builds its own client); reuse would also work since the
+	// Task 5 reconnect rework (Connect spawns a fresh shutdown channel + reader
+	// per connection, proven by TestClient_ReconnectAfterClose). Fresh data layer
+	// handle, caller-supplied blockchain client.
 	executorClient := communication.NewClient(s.excFactory, commParams, s.mgrLog)
 	mgr := manager.NewSecureProcessorManager(s.mgrConfig, s.blockchainClient, s.dataLayer, executorClient, nil, s.mgrLog)
 	s.manager = mgr
@@ -374,6 +367,50 @@ func (s *TestSuiteCore) RestartCore(freshBlockchainClient blockchain.Client) err
 		return fmt.Errorf("start manager: %w", err)
 	}
 	return nil
+}
+
+// buildExecutorInstance constructs a fresh executor over the suite's saved
+// config and transport factory (same listening port). A fresh comm server
+// (shutdownChan is single-use in Server.Stop) and runtime (Wasmtime closes on
+// executor.Close and isn't reusable) are required — neither survives a Close.
+func (s *TestSuiteCore) buildExecutorInstance() (executor.Executor, error) {
+	server := communication.NewServer(s.excFactory, commParams, s.excLog)
+	var runtime executor.Runtime
+	switch s.appType {
+	case "mock-runtime":
+		runtime = executor.NewMockRuntime(s.excLog)
+	default:
+		runtime = wasm.NewWasmtimeRuntime(s.excLog, 0)
+	}
+	return executor.NewStatelessExecutor(s.execConfig, runtime, server, s.excLog, nil, nil)
+}
+
+// RestartExecutorOnly stops and relaunches ONLY the executor, leaving the
+// manager running. This exercises the production crash/relaunch reconnect path
+// (Task 5): the manager's polling loop observes the dropped channel
+// (!IsConnected()), re-dials the relaunched executor on the same port, and
+// re-runs the handshake — during which the still-running manager serves its
+// persisted recovery blob so the executor restores its ORIGINAL keyset.
+//
+// Unlike RestartCore this is a true reconnect (not a coupled restart), and it
+// works with any data-layer backend because the manager and its store never
+// stop. The manager is untouched here; the reconnect happens on the next poll
+// tick, so callers should submit a request (or otherwise wait a tick) after
+// calling this to drive and observe the reconnection.
+func (s *TestSuiteCore) RestartExecutorOnly() error {
+	if err := s.StopExecutor(); err != nil {
+		return fmt.Errorf("stop executor: %w", err)
+	}
+	// Give the manager a moment to observe the dropped connection and let the
+	// socket settle before the new server binds the same port.
+	time.Sleep(100 * time.Millisecond)
+
+	exec, err := s.buildExecutorInstance()
+	if err != nil {
+		return fmt.Errorf("new executor: %w", err)
+	}
+	s.executor = exec
+	return s.StartExecutor()
 }
 
 func (s *TestSuiteCore) WaitForAppStateInDB(appID common.ApplicationIdType, timeout time.Duration) (*common.ApplicationState, error) {
@@ -540,6 +577,23 @@ func (s *TestSuiteCore) SetEventChannel(ch chan interface{}) {
 // Context returns the suite's root context.
 func (s *TestSuiteCore) Context() context.Context {
 	return s.ctx
+}
+
+// EventChannel returns the suite's event channel. Used by suites that must
+// re-subscribe a rebuilt blockchain client after a restart.
+func (s *TestSuiteCore) EventChannel() chan interface{} {
+	return s.eventChannel
+}
+
+// ManagerFatalErrChan exposes the manager's fatal-error channel (e.g. a
+// signer-continuity mismatch). Returns nil if the manager is not the concrete
+// SecureProcessorManager. Used by TEE-upgrade tests that assert a fatal
+// condition is surfaced rather than silently ignored.
+func (s *TestSuiteCore) ManagerFatalErrChan() <-chan error {
+	if m, ok := s.manager.(*manager.SecureProcessorManager); ok {
+		return m.FatalErrChan()
+	}
+	return nil
 }
 
 // CleanupCore performs cleanup common to both suites.

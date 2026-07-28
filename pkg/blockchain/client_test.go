@@ -60,6 +60,14 @@ func setupSimTestHelper(t *testing.T, autoMining bool, teePubSecp521r1 []byte) *
 	return testutil.NewSimTestHelper(t, autoMining, useMockContracts, nil, teePubSecp521r1)
 }
 
+// setupSimTestHelperWithTeeSigner deploys the sim with an explicit on-chain
+// teeSigner instead of the auto-generated one, so a test can assert reads
+// against a value it controls.
+func setupSimTestHelperWithTeeSigner(t *testing.T, autoMining bool, teeSigner ethCommon.Address) *testutil.SimTestHelper {
+	useMockContracts := true
+	return testutil.NewSimTestHelper(t, autoMining, useMockContracts, &teeSigner, nil)
+}
+
 // deployApplication deploys an application via SubmitDeployRequest, completes it
 // with a successful stateUpdate, and returns the derived applicationId.
 func deployApplication(t *testing.T, testHelper *testutil.SimTestHelper, blockchainClient *BlockChainClient) common.ApplicationIdType {
@@ -656,4 +664,36 @@ func TestGetTeePublicKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, publicKey, "Public key should not be nil")
 	require.Equal(t, key.PublicKey().Bytes(), publicKey.Bytes(), "Public key not equal to the given one")
+}
+
+func TestGetActiveImage(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	// Set a known value on-chain and read it back through the client.
+	want := [32]byte{0xaa, 0xbb, 0xcc, 0xdd, 0x01, 0x02, 0x03, 0x04}
+	testHelper.SetActiveImage(want)
+
+	activeImage, err := blockchainClient.GetActiveImage(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, want, activeImage, "activeImage read through the client should match the on-chain value")
+
+	// The tee authenticator helper reads the same value.
+	require.Equal(t, want, testHelper.GetSimTeeAuthenticatorHelper().GetActiveImage())
+}
+
+func TestGetTeeSigner(t *testing.T) {
+	// Seed a known teeSigner on-chain so the read is asserted against a value the
+	// test controls, not an auto-generated fixture default.
+	wantSigner := ethCommon.HexToAddress("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	testHelper := setupSimTestHelperWithTeeSigner(t, true, wantSigner)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+
+	got, err := blockchainClient.GetTeeSigner(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, wantSigner, got, "GetTeeSigner should return the signer seeded at deploy")
 }

@@ -102,6 +102,19 @@ func (s *SimTeeAuthenticatorHelper) CheckSignature(payload *common.UpdatePayload
 
 }
 
+// GetActiveImage reads the on-chain activeImage (keccak256 of the running PCR0).
+func (s *SimTeeAuthenticatorHelper) GetActiveImage() [32]byte {
+
+	result, err := bind.Call(s.teeContractInstance,
+		&bind.CallOpts{Pending: false},
+		s.teeContract.PackActiveImage(),
+		s.teeContract.UnpackActiveImage)
+
+	require.NoError(s.t, err)
+	return result
+
+}
+
 func (s *SimTeeAuthenticatorHelper) GetTeeSigner() ethCommon.Address {
 
 	result, err := bind.Call(s.teeContractInstance,

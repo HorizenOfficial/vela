@@ -164,6 +164,11 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 - `CHANNEL_TYPE` - `tcp` or `vsock`
 - `MANAGER_DATA_FOLDER` / `MANAGER_REPORTS_FOLDER`
 - `CHAIN_PROCESSOR_ADDRESS` / `CHAIN_TEEAUTHENTICATOR_ADDRESS`
+- `EXECUTOR_EXPECT_EXISTING_KEYSET` - when `true`, the Executor treats a "no recovery data" handshake response as fatal instead of generating a new keyset (R2 key-continuity guard). In Nitro images it is baked in via the Dockerfile (default `true`; genesis/first-install builds pass `EXPECT_EXISTING_KEYSET=false` to `build-eif.sh`); in dev/TCP mode set the env var directly and leave it unset on first install.
+
+**Config Vars vs Dockerfiles:** Whenever a new config variable is added to any Vela component, check whether the dockerfiles (`dockerfiles/`) need updating. In particular, the Executor runs in a Nitro enclave and receives no environment at launch — any config it must see in production has to be baked into the enclave image (`dockerfiles/executor/Dockerfile`), which also changes PCR0.
+
+**TEE Upgrade Ops:** The operational procedure for a TEE (PCR0) upgrade — KMS key-policy structure and governance, and the step-by-step upgrade / rollback / emergency runbooks — is in `docs/ops/KMS_KEY_POLICY_RUNBOOK.md`. The KMS key policy's `kms:RecipientAttestation:PCR0` condition is the off-chain twin of the on-chain accepted PCR0 set in `TeeAuthenticator`; the two must be kept in sync.
 
 **Interface-Based Design:** Heavy use of interfaces for testability (ChainClient, ExecutorClient, DataLayer). Mock implementations in tests.
 
@@ -179,6 +184,7 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 - **Interface design**: Prefer small, focused interfaces; accept interfaces, return structs
 - **Testing**: Look for table-driven tests, proper mocking, and edge case coverage
 - **Logging**: Use structured logging (zerolog); avoid fmt.Print in production code
+- **Wire protocol**: Any change to the Manager↔Executor message definitions in `pkg/communication` (payload structs, their fields/JSON tags/types, referenced `pkg/common` wire types, or the `MessageType` enum) must bump `communication.WireProtocolVersion` and update the golden fingerprint. `TestWireFingerprintPinnedToProtocolVersion` enforces this in CI — treat a red fingerprint test as a required version bump, not a test to edit.
 
 ### TypeScript Code (Contracts/Subgraphs)
 - **Type safety**: Avoid `any`; prefer explicit types and interfaces

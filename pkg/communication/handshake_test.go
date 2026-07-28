@@ -1,9 +1,12 @@
 package communication
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"sync"
 	"testing"
@@ -74,7 +77,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 			return fmt.Errorf("simulated restore error")
 		}
 		testLogger.Info("MockExecutor: simulating restoring keyset")
-		return m.conn.KeysetRecoveryResult(ctx, nil, "mock-comm-pub-key", "mock-signing-addr")
+		return m.conn.KeysetRecoveryResult(ctx, nil, "mock-comm-pub-key", "mock-signing-addr", "mock-pcr0")
 	} else {
 		// Simulate generating new keyset
 		newRecoveryData := &common.EnclaveKeySetRecovery{
@@ -83,7 +86,7 @@ func (m *mockExecutor) performHandshake(ctx context.Context) error {
 			RecoveryCiphertext: []byte("new-recovery"),
 		}
 		testLogger.Info("MockExecutor: simulating new keyset")
-		return m.conn.SetKeysetRecovery(ctx, newRecoveryData, "mock-comm-pub-key", "mock-signing-addr")
+		return m.conn.SetKeysetRecovery(ctx, newRecoveryData, "mock-comm-pub-key", "mock-signing-addr", "mock-pcr0")
 	}
 }
 
@@ -95,10 +98,16 @@ type mockManager struct {
 	setRecoveryError      error
 	handshakeSuccess      bool
 	handshakeSuccessMutex sync.Mutex
+	// captured executor identity from the last handshake message
+	gotPcr0            string
+	gotProtocolVersion uint32
 }
 
-func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*common.EnclaveKeySetRecovery, error) {
+func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context, peerProtocolVersion uint32) (*common.EnclaveKeySetRecovery, error) {
 	testLogger.Info("MockExecutor: entering %s", common.FnName())
+	m.handshakeSuccessMutex.Lock()
+	m.gotProtocolVersion = peerProtocolVersion
+	m.handshakeSuccessMutex.Unlock()
 	if m.getRecoveryError != nil {
 		return nil, m.getRecoveryError
 	}
@@ -112,20 +121,24 @@ func (m *mockManager) HandleGetKeysetRecoveryRequest(ctx context.Context) (*comm
 	return m.recoveryData, nil
 }
 
-func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error {
+func (m *mockManager) HandleSetKeysetRecoveryRequest(ctx context.Context, recv *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr, pcr0 string) error {
 	testLogger.Info("MockExecutor: entering %s", common.FnName())
 	if m.setRecoveryError != nil {
 		return m.setRecoveryError
 	}
 	m.recoveryData = recv
+	m.handshakeSuccessMutex.Lock()
+	m.gotPcr0 = pcr0
+	m.handshakeSuccessMutex.Unlock()
 	return nil
 }
 
-func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error {
+func (m *mockManager) HandleKeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr, pcr0 string) error {
 	testLogger.Info("MockManager: entering %s", common.FnName())
 	if result == nil {
 		m.handshakeSuccessMutex.Lock()
 		m.handshakeSuccess = true
+		m.gotPcr0 = pcr0
 		m.handshakeSuccessMutex.Unlock()
 	}
 	return nil
@@ -136,6 +149,12 @@ func (m *mockManager) wasHandshakeSuccessful() bool {
 	m.handshakeSuccessMutex.Lock()
 	defer m.handshakeSuccessMutex.Unlock()
 	return m.handshakeSuccess
+}
+
+func (m *mockManager) capturedIdentity() (pcr0 string) {
+	m.handshakeSuccessMutex.Lock()
+	defer m.handshakeSuccessMutex.Unlock()
+	return m.gotPcr0
 }
 
 func setupHandshakeTest(t *testing.T) (context.Context, *Client, *Server, *mockExecutor, *mockManager) {
@@ -180,6 +199,16 @@ func TestHandshake_FirstConnection(t *testing.T) {
 	require.NoError(t, executor.handshakeError)
 	require.NotNil(t, manager.recoveryData)
 	require.Equal(t, []byte("new-keyset"), manager.recoveryData.KeySetCiphertext)
+
+	// The executor's PCR0 is carried in the SetKeysetRecovery message.
+	pcr0 := manager.capturedIdentity()
+	require.Equal(t, "mock-pcr0", pcr0)
+
+	// The executor advertised its wire-protocol version in the first message.
+	manager.handshakeSuccessMutex.Lock()
+	gotProto := manager.gotProtocolVersion
+	manager.handshakeSuccessMutex.Unlock()
+	require.Equal(t, WireProtocolVersion, gotProto)
 }
 
 func TestHandshake_Reconnection(t *testing.T) {
@@ -204,6 +233,10 @@ func TestHandshake_Reconnection(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 	require.True(t, manager.wasHandshakeSuccessful())
+
+	// The executor's PCR0 is carried in the KeysetRecoveryResult message.
+	pcr0 := manager.capturedIdentity()
+	require.Equal(t, "mock-pcr0", pcr0)
 }
 
 func TestHandshake_ManagerGetError(t *testing.T) {
@@ -246,6 +279,79 @@ func TestHandshake_ManagerSetError(t *testing.T) {
 	require.Error(t, executor.handshakeError)
 	require.Contains(t, executor.handshakeError.Error(), "Test Set Error")
 	require.Nil(t, manager.recoveryData)
+}
+
+// TestExecutorRejectsIncompatibleManagerVersion is the executor-side mirror of
+// the manager-side TestHandleGetKeysetRecoveryRequest_IncompatibleProtocol: a
+// manager advertising an incompatible wire-protocol version (here 0, the "old
+// manager (v0)" rollout case that cannot run its own check) must make the
+// executor abort in GetKeysetRecovery with a typed IncompatibleProtocolError,
+// before any keyset is restored or generated. Both directions must enforce this
+// so an incompatible pair never mutates keyset-recovery data.
+func TestExecutorRejectsIncompatibleManagerVersion(t *testing.T) {
+	ctx := context.Background()
+
+	// net.Pipe gives us the executor's end and the (fake) manager's end. The
+	// ClientConnection is wired exactly as Server.handleNewClient does so the
+	// real ClientConnection.GetKeysetRecovery version check is exercised.
+	executorEnd, managerEnd := net.Pipe()
+	c := &ClientConnection{
+		conn:            executorEnd,
+		reader:          bufio.NewReader(executorEnd),
+		writer:          bufio.NewWriter(executorEnd),
+		connected:       true,
+		pendingRequests: make(map[string]*PendingRequest),
+		shutdown:        make(chan struct{}),
+		reqTimeout:      commParams.RequestTimeoutSec * time.Second,
+		idLogTag:        "Executor",
+		log:             testLogger,
+	}
+	go MessageReaderLoop(ctx, "Executor", c.conn, c.reader, c.shutdown,
+		func(ctx context.Context, msg Message) { c.routeIncomingMessage(ctx, msg, nil) },
+		c.internalClose, testLogger)
+	defer c.internalClose()
+
+	// Simulate an OLD manager (wire-protocol version 0). To prove the version
+	// check fires FIRST, it also claims to hold recovery data — which the
+	// executor must never use once the versions are found incompatible.
+	managerReader := bufio.NewReader(managerEnd)
+	go func() {
+		reqBytes, err := ReadMessageFromSocket(managerEnd, managerReader, "OldManager", testLogger)
+		if err != nil {
+			return
+		}
+		var req Message
+		if err := json.Unmarshal(reqBytes, &req); err != nil {
+			return
+		}
+		resp := Message{
+			ID:   req.ID,
+			Type: GetKeysetRecoveryResponseMessage,
+			Data: GetKeysetRecoveryResponseData{
+				DataFound: true,
+				KeySetRecovery: &common.EnclaveKeySetRecovery{
+					RecoveryType:     common.RecoveryTypeKMS,
+					KeySetCiphertext: []byte("must-not-be-used"),
+				},
+				WireProtocolVersion: 0,
+			},
+		}
+		out, _ := json.Marshal(resp)
+		out = append(out, MsgDelimiter)
+		_, _ = managerEnd.Write(out)
+	}()
+
+	found, recoveryData, err := c.GetKeysetRecovery(ctx)
+
+	// Abort with a typed incompatibility error naming the old peer version 0.
+	var incompatErr *IncompatibleProtocolError
+	require.ErrorAs(t, err, &incompatErr)
+	require.Equal(t, uint32(0), incompatErr.Peer, "the old manager's version 0 must be reported")
+	require.Equal(t, WireProtocolVersion, incompatErr.Local)
+
+	// No recovery data is surfaced, so performHandshake restores/generates nothing.
+	require.False(t, found, "an incompatible peer must not signal found recovery data")
+	require.Nil(t, recoveryData, "recovery data must not be surfaced despite DataFound=true")
 }
 
 func TestHandshake_ExecutorRestoreFailure(t *testing.T) {

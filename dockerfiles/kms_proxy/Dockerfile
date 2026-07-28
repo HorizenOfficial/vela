@@ -1,7 +1,7 @@
 # --- Build Stage ---
-FROM amazonlinux:2 AS builder
+FROM amazonlinux:2023 AS builder
 
-RUN yum install -y gcc tar gzip wget git
+RUN dnf install -y gcc tar gzip wget git
 
 # Install Go
 ENV GO_VERSION=1.24.0
@@ -20,9 +20,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /kms-proxy ./cmd/kms_proxy
 
 # --- Runtime Stage ---
-FROM amazonlinux:2
+FROM amazonlinux:2023
 
-RUN yum install -y ca-certificates && yum clean all
+RUN dnf install -y ca-certificates && dnf clean all
 
 COPY --from=builder /kms-proxy /kms-proxy
 

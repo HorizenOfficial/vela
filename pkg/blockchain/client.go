@@ -30,7 +30,9 @@ import (
 //go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi --bin ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
 //go:generate mkdir -p ./contracts/tee
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
-//go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
+// ITeeAuthenticatorAdmin is excluded: its Go binding is unused, and binding it alongside the
+// concrete contract duplicates the multi-return GetPendingSwapOutput struct in package tee.
+//go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --exc contracts/contracts/interfaces/ITeeAuthenticatorAdmin.sol:ITeeAuthenticatorAdmin --out ./contracts/tee/TeeAuthenticator.go
 //go:generate mkdir -p ./contracts/tokenallowlist
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TokenAllowlist.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TokenAllowlistAbi --overwrite
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TokenAllowlist.sol:TokenAllowlist\"].abi' ../../contract_abis/TokenAllowlistAbi/combined.json > ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.abi"
@@ -558,4 +560,49 @@ func (c *BlockChainClient) GetTeePublicKey(ctx context.Context) (*cryptotypes.Pu
 		return nil, fmt.Errorf("cannot retrieve pubSecp521r1: %w", err)
 	}
 	return crypto.ImportPublicKeyP521FromHex(hex.EncodeToString(pubSecp521r1))
+}
+
+// GetActiveImage returns keccak256(PCR0) of the enclave image the platform
+// should currently be running, as tracked on-chain by the TeeAuthenticator.
+func (c *BlockChainClient) GetActiveImage(ctx context.Context) ([32]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.connected {
+		return [32]byte{}, fmt.Errorf("client not connected, call Connect first")
+	}
+	if c.teeAuthBoundContract == nil || c.teeAuthEndpoint == nil {
+		return [32]byte{}, fmt.Errorf("tee authenticator contract not configured")
+	}
+
+	activeImage, err := bind.Call(c.teeAuthBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.teeAuthEndpoint.PackActiveImage(),
+		c.teeAuthEndpoint.UnpackActiveImage)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("cannot retrieve activeImage: %w", err)
+	}
+	return activeImage, nil
+}
+
+// GetTeeSigner returns the on-chain teeSigner address the TeeAuthenticator
+// expects to have signed state updates. It is the zero address until the first
+// attestation is registered via updateTee (i.e. before the TEE is initialized).
+func (c *BlockChainClient) GetTeeSigner(ctx context.Context) (ethCommon.Address, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.connected {
+		return ethCommon.Address{}, fmt.Errorf("client not connected, call Connect first")
+	}
+	if c.teeAuthBoundContract == nil || c.teeAuthEndpoint == nil {
+		return ethCommon.Address{}, fmt.Errorf("tee authenticator contract not configured")
+	}
+
+	signer, err := bind.Call(c.teeAuthBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.teeAuthEndpoint.PackGetTeeSigner(),
+		c.teeAuthEndpoint.UnpackGetTeeSigner)
+	if err != nil {
+		return ethCommon.Address{}, fmt.Errorf("cannot retrieve teeSigner: %w", err)
+	}
+	return signer, nil
 }
