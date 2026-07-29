@@ -227,15 +227,18 @@ type WasmtimeRuntime struct {
 // therefore set here explicitly: adding a proposal must be a deliberate,
 // reviewed change.
 //
-// NOT set here, and deliberately called out so this is not mistaken for a
-// decision that they were considered and rejected: the execution-bounding knobs
-// (SetConsumeFuel, SetEpochInterruption, SetMaxWasmStack) are all left at their
-// defaults, i.e. guest execution is currently unbounded. A guest in an infinite
-// loop runs forever, and because execLock is held across guest calls it also
-// blocks every later request; Close only avoids hanging shutdown by giving up
-// after shutdownExecLockTimeout. Bounding execution is a known gap tracked by
-// the epoch-interruption and host-enforced-fuel tasks, and it is a prerequisite
-// for those two rather than an enhancement.
+// TODO: bound guest execution. The execution-bounding knobs (SetConsumeFuel,
+// SetEpochInterruption, SetMaxWasmStack) are all left at their defaults, i.e.
+// guest execution is currently unbounded — called out explicitly so this is not
+// mistaken for a decision that they were considered and rejected. A guest in an
+// infinite loop runs forever, and because execLock is held across guest calls it
+// blocks every later request for every app until the enclave is restarted; Close
+// only avoids hanging shutdown by giving up after shutdownExecLockTimeout, and
+// the trap-eviction path cannot help because a runaway guest never traps. Add
+// SetEpochInterruption here plus a watchdog incrementing the epoch, and arm a
+// per-call deadline on each store. Tracked as a separate task (epoch
+// interruption, with host-enforced fuel depending on it); it is a prerequisite
+// for those rather than an enhancement.
 //
 // Enabled features are the ones TinyGo emits, all deterministic per spec.
 // Disabled ones are either host-dependent (relaxed SIMD), incompatible with the
@@ -1176,10 +1179,14 @@ func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *
 
 // shutdownExecLockTimeout bounds how long Close waits for an in-flight guest
 // call before giving up and shutting down without releasing wasm resources.
-// Kept well below the manager's request timeout
-// (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC, 30s by default) so a normal
-// request in flight finishes or times out on its own rather than being abandoned
-// here.
+//
+// The value only trades shutdown latency against how often teardown is skipped:
+// a guest call still running at the deadline is abandoned, which is harmless
+// because the process is exiting and the OS reclaims the memory anyway. Note that
+// this is NOT dimensioned so that a legitimate request always completes first —
+// nothing bounds guest execution today (see newPinnedEngine), so no timeout could
+// guarantee that, and a healthy but slow guest can trip it. 5s keeps SIGTERM
+// responsive; raise it only if skipped teardown ever proves to matter.
 const shutdownExecLockTimeout = 5 * time.Second
 
 // tryAcquireExecLock acquires execLock, giving up after timeout. Reports whether
@@ -1417,6 +1424,16 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 
 	// Get the raw byte view of the WASM memory
 	memoryData := appModule.memory.UnsafeData(appModule.store)
+
+	// resultPtr came from the guest's allocate, so validate the whole read window
+	// before slicing: a pointer within resultSize bytes of the end of memory would
+	// otherwise panic the host. Unlike extractResultBytes this function has no
+	// recover shield, so an unchecked slice here takes the process down — see the
+	// "NEVER let guest crash the host" note there.
+	if resultPtr < 0 || int64(resultPtr)+resultSize > int64(len(memoryData)) {
+		return 0, 0, fmt.Errorf("stats result pointer %d out of bounds: %d bytes needed, memory size is %d",
+			resultPtr, resultSize, len(memoryData))
+	}
 
 	// Read the int64 values using binary.LittleEndian
 	mem_size := int64(binary.LittleEndian.Uint64(memoryData[resultPtr : resultPtr+8]))

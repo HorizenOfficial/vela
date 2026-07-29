@@ -238,6 +238,23 @@ const wrongAritySignatureWat = `(module
   (func (export "process_request") (param i64 i32) (result i32) i32.const 100)
 )`
 
+// nearEndAllocWat has an `allocate` that returns a pointer 4 bytes from the end of
+// a one-page memory, so the 16-byte stats read runs past the end.
+// Used by TestStatsRejectsOutOfBoundsResultPointer.
+const nearEndAllocWat = `(module
+  (memory (export "memory") 1)
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "deallocate") (param i32 i32))
+
+  ;; 65532 = one page (65536) minus 4, so a 16-byte read from here overruns
+  (func (export "allocate") (param i32) (result i32) i32.const 65532)
+  (func (export "get_allocated_memory_stats") (param i32))
+)`
+
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
@@ -720,6 +737,26 @@ func TestAppErrorKeepsModuleCached(t *testing.T) {
 	require.NotNil(t, failure, "the guest reported an application error")
 	require.Contains(t, failure.Error(), "boom")
 	require.True(t, isCached(runtime, appId), "an application-level error must not evict the module")
+}
+
+// TestStatsRejectsOutOfBoundsResultPointer verifies that a guest-supplied result
+// pointer too close to the end of memory is rejected with an error rather than
+// panicking the host.
+//
+// GetAllocatedMemoryStats reads 16 bytes straight out of the memory slice at the
+// pointer the guest's `allocate` returned. Unlike extractResultBytes it has no
+// recover shield, so an unchecked slice expression here takes the process down —
+// against the "NEVER let guest crash the host" rule that shield documents.
+func TestStatsRejectsOutOfBoundsResultPointer(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(nearEndAllocWat)
+	require.NoError(t, err)
+
+	_, _, err = runtime.GetAllocatedMemoryStats(context.Background(), common.NewApplicationId(1), wasmBytes)
+	require.Error(t, err, "an out-of-bounds result pointer must be an error, not a panic")
+	require.Contains(t, err.Error(), "out of bounds")
 }
 
 // TestSignatureMismatchKeepsModuleCached covers the case where the host cannot
