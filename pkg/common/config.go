@@ -45,6 +45,29 @@ func GetConfigVarInt64(name string, defaultValue int64, fileProperties *properti
 }
 
 /*
+* Same as GetConfigVar method, but the value is converted to uint32 — the type
+* used for TCP ports and vsock CIDs. In case of conversion errors, including a
+* value that does not fit in 32 unsigned bits, the default value is returned.
+*
+* Use this rather than narrowing GetConfigVarInt64 with a uint32 cast: the cast
+* truncates instead of failing, and a truncated port silently becomes 0, which
+* makes a listener bind an arbitrary OS-assigned port instead of reporting a bad
+* configuration.
+ */
+func GetConfigVarUint32(name string, defaultValue uint32, fileProperties *properties.Properties) uint32 {
+	var confVar = GetConfigVar(name, "", fileProperties)
+	if confVar == "" {
+		return defaultValue
+	}
+	var parsed, err = strconv.ParseUint(confVar, 10, 32)
+	if err != nil {
+		fmt.Printf("Failed to convert %v for error %v, using default value\n", name, err)
+		return defaultValue
+	}
+	return uint32(parsed)
+}
+
+/*
 * Same as GetConfigVar method, but the value is converted in boolean.
 * In case of conversion errors, the default value is returned.
  */

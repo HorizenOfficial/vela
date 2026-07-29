@@ -121,8 +121,8 @@ func LoadConfig() (*Config, error) {
 	var channelType = common.GetConfigVar("CHANNEL_TYPE", "vsock", fileProperties)
 
 	// We use the same port value for TCP or Vsock channel types
-	executorServerPort := common.GetConfigVarInt64("EXECUTOR_PORT", 4000, fileProperties)
-	logServerPort := common.GetConfigVarInt64("LOG_SERVER_PORT", 5000, fileProperties)
+	executorServerPort := common.GetConfigVarUint32("EXECUTOR_PORT", 4000, fileProperties)
+	logServerPort := common.GetConfigVarUint32("LOG_SERVER_PORT", 5000, fileProperties)
 
 	// channel communication between manager and executor
 	var channelConnectionParams common.ChannelConnectionParams
@@ -133,19 +133,19 @@ func LoadConfig() (*Config, error) {
 	if channelType == "vsock" {
 		// CID >= 16 are available values for EC2 enclaves (where executor runs)
 		// CID and port are both used when connecting to a server
-		executorServerCid := common.GetConfigVarInt64("EXECUTOR_VSOCK_CID", 20, fileProperties)
-		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
+		executorServerCid := common.GetConfigVarUint32("EXECUTOR_VSOCK_CID", 20, fileProperties)
+		channelConnectionParams = common.VSockChannelConnectionParams{CID: executorServerCid, Port: executorServerPort}
 		// if channel is vsock it means we also have a vsock connection used by executor for logging, we use of course a separate port
 		// CID is not used actually when creating a lstening server
-		logServerVsockAddress = common.VSockChannelConnectionParams{Port: uint32(logServerPort)}
+		logServerVsockAddress = common.VSockChannelConnectionParams{Port: logServerPort}
 	} else {
 		executorIpHost := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
-		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(executorServerPort)}
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: executorServerPort}
 	}
 
 	// TCP connection on log server, typically used for manager logs
 	logServerTcpHost := common.GetConfigVar("LOG_SERVER_IP_HOST", "localhost", fileProperties)
-	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: uint32(logServerPort)}
+	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: logServerPort}
 
 	var privateKey *cryptotypes.PrivateKeySecp256k1
 	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")
@@ -164,13 +164,13 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Admin command server configuration
-	adminServerPort := common.GetConfigVarInt64("MANAGER_ADMIN_PORT", 4002, fileProperties)
+	adminServerPort := common.GetConfigVarUint32("MANAGER_ADMIN_PORT", 4002, fileProperties)
 	var adminChannelConnectionParams common.ChannelConnectionParams
 	// Admin server always uses TCP for external access.
 	// MANAGER_ADMIN_SERVER_HOST controls the bind address for the admin server.
 	// Defaults to "0.0.0.0" so admincli can connect from outside the container.
 	adminServerHost := common.GetConfigVar("MANAGER_ADMIN_SERVER_HOST", "0.0.0.0", fileProperties)
-	adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: adminServerHost, Port: uint32(adminServerPort)}
+	adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: adminServerHost, Port: adminServerPort}
 
 	adminCommunicationParams := common.CommunicationParams{
 		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("MANAGER_ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),

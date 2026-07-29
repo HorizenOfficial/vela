@@ -224,6 +224,40 @@ func TestLoadConfig_MaxGuestMemoryBytes_AboveCeilingInConfFile_Rejected(t *testi
 	assert.Contains(t, err.Error(), "EXECUTOR_MAX_GUEST_MEMORY_BYTES")
 }
 
+// TestLoadConfig_OutOfRangePorts_FallBackToDefaults covers values that do not fit
+// the uint32 that ports and vsock CIDs are stored as.
+//
+// Widening the shared parser to the full int64 range (needed for
+// EXECUTOR_MAX_GUEST_MEMORY_BYTES) removed the accidental guard these callers had:
+// a 32-bit parse used to fail and fall back to the default. Without a check they
+// are silently truncated instead — 2^32 becomes port 0, which makes a listener
+// bind an arbitrary OS-assigned port rather than failing, so the manager dials the
+// configured port and gets connection refused with nothing logged at startup.
+func TestLoadConfig_OutOfRangePorts_FallBackToDefaults(t *testing.T) {
+	for _, envVar := range []string{
+		"EXECUTOR_MAX_GUEST_MEMORY_BYTES", "EXECUTOR_KEYSET_RECOVERY_TYPE",
+		"CHANNEL_TYPE", "EXECUTOR_PORT", "EXECUTOR_KMS_PROXY_PORT", "LOG_SERVER_PORT",
+	} {
+		t.Setenv(envVar, "")
+	}
+
+	cfg := loadConfigFromFile(t, "EXECUTOR_KEYSET_RECOVERY_TYPE=0\n"+
+		"CHANNEL_TYPE=tcp\n"+
+		"EXECUTOR_PORT=4294967296\n"+
+		"EXECUTOR_KMS_PROXY_PORT=4294967296\n"+
+		"LOG_SERVER_PORT=4294967296\n")
+
+	require.Equal(t, uint32(8000), cfg.KMSProxyPort, "KMS proxy port must fall back, not truncate to 0")
+
+	tcpParams, ok := cfg.ChannelParams.(common.TcpChannelConnectionParams)
+	require.True(t, ok, "expected TCP channel params")
+	require.Equal(t, uint32(4000), tcpParams.Port, "executor port must fall back, not truncate to 0")
+
+	logParams, ok := cfg.LogChannelParams.(common.TcpChannelConnectionParams)
+	require.True(t, ok, "expected TCP log channel params")
+	require.Equal(t, uint32(5000), logParams.Port, "log server port must fall back, not truncate to 0")
+}
+
 func TestLoadConfig_MaxGuestMemoryBytes_CeilingInConfFile_Accepted(t *testing.T) {
 	t.Setenv("EXECUTOR_MAX_GUEST_MEMORY_BYTES", "")
 	t.Setenv("EXECUTOR_KEYSET_RECOVERY_TYPE", "")
