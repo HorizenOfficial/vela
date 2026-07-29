@@ -54,7 +54,9 @@ const (
 
 // errGuestFault is a sentinel, used with errors.Is, that distinguishes failures
 // caused by the guest itself — a trap, or an allocation it could not satisfy —
-// from host-side failures such as a nil store or a missing export. Only the
+// from host-side failures such as a nil store or a missing export. The three
+// failure classes and their effect on the cache are summarised in
+// docs/design/WASM_HOST_ABI.md. Only the
 // former mean the guest's heap is in an unknown state and the module must be
 // dropped from the cache (see evictFaultedModule); recompiling a module that is
 // simply missing an export would repeat on every request forever.

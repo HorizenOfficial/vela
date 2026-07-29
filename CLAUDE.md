@@ -158,6 +158,8 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 
 **File Formatting:** If you modify contracts or TypeScript files, run `npm run format` after any modification to keep the correct formatting.
 
+**WASM Host ABI:** The contract between the Wasmtime host and guest modules — required exports and their signatures, the length-prefix + JSON result encoding, `allocate`/`deallocate` ownership, the 2 GiB offset ceiling, the pinned WASM feature set, and how failures are classified — is documented in `docs/design/WASM_HOST_ABI.md`. If you change any of those, update that file in the same commit: a host/guest signature mismatch is deployable and only fails at request time, so the written contract is what guest authors rely on.
+
 **Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
 
 **Configuration:** Environment variables with `.conf` file fallbacks. Key configs:

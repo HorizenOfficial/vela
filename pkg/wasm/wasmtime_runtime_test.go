@@ -18,6 +18,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The WAT fixtures below are minimal modules assembled at test time to drive the
+// host through behaviour a correct guest never exhibits (traps, unparseable results,
+// missing or mismatched exports, out-of-range pointers). The ABI they implement, and
+// why this layer exists alongside the TinyGo integration tests in app/simple, are
+// documented in docs/design/WASM_HOST_ABI.md.
+
 // dispatchTestWat is a minimal WAT module used by TestProcessRequest_DispatchesByRequestType.
 //
 // Memory layout (all offsets within one 64 KiB page):
