@@ -216,6 +216,28 @@ const malformedResultWat = `(module
   )
 )`
 
+// wrongAritySignatureWat exports process_request with 2 parameters where the host
+// ABI passes 8. Func.Call validates argument count before entering wasm, so the
+// call fails without the guest ever running — a static defect in the module, not a
+// guest fault. Used by TestSignatureMismatchKeepsModuleCached.
+//
+// Reachable in practice: only the deploy export's signature is exercised at deploy
+// time, so an app built against a stale host ABI deploys fine and then fails on
+// every request.
+const wrongAritySignatureWat = `(module
+  (memory (export "memory") 1)
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  ;; host passes 8 arguments; this declares 2
+  (func (export "process_request") (param i64 i32) (result i32) i32.const 100)
+)`
+
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
@@ -700,6 +722,32 @@ func TestAppErrorKeepsModuleCached(t *testing.T) {
 	require.True(t, isCached(runtime, appId), "an application-level error must not evict the module")
 }
 
+// TestSignatureMismatchKeepsModuleCached covers the case where the host cannot
+// invoke the guest at all: Func.Call rejects the argument list before entering
+// wasm, so no guest code runs and no heap is touched.
+//
+// By the rule in errGuestFault that makes it a static module defect, like a
+// missing export — recompiling cannot change the signature, so evicting would
+// recompile on every request for as long as the app keeps being called.
+func TestSignatureMismatchKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(wrongAritySignatureWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		_, _, _, _, _, _, failure := runtime.ProcessRequest(
+			ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+		require.NotNil(t, failure, "a signature mismatch must fail the request")
+		require.True(t, isCached(runtime, appId),
+			"the guest never ran, so the module must stay cached (iteration %d)", i)
+	}
+}
+
 // TestMalformedResultEvictsModule pins down the ambiguous case in the
 // classification: a guest that returns bytes the host cannot deserialize is
 // treated as a fault and evicted, even though a broken serializer would fail
@@ -726,11 +774,11 @@ func TestMalformedResultEvictsModule(t *testing.T) {
 	require.False(t, isCached(runtime, appId), "a guest that produced unparseable output must be evicted")
 }
 
-// TestHostSideFailureKeepsModuleCached is the fourth classification case, with
-// TestGuestTrapEvictsModule, TestAppErrorKeepsModuleCached and
-// TestMalformedResultEvictsModule: a failure that is neither a guest fault nor an
-// application error, but a static defect in the module (here, a missing
-// `allocate` export). Evicting on those would recompile
+// TestHostSideFailureKeepsModuleCached covers a failure that is neither a guest
+// fault nor an application error, but a static defect in the module (here, a
+// missing `allocate` export). One of the eviction-classification cases; the rule
+// they all check is documented on errGuestFault. Deliberately not enumerated by
+// count here — that goes stale every time a case is added. Evicting on those would recompile
 // the module on every request for as long as the app keeps being called, which is
 // wasted work and cheap amplification for anyone able to deploy such an app.
 func TestHostSideFailureKeepsModuleCached(t *testing.T) {

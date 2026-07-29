@@ -60,9 +60,10 @@ const (
 // simply missing an export would repeat on every request forever.
 //
 // The test is whether guest code actually ran, NOT whether the failure looks
-// deterministic. A missing export or a nil store means nothing executed and no
-// heap was touched, so a fresh instance provably cannot behave differently —
-// those stay cached.
+// deterministic. A missing export, an export whose signature does not match the
+// host ABI (see isGuestTrap), or a nil store all mean nothing executed and no heap
+// was touched, so a fresh instance provably cannot behave differently — those stay
+// cached.
 //
 // A result the host cannot parse (see the json.Unmarshal sites) is the ambiguous
 // case, and is deliberately treated as a fault even though a broken serializer
@@ -87,6 +88,26 @@ func (e *guestFaultError) Is(target error) bool { return target == errGuestFault
 
 // asGuestFault marks err as caused by the guest. See errGuestFault.
 func asGuestFault(err error) error { return &guestFaultError{err: err} }
+
+// isGuestTrap reports whether an error from wasmtime Func.Call means the guest
+// actually ran and faulted, rather than the host failing to invoke it at all.
+//
+// Call validates the argument list before entering wasm and rejects a mismatched
+// arity or value kind up front ("too many arguments provided", "integer provided
+// for non-integer argument", or an error from wasmtime_func_call), so a module
+// whose export does not match the host ABI fails here without executing a single
+// instruction. That is a static defect, in the same class as a missing export: the
+// module stays cached, because recompiling cannot change its signature. Only a
+// genuine trap — surfaced as *wasmtime.Trap — means the heap is in an unknown
+// state. See errGuestFault.
+//
+// Note that only the deploy export's signature is exercised at deploy time, so an
+// app built against a stale host ABI can deploy successfully and then fail this
+// check on every request.
+func isGuestTrap(err error) bool {
+	var trap *wasmtime.Trap
+	return errors.As(err, &trap)
+}
 
 // newModuleStore creates a per-module store with the guest memory cap applied.
 // Must be called with moduleLock held (write lock), which also guards
@@ -833,8 +854,9 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	// Guest ABI: deposit(appId, senderPtr, senderLen, tokenPtr, tokenLen, valuePtr, valueLen, statePtr, stateLen)
 	result, err := depositFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), tokenPtr, int32(len(tokenBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
 	if err != nil {
-		// trap inside the guest
-		guestFaulted = true
+		// A trap means the guest ran and faulted; an argument-list rejection means
+		// it never started (see isGuestTrap).
+		guestFaulted = isGuestTrap(err)
 		// TODO some standard way of getting errors here?
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, fmt.Sprintf("failed to call deposit: %v", err))
 	}
@@ -934,7 +956,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		// Guest ABI: trusted_request(appId, payloadPtr, payloadLen, statePtr, stateLen)
 		result, err := trustedFunc.Call(appModule.store, wasmAppId, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 		if err != nil {
-			guestFaulted = true // trap inside the guest
+			guestFaulted = isGuestTrap(err) // false when the guest never started, see isGuestTrap
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call trusted_request: %v", err))
 		}
 
@@ -996,7 +1018,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	// requestType is passed as int32 to the WASM module
 	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), int32(requestType), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
-		guestFaulted = true // trap inside the guest
+		guestFaulted = isGuestTrap(err) // false when the guest never started, see isGuestTrap
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call process_request: %v", err))
 	}
 
