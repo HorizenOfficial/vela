@@ -23,12 +23,19 @@ import (
 //   - batch signing or final state encryption failure: the entire batch is
 //     discarded and an error is returned
 //
-// It also returns processedCount: how many of the input requests were handled
-// (successfully or with an error payload). If processedCount < len(requests) a
-// hard failure stopped the batch at request processedCount.
-func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+// One payload is returned per handled request, in input order, so len(payloads)
+// is how many of the input requests were consumed: len(payloads) < len(requests)
+// means a hard failure stopped the batch at request len(payloads).
+func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 	if len(requests) == 0 {
-		return nil, nil, nil, nil, 0, fmt.Errorf("empty batch")
+		return nil, nil, nil, nil, fmt.Errorf("empty batch")
+	}
+	// The batch head identifies the application whose state is loaded below, so
+	// it has to exist before anything else. BatchProcessRequestData.Validate
+	// rejects nil requests on the wire, but this handler is exported and must
+	// not rely on the caller having gone through the protocol layer.
+	if requests[0] == nil {
+		return nil, nil, nil, nil, fmt.Errorf("nil request at batch head")
 	}
 	e.log.Info("Executor: Processing batch of %d requests for application %d", len(requests), requests[0].ApplicationID)
 
@@ -37,7 +44,7 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	// The state is decrypted once for the whole batch.
 	_, decryptedState, err := e.loadVerifiedAppData(appState, wasmModule, requests[0].ApplicationID, "batch")
 	if err != nil {
-		return nil, nil, nil, nil, 0, err
+		return nil, nil, nil, nil, err
 	}
 
 	// currentSerialized always holds the serialized app data of the last
@@ -45,15 +52,19 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	currentSerialized := decryptedState
 	currentStateRoot := appState.StateRoot
 
+	// results holds one payload per handled request, in input order, so its
+	// length doubles as the count of input requests consumed by the batch.
 	var results []*common.UpdatePayload
 	var reports []*common.DeanonymizationReport
-	// processed counts the input requests that were handled (a payload was
-	// produced). It tracks progress through the input queue and is kept
-	// distinct from len(results) so the manager can advance its on-chain
-	// cursor by requests consumed, not by payloads emitted.
-	processed := 0
 
 	for i, req := range requests {
+		// A nil request cannot be executed and cannot be reported on-chain, so
+		// it is a hard failure like any other: stop and keep what was done.
+		if req == nil {
+			e.log.Warn("Executor: batch stopped at request %d: nil request", i)
+			break
+		}
+
 		// A batch is scoped to one application; a request for another
 		// application inside the batch is evidence of tampering.
 		if req.ApplicationID != appState.ApplicationID {
@@ -88,7 +99,6 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 		}
 
 		results = append(results, outcome.payload)
-		processed++
 		if outcome.payload.ErrorCode == 0 {
 			currentSerialized = outcome.newSerialized
 			currentStateRoot = outcome.payload.NewStateRoot
@@ -101,23 +111,23 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	if len(results) == 0 {
 		// Hard failure on the very first request: nothing to submit, the
 		// manager retries on the next poll.
-		return nil, nil, nil, nil, 0, nil
+		return nil, nil, nil, nil, nil
 	}
 
 	// One signature covering all entry hashes
 	batchSignature, err := e.signBatch(results)
 	if err != nil {
-		return nil, nil, nil, nil, 0, fmt.Errorf("batch signing failed, discarding batch: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("batch signing failed, discarding batch: %w", err)
 	}
 
 	// Encrypt the final state once for the whole batch
 	finalState, err := e.buildEncryptedApplicationState(appState.ApplicationID, currentStateRoot, currentSerialized)
 	if err != nil {
-		return nil, nil, nil, nil, 0, fmt.Errorf("failed to encrypt final state, discarding batch: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to encrypt final state, discarding batch: %w", err)
 	}
 
-	e.log.Info("Executor: Successfully processed %d/%d batch requests for application %d", processed, len(requests), appState.ApplicationID)
-	return results, batchSignature, finalState, reports, processed, nil
+	e.log.Info("Executor: Successfully processed %d/%d batch requests for application %d", len(results), len(requests), appState.ApplicationID)
+	return results, batchSignature, finalState, reports, nil
 }
 
 // signBatch signs the hash covering all entry hashes with the TEE signing key.

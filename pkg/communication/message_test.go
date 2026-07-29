@@ -4,8 +4,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/HorizenOfficial/vela/pkg/common"
 	velacommon "github.com/HorizenOfficial/vela-common-go/common"
+	"github.com/HorizenOfficial/vela/pkg/common"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
@@ -184,7 +184,7 @@ func TestBatchProcessRequestDataValidate(t *testing.T) {
 	invalidRequest.AssetAmount = common.NewBig(0)
 	invalidRequest.TokenAddress = ethCommon.Address{2}
 
-	validRequest_appId2 := func() *common.Request {
+	requestForOtherApp := func() *common.Request {
 		return &common.Request{
 			ProtocolVersion: 0,
 			ApplicationID:   common.NewApplicationId(12),
@@ -198,7 +198,6 @@ func TestBatchProcessRequestDataValidate(t *testing.T) {
 			MaxFeeValue:     common.NewBig(5),
 		}
 	}
-
 
 	validApplicationState := &common.ApplicationState{
 		ApplicationID:  common.NewApplicationId(1),
@@ -230,6 +229,17 @@ func TestBatchProcessRequestDataValidate(t *testing.T) {
 			err: "Requests is required",
 		},
 		{
+			// The manager passes a nil state when it has none for the application;
+			// this must be rejected, not dereferenced.
+			name: "nil ApplicationState",
+			data: BatchProcessRequestData{
+				Requests:         []*common.Request{validRequest()},
+				ApplicationState: nil,
+				WasmModule:       []byte("wasm"),
+			},
+			err: "ApplicationState is required",
+		},
+		{
 			name: "nil Requests",
 			data: BatchProcessRequestData{
 				Requests:         nil,
@@ -248,7 +258,7 @@ func TestBatchProcessRequestDataValidate(t *testing.T) {
 			err: "Requests[1] is required",
 		},
 		{
-			name: "invalid request in slice - negative Timestamp",
+			name: "invalid request in slice - zero AssetAmount with non-native token",
 			data: BatchProcessRequestData{
 				Requests:         []*common.Request{invalidRequest},
 				ApplicationState: validApplicationState,
@@ -259,21 +269,21 @@ func TestBatchProcessRequestDataValidate(t *testing.T) {
 		{
 			name: "requests with different ApplicationIDs",
 			data: BatchProcessRequestData{
-				Requests:         []*common.Request{validRequest(), validRequest_appId2()},
+				Requests:         []*common.Request{validRequest(), requestForOtherApp()},
 				ApplicationState: validApplicationState,
 				WasmModule:       []byte("wasm"),
 			},
 			err: "invalid Requests[1]",
-		},	
+		},
 		{
 			name: "request has different ApplicationIDs than state",
 			data: BatchProcessRequestData{
-				Requests:         []*common.Request{validRequest_appId2()},
+				Requests:         []*common.Request{requestForOtherApp()},
 				ApplicationState: validApplicationState,
 				WasmModule:       []byte("wasm"),
 			},
 			err: "invalid Requests[0]",
-		},	
+		},
 	}
 
 	for _, tt := range tests {

@@ -180,11 +180,11 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 		&common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, report, nil
 }
 
-func (m *MockExecutorClient) SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+func (m *MockExecutorClient) SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 	if f, ok := m.GetMockedFunc("SendBatchProcessRequest"); ok {
-		return f.(func(context.Context, []*common.Request, *common.ApplicationState, []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error))(ctx, requests, appState, wasmModule)
+		return f.(func(context.Context, []*common.Request, *common.ApplicationState, []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error))(ctx, requests, appState, wasmModule)
 	}
-	return nil, nil, nil, nil, 0, fmt.Errorf("batch process request not supported in mock")
+	return nil, nil, nil, nil, fmt.Errorf("batch process request not supported in mock")
 }
 
 func (m *MockExecutorClient) ForwardAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {

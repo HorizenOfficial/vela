@@ -112,8 +112,15 @@ func (bpr *BatchProcessRequestData) Validate() error {
 	if len(bpr.Requests) == 0 {
 		return fmt.Errorf("Requests is required")
 	}
+	// A batch is scoped to one application, so the state is what defines that
+	// scope: without it there is nothing to validate the requests against.
+	// The executor rejects a nil state as a hard failure anyway, so failing
+	// here keeps the same outcome (no payloads, requests stay pending).
+	if bpr.ApplicationState == nil {
+		return fmt.Errorf("ApplicationState is required")
+	}
 
-    applicationID := bpr.ApplicationState.ApplicationID
+	applicationID := bpr.ApplicationState.ApplicationID
 	for i, req := range bpr.Requests {
 		if req == nil {
 			return fmt.Errorf("Requests[%d] is required", i)
@@ -132,7 +139,9 @@ func (bpr *BatchProcessRequestData) Validate() error {
 // Individual update payloads are not signed on their own; a single batch
 // signature covers all entry hashes. Only the final encrypted state is returned.
 type BatchProcessResponseData struct {
-	// UpdatePayloads is one update payload per processed request (unsigned individually)
+	// UpdatePayloads is one update payload per handled request (unsigned individually),
+	// in input order. Fewer payloads than input requests means a hard failure stopped
+	// the batch at request len(UpdatePayloads) and the rest stay pending.
 	UpdatePayloads []*common.UpdatePayload `json:"updatePayloads"`
 	// BatchSignature is the single TEE signature covering all entry hashes
 	BatchSignature []byte `json:"batchSignature"`
@@ -140,9 +149,6 @@ type BatchProcessResponseData struct {
 	UpdatedApplicationState *common.ApplicationState `json:"updatedApplicationState"`
 	// DeanonymizationReports are the optional deanonymization reports produced within the batch
 	DeanonymizationReports []*common.DeanonymizationReport `json:"deanonymizationReports,omitempty"`
-	// ProcessedCount is how many of the input requests were handled (successfully or with an error payload).
-	// If ProcessedCount < len(input requests), a hard failure stopped the batch at request ProcessedCount.
-	ProcessedCount int `json:"processedCount"`
 }
 
 // DeployAppRequestData represents data for a deploy app request message

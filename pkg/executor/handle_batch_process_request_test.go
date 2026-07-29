@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	ethCommon "github.com/ethereum/go-ethereum/common"
-	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	"github.com/HorizenOfficial/vela/pkg/crypto"
+	ethCommon "github.com/ethereum/go-ethereum/common"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,13 +71,57 @@ func decryptFinalState(t *testing.T, exec *StatelessExecutor, appState *common.A
 func TestHandleBatchProcessRequest_EmptyBatch(t *testing.T) {
 	exec := newTestExecutor(t, NewMockRuntime(testLogger))
 
-	payloads, sig, finalState, reports, processed, err := exec.HandleBatchProcessRequest(context.Background(), nil, nil, []byte("wasm"))
+	payloads, sig, finalState, reports, err := exec.HandleBatchProcessRequest(context.Background(), nil, nil, []byte("wasm"))
 	require.Error(t, err)
 	require.Nil(t, payloads)
 	require.Nil(t, sig)
 	require.Nil(t, finalState)
 	require.Nil(t, reports)
-	require.Zero(t, processed)
+}
+
+func TestHandleBatchProcessRequest_NilFirstRequest(t *testing.T) {
+	// The protocol layer rejects nil requests, but the handler is exported and
+	// must not dereference the batch head on faith: without a request there is
+	// no application to load state for.
+	exec := newTestExecutor(t, NewMockRuntime(testLogger))
+	user, _, _ := newBatchTestUser(t)
+
+	requests := []*common.Request{nil, newDepositRequest(user, 10)}
+
+	payloads, sig, finalState, reports, err := exec.HandleBatchProcessRequest(context.Background(), requests, nil, []byte("wasm"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil request")
+	require.Nil(t, payloads)
+	require.Nil(t, sig)
+	require.Nil(t, finalState)
+	require.Nil(t, reports)
+}
+
+func TestHandleBatchProcessRequest_NilRequestMidBatch(t *testing.T) {
+	// A nil request mid-batch is a hard failure like any other: the batch stops
+	// there and the already-processed requests are still returned.
+	exec := newTestExecutor(t, NewMockRuntime(testLogger))
+	user, _, userPub := newBatchTestUser(t)
+
+	wasmModule := []byte("wasm")
+	appState := buildEncryptedAppState(t, exec, &user, userPub, wasmModule)
+
+	requests := []*common.Request{
+		newDepositRequest(user, 10),
+		newDepositRequest(user, 20),
+		nil,
+		newDepositRequest(user, 40), // never reached
+	}
+
+	payloads, sig, finalState, _, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
+	require.NoError(t, err)
+	require.Len(t, payloads, 2)
+	require.Less(t, len(payloads), len(requests))
+	require.Len(t, sig, 65)
+
+	require.Equal(t, payloads[1].NewStateRoot, finalState.StateRoot)
+	state := decryptFinalState(t, exec, finalState)
+	require.Equal(t, int64(30), state.Accounts[user].Balance.ToInt().Int64())
 }
 
 func TestHandleBatchProcessRequest_NilAppState_HardFailure(t *testing.T) {
@@ -92,14 +136,13 @@ func TestHandleBatchProcessRequest_NilAppState_HardFailure(t *testing.T) {
 		newDepositRequest(user, 20),
 	}
 
-	payloads, sig, finalState, reports, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, nil, []byte("wasm"))
+	payloads, sig, finalState, reports, err := exec.HandleBatchProcessRequest(context.Background(), requests, nil, []byte("wasm"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "state not found for application")
 	require.Nil(t, payloads)
 	require.Nil(t, sig)
 	require.Nil(t, finalState)
 	require.Nil(t, reports)
-	require.Zero(t, processed)
 }
 
 func TestHandleBatchProcessRequest_EmptyWasmModule_HardFailure(t *testing.T) {
@@ -115,14 +158,13 @@ func TestHandleBatchProcessRequest_EmptyWasmModule_HardFailure(t *testing.T) {
 		newDepositRequest(user, 20),
 	}
 
-	payloads, sig, finalState, reports, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, nil)
+	payloads, sig, finalState, reports, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "empty wasm module for application")
 	require.Nil(t, payloads)
 	require.Nil(t, sig)
 	require.Nil(t, finalState)
 	require.Nil(t, reports)
-	require.Zero(t, processed)
 }
 
 func TestHandleBatchProcessRequest_WrongWasmFingerprint_HardFailure(t *testing.T) {
@@ -138,14 +180,13 @@ func TestHandleBatchProcessRequest_WrongWasmFingerprint_HardFailure(t *testing.T
 		newDepositRequest(user, 20),
 	}
 
-	payloads, sig, finalState, reports, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, []byte("different-wasm"))
+	payloads, sig, finalState, reports, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, []byte("different-wasm"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "wasm fingerprint mismatch for application")
 	require.Nil(t, payloads)
 	require.Nil(t, sig)
 	require.Nil(t, finalState)
 	require.Nil(t, reports)
-	require.Zero(t, processed)
 }
 
 func TestHandleBatchProcessRequest_MultipleSuccess_StateRootsChain(t *testing.T) {
@@ -161,10 +202,9 @@ func TestHandleBatchProcessRequest_MultipleSuccess_StateRootsChain(t *testing.T)
 		newDepositRequest(user, 30),
 	}
 
-	payloads, sig, finalState, _, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
+	payloads, sig, finalState, _, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
 	require.NoError(t, err)
 	require.Len(t, payloads, len(requests))
-	require.Equal(t, len(requests), processed)
 
 	// State roots chain: first from the input state, then payload to payload
 	require.Equal(t, appState.StateRoot, payloads[0].PrevStateRoot)
@@ -200,10 +240,9 @@ func TestHandleBatchProcessRequest_SoftFailureMidBatch(t *testing.T) {
 		newDepositRequest(user, 20),
 	}
 
-	payloads, sig, finalState, _, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
+	payloads, sig, finalState, _, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
 	require.NoError(t, err)
 	require.Len(t, payloads, len(requests))
-	require.Equal(t, len(requests), processed)
 
 	// Request 2 got an error payload with state unchanged
 	require.NotEqual(t, uint8(0), payloads[1].ErrorCode)
@@ -237,12 +276,14 @@ func TestHandleBatchProcessRequest_HardFailureMidBatch_WrongApplicationId(t *tes
 		newDepositRequest(user, 40), // never reached
 	}
 
-	payloads, sig, finalState, _, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
+	payloads, sig, finalState, _, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
 	require.NoError(t, err)
 
-	// Batch stopped at the tampered request: only the first two results are returned
+	// Batch stopped at the tampered request: only the first two results are
+	// returned, and the shortfall is what tells the manager the batch was cut
+	// short — requests 3 and 4 stay pending.
 	require.Len(t, payloads, 2)
-	require.Equal(t, 2, processed)
+	require.Less(t, len(payloads), len(requests))
 	require.Len(t, sig, 65)
 	require.Equal(t, payloads[0].RequestID, requests[0].RequestID)
 	require.Equal(t, payloads[1].RequestID, requests[1].RequestID)
@@ -264,13 +305,12 @@ func TestHandleBatchProcessRequest_HardFailureOnFirstRequest(t *testing.T) {
 
 	requests := []*common.Request{bad, newDepositRequest(user, 20)}
 
-	payloads, sig, finalState, reports, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
+	payloads, sig, finalState, reports, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
 	require.NoError(t, err)
 	require.Empty(t, payloads)
 	require.Nil(t, sig)
 	require.Nil(t, finalState)
 	require.Nil(t, reports)
-	require.Zero(t, processed)
 }
 
 func TestHandleBatchProcessRequest_DepositDiscardedWhenProcessFails(t *testing.T) {
@@ -290,10 +330,9 @@ func TestHandleBatchProcessRequest_DepositDiscardedWhenProcessFails(t *testing.T
 		newDepositRequest(user, 5),
 	}
 
-	payloads, _, finalState, _, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
+	payloads, _, finalState, _, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
 	require.NoError(t, err)
 	require.Len(t, payloads, 2)
-	require.Equal(t, 2, processed)
 
 	// Request 1 failed with state unchanged from the initial root
 	require.NotEqual(t, uint8(0), payloads[0].ErrorCode)
@@ -318,10 +357,9 @@ func TestHandleBatchProcessRequest_SingleRequestParity(t *testing.T) {
 	singlePayload, singleState, _, err := exec.HandleProcessRequest(context.Background(), req, appState, wasmModule)
 	require.NoError(t, err)
 
-	batchPayloads, sig, batchState, _, processed, err := exec.HandleBatchProcessRequest(context.Background(), []*common.Request{req}, appState, wasmModule)
+	batchPayloads, sig, batchState, _, err := exec.HandleBatchProcessRequest(context.Background(), []*common.Request{req}, appState, wasmModule)
 	require.NoError(t, err)
 	require.Len(t, batchPayloads, 1)
-	require.Equal(t, 1, processed)
 	require.Len(t, sig, 65)
 
 	// Same deterministic outcome as the single-request path, minus the per-payload signature
@@ -346,7 +384,7 @@ func TestHandleBatchProcessRequest_BatchSignatureRecovery(t *testing.T) {
 		newDepositRequest(user, 20),
 	}
 
-	payloads, sig, _, _, _, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
+	payloads, sig, _, _, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
 	require.NoError(t, err)
 	require.Len(t, sig, 65)
 
@@ -381,11 +419,10 @@ func TestHandleBatchProcessRequest_SigningFailureDiscardsBatch(t *testing.T) {
 	// after the batch was fully processed.
 	exec.MsgToSignBuilder = &MsgToSignBuilder{}
 
-	payloads, sig, finalState, reports, processed, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
+	payloads, sig, finalState, reports, err := exec.HandleBatchProcessRequest(context.Background(), requests, appState, wasmModule)
 	require.Error(t, err)
 	require.Nil(t, payloads)
 	require.Nil(t, sig)
 	require.Nil(t, finalState)
 	require.Nil(t, reports)
-	require.Zero(t, processed)
 }
