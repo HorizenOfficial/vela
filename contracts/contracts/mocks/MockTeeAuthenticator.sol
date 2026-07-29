@@ -18,6 +18,13 @@ contract MockTeeAuthenticator is ITeeAuthenticator {
     return true; // Always return true for mock
   }
 
+  function checkBatchSignature(
+    bytes32[] calldata /*entryHashes*/,
+    bytes calldata /*signature*/
+  ) external pure override returns (bool) {
+    return true; // Always return true for mock
+  }
+
   function getTeeSigner() external view override returns (address) {
     return teeSigner;
   }

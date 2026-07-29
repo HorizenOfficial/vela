@@ -15,6 +15,7 @@ import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
 import './interfaces/ITokenAllowlist.sol';
 import './Structs.sol';
+import './UpdateEntryHash.sol';
 import './interfaces/ITrigger.sol';
 
 /// @title ProcessorEndpoint
@@ -561,7 +562,12 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
       errorCode: errorCode,
       errorMsg: errorMsg
     });
-    if (!teeAuthenticator.checkSignature(sigParams, signature)) revert InvalidSignature();
+    // Single-request updates are verified as a 1-entry batch: the batch digest of one
+    // entry hash is byte-identical to the single-request digest, so both submission
+    // paths share one signing scheme.
+    bytes32[] memory entryHashes = new bytes32[](1);
+    entryHashes[0] = UpdateEntryHash.entryHash(sigParams);
+    if (!teeAuthenticator.checkBatchSignature(entryHashes, signature)) revert InvalidSignature();
 
     //check values
 
