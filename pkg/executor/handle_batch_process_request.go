@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
@@ -34,38 +33,12 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	}
 	e.log.Info("Executor: Processing batch of %d requests for application %d", len(requests), requests[0].ApplicationID)
 
-	// App existence is validated on-chain (validApplicationId modifier in
-	// ProcessorEndpoint), so a missing state here means tampering or
-	// manager-side state loss: hard failure, the whole batch stays pending.
-	if appState == nil {
-		e.log.Error("Executor: state not found for application %d: app existence is enforced on-chain, check the manager DB", requests[0].ApplicationID)
-		return nil, nil, nil, nil, 0, fmt.Errorf("state not found for application %d", requests[0].ApplicationID)
-	}
-
-	if len(wasmModule) == 0 {
-		return nil, nil, nil, nil, 0, fmt.Errorf("empty wasm module for application %d", requests[0].ApplicationID)
-	}
-
-	// Decrypt the state once for the whole batch
-	decryptedState, err := e.DecryptState(appState.EncryptedState, e.keySet.StateKey)
+	// State presence, wasm presence, state root and wasm fingerprint checks.
+	// Any failure here is a hard failure: the whole batch stays pending.
+	// The state is decrypted once for the whole batch.
+	_, decryptedState, err := e.loadVerifiedAppData(appState, wasmModule, requests[0].ApplicationID, "batch")
 	if err != nil {
-		return nil, nil, nil, nil, 0, fmt.Errorf("failed to decrypt state: %w", err)
-	}
-
-	hash := sha256.Sum256(decryptedState)
-	if hash != appState.StateRoot {
-		return nil, nil, nil, nil, 0, fmt.Errorf("state root mismatch: got %x, want %x", hash, appState.StateRoot)
-	}
-
-	initialAppData, err := appdata.DeserializeAppData(decryptedState)
-	if err != nil {
-		return nil, nil, nil, nil, 0, fmt.Errorf("failed to deserialize state: %w", err)
-	}
-
-	expectedWasmFingerprint := initialAppData.GetWasmFingerprint()
-	currentWasmFingerprint := sha256.Sum256(wasmModule)
-	if currentWasmFingerprint != expectedWasmFingerprint {
-		return nil, nil, nil, nil, 0, fmt.Errorf("wasm fingerprint mismatch for application %d", requests[0].ApplicationID)
+		return nil, nil, nil, nil, 0, err
 	}
 
 	// currentSerialized always holds the serialized app data of the last
