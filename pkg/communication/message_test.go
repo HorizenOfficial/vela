@@ -184,6 +184,22 @@ func TestBatchProcessRequestDataValidate(t *testing.T) {
 	invalidRequest.AssetAmount = common.NewBig(0)
 	invalidRequest.TokenAddress = ethCommon.Address{2}
 
+	validRequest_appId2 := func() *common.Request {
+		return &common.Request{
+			ProtocolVersion: 0,
+			ApplicationID:   common.NewApplicationId(12),
+			RequestID:       common.RequestIdType([32]byte{1}),
+			RequestType:     common.Process,
+			Payload:         []byte("test"),
+			Timestamp:       common.NewBig(100),
+			Sender:          [20]byte{1},
+			TokenAddress:    velacommon.ETH_TOKEN,
+			AssetAmount:     common.NewBig(10),
+			MaxFeeValue:     common.NewBig(5),
+		}
+	}
+
+
 	validApplicationState := &common.ApplicationState{
 		ApplicationID:  common.NewApplicationId(1),
 		StateRoot:      [32]byte{1},
@@ -240,6 +256,24 @@ func TestBatchProcessRequestDataValidate(t *testing.T) {
 			},
 			err: "invalid Requests[0]",
 		},
+		{
+			name: "requests with different ApplicationIDs",
+			data: BatchProcessRequestData{
+				Requests:         []*common.Request{validRequest(), validRequest_appId2()},
+				ApplicationState: validApplicationState,
+				WasmModule:       []byte("wasm"),
+			},
+			err: "invalid Requests[1]",
+		},	
+		{
+			name: "request has different ApplicationIDs than state",
+			data: BatchProcessRequestData{
+				Requests:         []*common.Request{validRequest_appId2()},
+				ApplicationState: validApplicationState,
+				WasmModule:       []byte("wasm"),
+			},
+			err: "invalid Requests[0]",
+		},	
 	}
 
 	for _, tt := range tests {

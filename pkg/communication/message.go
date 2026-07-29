@@ -112,9 +112,14 @@ func (bpr *BatchProcessRequestData) Validate() error {
 	if len(bpr.Requests) == 0 {
 		return fmt.Errorf("Requests is required")
 	}
+
+    applicationID := bpr.ApplicationState.ApplicationID
 	for i, req := range bpr.Requests {
 		if req == nil {
 			return fmt.Errorf("Requests[%d] is required", i)
+		}
+		if req.ApplicationID != applicationID {
+			return fmt.Errorf("invalid Requests[%d]: ApplicationID mismatch", i)
 		}
 		if err := req.Validate(); err != nil {
 			return fmt.Errorf("invalid Requests[%d]: %w", i, err)
