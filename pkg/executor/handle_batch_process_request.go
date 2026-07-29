@@ -6,7 +6,6 @@ import (
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
-	"github.com/HorizenOfficial/vela/pkg/crypto"
 )
 
 // HandleBatchProcessRequest processes a batch of requests for a single
@@ -112,15 +111,9 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	}
 
 	// Encrypt the final state once for the whole batch
-	encryptedFinalState, err := crypto.EncryptWithAES(e.keySet.StateKey, currentSerialized)
+	finalState, err := e.buildEncryptedApplicationState(appState.ApplicationID, currentStateRoot, currentSerialized)
 	if err != nil {
 		return nil, nil, nil, nil, 0, fmt.Errorf("failed to encrypt final state, discarding batch: %w", err)
-	}
-
-	finalState := &common.ApplicationState{
-		ApplicationID:  appState.ApplicationID,
-		StateRoot:      currentStateRoot,
-		EncryptedState: encryptedFinalState,
 	}
 
 	e.log.Info("Executor: Successfully processed %d/%d batch requests for application %d", processed, len(requests), appState.ApplicationID)

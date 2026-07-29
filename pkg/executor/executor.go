@@ -596,16 +596,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	// Encrypt the new app data
-	encryptedNewAppData, err := crypto.EncryptWithAES(e.keySet.StateKey, outcome.newSerialized)
+	newApplicationState, err := e.buildEncryptedApplicationState(req.ApplicationID, outcome.payload.NewStateRoot, outcome.newSerialized)
 	if err != nil {
-		e.log.Error("Executor: error encrypting new app data: %v", err)
 		return nil, nil, nil, err
-	}
-
-	newApplicationState := &common.ApplicationState{
-		ApplicationID:  req.ApplicationID,
-		StateRoot:      outcome.payload.NewStateRoot,
-		EncryptedState: encryptedNewAppData,
 	}
 
 	return outcome.payload, newApplicationState, outcome.report, nil
@@ -705,20 +698,12 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Create app data root hash
 	initialAppDataRoot := sha256.Sum256(initialAppDataBytes)
 
-	// Encrypt the initial state
-	encryptedState, err := crypto.EncryptWithAES(e.keySet.StateKey, initialAppDataBytes)
+	// Encrypt the initial state and build the application state
+	newAppState, err := e.buildEncryptedApplicationState(req.ApplicationID, initialAppDataRoot, initialAppDataBytes)
 	if err != nil {
-		e.log.Error("Executor: error encrypting initial app data: %v", err)
 		return nil, nil, err
 	}
 	e.log.Info("Executor: Successfully encrypted initial app data")
-
-	// Create the application state
-	newAppState := &common.ApplicationState{
-		ApplicationID:  req.ApplicationID,
-		StateRoot:      initialAppDataRoot,
-		EncryptedState: encryptedState,
-	}
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
@@ -745,6 +730,22 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.ApplicationState) (*appdata.AppData, error) {
 	appData, _, err := e.decryptAndDeserializeState(encState)
 	return appData, err
+}
+
+// buildEncryptedApplicationState encrypts serialized app data with the TEE
+// state key and wraps it into the ApplicationState handed back to the manager.
+func (e *StatelessExecutor) buildEncryptedApplicationState(appID common.ApplicationIdType, stateRoot [32]byte, serialized []byte) (*common.ApplicationState, error) {
+	encryptedState, err := crypto.EncryptWithAES(e.keySet.StateKey, serialized)
+	if err != nil {
+		e.log.Error("Executor: error encrypting app data for application %d: %v", appID, err)
+		return nil, err
+	}
+
+	return &common.ApplicationState{
+		ApplicationID:  appID,
+		StateRoot:      stateRoot,
+		EncryptedState: encryptedState,
+	}, nil
 }
 
 // decryptAndDeserializeState decrypts the state, verifies it against the state
