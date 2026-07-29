@@ -195,6 +195,27 @@ const noAllocateWat = `(module
   )
 )`
 
+// malformedResultWat returns a well-formed length prefix followed by bytes that
+// are not valid JSON, so the guest runs to completion and the host fails only when
+// deserializing. Used by TestMalformedResultEvictsModule.
+const malformedResultWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100: 4-byte LE length (15 = 0x0f) + non-JSON
+  (data (i32.const 100) "\0f\00\00\00" "not json at all")
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100
+  )
+)`
+
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
@@ -679,10 +700,37 @@ func TestAppErrorKeepsModuleCached(t *testing.T) {
 	require.True(t, isCached(runtime, appId), "an application-level error must not evict the module")
 }
 
-// TestHostSideFailureKeepsModuleCached is the third case alongside
-// TestGuestTrapEvictsModule and TestAppErrorKeepsModuleCached: a failure that is
-// neither a guest fault nor an application error, but a static defect in the
-// module (here, a missing `allocate` export). Evicting on those would recompile
+// TestMalformedResultEvictsModule pins down the ambiguous case in the
+// classification: a guest that returns bytes the host cannot deserialize is
+// treated as a fault and evicted, even though a broken serializer would fail
+// identically on every request (so the recompile is wasted).
+//
+// This is deliberate, not an oversight — the guest ran and wrote that buffer, so
+// the host cannot tell a deterministic serialization defect from a heap bug that
+// clobbered the result. See errGuestFault for the cost argument. Asserting it here
+// so the choice cannot be flipped silently; if it is ever moved to the cached
+// class, this test is the place to record why.
+func TestMalformedResultEvictsModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(malformedResultWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "unparseable guest output must fail the request")
+	require.False(t, isCached(runtime, appId), "a guest that produced unparseable output must be evicted")
+}
+
+// TestHostSideFailureKeepsModuleCached is the fourth classification case, with
+// TestGuestTrapEvictsModule, TestAppErrorKeepsModuleCached and
+// TestMalformedResultEvictsModule: a failure that is neither a guest fault nor an
+// application error, but a static defect in the module (here, a missing
+// `allocate` export). Evicting on those would recompile
 // the module on every request for as long as the app keeps being called, which is
 // wasted work and cheap amplification for anyone able to deploy such an app.
 func TestHostSideFailureKeepsModuleCached(t *testing.T) {

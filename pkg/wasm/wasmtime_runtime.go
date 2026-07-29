@@ -58,6 +58,21 @@ const (
 // former mean the guest's heap is in an unknown state and the module must be
 // dropped from the cache (see evictFaultedModule); recompiling a module that is
 // simply missing an export would repeat on every request forever.
+//
+// The test is whether guest code actually ran, NOT whether the failure looks
+// deterministic. A missing export or a nil store means nothing executed and no
+// heap was touched, so a fresh instance provably cannot behave differently —
+// those stay cached.
+//
+// A result the host cannot parse (see the json.Unmarshal sites) is the ambiguous
+// case, and is deliberately treated as a fault even though a broken serializer
+// would fail identically on every request: the guest did run, and did write that
+// buffer, so the host cannot distinguish a deterministic serialization defect
+// (where the recompile is wasted) from a heap bug that clobbered the result
+// (where reusing the instance is dangerous). The costs are asymmetric — being
+// wrong here spends one recompile per request on an app that is already failing
+// every request, whereas being wrong the other way lets the next request run on a
+// damaged heap and possibly commit a plausible-but-incorrect state root on-chain.
 var errGuestFault = errors.New("guest fault")
 
 // guestFaultError tags an error as a guest fault while leaving its message
@@ -434,12 +449,14 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 
 	// Create a per-module store
 	store := r.newModuleStore()
-	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
-	}
 
+	// Registered as early as possible — immediately after the store exists and
+	// BEFORE configureWasiLogPipes — so that every failure path from here on
+	// releases the native state, including a log-pipe failure (mkfifo/open),
+	// which would otherwise fall back to a finalizer. cleanupLogPipes is declared
+	// up front and nil-checked, since it is only assigned below.
 	success := false
+	var cleanupLogPipes func()
 	defer func() {
 		if success {
 			return
@@ -452,10 +469,16 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 		// see the guest linear memory held by the store, so leaving it to a
 		// finalizer can keep hundreds of MB alive inside the enclave. Nothing else
 		// can close these — the module never reaches r.modules on these paths.
-		// Registered before the deallocate defers below, so LIFO runs it last.
+		// Registered before any deallocate defers below, so LIFO runs this last,
+		// after those have finished using the store.
 		store.Close()
 		module.Close()
 	}()
+
+	cleanupLogPipes, err = r.configureWasiLogPipes(ctx, appId, store)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
+	}
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
@@ -587,12 +610,14 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 
 	// Create a per-module store
 	store := r.newModuleStore()
-	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
-	}
 
+	// Registered as early as possible — immediately after the store exists and
+	// BEFORE configureWasiLogPipes — so that every failure path from here on
+	// releases the native state, including a log-pipe failure (mkfifo/open),
+	// which would otherwise fall back to a finalizer. cleanupLogPipes is declared
+	// up front and nil-checked, since it is only assigned below.
 	success := false
+	var cleanupLogPipes func()
 	defer func() {
 		if success {
 			return
@@ -605,10 +630,16 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 		// see the guest linear memory held by the store, so leaving it to a
 		// finalizer can keep hundreds of MB alive inside the enclave. Nothing else
 		// can close these — the module never reaches r.modules on these paths.
-		// Registered before the deallocate defers below, so LIFO runs it last.
+		// Registered before any deallocate defers below, so LIFO runs this last,
+		// after those have finished using the store.
 		store.Close()
 		module.Close()
 	}()
+
+	cleanupLogPipes, err = r.configureWasiLogPipes(ctx, appId, store)
+	if err != nil {
+		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
+	}
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)

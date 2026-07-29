@@ -531,8 +531,6 @@ func (s *TestSuiteCore) LoadWasmModule(t *testing.T, moduleFilename string) []by
 	return wasmBytes
 }
 
-// SetEventChannel replaces the event channel. Used by the fullstack suite to
-// inject its own channel connected to the event-broadcasting wrapper.
 // ManagerLogger returns the logger the manager writes to, so callers can route
 // their own instrumentation into the same sink.
 //
@@ -544,6 +542,8 @@ func (s *TestSuiteCore) ManagerLogger() logger.Logger {
 	return s.mgrLog
 }
 
+// SetEventChannel replaces the event channel. Used by the fullstack suite to
+// inject its own channel connected to the event-broadcasting wrapper.
 func (s *TestSuiteCore) SetEventChannel(ch chan interface{}) {
 	s.eventChannel = ch
 }
