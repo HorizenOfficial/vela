@@ -12,7 +12,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v42"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -991,7 +991,7 @@ func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Wat2Wasm is proposal-agnostic and encodes both of these fine; the
 			// rejection must come from the engine's pinned feature set. Note that
-			// wasmtime v42's *default* engine compiles both of these successfully,
+			// wasmtime v47's *default* engine compiles both of these successfully,
 			// which is exactly why the set is pinned explicitly.
 			wasmBytes, err := wasmtime.Wat2Wasm(tc.wat)
 			require.NoError(t, err)

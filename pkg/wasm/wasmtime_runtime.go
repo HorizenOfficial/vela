@@ -21,7 +21,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v42"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
@@ -223,11 +223,17 @@ type WasmtimeRuntime struct {
 // Rationale: the executor re-executes guest code inside the enclave and the
 // resulting state is committed on-chain, so the set of accepted WASM features
 // is part of this system's observable behaviour. Tracking upstream defaults
-// would silently widen it on every dependency bump (the v42 default set is much
-// wider than the v1.0 one this replaced) and would admit features whose results
-// are host-dependent. Every WASM *feature* knob wasmtime v42 exposes is
-// therefore set here explicitly: adding a proposal must be a deliberate,
-// reviewed change.
+// would silently widen it on every dependency bump (the modern default set is
+// much wider than the v1.0 one this replaced) and would admit features whose
+// results are host-dependent. Every WASM *feature* knob the wasmtime-go API
+// exposes is therefore set here explicitly: adding a proposal must be a
+// deliberate, reviewed change.
+//
+// Caveat on "every": the C API carries a few proposal flags that wasmtime-go does
+// not wrap, so they cannot be pinned from Go and are left at their upstream
+// defaults — as of v47 those are branch hinting (documented false by default),
+// custom page sizes, stack switching, and the component-model sub-flags. Check
+// this list again when bumping, in case the bindings start exposing them.
 //
 // TODO: bound guest execution. The execution-bounding knobs (SetConsumeFuel,
 // SetEpochInterruption, SetMaxWasmStack) are all left at their defaults, i.e.
@@ -275,6 +281,17 @@ func newPinnedEngine() *wasmtime.Engine {
 	config.SetWasmFunctionReferences(false)
 	config.SetWasmGC(false)
 	config.SetWasmWideArithmetic(false)
+	config.SetWasmExceptions(false)
+	config.SetWasmComponentModel(false)
+
+	// --- Disabled: whole runtime subsystems we do not use ---
+	// Not WASM proposals but engine-wide capabilities. GC support is switched off
+	// entirely (the GC proposal above is already off); note that this would also
+	// break a guest passing externref values around, which none do — the host
+	// defines no host functions, only WASI, so there are no host references for a
+	// guest to hold. Re-enable both if that ever changes.
+	config.SetGCSupport(false)
+	config.SetConcurrencySupport(false)
 
 	// Replace NaN payloads with a single canonical value. Not required by the
 	// WASM spec and off by default, but NaN bit patterns are otherwise
@@ -393,7 +410,7 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 	// store's Limiter (see newModuleStore), so every guest offset fits in a positive
 	// int32 and we can use the returned ptr directly without an unsigned cast.
 	// (The wasmtime-go v1 limitation where UnsafeData panicked when memory reached
-	// 4 GiB is gone — v42 builds the slice with unsafe.Slice — the bound below is
+	// 4 GiB is gone — v42 onwards builds the slice with unsafe.Slice — the bound below is
 	// the deliberate cap, not an API workaround.)
 
 	// Convert the signed int32 pointer to its true unsigned 32-bit value (uint32)

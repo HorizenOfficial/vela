@@ -34,7 +34,7 @@ package fullstack
 // zstd-family symbols:
 //
 // +--------------------------------------------+--------------------+---------+
-// |                                            | wasmtime-go v1.0.0 | v42.0.0 |
+// |                                            | wasmtime-go v1.0.0 | v47.0.0 |
 // +--------------------------------------------+--------------------+---------+
 // |zstd symbols referenced by non-zstd members |           72       |    16   |
 // |  of those, not provided by DataDog/zstd    |            7       |     0   |
@@ -44,9 +44,10 @@ package fullstack
 // ZSTD_customFree, ZSTD_CCtx_trace, ZSTD_cycleLog, ZSTD_getDictID_fromCDict,
 // ZSTD_ldm_fillHashTable — the ZSTD_custom* family arrived in zstd 1.4.6, just after
 // DataDog's pin) forced extraction and hence the duplicates. Under v42.0.0 nothing
-// is unsatisfied, so no zstd member is ever extracted.
+// was unsatisfied, and v47.0.0 measures identically, so no zstd member is ever
+// extracted.
 //
-// Note what did NOT change: v42 still bundles zstd and still exports a large global
+// Note what did NOT change: v47 still bundles zstd and still exports a large global
 // zstd surface (313 global definitions, 250 of them shared with DataDog). This was
 // never fixed upstream — the duplicates are still available, they are simply never
 // both loaded.

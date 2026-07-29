@@ -100,11 +100,25 @@ the result on-chain. A module using a disabled proposal fails to compile.
 
 | Enabled | Disabled |
 |---|---|
-| bulk memory, multi-value, reference types, fixed-width SIMD | relaxed SIMD (host-architecture-dependent results), memory64 (breaks the int32 offset ABI), multi-memory and threads (both break the per-memory RAM accounting), tail calls, function references, GC, wide arithmetic |
+| bulk memory, multi-value, reference types, fixed-width SIMD | relaxed SIMD (host-architecture-dependent results), memory64 (breaks the int32 offset ABI), multi-memory and threads (both break the per-memory RAM accounting), tail calls, function references, GC, wide arithmetic, exceptions, component model |
 
 Cranelift NaN canonicalization is enabled, since NaN bit patterns are otherwise
-host-dependent. Adding a proposal is a deliberate change in `newPinnedEngine`, and
+host-dependent. Two engine-wide subsystems are also switched off — GC support and
+concurrency support — which are capabilities rather than proposals. Disabling GC
+support would break a guest passing `externref` values, which is safe here because
+the host defines no host functions (only WASI), so there are no host references for
+a guest to hold.
+
+Adding a proposal is a deliberate change in `newPinnedEngine`, and
 newly-introduced proposals should be pinned there when Wasmtime is upgraded.
+Pinning `memory64` off is not only an ABI matter: it also neutralised
+`GHSA-p8xm-42r7-89xg`, a host panic reachable only with `memory64` enabled.
+
+One gap to be aware of: a few proposal flags exist in Wasmtime's C API but are not
+wrapped by `wasmtime-go`, so they cannot be pinned from Go and stay at upstream
+defaults. As of v47 those are branch hinting (documented `false` by default), custom
+page sizes, stack switching, and the component-model sub-flags. Re-check when
+upgrading, in case the bindings begin exposing them.
 
 **Guest execution is currently unbounded** — no fuel, no epoch deadline, no stack
 limit. A guest that does not return blocks the Executor. See the TODO in
