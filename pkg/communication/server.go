@@ -479,7 +479,7 @@ func (c *ClientConnection) handleBatchProcessRequest(ctx context.Context, msg Me
 		return
 	}
 
-	updatePayloads, batchSignature, finalState, reports, processedCount, err := handler.HandleBatchProcessRequest(ctx, reqData.Requests, reqData.ApplicationState, reqData.WasmModule)
+	updatePayloads, batchSignature, finalState, reports, err := handler.HandleBatchProcessRequest(ctx, reqData.Requests, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
 		return
@@ -493,14 +493,13 @@ func (c *ClientConnection) handleBatchProcessRequest(ctx context.Context, msg Me
 			BatchSignature:          batchSignature,
 			UpdatedApplicationState: finalState,
 			DeanonymizationReports:  reports,
-			ProcessedCount:          processedCount,
 		},
 	}
 
 	if err := c.sendMessage(response); err != nil {
 		c.log.Warn("%s: Failed to send HandleBatchProcessRequest response: %v", c.idLogTag, err)
 	}
-	c.log.Info("%s: BatchProcessRequest handled successfully, ID=%s, processed=%d/%d", c.idLogTag, msg.ID, processedCount, len(reqData.Requests))
+	c.log.Info("%s: BatchProcessRequest handled successfully, ID=%s, processed=%d/%d", c.idLogTag, msg.ID, len(updatePayloads), len(reqData.Requests))
 }
 
 // handleDeployAppRequest handles DeployApp messages

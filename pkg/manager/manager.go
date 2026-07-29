@@ -708,27 +708,19 @@ func (m *SecureProcessorManager) processBatch(ctx context.Context, appID common.
 		}
 	}
 
-	results, batchSignature, finalState, reports, processedCount, err := m.executorClient.SendBatchProcessRequest(ctx, requests, appState, wasmBytes)
+	executorStart := time.Now()
+	results, batchSignature, finalState, reports, err := m.executorClient.SendBatchProcessRequest(ctx, requests, appState, wasmBytes)
+    m.log.Info("Manager: executor round-trip for batch requests: executor_roundtrip_ms=%d", time.Since(executorStart).Milliseconds())
 	if err != nil {
 		// Fallback case: executor couldn't produce a batch. Retry on next poll, no state to store.
 		return err
 	}
 
-	// processedCount is reported by the executor over the communication channel. An
-	// out-of-range value would panic the slice below, and pollBlockchain has no
-	// recover(), so a malformed response must not reach it.
-	if processedCount < 0 || processedCount > len(results) {
-		return fmt.Errorf("executor reported processedCount %d out of range for %d result(s) in the batch for application %d",
-			processedCount, len(results), appID)
-	}
-
-	if processedCount == 0 {
+	if len(results) == 0 {
 		// Hard failure on the very first request or batch signing failure — nothing to submit.
 		m.log.Warn("Manager: batch produced no results for application %d, retry next poll", appID)
 		return nil
 	}
-
-	results = results[:processedCount]
 
 	// Save any deanonymization reports to disk before submitting on-chain.
 	if err := m.saveBatchDeanonymizationReports(reports, requests); err != nil {
@@ -752,10 +744,6 @@ func (m *SecureProcessorManager) processBatch(ctx context.Context, appID common.
 		return err
 	}
 
-	if processedCount < len(requests) {
-		m.log.Warn("Manager: request %d caused a hard stop for application %d; %d request(s) remain pending",
-			processedCount, appID, len(requests)-processedCount)
-	}
 	return nil
 }
 
@@ -962,21 +950,23 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 // 		appState = nil
 // 	}
 
-// 	// Get the WASM module for the application
-// 	var wasmBytes []byte
-// 	if appState != nil {
-// 		wasmBytes, err = m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
-// 		if err != nil {
-// 			m.log.Error("GetWASMBytecode returns an error: %v", err)
-// 			return err
-// 		}
-// 	}
-// 	// Process the request
-// 	updatePayload, updatedState, deanonymizationReport, err := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
-// 	if err != nil {
-// 		// Fallback case: executor couldn't create signed payload. Retry on next poll, no state to store
-// 		return err
-// 	}
+	// // Get the WASM module for the application
+	// var wasmBytes []byte
+	// if appState != nil {
+	// 	wasmBytes, err = m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
+	// 	if err != nil {
+	// 		m.log.Error("GetWASMBytecode returns an error: %v", err)
+	// 		return err
+	// 	}
+	// }
+	// // Process the request
+	// executorStart := time.Now()
+	// updatePayload, updatedState, deanonymizationReport, err := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
+	// m.log.Info("Manager: executor round-trip for request %s: executor_roundtrip_ms=%d", req.RequestID, time.Since(executorStart).Milliseconds())
+	// if err != nil {
+	// 	// Fallback case: executor couldn't create signed payload. Retry on next poll, no state to store
+	// 	return err
+	// }
 
 // 	// Check if this is a signed error payload
 // 	if updatePayload.ErrorCode != 0 {

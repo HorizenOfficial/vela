@@ -180,12 +180,12 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 		&common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, report, nil
 }
 
-func (m *MockExecutorClient) SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+func (m *MockExecutorClient) SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 	if f, ok := m.GetMockedFunc("SendBatchProcessRequest"); ok {
-		return f.(func(context.Context, []*common.Request, *common.ApplicationState, []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error))(ctx, requests, appState, wasmModule)
+		return f.(func(context.Context, []*common.Request, *common.ApplicationState, []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error))(ctx, requests, appState, wasmModule)
 	}
 	if appState == nil {
-		return nil, nil, nil, nil, 0, fmt.Errorf("state not found for application %d", requests[0].ApplicationID)
+		return nil, nil, nil, nil, fmt.Errorf("state not found for application %d", requests[0].ApplicationID)
 	}
 	prev := appState.StateRoot
 	results := make([]*common.UpdatePayload, 0, len(requests))
@@ -224,7 +224,7 @@ func (m *MockExecutorClient) SendBatchProcessRequest(ctx context.Context, reques
 		last = nr
 	}
 	final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: last, EncryptedState: []byte("enc")}
-	return results, []byte("batch-sig"), final, reports, len(requests), nil
+	return results, []byte("batch-sig"), final, reports, nil
 }
 
 func (m *MockExecutorClient) ForwardAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
@@ -994,8 +994,8 @@ func TestProcessBatchWithErrors(t *testing.T) {
 	// Test failure in executor
 	expectedError = "failed to execute app"
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
-		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
-			return nil, nil, nil, nil, 0, errors.New(expectedError)
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			return nil, nil, nil, nil, errors.New(expectedError)
 		})
 
 	failure = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
@@ -2352,7 +2352,7 @@ func seedDeployedApp(t *testing.T, mockBC *blockchain.MockClient, manager *Secur
 // payload per request, chaining state roots from the current app state.
 func mockBatchSuccess(manager *SecureProcessorManager, t *testing.T) {
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
-		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 			require.NotNil(t, appState, "batch executor requires a non-nil app state")
 			prev := appState.StateRoot
 			results := make([]*common.UpdatePayload, 0, len(requests))
@@ -2378,7 +2378,7 @@ func mockBatchSuccess(manager *SecureProcessorManager, t *testing.T) {
 				last = nr
 			}
 			final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: last, EncryptedState: []byte("enc")}
-			return results, []byte("batch-sig"), final, reports, len(requests), nil
+			return results, []byte("batch-sig"), final, reports, nil
 		})
 }
 
@@ -2415,13 +2415,13 @@ func TestProcessBatchFromChain_SingleRequestGoesThroughBatchPath(t *testing.T) {
 
 	called := false
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
-		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 			called = true
 			require.Len(t, requests, 1, "a single pending request is still routed through the batch path")
 			nr := generateRandomStateRoot()
 			res := []*common.UpdatePayload{{ApplicationID: requests[0].ApplicationID, RequestID: requests[0].RequestID, PrevStateRoot: appState.StateRoot, NewStateRoot: nr}}
 			final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: nr, EncryptedState: []byte("enc")}
-			return res, []byte("batch-sig"), final, nil, 1, nil
+			return res, []byte("batch-sig"), final, nil, nil
 		})
 
 	req := createRequest(common.Process, ApplicationId)
@@ -2439,9 +2439,9 @@ func TestProcessBatchFromChain_DeployRoutedIndividually(t *testing.T) {
 
 	// A batch executor call must NOT happen for a deploy.
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
-		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 			t.Fatal("deploy must not be routed through the batch path")
-			return nil, nil, nil, nil, 0, nil
+			return nil, nil, nil, nil, nil
 		})
 
 	dep := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
@@ -2518,8 +2518,8 @@ func TestProcessBatchFromChain_HardFailureOnFirstRequest(t *testing.T) {
 		return nil
 	})
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
-		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
-			return nil, nil, nil, nil, 0, nil
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			return nil, nil, nil, nil, nil
 		})
 
 	for i := 0; i < 2; i++ {
@@ -2533,48 +2533,6 @@ func TestProcessBatchFromChain_HardFailureOnFirstRequest(t *testing.T) {
 	require.Equal(t, 2, len(pending), "all requests stay pending on a hard failure on the first request")
 }
 
-func TestProcessBatchFromChain_ProcessedCountOutOfRangeIsRejected(t *testing.T) {
-	for _, tc := range []struct {
-		name           string
-		processedCount int
-	}{
-		{"greater than results", 3},
-		{"negative", -1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			mockBC, manager := setupTest(t)
-			ctx := context.Background()
-
-			seedDeployedApp(t, mockBC, manager, ApplicationId)
-
-			// A malformed response must not panic the poll loop, which has no recover().
-			submitted := false
-			mockBC.AddMockedFunc("SubmitBatchStateUpdate", func(ctx context.Context, updates []*common.UpdatePayload, sig []byte) error {
-				submitted = true
-				return nil
-			})
-			manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
-				func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
-					nr := generateRandomStateRoot()
-					// One result, but a processedCount that does not match it.
-					res := []*common.UpdatePayload{{ApplicationID: requests[0].ApplicationID, RequestID: requests[0].RequestID, PrevStateRoot: appState.StateRoot, NewStateRoot: nr}}
-					final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: nr, EncryptedState: []byte("enc")}
-					return res, []byte("batch-sig"), final, nil, tc.processedCount, nil
-				})
-
-			for i := 0; i < 2; i++ {
-				require.NoError(t, mockBC.SendRequestToChain(ctx, createRequest(common.Process, ApplicationId)))
-			}
-
-			require.NoError(t, manager.processBatchFromChain(ctx), "a malformed processedCount is not fatal to the poll loop")
-
-			require.False(t, submitted, "nothing should be submitted for an out-of-range processedCount")
-			pending, _ := mockBC.GetPendingRequests(ctx)
-			require.Equal(t, 2, len(pending), "all requests stay pending")
-		})
-	}
-}
-
 func TestProcessBatchFromChain_HardFailureMidBatch(t *testing.T) {
 	mockBC, manager := setupTest(t)
 	ctx := context.Background()
@@ -2583,7 +2541,7 @@ func TestProcessBatchFromChain_HardFailureMidBatch(t *testing.T) {
 
 	// 3 requests submitted, but the executor stops after 2 (hard failure on the 3rd).
 	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
-		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error) {
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 			require.GreaterOrEqual(t, len(requests), 3)
 			prev := appState.StateRoot
 			results := make([]*common.UpdatePayload, 0, 2)
@@ -2595,7 +2553,7 @@ func TestProcessBatchFromChain_HardFailureMidBatch(t *testing.T) {
 				last = nr
 			}
 			final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: last, EncryptedState: []byte("enc")}
-			return results, []byte("batch-sig"), final, nil, 2, nil
+			return results, []byte("batch-sig"), final, nil, nil
 		})
 
 	for i := 0; i < 3; i++ {

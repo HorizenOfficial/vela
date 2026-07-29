@@ -558,42 +558,16 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
 	}
 
-	// App existence is validated on-chain (validApplicationId modifier in
-	// ProcessorEndpoint), so a missing state here means tampering or
-	// manager-side state loss: hard failure, retry on next poll.
-	if appState == nil {
-		e.log.Error("Executor: state not found for application %d (request %s): app existence is enforced on-chain, check the manager DB", req.ApplicationID, req.RequestID)
-		return nil, nil, nil, fmt.Errorf("state not found for application %d", req.ApplicationID)
+	// State presence, wasm presence, state root and wasm fingerprint checks
+	appData, _, err := e.loadVerifiedAppData(appState, wasmModule, req.ApplicationID, fmt.Sprintf("request %s", req.RequestID))
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	// The manager pairs request and state by applicationId; a mismatch is
 	// evidence of a bug or tampering.
 	if req.ApplicationID != appState.ApplicationID {
 		return nil, nil, nil, fmt.Errorf("request applicationId %d does not match state applicationId %d", req.ApplicationID, appState.ApplicationID)
-	}
-
-	// Validate wasm module integrity before processing any request path.
-	if len(wasmModule) == 0 {
-		return nil, nil, nil, fmt.Errorf("empty wasm module")
-	}
-
-	// Decrypt and parse the app data
-	appData, err := e.fromEncryptedStateToAppData(appState)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	expectedWasmFingerprint := appData.GetWasmFingerprint()
-	currentWasmFingerprint := sha256.Sum256(wasmModule)
-	if currentWasmFingerprint != expectedWasmFingerprint {
-		e.log.Warn(
-			"Executor: Wasm fingerprint mismatch for request %s app %d (gotPrefix=%x expectedPrefix=%x)",
-			req.RequestID,
-			req.ApplicationID,
-			currentWasmFingerprint[:4],
-			expectedWasmFingerprint[:4],
-		)
-		return nil, nil, nil, fmt.Errorf("wasm fingerprint mismatch")
 	}
 
 	// Execute the request against the decrypted app data
@@ -622,16 +596,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	}
 
 	// Encrypt the new app data
-	encryptedNewAppData, err := crypto.EncryptWithAES(e.keySet.StateKey, outcome.newSerialized)
+	newApplicationState, err := e.buildEncryptedApplicationState(req.ApplicationID, outcome.payload.NewStateRoot, outcome.newSerialized)
 	if err != nil {
-		e.log.Error("Executor: error encrypting new app data: %v", err)
 		return nil, nil, nil, err
-	}
-
-	newApplicationState := &common.ApplicationState{
-		ApplicationID:  req.ApplicationID,
-		StateRoot:      outcome.payload.NewStateRoot,
-		EncryptedState: encryptedNewAppData,
 	}
 
 	return outcome.payload, newApplicationState, outcome.report, nil
@@ -731,20 +698,12 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Create app data root hash
 	initialAppDataRoot := sha256.Sum256(initialAppDataBytes)
 
-	// Encrypt the initial state
-	encryptedState, err := crypto.EncryptWithAES(e.keySet.StateKey, initialAppDataBytes)
+	// Encrypt the initial state and build the application state
+	newAppState, err := e.buildEncryptedApplicationState(req.ApplicationID, initialAppDataRoot, initialAppDataBytes)
 	if err != nil {
-		e.log.Error("Executor: error encrypting initial app data: %v", err)
 		return nil, nil, err
 	}
 	e.log.Info("Executor: Successfully encrypted initial app data")
-
-	// Create the application state
-	newAppState := &common.ApplicationState{
-		ApplicationID:  req.ApplicationID,
-		StateRoot:      initialAppDataRoot,
-		EncryptedState: encryptedState,
-	}
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
@@ -769,25 +728,92 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 }
 
 func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.ApplicationState) (*appdata.AppData, error) {
+	appData, _, err := e.decryptAndDeserializeState(encState)
+	return appData, err
+}
+
+// buildEncryptedApplicationState encrypts serialized app data with the TEE
+// state key and wraps it into the ApplicationState handed back to the manager.
+func (e *StatelessExecutor) buildEncryptedApplicationState(appID common.ApplicationIdType, stateRoot [32]byte, serialized []byte) (*common.ApplicationState, error) {
+	encryptedState, err := crypto.EncryptWithAES(e.keySet.StateKey, serialized)
+	if err != nil {
+		e.log.Error("Executor: error encrypting app data for application %d: %v", appID, err)
+		return nil, err
+	}
+
+	return &common.ApplicationState{
+		ApplicationID:  appID,
+		StateRoot:      stateRoot,
+		EncryptedState: encryptedState,
+	}, nil
+}
+
+// decryptAndDeserializeState decrypts the state, verifies it against the state
+// root and parses it. It returns the parsed app data together with the
+// decrypted bytes it was parsed from.
+func (e *StatelessExecutor) decryptAndDeserializeState(encState *common.ApplicationState) (*appdata.AppData, []byte, error) {
 	// Decrypt the encrypted state
 	decryptedState, err := e.DecryptState(encState.EncryptedState, e.keySet.StateKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt state: %w", err)
+		return nil, nil, fmt.Errorf("failed to decrypt state: %w", err)
 	}
 
 	// Verify state consistency
 	hash := sha256.Sum256(decryptedState)
 	if hash != encState.StateRoot {
-		return nil, fmt.Errorf("state root mismatch: got %x, want %x", hash, encState.StateRoot)
+		return nil, nil, fmt.Errorf("state root mismatch: got %x, want %x", hash, encState.StateRoot)
 	}
 
 	// Parse the app data
 	appData, err := appdata.DeserializeAppData(decryptedState)
 	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize state: %w", err)
+		return nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
 	}
 
-	return appData, nil
+	return appData, decryptedState, nil
+}
+
+// loadVerifiedAppData runs the checks every state-consuming flow needs before
+// touching the WASM runtime: state presence, wasm presence, decryption, state
+// root verification, deserialization and wasm fingerprint verification.
+// It returns the parsed app data and the decrypted bytes it was parsed from, so
+// callers that need to re-deserialize the same state (batch execution) can
+// reuse them.
+//
+// applicationID and logCtx are used for diagnostics only; logCtx identifies the
+// caller (e.g. "request <id>" or "batch").
+func (e *StatelessExecutor) loadVerifiedAppData(appState *common.ApplicationState, wasmModule []byte, applicationID common.ApplicationIdType, logCtx string) (*appdata.AppData, []byte, error) {
+	// App existence is validated on-chain (validApplicationId modifier in
+	// ProcessorEndpoint), so a missing state here means tampering or
+	// manager-side state loss.
+	if appState == nil {
+		e.log.Error("Executor: state not found for application %d (%s): app existence is enforced on-chain, check the manager DB", applicationID, logCtx)
+		return nil, nil, fmt.Errorf("state not found for application %d", applicationID)
+	}
+
+	if len(wasmModule) == 0 {
+		return nil, nil, fmt.Errorf("empty wasm module for application %d", applicationID)
+	}
+
+	appData, serializedState, err := e.decryptAndDeserializeState(appState)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	expectedWasmFingerprint := appData.GetWasmFingerprint()
+	currentWasmFingerprint := sha256.Sum256(wasmModule)
+	if currentWasmFingerprint != expectedWasmFingerprint {
+		e.log.Warn(
+			"Executor: Wasm fingerprint mismatch for application %d (%s) (gotPrefix=%x expectedPrefix=%x)",
+			applicationID,
+			logCtx,
+			currentWasmFingerprint[:4],
+			expectedWasmFingerprint[:4],
+		)
+		return nil, nil, fmt.Errorf("wasm fingerprint mismatch for application %d", applicationID)
+	}
+
+	return appData, serializedState, nil
 }
 
 // buildUnsignedErrorPayload creates an unsigned error payload for failed requests.
