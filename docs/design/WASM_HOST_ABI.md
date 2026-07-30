@@ -100,25 +100,38 @@ the result on-chain. A module using a disabled proposal fails to compile.
 
 | Enabled | Disabled |
 |---|---|
-| bulk memory, multi-value, reference types, fixed-width SIMD | relaxed SIMD (host-architecture-dependent results), memory64 (breaks the int32 offset ABI), multi-memory and threads (both break the per-memory RAM accounting), tail calls, function references, GC, wide arithmetic, exceptions, component model |
+| bulk memory, multi-value, reference types (**funcref only — see below**), fixed-width SIMD | relaxed SIMD (host-architecture-dependent results), memory64 (breaks the int32 offset ABI), multi-memory and threads (both break the per-memory RAM accounting), tail calls, function references, GC, wide arithmetic, exceptions, component model |
 
 Cranelift NaN canonicalization is enabled, since NaN bit patterns are otherwise
 host-dependent. Two engine-wide subsystems are also switched off — GC support and
-concurrency support — which are capabilities rather than proposals. Disabling GC
-support would break a guest passing `externref` values, which is safe here because
-the host defines no host functions (only WASI), so there are no host references for
-a guest to hold.
+concurrency support — which are capabilities rather than proposals.
+
+**Switching GC support off narrows reference types.** `externref` values need the GC
+subsystem, so a module that merely declares an `externref` parameter is rejected even
+though reference types are enabled. `funcref` — what TinyGo emits behind
+`call_indirect` — is unaffected. A guest may therefore use reference types for
+function references but not for host references.
+
+That is a deliberate narrowing, and what keeps it safe is a requirement rather than a
+coincidence: **no host import may take or return `externref`.** Today that holds
+trivially, since WASI is the only import surface. It must keep holding as host
+functions are added — a host-crypto bridge is specified, and it passes only `i32`
+pointers and lengths, so it is unaffected. If some future host import genuinely needs
+to hand a guest an opaque host reference, GC support has to be switched back on in the
+same change.
 
 Adding a proposal is a deliberate change in `newPinnedEngine`, and
 newly-introduced proposals should be pinned there when Wasmtime is upgraded.
 Pinning `memory64` off is not only an ABI matter: it also neutralised
 `GHSA-p8xm-42r7-89xg`, a host panic reachable only with `memory64` enabled.
 
-One gap to be aware of: a few proposal flags exist in Wasmtime's C API but are not
-wrapped by `wasmtime-go`, so they cannot be pinned from Go and stay at upstream
-defaults. As of v47 those are branch hinting (documented `false` by default), custom
-page sizes, stack switching, and the component-model sub-flags. Re-check when
-upgrading, in case the bindings begin exposing them.
+One gap to be aware of: a few flags exist in Wasmtime's C API but are not wrapped by
+`wasmtime-go`, so they cannot be pinned from Go and stay at upstream defaults. As of
+v47 those are `shared_memory`, branch hinting, custom page sizes, stack switching, and
+the component-model sub-flags — all documented `false` by default. `shared_memory` is
+worth singling out: it gates shared-memory creation, which is the same per-memory RAM
+accounting concern the threads pin exists to address, so it is unpinnable rather than
+unimportant. Re-check when upgrading, in case the bindings begin exposing them.
 
 **Guest execution is currently unbounded** — no fuel, no epoch deadline, no stack
 limit. A guest that does not return blocks the Executor. See the TODO in

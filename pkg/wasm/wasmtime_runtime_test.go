@@ -985,14 +985,37 @@ func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
 			wat: `(module
 				(memory (export "memory") 1 1 shared))`,
 		},
+		{
+			// Arrived as a knob in v47 and pinned off on arrival. Worth covering even
+			// though the GC-subsystem pins currently reject this on their own
+			// (exceptions build on GC types): the explicit pin is what keeps it off
+			// if GC support is ever switched back on for externref.
+			//
+			// Note the default engine *accepts* this module even though v47's
+			// config.h documents wasm_exceptions as "false by default" — a concrete
+			// reason this file pins the feature set rather than trusting documented
+			// defaults.
+			name: "exceptions",
+			wat: `(module
+				(tag $e)
+				(func (export "f") (throw $e)))`,
+		},
+		{
+			// Rejected by SetGCSupport(false) rather than by SetWasmGC(false):
+			// externref values need the GC subsystem, so switching that off narrows
+			// what "reference types enabled" admits. See newPinnedEngine.
+			name: "externref parameter",
+			wat: `(module
+				(func (export "f") (param externref)))`,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Wat2Wasm is proposal-agnostic and encodes both of these fine; the
+			// Wat2Wasm is proposal-agnostic and encodes all of these fine; the
 			// rejection must come from the engine's pinned feature set. Note that
-			// wasmtime v47's *default* engine compiles both of these successfully,
-			// which is exactly why the set is pinned explicitly.
+			// wasmtime v47's *default* engine compiles every one of them
+			// successfully, which is exactly why the set is pinned explicitly.
 			wasmBytes, err := wasmtime.Wat2Wasm(tc.wat)
 			require.NoError(t, err)
 

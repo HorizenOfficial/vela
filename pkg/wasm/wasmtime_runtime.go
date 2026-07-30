@@ -206,9 +206,16 @@ type WasmtimeRuntime struct {
 	// while execution is serial anyway.
 	//
 	// Lock ordering: acquire execLock BEFORE moduleLock, never the reverse, and
-	// never acquire it from a function that already holds moduleLock. Holding it
-	// across a guest call cannot deadlock because guest code cannot re-enter the
-	// runtime: only WASI is defined on the linker, there are no custom host funcs.
+	// never acquire it from a function that already holds moduleLock.
+	//
+	// REQUIREMENT for holding it across a guest call: a host import must never
+	// re-enter this runtime. Today that is structural — only WASI is defined on the
+	// linker, so guest code has no path back into Go — but it becomes a constraint
+	// the moment host functions are added (a host-crypto bridge is already
+	// specified). A host import that took moduleLock, called getOrLoadModule, or
+	// otherwise re-entered would deadlock immediately, with execLock held and
+	// nothing bounding the request. Host imports must therefore stay leaf
+	// functions: read guest memory, compute, write guest memory, return.
 	//
 	// TODO: when per-goroutine instances land (see the TODOs in
 	// app/simple/integration_test.go), replace this with refcounting the live
@@ -229,11 +236,14 @@ type WasmtimeRuntime struct {
 // exposes is therefore set here explicitly: adding a proposal must be a
 // deliberate, reviewed change.
 //
-// Caveat on "every": the C API carries a few proposal flags that wasmtime-go does
-// not wrap, so they cannot be pinned from Go and are left at their upstream
-// defaults — as of v47 those are branch hinting (documented false by default),
-// custom page sizes, stack switching, and the component-model sub-flags. Check
-// this list again when bumping, in case the bindings start exposing them.
+// Caveat on "every": the C API carries a few flags that wasmtime-go does not wrap,
+// so they cannot be pinned from Go and are left at their upstream defaults — as of
+// v47 those are shared_memory, branch hinting, custom page sizes, stack switching,
+// and the component-model sub-flags. All are documented false by default. Note
+// shared_memory in particular: it gates shared-memory creation, the same per-memory
+// RAM-accounting concern the threads pin addresses, so it is unpinnable rather than
+// unimportant. Check this list again when bumping, in case the bindings start
+// exposing them.
 //
 // TODO: bound guest execution. The execution-bounding knobs (SetConsumeFuel,
 // SetEpochInterruption, SetMaxWasmStack) are all left at their defaults, i.e.
@@ -285,11 +295,20 @@ func newPinnedEngine() *wasmtime.Engine {
 	config.SetWasmComponentModel(false)
 
 	// --- Disabled: whole runtime subsystems we do not use ---
-	// Not WASM proposals but engine-wide capabilities. GC support is switched off
-	// entirely (the GC proposal above is already off); note that this would also
-	// break a guest passing externref values around, which none do — the host
-	// defines no host functions, only WASI, so there are no host references for a
-	// guest to hold. Re-enable both if that ever changes.
+	// Not WASM proposals but engine-wide capabilities.
+	//
+	// SetGCSupport(false) narrows what SetWasmReferenceTypes(true) above actually
+	// admits: externref values need the GC subsystem, so a module merely declaring
+	// an externref parameter is rejected (verified, see
+	// TestPinnedEngineRejectsDisabledProposals). Funcref — what TinyGo emits for
+	// call_indirect — is unaffected.
+	//
+	// This is a deliberate narrowing rather than a no-op pin, and it rests on a
+	// requirement: no host import may take or return externref. That holds trivially
+	// today (WASI is the only import surface) and must keep holding as host
+	// functions are added — the specified host-crypto bridge passes only i32
+	// pointers and lengths. Flip this to true, in the same change, if some host
+	// import ever needs to hand a guest an opaque host reference.
 	config.SetGCSupport(false)
 	config.SetConcurrencySupport(false)
 
