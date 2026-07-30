@@ -70,7 +70,9 @@ type Config struct {
 	// 0 means the 2 GiB default, which is also the maximum allowed value (the
 	// host ABI exchanges guest pointers as signed 32-bit offsets). Note that the
 	// worst-case enclave RAM usage is roughly MaxCachedModules * MaxGuestMemoryBytes,
-	// so size the two together against the enclave memory budget.
+	// so size the two together against the enclave memory budget. Table storage sits
+	// outside linear memory and is bounded separately in pkg/wasm (a few tens of MiB
+	// per module at most), so it does not change the sizing arithmetic.
 	MaxGuestMemoryBytes int64
 }
 

@@ -269,3 +269,37 @@ func TestLoadConfig_MaxGuestMemoryBytes_CeilingInConfFile_Accepted(t *testing.T)
 	require.Equal(t, int64(2147483648), cfg.MaxGuestMemoryBytes)
 	require.NoError(t, cfg.Validate())
 }
+
+// TestValidate_TCPPortAboveRange covers the range check that GetConfigVarUint32
+// alone cannot provide: 70000 fits in a uint32, so it survives parsing and would
+// otherwise only fail later at bind time with a generic error.
+func TestValidate_TCPPortAboveRange(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 70000}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_PORT")
+}
+
+// TestValidate_LogPortAboveRange is the same check for the log channel.
+func TestValidate_LogPortAboveRange(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "tcp"
+	cfg.LogChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 70000}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "LOG_SERVER_PORT")
+}
+
+// TestValidate_VsockPortAboveTCPRangeAccepted guards the other side of the rule:
+// vsock ports are full uint32 values, so the TCP bound must not apply to them.
+func TestValidate_VsockPortAboveTCPRangeAccepted(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "vsock"
+	cfg.ChannelParams = common.VSockChannelConnectionParams{CID: 3, Port: 70000}
+
+	require.NoError(t, cfg.Validate())
+}

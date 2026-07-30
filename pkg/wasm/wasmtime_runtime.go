@@ -41,10 +41,6 @@ const maxGuestMemoryCeilingBytes = common.MaxGuestMemoryCeilingBytes
 
 // Per-store resource limits passed to wasmtime's store limiter.
 const (
-	// limiterKeepDefault is the sentinel the limiter accepts for "leave the
-	// engine default in place for this limit".
-	limiterKeepDefault = -1
-
 	// maxInstancesPerStore and maxMemoriesPerStore pin the counts the guest
 	// memory cap is accounted against. The cap is enforced per linear memory,
 	// not per store, so without these a guest declaring N memories could use N
@@ -53,6 +49,21 @@ const (
 	// holds exactly one instance with its single exported memory.
 	maxInstancesPerStore = 1
 	maxMemoriesPerStore  = 1
+
+	// maxTablesPerStore and maxTableElementsPerStore bound table storage, which
+	// the memory cap does NOT cover: table elements live outside the guest's linear
+	// memory, so an unbounded element count escapes EXECUTOR_MAX_GUEST_MEMORY_BYTES
+	// entirely. Measured on this branch before the bound existed: a module declaring
+	// a 50M-entry funcref table committed ~390 MB resident under a 64 KiB memory
+	// cap, which is why the sizing rule needs tables bounded too.
+	//
+	// At roughly 8 bytes per funcref entry the worst case here is about 32 MiB of
+	// table storage per store — negligible beside the 2 GiB memory ceiling, and
+	// four orders of magnitude above what real guests use (the TinyGo guests in
+	// app/simple and vela-nova instantiate with a limit of 100). A guest exceeding
+	// either bound fails to instantiate, loudly, naming the limit.
+	maxTablesPerStore        = 4
+	maxTableElementsPerStore = 1_000_000
 )
 
 // errGuestFault is a sentinel, used with errors.Is, that distinguishes failures
@@ -121,12 +132,14 @@ func (r *WasmtimeRuntime) newModuleStore() *wasmtime.Store {
 	store := wasmtime.NewStore(r.engine)
 	// Signature: Limiter(memorySize, tableElements, instances, tables, memories).
 	// Multi-memory is also disabled at the engine level (see newPinnedEngine);
-	// maxMemoriesPerStore is the second half of that defence.
+	// maxMemoriesPerStore is the second half of that defence. Every limit is pinned
+	// — nothing is left at the engine default — because each unpinned dimension is
+	// RAM a guest can consume outside the memory cap.
 	store.Limiter(
 		r.maxGuestMemoryBytes,
-		limiterKeepDefault,
+		maxTableElementsPerStore,
 		maxInstancesPerStore,
-		limiterKeepDefault,
+		maxTablesPerStore,
 		maxMemoriesPerStore,
 	)
 	return store
@@ -415,7 +428,15 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 	// Call allocate in the module's store context
 	rawRes, err := allocateFunc.Call(module.store, int32(len(data)))
 	if err != nil {
-		return 0, asGuestFault(fmt.Errorf("failed to call allocate: %w", err))
+		// Only a trap means the guest ran: an allocate whose signature does not match
+		// the host ABI is rejected before entering wasm, which is a static module
+		// defect that must stay cached rather than be recompiled every request. Same
+		// rule as the other Func.Call sites, see isGuestTrap.
+		wrapped := fmt.Errorf("failed to call allocate: %w", err)
+		if isGuestTrap(err) {
+			return 0, asGuestFault(wrapped)
+		}
+		return 0, wrapped
 	}
 
 	ptr, err := toInt32(rawRes)

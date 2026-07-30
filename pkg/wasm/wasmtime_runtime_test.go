@@ -261,6 +261,39 @@ const nearEndAllocWat = `(module
   (func (export "get_allocated_memory_stats") (param i32))
 )`
 
+// hugeTableWat declares a funcref table far larger than any real guest needs.
+// Table storage is not part of the guest's linear memory, so without a table limit
+// it escapes the per-guest RAM cap entirely: measured at ~390 MB resident after a
+// table.fill under a 64 KiB memory cap. Used by TestGuestTableIsBounded.
+const hugeTableWat = `(module
+  (memory (export "memory") 1)
+  (table $t 50000000 funcref)
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32)))`
+
+// wrongArityAllocateWat exports allocate with the wrong signature, so Func.Call
+// rejects the argument list before entering wasm — a static module defect, not a
+// guest fault. Used by TestAllocateSignatureMismatchKeepsModuleCached.
+const wrongArityAllocateWat = `(module
+  (memory (export "memory") 1)
+
+  ;; load_module result at offset 300
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+
+  ;; host calls allocate(i32); this declares two parameters
+  (func (export "allocate") (param i32 i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100))`
+
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
@@ -788,6 +821,45 @@ func TestSignatureMismatchKeepsModuleCached(t *testing.T) {
 		require.NotNil(t, failure, "a signature mismatch must fail the request")
 		require.True(t, isCached(runtime, appId),
 			"the guest never ran, so the module must stay cached (iteration %d)", i)
+	}
+}
+
+// TestGuestTableIsBounded verifies that table storage is capped, not just linear
+// memory. Table elements live outside the guest's memory, so an unbounded element
+// count would let a module commit gigabytes regardless of
+// EXECUTOR_MAX_GUEST_MEMORY_BYTES — falsifying the
+// "MaxCachedModules * MaxGuestMemoryBytes" sizing rule the config documents.
+func TestGuestTableIsBounded(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(hugeTableWat)
+	require.NoError(t, err)
+
+	_, _, err = runtime.LoadModule(context.Background(), common.NewApplicationId(1), wasmBytes)
+	require.Error(t, err, "a table far above the element limit must be rejected")
+}
+
+// TestAllocateSignatureMismatchKeepsModuleCached is the writeToMemory counterpart to
+// TestSignatureMismatchKeepsModuleCached: Func.Call rejects a mismatched argument
+// list before entering wasm, so nothing executed and the module must stay cached
+// rather than be recompiled on every request.
+func TestAllocateSignatureMismatchKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(wrongArityAllocateWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		_, _, _, _, _, _, failure := runtime.ProcessRequest(
+			ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+		require.NotNil(t, failure, "writing to guest memory must fail")
+		require.True(t, isCached(runtime, appId),
+			"allocate having the wrong signature is a static defect: the guest never ran (iteration %d)", i)
 	}
 }
 

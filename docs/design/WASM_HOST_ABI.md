@@ -97,6 +97,14 @@ exchanges guest pointers as **signed** 32-bit offsets, so no valid offset may re
 `EXECUTOR_MAX_GUEST_MEMORY_BYTES`; size the two together. A guest exceeding the cap
 sees `memory.grow` fail.
 
+**Table storage is bounded separately.** Table elements do not live in linear memory,
+so the cap above does not cover them — an unbounded element count would let a module
+commit gigabytes regardless of the memory setting (measured: ~390 MB resident from a
+50M-entry funcref table under a 64 KiB memory cap). The store limiter therefore also
+pins the element count and table count, adding at most a few tens of MiB per module,
+which is why the sizing rule above still holds. A guest declaring more fails to
+instantiate.
+
 **The accepted WASM feature set is pinned explicitly**, not inherited from whatever
 Wasmtime enables by default, because the Executor re-executes guest code and commits
 the result on-chain. A module using a disabled proposal fails to compile.

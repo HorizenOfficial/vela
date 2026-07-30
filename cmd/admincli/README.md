@@ -123,10 +123,11 @@ variable (default `0`).
 
 Note that this limit governs enclave RAM usage together with
 `EXECUTOR_MAX_GUEST_MEMORY_BYTES`, the per-guest linear memory cap (default and
-maximum `2 GiB`): worst-case usage is roughly the product of the two. When
-raising the cache size at runtime, check the result against the enclave's memory
-budget. The memory cap itself is start-up only and cannot be tuned via the admin
-CLI.
+maximum `2 GiB`): worst-case usage is roughly the product of the two, plus a small
+fixed allowance per module for WASM table storage, which lives outside linear
+memory and is capped separately. When raising the cache size at runtime, check the
+result against the enclave's memory budget. The memory cap itself is start-up only
+and cannot be tuned via the admin CLI.
 
 ### Targets
 
