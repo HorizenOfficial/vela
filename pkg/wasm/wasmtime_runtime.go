@@ -21,12 +21,129 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	"github.com/bytecodealliance/wasmtime-go"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
 // Address is a local definition of a 20-byte address.
 type Address [20]byte
+
+// maxGuestMemoryCeilingBytes is both the default and the maximum allowed value
+// for the per-guest linear memory cap. The runtime refuses growth beyond the
+// cap (the guest sees a failed memory.grow), protecting the enclave's fixed
+// RAM from a buggy or malicious app. The 2 GiB ceiling is a hard ABI
+// constraint: the host exchanges guest pointers as signed int32 offsets (see
+// writeToMemory and extractResultBytes), so no guest offset may reach 2 GiB.
+//
+// Defined in pkg/common so that pkg/executor's config validation checks the same
+// number without importing this package (and with it libwasmtime).
+const maxGuestMemoryCeilingBytes = common.MaxGuestMemoryCeilingBytes
+
+// Per-store resource limits passed to wasmtime's store limiter.
+const (
+	// maxInstancesPerStore and maxMemoriesPerStore pin the counts the guest
+	// memory cap is accounted against. The cap is enforced per linear memory,
+	// not per store, so without these a guest declaring N memories could use N
+	// times the cap and break the enclave RAM budget documented in
+	// pkg/executor.Config (MaxCachedModules * MaxGuestMemoryBytes). Each store
+	// holds exactly one instance with its single exported memory.
+	maxInstancesPerStore = 1
+	maxMemoriesPerStore  = 1
+
+	// maxTablesPerStore and maxTableElementsPerStore bound table storage, which
+	// the memory cap does NOT cover: table elements live outside the guest's linear
+	// memory, so an unbounded element count escapes EXECUTOR_MAX_GUEST_MEMORY_BYTES
+	// entirely. Measured on this branch before the bound existed: a module declaring
+	// a 50M-entry funcref table committed ~390 MB resident under a 64 KiB memory
+	// cap, which is why the sizing rule needs tables bounded too.
+	//
+	// At roughly 8 bytes per funcref entry the worst case here is about 32 MiB of
+	// table storage per store — negligible beside the 2 GiB memory ceiling, and
+	// four orders of magnitude above what real guests use (the TinyGo guests in
+	// app/simple and vela-nova instantiate with a limit of 100). A guest exceeding
+	// either bound fails to instantiate, loudly, naming the limit.
+	maxTablesPerStore        = 4
+	maxTableElementsPerStore = 1_000_000
+)
+
+// errGuestFault is a sentinel, used with errors.Is, that distinguishes failures
+// caused by the guest itself — a trap, or an allocation it could not satisfy —
+// from host-side failures such as a nil store or a missing export. The three
+// failure classes and their effect on the cache are summarised in
+// docs/design/WASM_HOST_ABI.md. Only the
+// former mean the guest's heap is in an unknown state and the module must be
+// dropped from the cache (see evictFaultedModule); recompiling a module that is
+// simply missing an export would repeat on every request forever.
+//
+// The test is whether guest code actually ran, NOT whether the failure looks
+// deterministic. A missing export, an export whose signature does not match the
+// host ABI (see isGuestTrap), or a nil store all mean nothing executed and no heap
+// was touched, so a fresh instance provably cannot behave differently — those stay
+// cached.
+//
+// A result the host cannot parse (see the json.Unmarshal sites) is the ambiguous
+// case, and is deliberately treated as a fault even though a broken serializer
+// would fail identically on every request: the guest did run, and did write that
+// buffer, so the host cannot distinguish a deterministic serialization defect
+// (where the recompile is wasted) from a heap bug that clobbered the result
+// (where reusing the instance is dangerous). The costs are asymmetric — being
+// wrong here spends one recompile per request on an app that is already failing
+// every request, whereas being wrong the other way lets the next request run on a
+// damaged heap and possibly commit a plausible-but-incorrect state root on-chain.
+var errGuestFault = errors.New("guest fault")
+
+// guestFaultError tags an error as a guest fault while leaving its message
+// untouched. The message is deliberately preserved byte for byte: it reaches the
+// signed, on-chain ErrorMsg (see buildErrorPayload in pkg/executor), so an
+// internal reclassification must not change what gets signed.
+type guestFaultError struct{ err error }
+
+func (e *guestFaultError) Error() string        { return e.err.Error() }
+func (e *guestFaultError) Unwrap() error        { return e.err }
+func (e *guestFaultError) Is(target error) bool { return target == errGuestFault }
+
+// asGuestFault marks err as caused by the guest. See errGuestFault.
+func asGuestFault(err error) error { return &guestFaultError{err: err} }
+
+// isGuestTrap reports whether an error from wasmtime Func.Call means the guest
+// actually ran and faulted, rather than the host failing to invoke it at all.
+//
+// Call validates the argument list before entering wasm and rejects a mismatched
+// arity or value kind up front ("too many arguments provided", "integer provided
+// for non-integer argument", or an error from wasmtime_func_call), so a module
+// whose export does not match the host ABI fails here without executing a single
+// instruction. That is a static defect, in the same class as a missing export: the
+// module stays cached, because recompiling cannot change its signature. Only a
+// genuine trap — surfaced as *wasmtime.Trap — means the heap is in an unknown
+// state. See errGuestFault.
+//
+// Note that only the deploy export's signature is exercised at deploy time, so an
+// app built against a stale host ABI can deploy successfully and then fail this
+// check on every request.
+func isGuestTrap(err error) bool {
+	var trap *wasmtime.Trap
+	return errors.As(err, &trap)
+}
+
+// newModuleStore creates a per-module store with the guest memory cap applied.
+// Must be called with moduleLock held (write lock), which also guards
+// maxGuestMemoryBytes.
+func (r *WasmtimeRuntime) newModuleStore() *wasmtime.Store {
+	store := wasmtime.NewStore(r.engine)
+	// Signature: Limiter(memorySize, tableElements, instances, tables, memories).
+	// Multi-memory is also disabled at the engine level (see newPinnedEngine);
+	// maxMemoriesPerStore is the second half of that defence. Every limit is pinned
+	// — nothing is left at the engine default — because each unpinned dimension is
+	// RAM a guest can consume outside the memory cap.
+	store.Limiter(
+		r.maxGuestMemoryBytes,
+		maxTableElementsPerStore,
+		maxInstancesPerStore,
+		maxTablesPerStore,
+		maxMemoriesPerStore,
+	)
+	return store
+}
 
 // ApplicationModule contains the compiled module, its instantiated instance,
 // the module-specific store, the exported memory, and convenience handles.
@@ -50,6 +167,20 @@ func (m *ApplicationModule) Close() {
 			m.cleanupFds()
 		}
 
+		// Explicitly release the native wasmtime state instead of waiting for a
+		// Go GC finalizer pass: the Go GC does not see the weight of the guest
+		// linear memory held by the store, so relying on finalizers can keep
+		// hundreds of MB allocated inside the enclave long after eviction.
+		// Closing the store frees the instance, its memory and funcs; closing
+		// the module frees the compiled code. Both are safe to call once here
+		// because the runtime never uses an ApplicationModule after Close.
+		if m.store != nil {
+			m.store.Close()
+		}
+		if m.module != nil {
+			m.module.Close()
+		}
+
 		// Clear references to WASM resources
 		m.instance = nil
 		m.module = nil
@@ -68,6 +199,154 @@ type WasmtimeRuntime struct {
 	maxCachedModules int                                        // 0 = unlimited
 	accessOrder      *list.List                                 // LRU order: front = most recent, back = least recent
 	accessElements   map[common.ApplicationIdType]*list.Element // O(1) lookup into accessOrder
+	// maxGuestMemoryBytes caps the linear memory of each guest store created
+	// from now on; always in (0, maxGuestMemoryCeilingBytes]. Guarded by moduleLock.
+	maxGuestMemoryBytes int64
+
+	// execLock serializes guest execution against module teardown. It is held for
+	// the whole duration of every operation that runs guest code or closes a
+	// module, so a store can never be freed while another goroutine is calling
+	// into it.
+	//
+	// moduleLock alone is not sufficient: Deposit and ProcessRequest look the
+	// module up under moduleLock but release it before calling into the guest, so
+	// a concurrent load for a different appId could pick that same module as the
+	// LRU eviction victim and close its store mid-call. Since Close frees the
+	// native wasmtime state immediately rather than at a GC finalizer pass, that
+	// is a use-after-free — a native segfault inside the enclave.
+	//
+	// The transport dispatches every inbound message in its own goroutine (see
+	// pkg/communication/shared_impl.go), so the only thing preventing this today
+	// is that the manager happens to submit one request at a time — an invariant
+	// no code enforces. This makes the serialization explicit, and costs nothing
+	// while execution is serial anyway.
+	//
+	// Lock ordering: acquire execLock BEFORE moduleLock, never the reverse, and
+	// never acquire it from a function that already holds moduleLock.
+	//
+	// REQUIREMENT for holding it across a guest call: a host import must never
+	// re-enter this runtime. Today that is structural — only WASI is defined on the
+	// linker, so guest code has no path back into Go — but it becomes a constraint
+	// the moment host functions are added (a host-crypto bridge is already
+	// specified). A host import that took moduleLock, called getOrLoadModule, or
+	// otherwise re-entered would deadlock immediately, with execLock held and
+	// nothing bounding the request. Host imports must therefore stay leaf
+	// functions: read guest memory, compute, write guest memory, return.
+	//
+	// TODO: when per-goroutine instances land (see the TODOs in
+	// app/simple/integration_test.go), replace this with refcounting the live
+	// calls per module and deferring Close until the last caller finishes, so
+	// that independent apps can execute in parallel.
+	execLock sync.Mutex
+}
+
+// newPinnedEngine builds the wasmtime engine with an explicitly pinned WASM
+// feature set instead of inheriting wasmtime's defaults.
+//
+// Rationale: the executor re-executes guest code inside the enclave and the
+// resulting state is committed on-chain, so the set of accepted WASM features
+// is part of this system's observable behaviour. Tracking upstream defaults
+// would silently widen it on every dependency bump (the modern default set is
+// much wider than the v1.0 one this replaced) and would admit features whose
+// results are host-dependent. Every WASM *feature* knob the wasmtime-go API
+// exposes is therefore set here explicitly: adding a proposal must be a
+// deliberate, reviewed change.
+//
+// "Every feature knob" is meant literally: as of v47 the wrapped Set* methods this
+// does NOT call are execution-bounding (SetConsumeFuel, SetEpochInterruption,
+// SetMaxWasmStack — see the TODO below) or compiler/tuning knobs (strategy, opt
+// level, profiler, debug info, unwind info, parallel compilation, COW init, target,
+// Cranelift flags), none of which change the accepted feature set. Verify with:
+//
+//	B=$(go env GOMODCACHE)/github.com/bytecodealliance/wasmtime-go/v47@v47.0.0
+//	grep -ho 'func (cfg \*Config) Set[A-Za-z0-9]*' $B/config*.go | sed 's/.*Config) //' | sort -u
+//
+// Caveat: the C API also carries flags that wasmtime-go does not wrap at all, so they
+// cannot be pinned from Go and stay at their upstream defaults — as of v47 those are
+// shared_memory, branch hinting, custom page sizes, stack switching, and the
+// component-model sub-flags, all documented false by default. shared_memory is worth
+// singling out: it gates shared-memory creation, the same per-memory RAM-accounting
+// concern the threads pin addresses, so it is unpinnable rather than unimportant.
+// Re-run the grep above when bumping, in case the bindings start exposing more.
+//
+// TODO: bound guest execution. The execution-bounding knobs (SetConsumeFuel,
+// SetEpochInterruption, SetMaxWasmStack) are all left at their defaults, i.e.
+// guest execution is currently unbounded — called out explicitly so this is not
+// mistaken for a decision that they were considered and rejected. A guest in an
+// infinite loop runs forever, and because execLock is held across guest calls it
+// blocks every later request for every app until the enclave is restarted; Close
+// only avoids hanging shutdown by giving up after shutdownExecLockTimeout, and
+// the trap-eviction path cannot help because a runaway guest never traps. Add
+// SetEpochInterruption here plus a watchdog incrementing the epoch, and arm a
+// per-call deadline on each store. Tracked as a separate task (epoch
+// interruption, with host-enforced fuel depending on it); it is a prerequisite
+// for those rather than an enhancement.
+//
+// Enabled features are the ones TinyGo emits, all deterministic per spec.
+// Disabled ones are either host-dependent (relaxed SIMD), incompatible with the
+// host ABI (memory64 widens guest pointers past the int32 offsets used by
+// writeToMemory/extractResultBytes), incompatible with the enclave RAM budget
+// (multi-memory, threads' shared memories), or simply unused surface.
+//
+// NOTE: when bumping wasmtime, check the release notes for newly added
+// proposals and pin them here too.
+func newPinnedEngine() *wasmtime.Engine {
+	config := wasmtime.NewConfig()
+
+	// --- Enabled: required by TinyGo-generated modules, deterministic ---
+	config.SetWasmBulkMemory(true)     // memory.copy / memory.fill
+	config.SetWasmMultiValue(true)     // multi-result functions
+	config.SetWasmReferenceTypes(true) // funcref tables behind call_indirect
+	config.SetWasmSIMD(true)           // fixed-width SIMD: results are spec-defined
+
+	// --- Disabled: host-dependent results ---
+	// Relaxed SIMD instructions are explicitly allowed to differ between host
+	// architectures, which would make guest results depend on the machine the
+	// enclave runs on. Deterministic mode is set too, so that enabling the proposal
+	// later cannot reintroduce host-dependent results by omission — the requirement
+	// is enforced here rather than left as a note.
+	config.SetWasmRelaxedSIMD(false)
+	config.SetWasmRelaxedSIMDDeterministic(true)
+
+	// --- Disabled: incompatible with the host ABI or the RAM budget ---
+	config.SetWasmMemory64(false)    // guest pointers must stay in int32 range
+	config.SetWasmMultiMemory(false) // one memory per store, see newModuleStore
+	config.SetWasmThreads(false)     // shared memories escape the per-store cap
+
+	// --- Disabled: unused surface ---
+	config.SetWasmTailCall(false)
+	config.SetWasmFunctionReferences(false)
+	config.SetWasmGC(false)
+	config.SetWasmWideArithmetic(false)
+	config.SetWasmExceptions(false)
+	config.SetWasmComponentModel(false)
+
+	// --- Disabled: whole runtime subsystems we do not use ---
+	// Not WASM proposals but engine-wide capabilities.
+	//
+	// SetGCSupport(false) narrows what SetWasmReferenceTypes(true) above actually
+	// admits: externref values need the GC subsystem, so a module merely declaring
+	// an externref parameter is rejected (verified, see
+	// TestPinnedEngineRejectsDisabledProposals). Funcref — what TinyGo emits for
+	// call_indirect — is unaffected.
+	//
+	// This is a deliberate narrowing rather than a no-op pin, and it rests on a
+	// requirement: no host import may take or return externref. That holds trivially
+	// today (WASI is the only import surface) and must keep holding as host
+	// functions are added — the specified host-crypto bridge passes only i32
+	// pointers and lengths. Flip this to true, in the same change, if some host
+	// import ever needs to hand a guest an opaque host reference.
+	config.SetGCSupport(false)
+	config.SetConcurrencySupport(false)
+
+	// Replace NaN payloads with a single canonical value. Not required by the
+	// WASM spec and off by default, but NaN bit patterns are otherwise
+	// host-dependent, which is the same reproducibility concern as relaxed SIMD.
+	// Costs a few percent on float-heavy guests; the guests here are state
+	// machines, so the trade is worth it.
+	config.SetCraneliftNanCanonicalization(true)
+
+	return wasmtime.NewEngineWithConfig(config)
 }
 
 // NewWasmtimeRuntime creates a new wasmtime runtime instance.
@@ -75,16 +354,17 @@ type WasmtimeRuntime struct {
 func NewWasmtimeRuntime(log logger.Logger, maxCachedModules int) *WasmtimeRuntime {
 	log.Info("Runtime: Initializing wasmtime runtime (maxCachedModules=%d)", maxCachedModules)
 
-	// Create a new engine with default configuration
-	engine := wasmtime.NewEngine()
+	// Create the engine with an explicitly pinned WASM feature set
+	engine := newPinnedEngine()
 
 	return &WasmtimeRuntime{
-		engine:           engine,
-		modules:          make(map[common.ApplicationIdType]*ApplicationModule),
-		log:              log,
-		maxCachedModules: maxCachedModules,
-		accessOrder:      list.New(),
-		accessElements:   make(map[common.ApplicationIdType]*list.Element),
+		engine:              engine,
+		modules:             make(map[common.ApplicationIdType]*ApplicationModule),
+		log:                 log,
+		maxCachedModules:    maxCachedModules,
+		accessOrder:         list.New(),
+		accessElements:      make(map[common.ApplicationIdType]*list.Element),
+		maxGuestMemoryBytes: maxGuestMemoryCeilingBytes,
 	}
 }
 
@@ -159,24 +439,33 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 	// Call allocate in the module's store context
 	rawRes, err := allocateFunc.Call(module.store, int32(len(data)))
 	if err != nil {
-		return 0, fmt.Errorf("failed to call allocate: %w", err)
+		// Only a trap means the guest ran: an allocate whose signature does not match
+		// the host ABI is rejected before entering wasm, which is a static module
+		// defect that must stay cached rather than be recompiled every request. Same
+		// rule as the other Func.Call sites, see isGuestTrap.
+		wrapped := fmt.Errorf("failed to call allocate: %w", err)
+		if isGuestTrap(err) {
+			return 0, asGuestFault(wrapped)
+		}
+		return 0, wrapped
 	}
 
 	ptr, err := toInt32(rawRes)
 	if err != nil {
-		return 0, fmt.Errorf("allocate returned unexpected value: %w", err)
+		return 0, asGuestFault(fmt.Errorf("allocate returned unexpected value: %w", err))
 	}
 	if ptr == 0 {
-		return 0, fmt.Errorf("allocate returned null pointer (0)")
+		return 0, asGuestFault(fmt.Errorf("allocate returned null pointer (0)"))
 	}
 
 	// Safely get a snapshot of the memory data and perform bounds checks
 	memData := module.memory.UnsafeData(module.store)
-	// note: the wasmtime uses a doubling of the store size when more memory is required and the UnsafeData() panics if we use a 4GB size.
-	// As a consequence we can not have more than 2GB of memory allocated.
-	// In other words: When the internal store grows from 2 GB -> 4 GB, UnsafeData call suddenly fails, but we are not actually running
-	// out of Wasm memory, we are hitting a Go-side API limitation caused by Wasmtime’s internal buffer resize.
-	// As a side effect we also could safely use an int32 ptr as the offset (avoid using uint32 cast)
+	// note: guest memory is capped at <= maxGuestMemoryCeilingBytes (2 GiB) via the
+	// store's Limiter (see newModuleStore), so every guest offset fits in a positive
+	// int32 and we can use the returned ptr directly without an unsigned cast.
+	// (The wasmtime-go v1 limitation where UnsafeData panicked when memory reached
+	// 4 GiB is gone — v42 onwards builds the slice with unsafe.Slice — the bound below is
+	// the deliberate cap, not an API workaround.)
 
 	// Convert the signed int32 pointer to its true unsigned 32-bit value (uint32)
 	// This correctly interprets the bits of an address as a large positive number.
@@ -189,7 +478,7 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 	allocEnd := uint64(uPtr) + uint64(len(data)) // The end address of the requested block
 
 	if uint64(uPtr) >= memLen || allocEnd > memLen {
-		return 0, fmt.Errorf("invalid memory allocation: requested block [%d - %d) exceeds memory size %d", uPtr, allocEnd, memLen)
+		return 0, asGuestFault(fmt.Errorf("invalid memory allocation: requested block [%d - %d) exceeds memory size %d", uPtr, allocEnd, memLen))
 	}
 
 	copy(memData[uPtr:uPtr+uint32(len(data))], data)
@@ -230,6 +519,10 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.Appl
 
 // LoadModule loads a WASM module and returns initial state and state root
 func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
+	// Runs guest code (load_module) and may evict/close other modules.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
@@ -252,18 +545,37 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	}
 
 	// Create a per-module store
-	store := wasmtime.NewStore(r.engine)
-	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
+	store := r.newModuleStore()
+
+	// Registered as early as possible — immediately after the store exists and
+	// BEFORE configureWasiLogPipes — so that every failure path from here on
+	// releases the native state, including a log-pipe failure (mkfifo/open),
+	// which would otherwise fall back to a finalizer. cleanupLogPipes is declared
+	// up front and nil-checked, since it is only assigned below.
+	success := false
+	var cleanupLogPipes func()
+	defer func() {
+		if success {
+			return
+		}
+		if cleanupLogPipes != nil {
+			cleanupLogPipes()
+		}
+		// Release the native state explicitly on every failure path, for the same
+		// reason ApplicationModule.Close does it on eviction: the Go GC does not
+		// see the guest linear memory held by the store, so leaving it to a
+		// finalizer can keep hundreds of MB alive inside the enclave. Nothing else
+		// can close these — the module never reaches r.modules on these paths.
+		// This function registers no deallocate defers, so there is no ordering
+		// constraint here; deployUnlocked does, and relies on LIFO for it.
+		store.Close()
+		module.Close()
+	}()
+
+	cleanupLogPipes, err = r.configureWasiLogPipes(ctx, appId, store)
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
 	}
-
-	success := false
-	defer func() {
-		if !success && cleanupLogPipes != nil {
-			cleanupLogPipes()
-		}
-	}()
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
@@ -368,6 +680,10 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 // instantiate without calling any guest function, eliminating the unnecessary load_module
 // guest call during cache warm-up.
 func (r *WasmtimeRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
+	// Runs guest code (deploy) and may evict/close other modules.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
@@ -390,18 +706,37 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 	}
 
 	// Create a per-module store
-	store := wasmtime.NewStore(r.engine)
-	cleanupLogPipes, err := r.configureWasiLogPipes(ctx, appId, store)
+	store := r.newModuleStore()
+
+	// Registered as early as possible — immediately after the store exists and
+	// BEFORE configureWasiLogPipes — so that every failure path from here on
+	// releases the native state, including a log-pipe failure (mkfifo/open),
+	// which would otherwise fall back to a finalizer. cleanupLogPipes is declared
+	// up front and nil-checked, since it is only assigned below.
+	success := false
+	var cleanupLogPipes func()
+	defer func() {
+		if success {
+			return
+		}
+		if cleanupLogPipes != nil {
+			cleanupLogPipes()
+		}
+		// Release the native state explicitly on every failure path, for the same
+		// reason ApplicationModule.Close does it on eviction: the Go GC does not
+		// see the guest linear memory held by the store, so leaving it to a
+		// finalizer can keep hundreds of MB alive inside the enclave. Nothing else
+		// can close these — the module never reaches r.modules on these paths.
+		// Registered before any deallocate defers below, so LIFO runs this last,
+		// after those have finished using the store.
+		store.Close()
+		module.Close()
+	}()
+
+	cleanupLogPipes, err = r.configureWasiLogPipes(ctx, appId, store)
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
 	}
-
-	success := false
-	defer func() {
-		if !success && cleanupLogPipes != nil {
-			cleanupLogPipes()
-		}
-	}()
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
@@ -481,13 +816,16 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 		return nil, big.NewInt(0), fmt.Errorf("failed to deploy module: %s", deployResult.Error)
 	}
 
-	success = true // Disables the deferred cleanup
-
 	// A module for this appId should not exist at deploy time. If it does,
-	// it indicates a duplicate deploy or an unexpected state.
+	// it indicates a duplicate deploy or an unexpected state. Checked BEFORE
+	// success is set, so this path still runs the deferred cleanup: the module
+	// never enters r.modules, so nothing else would ever close its log FIFOs
+	// (leaking the fds and the log-forwarding goroutine).
 	if _, exists := r.modules[appId]; exists {
 		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
 	}
+
+	success = true // Disables the deferred cleanup
 
 	// Store the module in the runtime registry and update LRU
 	r.modules[appId] = appModule
@@ -509,6 +847,12 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, *big.Int, *apperrors.RequestFailure) {
 	r.log.Info("Wasmtime Runtime: Processing deposit for application %d (token: %v, value: %v wei for sender: %v)", appId, tokenAddress, depositAmount, sender)
 
+	// Held across the guest call: the module is fetched under moduleLock but
+	// executed after releasing it, so only execLock keeps a concurrent eviction
+	// from closing this store mid-call.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	if depositAmount == nil {
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, "value cannot be nil")
 	}
@@ -526,6 +870,18 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("failed to get or load module: %v", err))
 	}
 
+	// Drop the module if the guest faults: its heap is left in an unknown state
+	// and must not serve the next request (see evictFaultedModule). Registered
+	// BEFORE the deallocate defers below so that, defers being LIFO, the store is
+	// closed only after those have run — closing it first would leave them
+	// calling into freed memory.
+	guestFaulted := false
+	defer func() {
+		if guestFaulted {
+			r.evictFaultedModule(appId)
+		}
+	}()
+
 	// Get the deposit function
 	depositFunc := appModule.instance.GetFunc(appModule.store, "deposit")
 	if depositFunc == nil {
@@ -535,6 +891,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write sender to memory: %v", err))
 	}
 	if appModule.deallocate != nil && senderPtr != 0 {
@@ -544,6 +901,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	tokenBytes := tokenAddress.Bytes()
 	tokenPtr, err := r.writeToMemory(appModule, tokenBytes)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write token address to memory: %v", err))
 	}
 	if appModule.deallocate != nil && tokenPtr != 0 {
@@ -552,6 +910,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
@@ -561,6 +920,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	valueBytes := depositAmount.Bytes()
 	valuePtr, err := r.writeToMemory(appModule, valueBytes)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write value to memory: %v", err))
 	}
 	if appModule.deallocate != nil && valuePtr != 0 {
@@ -570,12 +930,17 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	// Guest ABI: deposit(appId, senderPtr, senderLen, tokenPtr, tokenLen, valuePtr, valueLen, statePtr, stateLen)
 	result, err := depositFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), tokenPtr, int32(len(tokenBytes)), valuePtr, int32(len(valueBytes)), statePtr, int32(len(state)))
 	if err != nil {
-		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, fmt.Sprintf("failed to call deposit: %v", err)) // TODO some standard way of getting errors here?
+		// A trap means the guest ran and faulted; an argument-list rejection means
+		// it never started (see isGuestTrap).
+		guestFaulted = isGuestTrap(err)
+		// TODO some standard way of getting errors here?
+		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeDepositFailed, fmt.Sprintf("failed to call deposit: %v", err))
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest-provided pointer, not a host-side problem
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
 	}
 
@@ -584,6 +949,7 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	// Deserialize the result
 	var depositResult appCommon.DepositResult
 	if err := json.Unmarshal(resultBytes, &depositResult); err != nil {
+		guestFaulted = true // guest produced a result the host cannot parse
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal deposit result: %v", err))
 	}
 
@@ -600,6 +966,12 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	r.log.Info("Wasmtime Runtime: Processing request for application %d (type: %s, payload size: %d, state size: %d)", appId, requestType, len(payload), len(state))
 
+	// Held across the guest call: the module is fetched under moduleLock but
+	// executed after releasing it, so only execLock keeps a concurrent eviction
+	// from closing this store mid-call.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	wasmAppId, err := ToWasmType(appId)
 	if err != nil {
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("invalid application id: %v", err))
@@ -615,6 +987,19 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, fmt.Sprintf("failed to get or load module: %v", err))
 	}
 
+	// Drop the module if the guest faults: its heap is left in an unknown state
+	// and must not serve the next request (see evictFaultedModule). Registered
+	// BEFORE the deallocate defers below so that, defers being LIFO, the store is
+	// closed only after those have run — closing it first would leave them
+	// calling into freed memory. Covers both the TrustProcess branch and the
+	// process_request path.
+	guestFaulted := false
+	defer func() {
+		if guestFaulted {
+			r.evictFaultedModule(appId)
+		}
+	}()
+
 	// TRUSTPROCESS dispatch (Phase 11.1): TrustProcess requests are routed to the
 	// dedicated `trusted_request` WASM export, which takes NEITHER sender (the
 	// trusted path never reads it) NOR request_type (implicit for this export).
@@ -628,6 +1013,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		// No sender write (D-05). Only payload + state are passed to the guest.
 		payloadPtr, err := r.writeToMemory(appModule, payload)
 		if err != nil {
+			guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write payload to memory: %v", err))
 		}
 		if appModule.deallocate != nil && payloadPtr != 0 {
@@ -636,6 +1022,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 		statePtr, err := r.writeToMemory(appModule, state)
 		if err != nil {
+			guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
 		}
 		if appModule.deallocate != nil && statePtr != 0 {
@@ -645,16 +1032,19 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		// Guest ABI: trusted_request(appId, payloadPtr, payloadLen, statePtr, stateLen)
 		result, err := trustedFunc.Call(appModule.store, wasmAppId, payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 		if err != nil {
+			guestFaulted = isGuestTrap(err) // false when the guest never started, see isGuestTrap
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call trusted_request: %v", err))
 		}
 
 		resultBytes, err := r.extractResultBytes(result, appModule)
 		if err != nil {
+			guestFaulted = errors.Is(err, errGuestFault) // guest-provided pointer, not a host-side problem
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
 		}
 
 		var processResult appCommon.ProcessResult
 		if err := json.Unmarshal(resultBytes, &processResult); err != nil {
+			guestFaulted = true // guest produced a result the host cannot parse
 			return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal process result: %v", err))
 		}
 		if processResult.Error != "" {
@@ -674,6 +1064,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	senderBytes := sender.Bytes()
 	senderPtr, err := r.writeToMemory(appModule, senderBytes)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write sender to memory: %v", err))
 	}
 	if appModule.deallocate != nil && senderPtr != 0 {
@@ -682,6 +1073,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	payloadPtr, err := r.writeToMemory(appModule, payload)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write payload to memory: %v", err))
 	}
 	if appModule.deallocate != nil && payloadPtr != 0 {
@@ -690,6 +1082,7 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 
 	statePtr, err := r.writeToMemory(appModule, state)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest alloc fault, not a host-side problem
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeMemoryWriteError, fmt.Sprintf("failed to write state to memory: %v", err))
 	}
 	if appModule.deallocate != nil && statePtr != 0 {
@@ -701,18 +1094,21 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 	// requestType is passed as int32 to the WASM module
 	result, err := processRequestFunc.Call(appModule.store, wasmAppId, senderPtr, int32(len(senderBytes)), int32(requestType), payloadPtr, int32(len(payload)), statePtr, int32(len(state)))
 	if err != nil {
+		guestFaulted = isGuestTrap(err) // false when the guest never started, see isGuestTrap
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("failed to call process_request: %v", err))
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault) // guest-provided pointer, not a host-side problem
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedExtractingResultBytes, fmt.Sprintf("failed to extract wasm module result bytes: %v", err))
 	}
 
 	// Deserialize the result
 	var processResult appCommon.ProcessResult
 	if err := json.Unmarshal(resultBytes, &processResult); err != nil {
+		guestFaulted = true // guest produced a result the host cannot parse
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeJsonUnmarshalError, fmt.Sprintf("failed to unmarshal process result: %v", err))
 	}
 
@@ -728,16 +1124,16 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 	// ---- Panic shield: NEVER let guest crash the host ----
 	defer func() {
 		if rec := recover(); rec != nil {
-			err = fmt.Errorf("panic while extracting wasm result: %v", rec)
+			err = asGuestFault(fmt.Errorf("panic while extracting wasm result: %v", rec))
 		}
 	}()
 
 	ptr, err := toInt32(result)
 	if err != nil {
-		return nil, fmt.Errorf("wasm module returned unexpected type for result pointer: %w", err)
+		return nil, asGuestFault(fmt.Errorf("wasm module returned unexpected type for result pointer: %w", err))
 	}
 	if ptr == 0 {
-		return nil, fmt.Errorf("wasm module returned null pointer")
+		return nil, asGuestFault(fmt.Errorf("wasm module returned null pointer"))
 	}
 
 	if appModule == nil || appModule.store == nil || appModule.memory == nil {
@@ -749,7 +1145,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 
 	start := int(ptr)
 	if start < 0 || start+4 > memLen {
-		return nil, fmt.Errorf("invalid memory access for length prefix")
+		return nil, asGuestFault(fmt.Errorf("invalid memory access for length prefix"))
 	}
 
 	// ---- Read length prefix ----
@@ -759,7 +1155,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 		if appModule.deallocate != nil {
 			_, _ = appModule.deallocate.Call(appModule.store, ptr, int32(4))
 		}
-		return nil, fmt.Errorf("empty result from wasm module")
+		return nil, asGuestFault(fmt.Errorf("empty result from wasm module"))
 	}
 
 	// TODO consider using this limit for increasing safety (to be defined as a constant somewhere)
@@ -773,12 +1169,12 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 
 	// Prevent int overflow
 	if dataLen > uint32(math.MaxInt32-4) {
-		return nil, fmt.Errorf("result length overflows int")
+		return nil, asGuestFault(fmt.Errorf("result length overflows int"))
 	}
 
 	totalLen := int(dataLen) + 4
 	if start+totalLen > memLen {
-		return nil, fmt.Errorf("invalid memory access for payload")
+		return nil, asGuestFault(fmt.Errorf("invalid memory access for payload"))
 	}
 
 	// ---- Copy payload ----
@@ -794,7 +1190,7 @@ func (r *WasmtimeRuntime) extractResultBytes(result interface{}, appModule *Appl
 
 	// ---- Detect guest serialization failure sentinel ----
 	if string(out) == appCommon.WasmSerializationError {
-		return nil, fmt.Errorf("wasm module failed to serialize response/error")
+		return nil, asGuestFault(fmt.Errorf("wasm module failed to serialize response/error"))
 	}
 
 	return out, nil
@@ -840,14 +1236,105 @@ func (r *WasmtimeRuntime) removeFromAccessOrder(appId common.ApplicationIdType) 
 }
 
 // cleanupModule releases all resources associated with a single ApplicationModule.
+//
+// CONCURRENCY: module.Close() calls store.Close(), which frees the native
+// wasmtime state immediately (rather than at a GC finalizer pass), so it must
+// never run while another goroutine is calling into that store — that would be a
+// use-after-free, i.e. a native segfault inside the enclave. Callers must hold
+// BOTH execLock and moduleLock: moduleLock alone does not cover the guest call,
+// because Deposit and ProcessRequest execute after releasing it. See the execLock
+// declaration for the full rationale and for what needs to change here to allow
+// concurrent execution (refcounting live calls per module).
 func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *ApplicationModule) {
 	r.log.Info("Cleaning up module %d", appId)
 	module.Close()
 }
 
+// shutdownExecLockTimeout bounds how long Close waits for an in-flight guest
+// call before giving up and shutting down without releasing wasm resources.
+//
+// The value only trades shutdown latency against how often teardown is skipped:
+// a guest call still running at the deadline is abandoned, which is harmless
+// because the process is exiting and the OS reclaims the memory anyway. Note that
+// this is NOT dimensioned so that a legitimate request always completes first —
+// nothing bounds guest execution today (see newPinnedEngine), so no timeout could
+// guarantee that, and a healthy but slow guest can trip it. 5s keeps SIGTERM
+// responsive; raise it only if skipped teardown ever proves to matter.
+const shutdownExecLockTimeout = 5 * time.Second
+
+// tryAcquireExecLock acquires execLock, giving up after timeout. Reports whether
+// it was acquired; the caller must Unlock only when it returns true.
+//
+// Polls because sync.Mutex has no timed acquire. That is acceptable here because
+// this is only used on the shutdown path: the hot paths take execLock directly
+// and block, which is the intended serialization.
+func (r *WasmtimeRuntime) tryAcquireExecLock(timeout time.Duration) bool {
+	const pollInterval = 10 * time.Millisecond
+
+	deadline := time.Now().Add(timeout)
+	for {
+		if r.execLock.TryLock() {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+// evictFaultedModule drops a module from the cache after its guest faulted, so
+// that the next request for that app gets a freshly instantiated one.
+//
+// A trap unwinds the guest without running any of its cleanup, so the instance is
+// left with a heap in an unknown state: whatever was allocated before the trap is
+// never freed and the allocator's own bookkeeping may be inconsistent. Keeping
+// that instance in the LRU means the next request runs on the damaged heap, and
+// the leak accumulates until the module happens to be evicted for capacity. The
+// guest memory cap makes this materially more likely, since exceeding it makes
+// TinyGo panic (a trap) rather than growing memory.
+//
+// Cheap by design: the cost of being wrong here is one recompile plus
+// re-instantiation on the next request for that app.
+//
+// Must be called with execLock held and moduleLock NOT held — it closes the
+// store, see cleanupModule.
+func (r *WasmtimeRuntime) evictFaultedModule(appId common.ApplicationIdType) {
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	module, exists := r.modules[appId]
+	if !exists {
+		return
+	}
+
+	r.log.Warn("Runtime: evicting module %d after a guest fault, it will be reloaded on the next request", appId)
+	r.cleanupModule(appId, module)
+	delete(r.modules, appId)
+	r.removeFromAccessOrder(appId)
+}
+
 // Close closes the wasmtime runtime and cleans up resources
 func (r *WasmtimeRuntime) Close() error {
 	r.log.Info("Wasmtime Runtime: Closing wasmtime runtime")
+
+	// Closes every module and the engine, so it must not overlap an in-flight
+	// guest call. Bounded rather than blocking: guest execution is currently
+	// unbounded (no fuel, no epoch deadline, no stack limit — see
+	// newPinnedEngine), so a runaway guest holds execLock forever and an
+	// unbounded wait here would hang shutdown for good.
+	//
+	// Giving up is safe: skipping teardown only means the native wasmtime state
+	// outlives this call, and the process is about to exit and have it reclaimed
+	// by the OS. Closing the stores anyway would be the use-after-free that
+	// execLock exists to prevent, so a leak-at-exit is strictly the better trade.
+	if !r.tryAcquireExecLock(shutdownExecLockTimeout) {
+		r.log.Error("Wasmtime Runtime: a guest call is still running after %v, "+
+			"shutting down without releasing wasm resources (they are reclaimed on process exit)",
+			shutdownExecLockTimeout)
+		return fmt.Errorf("timed out after %v waiting for in-flight guest execution to finish", shutdownExecLockTimeout)
+	}
+	defer r.execLock.Unlock()
 
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
@@ -859,6 +1346,12 @@ func (r *WasmtimeRuntime) Close() error {
 
 	r.accessOrder.Init()
 	r.accessElements = make(map[common.ApplicationIdType]*list.Element)
+	// Deterministically free the engine's native state (compiled-code caches
+	// etc.). The engine is refcounted at the C level, so any store not tracked
+	// in r.modules keeps its share alive until it is closed or collected.
+	if r.engine != nil {
+		r.engine.Close()
+	}
 	r.engine = nil
 	r.log.Info("Wasmtime Runtime: Wasmtime runtime closed successfully")
 	return nil
@@ -874,6 +1367,10 @@ func (r *WasmtimeRuntime) Close() error {
 // its own lock — Go's sync.RWMutex is not reentrant, so calling one from the
 // other would deadlock.
 func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
+	// Closes a module, so it must not overlap an in-flight guest call.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
@@ -892,9 +1389,13 @@ func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
 }
 
 // SetMaxCachedModules updates the LRU cache limit at runtime.
-// A value of 0 means unlimited. Excess modules are not evicted immediately;
-// eviction happens lazily on the next loadModule call, which is the only path
-// that mutates the module map during normal operation.
+// A value of 0 means unlimited. Excess modules are not evicted immediately: lowering
+// the limit takes effect on the next module load, when evictIfNeeded trims the cache
+// down to it.
+//
+// Do not read that as the load path being the only writer of the module map — a deploy
+// adds to it, and a guest fault removes from it via evictFaultedModule, which happens
+// on any trapping request.
 func (r *WasmtimeRuntime) SetMaxCachedModules(max int) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
@@ -910,6 +1411,33 @@ func (r *WasmtimeRuntime) GetMaxCachedModules() int {
 	return r.maxCachedModules
 }
 
+// SetMaxGuestMemoryBytes updates the per-guest linear memory cap. The cap is
+// applied to stores created from now on; modules already cached keep the cap
+// they were created with. Values <= 0 or above the 2 GiB ABI ceiling are
+// replaced with the ceiling (see maxGuestMemoryCeilingBytes) and reported.
+// Clamps rather than rejecting (unlike pkg/executor.Config.Validate, which fails
+// at start-up) so a late call cannot take a running enclave down.
+func (r *WasmtimeRuntime) SetMaxGuestMemoryBytes(maxBytes int64) {
+	r.moduleLock.Lock()
+	defer r.moduleLock.Unlock()
+
+	if maxBytes <= 0 || maxBytes > maxGuestMemoryCeilingBytes {
+		r.log.Warn("Runtime: requested guest memory cap %d out of range, using ceiling %d", maxBytes, int64(maxGuestMemoryCeilingBytes))
+		maxBytes = maxGuestMemoryCeilingBytes
+	}
+
+	r.log.Info("Runtime: Setting maxGuestMemoryBytes from %d to %d", r.maxGuestMemoryBytes, maxBytes)
+	r.maxGuestMemoryBytes = maxBytes
+}
+
+// GetMaxGuestMemoryBytes returns the per-guest linear memory cap applied to
+// newly created stores.
+func (r *WasmtimeRuntime) GetMaxGuestMemoryBytes() int64 {
+	r.moduleLock.RLock()
+	defer r.moduleLock.RUnlock()
+	return r.maxGuestMemoryBytes
+}
+
 // ToWasmType converts ApplicationIdType (uint64) to the WASM i64 representation
 // (int64). WASM has no unsigned integer types — i64 carries 64 bits regardless of
 // signedness, so the bit pattern passes through unchanged.
@@ -921,10 +1449,24 @@ func ToWasmType(aid common.ApplicationIdType) (int64, error) {
 // the values returned from the wasm guest, without using marshal/unmarshal into json structs.
 // This implementation is here mostly as a reference on how to handle a multireturn exported func
 func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (int64, int64, error) {
+	// Held across the guest call, see the execLock declaration.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
 	}
+
+	// Same rule as the request path: a guest that faults leaves its heap in an unknown
+	// state and must not serve the next call. Registered BEFORE the deallocate defer
+	// below so LIFO closes the store only after that has run.
+	guestFaulted := false
+	defer func() {
+		if guestFaulted {
+			r.evictFaultedModule(appId)
+		}
+	}()
 
 	// Call the WASM function to generate the report
 	statsFunc := appModule.instance.GetFunc(appModule.store, "get_allocated_memory_stats")
@@ -939,22 +1481,33 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 
 	// we allocate a buffer wher the results will be stored
 	const resultSize = 2 * 8 // 2 int64 values, 8 bytes each
-	resultPtrValue, err := allocateFunc.Call(appModule.store, int32(resultSize))
+	rawResultPtr, err := allocateFunc.Call(appModule.store, int32(resultSize))
 	if err != nil {
+		guestFaulted = isGuestTrap(err)
 		return 0, 0, fmt.Errorf("failed to allocate memory for results: %w", err)
 	}
 
-	// ensure we free the input buffer after allocate returns
-	if appModule.deallocate != nil && resultPtrValue != 0 {
+	resultPtr, err := toInt32(rawResultPtr)
+	if err != nil {
+		guestFaulted = true // guest returned a value the ABI does not allow
+		return 0, 0, fmt.Errorf("allocate returned unexpected value: %w", err)
+	}
+	if resultPtr == 0 {
+		guestFaulted = true // guest could not satisfy the allocation
+		return 0, 0, fmt.Errorf("allocate returned null pointer (0)")
+	}
+
+	// ensure we free the result buffer on exit
+	if appModule.deallocate != nil {
 		defer func() {
-			_, _ = appModule.deallocate.Call(appModule.store, resultPtrValue, resultSize)
+			_, _ = appModule.deallocate.Call(appModule.store, resultPtr, int32(resultSize))
 		}()
 	}
 
 	// according to ABI C interface, tinygo uses an inout ptr to store return values, even the signature is different
-	resultPtr := resultPtrValue.(int32) // Get the pointer/address
 	_, err = statsFunc.Call(appModule.store, resultPtr)
 	if err != nil {
+		guestFaulted = isGuestTrap(err)
 		return 0, 0, fmt.Errorf("failed to call func: %w", err)
 	}
 
@@ -962,6 +1515,17 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 
 	// Get the raw byte view of the WASM memory
 	memoryData := appModule.memory.UnsafeData(appModule.store)
+
+	// resultPtr came from the guest's allocate, so validate the whole read window
+	// before slicing: a pointer within resultSize bytes of the end of memory would
+	// otherwise panic the host. Unlike extractResultBytes this function has no
+	// recover shield, so an unchecked slice here takes the process down — see the
+	// "NEVER let guest crash the host" note there.
+	if resultPtr < 0 || int64(resultPtr)+resultSize > int64(len(memoryData)) {
+		guestFaulted = true // guest-supplied pointer outside its own memory
+		return 0, 0, fmt.Errorf("stats result pointer %d out of bounds: %d bytes needed, memory size is %d",
+			resultPtr, resultSize, len(memoryData))
+	}
 
 	// Read the int64 values using binary.LittleEndian
 	mem_size := int64(binary.LittleEndian.Uint64(memoryData[resultPtr : resultPtr+8]))
@@ -977,10 +1541,22 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 
 // retrieves statistics from guest memory allocation (second version)
 func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (int64, int64, error) {
+	// Held across the guest call, see the execLock declaration.
+	r.execLock.Lock()
+	defer r.execLock.Unlock()
+
 	appModule, err := r.getOrLoadModule(ctx, appId, wasm)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
 	}
+
+	// See GetAllocatedMemoryStats: a guest fault here evicts, like on the request path.
+	guestFaulted := false
+	defer func() {
+		if guestFaulted {
+			r.evictFaultedModule(appId)
+		}
+	}()
 
 	// Call the WASM function to generate the report
 	statsFunc := appModule.instance.GetFunc(appModule.store, "get_memory_stats")
@@ -990,18 +1566,21 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 
 	result, err := statsFunc.Call(appModule.store)
 	if err != nil {
+		guestFaulted = isGuestTrap(err)
 		return 0, 0, fmt.Errorf("failed to call func: %w", err)
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault)
 		return 0, 0, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
 
 	// Deserialize the result
 	var stats appCommon.MemoryStats
 	if err := json.Unmarshal(resultBytes, &stats); err != nil {
+		guestFaulted = true // guest produced a result the host cannot parse
 		return 0, 0, fmt.Errorf("failed to unmarshal stats result: %w", err)
 	}
 

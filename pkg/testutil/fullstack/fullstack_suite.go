@@ -171,10 +171,10 @@ func newFullStackSuiteInternal(
 		simHelper.TeeSignerAddress,
 		simHelper.ManagerAccount,
 	)
-	// Attach a logger built from the manager's log config so instrumentation
-	// lines (e.g. mine_wait_ms) land in the same sink as the manager's own
-	// logs — the benchmark harness parses them from there.
-	realClient.SetLogger(logger.NewLogger(mgrLogCfg))
+	// The client's instrumentation logger is attached after NewTestSuiteCore
+	// below, which is the earliest point at which a logger can be built from
+	// mgrLogCfg. Until then instrumentation logging is simply disabled, which
+	// SetLogger documents as the nil default.
 
 	// Create in-process subgraph
 	subgraphImpl := NewInProcessSubgraph()
@@ -195,6 +195,17 @@ func newFullStackSuiteInternal(
 
 	// Build the shared core infrastructure, passing the wrapped client as blockchain.Client
 	core := testutil.NewTestSuiteCore(t, appType, mgrConfig, execConfig, wrappedClient, keySet, recoveryData, mgrLogCfg, excLogCfg)
+
+	// Route the client's instrumentation lines (e.g. mine_wait_ms) into the
+	// manager's own log sink — the benchmark harness parses them from there.
+	//
+	// This must happen after NewTestSuiteCore, which is what injects the
+	// ephemeral log-server address into mgrLogCfg (RemoteLogParams). Building a
+	// logger from that config any earlier panics for a "zeronetwork" config,
+	// which is what callers passing a network log config hit. Reusing the core's
+	// logger rather than building a second one from the same config also avoids a
+	// second connection to the log server, whose lifetime nothing manages.
+	realClient.SetLogger(core.ManagerLogger())
 
 	// Override the event channel — NewTestSuiteCore created one, but we want
 	// the one connected to the wrappedClient

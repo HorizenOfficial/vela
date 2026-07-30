@@ -65,6 +65,15 @@ type Config struct {
 	// MaxCachedModules is the maximum number of WASM modules to keep in the LRU cache.
 	// 0 means unlimited.
 	MaxCachedModules int
+
+	// MaxGuestMemoryBytes caps the linear memory a single WASM guest can grow to.
+	// 0 means the 2 GiB default, which is also the maximum allowed value (the
+	// host ABI exchanges guest pointers as signed 32-bit offsets). Note that the
+	// worst-case enclave RAM usage is roughly MaxCachedModules * MaxGuestMemoryBytes,
+	// so size the two together against the enclave memory budget. Table storage sits
+	// outside linear memory and is bounded separately in pkg/wasm (a few tens of MiB
+	// per module at most), so it does not change the sizing arithmetic.
+	MaxGuestMemoryBytes int64
 }
 
 const confFileName = "executor.conf"
@@ -82,21 +91,21 @@ func LoadConfig() (*Config, error) {
 	var channelType = common.GetConfigVar("CHANNEL_TYPE", "vsock", fileProperties)
 
 	var channelServerConnectionParams common.ChannelConnectionParams
-	executorServerPort := common.GetConfigVarInt64("EXECUTOR_PORT", 4000, fileProperties)
+	executorServerPort := common.GetConfigVarUint32("EXECUTOR_PORT", 4000, fileProperties)
 	var logClientConnectionParams common.ChannelConnectionParams
-	logServerPort := common.GetConfigVarInt64("LOG_SERVER_PORT", 5000, fileProperties)
+	logServerPort := common.GetConfigVarUint32("LOG_SERVER_PORT", 5000, fileProperties)
 	if channelType == "vsock" {
 		// CID 3 is reserved for the parent EC2 instance (where manager runs), CID >= 16 are available for enclaves (where executor runs)
 		// CID is not used actually when creating a listening server
-		channelServerConnectionParams = common.VSockChannelConnectionParams{Port: uint32(executorServerPort)}
+		channelServerConnectionParams = common.VSockChannelConnectionParams{Port: executorServerPort}
 		// CID and port are both used when connecting to a server
-		managerCid := common.GetConfigVarInt64("MANAGER_VSOCK_CID", 3, fileProperties)
-		logClientConnectionParams = common.VSockChannelConnectionParams{CID: uint32(managerCid), Port: uint32(logServerPort)}
+		managerCid := common.GetConfigVarUint32("MANAGER_VSOCK_CID", 3, fileProperties)
+		logClientConnectionParams = common.VSockChannelConnectionParams{CID: managerCid, Port: logServerPort}
 	} else {
 		executorIpHost := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
-		channelServerConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(executorServerPort)}
+		channelServerConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: executorServerPort}
 		logServerIpHost := common.GetConfigVar("LOG_SERVER_IP_HOST", "localhost", fileProperties)
-		logClientConnectionParams = common.TcpChannelConnectionParams{Ip: logServerIpHost, Port: uint32(logServerPort)}
+		logClientConnectionParams = common.TcpChannelConnectionParams{Ip: logServerIpHost, Port: logServerPort}
 	}
 
 	communicationParams := common.CommunicationParams{
@@ -106,7 +115,7 @@ func LoadConfig() (*Config, error) {
 	// KMS Configuration
 	kmsKeyARN := common.GetConfigVar("EXECUTOR_KMS_KEY_ARN", "", fileProperties)
 	kmsRegion := common.GetConfigVar("EXECUTOR_KMS_REGION", "eu-west-1", fileProperties)
-	kmsProxyPort := uint32(common.GetConfigVarInt64("EXECUTOR_KMS_PROXY_PORT", 8000, fileProperties))
+	kmsProxyPort := common.GetConfigVarUint32("EXECUTOR_KMS_PROXY_PORT", 8000, fileProperties)
 
 	keySetRecoveryType := common.RecoveryType(common.GetConfigVarInt64("EXECUTOR_KEYSET_RECOVERY_TYPE", int64(common.RecoveryTypeKMS), fileProperties))
 	if keySetRecoveryType != common.RecoveryTypeUnsafe && keySetRecoveryType != common.RecoveryTypeKMS {
@@ -130,8 +139,9 @@ func LoadConfig() (*Config, error) {
 		LogFileLevel:        common.GetConfigVar("EXECUTOR_LOG_FILE_LEVEL", "info", fileProperties),
 		LogChannelParams:    logClientConnectionParams,
 		LogNetworkLevel:     common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
-		CommunicationParams:  communicationParams,
-		MaxCachedModules:     int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
+		CommunicationParams: communicationParams,
+		MaxCachedModules:    int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
+		MaxGuestMemoryBytes: common.GetConfigVarInt64("EXECUTOR_MAX_GUEST_MEMORY_BYTES", 0, fileProperties),
 	}, nil
 }
 
@@ -147,6 +157,31 @@ func (c *Config) Validate() error {
 	if c.ChannelType != "tcp" && c.ChannelType != "vsock" {
 		errs = append(errs, fmt.Sprintf(
 			"CHANNEL_TYPE must be \"tcp\" or \"vsock\", got %q", c.ChannelType))
+	}
+
+	// --- TCP port ranges ---
+	// Only meaningful for tcp; a vsock port shares the field but has no 16-bit
+	// limit. Skipped when the params are absent or not TCP, so partially populated
+	// configs in tests still validate.
+	if c.ChannelType == "tcp" {
+		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok {
+			if p.Port > common.MaxTCPPort {
+				errs = append(errs, fmt.Sprintf(
+					"EXECUTOR_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+			}
+			// 0 parses cleanly but is never usable here: the executor would listen on an
+			// OS-assigned port while the manager dials the configured one from the same
+			// variable, so it fails at connect time with nothing wrong at startup.
+			// Deliberately not applied to the log server, where 0 means "no TCP log
+			// listener" (see logserver.StartLogServer).
+			if p.Port == 0 {
+				errs = append(errs, "EXECUTOR_PORT must not be 0 for tcp: the manager dials this port")
+			}
+		}
+		if p, ok := c.LogChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
+			errs = append(errs, fmt.Sprintf(
+				"LOG_SERVER_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+		}
 	}
 
 	// --- Fee parameters ---
@@ -178,6 +213,20 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf(
 			"EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC must be > 0 (seconds), got %d",
 			c.CommunicationParams.RequestTimeoutSec))
+	}
+
+	// --- Guest memory cap ---
+	// The WASM host ABI exchanges guest pointers as signed 32-bit offsets, so a
+	// guest may never grow past 2 GiB. The ceiling lives in pkg/common rather than
+	// pkg/wasm so this check shares one definition with the runtime without linking
+	// libwasmtime into every pkg/executor consumer. 0 selects the default; anything
+	// else must be in range rather than silently clamped, so a misconfigured
+	// operator finds out at startup.
+	const maxGuestMemoryCeilingBytes = common.MaxGuestMemoryCeilingBytes
+	if c.MaxGuestMemoryBytes < 0 || c.MaxGuestMemoryBytes > maxGuestMemoryCeilingBytes {
+		errs = append(errs, fmt.Sprintf(
+			"EXECUTOR_MAX_GUEST_MEMORY_BYTES must be between 0 (default: 2 GiB) and %d (2 GiB), got %d",
+			int64(maxGuestMemoryCeilingBytes), c.MaxGuestMemoryBytes))
 	}
 
 	// --- KMS configuration ---

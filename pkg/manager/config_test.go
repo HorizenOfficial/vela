@@ -14,14 +14,14 @@ import (
 // Validate() passes. Tests mutate individual fields to trigger specific errors.
 func validManagerConfig() *Config {
 	return &Config{
-		ChannelType:           "tcp",
-		AdminChannelParams:    common.TcpChannelConnectionParams{Ip: "localhost", Port: 4002},
-		LogServerTCPAddress:   common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
-		DataLayerDBPath:       "/tmp/test-db",
+		ChannelType:               "tcp",
+		AdminChannelParams:        common.TcpChannelConnectionParams{Ip: "localhost", Port: 4002},
+		LogServerTCPAddress:       common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
+		DataLayerDBPath:           "/tmp/test-db",
 		DeanonymizationReportPath: "/tmp/test-reports",
-		ArtifactsPath:         "/tmp/test-artifacts",
-		LogFileName:           "/tmp/test-manager.log",
-		LogServerLogFile:      "/tmp/test-logserver.log",
+		ArtifactsPath:             "/tmp/test-artifacts",
+		LogFileName:               "/tmp/test-manager.log",
+		LogServerLogFile:          "/tmp/test-logserver.log",
 		HandshakeTimeout:          5,
 		BlockchainPollingInterval: 5,
 		ReorgTimeout:              180,
@@ -251,4 +251,87 @@ func TestLoadConfig_UsesConfiguredArtifactAndReportPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, artifactsDir, cfg.ArtifactsPath)
 	require.Equal(t, reportsDir, cfg.DeanonymizationReportPath)
+}
+
+// TestValidate_AdminPortAboveRange covers the TCP range check on the admin server
+// port, which is always TCP regardless of CHANNEL_TYPE.
+func TestValidate_AdminPortAboveRange(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.AdminChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 70000}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MANAGER_ADMIN_PORT")
+}
+
+// TestValidate_LogServerPortAboveRange covers the TCP log server address.
+func TestValidate_LogServerPortAboveRange(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "localhost", Port: 70000}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "LOG_SERVER_PORT")
+}
+
+// TestValidate_ExecutorPortAboveRange covers the executor channel when it is TCP.
+func TestValidate_ExecutorPortAboveRange(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 70000}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_PORT")
+}
+
+// TestValidate_ExecutorPortZero mirrors the executor-side check: 0 is never usable for
+// the port the manager dials.
+func TestValidate_ExecutorPortZero(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 0}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_PORT")
+}
+
+// TestValidate_LogServerPortZeroAccepted guards the exception: 0 disables the TCP log
+// listener rather than being an invalid port.
+func TestValidate_LogServerPortZeroAccepted(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "localhost", Port: 0}
+
+	require.NoError(t, cfg.Validate())
+}
+
+// TestValidate_AdminPortZero covers the admin server's port. 0 parses cleanly, and
+// nothing treats it as "disabled": cmd/manager passes AdminChannelParams.Url() straight
+// to the TCP listener factory, so the server binds an OS-assigned port while the
+// manager logs the configured address — and admin-server startup failures are
+// deliberately non-fatal, so nothing surfaces the mismatch. admincli can then never
+// connect.
+func TestValidate_AdminPortZero(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.AdminChannelParams = common.TcpChannelConnectionParams{Ip: "0.0.0.0", Port: 0}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MANAGER_ADMIN_PORT")
+}
+
+// TestValidate_LogServerPortAboveTCPRangeAcceptedWhenNoTCPHost covers vsock-only
+// logging. LOG_SERVER_PORT feeds both the vsock listener and LogServerTCPAddress, and
+// an operator can switch the TCP listener off by setting LOG_SERVER_IP_HOST empty in
+// the conf file (properties honours an explicitly empty value, unlike the env path).
+// With no TCP listener, a vsock log port above the 16-bit range is legal, so the TCP
+// range check must not apply.
+func TestValidate_LogServerPortAboveTCPRangeAcceptedWhenNoTCPHost(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.ChannelType = "vsock"
+	cfg.ChannelParams = common.VSockChannelConnectionParams{CID: 20, Port: 70000}
+	cfg.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "", Port: 70000}
+
+	require.NoError(t, cfg.Validate())
 }
