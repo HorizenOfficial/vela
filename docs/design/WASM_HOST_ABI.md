@@ -114,8 +114,16 @@ the result on-chain. A module using a disabled proposal fails to compile.
 | bulk memory, multi-value, reference types (**funcref only — see below**), fixed-width SIMD | relaxed SIMD (host-architecture-dependent results), memory64 (breaks the int32 offset ABI), multi-memory and threads (both break the per-memory RAM accounting), tail calls, function references, GC, wide arithmetic, exceptions, component model |
 
 Cranelift NaN canonicalization is enabled, since NaN bit patterns are otherwise
-host-dependent. Two engine-wide subsystems are also switched off — GC support and
-concurrency support — which are capabilities rather than proposals.
+host-dependent, and relaxed SIMD's deterministic mode is enabled as well — redundant
+while the proposal itself is off, but it means enabling relaxed SIMD later cannot
+reintroduce host-dependent results by omission. Two engine-wide subsystems are also
+switched off — GC support and concurrency support — which are capabilities rather than
+proposals.
+
+Each disabled proposal that a core module can actually violate has a test asserting a
+violating module is rejected (`TestPinnedEngineRejectsDisabledProposals`). The
+component model is the one exception: it cannot be expressed as a core module, so no
+violating input can be constructed for it.
 
 **Switching GC support off narrows reference types.** `externref` values need the GC
 subsystem, so a module that merely declares an `externref` parameter is rejected even

@@ -305,3 +305,18 @@ func TestValidate_LogServerPortZeroAccepted(t *testing.T) {
 
 	require.NoError(t, cfg.Validate())
 }
+
+// TestValidate_AdminPortZero covers the admin server's port. 0 parses cleanly, and
+// nothing treats it as "disabled": cmd/manager passes AdminChannelParams.Url() straight
+// to the TCP listener factory, so the server binds an OS-assigned port while the
+// manager logs the configured address — and admin-server startup failures are
+// deliberately non-fatal, so nothing surfaces the mismatch. admincli can then never
+// connect.
+func TestValidate_AdminPortZero(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.AdminChannelParams = common.TcpChannelConnectionParams{Ip: "0.0.0.0", Port: 0}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MANAGER_ADMIN_PORT")
+}

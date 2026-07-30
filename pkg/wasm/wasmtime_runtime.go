@@ -252,14 +252,22 @@ type WasmtimeRuntime struct {
 // exposes is therefore set here explicitly: adding a proposal must be a
 // deliberate, reviewed change.
 //
-// Caveat on "every": the C API carries a few flags that wasmtime-go does not wrap,
-// so they cannot be pinned from Go and are left at their upstream defaults — as of
-// v47 those are shared_memory, branch hinting, custom page sizes, stack switching,
-// and the component-model sub-flags. All are documented false by default. Note
-// shared_memory in particular: it gates shared-memory creation, the same per-memory
-// RAM-accounting concern the threads pin addresses, so it is unpinnable rather than
-// unimportant. Check this list again when bumping, in case the bindings start
-// exposing them.
+// "Every feature knob" is meant literally: as of v47 the wrapped Set* methods this
+// does NOT call are execution-bounding (SetConsumeFuel, SetEpochInterruption,
+// SetMaxWasmStack — see the TODO below) or compiler/tuning knobs (strategy, opt
+// level, profiler, debug info, unwind info, parallel compilation, COW init, target,
+// Cranelift flags), none of which change the accepted feature set. Verify with:
+//
+//	B=$(go env GOMODCACHE)/github.com/bytecodealliance/wasmtime-go/v47@v47.0.0
+//	grep -ho 'func (cfg \*Config) Set[A-Za-z0-9]*' $B/config*.go | sed 's/.*Config) //' | sort -u
+//
+// Caveat: the C API also carries flags that wasmtime-go does not wrap at all, so they
+// cannot be pinned from Go and stay at their upstream defaults — as of v47 those are
+// shared_memory, branch hinting, custom page sizes, stack switching, and the
+// component-model sub-flags, all documented false by default. shared_memory is worth
+// singling out: it gates shared-memory creation, the same per-memory RAM-accounting
+// concern the threads pin addresses, so it is unpinnable rather than unimportant.
+// Re-run the grep above when bumping, in case the bindings start exposing more.
 //
 // TODO: bound guest execution. The execution-bounding knobs (SetConsumeFuel,
 // SetEpochInterruption, SetMaxWasmStack) are all left at their defaults, i.e.
@@ -294,8 +302,11 @@ func newPinnedEngine() *wasmtime.Engine {
 	// --- Disabled: host-dependent results ---
 	// Relaxed SIMD instructions are explicitly allowed to differ between host
 	// architectures, which would make guest results depend on the machine the
-	// enclave runs on. If it is ever enabled, deterministic mode is mandatory.
+	// enclave runs on. Deterministic mode is set too, so that enabling the proposal
+	// later cannot reintroduce host-dependent results by omission — the requirement
+	// is enforced here rather than left as a note.
 	config.SetWasmRelaxedSIMD(false)
+	config.SetWasmRelaxedSIMDDeterministic(true)
 
 	// --- Disabled: incompatible with the host ABI or the RAM budget ---
 	config.SetWasmMemory64(false)    // guest pointers must stay in int32 range
@@ -555,8 +566,8 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 		// see the guest linear memory held by the store, so leaving it to a
 		// finalizer can keep hundreds of MB alive inside the enclave. Nothing else
 		// can close these — the module never reaches r.modules on these paths.
-		// Registered before any deallocate defers below, so LIFO runs this last,
-		// after those have finished using the store.
+		// This function registers no deallocate defers, so there is no ordering
+		// constraint here; deployUnlocked does, and relies on LIFO for it.
 		store.Close()
 		module.Close()
 	}()

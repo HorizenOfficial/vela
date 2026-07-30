@@ -255,9 +255,19 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf(
 			"LOG_SERVER_PORT must be <= %d, got %d", common.MaxTCPPort, c.LogServerTCPAddress.Port))
 	}
-	if p, ok := c.AdminChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
-		errs = append(errs, fmt.Sprintf(
-			"MANAGER_ADMIN_PORT must be <= %d, got %d", common.MaxTCPPort, p.Port))
+	if p, ok := c.AdminChannelParams.(common.TcpChannelConnectionParams); ok {
+		if p.Port > common.MaxTCPPort {
+			errs = append(errs, fmt.Sprintf(
+				"MANAGER_ADMIN_PORT must be <= %d, got %d", common.MaxTCPPort, p.Port))
+		}
+		// 0 is not "disabled" here: cmd/manager hands AdminChannelParams.Url() to the
+		// listener factory, so the server binds an OS-assigned port while the manager
+		// logs the configured address — and admin startup failures are deliberately
+		// non-fatal, so nothing surfaces it. admincli could then never connect.
+		// Contrast LogServerTCPAddress below, where 0 genuinely disables the listener.
+		if p.Port == 0 {
+			errs = append(errs, "MANAGER_ADMIN_PORT must not be 0: admincli connects to this port")
+		}
 	}
 	if c.ChannelType == "tcp" {
 		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok {

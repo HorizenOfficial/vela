@@ -1148,9 +1148,14 @@ func TestGuestMemoryCapEnforced(t *testing.T) {
 // this runtime disables must fail to compile rather than being silently accepted
 // because a future wasmtime enables it by default.
 //
-// Both cases matter for the enclave RAM budget: the guest memory cap is applied
-// per linear memory, so extra (or shared) memories would multiply the worst-case
-// RAM a single app can hold. See newPinnedEngine and newModuleStore.
+// One pin is deliberately absent: the component model cannot be expressed as a core
+// module, so Wat2Wasm cannot build a violating input for it.
+//
+// The cases are not all the same kind of risk. Multi-memory and shared memory would
+// multiply the worst-case RAM a single app can hold, since the guest memory cap is
+// applied per linear memory. memory64 would break the signed-int32 pointer ABI (and
+// reopens GHSA-p8xm-42r7-89xg). Relaxed SIMD would make results host-dependent. The
+// rest are surface we do not want. See newPinnedEngine and newModuleStore.
 func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
 	runtime := NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
@@ -1193,14 +1198,49 @@ func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
 			wat: `(module
 				(func (export "f") (param externref)))`,
 		},
+		{
+			// The pin with the widest consequences: guest pointers are exchanged as
+			// signed int32 offsets, and disabling memory64 is also what neutralises
+			// GHSA-p8xm-42r7-89xg (a host panic reachable only with memory64 on).
+			name: "memory64",
+			wat:  `(module (memory i64 1))`,
+		},
+		{
+			name: "relaxed SIMD",
+			wat: `(module
+				(func (export "f") (param v128 v128 v128) (result v128)
+					(local.get 0) (local.get 1) (local.get 2) (f32x4.relaxed_madd)))`,
+		},
+		{
+			name: "tail call",
+			wat: `(module
+				(func $a)
+				(func (export "f") (return_call $a)))`,
+		},
+		{
+			name: "function references",
+			wat: `(module
+				(type $t (func))
+				(func (export "f") (param (ref null $t))))`,
+		},
+		{
+			// Unlike the cases above, v47's default engine also rejects this one, so
+			// this guards against an upstream default flip rather than against our pin
+			// being dropped. Kept because the pin exists and the rule is categorical.
+			name: "wide arithmetic",
+			wat: `(module
+				(func (export "f") (result i64 i64)
+					(i64.const 1) (i64.const 2) (i64.const 3) (i64.const 4) (i64.add128)))`,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Wat2Wasm is proposal-agnostic and encodes all of these fine; the
-			// rejection must come from the engine's pinned feature set. Note that
-			// wasmtime v47's *default* engine compiles every one of them
-			// successfully, which is exactly why the set is pinned explicitly.
+			// rejection must come from the engine's pinned feature set. v47's
+			// *default* engine compiles all of them except "wide arithmetic"
+			// (measured), which is exactly why the set is pinned explicitly rather
+			// than inherited — and why each case notes what it actually guards.
 			wasmBytes, err := wasmtime.Wat2Wasm(tc.wat)
 			require.NoError(t, err)
 
