@@ -251,9 +251,15 @@ func (c *Config) Validate() error {
 	// --- TCP port ranges ---
 	// The admin server and the TCP log server address are always TCP; the
 	// executor channel only when CHANNEL_TYPE=tcp (vsock has no 16-bit limit).
-	if c.LogServerTCPAddress.Port > common.MaxTCPPort {
+	// Only when a TCP log listener is actually configured. LOG_SERVER_PORT feeds both
+	// the vsock listener and this address, and logserver.StartLogServer starts TCP only
+	// when the host is non-empty — which an operator can switch off with an empty
+	// LOG_SERVER_IP_HOST in the conf file. With vsock-only logging the port is a vsock
+	// port and has no 16-bit limit, so the condition here mirrors StartLogServer's.
+	if c.LogServerTCPAddress.Ip != "" && c.LogServerTCPAddress.Port > common.MaxTCPPort {
 		errs = append(errs, fmt.Sprintf(
-			"LOG_SERVER_PORT must be <= %d, got %d", common.MaxTCPPort, c.LogServerTCPAddress.Port))
+			"LOG_SERVER_PORT must be <= %d when a TCP log host is set, got %d",
+			common.MaxTCPPort, c.LogServerTCPAddress.Port))
 	}
 	if p, ok := c.AdminChannelParams.(common.TcpChannelConnectionParams); ok {
 		if p.Port > common.MaxTCPPort {

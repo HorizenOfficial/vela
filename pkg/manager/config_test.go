@@ -320,3 +320,18 @@ func TestValidate_AdminPortZero(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "MANAGER_ADMIN_PORT")
 }
+
+// TestValidate_LogServerPortAboveTCPRangeAcceptedWhenNoTCPHost covers vsock-only
+// logging. LOG_SERVER_PORT feeds both the vsock listener and LogServerTCPAddress, and
+// an operator can switch the TCP listener off by setting LOG_SERVER_IP_HOST empty in
+// the conf file (properties honours an explicitly empty value, unlike the env path).
+// With no TCP listener, a vsock log port above the 16-bit range is legal, so the TCP
+// range check must not apply.
+func TestValidate_LogServerPortAboveTCPRangeAcceptedWhenNoTCPHost(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.ChannelType = "vsock"
+	cfg.ChannelParams = common.VSockChannelConnectionParams{CID: 20, Port: 70000}
+	cfg.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "", Port: 70000}
+
+	require.NoError(t, cfg.Validate())
+}

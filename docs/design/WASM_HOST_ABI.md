@@ -120,10 +120,12 @@ reintroduce host-dependent results by omission. Two engine-wide subsystems are a
 switched off — GC support and concurrency support — which are capabilities rather than
 proposals.
 
-Each disabled proposal that a core module can actually violate has a test asserting a
-violating module is rejected (`TestPinnedEngineRejectsDisabledProposals`). The
-component model is the one exception: it cannot be expressed as a core module, so no
-violating input can be constructed for it.
+`TestPinnedEngineRejectsDisabledProposals` asserts that a violating module is rejected
+for each disabled proposal, and each case records what it guards — some pins overlap,
+so a single fixture can guard a pair rather than one knob. A pin can only be covered
+this way if a core module can express a violation of it, which rules out the component
+model. Rather than trusting this paragraph to stay exhaustive, compare the table in the
+test against the `Set*` calls in `newPinnedEngine` when adding a pin.
 
 **Switching GC support off narrows reference types.** `externref` values need the GC
 subsystem, so a module that merely declares an `externref` parameter is rejected even

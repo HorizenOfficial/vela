@@ -1389,9 +1389,13 @@ func (r *WasmtimeRuntime) UnloadModule(appId common.ApplicationIdType) error {
 }
 
 // SetMaxCachedModules updates the LRU cache limit at runtime.
-// A value of 0 means unlimited. Excess modules are not evicted immediately;
-// eviction happens lazily on the next loadModule call, which is the only path
-// that mutates the module map during normal operation.
+// A value of 0 means unlimited. Excess modules are not evicted immediately: lowering
+// the limit takes effect on the next module load, when evictIfNeeded trims the cache
+// down to it.
+//
+// Do not read that as the load path being the only writer of the module map — a deploy
+// adds to it, and a guest fault removes from it via evictFaultedModule, which happens
+// on any trapping request.
 func (r *WasmtimeRuntime) SetMaxCachedModules(max int) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()

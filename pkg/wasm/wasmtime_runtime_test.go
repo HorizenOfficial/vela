@@ -1224,6 +1224,18 @@ func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
 				(func (export "f") (param (ref null $t))))`,
 		},
 		{
+			// Struct types need the GC proposal. Either GC knob rejects this on its own
+			// (measured: dropping SetWasmGC(false) or SetGCSupport(false) individually
+			// still rejects, dropping both accepts), so this case guards the pair
+			// rather than either knob alone — and the default engine accepts it, so the
+			// pins are doing real work. The externref case above is what isolates
+			// SetGCSupport; no core-module fixture isolates SetWasmGC by itself.
+			name: "wasm-gc struct type",
+			wat: `(module
+				(type $s (struct (field i32)))
+				(func (export "f") (result (ref null $s)) ref.null $s))`,
+		},
+		{
 			// Unlike the cases above, v47's default engine also rejects this one, so
 			// this guards against an upstream default flip rather than against our pin
 			// being dropped. Kept because the pin exists and the rule is categorical.
