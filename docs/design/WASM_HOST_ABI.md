@@ -50,8 +50,11 @@ after the guest call returns. Empty input is special-cased — the host passes p
 receives non-empty input is never asked to `allocate` at all.
 
 A guest that returns `0`, a non-integer, or an out-of-range offset from `allocate`
-fails the request. Returning `0` is how an out-of-memory guest surfaces: under the
-linear-memory cap, a failed `memory.grow` makes TinyGo panic rather than return.
+fails the request. Returning `0` is the ABI's way for a guest to report that it could
+not satisfy the allocation — but note that **TinyGo guests do not use it**: exceeding
+the linear-memory cap makes a TinyGo allocation panic, so out-of-memory reaches the
+host as a trap rather than as `allocate` returning `0`. The `0` path exists for guests
+whose allocator can fail without panicking.
 
 ## Getting bytes out: the result protocol
 

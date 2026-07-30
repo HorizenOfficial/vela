@@ -882,7 +882,13 @@ func TestCloseDoesNotHangOnStuckGuest(t *testing.T) {
 	runtime := NewWasmtimeRuntime(testLogger, 0)
 
 	runtime.execLock.Lock() // simulate a guest call that never returns
-	defer runtime.execLock.Unlock()
+	// Close gives up by design here, so it never frees the engine. Release the lock
+	// and close again so this test does not leak native state like a stuck executor
+	// would — it is a test, not the shutdown path being modelled.
+	defer func() {
+		runtime.execLock.Unlock()
+		require.NoError(t, runtime.Close())
+	}()
 
 	done := make(chan error, 1)
 	start := time.Now()

@@ -34,7 +34,10 @@ type Address [20]byte
 // RAM from a buggy or malicious app. The 2 GiB ceiling is a hard ABI
 // constraint: the host exchanges guest pointers as signed int32 offsets (see
 // writeToMemory and extractResultBytes), so no guest offset may reach 2 GiB.
-const maxGuestMemoryCeilingBytes = 2 * 1024 * 1024 * 1024
+//
+// Defined in pkg/common so that pkg/executor's config validation checks the same
+// number without importing this package (and with it libwasmtime).
+const maxGuestMemoryCeilingBytes = common.MaxGuestMemoryCeilingBytes
 
 // Per-store resource limits passed to wasmtime's store limiter.
 const (
