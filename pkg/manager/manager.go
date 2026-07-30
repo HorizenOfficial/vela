@@ -681,8 +681,8 @@ func (m *SecureProcessorManager) processBatchFromChain(ctx context.Context) erro
 
 // processBatch sends a batch of requests for a single application to the executor and
 // submits the results in one batchStateUpdate() transaction. On a hard failure the
-// executor returns fewer results than requests (processedCount); the remaining
-// requests stay pending on-chain and are retried on the next poll.
+// executor returns fewer results than requests; the remaining requests stay pending
+// on-chain and are retried on the next poll.
 func (m *SecureProcessorManager) processBatch(ctx context.Context, appID common.ApplicationIdType, requests []*common.Request, prevStateRoot [32]byte) error {
 	// Get the application state.
 	appState, err := m.dataLayer.GetApplicationState(ctx, appID)
@@ -710,7 +710,7 @@ func (m *SecureProcessorManager) processBatch(ctx context.Context, appID common.
 
 	executorStart := time.Now()
 	results, batchSignature, finalState, reports, err := m.executorClient.SendBatchProcessRequest(ctx, requests, appState, wasmBytes)
-    m.log.Info("Manager: executor round-trip for batch requests: executor_roundtrip_ms=%d", time.Since(executorStart).Milliseconds())
+	m.log.Info("Manager: executor round-trip for batch of %d request(s): executor_roundtrip_ms=%d", len(requests), time.Since(executorStart).Milliseconds())
 	if err != nil {
 		// Fallback case: executor couldn't produce a batch. Retry on next poll, no state to store.
 		return err
@@ -742,6 +742,13 @@ func (m *SecureProcessorManager) processBatch(ctx context.Context, appID common.
 
 	if err := m.submitBatchStateOnChain(ctx, appID, results, batchSignature, prevStateRoot, stateStored); err != nil {
 		return err
+	}
+
+	// One payload per handled request, so a shortfall means a hard failure stopped the
+	// batch at request len(results)+1; those requests stay pending on-chain.
+	if len(results) < len(requests) {
+		m.log.Warn("Manager: request %d caused a hard stop for application %d; %d request(s) remain pending",
+			len(results), appID, len(requests)-len(results))
 	}
 
 	return nil

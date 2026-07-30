@@ -2511,7 +2511,7 @@ func TestProcessBatchFromChain_HardFailureOnFirstRequest(t *testing.T) {
 
 	seedDeployedApp(t, mockBC, manager, ApplicationId)
 
-	// processedCount == 0: nothing to submit.
+	// No payloads returned: nothing to submit.
 	submitted := false
 	mockBC.AddMockedFunc("SubmitBatchStateUpdate", func(ctx context.Context, updates []*common.UpdatePayload, sig []byte) error {
 		submitted = true
@@ -2528,7 +2528,7 @@ func TestProcessBatchFromChain_HardFailureOnFirstRequest(t *testing.T) {
 
 	require.NoError(t, manager.processBatchFromChain(ctx))
 
-	require.False(t, submitted, "nothing should be submitted when processedCount == 0")
+	require.False(t, submitted, "nothing should be submitted when the executor returns no payloads")
 	pending, _ := mockBC.GetPendingRequests(ctx)
 	require.Equal(t, 2, len(pending), "all requests stay pending on a hard failure on the first request")
 }
