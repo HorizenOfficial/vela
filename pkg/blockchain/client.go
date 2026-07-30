@@ -19,6 +19,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common"
 	cryptotypes "github.com/HorizenOfficial/vela/pkg/common/crypto"
 	"github.com/HorizenOfficial/vela/pkg/crypto"
+	"github.com/HorizenOfficial/vela/pkg/logger"
 )
 
 //go:generate mkdir -p ../../contract_abis
@@ -72,6 +73,14 @@ type BlockChainClient struct {
 	privKey                *cryptotypes.PrivateKeySecp256k1
 	account                *bind.TransactOpts
 	chainID                *big.Int
+	log                    logger.Logger
+}
+
+// SetLogger attaches a logger used for instrumentation (e.g. mine-wait
+// timing). Must be called before the client is used; nil (the default)
+// disables instrumentation logging.
+func (c *BlockChainClient) SetLogger(l logger.Logger) {
+	c.log = l
 }
 
 func NewBlockChainClient(processor ethCommon.Address, teeAuthenticator ethCommon.Address, rpcURL string, key *cryptotypes.PrivateKeySecp256k1) *BlockChainClient {
@@ -365,9 +374,13 @@ func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) 
 	}
 
 	// wait for transaction inclusion
+	mineWaitStart := time.Now()
 	receipt, err := bind.WaitMined(ctx, c.client, tx.Hash())
 	if err != nil {
 		return fmt.Errorf("error waiting for tx inclusion: %w", err)
+	}
+	if c.log != nil {
+		c.log.Info("BlockChainClient: tx %s mined: mine_wait_ms=%d", tx.Hash().Hex(), time.Since(mineWaitStart).Milliseconds())
 	}
 
 	if receipt.Status != 1 {

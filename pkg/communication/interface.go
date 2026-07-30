@@ -22,11 +22,11 @@ type ExecutorClient interface {
 	SendProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	// SendBatchProcessRequest sends a batch of requests for a single application to the
 	// executor in one round-trip. It returns the unsigned per-request update payloads,
-	// the batch signature covering all entry hashes, the final application state, any
-	// deanonymization reports, and the number of requests handled (successfully or with
-	// an error payload). processedCount < len(requests) means a hard failure stopped the
-	// batch and the remaining requests stay pending.
-	SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error)
+	// the batch signature covering all entry hashes, the final application state and any
+	// deanonymization reports. One payload is returned per handled request, in input
+	// order, so len(payloads) < len(requests) means a hard failure stopped the batch and
+	// the remaining requests stay pending.
+	SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error)
 	// SendDeployApp deploys a new application to the executor
 	SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	// ForwardAdminCommand forwards an admin command to the executor through the
@@ -78,10 +78,10 @@ type RequestHandler interface {
 	HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error)
 	// HandleBatchProcessRequest processes a batch of requests for a single application.
 	// It returns the unsigned per-request update payloads, the batch signature covering
-	// all entry hashes, the final application state, any deanonymization reports, and
-	// processedCount: how many of the input requests were handled (a value smaller than
-	// len(requests) means a hard failure stopped the batch at request processedCount).
-	HandleBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, int, error)
+	// all entry hashes, the final application state and any deanonymization reports.
+	// One payload is returned per handled request, in input order, so len(payloads) <
+	// len(requests) means a hard failure stopped the batch at request len(payloads).
+	HandleBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error)
 	// HandleDeployApp deploys a new application
 	HandleDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error)
 	// HandleAdminCommand handles an admin command forwarded from the manager.

@@ -463,7 +463,7 @@ Add a batch message type to the executor so it can process multiple requests in 
    - `appData` is only mutated after successful WASM execution
    - On soft failure: error payload included in results, state unchanged, batch continues
    - On hard failure: batch stops, results for previously processed requests are returned
-   - The response includes `processedCount` so the manager knows how many requests were handled
+   - One payload is returned per handled request, in input order, so `len(payloads)` is how many of the input requests were consumed
 
 3. Add the message handler in `communication/server.go` to route `BatchProcessRequestMessage` to the executor's `HandleBatchProcessRequest`.
 
@@ -476,14 +476,14 @@ Add a batch message type to the executor so it can process multiple requests in 
    - Request with deposit + process where process fails — verify deposit changes are discarded
    - Single-request batch — equivalent to existing `SendProcessRequest`
    - Verify only 1 AES decrypt and 1 AES encrypt occur for the batch
-   - Verify `processedCount` matches number of results returned
+   - Verify a partial batch returns fewer payloads than input requests, so the shortfall is visible to the manager
    - Verify a single batch signature is returned (not per-entry signatures)
    - Verify batch signature covers all entry hashes: recover signer from the batch digest (section 3.2) and confirm it matches the executor's TEE key. Pin the digest against an independently computed expected value — recomputing it with `BuildBatchMsgHash` alone would pass under any scheme and cannot detect a change to it
    - Verify a 1-entry batch digest equals `BuildMsgHash` of that entry (the two paths must share one scheme)
    - Batch signing failure — verify entire batch is discarded, error returned, no partial results
 
 **Files changed:**
-- `pkg/communication/messages.go` (new message types)
+- `pkg/communication/message.go` (new message types)
 - `pkg/communication/server.go` (new handler)
 - `pkg/communication/client.go` (new `SendBatchProcessRequest`)
 - `pkg/executor/executor.go` (new `HandleBatchProcessRequest`)
@@ -547,21 +547,21 @@ Refactor the manager's poll loop to fetch multiple requests and route them throu
        processRequest(requests[0])  // existing single-request path
        return
 
-   results, batchSignature, finalState, processedCount := executor.SendBatchProcessRequest(
+   results, batchSignature, finalState := executor.SendBatchProcessRequest(
        requests, encryptedState[applicationId], wasmBytes[applicationId])
 
-   if processedCount == 0:
+   if len(results) == 0:
        // Hard failure on the very first request or batch signing failure — nothing to submit
        log warning, retry next poll
 
-   if processedCount > 0:
+   if len(results) > 0:
        save deanonymization reports to disk (if any)
        store final encrypted state in DB (1 write, versionID = final stateRoot)
-       submit batchStateUpdate(applicationId, results[0..processedCount-1], batchSignature) on chain
+       submit batchStateUpdate(applicationId, results, batchSignature) on chain
        on tx failure: rollback DB to pre-batch state for applicationId, retry next poll
 
-   if processedCount < len(requests):
-       log that request [processedCount] caused a hard stop
+   if len(results) < len(requests):
+       log that request [len(results)] caused a hard stop
        // remaining requests stay in the application's on-chain queue for the next poll
    ```
 
@@ -714,7 +714,7 @@ HandleBatchProcessRequest(requests, encryptedState, wasmModule):
         results = append(results, buildSuccessPayload(...))
 
     if len(results) == 0:
-        return nil, nil, 0, nil  // nothing processed
+        return nil, nil, nil, nil  // nothing processed
 
     // Batch signature — one sign operation covering all entries.
     // personal_sign over the concatenated entry hashes (section 3.2):
@@ -722,13 +722,13 @@ HandleBatchProcessRequest(requests, encryptedState, wasmModule):
     batchHash := personalSign(concat(hash(results[0]), ..., hash(results[N-1])))
     batchSignature, err := sign(batchHash)
     if err != nil:
-        return nil, nil, 0, err  // signing failure — entire batch discarded
+        return nil, nil, nil, err  // signing failure — entire batch discarded
 
     encryptedFinalState := encryptState(appData)       // 1 encrypt
-    return results, batchSignature, encryptedFinalState, processedCount
+    return results, batchSignature, encryptedFinalState
 ```
 
-The response includes `processedCount` so the manager knows how many of the N input requests were handled (whether successfully or with error payloads). If `processedCount < N`, the manager knows a hard failure stopped the batch at request `processedCount + 1`.
+One payload is returned per handled request, in input order, so `len(results)` is how many of the N input requests were handled (whether successfully or with error payloads) — there is no separate count to keep in sync. If `len(results) < N`, the manager knows a hard failure stopped the batch at request `len(results) + 1`.
 
 If batch signing fails after processing, all results are discarded and the executor returns an error. The requests remain pending on-chain and will be retried on the next poll. This is a rare system-level failure (key unavailable, HSM error) — not an application-level concern.
 
@@ -737,7 +737,7 @@ If batch signing fails after processing, all results are discarded and the execu
 Per-application queues (section 4.2) confine a permanently failing request to its own queue *structurally*, but the enforced round-robin selection (section 4.3) re-globalizes the blockage:
 
 1. Application A's head request hard-fails permanently (e.g., tampered `applicationId`). It is never dequeued — soft failures produce an error payload and advance the queue; hard failures leave the request at the head.
-2. When the cursor reaches A, the contract serves A and only accepts a state update for A. The manager gets a hard failure on request 1, `processedCount == 0`, and can submit nothing.
+2. When the cursor reaches A, the contract serves A and only accepts a state update for A. The manager gets a hard failure on request 1, no payloads are returned, and can submit nothing.
 3. The cursor never advances — a cursor advance requires a successful state update for A. Every subsequent poll selects A again.
 
 Result: one poisoned request stalls **all** applications, not just A. The manager cannot skip A — the cursor check in the state-update functions rejects submissions for any other application. This is a property of *any* contract-enforced selection, not of round-robin specifically: whatever algorithm the contract enforces, a request that can never be processed blocks the rotation at its turn.

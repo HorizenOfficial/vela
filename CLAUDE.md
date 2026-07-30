@@ -12,21 +12,40 @@ Horizen Vela - A privacy-preserving execution platform using AWS Nitro Enclaves 
 
 ## Build Commands
 
-Standard `go build` / `go test` / `npm run` invocations are not listed — check `go.mod` and the relevant `package.json`. The non-obvious ones:
+```bashExpand commentComment on line L20
+# Go build
+go build ./...
+go build ./cmd/executor
+go build ./cmd/manager
 
-```bash
 # Run tests (quick suite - skips Wasmtime-dependent tests)
 CI_FLAG=true go test -v ./...
 
 # Run tests (full suite - includes all tests)
 CI_FLAG= go test -v ./...
 
+# Test with coverage
+go test ./... -cover
+
+# Run a single test
+go test -v -run TestName ./path/to/package
+
 # Generate contract bindings (requires solc 0.8.30 and abigen v1.16.2)
 go generate ./...
+
+# Contracts (from contracts/ directory)
+npm ci
+npm run build
+npm run test
 
 # WASM guest (app/simple)
 cd app/simple && make build            # Development build
 cd app/simple && make production_build # Optimized build
+
+# Subgraph (subgraphs/hcce)
+cd subgraphs/hcce && npm run codegen   # Generate types from schema
+cd subgraphs/hcce && npm run build     # Build subgraph
+cd subgraphs/hcce && npm run test      # Run subgraph tests
 ```
 
 ## Architecture
