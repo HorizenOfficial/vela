@@ -185,7 +185,7 @@ func LoadConfig() (*Config, error) {
 		ReorgTimeout:              common.GetConfigVarInt64("REORG_TIMEOUT", 180, fileProperties), // 3 minutes
 		HandshakeTimeout:          common.GetConfigVarInt64("HANDSHAKE_TIMEOUT", 5, fileProperties),
 		BlockchainPollingInterval: common.GetConfigVarInt64("BLOCKCHAIN_POLLING_INTERVAL", 5, fileProperties),
-		BlockchainConnectTimeout: common.GetConfigVarInt64("BLOCKCHAIN_CONNECT_TIMEOUT", 10, fileProperties),
+		BlockchainConnectTimeout:  common.GetConfigVarInt64("BLOCKCHAIN_CONNECT_TIMEOUT", 10, fileProperties),
 
 		RpcURL: common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProperties) + "://" +
 			common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProperties) + ":" +
@@ -246,6 +246,24 @@ func (c *Config) Validate() error {
 	if c.ChannelType != "tcp" && c.ChannelType != "vsock" {
 		errs = append(errs, fmt.Sprintf(
 			"CHANNEL_TYPE must be \"tcp\" or \"vsock\", got %q", c.ChannelType))
+	}
+
+	// --- TCP port ranges ---
+	// The admin server and the TCP log server address are always TCP; the
+	// executor channel only when CHANNEL_TYPE=tcp (vsock has no 16-bit limit).
+	if c.LogServerTCPAddress.Port > common.MaxTCPPort {
+		errs = append(errs, fmt.Sprintf(
+			"LOG_SERVER_PORT must be <= %d, got %d", common.MaxTCPPort, c.LogServerTCPAddress.Port))
+	}
+	if p, ok := c.AdminChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
+		errs = append(errs, fmt.Sprintf(
+			"MANAGER_ADMIN_PORT must be <= %d, got %d", common.MaxTCPPort, p.Port))
+	}
+	if c.ChannelType == "tcp" {
+		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
+			errs = append(errs, fmt.Sprintf(
+				"EXECUTOR_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+		}
 	}
 
 	// --- TCP port uniqueness ---

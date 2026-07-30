@@ -157,6 +157,21 @@ func (c *Config) Validate() error {
 			"CHANNEL_TYPE must be \"tcp\" or \"vsock\", got %q", c.ChannelType))
 	}
 
+	// --- TCP port ranges ---
+	// Only meaningful for tcp; a vsock port shares the field but has no 16-bit
+	// limit. Skipped when the params are absent or not TCP, so partially populated
+	// configs in tests still validate.
+	if c.ChannelType == "tcp" {
+		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
+			errs = append(errs, fmt.Sprintf(
+				"EXECUTOR_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+		}
+		if p, ok := c.LogChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
+			errs = append(errs, fmt.Sprintf(
+				"LOG_SERVER_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+		}
+	}
+
 	// --- Fee parameters ---
 	// FuelPricePerUnit is used in Mul operations (e.g. totalFuel * FuelPricePerUnit)
 	// to compute application fees. A nil value would panic. A zero value effectively
@@ -190,11 +205,12 @@ func (c *Config) Validate() error {
 
 	// --- Guest memory cap ---
 	// The WASM host ABI exchanges guest pointers as signed 32-bit offsets, so a
-	// guest may never grow past 2 GiB (see pkg/wasm maxGuestMemoryCeilingBytes —
-	// duplicated here to avoid linking libwasmtime into every pkg/executor
-	// consumer). 0 selects the 2 GiB default; anything else must be in range
-	// rather than silently clamped, so a misconfigured operator finds out at startup.
-	const maxGuestMemoryCeilingBytes = 2 * 1024 * 1024 * 1024
+	// guest may never grow past 2 GiB. The ceiling lives in pkg/common rather than
+	// pkg/wasm so this check shares one definition with the runtime without linking
+	// libwasmtime into every pkg/executor consumer. 0 selects the default; anything
+	// else must be in range rather than silently clamped, so a misconfigured
+	// operator finds out at startup.
+	const maxGuestMemoryCeilingBytes = common.MaxGuestMemoryCeilingBytes
 	if c.MaxGuestMemoryBytes < 0 || c.MaxGuestMemoryBytes > maxGuestMemoryCeilingBytes {
 		errs = append(errs, fmt.Sprintf(
 			"EXECUTOR_MAX_GUEST_MEMORY_BYTES must be between 0 (default: 2 GiB) and %d (2 GiB), got %d",
