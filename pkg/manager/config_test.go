@@ -284,3 +284,24 @@ func TestValidate_ExecutorPortAboveRange(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "EXECUTOR_PORT")
 }
+
+// TestValidate_ExecutorPortZero mirrors the executor-side check: 0 is never usable for
+// the port the manager dials.
+func TestValidate_ExecutorPortZero(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 0}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_PORT")
+}
+
+// TestValidate_LogServerPortZeroAccepted guards the exception: 0 disables the TCP log
+// listener rather than being an invalid port.
+func TestValidate_LogServerPortZeroAccepted(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "localhost", Port: 0}
+
+	require.NoError(t, cfg.Validate())
+}

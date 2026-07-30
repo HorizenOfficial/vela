@@ -164,9 +164,19 @@ func (c *Config) Validate() error {
 	// limit. Skipped when the params are absent or not TCP, so partially populated
 	// configs in tests still validate.
 	if c.ChannelType == "tcp" {
-		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
-			errs = append(errs, fmt.Sprintf(
-				"EXECUTOR_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok {
+			if p.Port > common.MaxTCPPort {
+				errs = append(errs, fmt.Sprintf(
+					"EXECUTOR_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+			}
+			// 0 parses cleanly but is never usable here: the executor would listen on an
+			// OS-assigned port while the manager dials the configured one from the same
+			// variable, so it fails at connect time with nothing wrong at startup.
+			// Deliberately not applied to the log server, where 0 means "no TCP log
+			// listener" (see logserver.StartLogServer).
+			if p.Port == 0 {
+				errs = append(errs, "EXECUTOR_PORT must not be 0 for tcp: the manager dials this port")
+			}
 		}
 		if p, ok := c.LogChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
 			errs = append(errs, fmt.Sprintf(

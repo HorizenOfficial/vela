@@ -1443,6 +1443,16 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
 	}
 
+	// Same rule as the request path: a guest that faults leaves its heap in an unknown
+	// state and must not serve the next call. Registered BEFORE the deallocate defer
+	// below so LIFO closes the store only after that has run.
+	guestFaulted := false
+	defer func() {
+		if guestFaulted {
+			r.evictFaultedModule(appId)
+		}
+	}()
+
 	// Call the WASM function to generate the report
 	statsFunc := appModule.instance.GetFunc(appModule.store, "get_allocated_memory_stats")
 	if statsFunc == nil {
@@ -1458,14 +1468,17 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 	const resultSize = 2 * 8 // 2 int64 values, 8 bytes each
 	rawResultPtr, err := allocateFunc.Call(appModule.store, int32(resultSize))
 	if err != nil {
+		guestFaulted = isGuestTrap(err)
 		return 0, 0, fmt.Errorf("failed to allocate memory for results: %w", err)
 	}
 
 	resultPtr, err := toInt32(rawResultPtr)
 	if err != nil {
+		guestFaulted = true // guest returned a value the ABI does not allow
 		return 0, 0, fmt.Errorf("allocate returned unexpected value: %w", err)
 	}
 	if resultPtr == 0 {
+		guestFaulted = true // guest could not satisfy the allocation
 		return 0, 0, fmt.Errorf("allocate returned null pointer (0)")
 	}
 
@@ -1479,6 +1492,7 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 	// according to ABI C interface, tinygo uses an inout ptr to store return values, even the signature is different
 	_, err = statsFunc.Call(appModule.store, resultPtr)
 	if err != nil {
+		guestFaulted = isGuestTrap(err)
 		return 0, 0, fmt.Errorf("failed to call func: %w", err)
 	}
 
@@ -1493,6 +1507,7 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 	// recover shield, so an unchecked slice here takes the process down — see the
 	// "NEVER let guest crash the host" note there.
 	if resultPtr < 0 || int64(resultPtr)+resultSize > int64(len(memoryData)) {
+		guestFaulted = true // guest-supplied pointer outside its own memory
 		return 0, 0, fmt.Errorf("stats result pointer %d out of bounds: %d bytes needed, memory size is %d",
 			resultPtr, resultSize, len(memoryData))
 	}
@@ -1520,6 +1535,14 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
 	}
 
+	// See GetAllocatedMemoryStats: a guest fault here evicts, like on the request path.
+	guestFaulted := false
+	defer func() {
+		if guestFaulted {
+			r.evictFaultedModule(appId)
+		}
+	}()
+
 	// Call the WASM function to generate the report
 	statsFunc := appModule.instance.GetFunc(appModule.store, "get_memory_stats")
 	if statsFunc == nil {
@@ -1528,18 +1551,21 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 
 	result, err := statsFunc.Call(appModule.store)
 	if err != nil {
+		guestFaulted = isGuestTrap(err)
 		return 0, 0, fmt.Errorf("failed to call func: %w", err)
 	}
 
 	// Extract the result bytes
 	resultBytes, err := r.extractResultBytes(result, appModule)
 	if err != nil {
+		guestFaulted = errors.Is(err, errGuestFault)
 		return 0, 0, fmt.Errorf("failed to extract wasm module result bytes: %w", err)
 	}
 
 	// Deserialize the result
 	var stats appCommon.MemoryStats
 	if err := json.Unmarshal(resultBytes, &stats); err != nil {
+		guestFaulted = true // guest produced a result the host cannot parse
 		return 0, 0, fmt.Errorf("failed to unmarshal stats result: %w", err)
 	}
 

@@ -303,3 +303,28 @@ func TestValidate_VsockPortAboveTCPRangeAccepted(t *testing.T) {
 
 	require.NoError(t, cfg.Validate())
 }
+
+// TestValidate_TCPPortZero covers the other unusable port. 0 parses cleanly through
+// GetConfigVarUint32, so only Validate() can catch it: the executor would listen on an
+// OS-assigned port while the manager dials the configured one from the same variable.
+func TestValidate_TCPPortZero(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 0}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_PORT")
+}
+
+// TestValidate_LogPortZeroAccepted guards the deliberate exception: 0 on the log
+// channel means "no TCP log listener" (logserver.StartLogServer), so it must not be
+// rejected alongside the rendezvous port.
+func TestValidate_LogPortZeroAccepted(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 4000}
+	cfg.LogChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 0}
+
+	require.NoError(t, cfg.Validate())
+}

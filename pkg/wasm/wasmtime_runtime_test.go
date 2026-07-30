@@ -294,6 +294,57 @@ const wrongArityAllocateWat = `(module
   (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
     i32.const 100))`
 
+// trappingStatsWat loads successfully but traps inside the stats export. Used by
+// TestStatsTrapEvictsModule: the stats helpers call into the guest like any other
+// export, so a trap there leaves the same unknown heap state.
+const trappingStatsWat = `(module
+  (memory (export "memory") 1)
+
+  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "get_allocated_memory_stats") (param i32) unreachable))`
+
+// tooManyTablesWat declares more tables than maxTablesPerStore allows. Table storage
+// is bounded per table, so the table *count* has to be bounded too or the total is
+// unbounded again. Used by TestGuestTableCountIsBounded.
+const tooManyTablesWat = `(module
+  (memory (export "memory") 1)
+  (table 1 funcref)
+  (table 1 funcref)
+  (table 1 funcref)
+  (table 1 funcref)
+  (table 1 funcref)
+
+  ;; load_module result at offset 300
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32)))`
+
+// growingTableWat declares a table within the limit and then tries to grow past it at
+// runtime. Used by TestGuestTableGrowthIsBounded: bounding only the declared size
+// would leave table.grow as an unbounded path to the same memory.
+const growingTableWat = `(module
+  (memory (export "memory") 1)
+  (table $t 1 funcref)
+
+  ;; load_module result at offset 300
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "load_module") (param i64) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  ;; grow well past maxTableElementsPerStore; returns -1 when refused
+  (func (export "grow") (result i32)
+    (table.grow $t (ref.null func) (i32.const 50000000))))`
+
 var testLogger logger.Logger
 
 func TestMain(m *testing.M) {
@@ -776,6 +827,62 @@ func TestAppErrorKeepsModuleCached(t *testing.T) {
 	require.NotNil(t, failure, "the guest reported an application error")
 	require.Contains(t, failure.Error(), "boom")
 	require.True(t, isCached(runtime, appId), "an application-level error must not evict the module")
+}
+
+// TestStatsTrapEvictsModule applies the eviction rule to the stats helpers. They are
+// reference/debug paths today (absent from the executor's Runtime interface), but they
+// invoke the guest, so a trap leaves the same damaged heap that
+// TestGuestTrapEvictsModule guards against on the request path.
+func TestStatsTrapEvictsModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(trappingStatsWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+
+	_, _, err = runtime.GetAllocatedMemoryStats(context.Background(), appId, wasmBytes)
+	require.Error(t, err, "a trapping stats export must fail")
+	require.False(t, isCached(runtime, appId), "a module whose guest trapped must not stay cached")
+}
+
+// TestGuestTableCountIsBounded covers maxTablesPerStore. The element limit is per
+// table, so without a count bound a module could multiply it by declaring many tables.
+func TestGuestTableCountIsBounded(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(tooManyTablesWat)
+	require.NoError(t, err)
+
+	_, _, err = runtime.LoadModule(context.Background(), common.NewApplicationId(1), wasmBytes)
+	require.Error(t, err, "more tables than the limit must be rejected")
+	require.Contains(t, err.Error(), "table count")
+}
+
+// TestGuestTableGrowthIsBounded covers the runtime half of the element limit: a guest
+// that declares a small table and grows it must still be capped, or the bound only
+// applies to the declared size.
+func TestGuestTableGrowthIsBounded(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(growingTableWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	_, _, err = runtime.LoadModule(context.Background(), appId, wasmBytes)
+	require.NoError(t, err, "the module itself is within the limits")
+
+	runtime.moduleLock.RLock()
+	module := runtime.modules[appId]
+	runtime.moduleLock.RUnlock()
+	require.NotNil(t, module)
+
+	res, err := module.instance.GetFunc(module.store, "grow").Call(module.store)
+	require.NoError(t, err, "a refused table.grow reports failure, it does not trap")
+	require.Equal(t, int32(-1), res, "growth beyond the element limit must be refused")
 }
 
 // TestStatsRejectsOutOfBoundsResultPointer verifies that a guest-supplied result

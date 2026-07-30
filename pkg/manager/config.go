@@ -260,9 +260,16 @@ func (c *Config) Validate() error {
 			"MANAGER_ADMIN_PORT must be <= %d, got %d", common.MaxTCPPort, p.Port))
 	}
 	if c.ChannelType == "tcp" {
-		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok && p.Port > common.MaxTCPPort {
-			errs = append(errs, fmt.Sprintf(
-				"EXECUTOR_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok {
+			if p.Port > common.MaxTCPPort {
+				errs = append(errs, fmt.Sprintf(
+					"EXECUTOR_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+			}
+			// See pkg/executor: 0 is never usable for the rendezvous port. Not applied
+			// to LogServerTCPAddress, where 0 disables the TCP log listener.
+			if p.Port == 0 {
+				errs = append(errs, "EXECUTOR_PORT must not be 0 for tcp: this is the port the manager dials")
+			}
 		}
 	}
 
