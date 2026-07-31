@@ -17,12 +17,6 @@ func deploy(appId int64, paramsPtr *byte, paramsLen int32) *byte {
 	return types.SerializeAndWriteResult(result)
 }
 
-//export load_module
-func load_module(appId int64) *byte {
-	result := app.LoadModule(appId)
-	return types.SerializeAndWriteResult(result)
-}
-
 //export deposit
 func deposit(appId int64, senderPtr *byte, senderLen int32, tokenPtr *byte, tokenLen int32, valuePtr *byte, valueLen int32, statePtr *byte, stateLen int32) *byte {
 	_ = appId

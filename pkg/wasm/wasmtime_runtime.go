@@ -504,44 +504,35 @@ func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.Appl
 		return module, nil
 	}
 
-	// If not loaded, load the module
-	_, _, err := r.loadModuleUnlocked(ctx, appId, wasm)
+	// Not cached: compile and instantiate the module without invoking any guest
+	// initialization function. The application state is supplied by the caller
+	// (loaded from persistent storage), so warming the cache needs no guest call.
+	appModule, err := r.compileAndInstantiate(ctx, appId, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load module: %w", err)
 	}
 
-	// Return loaded module
-	if module, exists := r.modules[appId]; exists {
-		return module, nil
-	}
-	return nil, fmt.Errorf("module not found after loading: %d", appId)
+	r.modules[appId] = appModule
+	r.touchModule(appId)
+	r.evictIfNeeded()
+	r.log.Info("Wasmtime Runtime: Successfully loaded WASM module for application %d", appId)
+	return appModule, nil
 }
 
-// LoadModule loads a WASM module and returns initial state and state root
-func (r *WasmtimeRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
-	// Runs guest code (load_module) and may evict/close other modules.
-	r.execLock.Lock()
-	defer r.execLock.Unlock()
-
-	r.moduleLock.Lock()
-	defer r.moduleLock.Unlock()
-
-	return r.loadModuleUnlocked(ctx, appId, wasm)
-}
-
-// loadModuleUnlocked contains the core logic for loading a module, but without locking.
-// This method should only be called when a lock is already held.
-func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
-	r.log.Info("Wasmtime Runtime: Loading WASM module for application %d (wasm size: %d bytes)", appId, len(wasm))
-	wasmAppId, err := ToWasmType(appId)
-	if err != nil {
-		return nil, big.NewInt(0), err
-	}
-
+// compileAndInstantiate compiles the given WASM bytes, creates a per-module store with
+// WASI log pipes configured, instantiates the module through a WASI-enabled linker, and
+// resolves the exports required by every operation (the "memory" export and the optional
+// "deallocate" function). It returns a ready-to-use ApplicationModule.
+//
+// This is the shared setup used by both deployUnlocked and getOrLoadModule. It deliberately
+// does NOT call any guest function: each caller invokes the specific guest export it needs
+// (deploy, deposit, ...) afterwards. On any error it releases the log pipes it created; on
+// success, ownership of the module (and responsibility for cleanup) passes to the caller.
+func (r *WasmtimeRuntime) compileAndInstantiate(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (*ApplicationModule, error) {
 	// Compile the WASM module
 	module, err := wasmtime.NewModule(r.engine, wasm)
 	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to compile WASM module: %w", err)
+		return nil, fmt.Errorf("failed to compile WASM module: %w", err)
 	}
 
 	// Create a per-module store
@@ -574,20 +565,19 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 
 	cleanupLogPipes, err = r.configureWasiLogPipes(ctx, appId, store)
 	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
+		return nil, fmt.Errorf("failed to configure WASI log pipes: %w", err)
 	}
 
 	// Create WASI configuration and linker for TinyGo WASI imports
 	linker := wasmtime.NewLinker(r.engine)
-	err = linker.DefineWasi()
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
+	if err = linker.DefineWasi(); err != nil {
+		return nil, fmt.Errorf("failed to define WASI: %w", err)
 	}
 
 	// Instantiate the module using the module-specific store
 	instance, err := linker.Instantiate(store, module)
 	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to instantiate WASM module: %w", err)
+		return nil, fmt.Errorf("failed to instantiate WASM module: %w", err)
 	}
 
 	// Get the memory export.
@@ -595,29 +585,16 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 	// check for instance WAT (WebAssembly text format) generated via wasm2wat tool
 	memoryExport := instance.GetExport(store, "memory")
 	if memoryExport == nil {
-		return nil, big.NewInt(0), fmt.Errorf("memory export not found in WASM module")
+		return nil, fmt.Errorf("memory export not found in WASM module")
 	}
 
 	memory := memoryExport.Memory()
 	if memory == nil {
-		return nil, big.NewInt(0), fmt.Errorf("memory export is not a memory")
-	}
-
-	// Get the load_module function
-	loadModuleFunc := instance.GetFunc(store, "load_module")
-	if loadModuleFunc == nil {
-		return nil, big.NewInt(0), fmt.Errorf("load_module function not found in WASM module")
+		return nil, fmt.Errorf("memory export is not a memory")
 	}
 
 	// Get the deallocate function (optional, but recommended for memory management)
 	deallocateFunc := instance.GetFunc(store, "deallocate")
-
-	// Call the load_module function
-	// Wasm supports only int64, so we cast appId to int64
-	result, err := loadModuleFunc.Call(store, wasmAppId)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to call load_module: %w", err)
-	}
 
 	appModule := &ApplicationModule{
 		store:      store,
@@ -628,57 +605,16 @@ func (r *WasmtimeRuntime) loadModuleUnlocked(ctx context.Context, appId common.A
 		cleanupFds: cleanupLogPipes,
 	}
 
-	// Extract the result bytes
-	resultBytes, err := r.extractResultBytes(result, appModule)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to extract wasm module result bytes: %w", err)
-	}
-
-	r.log.Debug("Wasmtime Runtime: Raw result from WASM: %s", string(resultBytes))
-
-	// Deserialize the result
-	var loadResult appCommon.LoadModuleResult
-	if err := json.Unmarshal(resultBytes, &loadResult); err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to unmarshal load module result: %w", err)
-	}
-
-	if loadResult.Error != "" {
-		return nil, big.NewInt(0), fmt.Errorf("failed to load module: %s", loadResult.Error)
-	}
-
-	success = true // Disables the deferred cleanup
-
-	// if a module already exists for this appId, clean it up before overwriting
-	if oldModule, exists := r.modules[appId]; exists {
-		r.cleanupModule(appId, oldModule)
-	}
-
-	// Store the module in the runtime registry and update LRU
-	r.modules[appId] = appModule
-	r.touchModule(appId)
-	r.evictIfNeeded()
-	r.log.Info("Wasmtime Runtime: Successfully loaded WASM module for application %d", appId)
-
-	return loadResult.State, loadResult.Fuel.ToInt(), nil
+	success = true // Ownership of the module (and its log pipes) passes to the caller
+	return appModule, nil
 }
 
 // Deploy loads a WASM module and initializes it with constructor parameters.
 // The guest export is deploy(appId, paramsPtr, paramsLen) -> resultPtr.
 //
-// This method is the deploy-time entry point: it compiles the module, calls the guest's
-// deploy function with constructor params, and returns the initial application state.
-//
-// NOTE on LoadModule vs Deploy:
-// Deploy is used at deploy time to initialize the app state with constructor parameters.
-// LoadModule is no longer used for deploy-time initialization but is retained because
-// getOrLoadModule (used by Deposit/ProcessRequest) depends on loadModuleUnlocked to
-// compile and cache modules for subsequent requests.
-//
-// TODO: Refactor to extract shared module setup (compile, instantiate, WASI config) into
-// a compileAndInstantiate helper. Currently deployUnlocked and loadModuleUnlocked duplicate
-// ~60 lines of identical boilerplate. This would also let getOrLoadModule compile and
-// instantiate without calling any guest function, eliminating the unnecessary load_module
-// guest call during cache warm-up.
+// This method is the deploy-time entry point: it compiles and instantiates the module (via
+// compileAndInstantiate), calls the guest's deploy function with constructor params, and
+// returns the initial application state.
 func (r *WasmtimeRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
 	// Runs guest code (deploy) and may evict/close other modules.
 	r.execLock.Lock()
@@ -699,85 +635,40 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 		return nil, big.NewInt(0), err
 	}
 
-	// Compile the WASM module
-	module, err := wasmtime.NewModule(r.engine, wasm)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to compile WASM module: %w", err)
+	// A module for this appId must not exist at deploy time: that means a duplicate
+	// deploy or an unexpected state (a request may have warmed the cache for an app
+	// deployed earlier). Rejected FIRST, before the module is built, so a doomed
+	// deploy neither compiles the module nor enters the guest's constructor —
+	// guest execution is unbounded today (see newPinnedEngine) and runs with
+	// execLock held, so a non-terminating constructor here would block every other
+	// app. Nothing to clean up either, since nothing was created yet.
+	//
+	// One check is enough: Deploy holds execLock and moduleLock for this whole call
+	// and nothing below adds to r.modules, so the map cannot change underneath.
+	// TestDuplicateDeployIsRejectedBeforeRunningGuest pins the ordering.
+	if _, exists := r.modules[appId]; exists {
+		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
 	}
 
-	// Create a per-module store
-	store := r.newModuleStore()
+	// Compile and instantiate the module (shared setup with getOrLoadModule).
+	appModule, err := r.compileAndInstantiate(ctx, appId, wasm)
+	if err != nil {
+		return nil, big.NewInt(0), err
+	}
 
-	// Registered as early as possible — immediately after the store exists and
-	// BEFORE configureWasiLogPipes — so that every failure path from here on
-	// releases the native state, including a log-pipe failure (mkfifo/open),
-	// which would otherwise fall back to a finalizer. cleanupLogPipes is declared
-	// up front and nil-checked, since it is only assigned below.
+	// Until the module is stored in the registry, this function owns it and must
+	// release it (and its log pipes) if any subsequent step fails.
 	success := false
-	var cleanupLogPipes func()
 	defer func() {
-		if success {
-			return
+		if !success {
+			appModule.Close()
 		}
-		if cleanupLogPipes != nil {
-			cleanupLogPipes()
-		}
-		// Release the native state explicitly on every failure path, for the same
-		// reason ApplicationModule.Close does it on eviction: the Go GC does not
-		// see the guest linear memory held by the store, so leaving it to a
-		// finalizer can keep hundreds of MB alive inside the enclave. Nothing else
-		// can close these — the module never reaches r.modules on these paths.
-		// Registered before any deallocate defers below, so LIFO runs this last,
-		// after those have finished using the store.
-		store.Close()
-		module.Close()
 	}()
 
-	cleanupLogPipes, err = r.configureWasiLogPipes(ctx, appId, store)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to configure WASI log pipes: %w", err)
-	}
-
-	// Create WASI configuration and linker for TinyGo WASI imports
-	linker := wasmtime.NewLinker(r.engine)
-	err = linker.DefineWasi()
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to define WASI: %w", err)
-	}
-
-	// Instantiate the module using the module-specific store
-	instance, err := linker.Instantiate(store, module)
-	if err != nil {
-		return nil, big.NewInt(0), fmt.Errorf("failed to instantiate WASM module: %w", err)
-	}
-
-	// Get the memory export
-	memoryExport := instance.GetExport(store, "memory")
-	if memoryExport == nil {
-		return nil, big.NewInt(0), fmt.Errorf("memory export not found in WASM module")
-	}
-
-	memory := memoryExport.Memory()
-	if memory == nil {
-		return nil, big.NewInt(0), fmt.Errorf("memory export is not a memory")
-	}
-
 	// Get the deploy function
-	deployFunc := instance.GetFunc(store, "deploy")
+	deployFunc := appModule.instance.GetFunc(appModule.store, "deploy")
 	if deployFunc == nil {
 		return nil, big.NewInt(0), fmt.Errorf("deploy function not found in WASM module")
-	}
-
-	// Get the deallocate function (optional, but recommended for memory management)
-	deallocateFunc := instance.GetFunc(store, "deallocate")
-
-	appModule := &ApplicationModule{
-		store:      store,
-		module:     module,
-		instance:   instance,
-		memory:     memory,
-		deallocate: deallocateFunc,
-		cleanupFds: cleanupLogPipes,
 	}
 
 	// Write constructor params to guest memory
@@ -793,7 +684,7 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 	}
 
 	// Guest ABI: deploy(appId, paramsPtr, paramsLen)
-	result, err := deployFunc.Call(store, wasmAppId, paramsPtr, int32(len(constructorParams)))
+	result, err := deployFunc.Call(appModule.store, wasmAppId, paramsPtr, int32(len(constructorParams)))
 	if err != nil {
 		return nil, big.NewInt(0), fmt.Errorf("failed to call deploy: %w", err)
 	}
@@ -814,15 +705,6 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 
 	if deployResult.Error != "" {
 		return nil, big.NewInt(0), fmt.Errorf("failed to deploy module: %s", deployResult.Error)
-	}
-
-	// A module for this appId should not exist at deploy time. If it does,
-	// it indicates a duplicate deploy or an unexpected state. Checked BEFORE
-	// success is set, so this path still runs the deferred cleanup: the module
-	// never enters r.modules, so nothing else would ever close its log FIFOs
-	// (leaking the fds and the log-forwarding goroutine).
-	if _, exists := r.modules[appId]; exists {
-		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
 	}
 
 	success = true // Disables the deferred cleanup
