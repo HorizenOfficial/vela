@@ -5,6 +5,7 @@
   "scripts": {
     "build": "npx hardhat compile",
     "test": "npx hardhat test",
+    "check:layout": "npx hardhat run scripts/checkStorageLayout.ts",
     "test:ignoresize": "UNLIMITED_SIZE=true npx hardhat test",
     "format": "npx prettier --ignore-path ../.gitignore --write \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"hardhat.config.ts\"",
     "format:check": "npx prettier --ignore-path ../.gitignore --check \"contracts/**/*.sol\" \"test/**/*.ts\" \"scripts/**/*.ts\" \"hardhat.config.ts\"",

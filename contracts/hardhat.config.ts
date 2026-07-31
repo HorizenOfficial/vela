@@ -28,6 +28,14 @@ const config: HardhatUserConfig = {
             runs: 0,
           },
           viaIR: true,
+          // Needed by scripts/checkStorageLayout.ts, which asserts that ProcessorEndpoint and
+          // ProcessorEndpointExtension share one storage layout — they must, because the endpoint
+          // reaches the extension by delegatecall.
+          outputSelection: {
+            '*': {
+              '*': ['storageLayout'],
+            },
+          },
         },
       },
     ],
@@ -46,7 +54,10 @@ const config: HardhatUserConfig = {
       accounts,
     },
     hardhat: {
-      allowUnlimitedContractSize: true,
+      // EIP-170 is enforced by default so the suite fails when a contract outgrows the limit,
+      // the way it would on Base. `npm run test:ignoresize` opts out, for measuring how far over
+      // the limit a work-in-progress contract is.
+      allowUnlimitedContractSize: process.env.UNLIMITED_SIZE === 'true',
     },
   },
 };
