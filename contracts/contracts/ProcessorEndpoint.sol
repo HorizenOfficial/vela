@@ -1,96 +1,30 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import '@openzeppelin/contracts/access/AccessControl.sol';
-import '@openzeppelin/contracts/utils/ReentrancyGuard.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
-import '@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol';
-import '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
-import '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
-import '@openzeppelin/contracts/utils/Strings.sol';
 
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
 import './interfaces/ITokenAllowlist.sol';
 import './Structs.sol';
+import './ProcessorEndpointStorage.sol';
 import './interfaces/ITrigger.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard, EIP712 {
+/// @dev State lives in `ProcessorEndpointStorage`, which `ProcessorEndpointExtension` also derives
+///      from: this contract is close enough to the EIP-170 deployed-bytecode limit that parts of it
+///      are hosted in the extension and reached by `delegatecall`. See
+///      `ProcessorEndpointStorage` for the rules that keeps safe, and
+///      `docs/design/PROCESSOR_ENDPOINT_SPLIT.md` for the rationale.
+contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   using SafeERC20 for IERC20;
 
-  struct RequestQueue {
-    mapping(bytes32 => Structs.PendingRequest) requestById;
-    mapping(uint256 => bytes32) idByOrder;
-    uint256 head;
-    uint256 tail;
-  }
-
-  //constants
-  bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
-  bytes32 public constant ADMIN = keccak256('ADMIN');
-  bytes32 public constant DEPLOYER_ROLE = keccak256('DEPLOYER_ROLE');
-  bytes32 public constant RESET_OPERATOR = keccak256('RESET_OPERATOR');
-  uint8 public constant PROTOCOL_VERSION = 0;
-  //state variables
-  mapping(uint64 => bytes32) public applicationStateRoots;
-  uint64[] private _deployedAppIds;
-  uint256 public maxNumOfApplications = 10;
-  uint256 public availableDeploySlots = maxNumOfApplications;
-
-  RequestQueue private _requestQueue;
-  uint256 public maxQueueSize = 10;
-
-  ITeeAuthenticator public teeAuthenticator;
-  IAuthorityRegistry public authorityRegistry;
-  ITokenAllowlist public tokenAllowlist;
-
-  // Pull payment pattern state — per-token, per-payee
-  mapping(address => mapping(address => uint256)) public pendingClaims;
-  mapping(address => uint256) public totalPendingClaims;
-
-  // Per-app, per-token custody tracking for solvency isolation.
-  // Credited on submitRequest (assetAmount only; fees are tracked globally),
-  // debited on stateUpdate: success path (withdrawals), error path (assetAmount).
-  // Fees are self-balancing per request (refund + applicationFees == maxFeeValue)
-  // so global balance checks are sufficient for the fee portion.
-  // If an app's withdrawals are less than its deposits,
-  // the residual accumulates here as credit available to future requests.
-  // Note: There is currently no mechanism to recover residual funds from decommissioned
-  // apps.
-  mapping(uint64 => mapping(address => uint256)) public appCustody;
-  mapping(address => uint256) public totalAppCustody;
-
-  uint256 public minFeePerRequest;
-  address payable public feeCollector;
-
-  // EIP-712 typehash for facilitator request authorization
-  bytes32 public constant REQUEST_AUTHORIZATION_TYPEHASH =
-    keccak256(
-      'RequestAuthorization(address sender,uint8 protocolVersion,uint64 applicationId,uint8 requestType,bytes32 payloadHash,address tokenAddress,uint256 assetAmount,uint256 nonce,uint256 deadline)'
-    );
-
-  // Sequential nonces per user for facilitator replay protection
-  mapping(address => uint256) public facilitatorNonces;
-  // Trigger contracts associated to each applicationId
-  mapping(uint64 => ITrigger) public triggerContracts;
-  // Reverse mapping for the above to check if a trigger is valid when adding to the queue
-  mapping(address => uint64) public triggersToAppIds;
-  // FIFO queue populated by trigger contracts; served before the normal queue
-  RequestQueue private _triggerQueue;
-
-  modifier validProtocolVersion(uint8 protocolVersion) {
-    if (protocolVersion != PROTOCOL_VERSION) revert InvalidProtocolVersion();
-    _;
-  }
-
-  modifier validApplicationId(uint64 applicationId) {
-    if (applicationStateRoots[applicationId] == bytes32(0)) revert InvalidApplicationId();
-    _;
-  }
+  /// @dev Extension contract holding code moved out of this one for size reasons. Immutable, so it
+  ///      lives in this contract's code rather than in storage and cannot be repointed.
+  address private immutable _extension;
 
   /// @param _teeAuthenticator Contract used to verify update signatures.
   /// @param _authorityRegistry Registry for authority checks.
@@ -100,6 +34,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
   /// @param _tokenAllowlist External token allowlist contract.
+  /// @param extension Deployed `ProcessorEndpointExtension` serving the delegated entry points.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
@@ -107,16 +42,19 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     address admin,
     address resetOperator,
     uint256 _minFeePerRequest,
-    ITokenAllowlist _tokenAllowlist
-  ) EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {
+    ITokenAllowlist _tokenAllowlist,
+    address extension
+  ) {
     if (
       address(_teeAuthenticator) == address(0) ||
       address(_authorityRegistry) == address(0) ||
       updateStatusOperator == address(0) ||
       admin == address(0) ||
-      address(_tokenAllowlist) == address(0)
+      address(_tokenAllowlist) == address(0) ||
+      extension == address(0)
     ) revert AddressCantBeZero();
 
+    _extension = extension;
     teeAuthenticator = _teeAuthenticator;
     authorityRegistry = _authorityRegistry;
     tokenAllowlist = _tokenAllowlist;
@@ -163,7 +101,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     //check values
     if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
     //check queue size
-    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
+    if (_pendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
 
     if (tokenAddress == ETH_TOKEN) {
       if (msg.value != assetAmount + maxFeeValue) revert InvalidValue();
@@ -203,112 +141,50 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   /// @inheritdoc IProcessorEndpoint
+  /// @dev Implemented in `ProcessorEndpointExtension` for size reasons; this entry point only
+  ///      forwards the call. Declaring it here keeps the ABI, the selector, the address relayers
+  ///      call and the `IProcessorEndpoint` conformance check unchanged. `_delegateToExtension`
+  ///      never returns, so the declared return value is never produced here — the extension's
+  ///      return data is passed back to the caller verbatim.
   function submitRequestFor(
-    address sender,
-    uint8 protocolVersion,
-    uint64 applicationId,
-    Structs.RequestType requestType,
-    bytes calldata payload,
-    address tokenAddress,
-    uint256 assetAmount,
-    uint256 deadline,
-    bytes calldata requestSignature,
-    bytes calldata depositPermit
-  )
-    external
-    payable
-    validProtocolVersion(protocolVersion)
-    validApplicationId(applicationId)
-    nonReentrant
-    returns (bytes32)
-  {
-    // 1. Only ASSOCIATEKEY and PROCESS are supported. TRUSTPROCESS is trusted
-    //    and can ONLY be created internally during stateUpdate (via a trigger's
-    //    getTrustProcessPayload payload) — never submitted by an external caller here.
-    if (
-      requestType != Structs.RequestType.ASSOCIATEKEY && requestType != Structs.RequestType.PROCESS
-    ) revert InvalidRequestType();
-
-    // 2. Verify deadline not expired
-    if (block.timestamp > deadline) revert DeadlineExpired();
-
-    // 3. Check queue size
-    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
-
-    // 4. Validate payload for ASSOCIATEKEY
-    if (requestType == Structs.RequestType.ASSOCIATEKEY) {
-      if (payload.length != 133 && payload.length != 226) revert InvalidPayload();
-    }
-
-    // 5. Read current nonce and build EIP-712 hash
-    uint256 nonce = facilitatorNonces[sender];
-    bytes32 structHash = keccak256(
-      abi.encode(
-        REQUEST_AUTHORIZATION_TYPEHASH,
-        sender,
-        protocolVersion,
-        applicationId,
-        uint8(requestType),
-        keccak256(payload),
-        tokenAddress,
-        assetAmount,
-        nonce,
-        deadline
-      )
-    );
-    bytes32 digest = _hashTypedDataV4(structHash);
-
-    // 6. Recover user address from EIP-712 request signature and verify
-    address recoveredSigner = ECDSA.recover(digest, requestSignature);
-    if (recoveredSigner == address(0)) revert InvalidSignature();
-    if (recoveredSigner != sender) revert InvalidSigner();
-
-    // 7. Consume nonce (replay protection)
-    facilitatorNonces[sender] = nonce + 1;
-
-    // 8. Validate fee
-    uint256 maxFeeValue = msg.value;
-    if (maxFeeValue < minFeePerRequest) revert FeeValueBelowMinimum();
-
-    // 9. Validate token and handle deposit
-    if (assetAmount == 0 && tokenAddress != ETH_TOKEN) revert InvalidValue();
-    if (assetAmount > 0) {
-      if (tokenAddress == ETH_TOKEN) revert InvalidValue();
-      if (!tokenAllowlist.isAllowedToken(tokenAddress)) revert ITokenAllowlist.TokenNotAllowed();
-
-      // Decode deposit permit and execute EIP-2612 permit + transferFrom
-      if (depositPermit.length != 96) revert InvalidPermit();
-      (uint8 v, bytes32 r, bytes32 s) = abi.decode(depositPermit, (uint8, bytes32, bytes32));
-
-      // Check current allowance before calling permit
-      IERC20 token = IERC20(tokenAddress);
-      if (token.allowance(sender, address(this)) < assetAmount) {
-        IERC20Permit(tokenAddress).permit(sender, address(this), assetAmount, deadline, v, r, s);
-      }
-
-      _pullERC20(tokenAddress, sender, assetAmount);
-
-      _addToCustody(applicationId, tokenAddress, assetAmount);
-    }
-
-    // 10. Create PendingRequest with sender = user (not msg.sender) and enqueue
-    return
-      _enqueueRequest(
-        sender,
-        msg.sender,
-        protocolVersion,
-        applicationId,
-        requestType,
-        payload,
-        tokenAddress,
-        assetAmount,
-        maxFeeValue
-      );
+    address /* sender */,
+    uint8 /* protocolVersion */,
+    uint64 /* applicationId */,
+    Structs.RequestType /* requestType */,
+    bytes calldata /* payload */,
+    address /* tokenAddress */,
+    uint256 /* assetAmount */,
+    uint256 /* deadline */,
+    bytes calldata /* requestSignature */,
+    bytes calldata /* depositPermit */
+  ) external payable returns (bytes32) {
+    _delegateToExtension();
   }
 
-  /// @inheritdoc IProcessorEndpoint
-  function getFacilitatorNonce(address user) external view returns (uint256) {
-    return facilitatorNonces[user];
+  /// @dev Forwards the current call to `_extension` with `delegatecall`, so the extension's code
+  ///      runs against this contract's storage, balance, `msg.sender` and `msg.value`. Returns the
+  ///      extension's return data, or bubbles up its revert data unchanged, and never returns to
+  ///      the caller of this function.
+  ///
+  ///      Scratches memory above the free-memory pointer rather than at offset 0, and is annotated
+  ///      `memory-safe` accordingly: unannotated assembly would switch off solc's `memoryguard`
+  ///      for the whole contract, and `stateUpdate` then fails to compile with "stack too deep".
+  function _delegateToExtension() private {
+    address extension = _extension;
+    assembly ('memory-safe') {
+      let ptr := mload(0x40)
+      calldatacopy(ptr, 0, calldatasize())
+      let ok := delegatecall(gas(), extension, ptr, calldatasize(), 0, 0)
+      let size := returndatasize()
+      returndatacopy(ptr, 0, size)
+      switch ok
+      case 0 {
+        revert(ptr, size)
+      }
+      default {
+        return(ptr, size)
+      }
+    }
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -350,14 +226,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
     if (availableDeploySlots == 0) revert MaxNumOfApplicationsExceeded();
     //check queue size
-    if (getPendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
+    if (_pendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
     if (msg.value < minFeePerRequest) revert FeeValueBelowMinimum();
 
     --availableDeploySlots;
 
     Structs.RequestType requestType = Structs.RequestType.DEPLOYAPP;
     //create request
-    requestId = generateRequestId(
+    requestId = _generateRequestId(
       msg.sender,
       0, // deploy requests have applicationId 0, a unique applicationId will be derived from the requestId for each deploy request to avoid collisions with regular requests and to group deploy requests together
       requestType,
@@ -389,56 +265,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     //emit event
     emit DeployRequestSubmitted(applicationId, requestId, msg.sender);
 
-    return requestId;
-  }
-
-  function _pullERC20(address tokenAddress, address from, uint256 amount) internal {
-    IERC20 token = IERC20(tokenAddress);
-    uint256 balanceBefore = token.balanceOf(address(this));
-    token.safeTransferFrom(from, address(this), amount);
-    uint256 received = token.balanceOf(address(this)) - balanceBefore;
-    if (received != amount) revert TransferAmountMismatch();
-  }
-
-  function _enqueueRequest(
-    address sender,
-    address facilitator,
-    uint8 protocolVersion,
-    uint64 applicationId,
-    Structs.RequestType requestType,
-    bytes calldata payload,
-    address tokenAddress,
-    uint256 assetAmount,
-    uint256 maxFeeValue
-  ) internal returns (bytes32) {
-    bytes32 requestId = generateRequestId(
-      sender,
-      applicationId,
-      requestType,
-      keccak256(payload),
-      tokenAddress,
-      assetAmount,
-      _requestQueue.tail
-    );
-    _queueEnqueue(
-      _requestQueue,
-      requestId,
-      Structs.PendingRequest({
-        timestamp: block.timestamp,
-        tokenAddress: tokenAddress,
-        assetAmount: assetAmount,
-        maxFeeValue: maxFeeValue,
-        requestId: requestId,
-        payload: payload,
-        sender: sender,
-        facilitator: facilitator,
-        applicationId: applicationId,
-        protocolVersion: protocolVersion,
-        requestType: requestType
-      })
-    );
-
-    emit RequestSubmitted(applicationId, requestId, sender, facilitator);
     return requestId;
   }
 
@@ -481,7 +307,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequestsSize() public view returns (uint256) {
-    return _queueSize(_requestQueue);
+    return _pendingRequestsSize();
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -937,8 +763,14 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     uint256 idx
   ) public pure returns (bytes32) {
     return
-      keccak256(
-        abi.encode(sender, applicationId, requestType, payloadHash, tokenAddress, assetAmount, idx)
+      _generateRequestId(
+        sender,
+        applicationId,
+        requestType,
+        payloadHash,
+        tokenAddress,
+        assetAmount,
+        idx
       );
   }
 
@@ -1199,7 +1031,7 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
     address trigger,
     bytes memory payload
   ) private {
-    bytes32 requestId = generateRequestId(
+    bytes32 requestId = _generateRequestId(
       trigger,
       applicationId,
       Structs.RequestType.TRUSTPROCESS,
@@ -1231,40 +1063,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
   }
 
   // Internal queue helpers
-
-  function _queueEnqueue(
-    RequestQueue storage q,
-    bytes32 id,
-    Structs.PendingRequest memory req
-  ) internal {
-    q.requestById[id] = req;
-    q.idByOrder[q.tail] = id;
-    unchecked {
-      ++q.tail;
-    }
-  }
-
-  function _queueDequeueHead(RequestQueue storage q) internal {
-    bytes32 id = q.idByOrder[q.head];
-    delete q.requestById[id];
-    delete q.idByOrder[q.head];
-    unchecked {
-      ++q.head;
-    }
-  }
-
-  function _queueSize(RequestQueue storage q) internal view returns (uint256) {
-    if (q.tail > q.head) return q.tail - q.head;
-    return 0;
-  }
-
-  function _queuePeekHead(RequestQueue storage q) internal view returns (bytes32) {
-    return q.idByOrder[q.head];
-  }
-
-  function _queueIsHead(RequestQueue storage q, bytes32 id) internal view returns (bool) {
-    return q.tail > q.head && q.idByOrder[q.head] == id;
-  }
 
   function _queueGetAll(
     RequestQueue storage q
@@ -1304,12 +1102,6 @@ contract ProcessorEndpoint is AccessControl, IProcessorEndpoint, ReentrancyGuard
         ++j;
       }
     }
-  }
-
-  // update custody helper
-  function _addToCustody(uint64 applicationId, address token, uint256 amount) internal {
-    appCustody[applicationId][token] += amount;
-    totalAppCustody[token] += amount;
   }
 
   function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {

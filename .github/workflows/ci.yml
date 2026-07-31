@@ -95,6 +95,12 @@ jobs:
         working-directory: contracts
         run: npm run build
 
+      # ProcessorEndpoint reaches ProcessorEndpointExtension by delegatecall, so a divergence in
+      # their storage layouts would silently corrupt state instead of reverting.
+      - name: Check ProcessorEndpoint storage layout
+        working-directory: contracts
+        run: npm run check:layout
+
       # Test contracts
       - name: Test contracts
         working-directory: contracts
@@ -182,6 +188,12 @@ jobs:
       - name: Build contracts
         working-directory: contracts
         run: npm run build
+
+      # ProcessorEndpoint reaches ProcessorEndpointExtension by delegatecall, so a divergence in
+      # their storage layouts would silently corrupt state instead of reverting.
+      - name: Check ProcessorEndpoint storage layout
+        working-directory: contracts
+        run: npm run check:layout
 
       # Test contracts
       - name: Test contracts

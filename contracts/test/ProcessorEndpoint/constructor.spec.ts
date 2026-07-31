@@ -12,6 +12,7 @@ describe('ProcessorEndpoint Test', function () {
   let minFeePerRequest: bigint;
   let deployProcessorEndpoint: (resetOperatorOverride?: string) => Promise<any>;
   let sharedTokenAllowlist: any;
+  let extensionAddress: string;
 
   beforeEach(async function () {
     ({
@@ -24,6 +25,7 @@ describe('ProcessorEndpoint Test', function () {
       minFeePerRequest,
       deployProcessorEndpoint,
       sharedTokenAllowlist,
+      extensionAddress,
     } = await deployProcessorEndpointFixture());
   });
 
@@ -38,7 +40,8 @@ describe('ProcessorEndpoint Test', function () {
             admin,
             ADDRESS_ZERO,
             minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+            await sharedTokenAllowlist.getAddress(),
+            extensionAddress
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -52,7 +55,8 @@ describe('ProcessorEndpoint Test', function () {
             admin,
             ADDRESS_ZERO,
             minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+            await sharedTokenAllowlist.getAddress(),
+            extensionAddress
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -66,7 +70,8 @@ describe('ProcessorEndpoint Test', function () {
             admin,
             ADDRESS_ZERO,
             minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+            await sharedTokenAllowlist.getAddress(),
+            extensionAddress
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -80,7 +85,8 @@ describe('ProcessorEndpoint Test', function () {
             ADDRESS_ZERO,
             ADDRESS_ZERO,
             minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+            await sharedTokenAllowlist.getAddress(),
+            extensionAddress
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -94,6 +100,22 @@ describe('ProcessorEndpoint Test', function () {
             admin,
             ADDRESS_ZERO,
             minFeePerRequest,
+            ADDRESS_ZERO,
+            extensionAddress
+          )
+        ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
+      });
+
+      it('reverts when extension is zero address', async () => {
+        await expect(
+          processorEndpointFactory.deploy(
+            await teeAuthenticator.getAddress(),
+            await authorityRegistry.getAddress(),
+            updateStatusOperator,
+            admin,
+            ADDRESS_ZERO,
+            minFeePerRequest,
+            await sharedTokenAllowlist.getAddress(),
             ADDRESS_ZERO
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');

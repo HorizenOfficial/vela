@@ -173,7 +173,8 @@ describe('ProcessorEndpoint Test', function () {
       fixture.admin,
       fixture.resetOperator,
       fixture.minFeePerRequest,
-      await fixture.sharedTokenAllowlist.getAddress()
+      await fixture.sharedTokenAllowlist.getAddress(),
+      fixture.extensionAddress
     );
 
     const { applicationId: appId } = await fixture.bootstrapApplication(
@@ -644,7 +645,7 @@ describe('ProcessorEndpoint Test', function () {
           BigInt((await ethers.provider.getBlock('latest'))!.timestamp) + 3600n;
         const contractAddress = await processorEndpoint.getAddress();
         const senderAddr = await user.getAddress();
-        const nonce = await processorEndpoint.getFacilitatorNonce(senderAddr);
+        const nonce = await processorEndpoint.facilitatorNonces(senderAddr);
 
         const requestSignature = await signRequestAuthorization(user, contractAddress, chainId, {
           sender: senderAddr,

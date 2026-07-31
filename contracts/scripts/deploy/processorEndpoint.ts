@@ -20,7 +20,16 @@ async function deploy() {
   const tokenAllowlistAddr = await tokenAllowlist.getAddress();
   console.log(`TokenAllowlist deployed at ${tokenAllowlistAddr}`);
 
-  // 2) ProcessorEndpoint
+  // 2) ProcessorEndpointExtension — code moved out of ProcessorEndpoint to stay under EIP-170,
+  //    reached by delegatecall. Must exist before the endpoint, whose constructor takes its
+  //    address.
+  const ProcessorEndpointExtension = await ethers.getContractFactory('ProcessorEndpointExtension');
+  const extension = await ProcessorEndpointExtension.deploy();
+  await extension.deploymentTransaction()!.wait();
+  const extensionAddr = await extension.getAddress();
+  console.log(`ProcessorEndpointExtension deployed at ${extensionAddr}`);
+
+  // 3) ProcessorEndpoint
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');
   const processorEndpoint = await ProcessorEndpoint.deploy(
     process.env.TEE_AUTHENTICATOR!,
@@ -29,11 +38,13 @@ async function deploy() {
     process.env.ADMIN!,
     process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000',
     process.env.MIN_FEE_PER_REQUEST!,
-    tokenAllowlistAddr
+    tokenAllowlistAddr,
+    extensionAddr
   );
   await processorEndpoint.deploymentTransaction()!.wait();
 
   console.log(`TokenAllowlist deployed at ${tokenAllowlistAddr}`);
+  console.log(`ProcessorEndpointExtension deployed at ${extensionAddr}`);
   console.log(`ProcessorEndpoint deployed at ${await processorEndpoint.getAddress()}`);
 }
 
