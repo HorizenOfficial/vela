@@ -635,6 +635,21 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 		return nil, big.NewInt(0), err
 	}
 
+	// A module for this appId must not exist at deploy time: that means a duplicate
+	// deploy or an unexpected state (a request may have warmed the cache for an app
+	// deployed earlier). Rejected FIRST, before the module is built, so a doomed
+	// deploy neither compiles the module nor enters the guest's constructor —
+	// guest execution is unbounded today (see newPinnedEngine) and runs with
+	// execLock held, so a non-terminating constructor here would block every other
+	// app. Nothing to clean up either, since nothing was created yet.
+	//
+	// One check is enough: Deploy holds execLock and moduleLock for this whole call
+	// and nothing below adds to r.modules, so the map cannot change underneath.
+	// TestDuplicateDeployIsRejectedBeforeRunningGuest pins the ordering.
+	if _, exists := r.modules[appId]; exists {
+		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
+	}
+
 	// Compile and instantiate the module (shared setup with getOrLoadModule).
 	appModule, err := r.compileAndInstantiate(ctx, appId, wasm)
 	if err != nil {
@@ -690,15 +705,6 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 
 	if deployResult.Error != "" {
 		return nil, big.NewInt(0), fmt.Errorf("failed to deploy module: %s", deployResult.Error)
-	}
-
-	// A module for this appId should not exist at deploy time. If it does,
-	// it indicates a duplicate deploy or an unexpected state. Checked BEFORE
-	// success is set, so this path still runs the deferred cleanup: the module
-	// never enters r.modules, so nothing else would ever close its log FIFOs
-	// (leaking the fds and the log-forwarding goroutine).
-	if _, exists := r.modules[appId]; exists {
-		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
 	}
 
 	success = true // Disables the deferred cleanup

@@ -240,8 +240,7 @@ const wrongArityAllocateWat = `(module
     i32.const 100))`
 
 // deployableWat implements the deploy path end to end: deploy returns a fixed,
-// well-formed DeployResult, so the host gets past the guest call and reaches the
-// duplicate-deploy guard that runs after it. Used by
+// well-formed DeployResult. Used by TestDeploySucceedsAndCachesModule and
 // TestDuplicateDeployIsRejectedAndKeepsCachedModule.
 const deployableWat = `(module
   (memory (export "memory") 1)
@@ -250,6 +249,20 @@ const deployableWat = `(module
   (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
 
   (func (export "deploy") (param i64 i32 i32) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+)`
+
+// trappingDeployWat instantiates cleanly but traps as soon as deploy is entered.
+// It is the probe for WHERE the duplicate-deploy guard sits: warm-up never calls a
+// guest function, so this module caches fine, and a later deploy for the same appId
+// reaches the guard without the guest having run. If the guard were checked after
+// the guest call instead, the trap would surface first and name a different failure.
+// Used by TestDuplicateDeployIsRejectedBeforeRunningGuest.
+const trappingDeployWat = `(module
+  (memory (export "memory") 1)
+
+  (func (export "deploy") (param i64 i32 i32) (result i32) unreachable)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
 )`
@@ -896,11 +909,13 @@ func TestGuestTableIsBounded(t *testing.T) {
 }
 
 // TestDuplicateDeployIsRejectedAndKeepsCachedModule covers the duplicate-deploy
-// guard in deployUnlocked. The guard runs after the guest's deploy call and
-// before success is set, so the deferred cleanup must close the duplicate that
-// was just compiled — NOT the module already cached and serving requests. The
-// cache is warmed first via getOrLoadModule, the state a Deposit/ProcessRequest
-// leaves behind, e.g. after an executor restart.
+// guard in deployUnlocked: a deploy for an appId that already has a module must
+// be rejected, and must leave the cached module — the one serving requests —
+// entirely untouched. The cache is warmed first via getOrLoadModule, the state a
+// Deposit/ProcessRequest leaves behind, e.g. after an executor restart.
+//
+// See TestDuplicateDeployIsRejectedBeforeRunningGuest for the companion check that
+// the rejection happens before any guest code runs.
 func TestDuplicateDeployIsRejectedAndKeepsCachedModule(t *testing.T) {
 	runtime := NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
@@ -929,6 +944,62 @@ func TestDuplicateDeployIsRejectedAndKeepsCachedModule(t *testing.T) {
 	res, err := cached.instance.GetFunc(cached.store, "allocate").Call(cached.store, int32(1))
 	require.NoError(t, err, "the original module must remain usable after the rejected deploy")
 	require.Equal(t, int32(500), res)
+}
+
+// TestDuplicateDeployIsRejectedBeforeRunningGuest pins WHERE the duplicate-deploy
+// guard sits: ahead of the compile and the guest call, not after them.
+//
+// The position is not cosmetic. Rejecting late means a deploy that is already
+// doomed still compiles the module and then runs the guest's constructor — with
+// execLock held and nothing bounding guest execution (see newPinnedEngine), so a
+// slow or non-terminating constructor blocks every other app's requests — and it
+// leaves a fully built module whose store, log FIFOs and forwarding goroutine only
+// survive because a deferred cleanup releases them. Rejecting early creates none
+// of that.
+//
+// The probe is a guest that traps the moment deploy is entered: the guard must
+// report the duplicate, and the trap must never be reached.
+func TestDuplicateDeployIsRejectedBeforeRunningGuest(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(trappingDeployWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	// Warm-up calls no guest function, so a module whose deploy traps caches fine.
+	_, err = runtime.getOrLoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	_, _, err = runtime.Deploy(ctx, appId, nil, wasmBytes)
+	require.Error(t, err, "a deploy for an already-cached appId must be rejected")
+	require.Contains(t, err.Error(), "already deployed")
+	require.NotContains(t, err.Error(), "failed to call deploy",
+		"the guest must not be entered: the duplicate has to be rejected before the deploy call")
+}
+
+// TestDeploySucceedsAndCachesModule is the success-path counterpart to the
+// duplicate and trap cases: a first deploy of a well-formed module must return the
+// guest's state and fuel and leave the module cached, so the request that follows
+// hits the cache instead of recompiling.
+func TestDeploySucceedsAndCachesModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(deployableWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+
+	// Non-empty constructor params, so the writeToMemory/deallocate pair around the
+	// guest call is exercised rather than short-circuited by the empty-data path.
+	state, fuel, err := runtime.Deploy(context.Background(), appId, []byte(`{"init":1}`), wasmBytes)
+	require.NoError(t, err)
+	require.Empty(t, state, "deployableWat reports an empty initial state")
+	require.Equal(t, int64(1), fuel.Int64(), "fuel must come from the guest's DeployResult")
+	require.True(t, isCached(runtime, appId), "a deployed module must be left in the cache")
 }
 
 // TestAllocateSignatureMismatchKeepsModuleCached is the writeToMemory counterpart to
