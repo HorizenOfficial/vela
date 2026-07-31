@@ -121,8 +121,8 @@ func LoadConfig() (*Config, error) {
 	var channelType = common.GetConfigVar("CHANNEL_TYPE", "vsock", fileProperties)
 
 	// We use the same port value for TCP or Vsock channel types
-	executorServerPort := common.GetConfigVarInt64("EXECUTOR_PORT", 4000, fileProperties)
-	logServerPort := common.GetConfigVarInt64("LOG_SERVER_PORT", 5000, fileProperties)
+	executorServerPort := common.GetConfigVarUint32("EXECUTOR_PORT", 4000, fileProperties)
+	logServerPort := common.GetConfigVarUint32("LOG_SERVER_PORT", 5000, fileProperties)
 
 	// channel communication between manager and executor
 	var channelConnectionParams common.ChannelConnectionParams
@@ -133,19 +133,19 @@ func LoadConfig() (*Config, error) {
 	if channelType == "vsock" {
 		// CID >= 16 are available values for EC2 enclaves (where executor runs)
 		// CID and port are both used when connecting to a server
-		executorServerCid := common.GetConfigVarInt64("EXECUTOR_VSOCK_CID", 20, fileProperties)
-		channelConnectionParams = common.VSockChannelConnectionParams{CID: uint32(executorServerCid), Port: uint32(executorServerPort)}
+		executorServerCid := common.GetConfigVarUint32("EXECUTOR_VSOCK_CID", 20, fileProperties)
+		channelConnectionParams = common.VSockChannelConnectionParams{CID: executorServerCid, Port: executorServerPort}
 		// if channel is vsock it means we also have a vsock connection used by executor for logging, we use of course a separate port
 		// CID is not used actually when creating a lstening server
-		logServerVsockAddress = common.VSockChannelConnectionParams{Port: uint32(logServerPort)}
+		logServerVsockAddress = common.VSockChannelConnectionParams{Port: logServerPort}
 	} else {
 		executorIpHost := common.GetConfigVar("EXECUTOR_IP_HOST", "localhost", fileProperties)
-		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: uint32(executorServerPort)}
+		channelConnectionParams = common.TcpChannelConnectionParams{Ip: executorIpHost, Port: executorServerPort}
 	}
 
 	// TCP connection on log server, typically used for manager logs
 	logServerTcpHost := common.GetConfigVar("LOG_SERVER_IP_HOST", "localhost", fileProperties)
-	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: uint32(logServerPort)}
+	logServerTcpAddress := common.TcpChannelConnectionParams{Ip: logServerTcpHost, Port: logServerPort}
 
 	var privateKey *cryptotypes.PrivateKeySecp256k1
 	privateKeyFromEnv := os.Getenv("MANAGER_KEY_SECP256")
@@ -164,13 +164,13 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Admin command server configuration
-	adminServerPort := common.GetConfigVarInt64("MANAGER_ADMIN_PORT", 4002, fileProperties)
+	adminServerPort := common.GetConfigVarUint32("MANAGER_ADMIN_PORT", 4002, fileProperties)
 	var adminChannelConnectionParams common.ChannelConnectionParams
 	// Admin server always uses TCP for external access.
 	// MANAGER_ADMIN_SERVER_HOST controls the bind address for the admin server.
 	// Defaults to "0.0.0.0" so admincli can connect from outside the container.
 	adminServerHost := common.GetConfigVar("MANAGER_ADMIN_SERVER_HOST", "0.0.0.0", fileProperties)
-	adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: adminServerHost, Port: uint32(adminServerPort)}
+	adminChannelConnectionParams = common.TcpChannelConnectionParams{Ip: adminServerHost, Port: adminServerPort}
 
 	adminCommunicationParams := common.CommunicationParams{
 		RequestTimeoutSec: time.Duration(common.GetConfigVarInt64("MANAGER_ADMIN_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC", 30, fileProperties)),
@@ -185,7 +185,7 @@ func LoadConfig() (*Config, error) {
 		ReorgTimeout:              common.GetConfigVarInt64("REORG_TIMEOUT", 180, fileProperties), // 3 minutes
 		HandshakeTimeout:          common.GetConfigVarInt64("HANDSHAKE_TIMEOUT", 5, fileProperties),
 		BlockchainPollingInterval: common.GetConfigVarInt64("BLOCKCHAIN_POLLING_INTERVAL", 5, fileProperties),
-		BlockchainConnectTimeout: common.GetConfigVarInt64("BLOCKCHAIN_CONNECT_TIMEOUT", 10, fileProperties),
+		BlockchainConnectTimeout:  common.GetConfigVarInt64("BLOCKCHAIN_CONNECT_TIMEOUT", 10, fileProperties),
 
 		RpcURL: common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProperties) + "://" +
 			common.GetConfigVar("CHAIN_RPC_ADDRESS", "127.0.0.1", fileProperties) + ":" +
@@ -246,6 +246,47 @@ func (c *Config) Validate() error {
 	if c.ChannelType != "tcp" && c.ChannelType != "vsock" {
 		errs = append(errs, fmt.Sprintf(
 			"CHANNEL_TYPE must be \"tcp\" or \"vsock\", got %q", c.ChannelType))
+	}
+
+	// --- TCP port ranges ---
+	// The admin server and the TCP log server address are always TCP; the
+	// executor channel only when CHANNEL_TYPE=tcp (vsock has no 16-bit limit).
+	// Only when a TCP log listener is actually configured. LOG_SERVER_PORT feeds both
+	// the vsock listener and this address, and logserver.StartLogServer starts TCP only
+	// when the host is non-empty — which an operator can switch off with an empty
+	// LOG_SERVER_IP_HOST in the conf file. With vsock-only logging the port is a vsock
+	// port and has no 16-bit limit, so the condition here mirrors StartLogServer's.
+	if c.LogServerTCPAddress.Ip != "" && c.LogServerTCPAddress.Port > common.MaxTCPPort {
+		errs = append(errs, fmt.Sprintf(
+			"LOG_SERVER_PORT must be <= %d when a TCP log host is set, got %d",
+			common.MaxTCPPort, c.LogServerTCPAddress.Port))
+	}
+	if p, ok := c.AdminChannelParams.(common.TcpChannelConnectionParams); ok {
+		if p.Port > common.MaxTCPPort {
+			errs = append(errs, fmt.Sprintf(
+				"MANAGER_ADMIN_PORT must be <= %d, got %d", common.MaxTCPPort, p.Port))
+		}
+		// 0 is not "disabled" here: cmd/manager hands AdminChannelParams.Url() to the
+		// listener factory, so the server binds an OS-assigned port while the manager
+		// logs the configured address — and admin startup failures are deliberately
+		// non-fatal, so nothing surfaces it. admincli could then never connect.
+		// Contrast LogServerTCPAddress below, where 0 genuinely disables the listener.
+		if p.Port == 0 {
+			errs = append(errs, "MANAGER_ADMIN_PORT must not be 0: admincli connects to this port")
+		}
+	}
+	if c.ChannelType == "tcp" {
+		if p, ok := c.ChannelParams.(common.TcpChannelConnectionParams); ok {
+			if p.Port > common.MaxTCPPort {
+				errs = append(errs, fmt.Sprintf(
+					"EXECUTOR_PORT must be <= %d for tcp, got %d", common.MaxTCPPort, p.Port))
+			}
+			// See pkg/executor: 0 is never usable for the rendezvous port. Not applied
+			// to LogServerTCPAddress, where 0 disables the TCP log listener.
+			if p.Port == 0 {
+				errs = append(errs, "EXECUTOR_PORT must not be 0 for tcp: this is the port the manager dials")
+			}
+		}
 	}
 
 	// --- TCP port uniqueness ---

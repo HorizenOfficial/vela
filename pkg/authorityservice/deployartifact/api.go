@@ -3,6 +3,7 @@ package deployartifact
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"strings"
 
@@ -20,10 +21,23 @@ type API struct {
 	log            logger.Logger
 }
 
+// MaxUploadSizeMB is the largest upload limit, in MiB, that can be converted to
+// bytes without overflowing int64. Callers reading the limit from configuration
+// should reject anything above it at start-up; see pkg/authorityservice.LoadConfig.
+const MaxUploadSizeMB = math.MaxInt64 / bytesInMB
+
 func NewAPI(store *Store, maxUploadMB int64, log logger.Logger) *API {
 	var maxUploadBytes int64
 	if maxUploadMB > 0 {
-		maxUploadBytes = maxUploadMB * bytesInMB
+		// Clamp rather than multiplying blindly. Above MaxUploadSizeMB the product
+		// overflows int64 and goes negative, which would turn the maxUploadBytes > 0
+		// guard in HandleUpload false and leave the body completely unbounded — the
+		// opposite of what a large configured limit asks for.
+		if maxUploadMB > MaxUploadSizeMB {
+			maxUploadBytes = math.MaxInt64
+		} else {
+			maxUploadBytes = maxUploadMB * bytesInMB
+		}
 	}
 
 	return &API{

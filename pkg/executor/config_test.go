@@ -224,6 +224,40 @@ func TestLoadConfig_MaxGuestMemoryBytes_AboveCeilingInConfFile_Rejected(t *testi
 	assert.Contains(t, err.Error(), "EXECUTOR_MAX_GUEST_MEMORY_BYTES")
 }
 
+// TestLoadConfig_OutOfRangePorts_FallBackToDefaults covers values that do not fit
+// the uint32 that ports and vsock CIDs are stored as.
+//
+// Widening the shared parser to the full int64 range (needed for
+// EXECUTOR_MAX_GUEST_MEMORY_BYTES) removed the accidental guard these callers had:
+// a 32-bit parse used to fail and fall back to the default. Without a check they
+// are silently truncated instead — 2^32 becomes port 0, which makes a listener
+// bind an arbitrary OS-assigned port rather than failing, so the manager dials the
+// configured port and gets connection refused with nothing logged at startup.
+func TestLoadConfig_OutOfRangePorts_FallBackToDefaults(t *testing.T) {
+	for _, envVar := range []string{
+		"EXECUTOR_MAX_GUEST_MEMORY_BYTES", "EXECUTOR_KEYSET_RECOVERY_TYPE",
+		"CHANNEL_TYPE", "EXECUTOR_PORT", "EXECUTOR_KMS_PROXY_PORT", "LOG_SERVER_PORT",
+	} {
+		t.Setenv(envVar, "")
+	}
+
+	cfg := loadConfigFromFile(t, "EXECUTOR_KEYSET_RECOVERY_TYPE=0\n"+
+		"CHANNEL_TYPE=tcp\n"+
+		"EXECUTOR_PORT=4294967296\n"+
+		"EXECUTOR_KMS_PROXY_PORT=4294967296\n"+
+		"LOG_SERVER_PORT=4294967296\n")
+
+	require.Equal(t, uint32(8000), cfg.KMSProxyPort, "KMS proxy port must fall back, not truncate to 0")
+
+	tcpParams, ok := cfg.ChannelParams.(common.TcpChannelConnectionParams)
+	require.True(t, ok, "expected TCP channel params")
+	require.Equal(t, uint32(4000), tcpParams.Port, "executor port must fall back, not truncate to 0")
+
+	logParams, ok := cfg.LogChannelParams.(common.TcpChannelConnectionParams)
+	require.True(t, ok, "expected TCP log channel params")
+	require.Equal(t, uint32(5000), logParams.Port, "log server port must fall back, not truncate to 0")
+}
+
 func TestLoadConfig_MaxGuestMemoryBytes_CeilingInConfFile_Accepted(t *testing.T) {
 	t.Setenv("EXECUTOR_MAX_GUEST_MEMORY_BYTES", "")
 	t.Setenv("EXECUTOR_KEYSET_RECOVERY_TYPE", "")
@@ -233,5 +267,64 @@ func TestLoadConfig_MaxGuestMemoryBytes_CeilingInConfFile_Accepted(t *testing.T)
 	cfg := loadConfigFromFile(t,
 		"EXECUTOR_KEYSET_RECOVERY_TYPE=0\nEXECUTOR_MAX_GUEST_MEMORY_BYTES=2147483648\n")
 	require.Equal(t, int64(2147483648), cfg.MaxGuestMemoryBytes)
+	require.NoError(t, cfg.Validate())
+}
+
+// TestValidate_TCPPortAboveRange covers the range check that GetConfigVarUint32
+// alone cannot provide: 70000 fits in a uint32, so it survives parsing and would
+// otherwise only fail later at bind time with a generic error.
+func TestValidate_TCPPortAboveRange(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 70000}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_PORT")
+}
+
+// TestValidate_LogPortAboveRange is the same check for the log channel.
+func TestValidate_LogPortAboveRange(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "tcp"
+	cfg.LogChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 70000}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "LOG_SERVER_PORT")
+}
+
+// TestValidate_VsockPortAboveTCPRangeAccepted guards the other side of the rule:
+// vsock ports are full uint32 values, so the TCP bound must not apply to them.
+func TestValidate_VsockPortAboveTCPRangeAccepted(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "vsock"
+	cfg.ChannelParams = common.VSockChannelConnectionParams{CID: 3, Port: 70000}
+
+	require.NoError(t, cfg.Validate())
+}
+
+// TestValidate_TCPPortZero covers the other unusable port. 0 parses cleanly through
+// GetConfigVarUint32, so only Validate() can catch it: the executor would listen on an
+// OS-assigned port while the manager dials the configured one from the same variable.
+func TestValidate_TCPPortZero(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 0}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_PORT")
+}
+
+// TestValidate_LogPortZeroAccepted guards the deliberate exception: 0 on the log
+// channel means "no TCP log listener" (logserver.StartLogServer), so it must not be
+// rejected alongside the rendezvous port.
+func TestValidate_LogPortZeroAccepted(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.ChannelType = "tcp"
+	cfg.ChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 4000}
+	cfg.LogChannelParams = common.TcpChannelConnectionParams{Ip: "localhost", Port: 0}
+
 	require.NoError(t, cfg.Validate())
 }
