@@ -99,13 +99,6 @@ const spinningProcessRequestWat = `(module
     "\6c\73\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
   )
 
-  ;; load_module result at offset 300
-  (data (i32.const 300)
-    "\19\00\00\00"
-    "\7b\22\73\74\61\74\65\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
-  )
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
 
@@ -130,10 +123,6 @@ const spinningProcessRequestWat = `(module
 const trappingProcessRequestWat = `(module
   (memory (export "memory") 1)
 
-  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
 
@@ -153,10 +142,6 @@ const appErrorProcessRequestWat = `(module
   (data (i32.const 100) "\54\00\00\00"
     "{\"state\":[],\"events\":[],\"appEvents\":[],\"withdrawals\":[],\"fuel\":\"0x1\",\"error\":\"boom\"}")
 
-  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
 
@@ -175,11 +160,6 @@ const appErrorProcessRequestWat = `(module
 const noAllocateWat = `(module
   (memory (export "memory") 1)
 
-  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
-
   ;; no allocate export, no deallocate export
 
   (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
@@ -196,10 +176,6 @@ const malformedResultWat = `(module
   ;; process_request result at offset 100: 4-byte LE length (15 = 0x0f) + non-JSON
   (data (i32.const 100) "\0f\00\00\00" "not json at all")
 
-  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
 
@@ -219,10 +195,6 @@ const malformedResultWat = `(module
 const wrongAritySignatureWat = `(module
   (memory (export "memory") 1)
 
-  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
 
@@ -236,10 +208,6 @@ const wrongAritySignatureWat = `(module
 const nearEndAllocWat = `(module
   (memory (export "memory") 1)
 
-  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "deallocate") (param i32 i32))
 
   ;; 65532 = one page (65536) minus 4, so a 16-byte read from here overruns
@@ -255,10 +223,6 @@ const hugeTableWat = `(module
   (memory (export "memory") 1)
   (table $t 50000000 funcref)
 
-  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32)))`
 
@@ -268,11 +232,6 @@ const hugeTableWat = `(module
 const wrongArityAllocateWat = `(module
   (memory (export "memory") 1)
 
-  ;; load_module result at offset 300
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
-
   ;; host calls allocate(i32); this declares two parameters
   (func (export "allocate") (param i32 i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
@@ -280,16 +239,27 @@ const wrongArityAllocateWat = `(module
   (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
     i32.const 100))`
 
+// deployableWat implements the deploy path end to end: deploy returns a fixed,
+// well-formed DeployResult, so the host gets past the guest call and reaches the
+// duplicate-deploy guard that runs after it. Used by
+// TestDuplicateDeployIsRejectedAndKeepsCachedModule.
+const deployableWat = `(module
+  (memory (export "memory") 1)
+
+  ;; deploy result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "deploy") (param i64 i32 i32) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+)`
+
 // trappingStatsWat loads successfully but traps inside the stats export. Used by
 // TestStatsTrapEvictsModule: the stats helpers call into the guest like any other
 // export, so a trap there leaves the same unknown heap state.
 const trappingStatsWat = `(module
   (memory (export "memory") 1)
 
-  ;; load_module result at offset 300: 4-byte LE length (25) + JSON
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
 
@@ -306,10 +276,6 @@ const tooManyTablesWat = `(module
   (table 1 funcref)
   (table 1 funcref)
 
-  ;; load_module result at offset 300
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32)))`
 
@@ -320,10 +286,6 @@ const growingTableWat = `(module
   (memory (export "memory") 1)
   (table $t 1 funcref)
 
-  ;; load_module result at offset 300
-  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
-
-  (func (export "load_module") (param i64) (result i32) i32.const 300)
   (func (export "allocate") (param i32) (result i32) i32.const 500)
   (func (export "deallocate") (param i32 i32))
 
@@ -931,6 +893,42 @@ func TestGuestTableIsBounded(t *testing.T) {
 
 	_, err = runtime.getOrLoadModule(context.Background(), common.NewApplicationId(1), wasmBytes)
 	require.Error(t, err, "a table far above the element limit must be rejected")
+}
+
+// TestDuplicateDeployIsRejectedAndKeepsCachedModule covers the duplicate-deploy
+// guard in deployUnlocked. The guard runs after the guest's deploy call and
+// before success is set, so the deferred cleanup must close the duplicate that
+// was just compiled — NOT the module already cached and serving requests. The
+// cache is warmed first via getOrLoadModule, the state a Deposit/ProcessRequest
+// leaves behind, e.g. after an executor restart.
+func TestDuplicateDeployIsRejectedAndKeepsCachedModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(deployableWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	original, err := runtime.getOrLoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	_, _, err = runtime.Deploy(ctx, appId, nil, wasmBytes)
+	require.Error(t, err, "a deploy for an already-cached appId must be rejected")
+	require.Contains(t, err.Error(), "already deployed")
+
+	runtime.moduleLock.RLock()
+	cached := runtime.modules[appId]
+	runtime.moduleLock.RUnlock()
+	require.Same(t, original, cached, "the original module must stay cached, not be replaced or dropped")
+
+	// The original's store must have survived the rejected duplicate's cleanup:
+	// calling into it would fail (or panic) if the guard's error path had torn
+	// down the wrong module.
+	res, err := cached.instance.GetFunc(cached.store, "allocate").Call(cached.store, int32(1))
+	require.NoError(t, err, "the original module must remain usable after the rejected deploy")
+	require.Equal(t, int32(500), res)
 }
 
 // TestAllocateSignatureMismatchKeepsModuleCached is the writeToMemory counterpart to

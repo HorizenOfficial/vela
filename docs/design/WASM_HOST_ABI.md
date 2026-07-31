@@ -17,13 +17,17 @@ why that matters). Parameters are in call order.
 | Export | Signature | Called when |
 |---|---|---|
 | `memory` | exported linear memory | required; the host reads and writes it directly |
-| `load_module` | `(appId i64) -> i32` | first use of an app, to warm the module cache |
 | `deploy` | `(appId i64, paramsPtr i32, paramsLen i32) -> i32` | deploy, with constructor params |
 | `deposit` | `(appId i64, senderPtr i32, senderLen i32, tokenPtr i32, tokenLen i32, valuePtr i32, valueLen i32, statePtr i32, stateLen i32) -> i32` | a deposit request |
 | `process_request` | `(appId i64, senderPtr i32, senderLen i32, requestType i32, payloadPtr i32, payloadLen i32, statePtr i32, stateLen i32) -> i32` | all request types except `TrustProcess` |
 | `trusted_request` | `(appId i64, payloadPtr i32, payloadLen i32, statePtr i32, stateLen i32) -> i32` | `TrustProcess` requests only |
 | `allocate` | `(size i32) -> i32` | before every host→guest byte transfer |
 | `deallocate` | `(ptr i32, len i32)` | **optional**; skipped entirely if absent |
+
+Cache warm-up requires no export beyond this table: on first use of an app (or
+after an executor restart) the host only compiles and instantiates the module,
+invoking no guest function — the application state is supplied by the host from
+persistent storage, not produced by the guest.
 
 `requestType` is `common.RequestType` widened to `i32`. Note that `trusted_request`
 deliberately receives neither `sender` (the trusted path never reads it) nor
@@ -67,7 +71,7 @@ offset      +0 +1 +2 +3   +4 ...
 ```
 
 The JSON body unmarshals into one of the result structs in `pkg/wasm/common`:
-`LoadModuleResult`, `DeployResult`, `DepositResult`, `ProcessResult`. All carry
+`DeployResult`, `DepositResult`, `ProcessResult`. All carry
 `state` and `fuel`; `ProcessResult` additionally carries `events`, `appEvents`,
 `withdrawals` and an optional `report`. All carry an optional `error` string.
 
