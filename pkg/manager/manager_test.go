@@ -1169,7 +1169,7 @@ func TestProcessBatchRequestFromChainWithReorgs(t *testing.T) {
 	require.Equal(t, ApplicationId, nextPendingReq[0].ApplicationID)
 	require.Equal(t, request3.RequestID, nextPendingReq[0].RequestID)
 
-	// Now simulate a reorg on chain, by making GetNextPendingRequest to always return the first request and initial state root
+	// Now simulate a reorg on chain, by making GetPendingRequestsWithStateRoot to always return the first request and initial state root
 
 	mockedGetPendingRequestsWithStateRoot := func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
 		return request1.ApplicationID, []*common.Request{request1}, initialStateRootOnChain, nil

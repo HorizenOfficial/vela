@@ -282,7 +282,9 @@ interface IProcessorEndpoint is IProcessorEndpointState {
     address trigger
   ) external payable returns (bytes32);
 
-  /// @notice Returns the number of pending requests in the queue.
+  /// @notice Returns the total number of pending requests: the sum of the deploy queue and
+  ///         every per-application queue. Trigger-queue requests are reported separately by
+  ///         getTriggerQueueSize().
   /// @return size Current pending request count.
   function getPendingRequestsSize() external view returns (uint256);
 
@@ -294,12 +296,14 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   /// @return requests Array of trigger-queue requests.
   function getTriggerRequests() external view returns (Structs.PendingRequest[] memory);
 
-  /// @notice Returns the list of pending requests in order.
+  /// @notice Returns every pending request outside the trigger queue: the deploy queue first,
+  ///         then each application's queue. Requests are FIFO-ordered within a queue, but
+  ///         submission order across applications is not preserved.
   /// @return requests Array of pending requests.
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory);
 
-  /// @notice Returns a paginated slice of pending requests in order.
-  /// @param offset Number of requests to skip from the head of the queue.
+  /// @notice Returns a paginated slice of getPendingRequests().
+  /// @param offset Number of requests to skip.
   /// @param limit Maximum number of requests to return.
   /// @return requests Array of pending requests.
   function getPendingRequestsPage(
@@ -360,18 +364,27 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   /// @return allowed True when the address has deploy permission.
   function isAllowedDeployer(address deployer) external view returns (bool allowed);
 
-  /// @notice Returns the current pending request and state root.
-  /// @return request Pending request data.
-  /// @return currentStateRoot Current state root.
-  /// @return success True if a pending request exists.
-  function getNextPendingRequest()
+  /// @notice Returns the requests to process next, together with the application they belong to
+  ///         and that application's state root. The application is selected by the contract, not
+  ///         by the caller: a pending trigger-queue (TRUSTPROCESS) request is served first and
+  ///         alone, then a pending deploy request alone, otherwise up to maxCount requests of the
+  ///         application whose turn it is in the round-robin rotation. An application with a
+  ///         registered trigger contract yields at most one request regardless of maxCount,
+  ///         because such applications do not support batching.
+  /// @param maxCount Maximum number of requests to return.
+  /// @return applicationId Application the returned requests belong to (0 when none is pending).
+  /// @return requests Requests to process, in queue order. Empty when nothing is pending.
+  /// @return stateRoot On-chain state root of the returned application.
+  function getPendingRequestsWithStateRoot(
+    uint256 maxCount
+  )
     external
     view
-    returns (Structs.PendingRequest memory, bytes32, bool);
+    returns (uint64 applicationId, Structs.PendingRequest[] memory requests, bytes32 stateRoot);
 
-  /// @notice Checks whether a request is the current pending request.
+  /// @notice Checks whether a request is at the head of the queue holding it.
   /// @param requestId Request identifier.
-  /// @return isCurrent True if the request is at the head of the queue.
+  /// @return isCurrent True if the request is at the head of its queue.
   function isCurrentPendingRequest(bytes32 requestId) external view returns (bool);
 
   /// @notice Generates a deterministic request id.

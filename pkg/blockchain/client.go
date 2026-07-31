@@ -29,8 +29,8 @@ import (
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].abi' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi"
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].bin' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin"
 //go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi --bin ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
-// ProcessorEndpointExtension hosts code moved out of ProcessorEndpoint to stay under EIP-170 and is
-// reached by delegatecall. Bindings are only needed to deploy it (its address is a
+// ProcessorEndpointExtension hosts code moved out of ProcessorEndpoint to stay under EIP-170 and
+// is reached by delegatecall. Bindings are only needed to deploy it (its address is a
 // ProcessorEndpoint constructor argument); calls always go to the endpoint's ABI above.
 //go:generate mkdir -p ./contracts/processorendpointextension
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/ProcessorEndpointExtension.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointExtensionAbi --overwrite
@@ -271,50 +271,14 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 
 	output := make([]*common.Request, 0, len(listOfRequests))
 	for _, request := range listOfRequests {
-		req := &common.Request{
-			ProtocolVersion: request.ProtocolVersion,
-			ApplicationID:   processorendpoint.ApplicationIdFromBindingType(request.ApplicationId),
-			RequestID:       request.RequestId,
-			RequestType:     common.RequestType(request.RequestType),
-			Payload:         request.Payload,
-			Timestamp:       common.ToBig(request.Timestamp),
-			Sender:          request.Sender,
-			Facilitator:     request.Facilitator,
-			TokenAddress:    request.TokenAddress,
-			AssetAmount:     common.ToBig(request.AssetAmount),
-			MaxFeeValue:     common.ToBig(request.MaxFeeValue),
-		}
-
-		output = append(output, req)
+		output = append(output, toCommonRequest(request))
 	}
 	return output, nil
 }
 
-func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return nil, [32]byte{}, fmt.Errorf("client not connected, call Connect first")
-	}
-
-	output, err := bind.Call(c.processorBoundContract,
-		&bind.CallOpts{Pending: false},
-		c.processorEndpoint.PackGetNextPendingRequest(),
-		c.processorEndpoint.UnpackGetNextPendingRequest)
-
-	if err != nil {
-		return nil, [32]byte{}, c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
-	}
-
-	stateRoot := output.Arg1
-	if !output.Success {
-		return nil, stateRoot, nil
-	}
-
-	request := output.Arg0
-
-	req := &common.Request{
+// toCommonRequest converts a contract PendingRequest struct into the internal request type.
+func toCommonRequest(request processorendpoint.StructsPendingRequest) *common.Request {
+	return &common.Request{
 		ProtocolVersion: request.ProtocolVersion,
 		ApplicationID:   processorendpoint.ApplicationIdFromBindingType(request.ApplicationId),
 		RequestID:       common.RequestIdType(request.RequestId),
@@ -327,28 +291,38 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		AssetAmount:     common.ToBig(request.AssetAmount),
 		MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 	}
-
-	return req, stateRoot, nil
 }
 
 // GetPendingRequestsWithStateRoot fetches up to maxCount pending requests for the
 // application selected by the contract, together with its applicationId and on-chain
-// state root.
-//
-// STUB: the ProcessorEndpoint contract does not yet expose the batch view
-// (per-application queues + round-robin selection, see docs/design/BATCH_EXECUTION.md
-// section 4). Until it does, this delegates to GetNextPendingRequest, so a batch
-// always contains at most one request. maxCount is accepted for API compatibility
-// but ignored.
+// state root. The caller does not choose the application: the contract serves the
+// trigger queue head first, then the deploy queue head, then up to maxCount requests
+// of the application whose turn it is in the round-robin rotation (see
+// docs/design/BATCH_EXECUTION.md section 4.3). An empty request slice means nothing
+// is pending.
 func (c *BlockChainClient) GetPendingRequestsWithStateRoot(ctx context.Context, maxCount uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
-	req, stateRoot, err := c.GetNextPendingRequest(ctx)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return 0, nil, [32]byte{}, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	output, err := bind.Call(c.processorBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.processorEndpoint.PackGetPendingRequestsWithStateRoot(new(big.Int).SetUint64(maxCount)),
+		c.processorEndpoint.UnpackGetPendingRequestsWithStateRoot)
+
 	if err != nil {
-		return 0, nil, [32]byte{}, err
+		return 0, nil, [32]byte{}, c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
 	}
-	if req == nil {
-		return 0, nil, stateRoot, nil
+
+	requests := make([]*common.Request, 0, len(output.Requests))
+	for _, request := range output.Requests {
+		requests = append(requests, toCommonRequest(request))
 	}
-	return req.ApplicationID, []*common.Request{req}, stateRoot, nil
+
+	return processorendpoint.ApplicationIdFromBindingType(output.ApplicationId), requests, output.StateRoot, nil
 }
 
 // SubmitBatchStateUpdate submits a batch of per-request update payloads together with

@@ -68,7 +68,7 @@ func deployApplication(t *testing.T, testHelper *testutil.SimTestHelper, blockch
 	deployTx := testHelper.SubmitDeployRequest(nil, big.NewInt(100))
 	testHelper.WaitMined(deployTx)
 
-	deployReq, deployStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	deployReq, deployStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.NotNil(t, deployReq)
 
@@ -108,7 +108,7 @@ func TestGetPendingRequests(t *testing.T) {
 
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 
-	pendingRequest, stateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	pendingRequest, stateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.Nil(t, pendingRequest, "There should be no pending request")
 	require.Equal(t, [32]byte{}, stateRoot)
@@ -140,7 +140,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, testHelper.Deployer.From, request.Sender, "Sender should match")
 	require.Equal(t, 0, request.AssetAmount.ToInt().Sign(), "Deposit amount should be zero for deploy requests")
 
-	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
+	pendingRequest, stateRoot, err = nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.Equal(t, request.RequestID, pendingRequest.RequestID, "RequestID should match")
 	require.Equal(t, testHelper.ProtocolVersion, pendingRequest.ProtocolVersion, "Protocol version should match")
@@ -180,7 +180,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 	funds := testHelper.GetAppCustody(deployedAppId, velacommon.ETH_TOKEN)
 	require.Equal(t, 0, funds.Cmp(transferValue), "appLockedFunds should equal depositAmount after submit")
 
-	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	res, oldStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 
 	events := [1]common.Event{{ApplicationID: res.ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
@@ -305,7 +305,7 @@ func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 	funds := testHelper.GetAppCustody(deployedAppId, velacommon.ETH_TOKEN)
 	require.Equal(t, 0, funds.Cmp(transferValue), "appLockedFunds should equal depositAmount after submit")
 
-	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	res, oldStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 
 	signature := [65]byte{}
@@ -464,7 +464,7 @@ func TestGetPendingPaymentsAndWithdraw(t *testing.T) {
 	appFunds := testHelper.GetAppCustody(deployedAppId, velacommon.ETH_TOKEN)
 	require.Equal(t, 0, appFunds.Cmp(depositAmount), "appLockedFunds should equal depositAmount after submit")
 
-	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	res, oldStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -532,7 +532,7 @@ func TestInsufficientAppBalance(t *testing.T) {
 	tx := testHelper.SubmitRequest(deployedAppId, common.Process, nil, velacommon.ETH_TOKEN, big.NewInt(0), maxFeeValue)
 	testHelper.WaitMined(tx)
 
-	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	res, oldStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 
 	// Attempt stateUpdate: withdrawal(1) > appLockedFunds(0)
@@ -588,7 +588,7 @@ func TestCrossAppFundIsolation(t *testing.T) {
 	require.Equal(t, 0, fundsB.Cmp(big.NewInt(10)), "App B should have 10 locked (deposit only)")
 
 	// Step 3: Process App A — withdraw 500 (within A's budget)
-	reqA, stateRootA, err := blockchainClient.GetNextPendingRequest(context.Background())
+	reqA, stateRootA, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.Equal(t, appA, reqA.ApplicationID)
 
@@ -615,7 +615,7 @@ func TestCrossAppFundIsolation(t *testing.T) {
 	// Step 4: Process App B — attempt to withdraw 500 (exceeds B's 10 locked funds)
 	// The contract's global balance is sufficient (App A's 500 is still in the contract),
 	// but the per-app solvency check must block this.
-	reqB, stateRootB, err := blockchainClient.GetNextPendingRequest(context.Background())
+	reqB, stateRootB, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.Equal(t, appB, reqB.ApplicationID)
 
@@ -656,4 +656,15 @@ func TestGetTeePublicKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, publicKey, "Public key should not be nil")
 	require.Equal(t, key.PublicKey().Bytes(), publicKey.Bytes(), "Public key not equal to the given one")
+}
+
+// nextPendingRequest fetches the single request the contract selects next, together with
+// the selected application's on-chain state root. Returns a nil request (and the zero
+// state root) when no request is pending.
+func nextPendingRequest(c *BlockChainClient) (*common.Request, [32]byte, error) {
+	_, requests, stateRoot, err := c.GetPendingRequestsWithStateRoot(context.Background(), 1)
+	if err != nil || len(requests) == 0 {
+		return nil, stateRoot, err
+	}
+	return requests[0], stateRoot, nil
 }

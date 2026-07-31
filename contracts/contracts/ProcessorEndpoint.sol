@@ -9,22 +9,23 @@ import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
 import './interfaces/ITokenAllowlist.sol';
 import './Structs.sol';
+import './RequestQueues.sol';
 import './UpdateEntryHash.sol';
 import './ProcessorEndpointStorage.sol';
 import './interfaces/ITrigger.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-/// @dev State lives in `ProcessorEndpointStorage`, which `ProcessorEndpointExtension` also derives
-///      from: this contract is close enough to the EIP-170 deployed-bytecode limit that parts of it
-///      are hosted in the extension and reached by `delegatecall`. See
+/// @dev State lives in `ProcessorEndpointStorage`, which `ProcessorEndpointExtension` also
+///      derives from: this contract is close enough to the EIP-170 deployed-bytecode limit that
+///      parts of it are hosted in the extension and reached by `delegatecall`. See
 ///      `ProcessorEndpointStorage` for the rules that keeps safe, and
 ///      `docs/design/PROCESSOR_ENDPOINT_SPLIT.md` for the rationale.
 contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   using SafeERC20 for IERC20;
 
-  /// @dev Extension contract holding code moved out of this one for size reasons. Immutable, so it
-  ///      lives in this contract's code rather than in storage and cannot be repointed.
+  /// @dev Extension contract holding code moved out of this one for size reasons. Immutable, so
+  ///      it lives in this contract's code rather than in storage and cannot be repointed.
   address private immutable _extension;
 
   /// @param _teeAuthenticator Contract used to verify update signatures.
@@ -143,10 +144,10 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
   /// @inheritdoc IProcessorEndpoint
   /// @dev Implemented in `ProcessorEndpointExtension` for size reasons; this entry point only
-  ///      forwards the call. Declaring it here keeps the ABI, the selector, the address relayers
-  ///      call and the `IProcessorEndpoint` conformance check unchanged. `_delegateToExtension`
-  ///      never returns, so the declared return value is never produced here — the extension's
-  ///      return data is passed back to the caller verbatim.
+  ///      forwards the call. Declaring it here keeps the ABI, the address relayers call and the
+  ///      `IProcessorEndpoint` contract unchanged. `_delegateToExtension` never returns, so the
+  ///      declared return value is never produced here — the extension's return data is passed
+  ///      back to the caller verbatim.
   function submitRequestFor(
     address /* sender */,
     uint8 /* protocolVersion */,
@@ -163,13 +164,13 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @dev Forwards the current call to `_extension` with `delegatecall`, so the extension's code
-  ///      runs against this contract's storage, balance, `msg.sender` and `msg.value`. Returns the
-  ///      extension's return data, or bubbles up its revert data unchanged, and never returns to
-  ///      the caller of this function.
-  ///
-  ///      Scratches memory above the free-memory pointer rather than at offset 0, and is annotated
-  ///      `memory-safe` accordingly: unannotated assembly would switch off solc's `memoryguard`
-  ///      for the whole contract, and `stateUpdate` then fails to compile with "stack too deep".
+  ///      runs against this contract's storage, balance, `msg.sender` and `msg.value`. Returns
+  ///      the extension's return data, or bubbles up its revert data unchanged, and never returns
+  ///      to the caller of this function.
+  ///      Scratches memory above the free-memory pointer rather than at offset 0, and is
+  ///      annotated `memory-safe` accordingly: unannotated assembly would switch off solc's
+  ///      `memoryguard` for the whole contract, and `stateUpdate` then fails to compile with
+  ///      "stack too deep".
   function _delegateToExtension() private {
     address extension = _extension;
     assembly ('memory-safe') {
@@ -241,12 +242,13 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       keccak256(payload),
       ETH_TOKEN,
       0,
-      _requestQueue.tail
+      _q.deploys.tail
     );
 
     uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
-    _queueEnqueue(
-      _requestQueue,
+    RequestQueues.enqueue(
+      _q,
+      _q.deploys,
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,
@@ -272,10 +274,17 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   function _removeRequest(bytes32 requestId) private {
     // _queueIsHead already returns false for an empty queue (tail > head check),
     // so no separate size guard is needed here.
-    if (_queueIsHead(_triggerQueue, requestId)) {
-      _queueDequeueHead(_triggerQueue);
+    if (RequestQueues.isHead(_q.triggers, requestId)) {
+      RequestQueues.dequeueHead(_q, _q.triggers);
+    } else if (RequestQueues.isHead(_q.deploys, requestId)) {
+      RequestQueues.dequeueHead(_q, _q.deploys);
     } else {
-      _queueDequeueHead(_requestQueue);
+      uint64 applicationId = _q.requests[requestId].applicationId;
+      RequestQueues.dequeueHead(_q, _q.pending[applicationId]);
+      // The application has had its turn: move the cursor just past it so the next
+      // selection starts from the following application. Trigger- and deploy-queue
+      // processing bypasses the cursor, leaving the rotation where it paused.
+      RequestQueues.advanceCursor(_q, _deployedAppIds, applicationId);
     }
   }
 
@@ -313,17 +322,17 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
   /// @inheritdoc IProcessorEndpoint
   function getTriggerQueueSize() public view returns (uint256) {
-    return _queueSize(_triggerQueue);
+    return RequestQueues.size(_q.triggers);
   }
 
   /// @inheritdoc IProcessorEndpoint
   function getTriggerRequests() external view returns (Structs.PendingRequest[] memory) {
-    return _queueGetAll(_triggerQueue);
+    return _copyRange(_q.triggers, RequestQueues.size(_q.triggers));
   }
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory) {
-    return _queueGetAll(_requestQueue);
+    return _pendingRequestsPage(0, type(uint256).max);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -331,12 +340,45 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     uint256 offset,
     uint256 limit
   ) external view returns (Structs.PendingRequest[] memory) {
-    return _queueGetPage(_requestQueue, offset, limit);
+    return _pendingRequestsPage(offset, limit);
   }
 
-  /// @notice Returns the stored request for a given id (normal queue only).
+  /// @notice Returns the stored request for a given id, from whichever queue holds it.
   function requestById(bytes32 id) external view returns (Structs.PendingRequest memory) {
-    return _requestQueue.requestById[id];
+    return _q.requests[id];
+  }
+
+  /// @dev Flattens every pending request outside the trigger queue — the deploy queue first (it
+  ///      is served first, see _selectPendingRequests), then each application's queue in
+  ///      _deployedAppIds order — and returns the [offset, offset + limit) window of that list.
+  ///      Requests are FIFO-ordered within a queue, but submission order across applications is
+  ///      not preserved: the applications are independent.
+  function _pendingRequestsPage(
+    uint256 offset,
+    uint256 limit
+  ) internal view returns (Structs.PendingRequest[] memory result) {
+    Structs.PendingRequest[] memory all = new Structs.PendingRequest[](_pendingRequestsSize());
+    uint256 n = _copyInto(_q.deploys, all, 0);
+    uint256 appCount = _deployedAppIds.length;
+    uint256 a;
+    while (a != appCount) {
+      n = _copyInto(_q.pending[_deployedAppIds[a]], all, n);
+      unchecked {
+        ++a;
+      }
+    }
+
+    if (offset >= n || limit == 0) return new Structs.PendingRequest[](0);
+    uint256 count = n - offset;
+    if (count > limit) count = limit;
+    result = new Structs.PendingRequest[](count);
+    uint256 j;
+    while (j != count) {
+      result[j] = all[offset + j];
+      unchecked {
+        ++j;
+      }
+    }
   }
 
   //update status
@@ -359,10 +401,8 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
 
     // Check application Id
-    bool fromTriggerQueue = _queueIsHead(_triggerQueue, processedRequestId);
-    Structs.PendingRequest storage requestInfo = fromTriggerQueue
-      ? _triggerQueue.requestById[processedRequestId]
-      : _requestQueue.requestById[processedRequestId];
+    bool fromTriggerQueue = RequestQueues.isHead(_q.triggers, processedRequestId);
+    Structs.PendingRequest storage requestInfo = _q.requests[processedRequestId];
     if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
 
     //check prev state root
@@ -701,29 +741,63 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function getNextPendingRequest()
+  function getPendingRequestsWithStateRoot(
+    uint256 maxCount
+  )
     external
     view
-    returns (Structs.PendingRequest memory, bytes32, bool success)
+    returns (uint64 applicationId, Structs.PendingRequest[] memory requests, bytes32 stateRoot)
   {
-    if (_queueSize(_triggerQueue) > 0) {
-      bytes32 requestId = _queuePeekHead(_triggerQueue);
-      Structs.PendingRequest storage req = _triggerQueue.requestById[requestId];
-      return (req, applicationStateRoots[req.applicationId], true);
-    }
-    if (_queueSize(_requestQueue) > 0) {
-      bytes32 requestId = _queuePeekHead(_requestQueue);
-      Structs.PendingRequest storage req = _requestQueue.requestById[requestId];
-      return (req, applicationStateRoots[req.applicationId], true);
-    }
+    return _selectPendingRequests(maxCount);
+  }
 
-    Structs.PendingRequest memory emptyReq;
-    return (emptyReq, bytes32(0), false);
+  /// @dev Picks the requests to serve next, in precedence order:
+  ///      1. the trigger queue head, alone — a TRUSTPROCESS must be processed immediately after
+  ///         the request that created it, before any other pending request of any application;
+  ///      2. the deploy queue head, alone — deploys are a separate, never-batched flow;
+  ///      3. up to maxCount requests of the application selected by the round-robin cursor,
+  ///         capped at one when the application has a registered trigger contract (such
+  ///         applications do not support batching).
+  ///      Returns an empty list when nothing is pending. The cursor is not moved here: it only
+  ///      advances when a request is actually dequeued from a per-application queue.
+  function _selectPendingRequests(
+    uint256 maxCount
+  )
+    internal
+    view
+    returns (uint64 applicationId, Structs.PendingRequest[] memory requests, bytes32 stateRoot)
+  {
+    if (maxCount != 0) {
+      if (RequestQueues.size(_q.triggers) > 0) return _headAsBatch(_q.triggers);
+      if (RequestQueues.size(_q.deploys) > 0) return _headAsBatch(_q.deploys);
+
+      (uint64 appId, bool found) = RequestQueues.selectApplication(_q, _deployedAppIds);
+      if (found) {
+        uint256 count = RequestQueues.size(_q.pending[appId]);
+        if (count > maxCount) count = maxCount;
+        if (address(triggerContracts[appId]) != address(0)) count = 1;
+        return (appId, _copyRange(_q.pending[appId], count), applicationStateRoots[appId]);
+      }
+    }
+    return (0, new Structs.PendingRequest[](0), bytes32(0));
+  }
+
+  /// @dev Returns the queue head as a single-element batch, together with its application's
+  ///      state root.
+  function _headAsBatch(
+    RequestQueues.Queue storage q
+  ) internal view returns (uint64, Structs.PendingRequest[] memory, bytes32) {
+    Structs.PendingRequest[] memory requests = _copyRange(q, 1);
+    uint64 applicationId = requests[0].applicationId;
+    return (applicationId, requests, applicationStateRoots[applicationId]);
   }
 
   /// @inheritdoc IProcessorEndpoint
   function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
-    return _queueIsHead(_triggerQueue, requestId) || _queueIsHead(_requestQueue, requestId);
+    return
+      RequestQueues.isHead(_q.triggers, requestId) ||
+      RequestQueues.isHead(_q.deploys, requestId) ||
+      RequestQueues.isHead(_q.pending[_q.requests[requestId].applicationId], requestId);
   }
 
   // Pull payment pattern functions
@@ -785,79 +859,72 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     return _deployedAppIds;
   }
 
-  function _removeDeployedAppId(uint64 appId) internal {
-    uint256 len = _deployedAppIds.length;
-    uint256 i;
-    while (i != len) {
-      if (_deployedAppIds[i] == appId) {
-        _deployedAppIds[i] = _deployedAppIds[len - 1];
-        _deployedAppIds.pop();
-        break;
-      }
-      unchecked {
-        ++i;
-      }
-    }
-  }
-
   /// @inheritdoc IProcessorEndpoint
   function adminReset() external onlyRole(RESET_OPERATOR) nonReentrant {
-    _resetQueue();
+    _resetQueues();
   }
 
-  function _resetQueue() internal {
-    uint256 i = _requestQueue.head;
-    uint256 tail = _requestQueue.tail;
-    uint256 freedDeploySlots;
-
-    // Iterate every pending request from head to tail, refunding any asset deposits to their
-    // senders and counting any DEPLOYAPP entries so their reserved deploy slots can be returned.
-    while (i != tail) {
-      Structs.PendingRequest storage req = _requestQueue.requestById[_requestQueue.idByOrder[i]];
-      if (req.requestType == Structs.RequestType.DEPLOYAPP) {
-        unchecked {
-          ++freedDeploySlots;
-        }
-        // A pending deploy may have registered a trigger eagerly at submit time. Since the
-        // deploy is being discarded (and its derived appId never appears in _deployedAppIds),
-        // clear the registration here so the trigger address can be reused.
-        _clearTrigger(req.applicationId);
-      }
-      if (req.assetAmount > 0) {
-        _subtractToCustody(req.applicationId, req.tokenAddress, req.assetAmount);
-        _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
-      }
-      delete _requestQueue.requestById[_requestQueue.idByOrder[i]];
-      delete _requestQueue.idByOrder[i];
-      unchecked {
-        ++i;
-      }
-    }
-
-    // Collapse the queue by setting tail back to head. _queue.head is intentionally left at its
-    // current value so that future queue indices continue from where they left off rather
-    // than restarting from zero (avoids any risk of re-using a slot index still in storage).
-    _requestQueue.tail = _requestQueue.head;
-
-    // Drain the trigger queue too: pending TRUSTPROCESS requests reference apps that may be
-    // reset, and must not survive a reset. They carry no funds (assetAmount/maxFeeValue == 0),
-    // so clearing their storage is sufficient — no refunds needed.
-    uint256 ti = _triggerQueue.head;
-    uint256 triggerTail = _triggerQueue.tail;
-    while (ti != triggerTail) {
-      delete _triggerQueue.requestById[_triggerQueue.idByOrder[ti]];
-      delete _triggerQueue.idByOrder[ti];
-      unchecked {
-        ++ti;
-      }
-    }
-    _triggerQueue.tail = _triggerQueue.head;
-
+  /// @dev Discards every pending request, refunding asset deposits. Implemented in
+  ///      RequestQueues so its code does not count towards this contract's size budget; the
+  ///      freed deploy slots come back as a return value because a value-type state variable
+  ///      cannot be passed to a library by reference.
+  function _resetQueues() private {
+    uint256 freedDeploySlots = RequestQueues.resetQueues(
+      _q,
+      _deployedAppIds,
+      appCustody,
+      totalAppCustody,
+      pendingClaims,
+      totalPendingClaims,
+      triggerContracts,
+      triggersToAppIds
+    );
     // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
     // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
     unchecked {
       availableDeploySlots += freedDeploySlots;
     }
+  }
+
+  /// @dev The first `count` requests of the queue, in FIFO order. `count` must not exceed the
+  ///      queue size. Kept in this contract rather than in RequestQueues: as a library
+  ///      `internal` function it gets inlined at every call site, and as a `public` one the
+  ///      returned array would be ABI-encoded for the delegatecall and decoded again here —
+  ///      both cost more code than they move out.
+  function _copyRange(
+    RequestQueues.Queue storage q,
+    uint256 count
+  ) internal view returns (Structs.PendingRequest[] memory result) {
+    result = new Structs.PendingRequest[](count);
+    uint256 i = q.head;
+    uint256 stop = q.head + count;
+    uint256 j;
+    while (i != stop) {
+      result[j] = _q.requests[q.idByOrder[i]];
+      unchecked {
+        ++i;
+        ++j;
+      }
+    }
+  }
+
+  /// @dev Appends the whole queue into `dest` starting at `offset`, returning the next free
+  ///      index. Used to flatten several queues into one array.
+  function _copyInto(
+    RequestQueues.Queue storage q,
+    Structs.PendingRequest[] memory dest,
+    uint256 offset
+  ) internal view returns (uint256) {
+    uint256 i = q.head;
+    uint256 tail = q.tail;
+    while (i != tail) {
+      dest[offset] = _q.requests[q.idByOrder[i]];
+      unchecked {
+        ++i;
+        ++offset;
+      }
+    }
+    return offset;
   }
 
   /// @dev Removes any trigger registration for the given application (both the forward and
@@ -872,8 +939,8 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
   /// @inheritdoc IProcessorEndpoint
   function adminResetApps(uint64[] calldata appIds) external onlyRole(RESET_OPERATOR) nonReentrant {
-    // Clear the pending request queue, refunding each request's asset deposit to its sender.
-    _resetQueue();
+    // Clear the pending request queues, refunding each request's asset deposit to its sender.
+    _resetQueues();
 
     // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
     // fall back to every app that has ever been successfully deployed.
@@ -882,54 +949,23 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       effectiveAppIds = _deployedAppIds;
     }
 
-    address[] memory effectiveTokens = tokenAllowlist.getAllowedTokens();
-
-    uint256 appCount = effectiveAppIds.length;
-    uint256 tokenCount = effectiveTokens.length;
-
-    // --- Effects: zero out all custody and state roots before any external call ---
-    address payable recipient = payable(msg.sender);
-    uint256 i;
-    while (i != appCount) {
-      uint64 appId = effectiveAppIds[i];
-
-      // Transfer ETH custody for this app and clear both the per-app and global trackers.
-      uint256 ethAmt = appCustody[appId][ETH_TOKEN];
-      if (ethAmt > 0) {
-        (bool ok, ) = recipient.call{value: ethAmt}('');
-        if (!ok) revert TransferFailed();
-        _subtractToCustody(appId, ETH_TOKEN, ethAmt);
-      }
-
-      // Transfer ERC-20 custody for this app across every token in the effective list.
-      uint256 j;
-      while (j != tokenCount) {
-        uint256 amt = appCustody[appId][effectiveTokens[j]];
-        if (amt > 0) {
-          IERC20(effectiveTokens[j]).safeTransfer(recipient, amt);
-          _subtractToCustody(appId, effectiveTokens[j], amt);
-        }
-        unchecked {
-          ++j;
-        }
-      }
-
-      // Clear the app's state root, remove it from the deployed list, and return its deploy
-      // slot to the pool so the same slot capacity can be reused after the reset.
-      if (applicationStateRoots[appId] != bytes32(0)) {
-        applicationStateRoots[appId] = bytes32(0);
-        _removeDeployedAppId(appId);
-        unchecked {
-          ++availableDeploySlots;
-        }
-      }
-
-      // Clear any trigger registered for this app so its address can be reused after reset.
-      _clearTrigger(appId);
-
-      unchecked {
-        ++i;
-      }
+    // Sweeping custody, clearing state roots and dropping triggers is implemented in
+    // RequestQueues to keep its code out of this contract's size budget. It runs under
+    // delegatecall, so the transfers move this contract's own ETH and tokens and credit
+    // msg.sender — the reset operator.
+    uint256 freedSlots = RequestQueues.resetApps(
+      _deployedAppIds,
+      effectiveAppIds,
+      tokenAllowlist.getAllowedTokens(),
+      payable(msg.sender),
+      applicationStateRoots,
+      appCustody,
+      totalAppCustody,
+      triggerContracts,
+      triggersToAppIds
+    );
+    unchecked {
+      availableDeploySlots += freedSlots;
     }
   }
 
@@ -1044,11 +1080,12 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       keccak256(payload),
       address(0),
       0,
-      _triggerQueue.tail
+      _q.triggers.tail
     );
 
-    _queueEnqueue(
-      _triggerQueue,
+    RequestQueues.enqueue(
+      _q,
+      _q.triggers,
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,
@@ -1069,46 +1106,6 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   // Internal queue helpers
-
-  function _queueGetAll(
-    RequestQueue storage q
-  ) internal view returns (Structs.PendingRequest[] memory result) {
-    uint256 n = _queueSize(q);
-    result = new Structs.PendingRequest[](n);
-    uint256 i = q.head;
-    uint256 tail = q.tail;
-    uint256 j;
-    while (i < tail) {
-      result[j] = q.requestById[q.idByOrder[i]];
-      unchecked {
-        ++i;
-        ++j;
-      }
-    }
-  }
-
-  function _queueGetPage(
-    RequestQueue storage q,
-    uint256 offset,
-    uint256 limit
-  ) internal view returns (Structs.PendingRequest[] memory result) {
-    uint256 n = _queueSize(q);
-    if (offset >= n || limit == 0) return new Structs.PendingRequest[](0);
-    uint256 end = offset + limit;
-    if (end > n) end = n;
-    uint256 count = end - offset;
-    result = new Structs.PendingRequest[](count);
-    uint256 i = q.head + offset;
-    uint256 stop = q.head + end;
-    uint256 j;
-    while (i < stop) {
-      result[j] = q.requestById[q.idByOrder[i]];
-      unchecked {
-        ++i;
-        ++j;
-      }
-    }
-  }
 
   function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {
     appCustody[applicationId][token] -= amount;

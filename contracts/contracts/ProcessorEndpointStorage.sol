@@ -15,18 +15,19 @@ import './interfaces/IAuthorityRegistry.sol';
 import './interfaces/ITokenAllowlist.sol';
 import './interfaces/ITrigger.sol';
 import './Structs.sol';
+import './RequestQueues.sol';
 
 /// @title ProcessorEndpointStorage
 /// @notice Storage layout and shared helpers for `ProcessorEndpoint` and
 ///         `ProcessorEndpointExtension`.
-/// @dev `ProcessorEndpoint` is close to the 24,576-byte EIP-170 deployed-bytecode limit, so parts
-///      of it live in `ProcessorEndpointExtension`, which the endpoint reaches by `delegatecall`.
-///      Both contracts derive from this base, which is the single declaration of every state
-///      variable: because a `delegatecall` executes the extension's code against the endpoint's
-///      storage, the two layouts must be **identical**, and inheriting one common base is what
-///      guarantees that. `AccessControl`, `ReentrancyGuard` and `EIP712` are inherited here, in
-///      this order, for the same reason — they contribute storage slots (`_roles`, `_status`, the
-///      EIP-712 name/version fallbacks) that must sit at the same offsets on both sides.
+/// @dev `ProcessorEndpoint` is within ~1KB of the EIP-170 deployed-bytecode limit, so parts of it
+///      live in `ProcessorEndpointExtension`, which the endpoint reaches by `delegatecall`. Both
+///      contracts derive from this base, which is the single declaration of every state variable:
+///      because a `delegatecall` executes the extension's code against the endpoint's storage, the
+///      two layouts must be **identical**, and inheriting one common base is what guarantees that.
+///      `AccessControl`, `ReentrancyGuard` and `EIP712` are inherited here, in this order, for the
+///      same reason — they contribute storage slots (`_roles`, `_status`, the EIP-712 name/version
+///      fallbacks) that must sit at the same offsets on both sides.
 ///
 ///      Consequences to respect when editing:
 ///      - Never declare state in `ProcessorEndpoint` or `ProcessorEndpointExtension`; declare it
@@ -48,13 +49,6 @@ abstract contract ProcessorEndpointStorage is
 {
   using SafeERC20 for IERC20;
 
-  struct RequestQueue {
-    mapping(bytes32 => Structs.PendingRequest) requestById;
-    mapping(uint256 => bytes32) idByOrder;
-    uint256 head;
-    uint256 tail;
-  }
-
   //constants
   bytes32 public constant UPDATE_STATUS_ROLE = keccak256('UPDATE_STATUS_ROLE');
   bytes32 public constant ADMIN = keccak256('ADMIN');
@@ -67,7 +61,10 @@ abstract contract ProcessorEndpointStorage is
   uint256 public maxNumOfApplications = 10;
   uint256 public availableDeploySlots = maxNumOfApplications;
 
-  RequestQueue internal _requestQueue;
+  // All pending-request queue state: the global request store, the per-application queues, the
+  // global deploy and trigger queues, the round-robin cursor and the total request count. Held
+  // as one struct so it can be handed to RequestQueues as a single storage pointer.
+  RequestQueues.Store internal _q;
   uint256 public maxQueueSize = 10;
 
   ITeeAuthenticator public teeAuthenticator;
@@ -105,8 +102,6 @@ abstract contract ProcessorEndpointStorage is
   mapping(uint64 => ITrigger) public triggerContracts;
   // Reverse mapping for the above to check if a trigger is valid when adding to the queue
   mapping(address => uint64) public triggersToAppIds;
-  // FIFO queue populated by trigger contracts; served before the normal queue
-  RequestQueue internal _triggerQueue;
 
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert IProcessorEndpoint.InvalidProtocolVersion();
@@ -127,48 +122,12 @@ abstract contract ProcessorEndpointStorage is
   ///      `ProcessorEndpoint`'s constructor: the extension holds no state of its own.
   constructor() EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {}
 
-  // Queue primitives, declared alongside the RequestQueue state they operate on.
-
-  function _queueEnqueue(
-    RequestQueue storage q,
-    bytes32 id,
-    Structs.PendingRequest memory req
-  ) internal {
-    q.requestById[id] = req;
-    q.idByOrder[q.tail] = id;
-    unchecked {
-      ++q.tail;
-    }
-  }
-
-  function _queueDequeueHead(RequestQueue storage q) internal {
-    bytes32 id = q.idByOrder[q.head];
-    delete q.requestById[id];
-    delete q.idByOrder[q.head];
-    unchecked {
-      ++q.head;
-    }
-  }
-
-  function _queueSize(RequestQueue storage q) internal view returns (uint256) {
-    return q.tail - q.head;
-  }
-
-  function _queuePeekHead(RequestQueue storage q) internal view returns (bytes32) {
-    return q.idByOrder[q.head];
-  }
-
-  function _queueIsHead(RequestQueue storage q, bytes32 id) internal view returns (bool) {
-    return q.tail > q.head && q.idByOrder[q.head] == id;
-  }
-
-  /// @dev Internal implementation of `ProcessorEndpoint.getPendingRequestsSize`. The public
-  ///      function stays on the endpoint; see the contract-level note on override conflicts.
+  /// @dev Sum of the deploy queue and every per-application queue. The trigger queue is
+  ///      reported separately by getTriggerQueueSize().
   function _pendingRequestsSize() internal view returns (uint256) {
-    return _queueSize(_requestQueue);
+    return _q.total - RequestQueues.size(_q.triggers);
   }
 
-  /// @dev Internal implementation of `ProcessorEndpoint.generateRequestId`.
   function _generateRequestId(
     address sender,
     uint64 applicationId,
@@ -216,10 +175,11 @@ abstract contract ProcessorEndpointStorage is
       keccak256(payload),
       tokenAddress,
       assetAmount,
-      _requestQueue.tail
+      _q.pending[applicationId].tail
     );
-    _queueEnqueue(
-      _requestQueue,
+    RequestQueues.enqueue(
+      _q,
+      _q.pending[applicationId],
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,

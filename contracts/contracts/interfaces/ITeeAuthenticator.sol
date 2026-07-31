@@ -20,7 +20,7 @@ interface ITeeAuthenticator {
     Structs.SignatureParams memory params,
     bytes memory signature
   ) external view returns (bool);
- 
+
   /// @notice Verifies a single signature covering a batch of processed requests.
   ///
   /// @dev The signed message is the EIP-191 personal_sign digest of the concatenated

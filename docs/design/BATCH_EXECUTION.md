@@ -284,10 +284,15 @@ The current single global FIFO queue (`_requestQueue`) cannot work with batches.
 
 The contract needs **per-application pending queues**. Each application maintains its own queue head/tail, and requests are enqueued into `pendingQueues[applicationId]`. `batchStateUpdate()` dequeues from the queue matching its `applicationId`. The trigger queue (`_triggerQueue`, see section 5) remains a single global priority queue.
 
+Because request ids are unique across queues, the `PendingRequest` structs themselves live in **one global store** keyed by `requestId` (`mapping(bytes32 => PendingRequest)`); a queue only holds the ordered ids plus its head/tail. This keeps `requestById()` and `isCurrentPendingRequest(requestId)` working without an `applicationId` argument. A single `_totalQueuedRequests` counter, maintained on enqueue/dequeue, makes the aggregate size views O(1) so the `maxQueueSize` check on the submit path does not have to scan every application.
+
+**Deploy requests use a third, global queue** (`_deployQueue`), not per-application queues. A deploy's application does not exist yet — it has no state root and is absent from `_deployedAppIds` until the deploy succeeds — so a request sitting in `pendingQueues[derivedAppId]` would be invisible to the round-robin scan of section 4.3 and would never be served. `_deployQueue` is served with precedence over the per-application queues (and after the trigger queue), always one request at a time, matching the manager's existing individual `processDeployApp()` path. Deploys are permissioned and capped by `availableDeploySlots`, so they cannot starve the rotation.
+
+**`maxQueueSize` stays an aggregate cap**: `getPendingRequestsSize()` returns the sum of the deploy queue and every per-application queue (the trigger queue is reported separately by `getTriggerQueueSize()`), and the submit paths check that sum, exactly as before. One application can therefore still consume the global capacity; a per-application cap can be introduced later if that becomes a problem.
+
 Side benefits:
 
 - A permanently failing request for application A blocks A's queue at the structural level. **Note:** this does not by itself isolate other applications — the round-robin selection (section 4.3) is enforced on-chain, so the cursor cannot advance past the blocked application and the whole system stalls. See section 7.4.
-- Deploy handling becomes trivial: each deploy derives a unique `applicationId` from its `requestId` at submission, and regular requests for that application can only be submitted after the deploy completes (`validApplicationId` requires a non-zero state root). A pending deploy is therefore always **alone in its application's queue** — it can never appear in the middle of a batch.
 - Per-application queues enable a deterministic application selection algorithm (section 4.3).
 
 ### 4.3. Required: fetching with round-robin application selection
@@ -308,9 +313,10 @@ Because the scan skips empty queues, round-robin is work-conserving: a single bu
 
 The scan costs one queue-emptiness storage read per skipped application, so enforcement is O(number of deployed apps) in the worst case. Deploys are permissioned (`DEPLOYAPP` role), so the array stays small and this is negligible; if the platform ever hosts hundreds of mostly-idle applications, revisit with an actively maintained non-empty-queue index.
 
-Two exceptions to the plain round-robin rule:
+Three exceptions to the plain round-robin rule:
 
 - **Trigger queue precedence.** If the global trigger queue is non-empty, its head (a TRUSTPROCESS request) is returned alone, before any per-application selection — preserving the existing priority semantics (section 5.1). Processing it does not advance the cursor; rotation resumes where it paused.
+- **Deploy queue precedence.** If the global deploy queue is non-empty, its head is returned alone, before any per-application selection (section 4.2). Processing it does not advance the cursor either.
 - **Trigger applications capped at one.** If the selected application has a registered trigger contract, at most one request is returned regardless of `maxCount` (section 5.4). Processing it advances the cursor like any other turn.
 
 **Why round-robin — and why the contract selects, not the manager:**
@@ -336,10 +342,11 @@ The executor already processes work scoped to a single application — one WASM 
 | Component | Change | Status |
 |---|---|---|
 | Contract: state storage | `mapping(uint64 => bytes32) applicationStateRoots` | Already implemented |
-| Contract: queue | Single global queue → `mapping(uint64 => Queue) pendingQueues` (trigger queue stays global) | Required |
-| Contract: `batchStateUpdate()` | New function; reads/writes `applicationStateRoots[applicationId]`; requires `applicationId` to match the round-robin scan and advances the cursor | Required |
-| Contract: round-robin tracking | Cursor into the existing `_deployedAppIds` array; scan skips empty queues | Required |
-| Contract: view functions | `GetPendingRequestsWithStateRoot(maxCount)` serving the scan result; trigger queue precedence | Required |
+| Contract: queue | Single global queue → `mapping(uint64 => Queue) pendingQueues` + global deploy queue (trigger queue stays global) | Implemented |
+| Contract: `batchStateUpdate()` | New function; reads/writes `applicationStateRoots[applicationId]`; requires `applicationId` to match the round-robin scan | Required |
+| Contract: round-robin tracking | Cursor into the existing `_deployedAppIds` array; scan skips empty queues; cursor advanced on every per-application dequeue | Implemented |
+| Contract: cursor enforcement | `require(applicationId == scan result)` in the state-update functions | Required (deferred to `batchStateUpdate()`) |
+| Contract: view functions | `getPendingRequestsWithStateRoot(maxCount)` serving the scan result; trigger and deploy queue precedence | Implemented |
 | Manager: poll loop | One batch per poll cycle; contract selects the application | Required |
 | Manager: state storage | Keyed by `applicationId` | Already implemented |
 | Executor | Batch protocol only (section 6, Stage 2) | Required |
@@ -355,7 +362,7 @@ An application can register a trigger contract at deploy time (`triggerContracts
 1. A processed request emits AppEvents. During the `stateUpdate()` transaction, the contract invokes the registered trigger with the AppEvent data (`_invokeTrigger`, `ProcessorEndpoint.sol:1102`).
 2. The trigger contract acts on the events (e.g., receives unshielded funds, executes an action, re-shields the remainder) and derives a trusted payload **on-chain**.
 3. If the trigger returns a payload, the contract enqueues a **TRUSTPROCESS** request into a dedicated priority queue (`_triggerQueue`). This is the only way a TRUSTPROCESS can be created.
-4. `getNextPendingRequest()` serves the trigger queue **before** the regular queue (`ProcessorEndpoint.sol:872`), so the TRUSTPROCESS is processed immediately after the request that fired it — before any other pending request, for any application.
+4. The selection view (`getPendingRequestsWithStateRoot`, `_selectPendingRequests`) serves the trigger queue **before** the deploy and per-application queues, so the TRUSTPROCESS is processed immediately after the request that fired it — before any other pending request, for any application.
 
 Trigger applications depend on this ordering. In the unshield/re-shield round trip, for example, request K sends funds out to the trigger and the subsequent TRUSTPROCESS credits the returned funds back into the application state. Any request processed between K and its TRUSTPROCESS would observe an intermediate state where funds have left the application but the trusted callback has not yet landed.
 
@@ -404,7 +411,7 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
 
 **Steps:**
 
-1. Replace the single global `_requestQueue` with `mapping(uint64 => RequestQueue) pendingQueues`. Enqueue into `pendingQueues[applicationId]`; `_triggerQueue` remains a single global priority queue. Add the round-robin cursor into `_deployedAppIds` and the shared scan helper (first app with a non-empty queue, starting at the cursor, wrapping — section 4.3). Update `getNextPendingRequest()`, `isCurrentPendingRequest()`, `getPendingRequests*()` and the queue-size cap (`maxQueueSize`) accordingly — decide whether the cap is per-application or aggregate.
+1. Replace the single global `_requestQueue` with `mapping(uint64 => RequestQueue) pendingQueues` plus the global `_deployQueue`; move the `PendingRequest` structs into one global `_requests` store keyed by `requestId`. `_triggerQueue` remains a single global priority queue. Add the round-robin cursor into `_deployedAppIds` and the shared scan helper (first app with a non-empty queue, starting at the cursor, wrapping — section 4.3), advancing the cursor on every per-application dequeue. Update `getNextPendingRequest()`, `isCurrentPendingRequest()`, `getPendingRequests*()` and `_resetQueue()` accordingly; `maxQueueSize` stays an aggregate cap (section 4.2). **Done.**
 
 2. Extract the body of `stateUpdate()` into an internal function `_processOneStateUpdate()` that takes the same parameters and performs all validation, state updates, event emission, refunds, withdrawals, trigger invocation, and request dequeuing.
 
@@ -420,7 +427,9 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
    - Writes `applicationStateRoots[applicationId]` to storage once at the end of the loop (not per iteration)
    - Emits individual entry hashes in events for off-chain verifiability
 
-5. Add the `GetPendingRequestsWithStateRoot(maxCount)` view serving the round-robin scan result, with trigger-queue precedence and the trigger-app cap (section 4.3).
+5. Add the `getPendingRequestsWithStateRoot(maxCount)` view serving the round-robin scan result, with trigger- and deploy-queue precedence and the trigger-app cap (section 4.3). **Done.**
+
+   `getNextPendingRequest()` is **removed** rather than kept as a `maxCount = 1` wrapper: every caller can pass `maxCount = 1` instead, and the wrapper's separate return shape (`(request, stateRoot, success)` with an empty-struct sentinel) only existed to preserve the pre-batch ABI. Removing it deletes a struct-returning external view — the most expensive kind of code in this contract (section "Open blocker"). Callers updated: `BlockChainClient.GetNextPendingRequest` and the `Client` interface method are gone; `GetPendingRequestsWithStateRoot` now calls the contract view directly instead of delegating to the removed one, and the hardhat tests call `getPendingRequestsWithStateRoot(1)`. **Done.**
 
 6. Define the `BatchEntry` struct containing per-request fields: `prevStateRoot`, `newStateRoot`, `processedRequestId`, `events`, `eventSubTypes`, `withdrawalRequests`, `refund`, `applicationFees`, `errorCode`, `errorMsg`.
 
@@ -433,21 +442,44 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
    - Invalid batch signature (reverts)
    - Batch signature signed by wrong key (reverts)
    - `batchStateUpdate()` for an application with a registered trigger (reverts)
-   - Mixed-app enqueue: requests for A, B, A — selection returns both A requests; B's queue untouched
-   - Round-robin rotation: batches for A, B alternate while both have pending work; cursor skips an application whose queue empties
+   - Mixed-app enqueue: requests for A, B, A — selection returns both A requests; B's queue untouched *(done)*
+   - Round-robin rotation: batches for A, B alternate while both have pending work; cursor skips an application whose queue empties *(done)*
    - Cursor enforcement: `batchStateUpdate()` (and `stateUpdate()` on a per-application queue) for an application other than the round-robin scan result reverts
-   - Scan correctness: applications with empty queues are skipped; scan wraps past the end of `_deployedAppIds`; all queues empty → view returns no requests and the cursor is unchanged
-   - Trigger queue precedence: pending TRUSTPROCESS returned alone before any batch selection
-   - Trigger application selected: at most one request returned regardless of `maxCount`
+   - Scan correctness: applications with empty queues are skipped; scan wraps past the end of `_deployedAppIds`; all queues empty → view returns no requests and the cursor is unchanged *(done)*
+   - Trigger queue precedence: pending TRUSTPROCESS returned alone before any batch selection *(done)*
+   - Deploy queue precedence: pending deploy returned alone before any application selection *(done)*
+   - Trigger application selected: at most one request returned regardless of `maxCount` *(done)*
+   - Cross-application queue independence: processing one application's head leaves the others' queues and state roots untouched; `adminReset` drains every application queue and refunds its deposits *(done)*
    - Gas measurement: compare `batchStateUpdate(N entries)` vs N × `stateUpdate()`
+
+**Contract size — see `PROCESSOR_ENDPOINT_SPLIT.md`.** The per-application queue work in step 1 pushed `ProcessorEndpoint` past the 24,576-byte EIP-170 limit. Making room is a self-contained refactor with no batch concepts in it, so it was done on its own branch and is documented separately: `ProcessorEndpointStorage` holds all state, `ProcessorEndpointExtension` hosts the facilitator path behind a `delegatecall`, EIP-170 is now enforced by the hardhat config, and `npm run check:layout` guards the shared storage layout in CI.
+
+What matters for this design is the budget that leaves:
+
+| | Deployed bytes | vs limit |
+|---|---|---|
+| After the split, before the queue work | 21,609 | −2,967 |
+| With per-app queues, deploy queue, round-robin and the selection view | **23,990** | **−586** |
+
+**−586 bytes is not enough for `batchStateUpdate()`** (step 4). With `viaIR` + `runs: 0`, the `BatchEntry[]` calldata decoder — nested dynamic arrays plus `string errorMsg` — is the expensive part, plausibly 1.5–2.5KB on its own. A second module has to move into the extension first; the queue views are the obvious candidate at −2,833 (less forwarding stubs), which would put headroom near 3.4KB. Sizes here are the hardhat path (`paris`, `runs: 0`); the `go:generate` solc path uses `runs: 200` and no explicit EVM target, so it reports different numbers — always say which produced a figure.
+
+Two removals of redundant external surface also helped, and belong to this design rather than the split:
+
+- `getNextPendingRequest()` (−332 bytes), replaced by `getPendingRequestsWithStateRoot(1)` — see step 5.
+- Candidates for the next pass: `getPendingRequests()` and `getPendingRequestsPage()` (−1,178 together), if the subgraph and `pkg/blockchain` turn out not to need them.
 
 **Files changed:**
 - `contracts/contracts/ProcessorEndpoint.sol`
+- `contracts/contracts/ProcessorEndpointStorage.sol` (per-application queue state replaces the single global queue)
+- `contracts/contracts/RequestQueues.sol` (new — queue library)
 - `contracts/contracts/interfaces/IProcessorEndpoint.sol`
 - `contracts/contracts/AbstractTeeAuthenticator.sol` (new batch signature verification)
 - `contracts/contracts/interfaces/ITeeAuthenticator.sol`
 - `contracts/contracts/Structs.sol` (new `BatchEntry` struct)
 - `contracts/test/` (new and updated test files)
+
+The storage base, the extension, `IProcessorEndpointState` and the two guardrails come from the
+contract split (`PROCESSOR_ENDPOINT_SPLIT.md`), which this work builds on.
 
 ### Stage 2 — Executor: Batch Processing
 
@@ -521,7 +553,7 @@ Refactor the manager's poll loop to fetch multiple requests and route them throu
 
 1. Add `MaxBatchSize` configuration to `config.go` with `MAX_BATCH_SIZE` env var (default 5). Add startup validation: `MaxBatchSize > 0`.
 
-2. Add `GetPendingRequestsWithStateRoot(maxCount uint64)` to the blockchain client, returning `(uint64, []*common.Request, [32]byte, error)` — the contract-selected `applicationId`, up to `maxCount` of its pending requests, and its on-chain state root (section 4.3). The caller passes `MaxBatchSize` so only the requests that will actually be processed are fetched. The existing `GetPendingRequests()` only returns requests without the state root or selection logic.
+2. Add `GetPendingRequestsWithStateRoot(maxCount uint64)` to the blockchain client, returning `(uint64, []*common.Request, [32]byte, error)` — the contract-selected `applicationId`, up to `maxCount` of its pending requests, and its on-chain state root (section 4.3). The caller passes `MaxBatchSize` so only the requests that will actually be processed are fetched. The existing `GetPendingRequests()` only returns requests without the state root or selection logic. **Done** — it calls the contract view directly (it was previously a stub delegating to the now-removed `GetNextPendingRequest`).
 
 3. Implement `processBatchFromChain()` in the manager:
    ```

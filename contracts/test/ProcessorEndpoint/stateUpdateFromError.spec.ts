@@ -952,7 +952,8 @@ describe('ProcessorEndpoint Test', function () {
       const pendingBefore = await pe.pendingClaims(ETH_TOKEN, feeCollectorAddr);
 
       // Confirm the next pending request is the TRUSTPROCESS
-      const [req] = await pe.getNextPendingRequest();
+      const [, pending] = await pe.getPendingRequestsWithStateRoot(1);
+      const req = pending[0];
       expect(req.requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
       const trustedRequestId: string = req.requestId;
 
