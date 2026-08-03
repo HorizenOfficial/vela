@@ -12,7 +12,7 @@ Horizen Vela - A privacy-preserving execution platform using AWS Nitro Enclaves 
 
 ## Build Commands
 
-```bashExpand commentComment on line L20
+```bash
 # Go build
 go build ./...
 go build ./cmd/executor
