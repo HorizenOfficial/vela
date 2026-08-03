@@ -148,7 +148,7 @@ async function deploy() {
   console.log(`  token allowlist: ${tokenAllowlistAddr}`);
   console.log(`  extension: ${processorEndpointExtensionAddr}`);
 
-  // 5) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
+  // 7) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
   //    Must be deployed AFTER ProcessorEndpoint so that its CREATE address
   //    stays stable across runs (deterministic on deployer nonce).
   //    Requires the deployer to hold the ADMIN role on ProcessorEndpoint,
@@ -180,6 +180,10 @@ async function deploy() {
   if (outputDir) {
     const lines = [
       `CHAIN_PROCESSOR_ADDRESS=${processorEndpointAddr}`,
+      // Nothing reads this at runtime — the endpoint holds the address in an immutable — but it is
+      // the only record of which extension a deployed endpoint delegates to, needed to verify or
+      // redeploy it.
+      `CHAIN_PROCESSOR_EXTENSION_ADDRESS=${processorEndpointExtensionAddr}`,
       `CHAIN_TEEAUTHENTICATOR_ADDRESS=${teeAuthenticatorAddr}`,
       `CHAIN_TOKEN_ALLOWLIST_ADDRESS=${tokenAllowlistAddr}`,
     ];

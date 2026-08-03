@@ -96,9 +96,18 @@ contract ProcessorEndpointExtension is ProcessorEndpointStorage {
     );
     bytes32 digest = _hashTypedDataV4(structHash);
 
-    // 6. Recover user address from EIP-712 request signature and verify
-    address recoveredSigner = ECDSA.recover(digest, requestSignature);
-    if (recoveredSigner == address(0)) revert IProcessorEndpoint.InvalidSignature();
+    // 6. Recover user address from EIP-712 request signature and verify.
+    //    tryRecover, not recover: a signature ECDSA cannot parse must revert with
+    //    InvalidSignature, which IProcessorEndpoint declares. ECDSA.recover would raise
+    //    ECDSAInvalidSignature/-Length/-S instead, and those are absent from the endpoint's ABI —
+    //    this code runs by delegatecall, so callers only ever see the endpoint — leaving clients
+    //    with revert data they cannot decode.
+    (address recoveredSigner, ECDSA.RecoverError recoverError, ) = ECDSA.tryRecover(
+      digest,
+      requestSignature
+    );
+    if (recoverError != ECDSA.RecoverError.NoError || recoveredSigner == address(0))
+      revert IProcessorEndpoint.InvalidSignature();
     if (recoveredSigner != sender) revert IProcessorEndpoint.InvalidSigner();
 
     // 7. Consume nonce (replay protection)

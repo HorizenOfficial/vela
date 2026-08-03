@@ -54,6 +54,11 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       extension == address(0)
     ) revert AddressCantBeZero();
 
+    // A delegatecall to an address without code succeeds and returns nothing, so a wrong
+    // extension address would turn submitRequestFor into a silent no-op that keeps the fee
+    // instead of reverting. _extension is immutable, so this is the only chance to catch it.
+    if (extension.code.length == 0) revert InvalidExtension();
+
     _extension = extension;
     teeAuthenticator = _teeAuthenticator;
     authorityRegistry = _authorityRegistry;
@@ -146,18 +151,33 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   ///      call and the `IProcessorEndpoint` conformance check unchanged. `_delegateToExtension`
   ///      never returns, so the declared return value is never produced here — the extension's
   ///      return data is passed back to the caller verbatim.
+  ///
+  ///      The parameters are named even though the body ignores them, because the names are part
+  ///      of the published ABI: wallets, explorers and generated bindings show them. The no-op
+  ///      statements below are what keeps solc from warning about unused parameters; they cost no
+  ///      bytecode.
   function submitRequestFor(
-    address /* sender */,
-    uint8 /* protocolVersion */,
-    uint64 /* applicationId */,
-    Structs.RequestType /* requestType */,
-    bytes calldata /* payload */,
-    address /* tokenAddress */,
-    uint256 /* assetAmount */,
-    uint256 /* deadline */,
-    bytes calldata /* requestSignature */,
-    bytes calldata /* depositPermit */
+    address sender,
+    uint8 protocolVersion,
+    uint64 applicationId,
+    Structs.RequestType requestType,
+    bytes calldata payload,
+    address tokenAddress,
+    uint256 assetAmount,
+    uint256 deadline,
+    bytes calldata requestSignature,
+    bytes calldata depositPermit
   ) external payable returns (bytes32) {
+    sender;
+    protocolVersion;
+    applicationId;
+    requestType;
+    payload;
+    tokenAddress;
+    assetAmount;
+    deadline;
+    requestSignature;
+    depositPermit;
     _delegateToExtension();
   }
 

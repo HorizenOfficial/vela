@@ -142,10 +142,27 @@ events are referenced from the base and the extension as `IProcessorEndpoint.<na
 
 - **`getFacilitatorNonce()` was removed.** It duplicated the auto-generated getter of the
   `public facilitatorNonces` mapping. `FACILITATOR.md` already told clients to read the mapping
-  directly. Callers use `facilitatorNonces(user)`.
+  directly. Callers use `facilitatorNonces(user)`. This is the only ABI removal, and it is recorded
+  in `CHANGELOG.md`.
 - **The extension refuses direct calls** (`DirectCallNotAllowed`, via an `immutable _self` compared
   against `address(this)`). Called directly it would read and write its own empty storage and could
   strand the ETH sent as a fee.
+- **The endpoint rejects an extension without code** (`InvalidExtension`), on top of the
+  zero-address check. A `delegatecall` to a codeless address *succeeds* and returns nothing, so a
+  wrong address would make `submitRequestFor` a silent no-op that keeps the fee — no event, no
+  queue entry — rather than reverting. `_extension` is immutable, so the constructor is the only
+  place to catch it. Constructor-only code, so it costs nothing against EIP-170.
+- **Revert data must stay decodable through the endpoint's ABI.** The extension's code reverts
+  from the endpoint's address, but only the endpoint's *ABI* is what clients hold. Signature
+  recovery therefore uses `ECDSA.tryRecover` and raises `IProcessorEndpoint.InvalidSignature`;
+  `ECDSA.recover` would raise `ECDSAInvalidSignature`/`-Length`/`-S`, which are absent from the
+  endpoint's ABI now that the endpoint itself no longer calls ECDSA. Anything moved to the
+  extension in future needs the same check: every error it can raise must be declared on the
+  endpoint too.
+- **The stub keeps its parameter names.** Parameter names are part of the published ABI — wallets,
+  explorers and generated bindings display them, and `abigen` degrades to `arg0…arg9` without
+  them. The names are silenced with no-op statements rather than commented out; verified to produce
+  byte-identical output.
 - **Deploy order changed.** The extension is deployed first and its address is a new last
   `ProcessorEndpoint` constructor argument. It is `immutable`, so it lives in the endpoint's code
   rather than storage and cannot be repointed. Wired in `test/ProcessorEndpoint/fixture.ts`,
@@ -167,12 +184,18 @@ events are referenced from the base and the extension as `IProcessorEndpoint.<na
 | Contract | Deployed bytes | vs limit |
 |---|---|---|
 | `ProcessorEndpoint` before | 23,246 | −1,330 |
-| `ProcessorEndpoint` after | **21,048** | **−3,528** |
-| `ProcessorEndpointExtension` | 6,723 | −17,853 |
+| `ProcessorEndpoint` after | **21,074** | **−3,502** |
+| `ProcessorEndpointExtension` | 6,655 | −17,921 |
 
-The endpoint sheds 2,198 bytes: the 2,537-byte facilitator module, less the forwarding stub and the
+The endpoint sheds 2,172 bytes: the 2,537-byte facilitator module, less the forwarding stub and the
 two thin public wrappers (`getPendingRequestsSize`, `generateRequestId`) that now delegate to
 internal implementations in the base.
+
+**This is probably not enough for batch execution.** Section 1 measured the batch work at 26,353
+bytes on the old 23,246-byte baseline — +3,107 — and `batchStateUpdate()` was not written yet. On
+the new baseline that lands at 24,155, only 421 bytes under the limit. Expect to need the next
+lever (section 3.1: the queue views, −2,833, behind a generic `fallback()` and a merged ABI) as
+part of the batch work rather than after it.
 
 Note that the `go:generate` solc invocation passes `--optimize` (default `runs: 200`) and no
 `--evm-version`, so it produces post-Shanghai bytecode with different sizes from hardhat's
@@ -217,16 +240,32 @@ Two implementation details:
 Verified by injecting an extra state variable into the extension: the check exits non-zero and
 names the offending entry.
 
+The comparison covers the flattened slot list — slot, offset, label, type — which is exactly the
+surface on which the two contracts can diverge, since all state is declared once in the base and
+the failure mode is a variable declared or reordered in a derived contract. It would not see a
+change *inside* a struct's fields, which requires a derived contract to redeclare a struct of the
+same name.
+
 ## 6. Reviewing this change
 
 The refactor is behaviour-preserving, and the test suite is the evidence:
 
-- **291 tests before, 293 after.** The two additions are the `extension is zero address`
-  constructor case and `DirectCallNotAllowed`.
+- **291 tests before, 296 after.** The five additions are the two constructor cases (`extension is
+  zero address`, `extension has no code`), `DirectCallNotAllowed`, and the two malformed-signature
+  cases that must surface as `InvalidSignature`.
 - **No existing test's assertions changed.** Only five test files are touched, and every change is
-  either the added constructor argument, the fixture deploying the extension, or one of the two new
+  either the added constructor argument, the fixture deploying the extension, or one of the new
   tests.
 - `npm run check:layout` passes, the full Go suite passes, and `go generate ./...` is idempotent.
+
+One behavioural difference is deliberate and worth naming, because it is not covered by any test:
+the endpoint now reverts `InvalidSignature` where it previously reverted `ECDSAInvalidSignature*`
+on a malformed facilitator signature (see section 3.4). Nothing else changes. In particular
+`_queueSize` keeps its `tail > head` guard: the guard is unreachable — `_queueEnqueue` only
+advances `tail`, `_queueDequeueHead` is reached only after `isCurrentPendingRequest` has confirmed
+the id is a queue head, and `adminReset` sets `tail = head` — but dropping it would have made two
+external views (`getPendingRequestsSize`, `getTriggerQueueSize`) revert on underflow instead of
+returning 0, which is a behavioural change this refactor does not need to take. It costs 26 bytes.
 
 ## 7. Deliberately deferred: per-application contracts
 

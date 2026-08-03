@@ -422,6 +422,53 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidSigner');
       });
 
+      // A signature ECDSA cannot even parse must surface as InvalidSignature, which
+      // IProcessorEndpoint declares. Letting OpenZeppelin's ECDSAInvalidSignature* out instead
+      // would revert with data the endpoint's own ABI cannot decode, since the recovery lives in
+      // ProcessorEndpointExtension.
+      it('reverts with InvalidSignature when the request signature has a wrong length', async () => {
+        const params = await buildRequestParams();
+
+        await expect(
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              '0x1234',
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidSignature');
+      });
+
+      it('reverts with InvalidSignature when the request signature is unrecoverable', async () => {
+        const params = await buildRequestParams();
+
+        await expect(
+          processorEndpoint.connect(facilitator).submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            // 65 zero bytes: v = 0, so ecrecover yields address(0)
+            '0x' + '00'.repeat(65),
+            params.depositPermit,
+            { value: minFeePerRequest }
+          )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidSignature');
+      });
+
       it('reverts when replaying the same signature (nonce consumed)', async () => {
         const params = await buildRequestParams();
 

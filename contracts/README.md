@@ -2,6 +2,13 @@
 
 On-chain coordination for Vela. The main contract is `ProcessorEndpoint`, which handles user requests, per-app locked funds, ERC-20 deposits/withdrawals (with EIP-2612 permit and a facilitator path for gasless onboarding), and the deploy flow for new applications. TEE attestation is verified by `TeeAuthenticator` and authorities are tracked in `AuthorityRegistry`.
 
+`ProcessorEndpoint` sits close to the 24,576-byte EIP-170 limit, so it is split across three files: `ProcessorEndpointStorage.sol` declares all of its state, `ProcessorEndpointExtension.sol` hosts entry points moved out for size (currently `submitRequestFor`), and `ProcessorEndpoint.sol` reaches them by `delegatecall`. This is invisible to callers — same address, same ABI, same selectors — but it constrains development and deployment:
+
+- Declare new state **only** in `ProcessorEndpointStorage.sol`, and run `npm run check:layout` afterwards. The two contracts must share one storage layout; a divergence corrupts storage silently instead of reverting.
+- Deploy `ProcessorEndpointExtension` **before** `ProcessorEndpoint` — its address is the endpoint's last constructor argument, and it is immutable, so a wrong address means redeploying the endpoint.
+
+See `../docs/design/PROCESSOR_ENDPOINT_SPLIT.md`.
+
 ## Manual deploy
 
 - Create an .env file with the correct properties:
@@ -26,6 +33,10 @@ npx hardhat run scripts/deploy/all.ts
 ```bash
 npx hardhat run scripts/deploy/authorityRegistry.ts
 ```
+
+  `scripts/deploy/processorEndpoint.ts` deploys `ProcessorEndpointExtension` together with the endpoint, in that order; there is no script that deploys the endpoint against a pre-existing extension.
+
+- when `DEPLOY_OUTPUT_DIR` is set, `all.ts` writes the deployed addresses to `deployed_addresses.env`, including `CHAIN_PROCESSOR_EXTENSION_ADDRESS`. Nothing reads that one at runtime, but it is the only record of which extension an endpoint delegates to.
 
 ## Management scripts
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- **`ProcessorEndpoint.getFacilitatorNonce(address)` removed.** It duplicated the auto-generated getter of the `public facilitatorNonces` mapping; clients must read `facilitatorNonces(user)` instead. See `docs/design/FACILITATOR.md`.
+- **`ProcessorEndpoint` constructor takes a new last argument**, the address of a deployed `ProcessorEndpointExtension`. Deploy the extension first.
+
+### Changes
+
+- **`ProcessorEndpoint` split for the EIP-170 size limit**: state moved to `ProcessorEndpointStorage`, and `submitRequestFor` now lives in `ProcessorEndpointExtension`, reached by `delegatecall`. Callers are unaffected — same address, ABI and selectors. See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md`.
+
 ## 0.2.0
 
 ### Features

@@ -108,6 +108,11 @@
   },
   {
     "inputs": [],
+    "name": "InvalidExtension",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidPayload",
     "type": "error"
   },
@@ -1966,52 +1971,52 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "",
+        "name": "sender",
         "type": "address"
       },
       {
         "internalType": "uint8",
-        "name": "",
+        "name": "protocolVersion",
         "type": "uint8"
       },
       {
         "internalType": "uint64",
-        "name": "",
+        "name": "applicationId",
         "type": "uint64"
       },
       {
         "internalType": "enum Structs.RequestType",
-        "name": "",
+        "name": "requestType",
         "type": "uint8"
       },
       {
         "internalType": "bytes",
-        "name": "",
+        "name": "payload",
         "type": "bytes"
       },
       {
         "internalType": "address",
-        "name": "",
+        "name": "tokenAddress",
         "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "assetAmount",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "deadline",
         "type": "uint256"
       },
       {
         "internalType": "bytes",
-        "name": "",
+        "name": "requestSignature",
         "type": "bytes"
       },
       {
         "internalType": "bytes",
-        "name": "",
+        "name": "depositPermit",
         "type": "bytes"
       }
     ],

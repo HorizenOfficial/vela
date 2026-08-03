@@ -15,6 +15,12 @@ const CONTRACTS = [
 
 type Slot = { slot: string; offset: number; label: string; type: string };
 
+// Compares the flattened slot list only: slot, offset, label and type identifier. That covers
+// every way the two contracts can realistically diverge, because all state is declared once in
+// ProcessorEndpointStorage and the failure mode this guards against is a variable declared (or
+// reordered) in a derived contract. It would not catch a change *inside* a struct's own fields —
+// e.g. reordering RequestQueue — which is only reachable if a derived contract redeclares a struct
+// of the same name, since both contracts otherwise share the single declaration in the base.
 function format(entry: Slot): string {
   // Type identifiers embed solc's internal AST ids ("t_contract(ITrigger)9681"), which are only
   // stable within a single compilation job — hardhat may compile the two contracts in separate

@@ -166,6 +166,8 @@ interface IProcessorEndpoint is IProcessorEndpointState {
 
   /// @notice A zero address was supplied where not allowed.
   error AddressCantBeZero();
+  /// @notice The supplied `ProcessorEndpointExtension` address holds no code.
+  error InvalidExtension();
   /// @notice Fee value is below the minimum allowed.
   error FeeValueBelowMinimum();
   /// @notice A numeric value is invalid for the requested operation.

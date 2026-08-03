@@ -151,7 +151,8 @@ abstract contract ProcessorEndpointStorage is
   }
 
   function _queueSize(RequestQueue storage q) internal view returns (uint256) {
-    return q.tail - q.head;
+    if (q.tail > q.head) return q.tail - q.head;
+    return 0;
   }
 
   function _queuePeekHead(RequestQueue storage q) internal view returns (bytes32) {

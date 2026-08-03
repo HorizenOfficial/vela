@@ -120,6 +120,24 @@ describe('ProcessorEndpoint Test', function () {
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
+
+      // delegatecall to an address without code succeeds and returns nothing, so a wrong
+      // extension address would make submitRequestFor a silent no-op that keeps the fee. The
+      // address is immutable, so it cannot be corrected after deployment.
+      it('reverts when extension has no code', async () => {
+        await expect(
+          processorEndpointFactory.deploy(
+            await teeAuthenticator.getAddress(),
+            await authorityRegistry.getAddress(),
+            updateStatusOperator,
+            admin,
+            ADDRESS_ZERO,
+            minFeePerRequest,
+            await sharedTokenAllowlist.getAddress(),
+            updateStatusOperator
+          )
+        ).to.be.revertedWithCustomError(processorEndpointFactory, 'InvalidExtension');
+      });
     });
 
     describe('happy paths', function () {
