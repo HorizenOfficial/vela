@@ -56,6 +56,11 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       extension == address(0)
     ) revert AddressCantBeZero();
 
+    // A delegatecall to an address without code succeeds and returns nothing, so a wrong
+    // extension address would turn submitRequestFor into a silent no-op that keeps the fee
+    // instead of reverting. _extension is immutable, so this is the only chance to catch it.
+    if (extension.code.length == 0) revert InvalidExtension();
+
     _extension = extension;
     teeAuthenticator = _teeAuthenticator;
     authorityRegistry = _authorityRegistry;
@@ -144,22 +149,37 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
   /// @inheritdoc IProcessorEndpoint
   /// @dev Implemented in `ProcessorEndpointExtension` for size reasons; this entry point only
-  ///      forwards the call. Declaring it here keeps the ABI, the address relayers call and the
-  ///      `IProcessorEndpoint` contract unchanged. `_delegateToExtension` never returns, so the
-  ///      declared return value is never produced here — the extension's return data is passed
-  ///      back to the caller verbatim.
+  ///      forwards the call. Declaring it here keeps the ABI, the selector, the address relayers
+  ///      call and the `IProcessorEndpoint` conformance check unchanged. `_delegateToExtension`
+  ///      never returns, so the declared return value is never produced here — the extension's
+  ///      return data is passed back to the caller verbatim.
+  ///
+  ///      The parameters are named even though the body ignores them, because the names are part
+  ///      of the published ABI: wallets, explorers and generated bindings show them. The no-op
+  ///      statements below are what keeps solc from warning about unused parameters; they cost no
+  ///      bytecode.
   function submitRequestFor(
-    address /* sender */,
-    uint8 /* protocolVersion */,
-    uint64 /* applicationId */,
-    Structs.RequestType /* requestType */,
-    bytes calldata /* payload */,
-    address /* tokenAddress */,
-    uint256 /* assetAmount */,
-    uint256 /* deadline */,
-    bytes calldata /* requestSignature */,
-    bytes calldata /* depositPermit */
+    address sender,
+    uint8 protocolVersion,
+    uint64 applicationId,
+    Structs.RequestType requestType,
+    bytes calldata payload,
+    address tokenAddress,
+    uint256 assetAmount,
+    uint256 deadline,
+    bytes calldata requestSignature,
+    bytes calldata depositPermit
   ) external payable returns (bytes32) {
+    sender;
+    protocolVersion;
+    applicationId;
+    requestType;
+    payload;
+    tokenAddress;
+    assetAmount;
+    deadline;
+    requestSignature;
+    depositPermit;
     _delegateToExtension();
   }
 
@@ -172,11 +192,11 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   ///      `memoryguard` for the whole contract, and `stateUpdate` then fails to compile with
   ///      "stack too deep".
   function _delegateToExtension() private {
-    address extension = _extension;
+    address target = _extension;
     assembly ('memory-safe') {
       let ptr := mload(0x40)
       calldatacopy(ptr, 0, calldatasize())
-      let ok := delegatecall(gas(), extension, ptr, calldatasize(), 0, 0)
+      let ok := delegatecall(gas(), target, ptr, calldatasize(), 0, 0)
       let size := returndatasize()
       returndatacopy(ptr, 0, size)
       switch ok
@@ -190,89 +210,37 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function submitDeployRequest(
-    uint8 protocolVersion,
-    bytes calldata payload
-  ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
-    return _submitDeployRequest(protocolVersion, payload);
+  function extension() external view returns (address) {
+    return _extension;
   }
 
   /// @inheritdoc IProcessorEndpoint
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`. See the note on
+  ///      `submitRequestFor` for how these stubs work and why the parameter names stay here.
+  function submitDeployRequest(
+    uint8 protocolVersion,
+    bytes calldata payload
+  ) external payable returns (bytes32) {
+    protocolVersion;
+    payload;
+    _delegateToExtension();
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
   function submitDeployRequestWithTrigger(
     uint8 protocolVersion,
     bytes calldata payload,
     address trigger
-  ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
-    bytes32 requestId = _submitDeployRequest(protocolVersion, payload);
-    // Optional trigger registration that does NOT consume the payload, so the
-    // deploy can still carry a full WASM descriptor. address(0) means "no
-    // trigger" (identical to the 2-arg overload). The trigger is validated and
-    // registered eagerly here so that an invalid/duplicate trigger reverts the
-    // submit (instead of failing later inside stateUpdate). If the deploy then
-    // fails on-chain, the registration is rolled back in stateUpdate.
-    if (trigger != address(0)) {
-      if (triggersToAppIds[trigger] != 0) revert TriggerAlreadyRegistered();
-      if (trigger.code.length == 0) revert TriggerCannotBeEOA();
-
-      uint64 applicationId = uint64(bytes8(requestId));
-      triggerContracts[applicationId] = ITrigger(trigger);
-      triggersToAppIds[trigger] = applicationId;
-    }
-    return requestId;
-  }
-
-  function _submitDeployRequest(
-    uint8 protocolVersion,
-    bytes calldata payload
-  ) private returns (bytes32 requestId) {
-    if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
-    if (availableDeploySlots == 0) revert MaxNumOfApplicationsExceeded();
-    //check queue size
-    if (_pendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
-    if (msg.value < minFeePerRequest) revert FeeValueBelowMinimum();
-
-    --availableDeploySlots;
-
-    Structs.RequestType requestType = Structs.RequestType.DEPLOYAPP;
-    //create request
-    requestId = _generateRequestId(
-      msg.sender,
-      0, // deploy requests have applicationId 0, a unique applicationId will be derived from the requestId for each deploy request to avoid collisions with regular requests and to group deploy requests together
-      requestType,
-      keccak256(payload),
-      ETH_TOKEN,
-      0,
-      _q.deploys.tail
-    );
-
-    uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
-    RequestQueues.enqueue(
-      _q,
-      _q.deploys,
-      requestId,
-      Structs.PendingRequest({
-        timestamp: block.timestamp,
-        tokenAddress: ETH_TOKEN,
-        assetAmount: 0,
-        maxFeeValue: msg.value,
-        requestId: requestId,
-        payload: payload,
-        sender: msg.sender,
-        facilitator: address(0),
-        applicationId: applicationId,
-        protocolVersion: protocolVersion,
-        requestType: requestType
-      })
-    );
-
-    //emit event
-    emit DeployRequestSubmitted(applicationId, requestId, msg.sender);
-
-    return requestId;
+  ) external payable returns (bytes32) {
+    protocolVersion;
+    payload;
+    trigger;
+    _delegateToExtension();
   }
 
   function _removeRequest(bytes32 requestId) private {
-    // _queueIsHead already returns false for an empty queue (tail > head check),
+    // RequestQueues.isHead already returns false for an empty queue (tail > head check),
     // so no separate size guard is needed here.
     if (RequestQueues.isHead(_q.triggers, requestId)) {
       RequestQueues.dequeueHead(_q, _q.triggers);
@@ -699,40 +667,38 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function updateQueueThreshold(uint256 newThreshold) external onlyRole(ADMIN) {
-    if (newThreshold == 0) revert InvalidValue();
-    maxQueueSize = newThreshold;
-    emit QueueThresholdUpdated(newThreshold);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function updateQueueThreshold(uint256 newThreshold) external {
+    newThreshold;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function updateMaxNumOfApplications(uint256 newMax) external onlyRole(ADMIN) {
-    if (newMax == 0) revert InvalidValue();
-    uint256 deployedApps = maxNumOfApplications - availableDeploySlots;
-    if (newMax < deployedApps) revert InvalidValue();
-    uint256 oldMax = maxNumOfApplications;
-    maxNumOfApplications = newMax;
-    availableDeploySlots = newMax - deployedApps;
-    emit MaxNumberOfAppUpdated(oldMax, newMax);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function updateMaxNumOfApplications(uint256 newMax) external {
+    newMax;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function updateFeeCollector(address payable newFeeCollector) external onlyRole(ADMIN) {
-    if (newFeeCollector == address(0)) revert AddressCantBeZero();
-    feeCollector = newFeeCollector;
-    emit FeeCollectorUpdated(newFeeCollector);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function updateFeeCollector(address payable newFeeCollector) external {
+    newFeeCollector;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function addAllowedDeployer(address deployer) external onlyRole(ADMIN) {
-    if (deployer == address(0)) revert AddressCantBeZero();
-    _grantRole(DEPLOYER_ROLE, deployer);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function addAllowedDeployer(address deployer) external {
+    deployer;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function removeAllowedDeployer(address deployer) external onlyRole(ADMIN) {
-    if (deployer == address(0)) revert AddressCantBeZero();
-    _revokeRole(DEPLOYER_ROLE, deployer);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function removeAllowedDeployer(address deployer) external {
+    deployer;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -800,11 +766,8 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       RequestQueues.isHead(_q.pending[_q.requests[requestId].applicationId], requestId);
   }
 
-  // Pull payment pattern functions
-  function _asyncTransfer(address tokenAddress, address dest, uint256 amount) internal {
-    pendingClaims[tokenAddress][dest] += amount;
-    totalPendingClaims[tokenAddress] += amount;
-  }
+  // Pull payment pattern functions. `_asyncTransfer` is declared in `ProcessorEndpointStorage`,
+  // because the reset entry points in `ProcessorEndpointExtension` credit refunds through it too.
 
   function _getAvailableEthBalance() internal view returns (uint256) {
     return address(this).balance - totalPendingClaims[ETH_TOKEN] - totalAppCustody[ETH_TOKEN];
@@ -860,30 +823,17 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function adminReset() external onlyRole(RESET_OPERATOR) nonReentrant {
-    _resetQueues();
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`, together with the queue
+  ///      draining and deployed-app bookkeeping it needs.
+  function adminReset() external {
+    _delegateToExtension();
   }
 
-  /// @dev Discards every pending request, refunding asset deposits. Implemented in
-  ///      RequestQueues so its code does not count towards this contract's size budget; the
-  ///      freed deploy slots come back as a return value because a value-type state variable
-  ///      cannot be passed to a library by reference.
-  function _resetQueues() private {
-    uint256 freedDeploySlots = RequestQueues.resetQueues(
-      _q,
-      _deployedAppIds,
-      appCustody,
-      totalAppCustody,
-      pendingClaims,
-      totalPendingClaims,
-      triggerContracts,
-      triggersToAppIds
-    );
-    // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
-    // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
-    unchecked {
-      availableDeploySlots += freedDeploySlots;
-    }
+  /// @inheritdoc IProcessorEndpoint
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function adminResetApps(uint64[] calldata appIds) external {
+    appIds;
+    _delegateToExtension();
   }
 
   /// @dev The first `count` requests of the queue, in FIFO order. `count` must not exceed the
@@ -925,48 +875,6 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       }
     }
     return offset;
-  }
-
-  /// @dev Removes any trigger registration for the given application (both the forward and
-  ///      reverse mappings). No-op when no trigger is registered.
-  function _clearTrigger(uint64 applicationId) private {
-    ITrigger trigger = triggerContracts[applicationId];
-    if (address(trigger) != address(0)) {
-      delete triggersToAppIds[address(trigger)];
-      delete triggerContracts[applicationId];
-    }
-  }
-
-  /// @inheritdoc IProcessorEndpoint
-  function adminResetApps(uint64[] calldata appIds) external onlyRole(RESET_OPERATOR) nonReentrant {
-    // Clear the pending request queues, refunding each request's asset deposit to its sender.
-    _resetQueues();
-
-    // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
-    // fall back to every app that has ever been successfully deployed.
-    uint64[] memory effectiveAppIds = appIds;
-    if (appIds.length == 0) {
-      effectiveAppIds = _deployedAppIds;
-    }
-
-    // Sweeping custody, clearing state roots and dropping triggers is implemented in
-    // RequestQueues to keep its code out of this contract's size budget. It runs under
-    // delegatecall, so the transfers move this contract's own ETH and tokens and credit
-    // msg.sender — the reset operator.
-    uint256 freedSlots = RequestQueues.resetApps(
-      _deployedAppIds,
-      effectiveAppIds,
-      tokenAllowlist.getAllowedTokens(),
-      payable(msg.sender),
-      applicationStateRoots,
-      appCustody,
-      totalAppCustody,
-      triggerContracts,
-      triggersToAppIds
-    );
-    unchecked {
-      availableDeploySlots += freedSlots;
-    }
   }
 
   // Calls execute then withdraw on the trigger contract registered for the given applicationId,
@@ -1103,12 +1011,5 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     );
 
     emit RequestSubmitted(applicationId, requestId, trigger, address(0));
-  }
-
-  // Internal queue helpers
-
-  function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {
-    appCustody[applicationId][token] -= amount;
-    totalAppCustody[token] -= amount;
   }
 }

@@ -205,9 +205,13 @@ submitRequestFor()
   │     // nonce, ecrecover will return a wrong address and fail the sender check.
   │
   ├─ 4. Recover user address from EIP-712 request signature and verify
-  │     user = ecrecover(hashTypedData(requestAuth), requestSignature)
-  │     require(user != address(0))   // invalid signature guard
-  │     require(user == sender)       // ecrecover result must match declared sender
+  │     (user, err) = ECDSA.tryRecover(hashTypedData(requestAuth), requestSignature)
+  │     // tryRecover, not recover: a malformed signature (wrong length, non-canonical s)
+  │     // must revert with InvalidSignature, which IProcessorEndpoint declares. recover()
+  │     // would raise ECDSAInvalidSignature*, which the endpoint's ABI does not carry —
+  │     // this code runs by delegatecall, so callers only ever see the endpoint.
+  │     require(err == NoError && user != address(0))  // → InvalidSignature
+  │     require(user == sender)                        // → InvalidSigner
   │
   ├─ 5. Consume nonce (replay protection)
   │     facilitatorNonces[sender]++

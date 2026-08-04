@@ -122,8 +122,8 @@ abstract contract ProcessorEndpointStorage is
   ///      `ProcessorEndpoint`'s constructor: the extension holds no state of its own.
   constructor() EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {}
 
-  /// @dev Sum of the deploy queue and every per-application queue. The trigger queue is
-  ///      reported separately by getTriggerQueueSize().
+  /// @dev Internal implementation of `ProcessorEndpoint.getPendingRequestsSize`. The public
+  ///      function stays on the endpoint; see the contract-level note on override conflicts.
   function _pendingRequestsSize() internal view returns (uint256) {
     return _q.total - RequestQueues.size(_q.triggers);
   }
@@ -155,6 +155,31 @@ abstract contract ProcessorEndpointStorage is
   function _addToCustody(uint64 applicationId, address token, uint256 amount) internal {
     appCustody[applicationId][token] += amount;
     totalAppCustody[token] += amount;
+  }
+
+  function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {
+    appCustody[applicationId][token] -= amount;
+    totalAppCustody[token] -= amount;
+  }
+
+  /// @dev Credits `dest` in the pull-payment ledger. Declared here rather than on the endpoint
+  ///      because both sides need it: `stateUpdate` for refunds and withdrawals, and the reset
+  ///      entry points in `ProcessorEndpointExtension` for the deposits they return.
+  function _asyncTransfer(address tokenAddress, address dest, uint256 amount) internal {
+    pendingClaims[tokenAddress][dest] += amount;
+    totalPendingClaims[tokenAddress] += amount;
+  }
+
+  /// @dev Removes any trigger registration for the given application (both the forward and
+  ///      reverse mappings). No-op when no trigger is registered. Shared: `stateUpdate` rolls a
+  ///      failed deploy's eager registration back, and the reset entry points in
+  ///      `ProcessorEndpointExtension` clear registrations for the apps they discard.
+  function _clearTrigger(uint64 applicationId) internal {
+    ITrigger trigger = triggerContracts[applicationId];
+    if (address(trigger) != address(0)) {
+      delete triggersToAppIds[address(trigger)];
+      delete triggerContracts[applicationId];
+    }
   }
 
   function _enqueueRequest(

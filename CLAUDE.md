@@ -37,7 +37,7 @@ go generate ./...
 npm ci
 npm run build
 npm run test
-npm run check:layout   # ProcessorEndpoint / ProcessorEndpointExtension storage layouts must match
+npm run check:layout   # ProcessorEndpoint / ProcessorEndpointExtension: layouts must match, extension errors must be declared on the endpoint
 
 # WASM guest (app/simple)
 cd app/simple && make build            # Development build
@@ -70,7 +70,7 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
    - `POST /getreport` - Serves reports after on-chain verification
 
 4. **Smart Contracts** (`contracts/`) - On-chain coordination:
-   - `ProcessorEndpoint.sol` - Request handling, ERC-20 deposits/withdrawals (with EIP-2612 permit and facilitator path), per-app locked funds, deploy descriptor and allowed-deployer roles. Sits close to the EIP-170 size limit: state is declared in `ProcessorEndpointStorage.sol`, and some entry points (currently `submitRequestFor`) are hosted in `ProcessorEndpointExtension.sol` and reached by `delegatecall`. Declare new state **only** in the storage base, and run `npm run check:layout` after touching it — a layout divergence corrupts storage silently instead of reverting. Deploy the extension first; its address is the endpoint's last constructor argument. See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md`
+   - `ProcessorEndpoint.sol` - Request handling, ERC-20 deposits/withdrawals (with EIP-2612 permit and facilitator path), per-app locked funds, deploy descriptor and allowed-deployer roles. Sits close to the EIP-170 size limit: state is declared in `ProcessorEndpointStorage.sol`, and the entry points that are off the per-request hot path (`submitRequestFor`, deploy submission, the operator resets, the admin setters) are hosted in `ProcessorEndpointExtension.sol` and reached by `delegatecall`. Read-only functions **cannot** move: a `view` function may not `delegatecall`, so they would need a generic `fallback()` and a merged ABI. Declare new state **only** in the storage base, and run `npm run check:layout` after touching it — a layout divergence corrupts storage silently instead of reverting, and an extension error the endpoint does not declare reaches clients as undecodable revert data. Deploy the extension first; its address is the endpoint's last constructor argument, readable afterwards via `extension()`. The compiler targets `evmVersion: 'cancun'` for the bytes, so deployment chains must be at Cancun or later. See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md`
    - `TeeAuthenticator.sol` - TEE attestation verification (PCR-based, including WASM fingerprint for deploys)
    - `AuthorityRegistry.sol` - Authority management
 

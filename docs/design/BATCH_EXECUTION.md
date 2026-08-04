@@ -452,16 +452,17 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
    - Cross-application queue independence: processing one application's head leaves the others' queues and state roots untouched; `adminReset` drains every application queue and refunds its deposits *(done)*
    - Gas measurement: compare `batchStateUpdate(N entries)` vs N × `stateUpdate()`
 
-**Contract size — see `PROCESSOR_ENDPOINT_SPLIT.md`.** The per-application queue work in step 1 pushed `ProcessorEndpoint` past the 24,576-byte EIP-170 limit. Making room is a self-contained refactor with no batch concepts in it, so it was done on its own branch and is documented separately: `ProcessorEndpointStorage` holds all state, `ProcessorEndpointExtension` hosts the facilitator path behind a `delegatecall`, EIP-170 is now enforced by the hardhat config, and `npm run check:layout` guards the shared storage layout in CI.
+**Contract size — see `PROCESSOR_ENDPOINT_SPLIT.md`.** The per-application queue work in step 1 pushed `ProcessorEndpoint` past the 24,576-byte EIP-170 limit. Making room is a self-contained refactor with no batch concepts in it, so it was done on its own branch and is documented separately: `ProcessorEndpointStorage` holds all state, `ProcessorEndpointExtension` hosts the facilitator path, the deploy-submission entry points, the operator resets and the admin setters behind a `delegatecall`, EIP-170 is now enforced by the hardhat config, and `npm run check:layout` guards the shared storage layout in CI. The entry points hosted in the extension operate on this design's per-application queue state (`RequestQueues.Store`, reached through the shared `_q`), so `submitDeployRequest*` enqueues into the global deploy queue and the resets drain every per-application queue.
 
 What matters for this design is the budget that leaves:
 
 | | Deployed bytes | vs limit |
 |---|---|---|
-| After the split, before the queue work | 21,609 | −2,967 |
-| With per-app queues, deploy queue, round-robin and the selection view | **23,990** | **−586** |
+| After the first split (facilitator path only), before the queue work | 21,609 | −2,967 |
+| With per-app queues, deploy queue, round-robin and the selection view | 23,990 | −586 |
+| Same, after the split's second pass moved deploy submission, the resets and the admin setters out | **19,475** | **−5,101** |
 
-**−586 bytes is not enough for `batchStateUpdate()`** (step 4). With `viaIR` + `runs: 0`, the `BatchEntry[]` calldata decoder — nested dynamic arrays plus `string errorMsg` — is the expensive part, plausibly 1.5–2.5KB on its own. A second module has to move into the extension first; the queue views are the obvious candidate at −2,833 (less forwarding stubs), which would put headroom near 3.4KB. Sizes here are the hardhat path (`paris`, `runs: 0`); the `go:generate` solc path uses `runs: 200` and no explicit EVM target, so it reports different numbers — always say which produced a figure.
+The −586 figure was **not** enough for `batchStateUpdate()` (step 4): with `viaIR` + `runs: 0`, the `BatchEntry[]` calldata decoder — nested dynamic arrays plus `string errorMsg` — is the expensive part, plausibly 1.5–2.5KB on its own. The room came from the split's second pass rather than from moving the queue views: **5,101 bytes of headroom**, with `ProcessorEndpointExtension` at 12,172. If `batchStateUpdate()` does not fit in that, the next levers are the read-only surface behind a generic `fallback()` (−2,353) or implementing `batchStateUpdate()` in the extension from the start — both in `PROCESSOR_ENDPOINT_SPLIT.md` section 4. The first two rows above are the hardhat `paris` path and the third is hardhat `cancun` (`runs: 0` throughout), because the split switched the EVM target (`PROCESSOR_ENDPOINT_SPLIT.md` section 2.1); the `go:generate` solc path uses `runs: 200` and no explicit EVM target, so it reports different numbers — always say which produced a figure.
 
 Two removals of redundant external surface also helped, and belong to this design rather than the split:
 
@@ -471,6 +472,7 @@ Two removals of redundant external surface also helped, and belong to this desig
 **Files changed:**
 - `contracts/contracts/ProcessorEndpoint.sol`
 - `contracts/contracts/ProcessorEndpointStorage.sol` (per-application queue state replaces the single global queue)
+- `contracts/contracts/ProcessorEndpointExtension.sol` (the entry points it hosts — deploy submission and the operator resets — move onto the per-application queues)
 - `contracts/contracts/RequestQueues.sol` (new — queue library)
 - `contracts/contracts/interfaces/IProcessorEndpoint.sol`
 - `contracts/contracts/AbstractTeeAuthenticator.sol` (new batch signature verification)

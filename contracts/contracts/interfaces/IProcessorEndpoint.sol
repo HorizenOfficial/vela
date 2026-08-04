@@ -166,6 +166,8 @@ interface IProcessorEndpoint is IProcessorEndpointState {
 
   /// @notice A zero address was supplied where not allowed.
   error AddressCantBeZero();
+  /// @notice The supplied `ProcessorEndpointExtension` address holds no code.
+  error InvalidExtension();
   /// @notice Fee value is below the minimum allowed.
   error FeeValueBelowMinimum();
   /// @notice A numeric value is invalid for the requested operation.
@@ -281,6 +283,15 @@ interface IProcessorEndpoint is IProcessorEndpointState {
     bytes calldata payload,
     address trigger
   ) external payable returns (bytes32);
+
+  /// @notice Returns the `ProcessorEndpointExtension` this endpoint delegates its moved entry
+  ///         points to.
+  /// @dev Fixed at deployment and not repointable. Exposed so that the pairing between a deployed
+  ///      endpoint and its extension is readable on-chain, which is what verification and incident
+  ///      response need; otherwise it is only recoverable from the deployment record or by
+  ///      disassembling the endpoint's code.
+  /// @return extensionAddress Address of the extension contract.
+  function extension() external view returns (address extensionAddress);
 
   /// @notice Returns the total number of pending requests: the sum of the deploy queue and
   ///         every per-application queue. Trigger-queue requests are reported separately by
