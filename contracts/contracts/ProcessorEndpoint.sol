@@ -213,84 +213,28 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`. See the note on
+  ///      `submitRequestFor` for how these stubs work and why the parameter names stay here.
   function submitDeployRequest(
     uint8 protocolVersion,
     bytes calldata payload
-  ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
-    return _submitDeployRequest(protocolVersion, payload);
+  ) external payable returns (bytes32) {
+    protocolVersion;
+    payload;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
   function submitDeployRequestWithTrigger(
     uint8 protocolVersion,
     bytes calldata payload,
     address trigger
-  ) external payable validProtocolVersion(protocolVersion) nonReentrant returns (bytes32) {
-    bytes32 requestId = _submitDeployRequest(protocolVersion, payload);
-    // Optional trigger registration that does NOT consume the payload, so the
-    // deploy can still carry a full WASM descriptor. address(0) means "no
-    // trigger" (identical to the 2-arg overload). The trigger is validated and
-    // registered eagerly here so that an invalid/duplicate trigger reverts the
-    // submit (instead of failing later inside stateUpdate). If the deploy then
-    // fails on-chain, the registration is rolled back in stateUpdate.
-    if (trigger != address(0)) {
-      if (triggersToAppIds[trigger] != 0) revert TriggerAlreadyRegistered();
-      if (trigger.code.length == 0) revert TriggerCannotBeEOA();
-
-      uint64 applicationId = uint64(bytes8(requestId));
-      triggerContracts[applicationId] = ITrigger(trigger);
-      triggersToAppIds[trigger] = applicationId;
-    }
-    return requestId;
-  }
-
-  function _submitDeployRequest(
-    uint8 protocolVersion,
-    bytes calldata payload
-  ) private returns (bytes32 requestId) {
-    if (!hasRole(DEPLOYER_ROLE, msg.sender)) revert DeployerNotAllowed();
-    if (availableDeploySlots == 0) revert MaxNumOfApplicationsExceeded();
-    //check queue size
-    if (_pendingRequestsSize() >= maxQueueSize) revert QueueThresholdExceeded();
-    if (msg.value < minFeePerRequest) revert FeeValueBelowMinimum();
-
-    --availableDeploySlots;
-
-    Structs.RequestType requestType = Structs.RequestType.DEPLOYAPP;
-    //create request
-    requestId = _generateRequestId(
-      msg.sender,
-      0, // deploy requests have applicationId 0, a unique applicationId will be derived from the requestId for each deploy request to avoid collisions with regular requests and to group deploy requests together
-      requestType,
-      keccak256(payload),
-      ETH_TOKEN,
-      0,
-      _requestQueue.tail
-    );
-
-    uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
-    _queueEnqueue(
-      _requestQueue,
-      requestId,
-      Structs.PendingRequest({
-        timestamp: block.timestamp,
-        tokenAddress: ETH_TOKEN,
-        assetAmount: 0,
-        maxFeeValue: msg.value,
-        requestId: requestId,
-        payload: payload,
-        sender: msg.sender,
-        facilitator: address(0),
-        applicationId: applicationId,
-        protocolVersion: protocolVersion,
-        requestType: requestType
-      })
-    );
-
-    //emit event
-    emit DeployRequestSubmitted(applicationId, requestId, msg.sender);
-
-    return requestId;
+  ) external payable returns (bytes32) {
+    protocolVersion;
+    payload;
+    trigger;
+    _delegateToExtension();
   }
 
   function _removeRequest(bytes32 requestId) private {
@@ -678,40 +622,38 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function updateQueueThreshold(uint256 newThreshold) external onlyRole(ADMIN) {
-    if (newThreshold == 0) revert InvalidValue();
-    maxQueueSize = newThreshold;
-    emit QueueThresholdUpdated(newThreshold);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function updateQueueThreshold(uint256 newThreshold) external {
+    newThreshold;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function updateMaxNumOfApplications(uint256 newMax) external onlyRole(ADMIN) {
-    if (newMax == 0) revert InvalidValue();
-    uint256 deployedApps = maxNumOfApplications - availableDeploySlots;
-    if (newMax < deployedApps) revert InvalidValue();
-    uint256 oldMax = maxNumOfApplications;
-    maxNumOfApplications = newMax;
-    availableDeploySlots = newMax - deployedApps;
-    emit MaxNumberOfAppUpdated(oldMax, newMax);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function updateMaxNumOfApplications(uint256 newMax) external {
+    newMax;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function updateFeeCollector(address payable newFeeCollector) external onlyRole(ADMIN) {
-    if (newFeeCollector == address(0)) revert AddressCantBeZero();
-    feeCollector = newFeeCollector;
-    emit FeeCollectorUpdated(newFeeCollector);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function updateFeeCollector(address payable newFeeCollector) external {
+    newFeeCollector;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function addAllowedDeployer(address deployer) external onlyRole(ADMIN) {
-    if (deployer == address(0)) revert AddressCantBeZero();
-    _grantRole(DEPLOYER_ROLE, deployer);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function addAllowedDeployer(address deployer) external {
+    deployer;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function removeAllowedDeployer(address deployer) external onlyRole(ADMIN) {
-    if (deployer == address(0)) revert AddressCantBeZero();
-    _revokeRole(DEPLOYER_ROLE, deployer);
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function removeAllowedDeployer(address deployer) external {
+    deployer;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -745,11 +687,8 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     return _queueIsHead(_triggerQueue, requestId) || _queueIsHead(_requestQueue, requestId);
   }
 
-  // Pull payment pattern functions
-  function _asyncTransfer(address tokenAddress, address dest, uint256 amount) internal {
-    pendingClaims[tokenAddress][dest] += amount;
-    totalPendingClaims[tokenAddress] += amount;
-  }
+  // Pull payment pattern functions. `_asyncTransfer` is declared in `ProcessorEndpointStorage`,
+  // because the reset entry points in `ProcessorEndpointExtension` credit refunds through it too.
 
   function _getAvailableEthBalance() internal view returns (uint256) {
     return address(this).balance - totalPendingClaims[ETH_TOKEN] - totalAppCustody[ETH_TOKEN];
@@ -804,152 +743,18 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     return _deployedAppIds;
   }
 
-  function _removeDeployedAppId(uint64 appId) internal {
-    uint256 len = _deployedAppIds.length;
-    uint256 i;
-    while (i != len) {
-      if (_deployedAppIds[i] == appId) {
-        _deployedAppIds[i] = _deployedAppIds[len - 1];
-        _deployedAppIds.pop();
-        break;
-      }
-      unchecked {
-        ++i;
-      }
-    }
+  /// @inheritdoc IProcessorEndpoint
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`, together with the queue
+  ///      draining and deployed-app bookkeeping it needs.
+  function adminReset() external {
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function adminReset() external onlyRole(RESET_OPERATOR) nonReentrant {
-    _resetQueue();
-  }
-
-  function _resetQueue() internal {
-    uint256 i = _requestQueue.head;
-    uint256 tail = _requestQueue.tail;
-    uint256 freedDeploySlots;
-
-    // Iterate every pending request from head to tail, refunding any asset deposits to their
-    // senders and counting any DEPLOYAPP entries so their reserved deploy slots can be returned.
-    while (i != tail) {
-      Structs.PendingRequest storage req = _requestQueue.requestById[_requestQueue.idByOrder[i]];
-      if (req.requestType == Structs.RequestType.DEPLOYAPP) {
-        unchecked {
-          ++freedDeploySlots;
-        }
-        // A pending deploy may have registered a trigger eagerly at submit time. Since the
-        // deploy is being discarded (and its derived appId never appears in _deployedAppIds),
-        // clear the registration here so the trigger address can be reused.
-        _clearTrigger(req.applicationId);
-      }
-      if (req.assetAmount > 0) {
-        _subtractToCustody(req.applicationId, req.tokenAddress, req.assetAmount);
-        _asyncTransfer(req.tokenAddress, req.sender, req.assetAmount);
-      }
-      delete _requestQueue.requestById[_requestQueue.idByOrder[i]];
-      delete _requestQueue.idByOrder[i];
-      unchecked {
-        ++i;
-      }
-    }
-
-    // Collapse the queue by setting tail back to head. _queue.head is intentionally left at its
-    // current value so that future queue indices continue from where they left off rather
-    // than restarting from zero (avoids any risk of re-using a slot index still in storage).
-    _requestQueue.tail = _requestQueue.head;
-
-    // Drain the trigger queue too: pending TRUSTPROCESS requests reference apps that may be
-    // reset, and must not survive a reset. They carry no funds (assetAmount/maxFeeValue == 0),
-    // so clearing their storage is sufficient — no refunds needed.
-    uint256 ti = _triggerQueue.head;
-    uint256 triggerTail = _triggerQueue.tail;
-    while (ti != triggerTail) {
-      delete _triggerQueue.requestById[_triggerQueue.idByOrder[ti]];
-      delete _triggerQueue.idByOrder[ti];
-      unchecked {
-        ++ti;
-      }
-    }
-    _triggerQueue.tail = _triggerQueue.head;
-
-    // Return the slots that were reserved for the now-discarded pending DEPLOYAPP requests.
-    // Already-finalised apps keep their slot consumed; only in-flight deploys are freed.
-    unchecked {
-      availableDeploySlots += freedDeploySlots;
-    }
-  }
-
-  /// @dev Removes any trigger registration for the given application (both the forward and
-  ///      reverse mappings). No-op when no trigger is registered.
-  function _clearTrigger(uint64 applicationId) private {
-    ITrigger trigger = triggerContracts[applicationId];
-    if (address(trigger) != address(0)) {
-      delete triggersToAppIds[address(trigger)];
-      delete triggerContracts[applicationId];
-    }
-  }
-
-  /// @inheritdoc IProcessorEndpoint
-  function adminResetApps(uint64[] calldata appIds) external onlyRole(RESET_OPERATOR) nonReentrant {
-    // Clear the pending request queue, refunding each request's asset deposit to its sender.
-    _resetQueue();
-
-    // Resolve the effective app list: use the caller-supplied list when non-empty, otherwise
-    // fall back to every app that has ever been successfully deployed.
-    uint64[] memory effectiveAppIds = appIds;
-    if (appIds.length == 0) {
-      effectiveAppIds = _deployedAppIds;
-    }
-
-    address[] memory effectiveTokens = tokenAllowlist.getAllowedTokens();
-
-    uint256 appCount = effectiveAppIds.length;
-    uint256 tokenCount = effectiveTokens.length;
-
-    // --- Effects: zero out all custody and state roots before any external call ---
-    address payable recipient = payable(msg.sender);
-    uint256 i;
-    while (i != appCount) {
-      uint64 appId = effectiveAppIds[i];
-
-      // Transfer ETH custody for this app and clear both the per-app and global trackers.
-      uint256 ethAmt = appCustody[appId][ETH_TOKEN];
-      if (ethAmt > 0) {
-        (bool ok, ) = recipient.call{value: ethAmt}('');
-        if (!ok) revert TransferFailed();
-        _subtractToCustody(appId, ETH_TOKEN, ethAmt);
-      }
-
-      // Transfer ERC-20 custody for this app across every token in the effective list.
-      uint256 j;
-      while (j != tokenCount) {
-        uint256 amt = appCustody[appId][effectiveTokens[j]];
-        if (amt > 0) {
-          IERC20(effectiveTokens[j]).safeTransfer(recipient, amt);
-          _subtractToCustody(appId, effectiveTokens[j], amt);
-        }
-        unchecked {
-          ++j;
-        }
-      }
-
-      // Clear the app's state root, remove it from the deployed list, and return its deploy
-      // slot to the pool so the same slot capacity can be reused after the reset.
-      if (applicationStateRoots[appId] != bytes32(0)) {
-        applicationStateRoots[appId] = bytes32(0);
-        _removeDeployedAppId(appId);
-        unchecked {
-          ++availableDeploySlots;
-        }
-      }
-
-      // Clear any trigger registered for this app so its address can be reused after reset.
-      _clearTrigger(appId);
-
-      unchecked {
-        ++i;
-      }
-    }
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function adminResetApps(uint64[] calldata appIds) external {
+    appIds;
+    _delegateToExtension();
   }
 
   // Calls execute then withdraw on the trigger contract registered for the given applicationId,
@@ -1127,10 +932,5 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
         ++j;
       }
     }
-  }
-
-  function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {
-    appCustody[applicationId][token] -= amount;
-    totalAppCustody[token] -= amount;
   }
 }

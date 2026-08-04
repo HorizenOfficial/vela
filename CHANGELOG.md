@@ -11,7 +11,7 @@
 
 ### Changes
 
-- **`ProcessorEndpoint` split for the EIP-170 size limit**: state moved to `ProcessorEndpointStorage`, and `submitRequestFor` now lives in `ProcessorEndpointExtension`, reached by `delegatecall`. Callers are unaffected — same address, ABI and selectors. See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md`.
+- **`ProcessorEndpoint` split for the EIP-170 size limit**: state moved to `ProcessorEndpointStorage`, and `submitRequestFor`, `submitDeployRequest`, `submitDeployRequestWithTrigger`, `adminReset`, `adminResetApps`, `updateQueueThreshold`, `updateMaxNumOfApplications`, `updateFeeCollector`, `addAllowedDeployer` and `removeAllowedDeployer` now live in `ProcessorEndpointExtension`, reached by `delegatecall`. Callers are unaffected — same address, ABI and selectors — but each of those entry points costs one extra cold-account access (~2,600 gas). Everything moved is off the per-request hot path. See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md`.
 - **New view `ProcessorEndpoint.extension()`** returns the extension the endpoint delegates to, so the pairing is readable on-chain rather than only from the deployment record.
 
 ## 0.2.0

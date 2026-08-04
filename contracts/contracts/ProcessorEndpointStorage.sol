@@ -199,6 +199,31 @@ abstract contract ProcessorEndpointStorage is
     totalAppCustody[token] += amount;
   }
 
+  function _subtractToCustody(uint64 applicationId, address token, uint256 amount) internal {
+    appCustody[applicationId][token] -= amount;
+    totalAppCustody[token] -= amount;
+  }
+
+  /// @dev Credits `dest` in the pull-payment ledger. Declared here rather than on the endpoint
+  ///      because both sides need it: `stateUpdate` for refunds and withdrawals, and the reset
+  ///      entry points in `ProcessorEndpointExtension` for the deposits they return.
+  function _asyncTransfer(address tokenAddress, address dest, uint256 amount) internal {
+    pendingClaims[tokenAddress][dest] += amount;
+    totalPendingClaims[tokenAddress] += amount;
+  }
+
+  /// @dev Removes any trigger registration for the given application (both the forward and
+  ///      reverse mappings). No-op when no trigger is registered. Shared: `stateUpdate` rolls a
+  ///      failed deploy's eager registration back, and the reset entry points in
+  ///      `ProcessorEndpointExtension` clear registrations for the apps they discard.
+  function _clearTrigger(uint64 applicationId) internal {
+    ITrigger trigger = triggerContracts[applicationId];
+    if (address(trigger) != address(0)) {
+      delete triggersToAppIds[address(trigger)];
+      delete triggerContracts[applicationId];
+    }
+  }
+
   function _enqueueRequest(
     address sender,
     address facilitator,

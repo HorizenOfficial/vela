@@ -38,7 +38,7 @@ Cheap options were measured and rejected before restructuring anything.
 | Inheritance split for dev-only code (lean production contract + `ProcessorEndpointResettable` for tests) | The subclass is still over the limit, so it only deploys where the limit is disabled. A real testnet would run the lean variant and lose `adminReset`, which is exactly where `PROCESSOR_ENDPOINT_ADMIN_RESET.md` says the feature is meant to be used |
 | Facilitator path into a separately-**called** contract | ≈ −2,200, because every argument is ABI-encoded at the external-call boundary — and it changes the address relayers call. Dominated by the mechanism below |
 
-Module costs, each measured by deleting the module:
+Module costs, each measured by deleting the module from the 23,246-byte pre-split `paris` build:
 
 | Module | Bytes |
 |---|---|
@@ -46,6 +46,10 @@ Module costs, each measured by deleting the module:
 | `submitRequestFor` + `getFacilitatorNonce` (EIP-712 + permit relaying) | 2,537 |
 | `_invokeTrigger` + `_enqueueTrustedRequest` | 2,110 |
 | `adminReset` + `adminResetApps` + helpers | 1,570 |
+
+These are the numbers that drove the original selection. They do not carry to the current `cancun`
+baseline — at `runs: 0` the optimizer is not linear in this way — so section 3 re-measures every
+module before moving it, and the queue-view figure in particular does not survive (section 3.1).
 
 ### 2.1. `evmVersion: cancun` is taken
 
@@ -94,25 +98,58 @@ separate-callee options unattractive. Helpers the extension needs get duplicated
 bytecode, which costs nothing: only the endpoint is near the limit, and the extension has ~17KB
 spare.
 
-Everything currently hosted in the extension is the facilitator path (`submitRequestFor`). Further
-modules can move the same way when more room is needed.
+The extension hosts every entry point that is off the per-request hot path:
+
+| Module | Endpoint bytes saved |
+|---|---|
+| `submitRequestFor` (facilitator path, EIP-712 + permit relaying) | 2,537 |
+| `adminReset` + `adminResetApps` (+ `_resetQueue`, `_removeDeployedAppId`) | 1,695 |
+| `submitDeployRequest` + `…WithTrigger` (+ `_submitDeployRequest`) | 1,028 |
+| `updateQueueThreshold`, `updateMaxNumOfApplications`, `updateFeeCollector`, `add`/`removeAllowedDeployer` | 781 |
+
+Each figure is net of its forwarding stub, measured by compiling the move on the baseline that
+preceded it. The selection rule is gas, not size: forwarding costs one extra cold-account access
+(~2,600 gas), which is noise on a rare or privileged call and unacceptable on `submitRequest` or
+`stateUpdate`. `_asyncTransfer`, `_subtractToCustody` and `_clearTrigger` moved down into
+`ProcessorEndpointStorage` because both sides need them.
+
+Deliberately **not** moved: `claim` measures −5 bytes, because `_claim` and `_asyncTransfer` have to
+stay for `stateUpdate` and `_invokeTrigger`, so only the external wrapper would relocate.
+`_invokeTrigger` + `_enqueueTrustedRequest` (2,110) is internal and reachable only from
+`stateUpdate`, so no stub can reach it.
 
 ### 3.1. Per-function stub, not a `fallback()`
 
-The endpoint keeps a typed `submitRequestFor` declaration whose body is `_delegateToExtension()`.
-A generic `fallback()` router would have been ~150 bytes cheaper per moved function but would have
-required a **merged ABI** (endpoint + extension) for `abigen`, typechain and the hardhat fixture,
-since the moved function would no longer appear in the endpoint's own ABI.
+Each moved function keeps a typed declaration on the endpoint whose body is
+`_delegateToExtension()`. A generic `fallback()` router would be cheaper per moved function but
+would require a **merged ABI** (endpoint + extension) for `abigen`, typechain and the hardhat
+fixture, since the moved functions would no longer appear in the endpoint's own ABI.
 
 With the stub instead:
 
-- the ABI, the function selector, the address relayers call, and the `IProcessorEndpoint`
+- the ABI, the function selectors, the address relayers call, and the `IProcessorEndpoint`
   conformance check are all unchanged;
 - no tooling, test, binding or subgraph had to learn about the split.
 
-The trade-off reverses once several functions move: at ~150 bytes of stub each, a generic
-`fallback()` plus a merged ABI becomes the better deal. That is the expected next step if the queue
-views (−2,833) have to move.
+Measured on the 10-function split, a stub plus its dispatcher entry costs **~47 bytes** (419 bytes
+across the 9 functions added after `submitRequestFor`), not the ~150 originally estimated — so the
+stub route stays the better deal considerably longer than expected.
+
+**Read-only functions cannot use it at all.** A `view` function may not `delegatecall`:
+
+```
+TypeError: Function cannot be declared as view because this expression (potentially) modifies the state.
+```
+
+`staticcall` is not a substitute — it would run the extension's code against the *extension's* own
+empty storage. Dropping `view` from the endpoint's declaration would be an ABI change that breaks
+`abigen` call bindings and any on-chain `staticcall` consumer. So the queue views and the other
+getters can only move behind a generic `fallback()` with a merged ABI, which is the next lever:
+measured on the current baseline that is **−1,837** for the five queue views and **−2,353** for the
+whole read-only surface. Note this supersedes the earlier −2,833 estimate for the queue views, which
+was a deletion measurement on the pre-split `paris` baseline; it does not reproduce under
+`cancun`. Once that fallback exists, routing the already-moved write entry points through it too
+saves a further 419 bytes over their typed stubs.
 
 ### 3.2. The forwarder must be memory-safe assembly
 
@@ -216,21 +253,29 @@ events are referenced from the base and the extension as `IProcessorEndpoint.<na
 |---|---|---|
 | `ProcessorEndpoint` before (`paris`) | 23,246 | −1,330 |
 | `ProcessorEndpoint` after the split (`paris`) | 21,074 | −3,502 |
-| `ProcessorEndpoint` after the split, `cancun` + `extension()` | **20,433** | **−4,143** |
-| `ProcessorEndpointExtension` | 6,452 | −18,124 |
+| `ProcessorEndpoint`, facilitator path only, `cancun` + `extension()` | 20,433 | −4,143 |
+| `ProcessorEndpoint` with deploy submission, resets and admin setters also moved | **17,295** | **−7,281** |
+| `ProcessorEndpointExtension` | 11,131 | −13,445 |
 
-The split itself sheds 2,172 bytes: the 2,537-byte facilitator module, less the forwarding stub and
+The first split sheds 2,172 bytes: the 2,537-byte facilitator module, less the forwarding stub and
 the two thin public wrappers (`getPendingRequestsSize`, `generateRequestId`) that now delegate to
 internal implementations in the base. `evmVersion: cancun` (section 2.1) takes another ~720, and the
-`extension()` getter adds 79 back.
+`extension()` getter adds 79 back. Moving the remaining nine non-hot-path entry points (section 3)
+takes a further 3,138.
 
-**This may still not be enough for batch execution.** Section 1 measured the batch work at 26,353
-bytes on the old 23,246-byte `paris` baseline — +3,107 — and `batchStateUpdate()` was not written
-yet. Carried onto the 20,433-byte baseline that lands around 23,540, roughly 1,000 bytes under the
-limit, and the estimate excludes `batchStateUpdate()`. So the next lever (section 3.1: the queue
-views, −2,833, behind a generic `fallback()` and a merged ABI) should be treated as likely needed
-during the batch work, not after it — the batch numbers are re-measured against the current
+**This should now cover batch execution.** Section 1 measured the batch work at 26,353 bytes on the
+old 23,246-byte `paris` baseline — +3,107 — and `batchStateUpdate()` was not written yet. Carried
+onto the 17,295-byte baseline that lands around 20,400, roughly 4,100 bytes under the limit, with
+`batchStateUpdate()` still to account for. The batch numbers are re-measured against the current
 baseline, not extrapolated, before deciding.
+
+If more room is needed after that, in increasing order of cost:
+
+1. the read-only surface behind a generic `fallback()` and a merged ABI (−2,353, section 3.1);
+2. `stateUpdate` itself, which measures **−7,967** — by far the largest single module, but it is the
+   manager's per-request hot path, so moving it puts ~2,600 gas on every state update. The cheaper
+   version of the same idea is to implement `batchStateUpdate()` **in the extension from the start**,
+   which buys the headroom for the new code without relocating the existing hot path.
 
 Note that the `go:generate` solc invocation passes `--optimize` (default `runs: 200`) and no
 `--evm-version`, so it uses solc 0.8.30's own default EVM version and produces different sizes from
