@@ -4,8 +4,11 @@ On-chain coordination for Vela. The main contract is `ProcessorEndpoint`, which 
 
 `ProcessorEndpoint` sits close to the 24,576-byte EIP-170 limit, so it is split across three files: `ProcessorEndpointStorage.sol` declares all of its state, `ProcessorEndpointExtension.sol` hosts entry points moved out for size (currently `submitRequestFor`), and `ProcessorEndpoint.sol` reaches them by `delegatecall`. This is invisible to callers — same address, same ABI, same selectors — but it constrains development and deployment:
 
-- Declare new state **only** in `ProcessorEndpointStorage.sol`, and run `npm run check:layout` afterwards. The two contracts must share one storage layout; a divergence corrupts storage silently instead of reverting.
-- Deploy `ProcessorEndpointExtension` **before** `ProcessorEndpoint` — its address is the endpoint's last constructor argument, and it is immutable, so a wrong address means redeploying the endpoint.
+- Declare new state **only** in `ProcessorEndpointStorage.sol`, and run `npm run check:layout` afterwards. The two contracts must share one storage layout; a divergence corrupts storage silently instead of reverting. The same command also checks that every error the extension can raise is declared on the endpoint — otherwise it reaches clients as revert data the endpoint's ABI cannot decode.
+- Deploy `ProcessorEndpointExtension` **before** `ProcessorEndpoint` — its address is the endpoint's last constructor argument, and it is immutable, so a wrong address means redeploying the endpoint. `ProcessorEndpoint.extension()` reports the pairing of a deployed endpoint.
+- Anything moved to the extension needs a typed stub on the endpoint and the `onlyDelegateCall` modifier.
+
+Because that contract lives against the size limit, the compiler targets `evmVersion: 'cancun'` (worth ~720 bytes on it), so **every chain these contracts are deployed to must be at Cancun or later**. Base, the deployment target, has been since March 2024.
 
 See `../docs/design/PROCESSOR_ENDPOINT_SPLIT.md`.
 

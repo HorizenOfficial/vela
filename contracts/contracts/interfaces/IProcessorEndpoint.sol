@@ -284,6 +284,15 @@ interface IProcessorEndpoint is IProcessorEndpointState {
     address trigger
   ) external payable returns (bytes32);
 
+  /// @notice Returns the `ProcessorEndpointExtension` this endpoint delegates its moved entry
+  ///         points to.
+  /// @dev Fixed at deployment and not repointable. Exposed so that the pairing between a deployed
+  ///      endpoint and its extension is readable on-chain, which is what verification and incident
+  ///      response need; otherwise it is only recoverable from the deployment record or by
+  ///      disassembling the endpoint's code.
+  /// @return extensionAddress Address of the extension contract.
+  function extension() external view returns (address extensionAddress);
+
   /// @notice Returns the number of pending requests in the queue.
   /// @return size Current pending request count.
   function getPendingRequestsSize() external view returns (uint256);

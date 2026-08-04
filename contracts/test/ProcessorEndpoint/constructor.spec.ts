@@ -174,6 +174,14 @@ describe('ProcessorEndpoint Test', function () {
         );
       });
 
+      // The pairing between an endpoint and the extension it delegates to must be readable
+      // on-chain: it is fixed at deployment and cannot be repointed, so this getter is what
+      // verification has to go on.
+      it('exposes the extension it delegates to', async () => {
+        const { processorEndpoint, extension } = await deployProcessorEndpoint();
+        expect(await processorEndpoint.extension()).to.equal(await extension.getAddress());
+      });
+
       it('does not grant RESET_OPERATOR when address(0) is passed', async () => {
         const { processorEndpoint } = await deployProcessorEndpoint(ADDRESS_ZERO);
         const resetRole = await processorEndpoint.RESET_OPERATOR();

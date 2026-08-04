@@ -3,9 +3,10 @@
 ## 1. Problem
 
 `ProcessorEndpoint` is the largest contract in the system, and it is close to the **24,576-byte
-EIP-170 limit** on deployed bytecode. Measured with the project's compiler settings (solc 0.8.30,
-`viaIR: true`, `optimizer.runs: 0`, `evmVersion: paris`) it is **23,246 bytes** — 1,330 bytes of
-headroom.
+EIP-170 limit** on deployed bytecode. Measured with the project's compiler settings as they were
+(solc 0.8.30, `viaIR: true`, `optimizer.runs: 0`, `evmVersion: paris`) it is **23,246 bytes** —
+1,330 bytes of headroom. `evmVersion` is now `cancun`, for the reasons in section 2; every baseline
+in sections 1–3 predates that switch, and section 4 reports the result under both settings.
 
 The deployment target is **Base**, which is EVM-equivalent, so the limit applies exactly. Two
 things made the situation worse than it looked:
@@ -29,9 +30,9 @@ Cheap options were measured and rejected before restructuring anything.
 | `optimizer.runs` | `0` is already the smallest of 0/1/50/200/1000/10000 |
 | `viaIR: false` | Fails to compile: *stack too deep* |
 | `metadata.bytecodeHash: 'none'` | −41 bytes |
-| `evmVersion: cancun`/`prague` (PUSH0) | −945 bytes, but **not taken**: `paris` is kept for chain portability |
-| `evmVersion: shanghai` | −910 bytes, same decision |
-| `ReentrancyGuardTransient` (OZ 5.3, needs cancun) | *Larger* by 91 bytes |
+| `evmVersion: cancun`/`prague` (PUSH0) | −945 bytes, and **taken** — see below |
+| `evmVersion: shanghai` | −910 bytes, superseded by `cancun` |
+| `ReentrancyGuardTransient` (OZ 5.3, needs cancun) | *Larger* by 91 bytes, so still not used even though `cancun` now makes it available |
 | Revert strings → custom errors | Already done; the contract has no revert strings left |
 | External linked library | −143 bytes overall. Public library functions must ABI-encode every argument at the call site, and this state is spread over many separate public mappings, so the boundary needs 8–9 arguments including dynamic arrays. A library only pays off with a single storage-pointer boundary, which would mean bundling all state into one struct plus ~16 hand-written getters to preserve the ABI |
 | Inheritance split for dev-only code (lean production contract + `ProcessorEndpointResettable` for tests) | The subclass is still over the limit, so it only deploys where the limit is disabled. A real testnet would run the lean variant and lose `adminReset`, which is exactly where `PROCESSOR_ENDPOINT_ADMIN_RESET.md` says the feature is meant to be used |
@@ -45,6 +46,20 @@ Module costs, each measured by deleting the module:
 | `submitRequestFor` + `getFacilitatorNonce` (EIP-712 + permit relaying) | 2,537 |
 | `_invokeTrigger` + `_enqueueTrustedRequest` | 2,110 |
 | `adminReset` + `adminResetApps` + helpers | 1,570 |
+
+### 2.1. `evmVersion: cancun` is taken
+
+`paris` was initially kept "for chain portability", which does not survive contact with the actual
+requirement: the deployment target named in section 1 is **Base**, which has been on Cancun since
+March 2024, and no chain this system is planned for predates it. The cost of the caution was ~720
+bytes on the post-split contract — more than the headroom left over after batch execution, for a
+one-line config change with no ABI or tooling consequences. `hardhat.config.ts` now sets
+`evmVersion: 'cancun'`, and the constraint that comes with it is recorded there and in
+`CHANGELOG.md`: **any chain this is deployed to must be at Cancun or later.**
+
+The `go:generate` solc path is unaffected: it passes no `--evm-version`, so it uses solc 0.8.30's
+own default, which is already newer than `cancun`. That path only produces bindings for tests and
+deployment, never the deployed artifact.
 
 ## 3. Mechanism: a delegatecall extension
 
@@ -144,9 +159,15 @@ events are referenced from the base and the extension as `IProcessorEndpoint.<na
   `public facilitatorNonces` mapping. `FACILITATOR.md` already told clients to read the mapping
   directly. Callers use `facilitatorNonces(user)`. This is the only ABI removal, and it is recorded
   in `CHANGELOG.md`.
-- **The extension refuses direct calls** (`DirectCallNotAllowed`, via an `immutable _self` compared
-  against `address(this)`). Called directly it would read and write its own empty storage and could
-  strand the ETH sent as a fee.
+- **The extension refuses direct calls to the entry points it hosts** (`DirectCallNotAllowed`, via
+  an `immutable _self` compared against `address(this)`). Called directly, `submitRequestFor` would
+  read and write the extension's own empty storage and could strand the ETH sent as a fee. What the
+  modifier does *not* cover is everything the extension inherits from `ProcessorEndpointStorage`:
+  the `AccessControl` mutators and every public state getter remain callable on the extension
+  itself. That is harmless — the getters return zeros, and `grantRole` reverts because no account
+  holds `DEFAULT_ADMIN_ROLE` in the extension's own storage, which nothing initialises — but it does
+  mean an explorer shows a second, zeroed contract with a `ProcessorEndpoint`-shaped surface.
+  Anything moved to the extension in future must carry `onlyDelegateCall`.
 - **The endpoint rejects an extension without code** (`InvalidExtension`), on top of the
   zero-address check. A `delegatecall` to a codeless address *succeeds* and returns nothing, so a
   wrong address would make `submitRequestFor` a silent no-op that keeps the fee — no event, no
@@ -158,7 +179,9 @@ events are referenced from the base and the extension as `IProcessorEndpoint.<na
   `ECDSA.recover` would raise `ECDSAInvalidSignature`/`-Length`/`-S`, which are absent from the
   endpoint's ABI now that the endpoint itself no longer calls ECDSA. Anything moved to the
   extension in future needs the same check: every error it can raise must be declared on the
-  endpoint too.
+  endpoint too — which is why `npm run check:layout` asserts it rather than leaving it to review
+  (section 5.3). The changed revert error on a malformed signature is an ABI change, and is recorded
+  in `CHANGELOG.md`.
 - **The stub keeps its parameter names.** Parameter names are part of the published ABI — wallets,
   explorers and generated bindings display them, and `abigen` degrades to `arg0…arg9` without
   them. The names are silenced with no-op statements rather than commented out; verified to produce
@@ -168,7 +191,15 @@ events are referenced from the base and the extension as `IProcessorEndpoint.<na
   rather than storage and cannot be repointed. Wired in `test/ProcessorEndpoint/fixture.ts`,
   `scripts/deploy/all.ts`, `scripts/deploy/processorEndpoint.ts` and
   `pkg/blockchain/testutil/sim_test_helper.go`. The extension has its own `go:generate` chain and
-  bindings package, needed only for deployment.
+  bindings package, needed only for deployment. Inserting a deployment also shifts the deterministic
+  CREATE addresses of everything after it in `all.ts`, which is why the local-dev addresses in
+  `dockerfiles/README.md` moved.
+- **The pairing is readable on-chain**, via `extension()`. Without it, which extension a deployed
+  endpoint delegates to would only be recoverable from the deployment record or by disassembling the
+  endpoint's code — a poor position for verification or incident response, given the address cannot
+  be repointed. It costs **+79 bytes** under the current `cancun` settings. (Under `paris` the same
+  getter measured *−318* bytes — an optimizer artifact at `runs: 0`, and a reminder that at this
+  optimizer setting a size claim only holds for the exact settings that produced it.)
 - **Runtime cost**: one extra cold-account access (~2,600 gas) per forwarded call, on the
   relayer-paid facilitator path. OpenZeppelin's `EIP712` recomputes the domain separator whenever
   `address(this)` differs from the deploying address, so `verifyingContract` remains the endpoint
@@ -183,28 +214,33 @@ events are referenced from the base and the extension as `IProcessorEndpoint.<na
 
 | Contract | Deployed bytes | vs limit |
 |---|---|---|
-| `ProcessorEndpoint` before | 23,246 | −1,330 |
-| `ProcessorEndpoint` after | **21,074** | **−3,502** |
-| `ProcessorEndpointExtension` | 6,655 | −17,921 |
+| `ProcessorEndpoint` before (`paris`) | 23,246 | −1,330 |
+| `ProcessorEndpoint` after the split (`paris`) | 21,074 | −3,502 |
+| `ProcessorEndpoint` after the split, `cancun` + `extension()` | **20,433** | **−4,143** |
+| `ProcessorEndpointExtension` | 6,452 | −18,124 |
 
-The endpoint sheds 2,172 bytes: the 2,537-byte facilitator module, less the forwarding stub and the
-two thin public wrappers (`getPendingRequestsSize`, `generateRequestId`) that now delegate to
-internal implementations in the base.
+The split itself sheds 2,172 bytes: the 2,537-byte facilitator module, less the forwarding stub and
+the two thin public wrappers (`getPendingRequestsSize`, `generateRequestId`) that now delegate to
+internal implementations in the base. `evmVersion: cancun` (section 2.1) takes another ~720, and the
+`extension()` getter adds 79 back.
 
-**This is probably not enough for batch execution.** Section 1 measured the batch work at 26,353
-bytes on the old 23,246-byte baseline — +3,107 — and `batchStateUpdate()` was not written yet. On
-the new baseline that lands at 24,155, only 421 bytes under the limit. Expect to need the next
-lever (section 3.1: the queue views, −2,833, behind a generic `fallback()` and a merged ABI) as
-part of the batch work rather than after it.
+**This may still not be enough for batch execution.** Section 1 measured the batch work at 26,353
+bytes on the old 23,246-byte `paris` baseline — +3,107 — and `batchStateUpdate()` was not written
+yet. Carried onto the 20,433-byte baseline that lands around 23,540, roughly 1,000 bytes under the
+limit, and the estimate excludes `batchStateUpdate()`. So the next lever (section 3.1: the queue
+views, −2,833, behind a generic `fallback()` and a merged ABI) should be treated as likely needed
+during the batch work, not after it — the batch numbers are re-measured against the current
+baseline, not extrapolated, before deciding.
 
 Note that the `go:generate` solc invocation passes `--optimize` (default `runs: 200`) and no
-`--evm-version`, so it produces post-Shanghai bytecode with different sizes from hardhat's
-`paris`/`runs: 0` build. **Any size claim must say which path produced it**; the numbers in this
-document are the hardhat path.
+`--evm-version`, so it uses solc 0.8.30's own default EVM version and produces different sizes from
+hardhat's `cancun`/`runs: 0` build. **Any size claim must say which path and which settings produced
+it**; the numbers in this document are the hardhat path, and — as the `extension()` getter shows —
+at `runs: 0` a delta measured under one `evmVersion` does not carry to another.
 
 ## 5. Guardrails
 
-Both are verified to fail when they should, not just to pass.
+All three are verified to fail when they should, not just to pass.
 
 ### 5.1. EIP-170 is enforced by the contract suite
 
@@ -246,21 +282,36 @@ the failure mode is a variable declared or reordered in a derived contract. It w
 change *inside* a struct's fields, which requires a derived contract to redeclare a struct of the
 same name.
 
+### 5.3. Every extension error must be declared on the endpoint
+
+The same script asserts that each error in the extension's ABI also appears in the endpoint's. The
+failure mode is quieter than a revert: the extension's code reverts from the endpoint's address, and
+the endpoint's ABI is all a client has to decode it with, so an undeclared error arrives as opaque
+bytes. Section 3.4 already required this of `ECDSA.tryRecover`; leaving the rule as prose would have
+put the burden on whoever moves the next module.
+
+`DirectCallNotAllowed` is the one allowed exception, listed in
+`ERRORS_NOT_REACHABLE_THROUGH_ENDPOINT` in the script: it can only fire when the extension is called
+directly, which never happens through the endpoint. Verified by adding an error to the extension and
+reverting with it: the check names the error and exits non-zero.
+
 ## 6. Reviewing this change
 
 The refactor is behaviour-preserving, and the test suite is the evidence:
 
-- **291 tests before, 296 after.** The five additions are the two constructor cases (`extension is
-  zero address`, `extension has no code`), `DirectCallNotAllowed`, and the two malformed-signature
-  cases that must surface as `InvalidSignature`.
+- **291 tests before, 297 after.** The six additions are the two constructor cases (`extension is
+  zero address`, `extension has no code`), `DirectCallNotAllowed`, the two malformed-signature cases
+  that must surface as `InvalidSignature`, and `extension()` returning the deployed extension.
 - **No existing test's assertions changed.** Only five test files are touched, and every change is
   either the added constructor argument, the fixture deploying the extension, or one of the new
   tests.
 - `npm run check:layout` passes, the full Go suite passes, and `go generate ./...` is idempotent.
 
-One behavioural difference is deliberate and worth naming, because it is not covered by any test:
-the endpoint now reverts `InvalidSignature` where it previously reverted `ECDSAInvalidSignature*`
-on a malformed facilitator signature (see section 3.4). Nothing else changes. In particular
+One behavioural difference is deliberate and worth naming, and it is covered by the two
+malformed-signature tests above as well as by the guardrail in section 5.3: the endpoint reverts
+`InvalidSignature` where it previously reverted `ECDSAInvalidSignature*` on a malformed facilitator
+signature (see section 3.4). This is an ABI change and is in `CHANGELOG.md`. Nothing else changes. In
+particular
 `_queueSize` keeps its `tail > head` guard: the guard is unreachable — `_queueEnqueue` only
 advances `tail`, `_queueDequeueHead` is reached only after `isCurrentPendingRequest` has confirmed
 the id is a queue head, and `adminReset` sets `tail = head` — but dropping it would have made two

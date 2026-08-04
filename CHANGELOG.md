@@ -6,10 +6,13 @@
 
 - **`ProcessorEndpoint.getFacilitatorNonce(address)` removed.** It duplicated the auto-generated getter of the `public facilitatorNonces` mapping; clients must read `facilitatorNonces(user)` instead. See `docs/design/FACILITATOR.md`.
 - **`ProcessorEndpoint` constructor takes a new last argument**, the address of a deployed `ProcessorEndpointExtension`. Deploy the extension first.
+- **A malformed facilitator signature now reverts `InvalidSignature`.** `submitRequestFor` recovers with `ECDSA.tryRecover`, so `ECDSAInvalidSignature`, `ECDSAInvalidSignatureLength` and `ECDSAInvalidSignatureS` are gone from the `ProcessorEndpoint` ABI. Clients that decode those three errors must handle `InvalidSignature` instead. Valid signatures behave exactly as before.
+- **The contracts now target the `cancun` EVM version** (previously `paris`), for the ~720 bytes it saves on `ProcessorEndpoint`. Any chain they are deployed to must be at Cancun or later; Base, the deployment target, has been since March 2024.
 
 ### Changes
 
 - **`ProcessorEndpoint` split for the EIP-170 size limit**: state moved to `ProcessorEndpointStorage`, and `submitRequestFor` now lives in `ProcessorEndpointExtension`, reached by `delegatecall`. Callers are unaffected — same address, ABI and selectors. See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md`.
+- **New view `ProcessorEndpoint.extension()`** returns the extension the endpoint delegates to, so the pairing is readable on-chain rather than only from the deployment record.
 
 ## 0.2.0
 

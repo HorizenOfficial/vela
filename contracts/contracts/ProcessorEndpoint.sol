@@ -190,11 +190,11 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   ///      `memory-safe` accordingly: unannotated assembly would switch off solc's `memoryguard`
   ///      for the whole contract, and `stateUpdate` then fails to compile with "stack too deep".
   function _delegateToExtension() private {
-    address extension = _extension;
+    address target = _extension;
     assembly ('memory-safe') {
       let ptr := mload(0x40)
       calldatacopy(ptr, 0, calldatasize())
-      let ok := delegatecall(gas(), extension, ptr, calldatasize(), 0, 0)
+      let ok := delegatecall(gas(), target, ptr, calldatasize(), 0, 0)
       let size := returndatasize()
       returndatacopy(ptr, 0, size)
       switch ok
@@ -205,6 +205,11 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
         return(ptr, size)
       }
     }
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function extension() external view returns (address) {
+    return _extension;
   }
 
   /// @inheritdoc IProcessorEndpoint

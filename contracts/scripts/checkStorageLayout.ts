@@ -1,10 +1,15 @@
 import hre from 'hardhat';
 
-// ProcessorEndpoint reaches ProcessorEndpointExtension with delegatecall, so the extension's code
-// runs against the endpoint's storage. If their layouts ever diverge, the extension silently reads
-// and writes the wrong slots — no revert, corrupted state. Both derive from
-// ProcessorEndpointStorage, which is what keeps them in sync; this script is the check that the
-// invariant actually holds after every change.
+// Guards the two invariants that make the ProcessorEndpoint / ProcessorEndpointExtension
+// delegatecall split safe. Both fail silently or confusingly rather than loudly, which is why they
+// are checked here and in CI rather than left to review.
+//
+//  1. Storage layout. The extension's code runs against the endpoint's storage, so if their
+//     layouts diverge the extension reads and writes the wrong slots — no revert, corrupted state.
+//     Both derive from ProcessorEndpointStorage, which is what keeps them in sync.
+//  2. Errors. The extension reverts from the endpoint's address, but callers only hold the
+//     endpoint's ABI, so any error the extension can raise that the endpoint does not declare
+//     reaches clients as undecodable revert data.
 const CONTRACTS = [
   { sourceName: 'contracts/ProcessorEndpoint.sol', contractName: 'ProcessorEndpoint' },
   {
@@ -45,6 +50,46 @@ async function layoutOf(sourceName: string, contractName: string): Promise<strin
   return output.storageLayout.storage.map(format);
 }
 
+type AbiEntry = { type: string; name?: string; inputs?: { type: string }[] };
+
+// DirectCallNotAllowed is raised only when the extension is called directly, which by definition
+// never happens through the endpoint, so the endpoint has no reason to declare it.
+const ERRORS_NOT_REACHABLE_THROUGH_ENDPOINT = new Set(['DirectCallNotAllowed()']);
+
+async function errorsOf(sourceName: string, contractName: string): Promise<Set<string>> {
+  const artifact = await hre.artifacts.readArtifact(`${sourceName}:${contractName}`);
+  const errors = (artifact.abi as AbiEntry[]).filter((e) => e.type === 'error');
+  return new Set(errors.map((e) => `${e.name}(${(e.inputs ?? []).map((i) => i.type).join(',')})`));
+}
+
+// Every error the extension can raise must also be declared on the endpoint: the extension's code
+// reverts from the endpoint's address, and the endpoint's ABI is all a caller has to decode it
+// with. This is the check that keeps the next moved module honest.
+async function checkErrorsDeclaredOnEndpoint(): Promise<boolean> {
+  const [endpoint, extension] = CONTRACTS;
+  const [endpointErrors, extensionErrors] = await Promise.all([
+    errorsOf(endpoint.sourceName, endpoint.contractName),
+    errorsOf(extension.sourceName, extension.contractName),
+  ]);
+
+  const missing = [...extensionErrors].filter(
+    (e) => !endpointErrors.has(e) && !ERRORS_NOT_REACHABLE_THROUGH_ENDPOINT.has(e)
+  );
+  if (missing.length === 0) return true;
+
+  console.error(
+    `${extension.contractName} can revert with errors that ${endpoint.contractName} does not ` +
+      `declare, so callers would receive revert data its ABI cannot decode:`
+  );
+  missing.forEach((e) => console.error(`  ${e}`));
+  console.error(
+    `\nDeclare them on ${endpoint.contractName} (normally in IProcessorEndpoint), or add them to ` +
+      `ERRORS_NOT_REACHABLE_THROUGH_ENDPOINT in this script if they genuinely cannot be reached ` +
+      `through the endpoint.`
+  );
+  return false;
+}
+
 async function main() {
   await hre.run('compile');
 
@@ -52,13 +97,15 @@ async function main() {
     CONTRACTS.map((c) => layoutOf(c.sourceName, c.contractName))
   );
 
-  let failed = false;
+  const errorsOk = await checkErrorsDeclaredOnEndpoint();
+
+  let layoutFailed = false;
   for (let i = 0; i < others.length; i++) {
     const name = CONTRACTS[i + 1].contractName;
     const candidate = others[i];
     for (let slot = 0; slot < Math.max(reference.length, candidate.length); slot++) {
       if (reference[slot] !== candidate[slot]) {
-        failed = true;
+        layoutFailed = true;
         console.error(
           `storage layout mismatch at entry ${slot}:\n` +
             `  ${CONTRACTS[0].contractName}: ${reference[slot] ?? '<missing>'}\n` +
@@ -68,17 +115,21 @@ async function main() {
     }
   }
 
-  if (failed) {
+  if (layoutFailed) {
     console.error(
       '\nDeclare every state variable in ProcessorEndpointStorage, and never reorder or remove ' +
         'one without updating both contracts.'
     );
+  }
+
+  if (layoutFailed || !errorsOk) {
     process.exit(1);
   }
 
   console.log(
     `storage layout identical across ${CONTRACTS.map((c) => c.contractName).join(', ')} ` +
-      `(${reference.length} entries)`
+      `(${reference.length} entries); every ${CONTRACTS[1].contractName} error is declared on ` +
+      `${CONTRACTS[0].contractName}`
   );
 }
 
