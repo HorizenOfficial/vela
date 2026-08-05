@@ -77,8 +77,6 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   // @notice receive ETH (sent back by trigger contracts)
   receive() external payable {}
 
-  /// @param _teeAuthenticator Contract used to verify update signatures.
-
   /// @inheritdoc IProcessorEndpoint
   function submitRequest(
     uint8 protocolVersion,
