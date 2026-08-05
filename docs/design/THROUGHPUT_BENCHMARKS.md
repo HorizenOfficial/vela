@@ -91,7 +91,7 @@ Requests submitted at a fixed arrival rate; measured at three rates per implemen
 
 Two duration-carrying log statements (`key=value` in the message text, extracted by regex) are added to production code, parsed by the harness:
 
-1. **Executor round-trip** — around `SendProcessRequest` (and the future batch call) in the manager.
+1. **Executor round-trip** — around the executor call in the manager: `SendBatchProcessRequest` in `processBatch`. One log line covers the whole batch, so the sample is a per-batch duration, not a per-request one — divide by the reported batch size to compare against the single-request baseline.
 2. **Mine wait** — around `bind.WaitMined` in `pkg/blockchain/client.go` (split from tx submission).
 
 These two explain most results (e.g. "baseline: 78% of cycle is mine wait"; "batch: mine wait amortized to 20%/request") and map observations back to bottlenecks B1–B6 of `THROUGHPUT_OPTIONS.md`. Full per-stage breakdown (crypto, DB, per-stage inside the executor) only if results are surprising.

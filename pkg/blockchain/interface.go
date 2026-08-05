@@ -20,8 +20,16 @@ type Client interface {
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
 	// GetNextPendingRequest gets next pending request and current state root from the blockchain
 	GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error)
+	// GetPendingRequestsWithStateRoot fetches up to maxCount pending requests for the
+	// application selected on-chain (round-robin, see docs/design/BATCH_EXECUTION.md
+	// section 4.3), together with the selected applicationId and its on-chain state root.
+	// The manager does not choose the application — the contract does.
+	GetPendingRequestsWithStateRoot(ctx context.Context, maxCount uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error)
 	// SubmitStateUpdate submits a state update to the blockchain
 	SubmitStateUpdate(ctx context.Context, update *common.UpdatePayload) error
+	// SubmitBatchStateUpdate submits a batch of per-request update payloads together
+	// with a single batch signature covering all entry hashes in one transaction.
+	SubmitBatchStateUpdate(ctx context.Context, updates []*common.UpdatePayload, batchSignature []byte) error
 	//GetTeePublicKey gets the public key from the blockchain needed to encrypt payloads
 	GetTeePublicKey(ctx context.Context) (*cryptotypes.PublicKeyP521, error)
 	// ChainID returns the connected chain ID.

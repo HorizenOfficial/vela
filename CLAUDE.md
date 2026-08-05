@@ -6,14 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Horizen Vela - A privacy-preserving execution platform using AWS Nitro Enclaves (TEE). The system executes WebAssembly modules securely, with encrypted state management and blockchain-based coordination.
 
-**Stack:** Go 1.24, Solidity 0.8.30, Wasmtime-go (WASM runtime), LevelDB, Hardhat, The Graph (subgraphs)
-
 ## Language Stack
 
-- **Primary languages:** Go, TypeScript, Solidity
 - This is a blockchain/TEE/WASM project. Be aware of smart contract security patterns (reentrancy, pull payments) and WASM memory management concerns.
-- **Solidity:** Check reentrancy, access control, gas optimization.
-- **Go:** Check error handling, goroutine leaks, resource cleanup.
 
 ## Build Commands
 
@@ -52,44 +47,6 @@ cd app/simple && make production_build # Optimized build
 cd subgraphs/hcce && npm run codegen   # Generate types from schema
 cd subgraphs/hcce && npm run build     # Build subgraph
 cd subgraphs/hcce && npm run test      # Run subgraph tests
-```
-
-## Project Structure
-
-```
-/cmd                        - Main application entrypoints
-  /manager                  - Secure Processor Manager (main Go service)
-  /executor                 - WASM Executor (runs in AWS Nitro Enclave)
-  /authorityservice         - HTTP service for deanonymization reports
-  /keytool                  - Key management utility
-  /admincli                 - Interactive admin CLI (log levels, attestation, version)
-
-/pkg                        - Shared Go library code
-  /wasm                     - Wasmtime runtime integration
-  /executor                 - WASM execution, state handling, event encryption
-  /manager                  - Manager orchestration, blockchain interaction
-  /blockchain               - Smart contract bindings and interaction layer
-  /communication            - V-Socket & TCP messaging between Manager/Executor
-  /storage                  - LevelDB versioning system and mock implementations
-  /common                   - Shared data models, types, configuration
-  /crypto                   - Key management (AES, P521, secp256k1, X25519)
-  /logger                   - Zerolog wrapper and custom loggers
-  /authorityservice         - Authority HTTP service (API types, endpoints)
-  /subgraph                 - GraphQL subgraph client (queries, types)
-  /testutil                 - Testing utilities and helpers
-
-/app                        - TinyGo WASM guest applications
-  /simple                   - Example WASM application
-
-/contracts                  - Solidity smart contracts (Hardhat project)
-  /contracts                - Solidity source files
-  /test                     - Hardhat tests (TypeScript)
-
-/subgraphs                  - The Graph subgraphs
-  /hcce                     - HCCE indexer subgraph
-
-/tests                      - System integration tests
-/dockerfiles                - Container configuration
 ```
 
 ## Architecture
@@ -179,25 +136,13 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 ## Code Review Guidelines
 
 ### Go Code
-- **Error handling**: Check all errors; avoid `_` for error returns unless explicitly justified
-- **Concurrency**: Review goroutine lifecycle, channel usage, and potential race conditions
-- **Context propagation**: Ensure `context.Context` is passed through call chains for cancellation
-- **Resource cleanup**: Verify `defer` for closing resources (files, connections, locks)
-- **Interface design**: Prefer small, focused interfaces; accept interfaces, return structs
-- **Testing**: Look for table-driven tests, proper mocking, and edge case coverage
 - **Logging**: Use structured logging (zerolog); avoid fmt.Print in production code
 
 ### TypeScript Code (Contracts/Subgraphs)
-- **Type safety**: Avoid `any`; prefer explicit types and interfaces
-- **Null checks**: Handle nullable values explicitly
-- **BigInt handling**: Use appropriate BigInt libraries for blockchain values
 - **Event handlers** (subgraphs): Ensure entity IDs are unique and deterministic
-- **Contract tests**: Check for edge cases, revert conditions, and gas optimization
 
-### GraphQL (Subgraphs)
-- **Schema design**: Use appropriate scalar types (BigInt, Bytes, ID)
-- **Entity relationships**: Review `@derivedFrom` directives for efficiency
-- **Indexing**: Ensure indexed fields support common query patterns
+### Configuration
+- **Docker env wiring**: Every time a new config param is introduced (e.g. a new field/env var in `pkg/manager/config.go` or another component's config), verify the corresponding environment variable is wired through the Docker files — added to the relevant service's `environment` list in `dockerfiles/docker-compose.yml` and documented with a default in `dockerfiles/.env.template`.
 
 ## Things to Avoid
 
