@@ -322,6 +322,13 @@ interface IProcessorEndpoint is IProcessorEndpointState {
     uint256 limit
   ) external view returns (Structs.PendingRequest[] memory);
 
+  /// @notice Returns the stored request for a given id, from whichever queue holds it. Request
+  ///         ids are unique across the trigger, deploy and per-application queues, so no
+  ///         applicationId is needed. Returns a zeroed struct for an unknown id.
+  /// @param id Request identifier.
+  /// @return request Stored pending request.
+  function requestById(bytes32 id) external view returns (Structs.PendingRequest memory request);
+
   /// @notice Updates the state root, emits events, and finalizes the processed request.
   /// @param applicationId Application identifier.
   /// @param prevStateRoot Previous state root.

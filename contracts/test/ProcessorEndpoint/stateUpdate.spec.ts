@@ -336,7 +336,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidPayload');
       });
 
-      it('reverts with InvalidSignature when teeAuthenticator checkSignature fails', async () => {
+      it('reverts with InvalidSignature when teeAuthenticator checkBatchSignature fails', async () => {
         const fixture = await deployWithNoAttestation(signers[3]);
         const request = await submitRequest(
           fixture.processorEndpoint,

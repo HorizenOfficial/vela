@@ -36,7 +36,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
   /// @param _tokenAllowlist External token allowlist contract.
-  /// @param extension Deployed `ProcessorEndpointExtension` serving the delegated entry points.
+  /// @param extensionAddress Deployed `ProcessorEndpointExtension` serving the delegated entry points.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
@@ -45,7 +45,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     address resetOperator,
     uint256 _minFeePerRequest,
     ITokenAllowlist _tokenAllowlist,
-    address extension
+    address extensionAddress
   ) {
     if (
       address(_teeAuthenticator) == address(0) ||
@@ -53,15 +53,15 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       updateStatusOperator == address(0) ||
       admin == address(0) ||
       address(_tokenAllowlist) == address(0) ||
-      extension == address(0)
+      extensionAddress == address(0)
     ) revert AddressCantBeZero();
 
     // A delegatecall to an address without code succeeds and returns nothing, so a wrong
     // extension address would turn submitRequestFor into a silent no-op that keeps the fee
     // instead of reverting. _extension is immutable, so this is the only chance to catch it.
-    if (extension.code.length == 0) revert InvalidExtension();
+    if (extensionAddress.code.length == 0) revert InvalidExtension();
 
-    _extension = extension;
+    _extension = extensionAddress;
     teeAuthenticator = _teeAuthenticator;
     authorityRegistry = _authorityRegistry;
     tokenAllowlist = _tokenAllowlist;
@@ -309,7 +309,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     return _pendingRequestsPage(offset, limit);
   }
 
-  /// @notice Returns the stored request for a given id, from whichever queue holds it.
+  /// @inheritdoc IProcessorEndpoint
   function requestById(bytes32 id) external view returns (Structs.PendingRequest memory) {
     return _q.requests[id];
   }
