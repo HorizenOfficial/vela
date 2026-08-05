@@ -37,6 +37,7 @@ go generate ./...
 npm ci
 npm run build
 npm run test
+npm run check:layout   # ProcessorEndpoint / ProcessorEndpointExtension: layouts must match, extension errors must be declared on the endpoint
 
 # WASM guest (app/simple)
 cd app/simple && make build            # Development build
@@ -69,7 +70,7 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
    - `POST /getreport` - Serves reports after on-chain verification
 
 4. **Smart Contracts** (`contracts/`) - On-chain coordination:
-   - `ProcessorEndpoint.sol` - Request handling, ERC-20 deposits/withdrawals (with EIP-2612 permit and facilitator path), per-app locked funds, deploy descriptor and allowed-deployer roles
+   - `ProcessorEndpoint.sol` - Request handling, ERC-20 deposits/withdrawals (with EIP-2612 permit and facilitator path), per-app locked funds, deploy descriptor and allowed-deployer roles. Sits close to the EIP-170 size limit: state is declared in `ProcessorEndpointStorage.sol`, and the entry points that are off the per-request hot path (`submitRequestFor`, deploy submission, the operator resets, the admin setters) are hosted in `ProcessorEndpointExtension.sol` and reached by `delegatecall`. Read-only functions **cannot** move: a `view` function may not `delegatecall`, so they would need a generic `fallback()` and a merged ABI. Declare new state **only** in the storage base, and run `npm run check:layout` after touching it — a layout divergence corrupts storage silently instead of reverting, and an extension error the endpoint does not declare reaches clients as undecodable revert data. Deploy the extension first; its address is the endpoint's last constructor argument, readable afterwards via `extension()`. The compiler targets `evmVersion: 'cancun'` for the bytes, so deployment chains must be at Cancun or later. See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md`
    - `TeeAuthenticator.sol` - TEE attestation verification (PCR-based, including WASM fingerprint for deploys)
    - `AuthorityRegistry.sol` - Authority management
 
@@ -114,6 +115,12 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 **Third-Party Notices:** Whenever dependencies in `go.mod` change (add, remove, or version bump), update the `NOTICES` file to match — reconcile listed versions and add/remove entries for notable direct dependencies and their licenses.
 
 **File Formatting:** If you modify contracts or TypeScript files, run `npm run format` after any modification to keep the correct formatting.
+
+**WASM Host ABI:** The contract between the Wasmtime host and guest modules — required exports and their signatures, the length-prefix + JSON result encoding, `allocate`/`deallocate` ownership, the 2 GiB offset ceiling, the pinned WASM feature set, and how failures are classified — is documented in `docs/design/WASM_HOST_ABI.md`. If you change any of those, update that file in the same commit: a host/guest signature mismatch is deployable and only fails at request time, so the written contract is what guest authors rely on.
+
+**Restrictions Need Exclusion Tests:** Any new limit, pin, or failure classification in `pkg/wasm` (a store-limiter dimension, a `newPinnedEngine` feature pin, a guest-fault-vs-host-side rule) ships in the same commit as a test proving a *violating* input is rejected — not only that legitimate guests still work. Verifying that the real TinyGo guest still runs says nothing about what a restriction excludes, which is where the bugs have been: a memory cap that tables escaped, a `reference types` pin that silently rejected `externref`, a proposal pinned off that nothing tested. `TestPinnedEngineRejectsDisabledProposals` and `TestGuestTableIsBounded` are the pattern to copy.
+
+**Shared Helpers Need a Caller Sweep:** Before changing the behaviour of a shared helper — `pkg/common/config.go` parsers above all, but any function with callers across packages — enumerate every caller and state what the change does to each, including the ones you conclude are unaffected. Report the search you used so its scope can be judged. Widening `GetConfigVarInt64` to 64-bit was audited for `uint32(...)` truncation at the call sites and still broke a caller one step further downstream, where `maxUploadMB * bytesInMB` overflowed and silently removed an HTTP body limit. Grepping for the call sites is not the same as enumerating the consequences.
 
 **Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
 

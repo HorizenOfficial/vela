@@ -12,6 +12,7 @@ describe('ProcessorEndpoint Test', function () {
   let minFeePerRequest: bigint;
   let deployProcessorEndpoint: (resetOperatorOverride?: string) => Promise<any>;
   let sharedTokenAllowlist: any;
+  let extensionAddress: string;
 
   beforeEach(async function () {
     ({
@@ -24,6 +25,7 @@ describe('ProcessorEndpoint Test', function () {
       minFeePerRequest,
       deployProcessorEndpoint,
       sharedTokenAllowlist,
+      extensionAddress,
     } = await deployProcessorEndpointFixture());
   });
 
@@ -38,7 +40,8 @@ describe('ProcessorEndpoint Test', function () {
             admin,
             ADDRESS_ZERO,
             minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+            await sharedTokenAllowlist.getAddress(),
+            extensionAddress
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -52,7 +55,8 @@ describe('ProcessorEndpoint Test', function () {
             admin,
             ADDRESS_ZERO,
             minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+            await sharedTokenAllowlist.getAddress(),
+            extensionAddress
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -66,7 +70,8 @@ describe('ProcessorEndpoint Test', function () {
             admin,
             ADDRESS_ZERO,
             minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+            await sharedTokenAllowlist.getAddress(),
+            extensionAddress
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -80,7 +85,8 @@ describe('ProcessorEndpoint Test', function () {
             ADDRESS_ZERO,
             ADDRESS_ZERO,
             minFeePerRequest,
-            await sharedTokenAllowlist.getAddress()
+            await sharedTokenAllowlist.getAddress(),
+            extensionAddress
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
       });
@@ -94,9 +100,43 @@ describe('ProcessorEndpoint Test', function () {
             admin,
             ADDRESS_ZERO,
             minFeePerRequest,
+            ADDRESS_ZERO,
+            extensionAddress
+          )
+        ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
+      });
+
+      it('reverts when extension is zero address', async () => {
+        await expect(
+          processorEndpointFactory.deploy(
+            await teeAuthenticator.getAddress(),
+            await authorityRegistry.getAddress(),
+            updateStatusOperator,
+            admin,
+            ADDRESS_ZERO,
+            minFeePerRequest,
+            await sharedTokenAllowlist.getAddress(),
             ADDRESS_ZERO
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
+      });
+
+      // delegatecall to an address without code succeeds and returns nothing, so a wrong
+      // extension address would make submitRequestFor a silent no-op that keeps the fee. The
+      // address is immutable, so it cannot be corrected after deployment.
+      it('reverts when extension has no code', async () => {
+        await expect(
+          processorEndpointFactory.deploy(
+            await teeAuthenticator.getAddress(),
+            await authorityRegistry.getAddress(),
+            updateStatusOperator,
+            admin,
+            ADDRESS_ZERO,
+            minFeePerRequest,
+            await sharedTokenAllowlist.getAddress(),
+            updateStatusOperator
+          )
+        ).to.be.revertedWithCustomError(processorEndpointFactory, 'InvalidExtension');
       });
     });
 
@@ -132,6 +172,14 @@ describe('ProcessorEndpoint Test', function () {
         expect(await processorEndpoint.tokenAllowlist()).to.equal(
           await tokenAllowlist.getAddress()
         );
+      });
+
+      // The pairing between an endpoint and the extension it delegates to must be readable
+      // on-chain: it is fixed at deployment and cannot be repointed, so this getter is what
+      // verification has to go on.
+      it('exposes the extension it delegates to', async () => {
+        const { processorEndpoint, extension } = await deployProcessorEndpoint();
+        expect(await processorEndpoint.extension()).to.equal(await extension.getAddress());
       });
 
       it('does not grant RESET_OPERATOR when address(0) is passed', async () => {

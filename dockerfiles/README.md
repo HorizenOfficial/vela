@@ -93,8 +93,14 @@ Use `wallet.conf.template` as wallet config file, with the following properties 
 
 ```
 rpcUrl=http://localhost:8545
-ProcessorAddress=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+ProcessorAddress=0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
 TeeAuthenticatorAddress=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
 AuthorityServiceURL=http://localhost:8081
 SubgraphURL=http://localhost:8000/subgraphs/name/hcce
 ```
+
+The two contract addresses are the deterministic CREATE addresses the dev deployer produces on a
+freshly reset chain, so they only hold while the deploy sequence in `contracts/scripts/deploy/all.ts`
+is unchanged — inserting or removing a deployment shifts every address after it. The authoritative
+values for a given run are printed by the deployer and written to `deployed_addresses.env` when
+`DEPLOY_OUTPUT_DIR` is set.

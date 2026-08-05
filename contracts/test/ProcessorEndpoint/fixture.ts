@@ -30,6 +30,12 @@ export async function deployProcessorEndpointFixture() {
   const processorEndpointFactory = await ethers.getContractFactory('ProcessorEndpoint');
   const resetOperator = await signers[3].getAddress();
 
+  // Code moved out of ProcessorEndpoint to stay under EIP-170, reached by delegatecall. Stateless
+  // and deployed once: every endpoint in this fixture can share the same instance.
+  const ProcessorEndpointExtension = await ethers.getContractFactory('ProcessorEndpointExtension');
+  const extension = await ProcessorEndpointExtension.deploy();
+  const extensionAddress = await extension.getAddress();
+
   async function deployTokenAllowlist() {
     const TokenAllowlist = await ethers.getContractFactory('TokenAllowlist');
     return TokenAllowlist.deploy(admin);
@@ -46,9 +52,10 @@ export async function deployProcessorEndpointFixture() {
       admin,
       resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator,
       minFeePerRequest,
-      await tokenAllowlist.getAddress()
+      await tokenAllowlist.getAddress(),
+      extensionAddress
     );
-    return { processorEndpoint, tokenAllowlist };
+    return { processorEndpoint, tokenAllowlist, extension };
   }
 
   async function bootstrapApplication(processorEndpoint: any, teeSigner?: Signer) {
@@ -112,6 +119,8 @@ export async function deployProcessorEndpointFixture() {
     authorityRegistry,
     teeAuthenticator,
     processorEndpointFactory,
+    // Last constructor argument for any direct processorEndpointFactory.deploy() call.
+    extensionAddress,
     updateStatusOperator,
     admin,
     resetOperator,

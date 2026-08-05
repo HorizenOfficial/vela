@@ -69,6 +69,11 @@ The `_authorizeUpgrade` function required by the UUPS pattern must be restricted
 
 Each upgradable contract must declare a `uint256[50] private __gap` array at the end of its storage variables. This reserves 50 storage slots that future versions may consume by replacing the gap with new variables. The gap size must be adjusted (reduced) when new variables are added, keeping the total storage footprint constant.
 
+> **Note — `ProcessorEndpoint` no longer declares its own storage.** Since the EIP-170 work in `PROCESSOR_ENDPOINT_SPLIT.md`, all of its state (and therefore the `__gap` this requirement asks for) belongs in `abstract contract ProcessorEndpointStorage`, shared with `ProcessorEndpointExtension`, which the endpoint reaches by `delegatecall`. Two consequences for this design:
+>
+> - The gap goes in the storage base, and `npm run check:layout` must keep passing after any change to it — the extension executes against the proxy's storage just as the implementation does, so a layout divergence between the two is as damaging as a bad upgrade.
+> - Nesting works: proxy → implementation → extension are both `delegatecall`s, so storage stays in the proxy throughout, and the extension address (an `immutable` in the implementation's code) is still readable. Upgrading the extension means deploying a new implementation pointing at it, which under UUPS is the normal upgrade path.
+
 ---
 
 ## Proxy Pattern: UUPS

@@ -55,29 +55,6 @@ func Deploy(appId int64, paramsJSON string) types.DeployResult {
 	}
 }
 
-// LoadModule is retained for cache warm-up by getOrLoadModule (see wasmtime_runtime.go).
-// New deployments should use Deploy instead.
-func LoadModule(appId int64) types.LoadModuleResult {
-	initialState := &ApplicationInternalState{
-		AppID:         uint64(appId),
-		Accounts:      make(map[string]*AccountState),
-		AllowedTokens: map[string]bool{ethTokenHex: true},
-	}
-	stateJSON, err := json.Marshal(initialState)
-	if err != nil {
-		utils.LogError("LoadModule: failed to marshal initial state: %v", err)
-		return types.LoadModuleResult{
-			Error: fmt.Sprintf("failed to marshal initial state: %v", err),
-		}
-	}
-	fuel := types.NewUint256(5)
-	utils.LogDebug("LoadModule: appId=%d, stateSize=%d, fuel=%v", uint64(appId), len(stateJSON), fuel)
-	return types.LoadModuleResult{
-		State: stateJSON,
-		Fuel:  fuel,
-	}
-}
-
 // getTokenBalance returns the balance for a specific token, or a zero value if not found.
 func getTokenBalance(acc *AccountState, tokenHex string) *types.Uint256 {
 	if bal, ok := acc.Balances[tokenHex]; ok {
