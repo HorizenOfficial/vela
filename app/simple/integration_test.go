@@ -82,7 +82,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module
-	initialStateBytes, fuel, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, fuel, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
 
@@ -222,7 +222,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module to get an initial state
-	initialStateBytes, fuel, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, fuel, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
 
@@ -244,7 +244,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module to get an initial state
-	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	// 2. Create a populated state for testing
@@ -354,7 +354,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	ctx := context.Background()
 
 	// Load the module to verify it works (state used in later tests is created separately)
-	_, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	_, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	t.Run("deposit with nil state", func(t *testing.T) {
@@ -387,19 +387,19 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 	// A dummy state, as we expect failures before the state is even used.
 	initialStateBytes := []byte(`{"appId":"simple_app_test","accounts":{}}`)
 
-	t.Run("load module with nil wasm", func(t *testing.T) {
-		_, _, err := runtime.LoadModule(ctx, appId, nil)
+	t.Run("deploy with nil wasm", func(t *testing.T) {
+		_, _, err := runtime.Deploy(ctx, appId, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to compile WASM module")
 	})
 
-	t.Run("load module with invalid wasm", func(t *testing.T) {
-		_, _, err := runtime.LoadModule(ctx, appId, []byte("invalid wasm"))
+	t.Run("deploy with invalid wasm", func(t *testing.T) {
+		_, _, err := runtime.Deploy(ctx, appId, nil, []byte("invalid wasm"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to compile WASM module")
 	})
 
-	// For other functions, the error will come from getOrLoadModule -> LoadModule
+	// For other functions, the error will come from getOrLoadModule -> compileAndInstantiate
 	t.Run("deposit with nil wasm", func(t *testing.T) {
 		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(1000), initialStateBytes, nil)
 		require.Error(t, err)
@@ -449,7 +449,7 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 
 	ctx := context.Background()
 
-	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	// Mutex to protect access to the shared WASM runtime instance
@@ -553,10 +553,10 @@ func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
 
 	ctx := context.Background()
 
-	// LoadModule: exercises SerializeAndWriteResult for LoadModuleResult
-	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	// Deploy: exercises SerializeAndWriteResult for DeployResult
+	stateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after LoadModule")
+	requireMemoryClean(t, runtime, wasmBytes, "memory leak after Deploy")
 
 	// Deposit: exercises SerializeAndWriteResult for DepositResult (with events)
 	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(5000), stateBytes, wasmBytes)
@@ -620,7 +620,7 @@ func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
 
 	ctx := context.Background()
 
-	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	stateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	// Deposit so user1 has a balance
@@ -665,7 +665,7 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 
 	ctx := context.Background()
 
-	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	stateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	// Create 100 accounts with deposits to build a large state

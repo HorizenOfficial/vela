@@ -20,13 +20,13 @@ clean:
 $(OUT): $(SRC)
 	@mkdir -p $(@D)
 	@echo "Building development WASM module..."
-	tinygo build -o $@ -target=wasi .
+	tinygo build -o $@ -target=wasip1 .
 	@ls -lh $@ | awk '{print "Binary size: " $$5}'
 
 $(PROD_OUT): $(SRC)
 	@mkdir -p $(@D)
 	@echo "Building production WASM module..."
-	tinygo build -o $@ -opt=s -no-debug -target=wasi .
+	tinygo build -o $@ -opt=s -no-debug -target=wasip1 .
 	@ls -lh $@ | awk '{print "Binary size: " $$5}'
 
 wat: $(WAT)

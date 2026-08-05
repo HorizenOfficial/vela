@@ -3,10 +3,13 @@ pragma solidity ^0.8.28;
 
 import '../Structs.sol';
 import './ITokenAllowlist.sol';
+import './IProcessorEndpointState.sol';
 
 /// @title ProcessorEndpoint interface
 /// @notice External API, events, and errors for the processor endpoint.
-interface IProcessorEndpoint {
+/// @dev The state-variable getters live in IProcessorEndpointState, which this interface
+///      inherits; see that file for why they are declared separately.
+interface IProcessorEndpoint is IProcessorEndpointState {
   /// @notice Emitted when a refund is sent to a requester.
   /// @param applicationId Application identifier.
   /// @param requestId Request identifier.
@@ -163,6 +166,8 @@ interface IProcessorEndpoint {
 
   /// @notice A zero address was supplied where not allowed.
   error AddressCantBeZero();
+  /// @notice The supplied `ProcessorEndpointExtension` address holds no code.
+  error InvalidExtension();
   /// @notice Fee value is below the minimum allowed.
   error FeeValueBelowMinimum();
   /// @notice A numeric value is invalid for the requested operation.
@@ -254,11 +259,6 @@ interface IProcessorEndpoint {
     bytes calldata depositPermit
   ) external payable returns (bytes32);
 
-  /// @notice Returns the current facilitator nonce for a user.
-  /// @param user User address.
-  /// @return nonce Current nonce value.
-  function getFacilitatorNonce(address user) external view returns (uint256);
-
   /// @notice Submits a new deploy request and enqueues it for processing.
   /// @param protocolVersion Protocol version.
   /// @param payload Request payload.
@@ -283,6 +283,15 @@ interface IProcessorEndpoint {
     bytes calldata payload,
     address trigger
   ) external payable returns (bytes32);
+
+  /// @notice Returns the `ProcessorEndpointExtension` this endpoint delegates its moved entry
+  ///         points to.
+  /// @dev Fixed at deployment and not repointable. Exposed so that the pairing between a deployed
+  ///      endpoint and its extension is readable on-chain, which is what verification and incident
+  ///      response need; otherwise it is only recoverable from the deployment record or by
+  ///      disassembling the endpoint's code.
+  /// @return extensionAddress Address of the extension contract.
+  function extension() external view returns (address extensionAddress);
 
   /// @notice Returns the number of pending requests in the queue.
   /// @return size Current pending request count.
@@ -395,28 +404,6 @@ interface IProcessorEndpoint {
     uint256 idx
   ) external pure returns (bytes32);
 
-  /// @notice Returns the custody balance for a given application and token.
-  /// @param applicationId Application identifier.
-  /// @param tokenAddress Token address (0x0 = ETH).
-  /// @return amount Current custody balance.
-  function appCustody(uint64 applicationId, address tokenAddress) external view returns (uint256);
-
-  /// @notice Returns the total custody balance across all applications for a given token.
-  /// @param tokenAddress Token address (0x0 = ETH).
-  /// @return amount Total custody balance.
-  function totalAppCustody(address tokenAddress) external view returns (uint256);
-
-  /// @notice Returns the pending claim balance for a given token and payee.
-  /// @param tokenAddress Token address (0x0 = ETH).
-  /// @param payee Payee address.
-  /// @return amount Pending claim balance.
-  function pendingClaims(address tokenAddress, address payee) external view returns (uint256);
-
-  /// @notice Returns the total pending claims for a given token.
-  /// @param tokenAddress Token address (0x0 = ETH).
-  /// @return amount Total pending claims.
-  function totalPendingClaims(address tokenAddress) external view returns (uint256);
-
   /// @notice Claims pending balance for a given token and payee.
   /// @param tokenAddress Token address (0x0 = ETH).
   /// @param payee Payee address.
@@ -438,7 +425,4 @@ interface IProcessorEndpoint {
   ///         address(0).
   /// @param appIds Application IDs to reset. Empty array means all deployed apps.
   function adminResetApps(uint64[] calldata appIds) external;
-
-  /// @notice Returns the external token allowlist contract used by this endpoint.
-  function tokenAllowlist() external view returns (ITokenAllowlist);
 }

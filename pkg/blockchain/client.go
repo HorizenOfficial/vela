@@ -29,6 +29,14 @@ import (
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].abi' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi"
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].bin' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin"
 //go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi --bin ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
+// ProcessorEndpointExtension hosts code moved out of ProcessorEndpoint to stay under EIP-170 and is
+// reached by delegatecall. Bindings are only needed to deploy it (its address is a
+// ProcessorEndpoint constructor argument); calls always go to the endpoint's ABI above.
+//go:generate mkdir -p ./contracts/processorendpointextension
+//go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/ProcessorEndpointExtension.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointExtensionAbi --overwrite
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpointExtension.sol:ProcessorEndpointExtension\"].abi' ../../contract_abis/ProcessorEndpointExtensionAbi/combined.json > ../../contract_abis/ProcessorEndpointExtensionAbi/ProcessorEndpointExtension.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpointExtension.sol:ProcessorEndpointExtension\"].bin' ../../contract_abis/ProcessorEndpointExtensionAbi/combined.json > ../../contract_abis/ProcessorEndpointExtensionAbi/ProcessorEndpointExtension.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointExtensionAbi/ProcessorEndpointExtension.abi --bin ../../contract_abis/ProcessorEndpointExtensionAbi/ProcessorEndpointExtension.bin --pkg processorendpointextension --type ProcessorEndpointExtension --out ./contracts/processorendpointextension/ProcessorEndpointExtension.go
 //go:generate mkdir -p ./contracts/tee
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go

@@ -90,7 +90,8 @@ describe('ProcessorEndpoint Test', function () {
       fixture.admin,
       fixture.resetOperator,
       fixture.minFeePerRequest,
-      await fixture.sharedTokenAllowlist.getAddress()
+      await fixture.sharedTokenAllowlist.getAddress(),
+      fixture.extensionAddress
     );
 
     const { applicationId: appId } = await fixture.bootstrapApplication(
