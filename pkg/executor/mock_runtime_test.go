@@ -36,16 +36,16 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestMockRuntime_LoadModule(t *testing.T) {
+func TestMockRuntime_Deploy(t *testing.T) {
 	runtime := NewMockRuntime(testLogger)
 	defer runtime.Close()
 
 	appId := common.NewApplicationId(1)
 	wasmBytes := []byte("mock-wasm-bytecode")
 
-	serializedState, fuel, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, fuel, err := runtime.Deploy(context.Background(), appId, nil, wasmBytes)
 	if err != nil {
-		t.Fatalf("LoadModule failed: %v", err)
+		t.Fatalf("Deploy failed: %v", err)
 	}
 
 	if len(serializedState) == 0 {
@@ -86,9 +86,9 @@ func TestMockRuntime_ProcessRequest_Deposit(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
-	serializedState, fuel, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, fuel, err := runtime.Deploy(context.Background(), appId, nil, wasmBytes)
 	if err != nil {
-		t.Fatalf("LoadModule failed: %v", err)
+		t.Fatalf("Deploy failed: %v", err)
 	}
 	if fuel.Cmp(big.NewInt(10)) != 0 {
 		t.Errorf("Expected 10 fuel, got %s", fuel.String())
@@ -141,9 +141,9 @@ func TestMockRuntime_ProcessRequest_Transfer(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
-	serializedState, fuel, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, fuel, err := runtime.Deploy(context.Background(), appId, nil, wasmBytes)
 	if err != nil {
-		t.Fatalf("LoadModule failed: %v", err)
+		t.Fatalf("Deploy failed: %v", err)
 	}
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
@@ -228,9 +228,9 @@ func TestMockRuntime_ProcessRequest_Withdrawal(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module
-	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, _, err := runtime.Deploy(context.Background(), appId, nil, wasmBytes)
 	if err != nil {
-		t.Fatalf("LoadModule failed: %v", err)
+		t.Fatalf("Deploy failed: %v", err)
 	}
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
@@ -319,9 +319,9 @@ func TestMockRuntime_ProcessRequest_InsufficientBalance(t *testing.T) {
 	wasmBytes := []byte("mock-wasm-bytecode")
 
 	// Load module first
-	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, _, err := runtime.Deploy(context.Background(), appId, nil, wasmBytes)
 	if err != nil {
-		t.Fatalf("LoadModule failed: %v", err)
+		t.Fatalf("Deploy failed: %v", err)
 	}
 
 	sender := ethCommon.HexToAddress("0x1234567890123456789012345678901234567890")
@@ -364,9 +364,9 @@ func TestMockRuntime_DeanonymizationViaProcessRequest(t *testing.T) {
 	depositAmount := big.NewInt(1000000000000000000) // 1 ETH
 
 	// Load module first
-	serializedState, _, err := runtime.LoadModule(context.Background(), appId, wasmBytes)
+	serializedState, _, err := runtime.Deploy(context.Background(), appId, nil, wasmBytes)
 	if err != nil {
-		t.Fatalf("LoadModule failed: %v", err)
+		t.Fatalf("Deploy failed: %v", err)
 	}
 
 	// Deposit for sender1

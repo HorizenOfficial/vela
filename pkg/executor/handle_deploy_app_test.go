@@ -166,12 +166,8 @@ func TestHandleDeployApp_ApplicationAlreadyDeployed(t *testing.T) {
 	require.Equal(t, existingState.StateRoot, updatePayload.NewStateRoot)
 }
 
-// failingRuntime implements Runtime but always returns an error from LoadModule.
+// failingRuntime implements Runtime but always returns an error from Deploy.
 type failingRuntime struct{}
-
-func (r *failingRuntime) LoadModule(_ context.Context, _ common.ApplicationIdType, _ []byte) ([]byte, *big.Int, error) {
-	return nil, big.NewInt(0), fmt.Errorf("wasm compilation failed")
-}
 
 func (r *failingRuntime) Deploy(_ context.Context, _ common.ApplicationIdType, _ []byte, _ []byte) ([]byte, *big.Int, error) {
 	return nil, big.NewInt(0), fmt.Errorf("wasm compilation failed")
@@ -187,7 +183,7 @@ func (r *failingRuntime) ProcessRequest(_ context.Context, _ common.ApplicationI
 
 func (r *failingRuntime) Close() error { return nil }
 
-func TestHandleDeployApp_LoadModuleFails(t *testing.T) {
+func TestHandleDeployApp_DeployFails(t *testing.T) {
 	executor := newTestExecutor(t, &failingRuntime{})
 
 	req, wasmModule := newDeployRequest(t)
@@ -203,11 +199,6 @@ func TestHandleDeployApp_LoadModuleFails(t *testing.T) {
 
 type expensiveRuntime struct {
 	MockRuntime
-}
-
-func (r *expensiveRuntime) LoadModule(ctx context.Context, appID common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
-	state, _, err := r.MockRuntime.LoadModule(ctx, appID, wasm)
-	return state, big.NewInt(999999), err
 }
 
 func (r *expensiveRuntime) Deploy(ctx context.Context, appID common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {

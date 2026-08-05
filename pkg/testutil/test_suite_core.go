@@ -531,6 +531,17 @@ func (s *TestSuiteCore) LoadWasmModule(t *testing.T, moduleFilename string) []by
 	return wasmBytes
 }
 
+// ManagerLogger returns the logger the manager writes to, so callers can route
+// their own instrumentation into the same sink.
+//
+// Only valid once NewTestSuiteCore has returned: it is what injects the ephemeral
+// log-server address into the manager's logger config (RemoteLogParams), which a
+// "zeronetwork" logger requires. Building a logger from that config any earlier
+// panics — use this instead of constructing a second one.
+func (s *TestSuiteCore) ManagerLogger() logger.Logger {
+	return s.mgrLog
+}
+
 // SetEventChannel replaces the event channel. Used by the fullstack suite to
 // inject its own channel connected to the event-broadcasting wrapper.
 func (s *TestSuiteCore) SetEventChannel(ch chan interface{}) {

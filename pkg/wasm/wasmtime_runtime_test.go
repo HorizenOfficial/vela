@@ -5,16 +5,24 @@ import (
 	"encoding/binary"
 	"math"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	"github.com/bytecodealliance/wasmtime-go"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// The WAT fixtures below are minimal modules assembled at test time to drive the
+// host through behaviour a correct guest never exhibits (traps, unparseable results,
+// missing or mismatched exports, out-of-range pointers). The ABI they implement, and
+// why this layer exists alongside the TinyGo integration tests in app/simple, are
+// documented in docs/design/WASM_HOST_ABI.md.
 
 // dispatchTestWat is a minimal WAT module used by TestProcessRequest_DispatchesByRequestType.
 //
@@ -22,7 +30,6 @@ import (
 //
 //	[100..173] process_request result: 4-byte LE length (70) + JSON {"state":[1],...}
 //	[200..273] trusted_request result: 4-byte LE length (70) + JSON {"state":[2],...}
-//	[300..328] load_module result:     4-byte LE length (25) + JSON {"state":[],"fuel":"0x1"}
 //	[500..~  ] scratch area for allocate — the host writes payload/state here; the
 //	           WASM functions ignore all input params and return the fixed offsets above.
 //
@@ -32,7 +39,6 @@ import (
 //	  (appId, senderPtr, senderLen, requestType, payloadPtr, payloadLen, statePtr, stateLen)
 //	trusted_request (param i64 i32 i32 i32 i32) (result i32)
 //	  (appId, payloadPtr, payloadLen, statePtr, stateLen)
-//	load_module (param i64) (result i32)       — called by getOrLoadModule on first load
 //	allocate    (param i32) (result i32)       — always returns scratch offset 500
 //	deallocate  (param i32 i32)                — no-op
 const dispatchTestWat = `(module
@@ -56,18 +62,6 @@ const dispatchTestWat = `(module
     "\6c\73\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
   )
 
-  ;; load_module result at offset 300:
-  ;;   4-byte LE length = 25 (0x19) followed by JSON {"state":[],"fuel":"0x1"}
-  (data (i32.const 300)
-    "\19\00\00\00"
-    "\7b\22\73\74\61\74\65\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
-  )
-
-  ;; load_module: called by getOrLoadModule during module warm-up; returns fixed offset 300
-  (func (export "load_module") (param i64) (result i32)
-    i32.const 300
-  )
-
   ;; allocate: always returns scratch offset 500 (host writes payload/state here)
   (func (export "allocate") (param i32) (result i32)
     i32.const 500
@@ -87,6 +81,230 @@ const dispatchTestWat = `(module
     i32.const 200
   )
 )`
+
+// spinningProcessRequestWat is dispatchTestWat reduced to the process_request
+// path, with a busy loop inside the export so the guest call takes long enough to
+// still be running when another goroutine evicts the module.
+// Used by TestConcurrentExecutionAndEvictionIsSafe: with an instantaneous export
+// the eviction never lands inside the call and the test passes even when the
+// serialization it checks is removed.
+const spinningProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100 (same layout as dispatchTestWat)
+  (data (i32.const 100)
+    "\46\00\00\00"
+    "\7b\22\73\74\61\74\65\22\3a\5b\31\5d\2c\22\65\76\65\6e\74\73\22\3a\5b\5d\2c"
+    "\22\61\70\70\45\76\65\6e\74\73\22\3a\5b\5d\2c\22\77\69\74\68\64\72\61\77\61"
+    "\6c\73\22\3a\5b\5d\2c\22\66\75\65\6c\22\3a\22\30\78\31\22\7d"
+  )
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  ;; process_request: spins, then returns the fixed result offset 100
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    (local $i i32)
+    (local.set $i (i32.const 20000000))
+    (block $done
+      (loop $spin
+        (br_if $done (i32.eqz (local.get $i)))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br $spin)
+      )
+    )
+    i32.const 100
+  )
+)`
+
+// trappingProcessRequestWat loads successfully but traps (unreachable) inside
+// process_request, the shape a TinyGo panic takes — including the out-of-memory
+// panic the guest memory cap makes reachable. Used by TestGuestTrapEvictsModule.
+const trappingProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    unreachable
+  )
+)`
+
+// appErrorProcessRequestWat returns a well-formed ProcessResult carrying an
+// application-level error. That is a normal rejection by a healthy guest, not a
+// fault, so the module must stay cached. Used by TestAppErrorKeepsModuleCached.
+const appErrorProcessRequestWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100: 4-byte LE length (84 = 0x54) + JSON
+  ;; {"state":[],"events":[],"appEvents":[],"withdrawals":[],"fuel":"0x1","error":"boom"}
+  (data (i32.const 100) "\54\00\00\00"
+    "{\"state\":[],\"events\":[],\"appEvents\":[],\"withdrawals\":[],\"fuel\":\"0x1\",\"error\":\"boom\"}")
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100
+  )
+)`
+
+// noAllocateWat loads successfully but has no `allocate` export, so the host
+// cannot write the request into guest memory. That is a static defect in the
+// module, not a guest fault: re-instantiating cannot fix it, so the module must
+// stay cached instead of being recompiled on every request forever.
+// Reachable in practice because writeToMemory returns early for empty data, so
+// such a module can pass a deploy that has no constructor params.
+// Used by TestHostSideFailureKeepsModuleCached.
+const noAllocateWat = `(module
+  (memory (export "memory") 1)
+
+  ;; no allocate export, no deallocate export
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100
+  )
+)`
+
+// malformedResultWat returns a well-formed length prefix followed by bytes that
+// are not valid JSON, so the guest runs to completion and the host fails only when
+// deserializing. Used by TestMalformedResultEvictsModule.
+const malformedResultWat = `(module
+  (memory (export "memory") 1)
+
+  ;; process_request result at offset 100: 4-byte LE length (15 = 0x0f) + non-JSON
+  (data (i32.const 100) "\0f\00\00\00" "not json at all")
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100
+  )
+)`
+
+// wrongAritySignatureWat exports process_request with 2 parameters where the host
+// ABI passes 8. Func.Call validates argument count before entering wasm, so the
+// call fails without the guest ever running — a static defect in the module, not a
+// guest fault. Used by TestSignatureMismatchKeepsModuleCached.
+//
+// Reachable in practice: only the deploy export's signature is exercised at deploy
+// time, so an app built against a stale host ABI deploys fine and then fails on
+// every request.
+const wrongAritySignatureWat = `(module
+  (memory (export "memory") 1)
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  ;; host passes 8 arguments; this declares 2
+  (func (export "process_request") (param i64 i32) (result i32) i32.const 100)
+)`
+
+// nearEndAllocWat has an `allocate` that returns a pointer 4 bytes from the end of
+// a one-page memory, so the 16-byte stats read runs past the end.
+// Used by TestStatsRejectsOutOfBoundsResultPointer.
+const nearEndAllocWat = `(module
+  (memory (export "memory") 1)
+
+  (func (export "deallocate") (param i32 i32))
+
+  ;; 65532 = one page (65536) minus 4, so a 16-byte read from here overruns
+  (func (export "allocate") (param i32) (result i32) i32.const 65532)
+  (func (export "get_allocated_memory_stats") (param i32))
+)`
+
+// hugeTableWat declares a funcref table far larger than any real guest needs.
+// Table storage is not part of the guest's linear memory, so without a table limit
+// it escapes the per-guest RAM cap entirely: measured at ~390 MB resident after a
+// table.fill under a 64 KiB memory cap. Used by TestGuestTableIsBounded.
+const hugeTableWat = `(module
+  (memory (export "memory") 1)
+  (table $t 50000000 funcref)
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32)))`
+
+// wrongArityAllocateWat exports allocate with the wrong signature, so Func.Call
+// rejects the argument list before entering wasm — a static module defect, not a
+// guest fault. Used by TestAllocateSignatureMismatchKeepsModuleCached.
+const wrongArityAllocateWat = `(module
+  (memory (export "memory") 1)
+
+  ;; host calls allocate(i32); this declares two parameters
+  (func (export "allocate") (param i32 i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100))`
+
+// deployableWat implements the deploy path end to end: deploy returns a fixed,
+// well-formed DeployResult. Used by TestDeploySucceedsAndCachesModule and
+// TestDuplicateDeployIsRejectedAndKeepsCachedModule.
+const deployableWat = `(module
+  (memory (export "memory") 1)
+
+  ;; deploy result at offset 300: 4-byte LE length (25) + JSON
+  (data (i32.const 300) "\19\00\00\00" "{\"state\":[],\"fuel\":\"0x1\"}")
+
+  (func (export "deploy") (param i64 i32 i32) (result i32) i32.const 300)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+)`
+
+// trappingDeployWat instantiates cleanly but traps as soon as deploy is entered.
+// It is the probe for WHERE the duplicate-deploy guard sits: warm-up never calls a
+// guest function, so this module caches fine, and a later deploy for the same appId
+// reaches the guard without the guest having run. If the guard were checked after
+// the guest call instead, the trap would surface first and name a different failure.
+// Used by TestDuplicateDeployIsRejectedBeforeRunningGuest.
+const trappingDeployWat = `(module
+  (memory (export "memory") 1)
+
+  (func (export "deploy") (param i64 i32 i32) (result i32) unreachable)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+)`
+
+// trappingStatsWat loads successfully but traps inside the stats export. Used by
+// TestStatsTrapEvictsModule: the stats helpers call into the guest like any other
+// export, so a trap there leaves the same unknown heap state.
+const trappingStatsWat = `(module
+  (memory (export "memory") 1)
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  (func (export "get_allocated_memory_stats") (param i32) unreachable))`
+
+// tooManyTablesWat declares more tables than maxTablesPerStore allows. Table storage
+// is bounded per table, so the table *count* has to be bounded too or the total is
+// unbounded again. Used by TestGuestTableCountIsBounded.
+const tooManyTablesWat = `(module
+  (memory (export "memory") 1)
+  (table 1 funcref)
+  (table 1 funcref)
+  (table 1 funcref)
+  (table 1 funcref)
+  (table 1 funcref)
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32)))`
+
+// growingTableWat declares a table within the limit and then tries to grow past it at
+// runtime. Used by TestGuestTableGrowthIsBounded: bounding only the declared size
+// would leave table.grow as an unbounded path to the same memory.
+const growingTableWat = `(module
+  (memory (export "memory") 1)
+  (table $t 1 funcref)
+
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+
+  ;; grow well past maxTableElementsPerStore; returns -1 when refused
+  (func (export "grow") (result i32)
+    (table.grow $t (ref.null func) (i32.const 50000000))))`
 
 var testLogger logger.Logger
 
@@ -127,7 +345,8 @@ func TestWriteToMemory_NilModuleStore(t *testing.T) {
 
 	// Create a valid memory object, but instance can be nil
 	// since it's not reached when data is empty.
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -161,7 +380,8 @@ func TestWriteToMemory_NilData(t *testing.T) {
 
 	// Create a valid memory object, but instance can be nil
 	// since it's not reached when data is empty.
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -191,7 +411,8 @@ func TestExtractResultBytes(t *testing.T) {
 
 	// Setup a mock memory for testing, using the runtime's store
 	// 1 is the minimum size in WebAssembly pages (WebAssembly page size = 64 KiB (65,536 bytes))
-	memType := wasmtime.NewMemoryType(1, false, 0)
+	memType, err := wasmtime.NewMemoryType(1, false, 0, false)
+	require.NoError(t, err)
 	memory, err := wasmtime.NewMemory(store, memType)
 	require.NoError(t, err)
 
@@ -451,4 +672,650 @@ func TestProcessRequest_DispatchesByRequestType(t *testing.T) {
 	procState, _, _, _, _, _, failure := runtime.ProcessRequest(ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
 	require.Nil(t, failure, "Process must succeed via process_request")
 	require.Equal(t, []byte{1}, procState, "Process must dispatch to process_request (state=[1])")
+}
+
+// TestConcurrentExecutionAndEvictionIsSafe drives guest execution and LRU
+// eviction from separate goroutines, which is the exact overlap execLock exists
+// to prevent: ProcessRequest fetches its module under moduleLock but calls into
+// it after releasing that lock, so without execLock a concurrent load for another
+// app can pick the in-use module as the eviction victim and store.Close() it
+// mid-call. That frees native wasmtime state while guest code is running on it —
+// a segfault, not a Go panic, so no recover() would catch it and the enclave dies.
+//
+// maxCachedModules is 1, so every load by one worker evicts the module the other
+// worker is using, and the guest export spins (spinningProcessRequestWat) so the
+// eviction lands while the call is still running. The transport already dispatches
+// each inbound message in its own goroutine (pkg/communication/shared_impl.go), so
+// this is the shape a second in-flight request would take.
+//
+// This has been verified to be a real regression test: with the execLock
+// acquisitions removed it crashes the test binary with SIGSEGV inside native
+// wasmtime code, within the first few iterations. Note that it cannot be a Go
+// test failure — the process dies — and that -race does not report it, since the
+// conflict is on memory the Go race detector does not track.
+func TestConcurrentExecutionAndEvictionIsSafe(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 1) // cache holds exactly one module
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(spinningProcessRequestWat)
+	require.NoError(t, err)
+
+	const (
+		workers    = 2
+		iterations = 50
+	)
+
+	ctx := context.Background()
+	payload := []byte("{}")
+	state := []byte("{}")
+
+	var wg sync.WaitGroup
+	for worker := 1; worker <= workers; worker++ {
+		wg.Add(1)
+		appId := common.NewApplicationId(uint64(worker))
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				// assert (not require): require calls FailNow, which must not be
+				// invoked from a non-test goroutine.
+				gotState, _, _, _, _, _, failure := runtime.ProcessRequest(
+					ctx, appId, ethCommon.Address{}, common.Process, payload, state, wasmBytes)
+				if !assert.Nil(t, failure, "app %d iteration %d must succeed", appId, i) {
+					return
+				}
+				assert.Equal(t, []byte{1}, gotState, "app %d iteration %d returned unexpected state", appId, i)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// isCached reports whether a module for appId is currently in the LRU cache.
+// A plain helper rather than a method, to avoid extending the production type
+// from a test file.
+func isCached(r *WasmtimeRuntime, appId common.ApplicationIdType) bool {
+	r.moduleLock.RLock()
+	defer r.moduleLock.RUnlock()
+	_, exists := r.modules[appId]
+	return exists
+}
+
+// TestGuestTrapEvictsModule verifies that a module whose guest trapped is dropped
+// from the cache instead of serving the next request on a heap left in an unknown
+// state (see evictFaultedModule).
+//
+// This also exercises the defer ordering the eviction depends on: the deallocate
+// defers registered for the payload/state writes must run BEFORE the store is
+// closed, otherwise they would call into freed memory.
+func TestGuestTrapEvictsModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(trappingProcessRequestWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "a trapping guest must fail the request")
+	require.False(t, isCached(runtime, appId), "a module whose guest trapped must not stay cached")
+
+	// The app must still be usable: the next request reloads it and traps again
+	// rather than, say, panicking on a closed store.
+	_, _, _, _, _, _, failure = runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "the reloaded module must trap again, not crash")
+	require.False(t, isCached(runtime, appId))
+}
+
+// TestAppErrorKeepsModuleCached is the counterpart to TestGuestTrapEvictsModule:
+// a guest that cleanly reports an application-level error is healthy, so evicting
+// it would throw away a valid compiled module on every rejected request.
+func TestAppErrorKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(appErrorProcessRequestWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "the guest reported an application error")
+	require.Contains(t, failure.Error(), "boom")
+	require.True(t, isCached(runtime, appId), "an application-level error must not evict the module")
+}
+
+// TestStatsTrapEvictsModule applies the eviction rule to the stats helpers. They are
+// reference/debug paths today (absent from the executor's Runtime interface), but they
+// invoke the guest, so a trap leaves the same damaged heap that
+// TestGuestTrapEvictsModule guards against on the request path.
+func TestStatsTrapEvictsModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(trappingStatsWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+
+	_, _, err = runtime.GetAllocatedMemoryStats(context.Background(), appId, wasmBytes)
+	require.Error(t, err, "a trapping stats export must fail")
+	require.False(t, isCached(runtime, appId), "a module whose guest trapped must not stay cached")
+}
+
+// TestGuestTableCountIsBounded covers maxTablesPerStore. The element limit is per
+// table, so without a count bound a module could multiply it by declaring many tables.
+func TestGuestTableCountIsBounded(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(tooManyTablesWat)
+	require.NoError(t, err)
+
+	_, err = runtime.getOrLoadModule(context.Background(), common.NewApplicationId(1), wasmBytes)
+	require.Error(t, err, "more tables than the limit must be rejected")
+	require.Contains(t, err.Error(), "table count")
+}
+
+// TestGuestTableGrowthIsBounded covers the runtime half of the element limit: a guest
+// that declares a small table and grows it must still be capped, or the bound only
+// applies to the declared size.
+func TestGuestTableGrowthIsBounded(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(growingTableWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	_, err = runtime.getOrLoadModule(context.Background(), appId, wasmBytes)
+	require.NoError(t, err, "the module itself is within the limits")
+
+	runtime.moduleLock.RLock()
+	module := runtime.modules[appId]
+	runtime.moduleLock.RUnlock()
+	require.NotNil(t, module)
+
+	res, err := module.instance.GetFunc(module.store, "grow").Call(module.store)
+	require.NoError(t, err, "a refused table.grow reports failure, it does not trap")
+	require.Equal(t, int32(-1), res, "growth beyond the element limit must be refused")
+}
+
+// TestStatsRejectsOutOfBoundsResultPointer verifies that a guest-supplied result
+// pointer too close to the end of memory is rejected with an error rather than
+// panicking the host.
+//
+// GetAllocatedMemoryStats reads 16 bytes straight out of the memory slice at the
+// pointer the guest's `allocate` returned. Unlike extractResultBytes it has no
+// recover shield, so an unchecked slice expression here takes the process down —
+// against the "NEVER let guest crash the host" rule that shield documents.
+func TestStatsRejectsOutOfBoundsResultPointer(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(nearEndAllocWat)
+	require.NoError(t, err)
+
+	_, _, err = runtime.GetAllocatedMemoryStats(context.Background(), common.NewApplicationId(1), wasmBytes)
+	require.Error(t, err, "an out-of-bounds result pointer must be an error, not a panic")
+	require.Contains(t, err.Error(), "out of bounds")
+}
+
+// TestSignatureMismatchKeepsModuleCached covers the case where the host cannot
+// invoke the guest at all: Func.Call rejects the argument list before entering
+// wasm, so no guest code runs and no heap is touched.
+//
+// By the rule in errGuestFault that makes it a static module defect, like a
+// missing export — recompiling cannot change the signature, so evicting would
+// recompile on every request for as long as the app keeps being called.
+func TestSignatureMismatchKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(wrongAritySignatureWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		_, _, _, _, _, _, failure := runtime.ProcessRequest(
+			ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+		require.NotNil(t, failure, "a signature mismatch must fail the request")
+		require.True(t, isCached(runtime, appId),
+			"the guest never ran, so the module must stay cached (iteration %d)", i)
+	}
+}
+
+// TestGuestTableIsBounded verifies that table storage is capped, not just linear
+// memory. Table elements live outside the guest's memory, so an unbounded element
+// count would let a module commit gigabytes regardless of
+// EXECUTOR_MAX_GUEST_MEMORY_BYTES — falsifying the
+// "MaxCachedModules * MaxGuestMemoryBytes" sizing rule the config documents.
+func TestGuestTableIsBounded(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(hugeTableWat)
+	require.NoError(t, err)
+
+	_, err = runtime.getOrLoadModule(context.Background(), common.NewApplicationId(1), wasmBytes)
+	require.Error(t, err, "a table far above the element limit must be rejected")
+}
+
+// TestDuplicateDeployIsRejectedAndKeepsCachedModule covers the duplicate-deploy
+// guard in deployUnlocked: a deploy for an appId that already has a module must
+// be rejected, and must leave the cached module — the one serving requests —
+// entirely untouched. The cache is warmed first via getOrLoadModule, the state a
+// Deposit/ProcessRequest leaves behind, e.g. after an executor restart.
+//
+// See TestDuplicateDeployIsRejectedBeforeRunningGuest for the companion check that
+// the rejection happens before any guest code runs.
+func TestDuplicateDeployIsRejectedAndKeepsCachedModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(deployableWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	original, err := runtime.getOrLoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	_, _, err = runtime.Deploy(ctx, appId, nil, wasmBytes)
+	require.Error(t, err, "a deploy for an already-cached appId must be rejected")
+	require.Contains(t, err.Error(), "already deployed")
+
+	runtime.moduleLock.RLock()
+	cached := runtime.modules[appId]
+	runtime.moduleLock.RUnlock()
+	require.Same(t, original, cached, "the original module must stay cached, not be replaced or dropped")
+
+	// The original's store must have survived the rejected duplicate's cleanup:
+	// calling into it would fail (or panic) if the guard's error path had torn
+	// down the wrong module.
+	res, err := cached.instance.GetFunc(cached.store, "allocate").Call(cached.store, int32(1))
+	require.NoError(t, err, "the original module must remain usable after the rejected deploy")
+	require.Equal(t, int32(500), res)
+}
+
+// TestDuplicateDeployIsRejectedBeforeRunningGuest pins WHERE the duplicate-deploy
+// guard sits: ahead of the compile and the guest call, not after them.
+//
+// The position is not cosmetic. Rejecting late means a deploy that is already
+// doomed still compiles the module and then runs the guest's constructor — with
+// execLock held and nothing bounding guest execution (see newPinnedEngine), so a
+// slow or non-terminating constructor blocks every other app's requests — and it
+// leaves a fully built module whose store, log FIFOs and forwarding goroutine only
+// survive because a deferred cleanup releases them. Rejecting early creates none
+// of that.
+//
+// The probe is a guest that traps the moment deploy is entered: the guard must
+// report the duplicate, and the trap must never be reached.
+func TestDuplicateDeployIsRejectedBeforeRunningGuest(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(trappingDeployWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	// Warm-up calls no guest function, so a module whose deploy traps caches fine.
+	_, err = runtime.getOrLoadModule(ctx, appId, wasmBytes)
+	require.NoError(t, err)
+
+	_, _, err = runtime.Deploy(ctx, appId, nil, wasmBytes)
+	require.Error(t, err, "a deploy for an already-cached appId must be rejected")
+	require.Contains(t, err.Error(), "already deployed")
+	require.NotContains(t, err.Error(), "failed to call deploy",
+		"the guest must not be entered: the duplicate has to be rejected before the deploy call")
+}
+
+// TestDeploySucceedsAndCachesModule is the success-path counterpart to the
+// duplicate and trap cases: a first deploy of a well-formed module must return the
+// guest's state and fuel and leave the module cached, so the request that follows
+// hits the cache instead of recompiling.
+func TestDeploySucceedsAndCachesModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(deployableWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+
+	// Non-empty constructor params, so the writeToMemory/deallocate pair around the
+	// guest call is exercised rather than short-circuited by the empty-data path.
+	state, fuel, err := runtime.Deploy(context.Background(), appId, []byte(`{"init":1}`), wasmBytes)
+	require.NoError(t, err)
+	require.Empty(t, state, "deployableWat reports an empty initial state")
+	require.Equal(t, int64(1), fuel.Int64(), "fuel must come from the guest's DeployResult")
+	require.True(t, isCached(runtime, appId), "a deployed module must be left in the cache")
+}
+
+// TestAllocateSignatureMismatchKeepsModuleCached is the writeToMemory counterpart to
+// TestSignatureMismatchKeepsModuleCached: Func.Call rejects a mismatched argument
+// list before entering wasm, so nothing executed and the module must stay cached
+// rather than be recompiled on every request.
+func TestAllocateSignatureMismatchKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(wrongArityAllocateWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		_, _, _, _, _, _, failure := runtime.ProcessRequest(
+			ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+		require.NotNil(t, failure, "writing to guest memory must fail")
+		require.True(t, isCached(runtime, appId),
+			"allocate having the wrong signature is a static defect: the guest never ran (iteration %d)", i)
+	}
+}
+
+// TestMalformedResultEvictsModule pins down the ambiguous case in the
+// classification: a guest that returns bytes the host cannot deserialize is
+// treated as a fault and evicted, even though a broken serializer would fail
+// identically on every request (so the recompile is wasted).
+//
+// This is deliberate, not an oversight — the guest ran and wrote that buffer, so
+// the host cannot tell a deterministic serialization defect from a heap bug that
+// clobbered the result. See errGuestFault for the cost argument. Asserting it here
+// so the choice cannot be flipped silently; if it is ever moved to the cached
+// class, this test is the place to record why.
+func TestMalformedResultEvictsModule(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(malformedResultWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	require.NotNil(t, failure, "unparseable guest output must fail the request")
+	require.False(t, isCached(runtime, appId), "a guest that produced unparseable output must be evicted")
+}
+
+// TestHostSideFailureKeepsModuleCached covers a failure that is neither a guest
+// fault nor an application error, but a static defect in the module (here, a
+// missing `allocate` export). One of the eviction-classification cases; the rule
+// they all check is documented on errGuestFault. Deliberately not enumerated by
+// count here — that goes stale every time a case is added. Evicting on those would recompile
+// the module on every request for as long as the app keeps being called, which is
+// wasted work and cheap amplification for anyone able to deploy such an app.
+func TestHostSideFailureKeepsModuleCached(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(noAllocateWat)
+	require.NoError(t, err)
+
+	appId := common.NewApplicationId(1)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		_, _, _, _, _, _, failure := runtime.ProcessRequest(
+			ctx, appId, ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+		require.NotNil(t, failure, "writing to guest memory must fail without an allocate export")
+		require.True(t, isCached(runtime, appId),
+			"a host-side failure must not evict the module (iteration %d)", i)
+	}
+}
+
+// TestTryAcquireExecLock covers the bounded acquire that keeps Close from hanging
+// behind a runaway guest.
+func TestTryAcquireExecLock(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	// Free: acquired immediately.
+	require.True(t, runtime.tryAcquireExecLock(time.Second))
+	runtime.execLock.Unlock()
+
+	// Held: gives up after the timeout instead of blocking forever.
+	runtime.execLock.Lock()
+	start := time.Now()
+	require.False(t, runtime.tryAcquireExecLock(50*time.Millisecond))
+	require.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond, "must wait for the full timeout")
+	runtime.execLock.Unlock()
+
+	// Released while waiting: acquired rather than timing out.
+	runtime.execLock.Lock()
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		runtime.execLock.Unlock()
+	}()
+	require.True(t, runtime.tryAcquireExecLock(5*time.Second))
+	runtime.execLock.Unlock()
+}
+
+// TestCloseDoesNotHangOnStuckGuest asserts that shutdown completes even when a
+// guest call never returns. Guest execution is unbounded today (no fuel, no epoch
+// deadline — see newPinnedEngine), and execLock is held across guest calls, so
+// without the bounded acquire in Close this would hang forever and the executor
+// could never shut down gracefully.
+//
+// A held execLock stands in for the runaway guest: it is the same state the
+// runtime would be in, without needing to burn a core spinning inside wasmtime.
+func TestCloseDoesNotHangOnStuckGuest(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+
+	runtime.execLock.Lock() // simulate a guest call that never returns
+	// Close gives up by design here, so it never frees the engine. Release the lock
+	// and close again so this test does not leak native state like a stuck executor
+	// would — it is a test, not the shutdown path being modelled.
+	defer func() {
+		runtime.execLock.Unlock()
+		require.NoError(t, runtime.Close())
+	}()
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- runtime.Close() }()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "Close must report that it gave up rather than claiming success")
+		require.GreaterOrEqual(t, time.Since(start), shutdownExecLockTimeout)
+	case <-time.After(shutdownExecLockTimeout + 10*time.Second):
+		t.Fatal("Close hung waiting for an in-flight guest call")
+	}
+}
+
+func TestSetMaxGuestMemoryBytes(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	// The default is the 2 GiB ceiling
+	require.Equal(t, int64(maxGuestMemoryCeilingBytes), runtime.GetMaxGuestMemoryBytes())
+
+	// In-range values are applied as-is
+	runtime.SetMaxGuestMemoryBytes(512 * 1024 * 1024)
+	require.Equal(t, int64(512*1024*1024), runtime.GetMaxGuestMemoryBytes())
+
+	// Out-of-range values fall back to the ceiling
+	for _, invalid := range []int64{0, -1, maxGuestMemoryCeilingBytes + 1} {
+		runtime.SetMaxGuestMemoryBytes(invalid)
+		require.Equal(t, int64(maxGuestMemoryCeilingBytes), runtime.GetMaxGuestMemoryBytes())
+	}
+}
+
+// TestGuestMemoryCapEnforced verifies that stores created by the runtime refuse
+// guest memory growth beyond the configured cap: memory.grow reports failure
+// (-1) to the guest instead of growing.
+func TestGuestMemoryCapEnforced(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	const pageSize = 64 * 1024
+	runtime.SetMaxGuestMemoryBytes(2 * pageSize)
+
+	wasmBytes, err := wasmtime.Wat2Wasm(`(module
+		(memory (export "memory") 1)
+		(func (export "grow") (param i32) (result i32)
+			local.get 0
+			memory.grow))`)
+	require.NoError(t, err)
+
+	module, err := wasmtime.NewModule(runtime.engine, wasmBytes)
+	require.NoError(t, err)
+	defer module.Close()
+
+	runtime.moduleLock.Lock()
+	store := runtime.newModuleStore()
+	runtime.moduleLock.Unlock()
+	defer store.Close()
+
+	instance, err := wasmtime.NewInstance(store, module, nil)
+	require.NoError(t, err)
+
+	grow := instance.GetFunc(store, "grow")
+	require.NotNil(t, grow)
+
+	// 1 -> 2 pages: within the cap, returns the previous size in pages
+	res, err := grow.Call(store, int32(1))
+	require.NoError(t, err)
+	require.Equal(t, int32(1), res)
+
+	// 2 -> 3 pages: beyond the cap, the guest sees a failed grow
+	res, err = grow.Call(store, int32(1))
+	require.NoError(t, err)
+	require.Equal(t, int32(-1), res)
+}
+
+// TestPinnedEngineRejectsDisabledProposals verifies that the explicitly pinned
+// feature set in newPinnedEngine is actually enforced: a module using a proposal
+// this runtime disables must fail to compile rather than being silently accepted
+// because a future wasmtime enables it by default.
+//
+// One pin is deliberately absent: the component model cannot be expressed as a core
+// module, so Wat2Wasm cannot build a violating input for it.
+//
+// The cases are not all the same kind of risk. Multi-memory and shared memory would
+// multiply the worst-case RAM a single app can hold, since the guest memory cap is
+// applied per linear memory. memory64 would break the signed-int32 pointer ABI (and
+// reopens GHSA-p8xm-42r7-89xg). Relaxed SIMD would make results host-dependent. The
+// rest are surface we do not want. See newPinnedEngine and newModuleStore.
+func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	testCases := []struct {
+		name string
+		wat  string
+	}{
+		{
+			name: "multi-memory",
+			wat: `(module
+				(memory (export "memory") 1)
+				(memory 1))`,
+		},
+		{
+			name: "shared memory (threads)",
+			wat: `(module
+				(memory (export "memory") 1 1 shared))`,
+		},
+		{
+			// Arrived as a knob in v47 and pinned off on arrival. Worth covering even
+			// though the GC-subsystem pins currently reject this on their own
+			// (exceptions build on GC types): the explicit pin is what keeps it off
+			// if GC support is ever switched back on for externref.
+			//
+			// Note the default engine *accepts* this module even though v47's
+			// config.h documents wasm_exceptions as "false by default" — a concrete
+			// reason this file pins the feature set rather than trusting documented
+			// defaults.
+			name: "exceptions",
+			wat: `(module
+				(tag $e)
+				(func (export "f") (throw $e)))`,
+		},
+		{
+			// Rejected by SetGCSupport(false) rather than by SetWasmGC(false):
+			// externref values need the GC subsystem, so switching that off narrows
+			// what "reference types enabled" admits. See newPinnedEngine.
+			name: "externref parameter",
+			wat: `(module
+				(func (export "f") (param externref)))`,
+		},
+		{
+			// The pin with the widest consequences: guest pointers are exchanged as
+			// signed int32 offsets, and disabling memory64 is also what neutralises
+			// GHSA-p8xm-42r7-89xg (a host panic reachable only with memory64 on).
+			name: "memory64",
+			wat:  `(module (memory i64 1))`,
+		},
+		{
+			name: "relaxed SIMD",
+			wat: `(module
+				(func (export "f") (param v128 v128 v128) (result v128)
+					(local.get 0) (local.get 1) (local.get 2) (f32x4.relaxed_madd)))`,
+		},
+		{
+			name: "tail call",
+			wat: `(module
+				(func $a)
+				(func (export "f") (return_call $a)))`,
+		},
+		{
+			name: "function references",
+			wat: `(module
+				(type $t (func))
+				(func (export "f") (param (ref null $t))))`,
+		},
+		{
+			// Struct types need the GC proposal. Either GC knob rejects this on its own
+			// (measured: dropping SetWasmGC(false) or SetGCSupport(false) individually
+			// still rejects, dropping both accepts), so this case guards the pair
+			// rather than either knob alone — and the default engine accepts it, so the
+			// pins are doing real work. The externref case above is what isolates
+			// SetGCSupport; no core-module fixture isolates SetWasmGC by itself.
+			name: "wasm-gc struct type",
+			wat: `(module
+				(type $s (struct (field i32)))
+				(func (export "f") (result (ref null $s)) ref.null $s))`,
+		},
+		{
+			// Unlike the cases above, v47's default engine also rejects this one, so
+			// this guards against an upstream default flip rather than against our pin
+			// being dropped. Kept because the pin exists and the rule is categorical.
+			name: "wide arithmetic",
+			wat: `(module
+				(func (export "f") (result i64 i64)
+					(i64.const 1) (i64.const 2) (i64.const 3) (i64.const 4) (i64.add128)))`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Wat2Wasm is proposal-agnostic and encodes all of these fine; the
+			// rejection must come from the engine's pinned feature set. v47's
+			// *default* engine compiles all of them except "wide arithmetic"
+			// (measured), which is exactly why the set is pinned explicitly rather
+			// than inherited — and why each case notes what it actually guards.
+			wasmBytes, err := wasmtime.Wat2Wasm(tc.wat)
+			require.NoError(t, err)
+
+			module, err := wasmtime.NewModule(runtime.engine, wasmBytes)
+			if err == nil {
+				module.Close()
+				t.Fatalf("expected the pinned engine to reject a %s module, but it compiled", tc.name)
+			}
+		})
+	}
 }
