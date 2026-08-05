@@ -183,7 +183,22 @@ time ─────────────────────────
 - **Single stateRoot storage write**: read `applicationStateRoots[applicationId]` once at the start, chain through entries in memory, write once at the end — saves (N-1) warm `SSTORE` operations (~5,000 gas each)
 - **State root chain validation**: only the first entry checks `prevStateRoot` against storage; subsequent entries validate `entries[i].prevStateRoot == entries[i-1].newStateRoot` in memory
 - **Deduplicated `applicationId`**: passed once instead of per-entry
-- **Batch signature**: verify one signature over `keccak256(abi.encode(entry1_hash, entry2_hash, ...))` instead of N individual `ecrecover` calls, saving (N-1) × ~3,000+ gas. Individual entry hashes are emitted in events for off-chain verifiability
+- **Batch signature**: verify one signature over the batch digest instead of N individual `ecrecover` calls, saving (N-1) × ~3,000+ gas. Individual entry hashes are emitted in events for off-chain verifiability
+
+**Batch signing scheme** (as implemented in `MsgToSignBuilder.BuildBatchMsgHash`, `pkg/executor/msgtosign_builder.go`). Each entry hash is `entryHash_i = keccak256(abi.encode(<entry fields>))` — the same per-entry hash the single-request path uses (`buildEntryHash`). The batch digest is the Ethereum `personal_sign` (EIP-191) hash of the **concatenated** entry hashes:
+
+```
+batchDigest = keccak256("\x19Ethereum Signed Message:\n" || itoa(32*N) || entryHash_0 || entryHash_1 || ... || entryHash_N-1)
+```
+
+There is **no intermediate `keccak256` over the concatenation** — the concatenated bytes are the `personal_sign` message itself. Two properties make this unambiguous:
+
+- **Injectivity**: every entry hash is a fixed 32-byte `keccak256` output, so a concatenation of N of them splits exactly one way. This depends on the per-entry hash staying fixed-length.
+- **Length binding**: the `personal_sign` prefix commits to the total message length (`32*N`), so batches of different sizes cannot collide.
+
+A consequence is that a **1-entry batch digest is byte-identical to the single-request digest** (`BuildMsgHash` = `TextHash(entryHash)`), so both submission paths share one signing scheme and a 1-entry batch signature verifies on the single-request `stateUpdate()` path.
+
+The contract must reconstruct exactly this digest: `personal_sign` over the concatenated entry hashes with a **dynamic** length prefix (`32*N`), not a fixed one, and without an extra hash layer.
 
 **Pros:**
 
@@ -398,7 +413,7 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
 4. Add `batchStateUpdate(uint64 applicationId, BatchEntry[] calldata entries, bytes calldata batchSignature)` that:
    - Reverts if `triggerContracts[applicationId]` is set (section 5.4)
    - Requires `applicationId` to match the round-robin scan result and sets the cursor just past it (section 4.3); the same check applies to `stateUpdate()` when dequeuing from a per-application queue (trigger-queue processing bypasses it)
-   - Verifies the batch signature: recover the signer from `keccak256(abi.encode(hash(entries[0]), hash(entries[1]), ...))` and `batchSignature`, verify it matches the registered TEE signer. One `ecrecover` call for the entire batch. This requires a new verification function on the TEE authenticator (e.g., `checkBatchSignature(bytes32[] entryHashes, bytes signature)` in `ITeeAuthenticator` / `AbstractTeeAuthenticator`) — the existing `checkSignature()` hashes a single `SignatureParams` struct and cannot verify a batch message.
+   - Verifies the batch signature: recover the signer from the batch digest (section 3.2 — `personal_sign` over the concatenated entry hashes, dynamic `32*N` length prefix, no extra hash layer) and `batchSignature`, verify it matches the registered TEE signer. One `ecrecover` call for the entire batch. This requires a new verification function on the TEE authenticator (e.g., `checkBatchSignature(bytes32[] entryHashes, bytes signature)` in `ITeeAuthenticator` / `AbstractTeeAuthenticator`) — the existing `checkSignature()` hashes a single `SignatureParams` struct and cannot verify a batch message. Note the digest is built from the entry hashes only, so the authenticator can take `bytes32[] entryHashes` directly; it must build the prefix from the array length at runtime.
    - Reads `applicationStateRoots[applicationId]` from storage once into a local variable
    - Loops over entries, calling `_processOneStateUpdate()` for each (signature verification is already done — `_processOneStateUpdate` skips per-entry `ecrecover`), dequeuing from `pendingQueues[applicationId]`
    - Validates state root chaining: first entry checks `prevStateRoot` against storage; subsequent entries check `entries[i].prevStateRoot == entries[i-1].newStateRoot`
@@ -463,7 +478,8 @@ Add a batch message type to the executor so it can process multiple requests in 
    - Verify only 1 AES decrypt and 1 AES encrypt occur for the batch
    - Verify a partial batch returns fewer payloads than input requests, so the shortfall is visible to the manager
    - Verify a single batch signature is returned (not per-entry signatures)
-   - Verify batch signature covers all entry hashes: recover signer from `keccak256(abi.encode(hash(entry1), ..., hash(entryN)))` and confirm it matches the executor's TEE key
+   - Verify batch signature covers all entry hashes: recover signer from the batch digest (section 3.2) and confirm it matches the executor's TEE key. Pin the digest against an independently computed expected value — recomputing it with `BuildBatchMsgHash` alone would pass under any scheme and cannot detect a change to it
+   - Verify a 1-entry batch digest equals `BuildMsgHash` of that entry (the two paths must share one scheme)
    - Batch signing failure — verify entire batch is discarded, error returned, no partial results
 
 **Files changed:**
@@ -503,7 +519,7 @@ Refactor the manager's poll loop to fetch multiple requests and route them throu
 
 **Steps:**
 
-1. Add `MaxBatchSize` configuration to `config.go` with `MAX_BATCH_SIZE` env var (default 5). Add startup validation: `DataLayerNumOfVersions >= MaxBatchSize + 5`.
+1. Add `MaxBatchSize` configuration to `config.go` with `MAX_BATCH_SIZE` env var (default 5). Add startup validation: `MaxBatchSize > 0`.
 
 2. Add `GetPendingRequestsWithStateRoot(maxCount uint64)` to the blockchain client, returning `(uint64, []*common.Request, [32]byte, error)` — the contract-selected `applicationId`, up to `maxCount` of its pending requests, and its on-chain state root (section 4.3). The caller passes `MaxBatchSize` so only the requests that will actually be processed are fetched. The existing `GetPendingRequests()` only returns requests without the state root or selection logic.
 
@@ -700,8 +716,10 @@ HandleBatchProcessRequest(requests, encryptedState, wasmModule):
     if len(results) == 0:
         return nil, nil, nil, nil  // nothing processed
 
-    // Batch signature — one sign operation covering all entries
-    batchHash := keccak256(abi.encode(hash(results[0]), ..., hash(results[N-1])))
+    // Batch signature — one sign operation covering all entries.
+    // personal_sign over the concatenated entry hashes (section 3.2):
+    //   keccak256("\x19Ethereum Signed Message:\n" || itoa(32*N) || hash(results[0]) || ... || hash(results[N-1]))
+    batchHash := personalSign(concat(hash(results[0]), ..., hash(results[N-1])))
     batchSignature, err := sign(batchHash)
     if err != nil:
         return nil, nil, nil, err  // signing failure — entire batch discarded
@@ -736,5 +754,5 @@ A mechanism from this list must be chosen before the design is complete; until t
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_BATCH_SIZE` | `5` | Max requests per poll cycle (per batch, single application) |
-| `DataLayerNumOfVersions` | `10` | Must be >= `MaxBatchSize + 5`. Version chains are per-application, so the constraint applies to each application's chain independently. Currently hardcoded in `config.go`. |
+| `MAX_BATCH_SIZE` | `5` | Max requests per poll cycle (per batch, single application). Must be > 0. |
+| `DataLayerNumOfVersions` | `10` | Depth of per-application version history retained for rollback and reorg recovery. A batch stores only its final state (one version per batch), so this is independent of `MaxBatchSize`; size it for the reorg-recovery depth you need. Currently hardcoded in `config.go`. |

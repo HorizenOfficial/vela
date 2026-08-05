@@ -131,7 +131,7 @@ func (m *MockExecutorClient) SendDeployApp(ctx context.Context, req *common.Requ
 			ApplicationFee: common.NewBig(0),
 		}, nil, nil
 	}
-	stateRoot := m.generateRandomStateRoot()
+	stateRoot := generateRandomStateRoot()
 	return &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, NewStateRoot: stateRoot}, &common.ApplicationState{ApplicationID: req.ApplicationID, StateRoot: stateRoot}, nil
 }
 
@@ -163,7 +163,7 @@ func (m *MockExecutorClient) SendProcessRequest(ctx context.Context, req *common
 		return failurePayload, nil, nil, nil
 	}
 
-	stateRoot := m.generateRandomStateRoot()
+	stateRoot := generateRandomStateRoot()
 
 	// If this is a deanonymization request, return a deanonymization report
 	var report *common.DeanonymizationReport
@@ -184,7 +184,47 @@ func (m *MockExecutorClient) SendBatchProcessRequest(ctx context.Context, reques
 	if f, ok := m.GetMockedFunc("SendBatchProcessRequest"); ok {
 		return f.(func(context.Context, []*common.Request, *common.ApplicationState, []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error))(ctx, requests, appState, wasmModule)
 	}
-	return nil, nil, nil, nil, fmt.Errorf("batch process request not supported in mock")
+	if appState == nil {
+		return nil, nil, nil, nil, fmt.Errorf("state not found for application %d", requests[0].ApplicationID)
+	}
+	prev := appState.StateRoot
+	results := make([]*common.UpdatePayload, 0, len(requests))
+	last := prev
+	var reports []*common.DeanonymizationReport
+	
+	for _, req := range requests {
+		if string(req.Payload) == "invalid" {
+			failurePayload := &common.UpdatePayload{
+				ApplicationID: req.ApplicationID,
+				RequestID:     req.RequestID,
+				PrevStateRoot: prev,
+				NewStateRoot:  prev,
+				ErrorCode:     uint8(apperrors.CategoryInternalMeta.Category),
+				ErrorMsg:      "invalid request",
+			}
+			results = append(results, failurePayload)
+			break
+		}
+		nr := generateRandomStateRoot()
+		results = append(results, &common.UpdatePayload{
+			ApplicationID: req.ApplicationID,
+			RequestID:     req.RequestID,
+			PrevStateRoot: prev,
+			NewStateRoot:  nr,
+		})
+		if req.RequestType == common.Deanonymize {
+			reports = append(reports, &common.DeanonymizationReport{
+				ApplicationID:   req.ApplicationID,
+				ReportID:        req.RequestID,
+				Authority:       req.Sender,
+				EncryptedReport: []byte(`{"accounts":{}}`),
+			})
+		}
+		prev = nr
+		last = nr
+	}
+	final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: last, EncryptedState: []byte("enc")}
+	return results, []byte("batch-sig"), final, reports, nil
 }
 
 func (m *MockExecutorClient) ForwardAdminCommand(ctx context.Context, cmdType string, data json.RawMessage) (json.RawMessage, error) {
@@ -199,7 +239,7 @@ func (m *MockExecutorClient) SetClientRequestHandler(handler communication.Clien
 }
 
 // GenerateRandomID generates a random ID
-func (m *MockExecutorClient) generateRandomStateRoot() [32]byte {
+func generateRandomStateRoot() [32]byte {
 	var b [32]byte
 	_, err := rand.Read(b[:])
 	if err != nil {
@@ -405,7 +445,7 @@ func TestStop(t *testing.T) {
 	require.NoError(t, err, "Failed to stop manager")
 }
 
-func TestProcessRequestFromChain(t *testing.T) {
+func TestProcessBatchFromChain(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy request
@@ -418,7 +458,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -442,7 +482,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -466,7 +506,7 @@ func TestProcessRequestFromChain(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 0 completed request")
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -509,9 +549,10 @@ func TestProcessRequestsFromChainMixed(t *testing.T) {
 	require.Equal(t, 4, len(pendingRequests), "expected 4 pending request")
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
+	manager.config.MaxBatchSize = 1
 
 	for i := 0; i < 4; i++ {
-		err = manager.processRequestFromChain(context.Background())
+		err = manager.processBatchFromChain(context.Background())
 		require.NoError(t, err)
 	}
 
@@ -857,20 +898,13 @@ func TestProcessDeployApp_HashMismatchIsHandledByExecutor(t *testing.T) {
 	require.Equal(t, 1, len(mockBCClient.GetFailedRequests()))
 }
 
-func TestProcessProcessRequestWithFailure(t *testing.T) {
+func TestProcessBatchWithFailure(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
-	// Deploy the application first
-	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
-	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
-	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err)
-	completedRequests := mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	seedDeployedApp(t, mockBCClient, manager, ApplicationId)
 
-	request := createRequest(common.Process, ApplicationId)
-	err = mockBCClient.SendRequestToChain(context.Background(), request)
+	request := createRequestWithPayload(common.Process, ApplicationId, []byte("invalid"))
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
 	// Test that if it is a failure payload returned by the executor, submitStateOnChain is called but the state is not stored in the data layer
@@ -879,17 +913,11 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 		return nil
 	})
 
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
-		func(_ context.Context, req *common.Request, _ *common.ApplicationState, _ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-			return &common.UpdatePayload{ApplicationID: ApplicationId,
-				RequestID: req.RequestID,
-				ErrorCode: 1,
-				ErrorMsg:  "error"}, nil, nil, nil
-		})
+	appState, _ := manager.dataLayer.GetApplicationState(context.Background(), ApplicationId)
 
-	err = manager.processProcessRequest(context.Background(), request)
+	err = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, appState.StateRoot)
 	require.NoError(t, err)
-	completedRequests = mockBCClient.GetCompletedRequests()
+	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 
 	failedRequests := mockBCClient.GetFailedRequests()
@@ -897,25 +925,21 @@ func TestProcessProcessRequestWithFailure(t *testing.T) {
 	require.Equal(t, request.RequestID, failedRequests[0].RequestID, "Wrong requestID")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
-	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
 
 }
 
-func TestProcessProcessRequestWithErrors(t *testing.T) {
+func TestProcessBatchWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
-	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
-	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
-	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err)
-	completedRequests := mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	seedDeployedApp(t, mockBCClient, manager, ApplicationId)
 
 	oldDbVersion, err := manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
+	appState, err := manager.dataLayer.GetApplicationState(context.Background(), ApplicationId)
+	require.NoError(t, err)
+	initialStateRoot := appState.StateRoot
 	// Simulate application state not found. SendProcessRequest is still called with a nil
 	// state, but the executor rejects it with a hard error: the request stays pending.
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
@@ -925,31 +949,29 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	failure := manager.processProcessRequest(context.Background(), request)
+	failure := manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
+	
 	require.Error(t, failure)
 	require.ErrorContains(t, failure, "state not found for application")
 
-	completedRequests = mockBCClient.GetCompletedRequests()
+	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 	require.Empty(t, mockBCClient.GetFailedRequests())
-
-	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
-
-	//Other failures in GetApplicationState, stop processing and return the error
-	request = createRequest(common.Process, ApplicationId)
-	err = mockBCClient.SendRequestToChain(context.Background(), request)
-	require.NoError(t, err)
+	pendingRequests, _ := mockBCClient.GetPendingRequests(context.Background())
+	require.Equal(t, 1, len(pendingRequests), "expected 1 pending request")
 
 	expectedError := "error"
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
 		return nil, errors.New(expectedError)
 	})
-	failure = manager.processProcessRequest(context.Background(), request)
+	failure = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
 	require.Error(t, failure)
 	require.ErrorContains(t, failure, expectedError)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
+	require.Equal(t, 1, len(pendingRequests), "expected 1 pending request")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
@@ -958,29 +980,34 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetWASMBytecode", func(context.Context, common.ApplicationIdType) ([]byte, error) {
 		return nil, errors.New(expectedError)
 	})
-	failure = manager.processProcessRequest(context.Background(), request)
+	failure = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
 	require.Error(t, failure)
 	require.ErrorContains(t, failure, expectedError)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
+	require.Equal(t, 1, len(pendingRequests), "expected 1 pending request")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetWASMBytecode")
 
 	// Test failure in executor
 	expectedError = "failed to execute app"
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest", func(context.Context, *common.Request, *common.ApplicationState, []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-		return nil, nil, nil, errors.New(expectedError)
-	})
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			return nil, nil, nil, nil, errors.New(expectedError)
+		})
 
-	failure = manager.processProcessRequest(context.Background(), request)
+	failure = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
 	require.Error(t, failure)
 	require.Contains(t, failure.Error(), expectedError)
 
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
+	require.Equal(t, 1, len(pendingRequests), "expected 1 pending request")
 
-	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
+	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendBatchProcessRequest")
 
 	// Test data layer failure, stop processing and return the error
 	expectedError = "failed to store state"
@@ -988,7 +1015,7 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 		return errors.New(expectedError)
 	})
 
-	failure = manager.processProcessRequest(context.Background(), request)
+	failure = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
 	require.Error(t, failure)
 	require.Contains(t, failure.Error(), expectedError)
 
@@ -1004,11 +1031,11 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	// - InvalidApplicationId
 	// - NonceTooLow
 	// The local db should be reverted to the previous state
-	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
+
+	mockBCClient.AddMockedFunc("SubmitBatchStateUpdate", func(ctx context.Context, updates []*common.UpdatePayload, sig []byte) error {
 		return blockchain.ReorgError{}
 	})
-
-	failure = manager.processProcessRequest(context.Background(), request)
+	failure = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
 	require.Nil(t, failure)
 	// Check that the local db has been reverted to the initial state
 	newDbVersion, err := manager.dataLayer.LastVersionID(ApplicationId)
@@ -1021,11 +1048,11 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	// Test blockchain failure for any other errors but reorgs.
 	// The local db should be reverted to the previous state
 	expectedError = "some other error"
-	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(ctx context.Context, payload *common.UpdatePayload) error {
+	mockBCClient.AddMockedFunc("SubmitBatchStateUpdate", func(ctx context.Context, updates []*common.UpdatePayload, sig []byte) error {
 		return errors.New(expectedError)
-	})
+	})	
 
-	failure = manager.processProcessRequest(context.Background(), request)
+	failure = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
 	require.Error(t, failure)
 	require.Contains(t, failure.Error(), expectedError)
 
@@ -1037,16 +1064,9 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	// Same test but with an error payload for the SubmitStateUpdate
-	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendProcessRequest",
-		func(_ context.Context, req *common.Request, _ *common.ApplicationState, _ []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
-			return &common.UpdatePayload{ApplicationID: ApplicationId,
-				RequestID: req.RequestID,
-				ErrorCode: 1,
-				ErrorMsg:  "error"}, nil, nil, nil
-		})
-
-	failure = manager.processProcessRequest(context.Background(), request)
+	// Same test but with an error payload for the SubmitBatchStateUpdate
+	request.Payload = []byte("invalid")
+	failure = manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
 	require.Error(t, failure)
 	require.Contains(t, failure.Error(), expectedError)
 
@@ -1058,46 +1078,38 @@ func TestProcessProcessRequestWithErrors(t *testing.T) {
 	completedRequests = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
 
-	manager.executorClient.(*MockExecutorClient).RemoveMockedFunc("SendProcessRequest")
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Store")
 
 }
 
 // TestProcessDeanonymizationViaProcessRequest tests the deanonymization flow which is now
-// handled through processProcessRequest with RequestType = Deanonymize
+// handled through processBatchFromChain with RequestType = Deanonymize
 func TestProcessDeanonymizationViaProcessRequest(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Deploy the application first
-	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
-	err := mockBCClient.SendRequestToChain(context.Background(), deployRequest)
-	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err)
-	completedRequests := mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
-
-	// Create a Deanonymize request (now handled via processProcessRequest)
+	seedDeployedApp(t, mockBCClient, manager, ApplicationId)
+	// Create a Deanonymize request (now handled via processBatch)
 	request := createRequest(common.Deanonymize, ApplicationId)
-	err = mockBCClient.SendRequestToChain(context.Background(), request)
+	err := mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 
-	// Process the deanonymization request via processRequestFromChain
-	err = manager.processRequestFromChain(context.Background())
+	// Process the deanonymization request via processBatchFromChain
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
-	completedRequests = mockBCClient.GetCompletedRequests()
+	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed requests")
 	require.Equal(t, request.RequestID, completedRequests[1].RequestID, "Wrong requestID")
 	require.Equal(t, request.ApplicationID, completedRequests[1].ApplicationID, "Wrong ApplicationID")
 	require.Equal(t, common.Deanonymize, completedRequests[1].RequestType, "Wrong RequestType")
 }
 
-func TestProcessRequestFromChainWithReorgs(t *testing.T) {
+func TestProcessBatchRequestFromChainWithReorgs(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Prepare initial state in the database
-	_, initialStateRootOnChain, err := mockBCClient.GetNextPendingRequest(context.Background())
+	_, _, initialStateRootOnChain, err := mockBCClient.GetPendingRequestsWithStateRoot(context.Background(), 1)
 	require.NoError(t, err)
 
 	// Execute some requests just to have different versions in the DB
@@ -1118,7 +1130,8 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 0, len(completedRequests), "expected 0 completed request")
 
-	err = manager.processRequestFromChain(context.Background())
+	manager.config.MaxBatchSize = 1
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -1129,12 +1142,15 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	db_version, err := manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
-	nextPendingReq, stateRootOnChain1, err := mockBCClient.GetNextPendingRequest(context.Background())
+	appId, nextPendingReq, stateRootOnChain1, err := mockBCClient.GetPendingRequestsWithStateRoot(context.Background(), 1)
 	require.NoError(t, err)
+	require.Equal(t, appId, ApplicationId)
 	require.True(t, bytes.Equal(stateRootOnChain1[:], db_version), "State root in DB should be equal to state root on chain")
-	require.Equal(t, request2.RequestID, nextPendingReq.RequestID)
+	require.Equal(t, len(nextPendingReq), 1)
+	require.Equal(t, ApplicationId, nextPendingReq[0].ApplicationID)
+	require.Equal(t, request2.RequestID, nextPendingReq[0].RequestID)
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -1145,45 +1161,49 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	db_version, err = manager.dataLayer.LastVersionID(ApplicationId)
 	require.NoError(t, err)
 
-	nextPendingReq, stateRootOnChain2, err := mockBCClient.GetNextPendingRequest(context.Background())
+	appId, nextPendingReq, stateRootOnChain2, err := mockBCClient.GetPendingRequestsWithStateRoot(context.Background(), 1)
 	require.NoError(t, err)
+	require.Equal(t, appId, ApplicationId)
 	require.True(t, bytes.Equal(stateRootOnChain2[:], db_version), "State root in DB should be equal to state root on chain")
-	require.Equal(t, request3.RequestID, nextPendingReq.RequestID)
+	require.Equal(t, len(nextPendingReq), 1)
+	require.Equal(t, ApplicationId, nextPendingReq[0].ApplicationID)
+	require.Equal(t, request3.RequestID, nextPendingReq[0].RequestID)
 
 	// Now simulate a reorg on chain, by making GetNextPendingRequest to always return the first request and initial state root
 
-	mockedGetNextPendingRequest := func(context.Context) (*common.Request, [32]byte, error) {
-		return request1, initialStateRootOnChain, nil
+	mockedGetPendingRequestsWithStateRoot := func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+		return request1.ApplicationID, []*common.Request{request1}, initialStateRootOnChain, nil
 	}
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedGetNextPendingRequest)
 
-	// SubmitStateUpdate should not be called in case of reorg
-	mockedSubmitStateUpdatePanics := func(context.Context, *common.UpdatePayload) error {
-		t.Fatal("SubmitStateUpdate should not be called in case of reorg")
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", mockedGetPendingRequestsWithStateRoot)
+
+	// SubmitBatchStateUpdate should not be called in case of reorg
+	mockedSubmitBatchStateUpdatePanics := func(context.Context, []*common.UpdatePayload, []byte) error {
+		t.Fatal("SubmitBatchStateUpdate should not be called in case of reorg")
 		return nil
 	}
-	mockBCClient.AddMockedFunc("SubmitStateUpdate", mockedSubmitStateUpdatePanics)
+	mockBCClient.AddMockedFunc("SubmitBatchStateUpdate", mockedSubmitBatchStateUpdatePanics)
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 	require.False(t, manager.endReorgTime.IsZero(), "endReorgTime should be set when reorg is detected")
 	currentEndReorgTime := manager.endReorgTime
 
 	// Try with the second request and state root
-	mockedGetNextPendingRequest = func(context.Context) (*common.Request, [32]byte, error) {
-		return request2, stateRootOnChain1, nil
+	mockedGetPendingRequestsWithStateRoot = func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+		return request2.ApplicationID, []*common.Request{request2}, stateRootOnChain1, nil
 	}
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedGetNextPendingRequest)
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", mockedGetPendingRequestsWithStateRoot)
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, currentEndReorgTime, manager.endReorgTime, "endReorgTime should not change if reorg is not yet resolved")
 
 	// Solve the reorg and process the last request
-	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
-	mockBCClient.RemoveMockedFunc("SubmitStateUpdate")
+	mockBCClient.RemoveMockedFunc("GetPendingRequestsWithStateRoot")
+	mockBCClient.RemoveMockedFunc("SubmitBatchStateUpdate")
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 	require.True(t, manager.endReorgTime.IsZero(), "endReorgTime should be reset when reorg is solved")
 
@@ -1204,12 +1224,12 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), request4)
 	require.NoError(t, err)
 
-	mockedGetNextPendingRequest = func(context.Context) (*common.Request, [32]byte, error) {
-		return request4, [32]byte{0x11, 0x66}, nil
+	mockedGetPendingRequestsWithStateRoot = func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+		return request4.ApplicationID, []*common.Request{request4}, [32]byte{0x11, 0x66}, nil
 	}
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedGetNextPendingRequest)
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", mockedGetPendingRequestsWithStateRoot)
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.Error(t, err, "Should return error due to unrecoverable disalignment between DB and chain")
 
 	// test reorg not solved within timeout. The local db is reverted to the same state of the chain and the request is executed
@@ -1223,14 +1243,14 @@ func TestProcessRequestFromChainWithReorgs(t *testing.T) {
 	manager.config.ReorgTimeout = 1 // 1 second
 
 	// First processRequestFromChain sets the reorg timeout
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	// wait for more than reorg timeout
 	// Instead of sleeping, we will simulate the time.Sleep by manipulating endReorgTime
 	manager.endReorgTime = manager.endReorgTime.Add(-2 * time.Second) // go back in time by 2 seconds
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	pendingRequests, _ = mockBCClient.GetPendingRequests(context.Background())
@@ -1251,70 +1271,66 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 	mockBCClient, manager := setupTest(t)
 
 	// Setup the application
-	request := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
-	err := mockBCClient.SendRequestToChain(context.Background(), request)
-	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err)
+	seedDeployedApp(t, mockBCClient, manager, ApplicationId)
 
 	//**********************
-	// Check that if GetNextPendingRequest returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
+	// Check that if GetPendingRequestsWithStateRoot returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
 	//**********************
 
-	mockedGetNextPendingRequest := func(context.Context) (*common.Request, [32]byte, error) {
-		return nil, [32]byte{}, fmt.Errorf("GetNextPendingRequest error")
+	mockedGetPendingRequestsWithStateRoot := func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+		return 0, nil, [32]byte{}, fmt.Errorf("GetPendingRequestsWithStateRoot error")
 	}
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedGetNextPendingRequest)
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", mockedGetPendingRequestsWithStateRoot)
 
-	// SubmitStateUpdate should not be called in case of reorg
-	mockedSubmitStateUpdatePanics := func(context.Context, *common.UpdatePayload) error {
-		t.Fatal("SubmitStateUpdate should not be called in case of reorg")
+	// SubmitBatchStateUpdate should not be called in case of an error in GetPendingRequestsWithStateRoot
+	mockedSubmitBatchStateUpdatePanics := func(context.Context, []*common.UpdatePayload, []byte) error {
+		t.Fatal("SubmitBatchStateUpdate should not be called in case of error")
 		return nil
 	}
-	mockBCClient.AddMockedFunc("SubmitStateUpdate", mockedSubmitStateUpdatePanics)
+	mockBCClient.AddMockedFunc("SubmitBatchStateUpdate", mockedSubmitBatchStateUpdatePanics)
 
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err, "processRequestFromChain should not return an error if GetNextPendingRequest fails")
+	err := manager.processBatchFromChain(context.Background())
+	require.NoError(t, err, "processBatchFromChain should not return an error if GetPendingRequestsWithStateRoot fails")
 
 	request1 := createRequest(common.Process, ApplicationId)
 	err = mockBCClient.SendRequestToChain(context.Background(), request1)
 	require.NoError(t, err)
-	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
+	mockBCClient.RemoveMockedFunc("GetPendingRequestsWithStateRoot")
 
 	//**********************
-	// Check that if LastVersionID returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
+	// Check that if LastVersionID returns an error, processBatchFromChain doesn't execute the request and doesn't return an error
 	//**********************
 
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("LastVersionID", func(common.ApplicationIdType) ([]byte, error) {
 		return nil, fmt.Errorf("LastVersionID error")
 	})
 
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err, "processRequestFromChain should not return an error if LastVersionID fails")
+	err = manager.processBatchFromChain(context.Background())
+	require.NoError(t, err, "processBatchFromChain should not return an error if LastVersionID fails")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("LastVersionID")
 
 	//**********************
-	// Check that if ListVersions returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
+	// Check that if ListVersions returns an error, processBatchFromChain doesn't execute the request and doesn't return an error
 	//**********************
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("ListVersions", func(common.ApplicationIdType) ([][]byte, error) {
 		return nil, fmt.Errorf("ListVersions error")
 	})
 
 	// Setup a fake reorg situation
-	mockedGetNextPendingRequest = func(context.Context) (*common.Request, [32]byte, error) {
-		return request1, [32]byte{0x11, 0x66}, nil
+	mockedGetPendingRequestsWithStateRoot = func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+		return request1.ApplicationID, []*common.Request{request1}, [32]byte{0x11, 0x66}, nil
 	}
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedGetNextPendingRequest)
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", mockedGetPendingRequestsWithStateRoot)
 
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err, "processRequestFromChain should not return an error if ListVersions fails")
+	err = manager.processBatchFromChain(context.Background())
+	require.NoError(t, err, "processBatchFromChain should not return an error if ListVersions fails")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("ListVersions")
-	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
+	mockBCClient.RemoveMockedFunc("GetPendingRequestsWithStateRoot")
 
 	//**********************
-	// Check that if processRequest returns an error, processRequestFromChain doesn't execute the request and doesn't return an error
+	// Check that if processBatch returns an error, processBatchFromChain doesn't execute the request and doesn't return an error
 	//**********************
 
 	// Setup a fake situation to make processRequest return an error
@@ -1322,8 +1338,8 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 		return nil, fmt.Errorf("error")
 	})
 
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err, "processRequestFromChain should not return an error if processRequest fails")
+	err = manager.processBatchFromChain(context.Background())
+	require.NoError(t, err, "processBatchFromChain should not return an error if processBatch fails")
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("GetApplicationState")
 
@@ -1332,6 +1348,7 @@ func TestProcessRequestFromChainWithErrors(t *testing.T) {
 func setupTest(t *testing.T) (*blockchain.MockClient, *SecureProcessorManager) {
 	config := Config{
 		ReorgTimeout:        60,
+		MaxBatchSize:        5,
 		LogServerTCPAddress: common.TcpChannelConnectionParams{Ip: "localhost", Port: 5000},
 	}
 	return setupTestWithConfig(t, context.Background(), config, true, &ExecutorHandShake{}, nil, false)
@@ -1392,13 +1409,7 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Deploy the application first
-	deployRequest := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
-	err = mockBCClient.SendRequestToChain(context.Background(), deployRequest)
-	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err)
-	completedRequests := mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
+	seedDeployedApp(t, mockBCClient, manager, ApplicationId)
 
 	// DeanonymizationReportPath is set, so the report should be saved to the filesystem
 	// Create a deanonymization request
@@ -1406,9 +1417,9 @@ func TestProcessDeanonymizationWithReportSaving(t *testing.T) {
 	err = mockBCClient.SendRequestToChain(context.Background(), request)
 	require.NoError(t, err)
 	manager.config.DeanonymizationReportPath = tempDir
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
-	completedRequests = mockBCClient.GetCompletedRequests()
+	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completedRequests), "expected 2 completed request")
 	// Check that the report file exists
 	reportFilePath := filepath.Join(tempDir, common.ReportFilename(request.ApplicationID, request.RequestID))
@@ -2019,19 +2030,20 @@ func TestMultiAppDeployAndProcess(t *testing.T) {
 	deployReq1 := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployReq1)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err)
-
-	completed := mockBCClient.GetCompletedRequests()
-	require.Equal(t, 1, len(completed), "App 1 deploy should complete")
 
 	// Deploy App 2
 	deployReq2 := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
 	err = mockBCClient.SendRequestToChain(context.Background(), deployReq2)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
-	require.NoError(t, err)
 
+	//Check that every deploy request is executed separately and independently
+	err = manager.processBatchFromChain(context.Background())
+	require.NoError(t, err)
+	completed := mockBCClient.GetCompletedRequests()
+	require.Equal(t, 1, len(completed), "App 1 deploy should complete")
+
+	err = manager.processBatchFromChain(context.Background())
+	require.NoError(t, err)
 	completed = mockBCClient.GetCompletedRequests()
 	require.Equal(t, 2, len(completed), "App 2 deploy should complete")
 
@@ -2042,11 +2054,18 @@ func TestMultiAppDeployAndProcess(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, bytes.Equal(stateRoot1, stateRoot2), "App 1 and App 2 should have different state roots")
 
-	// Process a request for App 1
+	// Create a request for App 1
 	processReq1 := createRequest(common.Process, ApplicationId)
 	err = mockBCClient.SendRequestToChain(context.Background(), processReq1)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
+
+	// Create a request for App 2
+	processReq2 := createRequest(common.Process, ApplicationId2)
+	err = mockBCClient.SendRequestToChain(context.Background(), processReq2)
+	require.NoError(t, err)
+
+	// Prcess a batch of requests (should process App 1 first)
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	// Verify App 1 state root changed but App 2 unchanged
@@ -2058,11 +2077,8 @@ func TestMultiAppDeployAndProcess(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, bytes.Equal(stateRoot2, unchangedStateRoot2), "App 2 state root should be unchanged")
 
-	// Process a request for App 2
-	processReq2 := createRequest(common.Process, ApplicationId2)
-	err = mockBCClient.SendRequestToChain(context.Background(), processReq2)
-	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
+	// Prcess a batch of requests (should process App 2)
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	completed = mockBCClient.GetCompletedRequests()
@@ -2081,13 +2097,13 @@ func TestMultiAppDeployNewApp(t *testing.T) {
 	deployReq1 := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployReq1)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	processReq1 := createRequest(common.Process, ApplicationId)
 	err = mockBCClient.SendRequestToChain(context.Background(), processReq1)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	stateRoot1, err := manager.dataLayer.LastVersionID(ApplicationId)
@@ -2097,7 +2113,7 @@ func TestMultiAppDeployNewApp(t *testing.T) {
 	deployReq2 := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
 	err = mockBCClient.SendRequestToChain(context.Background(), deployReq2)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	completed := mockBCClient.GetCompletedRequests()
@@ -2121,20 +2137,20 @@ func TestMultiAppReorgIsolation(t *testing.T) {
 	deployReq1 := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	err := mockBCClient.SendRequestToChain(context.Background(), deployReq1)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	deployReq2 := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
 	err = mockBCClient.SendRequestToChain(context.Background(), deployReq2)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	// Process a request for App 1 (creates a second version)
 	processReq1 := createRequest(common.Process, ApplicationId)
 	err = mockBCClient.SendRequestToChain(context.Background(), processReq1)
 	require.NoError(t, err)
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	stateRoot1AfterProcess, err := manager.dataLayer.LastVersionID(ApplicationId)
@@ -2143,16 +2159,16 @@ func TestMultiAppReorgIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Simulate reorg for App 1 — chain returns old stateRoot (zero, as if rolled back to before deploy)
-	mockedReorg := func(context.Context) (*common.Request, [32]byte, error) {
-		return processReq1, [32]byte{}, nil
+	mockedReorg := func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) { 
+		return processReq1.ApplicationID, []*common.Request{processReq1}, [32]byte{}, nil
 	}
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", mockedReorg)
-	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(context.Context, *common.UpdatePayload) error {
-		t.Fatal("SubmitStateUpdate should not be called during reorg")
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", mockedReorg)
+	mockBCClient.AddMockedFunc("SubmitBatchStateUpdate", func(context.Context, []*common.UpdatePayload, []byte) error {
+		t.Fatal("SubmitBatchStateUpdate should not be called during reorg")
 		return nil
 	})
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	// Reorg timer should be set (chain-level, triggered by App 1's mismatch)
@@ -2164,14 +2180,14 @@ func TestMultiAppReorgIsolation(t *testing.T) {
 	require.True(t, bytes.Equal(stateRoot2AfterDeploy, unchangedRoot2), "App 2 state should be unchanged during App 1 reorg")
 
 	// Resolve reorg — remove mock, next poll returns App 1's correct state
-	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
-	mockBCClient.RemoveMockedFunc("SubmitStateUpdate")
+	mockBCClient.RemoveMockedFunc("GetPendingRequestsWithStateRoot")
+	mockBCClient.RemoveMockedFunc("SubmitBatchStateUpdate")
 
 	// Restore App 1's request to pending and set correct state root
 	err = mockBCClient.SendRequestToChain(context.Background(), createRequest(common.Process, ApplicationId))
 	require.NoError(t, err)
 
-	err = manager.processRequestFromChain(context.Background())
+	err = manager.processBatchFromChain(context.Background())
 	require.NoError(t, err)
 
 	// Reorg timer should be cleared (state roots matched)
@@ -2213,19 +2229,19 @@ func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 
 	deployA := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
 	require.NoError(t, mockBCClient.SendRequestToChain(ctx, deployA))
-	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.NoError(t, manager.processBatchFromChain(ctx))
 
 	processA := createRequest(common.Process, ApplicationId)
 	require.NoError(t, mockBCClient.SendRequestToChain(ctx, processA))
-	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.NoError(t, manager.processBatchFromChain(ctx))
 
 	deployB := createDeployRequestWithWASM(t, manager, ApplicationId2, []byte{0x02})
 	require.NoError(t, mockBCClient.SendRequestToChain(ctx, deployB))
-	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.NoError(t, manager.processBatchFromChain(ctx))
 
 	processBReq := createRequest(common.Process, ApplicationId2)
 	require.NoError(t, mockBCClient.SendRequestToChain(ctx, processBReq))
-	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.NoError(t, manager.processBatchFromChain(ctx))
 
 	// Grab the deploy-time (older) state roots for both apps.
 	// ListVersions returns LIFO: [latest, ..., oldest].
@@ -2245,15 +2261,15 @@ func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 	// First poll: App A sees reorg (chain returns deploy root, but local is at process root)
 	var reorgStateRootA [32]byte
 	copy(reorgStateRootA[:], stateRootAAfterDeploy)
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
-		return processA, reorgStateRootA, nil
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+		return processA.ApplicationID, []*common.Request{processA}, reorgStateRootA, nil
 	})
-	mockBCClient.AddMockedFunc("SubmitStateUpdate", func(context.Context, *common.UpdatePayload) error {
-		t.Fatal("SubmitStateUpdate should not be called during reorg")
+	mockBCClient.AddMockedFunc("SubmitBatchStateUpdate", func(context.Context, []*common.UpdatePayload, []byte) error {
+		t.Fatal("SubmitBatchStateUpdate should not be called during reorg")
 		return nil
 	})
 
-	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.NoError(t, manager.processBatchFromChain(ctx))
 	require.False(t, manager.endReorgTime.IsZero(), "reorg timer should be set after App A mismatch")
 
 	// Second poll: App B sees reorg (chain returns deploy root).
@@ -2261,22 +2277,22 @@ func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 	var reorgStateRootB [32]byte
 	copy(reorgStateRootB[:], stateRootBAfterDeploy)
 	timerBefore := manager.endReorgTime
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
-		return processBReq, reorgStateRootB, nil
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+		return processBReq.ApplicationID, []*common.Request{processBReq}, reorgStateRootB, nil
 	})
 
-	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.NoError(t, manager.processBatchFromChain(ctx))
 	require.Equal(t, timerBefore, manager.endReorgTime, "shared timer should not change on second mismatch")
 
 	// ── Step 3: Reorg #1 resolves — only App A gets a request ──
 
-	mockBCClient.RemoveMockedFunc("GetNextPendingRequest")
-	mockBCClient.RemoveMockedFunc("SubmitStateUpdate")
+	mockBCClient.RemoveMockedFunc("GetPendingRequestsWithStateRoot")
+	mockBCClient.RemoveMockedFunc("SubmitBatchStateUpdate")
 
 	// App A gets a new request; state roots will match → shared timer cleared.
 	newReqA := createRequest(common.Process, ApplicationId)
 	require.NoError(t, mockBCClient.SendRequestToChain(ctx, newReqA))
-	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.NoError(t, manager.processBatchFromChain(ctx))
 
 	require.True(t, manager.endReorgTime.IsZero(),
 		"shared timer should be cleared when App A's state roots match (reorg resolved)")
@@ -2285,8 +2301,8 @@ func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 
 	// The chain has reorged again: it reports the deploy root for App B.
 	processB2 := createRequest(common.Process, ApplicationId2)
-	mockBCClient.AddMockedFunc("GetNextPendingRequest", func(context.Context) (*common.Request, [32]byte, error) {
-		return processB2, reorgStateRootB, nil
+	mockBCClient.AddMockedFunc("GetPendingRequestsWithStateRoot", func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+		return processB2.ApplicationID, []*common.Request{processB2}, reorgStateRootB, nil
 	})
 
 	// Track whether Rollback is called for App B during this poll.
@@ -2299,7 +2315,7 @@ func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 			return nil
 		})
 
-	require.NoError(t, manager.processRequestFromChain(ctx))
+	require.NoError(t, manager.processBatchFromChain(ctx))
 
 	manager.dataLayer.(*mockdb.MockDataLayer).RemoveMockedFunc("Rollback")
 
@@ -2311,4 +2327,260 @@ func TestSingleReorgTimerPreventsStaleRollback(t *testing.T) {
 		"reorg timer should be set with a fresh deadline for the new reorg")
 	require.True(t, manager.endReorgTime.After(time.Now()),
 		"reorg timer should be in the future (fresh timeout)")
+}
+
+// ---------------------------------------------------------------------------
+// Batch orchestration tests (processBatchFromChain / processBatch)
+// ---------------------------------------------------------------------------
+
+
+// seedDeployedApp deploys an application through the batch poll path so that its
+// state and WASM exist in the data layer, and returns the resulting state root.
+func seedDeployedApp(t *testing.T, mockBC *blockchain.MockClient, manager *SecureProcessorManager, appID common.ApplicationIdType) [32]byte {
+	t.Helper()
+	dep := createDeployRequestWithWASM(t, manager, appID, []byte{0x01})
+	require.NoError(t, mockBC.SendRequestToChain(context.Background(), dep))
+	require.NoError(t, manager.processBatchFromChain(context.Background()))
+	root, err := manager.dataLayer.LastVersionID(appID)
+	require.NoError(t, err)
+	var out [32]byte
+	copy(out[:], root)
+	return out
+}
+
+// mockBatchSuccess installs a SendBatchProcessRequest mock that produces a success
+// payload per request, chaining state roots from the current app state.
+func mockBatchSuccess(manager *SecureProcessorManager, t *testing.T) {
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			require.NotNil(t, appState, "batch executor requires a non-nil app state")
+			prev := appState.StateRoot
+			results := make([]*common.UpdatePayload, 0, len(requests))
+			last := prev
+			var reports []*common.DeanonymizationReport
+			for _, req := range requests {
+				nr := generateRandomStateRoot()
+				results = append(results, &common.UpdatePayload{
+					ApplicationID: req.ApplicationID,
+					RequestID:     req.RequestID,
+					PrevStateRoot: prev,
+					NewStateRoot:  nr,
+				})
+				if req.RequestType == common.Deanonymize {
+					reports = append(reports, &common.DeanonymizationReport{
+						ApplicationID:   req.ApplicationID,
+						ReportID:        req.RequestID,
+						Authority:       req.Sender,
+						EncryptedReport: []byte(`{"accounts":{}}`),
+					})
+				}
+				prev = nr
+				last = nr
+			}
+			final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: last, EncryptedState: []byte("enc")}
+			return results, []byte("batch-sig"), final, reports, nil
+		})
+}
+
+func TestProcessBatchFromChain_HappyPath(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	seedDeployedApp(t, mockBC, manager, ApplicationId)
+	mockBatchSuccess(manager, t)
+
+	reqs := []*common.Request{
+		createRequest(common.Process, ApplicationId),
+		createRequest(common.Process, ApplicationId),
+		createRequest(common.Process, ApplicationId),
+	}
+	for _, r := range reqs {
+		require.NoError(t, mockBC.SendRequestToChain(ctx, r))
+	}
+
+	require.NoError(t, manager.processBatchFromChain(ctx))
+
+	pending, _ := mockBC.GetPendingRequests(ctx)
+	require.Equal(t, 0, len(pending), "all batched requests should be completed in one poll")
+	require.Equal(t, 0, len(mockBC.GetFailedRequests()), "no failures expected")
+	// deploy + 3 process requests
+	require.Equal(t, 4, len(mockBC.GetCompletedRequests()))
+}
+
+func TestProcessBatchFromChain_SingleRequestGoesThroughBatchPath(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	seedDeployedApp(t, mockBC, manager, ApplicationId)
+
+	called := false
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			called = true
+			require.Len(t, requests, 1, "a single pending request is still routed through the batch path")
+			nr := generateRandomStateRoot()
+			res := []*common.UpdatePayload{{ApplicationID: requests[0].ApplicationID, RequestID: requests[0].RequestID, PrevStateRoot: appState.StateRoot, NewStateRoot: nr}}
+			final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: nr, EncryptedState: []byte("enc")}
+			return res, []byte("batch-sig"), final, nil, nil
+		})
+
+	req := createRequest(common.Process, ApplicationId)
+	require.NoError(t, mockBC.SendRequestToChain(ctx, req))
+	require.NoError(t, manager.processBatchFromChain(ctx))
+
+	require.True(t, called, "single non-deploy request must go through SendBatchProcessRequest")
+	pending, _ := mockBC.GetPendingRequests(ctx)
+	require.Equal(t, 0, len(pending))
+}
+
+func TestProcessBatchFromChain_DeployRoutedIndividually(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	// A batch executor call must NOT happen for a deploy.
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			t.Fatal("deploy must not be routed through the batch path")
+			return nil, nil, nil, nil, nil
+		})
+
+	dep := createDeployRequestWithWASM(t, manager, ApplicationId, []byte{0x01})
+	require.NoError(t, mockBC.SendRequestToChain(ctx, dep))
+	require.NoError(t, manager.processBatchFromChain(ctx))
+
+	pending, _ := mockBC.GetPendingRequests(ctx)
+	require.Equal(t, 0, len(pending))
+	require.Equal(t, 1, len(mockBC.GetCompletedRequests()))
+}
+
+func TestProcessBatchFromChain_EmptyQueue(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	require.NoError(t, manager.processBatchFromChain(context.Background()))
+	pending, _ := mockBC.GetPendingRequests(context.Background())
+	require.Equal(t, 0, len(pending))
+	require.Equal(t, 0, len(mockBC.GetCompletedRequests()))
+}
+
+func TestProcessBatchFromChain_QueueLargerThanMaxBatchSize(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+	manager.config.MaxBatchSize = 2
+
+	seedDeployedApp(t, mockBC, manager, ApplicationId)
+	mockBatchSuccess(manager, t)
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, mockBC.SendRequestToChain(ctx, createRequest(common.Process, ApplicationId)))
+	}
+
+	require.NoError(t, manager.processBatchFromChain(ctx))
+
+	pending, _ := mockBC.GetPendingRequests(ctx)
+	require.Equal(t, 1, len(pending), "only MaxBatchSize (2) of 3 requests should be processed this poll")
+}
+
+func TestProcessBatchFromChain_BatchRevertRollsBack(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	deployRoot := seedDeployedApp(t, mockBC, manager, ApplicationId)
+	mockBatchSuccess(manager, t)
+
+	// The batch tx reverts.
+	mockBC.AddMockedFunc("SubmitBatchStateUpdate", func(ctx context.Context, updates []*common.UpdatePayload, sig []byte) error {
+		return fmt.Errorf("tx reverted")
+	})
+
+	for i := 0; i < 2; i++ {
+		require.NoError(t, mockBC.SendRequestToChain(ctx, createRequest(common.Process, ApplicationId)))
+	}
+
+	require.NoError(t, manager.processBatchFromChain(ctx))
+
+	// Requests remain pending and local state is rolled back to the pre-batch root.
+	pending, _ := mockBC.GetPendingRequests(ctx)
+	require.Equal(t, 2, len(pending), "requests stay pending when the batch tx reverts")
+	root, err := manager.dataLayer.LastVersionID(ApplicationId)
+	require.NoError(t, err)
+	require.Equal(t, deployRoot[:], root, "local state must be rolled back to the pre-batch root")
+}
+
+func TestProcessBatchFromChain_HardFailureOnFirstRequest(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	seedDeployedApp(t, mockBC, manager, ApplicationId)
+
+	// No payloads returned: nothing to submit.
+	submitted := false
+	mockBC.AddMockedFunc("SubmitBatchStateUpdate", func(ctx context.Context, updates []*common.UpdatePayload, sig []byte) error {
+		submitted = true
+		return nil
+	})
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			return nil, nil, nil, nil, nil
+		})
+
+	for i := 0; i < 2; i++ {
+		require.NoError(t, mockBC.SendRequestToChain(ctx, createRequest(common.Process, ApplicationId)))
+	}
+
+	require.NoError(t, manager.processBatchFromChain(ctx))
+
+	require.False(t, submitted, "nothing should be submitted when the executor returns no payloads")
+	pending, _ := mockBC.GetPendingRequests(ctx)
+	require.Equal(t, 2, len(pending), "all requests stay pending on a hard failure on the first request")
+}
+
+func TestProcessBatchFromChain_HardFailureMidBatch(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	seedDeployedApp(t, mockBC, manager, ApplicationId)
+
+	// 3 requests submitted, but the executor stops after 2 (hard failure on the 3rd).
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
+		func(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasm []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			require.GreaterOrEqual(t, len(requests), 3)
+			prev := appState.StateRoot
+			results := make([]*common.UpdatePayload, 0, 2)
+			last := prev
+			for _, req := range requests[:2] {
+				nr := generateRandomStateRoot()
+				results = append(results, &common.UpdatePayload{ApplicationID: req.ApplicationID, RequestID: req.RequestID, PrevStateRoot: prev, NewStateRoot: nr})
+				prev = nr
+				last = nr
+			}
+			final := &common.ApplicationState{ApplicationID: appState.ApplicationID, StateRoot: last, EncryptedState: []byte("enc")}
+			return results, []byte("batch-sig"), final, nil, nil
+		})
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, mockBC.SendRequestToChain(ctx, createRequest(common.Process, ApplicationId)))
+	}
+
+	require.NoError(t, manager.processBatchFromChain(ctx))
+
+	pending, _ := mockBC.GetPendingRequests(ctx)
+	require.Equal(t, 1, len(pending), "the request that caused the hard stop stays pending")
+	require.Equal(t, 3, len(mockBC.GetCompletedRequests()), "deploy + 2 processed requests")
+}
+
+func TestProcessBatchFromChain_SavesDeanonymizationReports(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	seedDeployedApp(t, mockBC, manager, ApplicationId)
+	mockBatchSuccess(manager, t)
+
+	deanonReq := createRequest(common.Deanonymize, ApplicationId)
+	require.NoError(t, mockBC.SendRequestToChain(ctx, createRequest(common.Process, ApplicationId)))
+	require.NoError(t, mockBC.SendRequestToChain(ctx, deanonReq))
+
+	require.NoError(t, manager.processBatchFromChain(ctx))
+
+	reportFilePath := filepath.Join(manager.config.DeanonymizationReportPath, common.ReportFilename(deanonReq.ApplicationID, deanonReq.RequestID))
+	_, err := os.Stat(reportFilePath)
+	require.NoError(t, err, "deanonymization report from the batch should be saved to disk")
 }
