@@ -12,7 +12,6 @@ const (
 	categoryFunctionNotFound
 	categoryDepositFailed
 	categoryRequestFuncFailed
-	categoryAppNotDeployed
 	categoryWrongKeySent
 	categoryPubKeyNotRegistered
 	categoryNoReportDataFound
@@ -34,7 +33,6 @@ var (
 	CategoryFunctionNotFoundMeta           = errorCategory{Category: categoryFunctionNotFound, Message: "requested function not found"}
 	CategoryDepositFailedMeta              = errorCategory{Category: categoryDepositFailed, Message: "deposit operation failed"}
 	CategoryRequestFuncFailedMeta          = errorCategory{Category: categoryRequestFuncFailed, Message: "request function execution failed"}
-	CategoryAppNotDeployedMeta             = errorCategory{Category: categoryAppNotDeployed, Message: "application is not deployed"}
 	CategoryWrongKeySentMeta               = errorCategory{Category: categoryWrongKeySent, Message: "wrong key sent"}
 	CategoryPubKeyNotRegisteredMeta        = errorCategory{Category: categoryPubKeyNotRegistered, Message: "public key not registered"}
 	CategoryNoReportDataFoundMeta          = errorCategory{Category: categoryNoReportDataFound, Message: "no report data found"}
@@ -55,7 +53,6 @@ var (
 	// Internal errors with more details
 	CodeInternalFallback             = FailureCode{"INTERNAL_FALLBACK", CategoryInternalMeta}
 	CodeApplicationAlreadyDeployed   = FailureCode{"APPLICATION_ALREADY_DEPLOYED", CategoryApplicationAlreadyDeployedMeta}
-	CodeAppStateNotFound             = FailureCode{"APPLICATION_STATE_NOT_FOUND", CategoryAppNotDeployedMeta}
 	CodeJsonUnmarshalError           = FailureCode{"JSON_UNMARSHAL_ERROR", CategoryInternalMeta}
 	CodeJsonMarshalError             = FailureCode{"JSON_MARSHAL_ERROR", CategoryInternalMeta}
 	CodeParsingKeyError              = FailureCode{"PARSING_KEY_ERROR", CategoryWrongKeySentMeta}

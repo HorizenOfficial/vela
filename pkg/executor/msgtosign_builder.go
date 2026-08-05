@@ -89,7 +89,43 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	return msgBuilder, nil
 }
 
+// BuildMsgHash builds the Ethereum personal_sign hash for a single update
+// payload: TextHash(entryHash). This is what individually signed payloads sign
+// and what AbstractTeeAuthenticator.checkSignature recovers against.
 func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
+	entryHash, err := b.buildEntryHash(updatePayload)
+	if err != nil {
+		return nil, err
+	}
+	return accounts.TextHash(entryHash), nil
+}
+
+// BuildBatchMsgHash builds the Ethereum personal_sign hash covering all batch
+// entries: TextHash(keccak256(entryHash_0 || ... || entryHash_N-1)).
+// The concatenation of the 32-byte entry hashes matches
+// keccak256(abi.encode(hash(entries[0]), hash(entries[1]), ...)) on the
+// contract side (ABI encoding of static bytes32 values is plain concatenation).
+func (b *MsgToSignBuilder) BuildBatchMsgHash(updatePayloads []*common.UpdatePayload) ([]byte, error) {
+	if len(updatePayloads) == 0 {
+		return nil, fmt.Errorf("no payloads to hash")
+	}
+
+	concatenated := make([]byte, 0, 32*len(updatePayloads))
+	for i, payload := range updatePayloads {
+		entryHash, err := b.buildEntryHash(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash batch entry %d: %w", i, err)
+		}
+		concatenated = append(concatenated, entryHash...)
+	}
+
+	return accounts.TextHash(ethCrypto.Keccak256(concatenated)), nil
+}
+
+// buildEntryHash computes keccak256 of the ABI-encoded payload fields, without
+// the Ethereum message prefix. It is the per-entry hash: prefixed and signed
+// directly for single payloads, or aggregated into the batch hash.
+func (b *MsgToSignBuilder) buildEntryHash(updatePayload *common.UpdatePayload) ([]byte, error) {
 
 	events := make([][]byte, len(updatePayload.Events))
 	eventSubTypes := make([][32]byte, len(updatePayload.Events))
@@ -175,9 +211,5 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 		return nil, fmt.Errorf("failed to encode parameters: %w", err)
 	}
 
-	hash := ethCrypto.Keccak256(encoded)
-
-	hash = accounts.TextHash(hash)
-	return hash, nil
-
+	return ethCrypto.Keccak256(encoded), nil
 }

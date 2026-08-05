@@ -43,6 +43,12 @@ const (
 	// Sent from executor (server) to manager (client) through the existing communication channel.
 	AdminCommandResponseMessage
 
+	// BatchProcessRequestMessage represents a request to process a batch of requests
+	// for a single application in one vsock round-trip.
+	BatchProcessRequestMessage
+	// BatchProcessResponseMessage represents a response to a batch process request.
+	BatchProcessResponseMessage
+
 	// ErrorMessage represents an error message
 	ErrorMessage
 )
@@ -88,6 +94,61 @@ type ProcessResponseData struct {
 	UpdatedApplicationState *common.ApplicationState `json:"updatedApplicationState"`
 	// DeanonymizationReport is the optional deanonymization report (present if request type was Deanonymize)
 	DeanonymizationReport *common.DeanonymizationReport `json:"deanonymizationReport,omitempty"`
+}
+
+// BatchProcessRequestData represents data for a batch process request message.
+// A batch is always scoped to a single application: one WASM module, one
+// encrypted state, and one ordered list of requests to process sequentially.
+type BatchProcessRequestData struct {
+	// Requests is the ordered list of requests to process
+	Requests []*common.Request `json:"requests"`
+	// ApplicationState is the current state of the application
+	ApplicationState *common.ApplicationState `json:"applicationState"`
+	// WasmModule is the WASM module to execute
+	WasmModule []byte `json:"wasmModule"`
+}
+
+func (bpr *BatchProcessRequestData) Validate() error {
+	if len(bpr.Requests) == 0 {
+		return fmt.Errorf("Requests is required")
+	}
+	// A batch is scoped to one application, so the state is what defines that
+	// scope: without it there is nothing to validate the requests against.
+	// The executor rejects a nil state as a hard failure anyway, so failing
+	// here keeps the same outcome (no payloads, requests stay pending).
+	if bpr.ApplicationState == nil {
+		return fmt.Errorf("ApplicationState is required")
+	}
+
+	applicationID := bpr.ApplicationState.ApplicationID
+	for i, req := range bpr.Requests {
+		if req == nil {
+			return fmt.Errorf("Requests[%d] is required", i)
+		}
+		if req.ApplicationID != applicationID {
+			return fmt.Errorf("invalid Requests[%d]: ApplicationID mismatch", i)
+		}
+		if err := req.Validate(); err != nil {
+			return fmt.Errorf("invalid Requests[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// BatchProcessResponseData represents data for a batch process response message.
+// Individual update payloads are not signed on their own; a single batch
+// signature covers all entry hashes. Only the final encrypted state is returned.
+type BatchProcessResponseData struct {
+	// UpdatePayloads is one update payload per handled request (unsigned individually),
+	// in input order. Fewer payloads than input requests means a hard failure stopped
+	// the batch at request len(UpdatePayloads) and the rest stay pending.
+	UpdatePayloads []*common.UpdatePayload `json:"updatePayloads"`
+	// BatchSignature is the single TEE signature covering all entry hashes
+	BatchSignature []byte `json:"batchSignature"`
+	// UpdatedApplicationState is the final application state (only the last state, not per-request)
+	UpdatedApplicationState *common.ApplicationState `json:"updatedApplicationState"`
+	// DeanonymizationReports are the optional deanonymization reports produced within the batch
+	DeanonymizationReports []*common.DeanonymizationReport `json:"deanonymizationReports,omitempty"`
 }
 
 // DeployAppRequestData represents data for a deploy app request message

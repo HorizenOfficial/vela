@@ -674,8 +674,8 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		return errors.New("manager is not running")
 	}
 
-	// Check if app was already deployed. With per-app state roots, the executor handles
-	// appState == nil gracefully (uses emptyStateRoot for signed error payloads).
+	// Check if app was already deployed. For deploys, appState == nil is the
+	// expected case (the app does not exist yet).
 	state, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
 		if !storageErrors.IsNotFound(err) {
@@ -747,7 +747,8 @@ func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req 
 			// Other errors are likely db errors, retry on next poll
 			return err
 		}
-		// if application state not found, pass a nil state to the executor to let it handle the error
+		// if application state not found, pass a nil state to the executor: it rejects it
+		// with a hard error (app existence is enforced on-chain) and the request stays pending
 		appState = nil
 	}
 

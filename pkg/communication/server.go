@@ -430,6 +430,8 @@ func (c *ClientConnection) handleClientRequest(ctx context.Context, msg Message,
 	switch msg.Type {
 	case ProcessRequestMessage:
 		c.handleProcessRequest(ctx, msg, handler)
+	case BatchProcessRequestMessage:
+		c.handleBatchProcessRequest(ctx, msg, handler)
 	case DeployAppRequestMessage:
 		c.handleDeployAppRequest(ctx, msg, handler)
 	case AdminCommandRequestMessage:
@@ -467,6 +469,37 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		c.log.Warn("%s: Failed to send HandleProcessRequest response: %v", c.idLogTag, err)
 	}
 	c.log.Info("%s: ProcessRequest handled successfully, ID=%s", c.idLogTag, msg.ID)
+}
+
+// handleBatchProcessRequest handles BatchProcessRequest messages
+func (c *ClientConnection) handleBatchProcessRequest(ctx context.Context, msg Message, handler RequestHandler) {
+	reqData, err := extractData[BatchProcessRequestData](msg.Data)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
+		return
+	}
+
+	updatePayloads, batchSignature, finalState, reports, err := handler.HandleBatchProcessRequest(ctx, reqData.Requests, reqData.ApplicationState, reqData.WasmModule)
+	if err != nil {
+		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
+		return
+	}
+
+	response := Message{
+		ID:   msg.ID,
+		Type: BatchProcessResponseMessage,
+		Data: BatchProcessResponseData{
+			UpdatePayloads:          updatePayloads,
+			BatchSignature:          batchSignature,
+			UpdatedApplicationState: finalState,
+			DeanonymizationReports:  reports,
+		},
+	}
+
+	if err := c.sendMessage(response); err != nil {
+		c.log.Warn("%s: Failed to send HandleBatchProcessRequest response: %v", c.idLogTag, err)
+	}
+	c.log.Info("%s: BatchProcessRequest handled successfully, ID=%s, processed=%d/%d", c.idLogTag, msg.ID, len(updatePayloads), len(reqData.Requests))
 }
 
 // handleDeployAppRequest handles DeployApp messages

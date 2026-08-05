@@ -158,6 +158,47 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 	return respData.UpdatePayload, respData.UpdatedApplicationState, respData.DeanonymizationReport, nil
 }
 
+// SendBatchProcessRequest sends a batch of requests for a single application
+// and waits for the response. Returns the unsigned per-request update payloads,
+// the batch signature, the final application state and any deanonymization
+// reports. One payload is returned per handled request, in input order, so
+// len(payloads) < len(requests) means a hard failure stopped the batch.
+func (c *Client) SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+	msg := Message{
+		ID:   generateID(),
+		Type: BatchProcessRequestMessage,
+		Data: BatchProcessRequestData{
+			Requests:         requests,
+			ApplicationState: appState,
+			WasmModule:       wasmModule,
+		},
+	}
+
+	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to send batch process request: %w", err)
+	}
+
+	if respMsg.Type == ErrorMessage {
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("failed to extract server error data: %w", err)
+		}
+		return nil, nil, nil, nil, fmt.Errorf("server error: %s", errorData.Message)
+	}
+
+	if respMsg.Type != BatchProcessResponseMessage {
+		return nil, nil, nil, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	}
+
+	respData, err := extractData[BatchProcessResponseData](respMsg.Data)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	return respData.UpdatePayloads, respData.BatchSignature, respData.UpdatedApplicationState, respData.DeanonymizationReports, nil
+}
+
 // SendDeployApp sends a deploy app request and waits for response
 func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	uid := generateID()
