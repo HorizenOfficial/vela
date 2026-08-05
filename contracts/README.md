@@ -2,6 +2,16 @@
 
 On-chain coordination for Vela. The main contract is `ProcessorEndpoint`, which handles user requests, per-app locked funds, ERC-20 deposits/withdrawals (with EIP-2612 permit and a facilitator path for gasless onboarding), and the deploy flow for new applications. TEE attestation is verified by `TeeAuthenticator` and authorities are tracked in `AuthorityRegistry`.
 
+`ProcessorEndpoint` sits close to the 24,576-byte EIP-170 limit, so it is split across three files: `ProcessorEndpointStorage.sol` declares all of its state, `ProcessorEndpointExtension.sol` hosts entry points moved out for size (the facilitator path, deploy submission, the operator resets and the admin setters — everything off the per-request hot path), and `ProcessorEndpoint.sol` reaches them by `delegatecall`. This is invisible to callers — same address, same ABI, same selectors — but it constrains development and deployment:
+
+- Declare new state **only** in `ProcessorEndpointStorage.sol`, and run `npm run check:layout` afterwards. The two contracts must share one storage layout; a divergence corrupts storage silently instead of reverting. The same command also checks that every error the extension can raise is declared on the endpoint — otherwise it reaches clients as revert data the endpoint's ABI cannot decode.
+- Deploy `ProcessorEndpointExtension` **before** `ProcessorEndpoint` — its address is the endpoint's last constructor argument, and it is immutable, so a wrong address means redeploying the endpoint. `ProcessorEndpoint.extension()` reports the pairing of a deployed endpoint.
+- Anything moved to the extension needs a typed stub on the endpoint and the `onlyDelegateCall` modifier.
+
+Because that contract lives against the size limit, the compiler targets `evmVersion: 'cancun'` (worth ~720 bytes on it), so **every chain these contracts are deployed to must be at Cancun or later**. Base, the deployment target, has been since March 2024.
+
+See `../docs/design/PROCESSOR_ENDPOINT_SPLIT.md`.
+
 ## Manual deploy
 
 - Create an .env file with the correct properties:
@@ -26,6 +36,10 @@ npx hardhat run scripts/deploy/all.ts
 ```bash
 npx hardhat run scripts/deploy/authorityRegistry.ts
 ```
+
+  `scripts/deploy/processorEndpoint.ts` deploys `ProcessorEndpointExtension` together with the endpoint, in that order; there is no script that deploys the endpoint against a pre-existing extension.
+
+- when `DEPLOY_OUTPUT_DIR` is set, `all.ts` writes the deployed addresses to `deployed_addresses.env`, including `CHAIN_PROCESSOR_EXTENSION_ADDRESS`. Nothing reads that one at runtime, but it is the only record of which extension an endpoint delegates to.
 
 ## Management scripts
 

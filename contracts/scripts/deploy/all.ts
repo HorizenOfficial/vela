@@ -115,7 +115,17 @@ async function deploy() {
   console.log(`TokenAllowlist`);
   console.log(`  contract address: ${tokenAllowlistAddr}`);
 
-  // 5) ProcessorEndpoint
+  // 5) ProcessorEndpointExtension — code moved out of ProcessorEndpoint to stay under EIP-170,
+  //    reached by delegatecall. Stateless, so it must be deployed before the endpoint, whose
+  //    constructor takes its address.
+  const ProcessorEndpointExtension = await ethers.getContractFactory('ProcessorEndpointExtension');
+  const processorEndpointExtension = await ProcessorEndpointExtension.deploy();
+  await processorEndpointExtension.deploymentTransaction()!.wait();
+  const processorEndpointExtensionAddr = await processorEndpointExtension.getAddress();
+  console.log(`ProcessorEndpointExtension`);
+  console.log(`  contract address: ${processorEndpointExtensionAddr}`);
+
+  // 6) ProcessorEndpoint
   const resetOperator = process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000';
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');
   const processorEndpoint = await ProcessorEndpoint.deploy(
@@ -125,7 +135,8 @@ async function deploy() {
     process.env.ADMIN!,
     resetOperator,
     process.env.MIN_FEE_PER_REQUEST!,
-    tokenAllowlistAddr
+    tokenAllowlistAddr,
+    processorEndpointExtensionAddr
   );
   await processorEndpoint.deploymentTransaction()!.wait();
   var processorEndpointAddr = await processorEndpoint.getAddress();
@@ -135,8 +146,9 @@ async function deploy() {
   console.log(`  admin / bootstrap deployer: ${process.env.ADMIN!}`);
   console.log(`  reset operator (address(0) = disabled): ${resetOperator}`);
   console.log(`  token allowlist: ${tokenAllowlistAddr}`);
+  console.log(`  extension: ${processorEndpointExtensionAddr}`);
 
-  // 5) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
+  // 7) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
   //    Must be deployed AFTER ProcessorEndpoint so that its CREATE address
   //    stays stable across runs (deterministic on deployer nonce).
   //    Requires the deployer to hold the ADMIN role on ProcessorEndpoint,
@@ -168,6 +180,10 @@ async function deploy() {
   if (outputDir) {
     const lines = [
       `CHAIN_PROCESSOR_ADDRESS=${processorEndpointAddr}`,
+      // Nothing reads this at runtime — the endpoint holds the address in an immutable — but it is
+      // the only record of which extension a deployed endpoint delegates to, needed to verify or
+      // redeploy it.
+      `CHAIN_PROCESSOR_EXTENSION_ADDRESS=${processorEndpointExtensionAddr}`,
       `CHAIN_TEEAUTHENTICATOR_ADDRESS=${teeAuthenticatorAddr}`,
       `CHAIN_TOKEN_ALLOWLIST_ADDRESS=${tokenAllowlistAddr}`,
     ];

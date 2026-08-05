@@ -35,6 +35,11 @@
         "internalType": "contract ITokenAllowlist",
         "name": "_tokenAllowlist",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "extension",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -83,33 +88,6 @@
   },
   {
     "inputs": [],
-    "name": "ECDSAInvalidSignature",
-    "type": "error"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "length",
-        "type": "uint256"
-      }
-    ],
-    "name": "ECDSAInvalidSignatureLength",
-    "type": "error"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "s",
-        "type": "bytes32"
-      }
-    ],
-    "name": "ECDSAInvalidSignatureS",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "FeeValueBelowMinimum",
     "type": "error"
   },
@@ -126,6 +104,11 @@
   {
     "inputs": [],
     "name": "InvalidApplicationId",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidExtension",
     "type": "error"
   },
   {
@@ -1066,6 +1049,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "extension",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -1154,25 +1150,6 @@
         "internalType": "uint64[]",
         "name": "",
         "type": "uint64[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
-      }
-    ],
-    "name": "getFacilitatorNonce",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
       }
     ],
     "stateMutability": "view",

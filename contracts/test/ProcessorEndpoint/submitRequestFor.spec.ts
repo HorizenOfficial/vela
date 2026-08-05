@@ -128,6 +128,7 @@ describe('ProcessorEndpoint Test', function () {
   let minFeePerRequest: bigint;
   let applicationId: bigint;
   let chainId: bigint;
+  let extension: any;
 
   // signers[0] = user (sender), signers[3] = facilitator (msg.sender)
   let user: Signer;
@@ -135,7 +136,7 @@ describe('ProcessorEndpoint Test', function () {
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
-    ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
+    ({ processorEndpoint, tokenAllowlist, extension } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
@@ -167,7 +168,7 @@ describe('ProcessorEndpoint Test', function () {
     const tokenAddress = overrides.tokenAddress ?? ETH_TOKEN;
     const assetAmount = overrides.assetAmount ?? 0n;
     const deadline = overrides.deadline ?? (await getDeadline());
-    const nonce = overrides.nonce ?? (await processorEndpoint.getFacilitatorNonce(sender));
+    const nonce = overrides.nonce ?? (await processorEndpoint.facilitatorNonces(sender));
     const signerToUse = overrides.signer ?? user;
 
     const contractAddress = await processorEndpoint.getAddress();
@@ -199,6 +200,32 @@ describe('ProcessorEndpoint Test', function () {
 
   describe('submitRequestFor', function () {
     describe('unhappy paths', function () {
+      // submitRequestFor is implemented in ProcessorEndpointExtension and reached by
+      // delegatecall, so it only makes sense against the endpoint's storage. Called on the
+      // extension directly it would touch the extension's own (empty) storage and could strand
+      // the ETH sent as the fee.
+      it('reverts with DirectCallNotAllowed when the extension is called directly', async () => {
+        const params = await buildRequestParams();
+
+        await expect(
+          extension
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              params.requestSignature,
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
+        ).to.be.revertedWithCustomError(extension, 'DirectCallNotAllowed');
+      });
+
       it('reverts with InvalidProtocolVersion when protocolVersion is invalid', async () => {
         const params = await buildRequestParams({ protocolVersion: 1 });
 
@@ -393,6 +420,53 @@ describe('ProcessorEndpoint Test', function () {
               { value: minFeePerRequest }
             )
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidSigner');
+      });
+
+      // A signature ECDSA cannot even parse must surface as InvalidSignature, which
+      // IProcessorEndpoint declares. Letting OpenZeppelin's ECDSAInvalidSignature* out instead
+      // would revert with data the endpoint's own ABI cannot decode, since the recovery lives in
+      // ProcessorEndpointExtension.
+      it('reverts with InvalidSignature when the request signature has a wrong length', async () => {
+        const params = await buildRequestParams();
+
+        await expect(
+          processorEndpoint
+            .connect(facilitator)
+            .submitRequestFor(
+              params.sender,
+              params.protocolVersion,
+              params.applicationId,
+              params.requestType,
+              params.payload,
+              params.tokenAddress,
+              params.assetAmount,
+              params.deadline,
+              '0x1234',
+              params.depositPermit,
+              { value: minFeePerRequest }
+            )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidSignature');
+      });
+
+      it('reverts with InvalidSignature when the request signature is unrecoverable', async () => {
+        const params = await buildRequestParams();
+
+        await expect(
+          processorEndpoint.connect(facilitator).submitRequestFor(
+            params.sender,
+            params.protocolVersion,
+            params.applicationId,
+            params.requestType,
+            params.payload,
+            params.tokenAddress,
+            params.assetAmount,
+            params.deadline,
+            // 65 zero bytes: v = 0, so ecrecover yields address(0)
+            '0x' + '00'.repeat(65),
+            params.depositPermit,
+            { value: minFeePerRequest }
+          )
+        ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidSignature');
       });
 
       it('reverts when replaying the same signature (nonce consumed)', async () => {
@@ -664,7 +738,7 @@ describe('ProcessorEndpoint Test', function () {
 
       it('increments facilitator nonce after successful submission', async () => {
         const userAddr = await user.getAddress();
-        const nonceBefore = await processorEndpoint.getFacilitatorNonce(userAddr);
+        const nonceBefore = await processorEndpoint.facilitatorNonces(userAddr);
 
         const params = await buildRequestParams();
         await processorEndpoint
@@ -683,7 +757,7 @@ describe('ProcessorEndpoint Test', function () {
             { value: minFeePerRequest }
           );
 
-        const nonceAfter = await processorEndpoint.getFacilitatorNonce(userAddr);
+        const nonceAfter = await processorEndpoint.facilitatorNonces(userAddr);
         expect(nonceAfter).to.equal(nonceBefore + 1n);
       });
 
