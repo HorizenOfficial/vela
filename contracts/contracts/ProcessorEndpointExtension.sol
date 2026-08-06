@@ -230,7 +230,7 @@ contract ProcessorEndpointExtension is ProcessorEndpointStorage {
       keccak256(payload),
       ETH_TOKEN,
       0,
-      _q.deploys.tail
+      _queueStore.deploys.tail
     );
 
     uint64 applicationId = uint64(bytes8(requestId)); // Derive a unique application ID from the request ID for deploy requests
@@ -238,8 +238,8 @@ contract ProcessorEndpointExtension is ProcessorEndpointStorage {
     // application does not exist yet, so it is absent from _deployedAppIds and the round-robin
     // scan over deployed applications would never reach it.
     RequestQueues.enqueue(
-      _q,
-      _q.deploys,
+      _queueStore,
+      _queueStore.deploys,
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,
@@ -347,7 +347,7 @@ contract ProcessorEndpointExtension is ProcessorEndpointStorage {
   ///      passed to a library by reference.
   function _resetQueues() private {
     uint256 freedDeploySlots = RequestQueues.resetQueues(
-      _q,
+      _queueStore,
       _deployedAppIds,
       appCustody,
       totalAppCustody,

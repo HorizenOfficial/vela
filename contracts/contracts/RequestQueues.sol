@@ -30,6 +30,19 @@ library RequestQueues {
     uint256 tail;
   }
 
+  /// @dev Which queue holds a request is a function of its `requestType`, and only of that:
+  ///      TRUSTPROCESS ⇔ `triggers`, DEPLOYAPP ⇔ `deploys`, every other type ⇔
+  ///      `pending[applicationId]`. The three enqueue sites are what establish it —
+  ///      `ProcessorEndpoint._enqueueTrustedRequest` and `ProcessorEndpointExtension`'s deploy
+  ///      submission each hardcode their type, and `ProcessorEndpointStorage._enqueueRequest`
+  ///      is only reachable for the remaining types (both entry points reject DEPLOYAPP and
+  ///      TRUSTPROCESS).
+  ///
+  ///      `ProcessorEndpoint._queueOf` relies on this to resolve a request's queue from its type
+  ///      instead of searching all three, which is what keeps `stateUpdate` off two cold SLOAD
+  ///      pairs per call. A new enqueue site that breaks the mapping would not revert:
+  ///      `dequeueHead` removes whatever sits at the head of the queue it is given without
+  ///      checking the id, so a mis-routed removal silently deletes another queue's head.
   struct Store {
     /// @dev Every pending request, keyed by its unique requestId, regardless of which queue
     ///      holds it. Request ids are unique across queues (they mix in the applicationId and

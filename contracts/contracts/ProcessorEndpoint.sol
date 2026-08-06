@@ -237,20 +237,44 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     _delegateToExtension();
   }
 
-  function _removeRequest(bytes32 requestId) private {
-    // RequestQueues.isHead already returns false for an empty queue (tail > head check),
-    // so no separate size guard is needed here.
-    if (RequestQueues.isHead(_q.triggers, requestId)) {
-      RequestQueues.dequeueHead(_q, _q.triggers);
-    } else if (RequestQueues.isHead(_q.deploys, requestId)) {
-      RequestQueues.dequeueHead(_q, _q.deploys);
-    } else {
-      uint64 applicationId = _q.requests[requestId].applicationId;
-      RequestQueues.dequeueHead(_q, _q.pending[applicationId]);
-      // The application has had its turn: move the cursor just past it so the next
-      // selection starts from the following application. Trigger- and deploy-queue
-      // processing bypasses the cursor, leaving the rotation where it paused.
-      RequestQueues.advanceCursor(_q, _deployedAppIds, applicationId);
+  /// @dev The queue a request belongs to, derived from its type alone. This is the single place
+  ///      that encodes the type ⇔ queue mapping documented on `RequestQueues.Store`; both the
+  ///      validity check and the removal in `stateUpdate` resolve their queue through it, so the
+  ///      request that is verified to be the head is always the one that gets dequeued.
+  ///
+  ///      Resolving the queue is what a search over all three would otherwise cost: for a plain
+  ///      request, `isHead` on the empty trigger and deploy queues reads four cold slots
+  ///      (`tail`/`head` of each, ~8.4k gas) purely to rule them out. The type comes from the
+  ///      slot that packs `facilitator`, `applicationId`, `protocolVersion` and `requestType`,
+  ///      which `stateUpdate` loads anyway, so routing adds no storage read of its own.
+  ///
+  ///      Note that DEPLOYAPP is enum value 0: an unknown requestId reads back as a zeroed
+  ///      request and resolves to the deploy queue. That is harmless — `isHead` still compares
+  ///      the id against the queue's actual head — but it is why callers must treat the `isHead`
+  ///      result, not the resolved queue, as proof that the request exists.
+  function _queueOf(
+    uint64 applicationId,
+    Structs.RequestType requestType
+  ) private view returns (RequestQueues.Queue storage) {
+    if (requestType == Structs.RequestType.TRUSTPROCESS) return _queueStore.triggers;
+    if (requestType == Structs.RequestType.DEPLOYAPP) return _queueStore.deploys;
+    return _queueStore.pending[applicationId];
+  }
+
+  /// @dev Removes the head of the request's own queue. The caller must have established that the
+  ///      request *is* that head (`stateUpdate` does so through the same `_queueOf`);
+  ///      `RequestQueues.dequeueHead` does not re-check the id.
+  function _removeRequest(uint64 applicationId, Structs.RequestType requestType) private {
+    RequestQueues.dequeueHead(_queueStore, _queueOf(applicationId, requestType));
+    // Only per-application queues take part in the round robin. The application has had its
+    // turn: move the cursor just past it so the next selection starts from the following
+    // application. Trigger- and deploy-queue processing bypasses the cursor, leaving the
+    // rotation where it paused.
+    if (
+      requestType != Structs.RequestType.TRUSTPROCESS &&
+      requestType != Structs.RequestType.DEPLOYAPP
+    ) {
+      RequestQueues.advanceCursor(_queueStore, _deployedAppIds, applicationId);
     }
   }
 
@@ -263,7 +287,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     string memory errorMsg,
     Structs.RequestType requestType
   ) private {
-    _removeRequest(requestId);
+    _removeRequest(applicationId, requestType);
 
     if (requestType == Structs.RequestType.DEPLOYAPP) {
       emit DeployRequestCompleted(
@@ -288,12 +312,12 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
   /// @inheritdoc IProcessorEndpoint
   function getTriggerQueueSize() public view returns (uint256) {
-    return RequestQueues.size(_q.triggers);
+    return RequestQueues.size(_queueStore.triggers);
   }
 
   /// @inheritdoc IProcessorEndpoint
   function getTriggerRequests() external view returns (Structs.PendingRequest[] memory) {
-    return _copyRange(_q.triggers, RequestQueues.size(_q.triggers));
+    return _copyRange(_queueStore.triggers, RequestQueues.size(_queueStore.triggers));
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -311,7 +335,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
   /// @inheritdoc IProcessorEndpoint
   function requestById(bytes32 id) external view returns (Structs.PendingRequest memory) {
-    return _q.requests[id];
+    return _queueStore.requests[id];
   }
 
   /// @dev Flattens every pending request outside the trigger queue — the deploy queue first (it
@@ -324,11 +348,11 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     uint256 limit
   ) internal view returns (Structs.PendingRequest[] memory result) {
     Structs.PendingRequest[] memory all = new Structs.PendingRequest[](_pendingRequestsSize());
-    uint256 n = _copyInto(_q.deploys, all, 0);
+    uint256 n = _copyInto(_queueStore.deploys, all, 0);
     uint256 appCount = _deployedAppIds.length;
     uint256 a;
     while (a != appCount) {
-      n = _copyInto(_q.pending[_deployedAppIds[a]], all, n);
+      n = _copyInto(_queueStore.pending[_deployedAppIds[a]], all, n);
       unchecked {
         ++a;
       }
@@ -363,12 +387,20 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     string calldata errorMsg,
     bytes calldata signature
   ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant {
-    //check valid request
-    if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
+    // Check valid request. The stored type resolves the one queue this request can be in (see
+    // _queueOf), so this is a single head comparison rather than a scan of all three queues —
+    // and it is the same queue _removeRequest will dequeue from.
+    Structs.PendingRequest storage requestInfo = _queueStore.requests[processedRequestId];
+    if (
+      !RequestQueues.isHead(
+        _queueOf(requestInfo.applicationId, requestInfo.requestType),
+        processedRequestId
+      )
+    ) revert InvalidRequestId();
+
+    bool fromTriggerQueue = requestInfo.requestType == Structs.RequestType.TRUSTPROCESS;
 
     // Check application Id
-    bool fromTriggerQueue = RequestQueues.isHead(_q.triggers, processedRequestId);
-    Structs.PendingRequest storage requestInfo = _q.requests[processedRequestId];
     if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
 
     //check prev state root
@@ -732,15 +764,15 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     returns (uint64 applicationId, Structs.PendingRequest[] memory requests, bytes32 stateRoot)
   {
     if (maxCount != 0) {
-      if (RequestQueues.size(_q.triggers) > 0) return _headAsBatch(_q.triggers);
-      if (RequestQueues.size(_q.deploys) > 0) return _headAsBatch(_q.deploys);
+      if (RequestQueues.size(_queueStore.triggers) > 0) return _headAsBatch(_queueStore.triggers);
+      if (RequestQueues.size(_queueStore.deploys) > 0) return _headAsBatch(_queueStore.deploys);
 
-      (uint64 appId, bool found) = RequestQueues.selectApplication(_q, _deployedAppIds);
+      (uint64 appId, bool found) = RequestQueues.selectApplication(_queueStore, _deployedAppIds);
       if (found) {
-        uint256 count = RequestQueues.size(_q.pending[appId]);
+        uint256 count = RequestQueues.size(_queueStore.pending[appId]);
         if (count > maxCount) count = maxCount;
         if (address(triggerContracts[appId]) != address(0)) count = 1;
-        return (appId, _copyRange(_q.pending[appId], count), applicationStateRoots[appId]);
+        return (appId, _copyRange(_queueStore.pending[appId], count), applicationStateRoots[appId]);
       }
     }
     return (0, new Structs.PendingRequest[](0), bytes32(0));
@@ -757,11 +789,12 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
+  /// @dev An unknown requestId reads back as a zeroed request and resolves to the deploy queue,
+  ///      where the head comparison fails — so it returns false, as it does for a request that is
+  ///      queued but not at its queue's head.
   function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
-    return
-      RequestQueues.isHead(_q.triggers, requestId) ||
-      RequestQueues.isHead(_q.deploys, requestId) ||
-      RequestQueues.isHead(_q.pending[_q.requests[requestId].applicationId], requestId);
+    Structs.PendingRequest storage request = _queueStore.requests[requestId];
+    return RequestQueues.isHead(_queueOf(request.applicationId, request.requestType), requestId);
   }
 
   // Pull payment pattern functions. `_asyncTransfer` is declared in `ProcessorEndpointStorage`,
@@ -848,7 +881,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     uint256 stop = q.head + count;
     uint256 j;
     while (i != stop) {
-      result[j] = _q.requests[q.idByOrder[i]];
+      result[j] = _queueStore.requests[q.idByOrder[i]];
       unchecked {
         ++i;
         ++j;
@@ -866,7 +899,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     uint256 i = q.head;
     uint256 tail = q.tail;
     while (i != tail) {
-      dest[offset] = _q.requests[q.idByOrder[i]];
+      dest[offset] = _queueStore.requests[q.idByOrder[i]];
       unchecked {
         ++i;
         ++offset;
@@ -986,12 +1019,12 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       keccak256(payload),
       address(0),
       0,
-      _q.triggers.tail
+      _queueStore.triggers.tail
     );
 
     RequestQueues.enqueue(
-      _q,
-      _q.triggers,
+      _queueStore,
+      _queueStore.triggers,
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,

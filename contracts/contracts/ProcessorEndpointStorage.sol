@@ -64,7 +64,7 @@ abstract contract ProcessorEndpointStorage is
   // All pending-request queue state: the global request store, the per-application queues, the
   // global deploy and trigger queues, the round-robin cursor and the total request count. Held
   // as one struct so it can be handed to RequestQueues as a single storage pointer.
-  RequestQueues.Store internal _q;
+  RequestQueues.Store internal _queueStore;
   uint256 public maxQueueSize = 10;
 
   ITeeAuthenticator public teeAuthenticator;
@@ -125,7 +125,7 @@ abstract contract ProcessorEndpointStorage is
   /// @dev Internal implementation of `ProcessorEndpoint.getPendingRequestsSize`. The public
   ///      function stays on the endpoint; see the contract-level note on override conflicts.
   function _pendingRequestsSize() internal view returns (uint256) {
-    return _q.total - RequestQueues.size(_q.triggers);
+    return _queueStore.total - RequestQueues.size(_queueStore.triggers);
   }
 
   function _generateRequestId(
@@ -200,11 +200,11 @@ abstract contract ProcessorEndpointStorage is
       keccak256(payload),
       tokenAddress,
       assetAmount,
-      _q.pending[applicationId].tail
+      _queueStore.pending[applicationId].tail
     );
     RequestQueues.enqueue(
-      _q,
-      _q.pending[applicationId],
+      _queueStore,
+      _queueStore.pending[applicationId],
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,
