@@ -46,7 +46,10 @@ library RequestQueues {
     /// @dev Global priority queue for TRUSTPROCESS requests, served before everything else.
     Queue triggers;
     /// @dev Round-robin cursor into the deployed application ids: index of the application
-    ///      whose turn it is.
+    ///      whose turn it is. Always a valid index while any application is deployed —
+    ///      `advanceCursor` wraps it, and `resetQueues` returns it to 0 because `resetApps`
+    ///      shrinks the id list and would otherwise leave it past the end. `selectApplication`
+    ///      relies on that: it uses the cursor as an index without reducing it first.
     uint256 cursor;
     /// @dev Number of requests across every queue, maintained incrementally so the size views
     ///      never have to scan every application. Includes the trigger queue.
@@ -104,7 +107,9 @@ library RequestQueues {
   ) internal view returns (uint64 applicationId, bool found) {
     uint256 n = appIds.length;
     if (n == 0) return (0, false);
-    uint256 start = s.cursor % n;
+    // No `% n` needed: the cursor is kept a valid index (see Store.cursor). The modulo below
+    // is what wraps the scan around the end of the list, and is not the same thing.
+    uint256 start = s.cursor;
     uint256 i;
     while (i != n) {
       uint64 candidate = appIds[(start + i) % n];
@@ -139,7 +144,7 @@ library RequestQueues {
   /// @notice Discards every pending request: pending deploys give their reserved slot back and
   ///         drop any trigger registered eagerly at submit time, per-application requests have
   ///         their asset deposit credited back to the sender, and the trigger queue is dropped
-  ///         (TRUSTPROCESS requests carry no funds).
+  ///         (TRUSTPROCESS requests carry no funds). The round-robin cursor goes back to 0.
   /// @return freedDeploySlots Deploy slots to return to the pool, applied by the caller because
   ///         a value-type state variable cannot be passed by reference.
   function resetQueues(
@@ -198,6 +203,11 @@ library RequestQueues {
     }
 
     drain(s, s.triggers);
+
+    // Back to the start of the rotation. Every queue is now empty, so no fairness information
+    // is lost — and this is what keeps the cursor a valid index: `adminResetApps` calls this
+    // before `resetApps` shrinks `appIds`, which would otherwise leave the cursor past the end.
+    s.cursor = 0;
   }
 
   /// @notice Clears every entry of a queue and collapses it by setting tail back to head. head
