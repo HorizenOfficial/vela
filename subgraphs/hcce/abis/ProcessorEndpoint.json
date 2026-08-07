@@ -89,12 +89,22 @@
   },
   {
     "inputs": [],
+    "name": "BatchNotAllowed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "DeadlineExpired",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "DeployerNotAllowed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "EmptyBatch",
     "type": "error"
   },
   {
@@ -274,6 +284,25 @@
       }
     ],
     "name": "AppEvent",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32[]",
+        "name": "entryHashes",
+        "type": "bytes32[]"
+      }
+    ],
+    "name": "BatchProcessed",
     "type": "event"
   },
   {
@@ -1020,6 +1049,122 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "applicationId",
+        "type": "uint64"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "prevStateRoot",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "newStateRoot",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "processedRequestId",
+            "type": "bytes32"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes[]",
+                "name": "events",
+                "type": "bytes[]"
+              },
+              {
+                "internalType": "bytes32[]",
+                "name": "subTypes",
+                "type": "bytes32[]"
+              }
+            ],
+            "internalType": "struct Structs.EventData",
+            "name": "userEvents",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes[]",
+                "name": "events",
+                "type": "bytes[]"
+              },
+              {
+                "internalType": "bytes32[]",
+                "name": "subTypes",
+                "type": "bytes32[]"
+              }
+            ],
+            "internalType": "struct Structs.EventData",
+            "name": "appEvents",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "tokenAddress",
+                "type": "address"
+              },
+              {
+                "internalType": "address payable",
+                "name": "receiver",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct Structs.WithdrawalRequest[]",
+            "name": "withdrawalRequests",
+            "type": "tuple[]"
+          },
+          {
+            "internalType": "uint256",
+            "name": "refund",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "applicationFees",
+            "type": "uint256"
+          },
+          {
+            "internalType": "enum Structs.ErrorCode",
+            "name": "errorCode",
+            "type": "uint8"
+          },
+          {
+            "internalType": "string",
+            "name": "errorMsg",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct Structs.BatchEntry[]",
+        "name": "entries",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "bytes",
+        "name": "batchSignature",
+        "type": "bytes"
+      }
+    ],
+    "name": "batchStateUpdate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

@@ -138,7 +138,11 @@ library RequestQueues {
   ///         old enough that whoever read the selection view within the grace window must have
   ///         seen it. Used to enforce the global queues' precedence: an aged head in a
   ///         higher-priority queue blocks lower-priority state updates.
-  function isHeadAged(Store storage s, Queue storage q, uint256 grace) internal view returns (bool) {
+  function isHeadAged(
+    Store storage s,
+    Queue storage q,
+    uint256 grace
+  ) internal view returns (bool) {
     if (size(q) == 0) return false;
     // Subtraction rather than `timestamp + grace`: an enqueue timestamp is never in the future
     // so this cannot underflow, and no value of `grace` can overflow it and brick the caller.

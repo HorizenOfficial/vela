@@ -24,6 +24,7 @@ describe('ProcessorEndpoint selection enforcement', function () {
   let firstAppId: bigint;
   let secondAppId: bigint;
   let grace: bigint;
+  let bootstrapApplicationWithTrigger: any;
 
   beforeEach(async function () {
     fixture = await deployProcessorEndpointFixture();
@@ -32,6 +33,7 @@ describe('ProcessorEndpoint selection enforcement', function () {
     minFeePerRequest = fixture.minFeePerRequest;
     ({ applicationId: firstAppId } = await fixture.bootstrapApplication(processorEndpoint));
     ({ applicationId: secondAppId } = await fixture.bootstrapApplication(processorEndpoint));
+    bootstrapApplicationWithTrigger = fixture.bootstrapApplicationWithTrigger;
     grace = await processorEndpoint.selectionGrace();
   });
 
@@ -296,32 +298,8 @@ describe('ProcessorEndpoint selection enforcement', function () {
     });
 
     it('processes a TRUSTPROCESS while another application is starved', async function () {
-      const TestTrigger = await ethers.getContractFactory('TestTrigger');
-      const trigger = await TestTrigger.deploy(await processorEndpoint.getAddress(), false, false);
-      const deployTx = await processorEndpoint
-        .connect(signers[2])
-        .submitDeployRequestWithTrigger(0, '0x' + 'ab'.repeat(40), await trigger.getAddress(), {
-          value: minFeePerRequest,
-        });
-      const parsed = (await deployTx.wait()).logs
-        .map((log: any) => {
-          try {
-            return processorEndpoint.interface.parseLog(log);
-          } catch {
-            return null;
-          }
-        })
-        .find((p: any) => p?.name === 'DeployRequestSubmitted');
-      const triggerAppId: bigint = parsed.args.applicationId;
-      await (
-        await stateUpdate(
-          triggerAppId,
-          BYTES32_ZERO,
-          INITIAL_STATE_ROOT,
-          parsed.args.requestId,
-          minFeePerRequest
-        )
-      ).wait();
+      const { trigger, applicationId: triggerAppId } =
+        await bootstrapApplicationWithTrigger(processorEndpoint);
 
       // Enqueue a TRUSTPROCESS while every other queue is still empty, so this update is in turn.
       await (await trigger.setTrustedPayload('0xdeadbeef')).wait();
@@ -358,32 +336,8 @@ describe('ProcessorEndpoint selection enforcement', function () {
       trustedRequestId: string;
       triggerAppRoot: string;
     }> {
-      const TestTrigger = await ethers.getContractFactory('TestTrigger');
-      const trigger = await TestTrigger.deploy(await processorEndpoint.getAddress(), false, false);
-      const deployTx = await processorEndpoint
-        .connect(signers[2])
-        .submitDeployRequestWithTrigger(0, '0x' + 'ab'.repeat(40), await trigger.getAddress(), {
-          value: minFeePerRequest,
-        });
-      const parsed = (await deployTx.wait()).logs
-        .map((log: any) => {
-          try {
-            return processorEndpoint.interface.parseLog(log);
-          } catch {
-            return null;
-          }
-        })
-        .find((p: any) => p?.name === 'DeployRequestSubmitted');
-      const triggerAppId: bigint = parsed.args.applicationId;
-      await (
-        await stateUpdate(
-          triggerAppId,
-          BYTES32_ZERO,
-          INITIAL_STATE_ROOT,
-          parsed.args.requestId,
-          minFeePerRequest
-        )
-      ).wait();
+      const { trigger, applicationId: triggerAppId } =
+        await bootstrapApplicationWithTrigger(processorEndpoint);
 
       await (await trigger.setTrustedPayload('0xdeadbeef')).wait();
       const seedRequestId = await submitRequest(triggerAppId, '0x16');

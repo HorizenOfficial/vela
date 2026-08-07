@@ -123,6 +123,15 @@ interface IProcessorEndpoint is IProcessorEndpointState {
     bytes32 oldStateRoot,
     bytes32 newStateRoot
   );
+  /// @notice Emitted once per `batchStateUpdate` call, carrying the per-entry hashes the batch
+  ///         signature covered. The individual `StateRootUpdate`, `UserEvent`, `AppEvent` and
+  ///         `RequestCompleted` events are emitted per entry exactly as on the single-request path;
+  ///         this event adds only what those cannot express — the digest the one signature was
+  ///         verified against, which an off-chain verifier needs to re-derive it.
+  /// @param applicationId Application every entry of the batch belongs to.
+  /// @param entryHashes Per-entry hashes, in submission order.
+  event BatchProcessed(uint64 indexed applicationId, bytes32[] entryHashes);
+
   /// @notice Emitted when the queue size threshold is changed.
   /// @param newThreshold New maximum queue size.
   event QueueThresholdUpdated(uint256 newThreshold);
@@ -196,6 +205,14 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   ///         manager read the selection view.
   /// @param queueType The queue that must be served first: TRUSTPROCESS or DEPLOYAPP.
   error PriorityQueueNotServed(Structs.RequestType queueType);
+  /// @notice `batchStateUpdate` was called with no entries.
+  error EmptyBatch();
+
+  /// @notice The batch holds more than one entry for a request kind that must be processed alone:
+  ///         a TRUSTPROCESS or DEPLOYAPP queue head, or any request of an application with a
+  ///         registered trigger contract. Such a batch would compute its later entries without the
+  ///         on-chain trusted callback the trigger flow depends on.
+  error BatchNotAllowed();
   /// @notice The provided state root does not match the expected value.
   error InvalidStateRoot();
   /// @notice The signature could not be verified.
@@ -373,6 +390,32 @@ interface IProcessorEndpoint is IProcessorEndpointState {
     Structs.ErrorCode errorCode,
     string calldata errorMsg,
     bytes calldata signature
+  ) external;
+
+  /// @notice Applies several update payloads for one application atomically, verified by a single
+  ///         signature covering every entry.
+  /// @dev Each entry is processed exactly as `stateUpdate` processes its single one — same
+  ///       validation, events, refunds, withdrawals, trigger invocation and dequeuing — in array
+  ///       order, from the head of `pendingQueues[applicationId]` onward. All-or-nothing: any entry
+  ///       reverting reverts the whole call.
+  ///
+  ///       The state root is chained through the entries: the first entry's `prevStateRoot` must
+  ///       match the stored root, each later one must match its predecessor's `newStateRoot`, and
+  ///       storage is written once at the end. An error entry leaves the root unchanged and the
+  ///       next entry continues from it.
+  ///
+  ///       The round-robin turn is enforced once for the whole batch (see `updateSelectionGrace`),
+  ///       and request kinds that must be processed alone are limited to a single entry — see
+  ///       {BatchNotAllowed}.
+  /// @param applicationId Application every entry belongs to, passed once instead of per entry.
+  /// @param entries Per-request update payloads, in the order the requests are queued.
+  /// @param batchSignature Single TEE signature over the EIP-191 digest of the concatenated entry
+  ///        hashes (see `ITeeAuthenticator.checkBatchSignature`). For a one-entry batch this is
+  ///        byte-identical to the signature `stateUpdate` accepts.
+  function batchStateUpdate(
+    uint64 applicationId,
+    Structs.BatchEntry[] calldata entries,
+    bytes calldata batchSignature
   ) external;
 
   /// @notice Updates the maximum pending queue size.

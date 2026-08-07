@@ -437,6 +437,10 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
   //update status
   /// @inheritdoc IProcessorEndpoint
+  /// @dev Thin wrapper around `_processOneStateUpdate`, which is also what `batchStateUpdate`
+  ///      loops over: there are two entry points, not two implementations. Kept alongside the
+  ///      batch entry point because it is what the whole pre-batch test suite exercises, so it is
+  ///      the proof that extracting `_processOneStateUpdate` did not change any behaviour.
   function stateUpdate(
     uint64 applicationId,
     bytes32 prevStateRoot,
@@ -451,6 +455,153 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     string calldata errorMsg,
     bytes calldata signature
   ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant {
+    bytes32 currentRoot = applicationStateRoots[applicationId];
+    bytes32 newRoot = _processOneStateUpdate(
+      Structs.SignatureParams({
+        applicationId: applicationId,
+        prevStateRoot: prevStateRoot,
+        newStateRoot: newStateRoot,
+        processedRequestId: processedRequestId,
+        userEvents: userEventData,
+        appEvents: appEventData,
+        withdrawalRequests: withdrawalRequests,
+        refundAmount: refund,
+        applicationFee: applicationFees,
+        errorCode: errorCode,
+        errorMsg: errorMsg
+      }),
+      currentRoot,
+      true,
+      true,
+      signature
+    );
+    // The error path leaves the root untouched and returns it unchanged, which is exactly when no
+    // write must happen — the success path always moves it (an unchanged root reverts there).
+    if (newRoot != currentRoot) applicationStateRoots[applicationId] = newRoot;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function batchStateUpdate(
+    uint64 applicationId,
+    Structs.BatchEntry[] calldata entries,
+    bytes calldata batchSignature
+  ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant {
+    uint256 n = entries.length;
+    // Declared here rather than left to the authenticator's own EmptyBatch: an error the endpoint
+    // does not declare reaches clients as undecodable revert data.
+    if (n == 0) revert EmptyBatch();
+
+    // One batch belongs to one application, but three request kinds must stay unbatched: a
+    // TRUSTPROCESS or DEPLOYAPP head (both live in a global queue, and both are processed one at a
+    // time — see _selectPendingRequests), and any request of an application with a registered
+    // trigger. For those the entry array must hold exactly one entry, which makes this function a
+    // strict superset of stateUpdate rather than a second path with its own rules.
+    //
+    // Why they cannot be batched: the trigger contract is invoked *during* the update and can
+    // enqueue a TRUSTPROCESS request whose payload is derived on-chain, so it cannot exist when
+    // the TEE builds the batch. Entries computed after it in the same transaction would silently
+    // observe a state the trigger flow never intended — a semantic violation that does not revert
+    // (section 5.2 of docs/design/BATCH_EXECUTION.md).
+    //
+    // DEPLOYAPP is enum value 0, so an unknown requestId reads back as a zeroed request and lands
+    // here as a deploy: a multi-entry batch whose first entry names a request that does not exist
+    // reverts BatchNotAllowed rather than InvalidRequestId. Both reject the call; only the reason
+    // is less precise.
+    if (n != 1) {
+      Structs.RequestType headType = _queueStore
+        .requests[entries[0].processedRequestId]
+        .requestType;
+      if (
+        headType == Structs.RequestType.TRUSTPROCESS ||
+        headType == Structs.RequestType.DEPLOYAPP ||
+        address(triggerContracts[applicationId]) != address(0)
+      ) revert BatchNotAllowed();
+    }
+
+    // Build every entry hash first: the batch signature covers all of them at once, and it is
+    // verified before any entry is processed. Params are kept alongside the hashes so the calldata
+    // is copied into memory once rather than per loop.
+    bytes32[] memory entryHashes = new bytes32[](n);
+    Structs.SignatureParams[] memory params = new Structs.SignatureParams[](n);
+    uint256 i;
+    while (i != n) {
+      Structs.SignatureParams memory p = Structs.SignatureParams({
+        applicationId: applicationId,
+        prevStateRoot: entries[i].prevStateRoot,
+        newStateRoot: entries[i].newStateRoot,
+        processedRequestId: entries[i].processedRequestId,
+        userEvents: entries[i].userEvents,
+        appEvents: entries[i].appEvents,
+        withdrawalRequests: entries[i].withdrawalRequests,
+        refundAmount: entries[i].refund,
+        applicationFee: entries[i].applicationFees,
+        errorCode: entries[i].errorCode,
+        errorMsg: entries[i].errorMsg
+      });
+      params[i] = p;
+      entryHashes[i] = UpdateEntryHash.entryHash(p);
+      unchecked {
+        ++i;
+      }
+    }
+
+    // One ecrecover for the whole batch, over the personal_sign digest of the concatenated entry
+    // hashes with its dynamic 32*N length prefix (see ITeeAuthenticator.checkBatchSignature).
+    if (!teeAuthenticator.checkBatchSignature(entryHashes, batchSignature))
+      revert InvalidSignature();
+
+    // Chain the state root through the entries in memory: the first entry is validated against
+    // storage, each later one against its predecessor's newStateRoot, and storage is written once
+    // after the loop.
+    bytes32 currentRoot = applicationStateRoots[applicationId];
+    bytes32 root = currentRoot;
+    i = 0;
+    while (i != n) {
+      // The turn is enforced on the first entry only: every entry shares one applicationId, and
+      // the entries above that would need a different priority tier are limited to a lone entry.
+      root = _processOneStateUpdate(params[i], root, i == 0, false, batchSignature);
+      unchecked {
+        ++i;
+      }
+    }
+    if (root != currentRoot) applicationStateRoots[applicationId] = root;
+
+    // The per-entry hashes are not recoverable from the individual events, so emit them: they are
+    // what an off-chain verifier needs to re-derive the batch digest this signature was checked
+    // against.
+    emit BatchProcessed(applicationId, entryHashes);
+  }
+
+  /// @dev Processes one update entry: validates it, emits its events, moves its funds, invokes the
+  ///      application's trigger if one is registered, and dequeues the request. The single
+  ///      implementation behind both `stateUpdate` and `batchStateUpdate`.
+  /// @param p The entry's fields, in the shape its hash is built from.
+  /// @param currentRoot The application's state root as of this entry — read from storage for the
+  ///        first entry of a call, the previous entry's `newStateRoot` afterwards. Deliberately not
+  ///        read from storage here, so a batch can chain entries in memory and write the root once.
+  ///        The one exception is an application with a registered trigger: there the root is
+  ///        written before the trigger runs, because the trigger is external code that observes the
+  ///        endpoint's state mid-transaction. Such applications are capped at one entry per batch,
+  ///        so this costs the batch path nothing.
+  /// @param enforceTurn Whether to enforce the selection rules (`_enforceSelection`). Callers pass
+  ///        true for the first entry only: one check covers a whole batch.
+  /// @param verifySignature Whether to verify `signature` as a 1-entry batch here. False for batch
+  ///        entries, which one signature over every entry hash already covers — `signature` is then
+  ///        ignored. Never derived from `signature` being empty: an empty signature must still fail
+  ///        verification rather than skip it.
+  /// @param signature Signature over this entry alone, ignored when `verifySignature` is false.
+  /// @return The application's state root after this entry: `currentRoot` for an error entry,
+  ///         `p.newStateRoot` for a successful one.
+  function _processOneStateUpdate(
+    Structs.SignatureParams memory p,
+    bytes32 currentRoot,
+    bool enforceTurn,
+    bool verifySignature,
+    bytes calldata signature
+  ) private returns (bytes32) {
+    uint64 applicationId = p.applicationId;
+    bytes32 processedRequestId = p.processedRequestId;
+
     // Check valid request. The stored type resolves the one queue this request can be in (see
     // _queueOf), so this is a single head comparison rather than a scan of all three queues —
     // and it is the same queue _removeRequest will dequeue from.
@@ -469,37 +620,26 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
     // Enforce whose turn it is. Checked before the signature so a rejected turn costs the manager
     // no ecrecover, and before any state is touched.
-    _enforceSelection(applicationId, requestInfo.requestType);
+    if (enforceTurn) _enforceSelection(applicationId, requestInfo.requestType);
 
     //check prev state root
-    if (prevStateRoot != applicationStateRoots[applicationId]) revert InvalidStateRoot();
+    if (p.prevStateRoot != currentRoot) revert InvalidStateRoot();
 
-    uint256 eventsLength = userEventData.events.length;
-    if (eventsLength != userEventData.subTypes.length) revert InvalidPayload();
+    uint256 eventsLength = p.userEvents.events.length;
+    if (eventsLength != p.userEvents.subTypes.length) revert InvalidPayload();
 
-    uint256 appEventsLength = appEventData.events.length;
-    if (appEventsLength != appEventData.subTypes.length) revert InvalidPayload();
+    uint256 appEventsLength = p.appEvents.events.length;
+    if (appEventsLength != p.appEvents.subTypes.length) revert InvalidPayload();
 
     //check signature
-    Structs.SignatureParams memory sigParams = Structs.SignatureParams({
-      applicationId: applicationId,
-      prevStateRoot: prevStateRoot,
-      newStateRoot: newStateRoot,
-      processedRequestId: processedRequestId,
-      userEvents: userEventData,
-      appEvents: appEventData,
-      withdrawalRequests: withdrawalRequests,
-      refundAmount: refund,
-      applicationFee: applicationFees,
-      errorCode: errorCode,
-      errorMsg: errorMsg
-    });
-    // Single-request updates are verified as a 1-entry batch: the batch digest of one
-    // entry hash is byte-identical to the single-request digest, so both submission
-    // paths share one signing scheme.
-    bytes32[] memory entryHashes = new bytes32[](1);
-    entryHashes[0] = UpdateEntryHash.entryHash(sigParams);
-    if (!teeAuthenticator.checkBatchSignature(entryHashes, signature)) revert InvalidSignature();
+    if (verifySignature) {
+      // Single-request updates are verified as a 1-entry batch: the batch digest of one
+      // entry hash is byte-identical to the single-request digest, so both submission
+      // paths share one signing scheme.
+      bytes32[] memory entryHashes = new bytes32[](1);
+      entryHashes[0] = UpdateEntryHash.entryHash(p);
+      if (!teeAuthenticator.checkBatchSignature(entryHashes, signature)) revert InvalidSignature();
+    }
 
     //check values
 
@@ -511,12 +651,12 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       : sender;
 
     // Handle error case (signed error payload from TEE)
-    if (errorCode != Structs.ErrorCode.NO_ERROR) {
+    if (p.errorCode != Structs.ErrorCode.NO_ERROR) {
       // For errors: state unchanged (prevStateRoot == newStateRoot), no events, no withdrawals
       // Refund user (minus minimum fee) and collect minimum fee
-      if (eventsLength != 0 || appEventsLength != 0 || withdrawalRequests.length != 0)
+      if (eventsLength != 0 || appEventsLength != 0 || p.withdrawalRequests.length != 0)
         revert InvalidPayload();
-      if (applicationStateRoots[applicationId] != newStateRoot) revert InvalidStateRoot();
+      if (currentRoot != p.newStateRoot) revert InvalidStateRoot();
 
       // Per-app per-token solvency check, then ETH balance check for fee outflow.
       uint256 assetAmount = requestInfo.assetAmount;
@@ -570,28 +710,31 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
         processedRequestId,
         fromTriggerQueue ? 0 : minFeePerRequest,
         Structs.RequestResult.FAILED,
-        Structs.ErrorCode(errorCode),
-        errorMsg,
+        p.errorCode,
+        p.errorMsg,
         requestInfo.requestType
       );
 
-      return;
+      // State unchanged: the caller must not write the root for this entry, and a batch continues
+      // from the same root.
+      return currentRoot;
     }
 
     // Handle success case
     // State cannot remain the same
-    if (applicationStateRoots[applicationId] == newStateRoot) revert InvalidStateRoot();
+    if (currentRoot == p.newStateRoot) revert InvalidStateRoot();
 
     // don't check fees if we are from trigger queue
     if (!fromTriggerQueue) {
-      if (refund + applicationFees != maxFeeValue) revert InvalidValue();
-      if (applicationFees < minFeePerRequest) {
+      if (p.refundAmount + p.applicationFee != maxFeeValue) revert InvalidValue();
+      if (p.applicationFee < minFeePerRequest) {
         revert InvalidValue();
       }
     }
 
     //check withdrawal sums and debit per-app per-token custody
     uint256 i;
+    Structs.WithdrawalRequest[] memory withdrawalRequests = p.withdrawalRequests;
     uint256 withdrawalsLength = withdrawalRequests.length;
     uint256 ethWithdrawalSum;
     // Accumulate per-token ERC-20 withdrawal sums for a single post-loop solvency check
@@ -653,7 +796,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     }
 
     // ETH solvency: contract must hold enough ETH to cover fee outflow + ETH withdrawals
-    uint256 totalEthOutflow = refund + applicationFees + ethWithdrawalSum;
+    uint256 totalEthOutflow = p.refundAmount + p.applicationFee + ethWithdrawalSum;
     if (totalEthOutflow > _getAvailableEthBalance()) revert InsufficientBalance();
 
     //emit encrypted event
@@ -662,8 +805,8 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       emit UserEvent(
         applicationId,
         processedRequestId,
-        userEventData.subTypes[i],
-        userEventData.events[i]
+        p.userEvents.subTypes[i],
+        p.userEvents.events[i]
       );
       unchecked {
         ++i;
@@ -676,8 +819,8 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       emit AppEvent(
         applicationId,
         processedRequestId,
-        appEventData.subTypes[i],
-        appEventData.events[i]
+        p.appEvents.subTypes[i],
+        p.appEvents.events[i]
       );
       unchecked {
         ++i;
@@ -690,26 +833,30 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       emit ReportGenerated(applicationId, processedRequestId);
     }
 
-    //update state root and request
-    applicationStateRoots[applicationId] = newStateRoot;
+    //update request
     if (reqType == Structs.RequestType.DEPLOYAPP) {
       _deployedAppIds.push(applicationId);
       // The trigger (if any) was already validated and registered eagerly in
       // submitDeployRequestWithTrigger, so a successful deploy needs no further
       // trigger bookkeeping here.
     }
-    emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
+    emit StateRootUpdate(applicationId, processedRequestId, p.prevStateRoot, p.newStateRoot);
 
     //credit refund to feeRecipient's pending balance (pull pattern) — refund is always ETH
-    if (refund > 0) {
-      _asyncTransfer(ETH_TOKEN, feeRecipient, refund);
-      emit Refund(applicationId, processedRequestId, feeRecipient, ETH_TOKEN, refund);
+    if (p.refundAmount > 0) {
+      _asyncTransfer(ETH_TOKEN, feeRecipient, p.refundAmount);
+      emit Refund(applicationId, processedRequestId, feeRecipient, ETH_TOKEN, p.refundAmount);
     }
 
     //credit withdrawals to receivers' pending balances
     i = 0;
     uint256 insertIntoClaimable;
-    address trigger = address(triggerContracts[applicationId]);
+    ITrigger triggerContract = triggerContracts[applicationId];
+    address trigger = address(triggerContract);
+    // The state root normally reaches storage once per call, after the last entry. A registered
+    // trigger is the exception: _invokeTrigger below hands control to external code that can read
+    // this contract's state, and it must not observe a root the update has already moved past.
+    if (trigger != address(0)) applicationStateRoots[applicationId] = p.newStateRoot;
     address[] memory claimableTemp = new address[](withdrawalsLength);
     while (i < withdrawalsLength) {
       // Only classify a withdrawal as "claimable by the trigger" when a trigger is actually
@@ -750,18 +897,20 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     }
 
     //invoke trigger contracts, if registered
-    _invokeTrigger(applicationId, processedRequestId, appEventData, claimable);
+    _invokeTrigger(triggerContract, applicationId, processedRequestId, p.appEvents, claimable);
 
     //set requests as completed
     _markRequestCompleted(
       applicationId,
       processedRequestId,
-      applicationFees,
+      p.applicationFee,
       Structs.RequestResult.COMPLETED,
       Structs.ErrorCode.NO_ERROR,
       '',
       reqType
     );
+
+    return p.newStateRoot;
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -987,13 +1136,16 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   // if any. Each call is wrapped in an independent try/catch so that a revert in the trigger
   // never propagates to the caller: both calls are always attempted regardless of the outcome
   // of the first.
+  //
+  // The trigger is passed in rather than read here: the caller loads it anyway, to decide whether
+  // the state root has to reach storage before this external code runs.
   function _invokeTrigger(
+    ITrigger trigger,
     uint64 applicationId,
     bytes32 processedRequestId,
-    Structs.EventData calldata appEventData,
+    Structs.EventData memory appEventData,
     address[] memory claimable
   ) internal {
-    ITrigger trigger = triggerContracts[applicationId];
     //do nothing if trigger not defined for application
     if (address(trigger) == address(0)) return;
 

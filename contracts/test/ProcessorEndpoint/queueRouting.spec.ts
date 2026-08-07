@@ -1,5 +1,4 @@
 import { expect } from 'chai';
-import { ethers } from 'hardhat';
 import { Signer } from 'ethers';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
 import { ETH_TOKEN, BYTES32_ZERO, getRequestIdFromReceipt, REQUEST_TYPE_PROCESS } from '../util';
@@ -14,6 +13,7 @@ describe('ProcessorEndpoint queue routing', function () {
   let processorEndpoint: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let bootstrapApplicationWithTrigger: any;
   let applicationId: bigint;
 
   beforeEach(async function () {
@@ -21,6 +21,7 @@ describe('ProcessorEndpoint queue routing', function () {
     ({ processorEndpoint } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    bootstrapApplicationWithTrigger = fixture.bootstrapApplicationWithTrigger;
     ({ applicationId } = await fixture.bootstrapApplication(processorEndpoint));
   });
 
@@ -128,24 +129,8 @@ describe('ProcessorEndpoint queue routing', function () {
   it('processing a TRUSTPROCESS leaves the deploy and application queues intact', async function () {
     // An application with a registered trigger, so that processing one of its requests runs
     // _invokeTrigger and enqueues a TRUSTPROCESS into the trigger queue.
-    const TestTrigger = await ethers.getContractFactory('TestTrigger');
-    const trigger = await TestTrigger.deploy(await processorEndpoint.getAddress(), false, false);
-    const deployTx = await processorEndpoint
-      .connect(signers[2])
-      .submitDeployRequestWithTrigger(0, '0x' + 'ab'.repeat(40), await trigger.getAddress(), {
-        value: minFeePerRequest,
-      });
-    const triggerApp = parseEvent(await deployTx.wait(), 'DeployRequestSubmitted');
-    const triggerAppId: bigint = triggerApp.args.applicationId;
-    await (
-      await stateUpdate(
-        triggerAppId,
-        BYTES32_ZERO,
-        INITIAL_STATE_ROOT,
-        triggerApp.args.requestId,
-        minFeePerRequest
-      )
-    ).wait();
+    const { trigger, applicationId: triggerAppId } =
+      await bootstrapApplicationWithTrigger(processorEndpoint);
 
     await (await trigger.setTrustedPayload('0xdeadbeef')).wait();
     const seedRequestId = await submitProcessRequest(triggerAppId, '0x03');

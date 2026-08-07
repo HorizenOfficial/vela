@@ -1,7 +1,6 @@
 import { expect } from 'chai';
 import { Signer } from 'ethers';
-import { ethers } from 'hardhat';
-import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
+import { deployProcessorEndpointFixture, deployRequestArgs, INITIAL_STATE_ROOT } from './fixture';
 import {
   BYTES32_ZERO,
   ETH_TOKEN,
@@ -16,6 +15,7 @@ describe('ProcessorEndpoint Test', function () {
   let signers: Signer[];
   let minFeePerRequest: bigint;
   let bootstrapApplication: any;
+  let bootstrapApplicationWithTrigger: any;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
@@ -23,6 +23,7 @@ describe('ProcessorEndpoint Test', function () {
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
     bootstrapApplication = fixture.bootstrapApplication;
+    bootstrapApplicationWithTrigger = fixture.bootstrapApplicationWithTrigger;
   });
 
   async function submit(applicationId: bigint, payload: string) {
@@ -61,6 +62,13 @@ describe('ProcessorEndpoint Test', function () {
 
   function root(byte: string) {
     return '0x' + byte.repeat(32);
+  }
+
+  async function submitDeploy(payload: string) {
+    const tx = await processorEndpoint
+      .connect(signers[2])
+      .submitDeployRequest(PROTOCOL_VERSION, payload, { value: minFeePerRequest });
+    return deployRequestArgs(processorEndpoint, await tx.wait());
   }
 
   describe('getPendingRequestsWithStateRoot', function () {
@@ -212,53 +220,45 @@ describe('ProcessorEndpoint Test', function () {
         const { applicationId: appA } = await bootstrapApplication(processorEndpoint);
         await submit(appA, '0x01');
 
-        const deployTx = await processorEndpoint
-          .connect(signers[2])
-          .submitDeployRequest(PROTOCOL_VERSION, '0x0102', { value: minFeePerRequest });
-        const deployReceipt = await deployTx.wait();
-        const deployLog = deployReceipt.logs.find((log: any) => {
-          try {
-            return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
-          } catch {
-            return false;
-          }
-        });
-        const parsed = processorEndpoint.interface.parseLog(deployLog);
+        const deploy = await submitDeploy('0x0102');
 
         const [appId, requests, stateRoot] =
           await processorEndpoint.getPendingRequestsWithStateRoot(5);
         expect(requests.length).to.equal(1);
-        expect(requests[0].requestId).to.equal(parsed.args.requestId);
-        expect(appId).to.equal(parsed.args.applicationId);
+        expect(requests[0].requestId).to.equal(deploy.requestId);
+        expect(appId).to.equal(deploy.applicationId);
         // The application does not exist yet, so it has no state root.
+        expect(stateRoot).to.equal(BYTES32_ZERO);
+      });
+
+      it('returns one deploy request at a time when several are queued', async () => {
+        // Deploys are never batched: each one creates an application, so the deploy queue is
+        // always served a single head at a time, regardless of maxCount.
+        const first = await submitDeploy('0x0101');
+        const second = await submitDeploy('0x0102');
+        expect(await processorEndpoint.getPendingRequestsSize()).to.equal(2n);
+
+        let [appId, requests, stateRoot] =
+          await processorEndpoint.getPendingRequestsWithStateRoot(5);
+        expect(requests.length).to.equal(1);
+        expect(requests[0].requestId).to.equal(first.requestId);
+        expect(appId).to.equal(first.applicationId);
+        expect(stateRoot).to.equal(BYTES32_ZERO);
+
+        // The queue is FIFO: the second deploy is served only once the first is completed.
+        await process(first.applicationId, first.requestId, BYTES32_ZERO, INITIAL_STATE_ROOT);
+        [appId, requests, stateRoot] = await processorEndpoint.getPendingRequestsWithStateRoot(5);
+        expect(requests.length).to.equal(1);
+        expect(requests[0].requestId).to.equal(second.requestId);
+        expect(appId).to.equal(second.applicationId);
         expect(stateRoot).to.equal(BYTES32_ZERO);
       });
 
       it('returns a pending TRUSTPROCESS alone, before the deploy and application queues', async () => {
         // Deploy an application with a trigger that produces a trusted payload, so processing
         // one of its requests enqueues a TRUSTPROCESS into the global trigger queue.
-        const TestTrigger = await ethers.getContractFactory('TestTrigger');
-        const trigger: any = await TestTrigger.deploy(
-          await processorEndpoint.getAddress(),
-          false,
-          false
-        );
-        const deployTx = await processorEndpoint
-          .connect(signers[2])
-          .submitDeployRequestWithTrigger(PROTOCOL_VERSION, '0x00', await trigger.getAddress(), {
-            value: minFeePerRequest,
-          });
-        const parsed = processorEndpoint.interface.parseLog(
-          (await deployTx.wait()).logs.find((log: any) => {
-            try {
-              return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
-            } catch {
-              return false;
-            }
-          })
-        );
-        const triggerAppId: bigint = parsed.args.applicationId;
-        await process(triggerAppId, parsed.args.requestId, BYTES32_ZERO, INITIAL_STATE_ROOT);
+        const { trigger, applicationId: triggerAppId } =
+          await bootstrapApplicationWithTrigger(processorEndpoint);
 
         await (await trigger.setTrustedPayload('0xdeadbeef')).wait();
         const fired = await submit(triggerAppId, '0x01');
@@ -277,29 +277,36 @@ describe('ProcessorEndpoint Test', function () {
         expect(stateRoot).to.equal(root('11'));
       });
 
+      it('returns a TRUSTPROCESS ahead of a deploy that was queued before it', async () => {
+        // The trigger queue outranks the deploy queue, and enqueue order across queues does not
+        // matter: the deploy is submitted first here, and the TRUSTPROCESS only comes into
+        // existence later — on-chain, during the state update that fires the trigger.
+        const { trigger, applicationId: triggerAppId } =
+          await bootstrapApplicationWithTrigger(processorEndpoint);
+
+        const deploy = await submitDeploy('0x0102');
+        expect(await processorEndpoint.getTriggerQueueSize()).to.equal(0n);
+
+        await (await trigger.setTrustedPayload('0xdeadbeef')).wait();
+        const fired = await submit(triggerAppId, '0x01');
+        await process(triggerAppId, fired, INITIAL_STATE_ROOT, root('11'));
+        expect(await processorEndpoint.getTriggerQueueSize()).to.equal(1n);
+
+        const [appId, requests, stateRoot] =
+          await processorEndpoint.getPendingRequestsWithStateRoot(5);
+        expect(requests.length).to.equal(1);
+        expect(requests[0].requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
+        expect(appId).to.equal(triggerAppId);
+        expect(stateRoot).to.equal(root('11'));
+
+        // The deploy is still queued, waiting its turn behind the trigger queue.
+        expect(await processorEndpoint.isCurrentPendingRequest(deploy.requestId)).to.equal(true);
+        expect(await processorEndpoint.getPendingRequestsSize()).to.equal(1n);
+      });
+
       it('returns at most one request for an application with a registered trigger', async () => {
-        const TestTrigger = await ethers.getContractFactory('TestTrigger');
-        const trigger: any = await TestTrigger.deploy(
-          await processorEndpoint.getAddress(),
-          false,
-          false
-        );
-        const deployTx = await processorEndpoint
-          .connect(signers[2])
-          .submitDeployRequestWithTrigger(PROTOCOL_VERSION, '0x00', await trigger.getAddress(), {
-            value: minFeePerRequest,
-          });
-        const parsed = processorEndpoint.interface.parseLog(
-          (await deployTx.wait()).logs.find((log: any) => {
-            try {
-              return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
-            } catch {
-              return false;
-            }
-          })
-        );
-        const triggerAppId: bigint = parsed.args.applicationId;
-        await process(triggerAppId, parsed.args.requestId, BYTES32_ZERO, INITIAL_STATE_ROOT);
+        const { applicationId: triggerAppId } =
+          await bootstrapApplicationWithTrigger(processorEndpoint);
 
         const first = await submit(triggerAppId, '0x01');
         await submit(triggerAppId, '0x02');

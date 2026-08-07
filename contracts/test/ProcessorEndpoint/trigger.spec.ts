@@ -15,12 +15,14 @@ describe('ProcessorEndpoint Trigger Tests', function () {
   let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let bootstrapWithTrigger: any;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    bootstrapWithTrigger = fixture.bootstrapApplicationWithTrigger;
   });
 
   // HELPER FUNCTIONS FOR TESTS
@@ -31,53 +33,11 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     revertOnExecute: boolean,
     revertOnPostWithdraw: boolean
   ) {
-    const TestTrigger = await ethers.getContractFactory('TestTrigger');
-    const mockTrigger: any = await TestTrigger.deploy(
-      await processorEndpoint.getAddress(),
+    const { trigger, applicationId } = await bootstrapWithTrigger(processorEndpoint, {
       revertOnExecute,
-      revertOnPostWithdraw
-    );
-
-    // Register the trigger explicitly. The payload is an opaque (non-address)
-    // deploy descriptor — it is NEVER interpreted as a trigger address.
-    const descriptorPayload = '0x' + 'ab'.repeat(40);
-
-    const deployTx = await processorEndpoint
-      .connect(signers[2])
-      .submitDeployRequestWithTrigger(0, descriptorPayload, await mockTrigger.getAddress(), {
-        value: minFeePerRequest,
-      });
-    const deployReceipt = await deployTx.wait();
-
-    const deployLog = deployReceipt.logs.find((log: any) => {
-      try {
-        return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
-      } catch {
-        return false;
-      }
+      revertOnPostWithdraw,
     });
-    const parsed = processorEndpoint.interface.parseLog(deployLog);
-    const applicationId: bigint = parsed.args.applicationId;
-    const requestId: string = parsed.args.requestId;
-
-    await processorEndpoint
-      .connect(signers[1])
-      .stateUpdate(
-        applicationId,
-        BYTES32_ZERO,
-        INITIAL_STATE_ROOT,
-        requestId,
-        { events: [], subTypes: [] },
-        { events: [], subTypes: [] },
-        [],
-        0,
-        minFeePerRequest,
-        0,
-        '',
-        '0x'
-      );
-
-    return { applicationId, mockTrigger };
+    return { applicationId, mockTrigger: trigger };
   }
 
   // Submits a PROCESS request, processes it via stateUpdate, and returns the receipt.
