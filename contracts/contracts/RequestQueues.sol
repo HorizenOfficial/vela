@@ -134,6 +134,54 @@ library RequestQueues {
     return (0, false);
   }
 
+  /// @notice Whether the queue is non-empty with a head enqueued at least `grace` seconds ago —
+  ///         old enough that whoever read the selection view within the grace window must have
+  ///         seen it. Used to enforce the global queues' precedence: an aged head in a
+  ///         higher-priority queue blocks lower-priority state updates.
+  function isHeadAged(Store storage s, Queue storage q, uint256 grace) internal view returns (bool) {
+    if (size(q) == 0) return false;
+    // Subtraction rather than `timestamp + grace`: an enqueue timestamp is never in the future
+    // so this cannot underflow, and no value of `grace` can overflow it and brick the caller.
+    return block.timestamp - s.requests[peekHead(q)].timestamp >= grace;
+  }
+
+  /// @notice Runs the same scan as `selectApplication`, but for enforcement: walks the non-empty
+  ///         queues from the cursor and reports the first one whose head is at least `grace`
+  ///         seconds old — a hard stop the submitter must have seen, whatever instant within the
+  ///         grace window it read the selection view at — unless `applicationId` is encountered
+  ///         first. Heads younger than `grace` are skipped rather than enforced: they may have
+  ///         arrived after the view was read. The first old head being a hard stop is what keeps
+  ///         an aged queue from being leapfrogged: every application the scan allows sits at or
+  ///         before it in scan order, so serving one can only move the cursor toward it.
+  /// @return conflictingAppId The application whose turn it is, when `conflict` is true.
+  /// @return conflict True when serving `applicationId` would skip an old head.
+  function selectionConflict(
+    Store storage s,
+    uint64[] storage appIds,
+    uint64 applicationId,
+    uint256 grace
+  ) internal view returns (uint64 conflictingAppId, bool conflict) {
+    uint256 n = appIds.length;
+    uint256 start = s.cursor;
+    uint256 i;
+    while (i != n) {
+      uint64 candidate = appIds[(start + i) % n];
+      if (size(s.pending[candidate]) > 0) {
+        if (candidate == applicationId) return (0, false);
+        // Subtraction rather than `timestamp + grace`: an enqueue timestamp is never in the
+        // future so this cannot underflow, and no value of `grace` can overflow it and brick
+        // the caller.
+        if (block.timestamp - s.requests[peekHead(s.pending[candidate])].timestamp >= grace) {
+          return (candidate, true);
+        }
+      }
+      unchecked {
+        ++i;
+      }
+    }
+    return (0, false);
+  }
+
   /// @notice Moves the cursor just past the given application, so the next selection starts
   ///         from the following one. No-op if the application is not in `appIds` (a request of
   ///         a pending deploy's application, which lives in the deploy queue, never gets here).

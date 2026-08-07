@@ -126,6 +126,10 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   /// @notice Emitted when the queue size threshold is changed.
   /// @param newThreshold New maximum queue size.
   event QueueThresholdUpdated(uint256 newThreshold);
+
+  /// @notice Emitted when the selection grace period is updated.
+  /// @param newGrace New grace period, in seconds.
+  event SelectionGraceUpdated(uint256 newGrace);
   /// @notice Emitted when the maximum number of applications is updated.
   /// @param oldMax Previous maximum.
   /// @param newMax New maximum.
@@ -178,6 +182,20 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   error InvalidApplicationId();
   /// @notice The provided request id is not the current pending request.
   error InvalidRequestId();
+
+  /// @notice Serving the submitted application would skip one whose queue head is older than
+  ///         `selectionGrace`: the round-robin scan reaches that application first, and its head
+  ///         cannot be explained by a request that arrived after the manager read the selection
+  ///         view.
+  /// @param selectedApplicationId The application whose turn it is.
+  error ApplicationNotSelected(uint64 selectedApplicationId);
+
+  /// @notice Serving the submitted request would skip a higher-priority global queue whose head
+  ///         is older than `selectionGrace`: triggers outrank deploys, and both outrank
+  ///         per-application requests. A younger head is exempt — it may have arrived after the
+  ///         manager read the selection view.
+  /// @param queueType The queue that must be served first: TRUSTPROCESS or DEPLOYAPP.
+  error PriorityQueueNotServed(Structs.RequestType queueType);
   /// @notice The provided state root does not match the expected value.
   error InvalidStateRoot();
   /// @notice The signature could not be verified.
@@ -364,6 +382,13 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   /// @notice Updates the maximum number of deployable applications.
   /// @param newMax New maximum. Must be >= currently deployed count.
   function updateMaxNumOfApplications(uint256 newMax) external;
+
+  /// @notice Updates the window during which a freshly enqueued request does not yet constrain
+  ///         which application may be served.
+  /// @param newGrace New grace period in seconds. Zero enforces the round-robin turn strictly,
+  ///        with no tolerance for requests that arrive while a state update is in flight. A value
+  ///        exceeding any plausible request age disables enforcement.
+  function updateSelectionGrace(uint256 newGrace) external;
 
   /// @notice Updates the fee collector address.
   /// @param newFeeCollector New fee collector address.

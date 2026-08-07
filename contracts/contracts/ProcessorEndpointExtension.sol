@@ -281,6 +281,16 @@ contract ProcessorEndpointExtension is ProcessorEndpointStorage {
     emit IProcessorEndpoint.MaxNumberOfAppUpdated(oldMax, newMax);
   }
 
+  /// @notice Updates the selection grace period. See `IProcessorEndpoint.updateSelectionGrace`.
+  /// @dev Zero is a valid setting (strict enforcement of the round-robin turn, no tolerance for
+  ///      the selection race), and so is a value large enough to disable enforcement — the only
+  ///      way to route around a permanently failing queue head short of `adminReset`. Neither is
+  ///      rejected here on purpose.
+  function updateSelectionGrace(uint256 newGrace) external onlyDelegateCall onlyRole(ADMIN) {
+    selectionGrace = newGrace;
+    emit IProcessorEndpoint.SelectionGraceUpdated(newGrace);
+  }
+
   /// @notice Updates the fee collector. See `IProcessorEndpoint.updateFeeCollector`.
   function updateFeeCollector(
     address payable newFeeCollector

@@ -261,6 +261,70 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     return _queueStore.pending[applicationId];
   }
 
+  /// @dev Enforces the round-robin turn for a request taken from a per-application queue: the
+  ///      submitted application must be reached by the cursor scan no later than the first queue
+  ///      head older than `selectionGrace`, so the manager cannot starve an application by
+  ///      serving another out of turn. Without this, the only ordering the contract enforced was
+  ///      FIFO *within* an application, leaving cross-application selection to the manager's
+  ///      discretion.
+  ///
+  ///      `selectionGrace` is what makes the rule race-free. `getPendingRequestsWithStateRoot` is
+  ///      a `view`: it leaves no on-chain trace, so the contract cannot know when the manager read
+  ///      it, and a request enqueued between that read and this call legitimately changes the
+  ///      scan's result. Reconstructing the read instant is impossible — any value the manager
+  ///      supplied for it could be chosen to justify its pick — so instead heads younger than
+  ///      `selectionGrace` are skipped by the enforcement scan: they are too young for the manager
+  ///      to have seen them. A head older than the grace is a hard stop: it was already in place
+  ///      at every possible read instant within the window, so no honest pick can sit past it in
+  ///      scan order (`RequestQueues.selectionConflict`). Exempting only the *first* selected
+  ///      queue instead would let a colluding submitter reopen the window each rotation and jump
+  ///      the cursor past a starving application by serving one beyond it.
+  ///
+  ///      The comparison is against the wall clock, deliberately, and not against the submitted
+  ///      request's own timestamp. The latter looks equivalent but is not: because FIFO forces the
+  ///      manager to serve its application's *oldest* request, "the competitor is younger than my
+  ///      pick" holds for competitors that arrived long before any selection view was read, so the
+  ///      exemption would widen with however long the submitted request had been queued and the
+  ///      rule would decay into approximate oldest-first. Against the clock, the exemption is
+  ///      bounded by `selectionGrace` whatever the queue's history.
+  ///
+  ///      Starvation is bounded as a result: every application the scan allows sits at or before
+  ///      the first aged head, so serving one moves the cursor toward it, never past it — its turn
+  ///      arrives within one rotation.
+  ///
+  ///      Trigger and deploy requests bypass the per-application cursor by design, but their
+  ///      *precedence* — triggers before deploys before per-application work — is enforced under
+  ///      the same grace rule (`PriorityQueueNotServed`): an aged TRUSTPROCESS head blocks deploy
+  ///      and per-application updates, and an aged DEPLOYAPP head blocks per-application updates.
+  ///      A TRUSTPROCESS update is never constrained. The blast radius of a permanently failing
+  ///      head widens accordingly: aged and unservable in a global queue, it halts every
+  ///      lower-priority update until `selectionGrace` is raised past its age (section 7.4 of
+  ///      `docs/design/BATCH_EXECUTION.md`).
+  function _enforceSelection(uint64 applicationId, Structs.RequestType requestType) private view {
+    if (requestType == Structs.RequestType.TRUSTPROCESS) return;
+
+    uint256 grace = selectionGrace;
+    if (RequestQueues.isHeadAged(_queueStore, _queueStore.triggers, grace)) {
+      revert PriorityQueueNotServed(Structs.RequestType.TRUSTPROCESS);
+    }
+
+    if (requestType == Structs.RequestType.DEPLOYAPP) return;
+
+    if (RequestQueues.isHeadAged(_queueStore, _queueStore.deploys, grace)) {
+      revert PriorityQueueNotServed(Structs.RequestType.DEPLOYAPP);
+    }
+
+    // The scan always encounters the submitted application — the request sits at the head of a
+    // non-empty per-application queue — so "not found" cannot mask a conflict.
+    (uint64 conflictingAppId, bool conflict) = RequestQueues.selectionConflict(
+      _queueStore,
+      _deployedAppIds,
+      applicationId,
+      grace
+    );
+    if (conflict) revert ApplicationNotSelected(conflictingAppId);
+  }
+
   /// @dev Removes the head of the request's own queue. The caller must have established that the
   ///      request *is* that head (`stateUpdate` does so through the same `_queueOf`);
   ///      `RequestQueues.dequeueHead` does not re-check the id.
@@ -402,6 +466,10 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
     // Check application Id
     if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
+
+    // Enforce whose turn it is. Checked before the signature so a rejected turn costs the manager
+    // no ecrecover, and before any state is touched.
+    _enforceSelection(applicationId, requestInfo.requestType);
 
     //check prev state root
     if (prevStateRoot != applicationStateRoots[applicationId]) revert InvalidStateRoot();
@@ -707,6 +775,13 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
   function updateMaxNumOfApplications(uint256 newMax) external {
     newMax;
+    _delegateToExtension();
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function updateSelectionGrace(uint256 newGrace) external {
+    newGrace;
     _delegateToExtension();
   }
 

@@ -103,6 +103,18 @@ abstract contract ProcessorEndpointStorage is
   // Reverse mapping for the above to check if a trigger is valid when adding to the queue
   mapping(address => uint64) public triggersToAppIds;
 
+  /// @notice Seconds for which a freshly enqueued request does not yet constrain what the
+  ///         manager may serve — neither the round-robin turn among applications nor the
+  ///         precedence of the global trigger and deploy queues. See
+  ///         `ProcessorEndpoint._enforceSelection`: both rules are enforced on-chain, and this
+  ///         window is what absorbs the requests that arrive between the manager reading the
+  ///         selection view and its state update landing. Larger values weaken the fairness bound; a value large enough to cover any
+  ///         request age disables enforcement entirely, which is the only escape hatch from a
+  ///         permanently failing queue head short of `adminReset` (see section 7.4 of
+  ///         `docs/design/BATCH_EXECUTION.md`). Zero means strict enforcement with no tolerance
+  ///         for the race.
+  uint256 public selectionGrace = 60;
+
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert IProcessorEndpoint.InvalidProtocolVersion();
     _;

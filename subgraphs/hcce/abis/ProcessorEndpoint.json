@@ -72,6 +72,17 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "selectedApplicationId",
+        "type": "uint64"
+      }
+    ],
+    "name": "ApplicationNotSelected",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "AuthorityNotAllowed",
     "type": "error"
@@ -164,6 +175,17 @@
   {
     "inputs": [],
     "name": "MaxNumOfApplicationsExceeded",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum Structs.RequestType",
+        "name": "queueType",
+        "type": "uint8"
+      }
+    ],
+    "name": "PriorityQueueNotServed",
     "type": "error"
   },
   {
@@ -601,6 +623,19 @@
       }
     ],
     "name": "RoleRevoked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newGrace",
+        "type": "uint256"
+      }
+    ],
+    "name": "SelectionGraceUpdated",
     "type": "event"
   },
   {
@@ -1776,6 +1811,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "selectionGrace",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint64",
@@ -2206,6 +2254,19 @@
       }
     ],
     "name": "updateQueueThreshold",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "newGrace",
+        "type": "uint256"
+      }
+    ],
+    "name": "updateSelectionGrace",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
