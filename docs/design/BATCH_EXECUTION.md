@@ -716,7 +716,7 @@ The executor returns a plain error — no signed payload. The manager cannot sub
 
 This happens for system-level errors, or for fields already validated on-chain whose unexpected value at the executor is evidence of tampering between the chain and the executor:
 - `validateRequest()` failure: wrong `applicationId`, wrong `protocolVersion`, fee below minimum (all validated on-chain)
-- App state not found — app existence is validated on-chain by the `validApplicationId` modifier in `ProcessorEndpoint`, so a nil state at the executor means tampering or manager-side state loss
+- App state not found — app existence is validated on-chain by the `validApplicationId` modifier in `ProcessorEndpoint`, so a nil state at the executor means tampering or manager-side state loss. Defence in depth: an honest manager never dispatches such a batch (`processBatch` returns as soon as `GetApplicationState` reports not-found), and the protocol layer rejects a nil `ApplicationState` before the handler runs (`BatchProcessRequestData.Validate`). Either way the requests stay pending
 - Unsupported request type
 - State decryption failure
 - AES state encryption failure
