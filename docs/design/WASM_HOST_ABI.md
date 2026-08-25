@@ -120,6 +120,36 @@ Practical notes for guest authors:
 - Real guests are nowhere near this: the reference apps return in single-digit
   milliseconds. Reaching the bound means a loop that does not terminate.
 
+**A second, independent bound applies per request batch.** Requests are processed in
+batches (up to `MAX_BATCH_SIZE`, one application per batch), and the caller sends one
+*execution budget* covering the whole batch — derived from how long it will wait for
+the response. So two clocks run, owned by different sides:
+
+| Bound | Scope | Owner | On expiry |
+|---|---|---|---|
+| `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` | one guest operation | the enclave | `GUEST_EXECUTION_TIMEOUT`, **signed on-chain** |
+| caller execution budget | the whole batch | the caller, clamped by the enclave | not signed; the request stays pending and is retried |
+
+The consequences a guest author can actually observe:
+
+- **A timeout does not stop a batch.** It is one error payload; the requests after it
+  in the same batch still run, against the state as it stood before the failed one.
+- **The batch budget can cut a request short instead.** When a batch cannot finish in
+  time, the requests that completed are settled and the remainder stay pending for a
+  later batch — so a request may be started, abandoned, and later run again from
+  scratch. Guest code must therefore not assume that being invoked means its result
+  will be used; state is only ever advanced by a settled request.
+- **Only the enclave's own bound can fail a request on-chain.** A budget expiry is
+  host-side abandonment, so it never charges a fee. This is deliberate: the budget
+  crosses the TEE boundary, and a value supplied from outside must not be able to
+  make a user pay for a failure it manufactured.
+- **Sizing.** For every batch to settle at least one request per attempt, the enclave
+  bound must be below the caller's budget — otherwise the budget always wins the race,
+  nothing is ever signed, and the FIFO queue cannot advance. For a *whole* batch to
+  finish in one attempt you additionally want
+  `MAX_BATCH_SIZE × EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` to fit inside the budget;
+  exceeding that is not an error, it just costs extra polls.
+
 **Table storage is bounded separately.** Table elements do not live in linear memory,
 so the cap above does not cover them — an unbounded element count would let a module
 commit gigabytes regardless of the memory setting (measured: ~390 MB resident from a

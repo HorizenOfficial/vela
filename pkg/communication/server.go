@@ -484,6 +484,10 @@ func (c *ClientConnection) handleBatchProcessRequest(ctx context.Context, msg Me
 		return
 	}
 
+	// One deadline for the whole batch; see handleProcessRequest. Shortens only.
+	ctx, cancelBudget := contextForExecutionBudget(ctx, reqData.ExecutionBudgetMs)
+	defer cancelBudget()
+
 	updatePayloads, batchSignature, finalState, reports, err := handler.HandleBatchProcessRequest(ctx, reqData.Requests, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)

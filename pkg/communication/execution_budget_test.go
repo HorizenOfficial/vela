@@ -101,4 +101,25 @@ func TestExecutionBudgetValidation(t *testing.T) {
 		d := &DeployAppRequestData{Request: newValidatableRequest(), ExecutionBudgetMs: -1}
 		require.Error(t, d.Validate())
 	})
+
+	// A batch is one message and therefore one budget, so it needs the field too —
+	// otherwise batched requests silently get no caller deadline at all while
+	// single requests do.
+	t.Run("negative batch budget rejected", func(t *testing.T) {
+		d := &BatchProcessRequestData{
+			Requests:          []*common.Request{newValidatableRequest()},
+			ApplicationState:  &common.ApplicationState{ApplicationID: common.NewApplicationId(1)},
+			ExecutionBudgetMs: -1,
+		}
+		require.Error(t, d.Validate())
+	})
+
+	t.Run("zero batch budget accepted", func(t *testing.T) {
+		d := &BatchProcessRequestData{
+			Requests:          []*common.Request{newValidatableRequest()},
+			ApplicationState:  &common.ApplicationState{ApplicationID: common.NewApplicationId(1)},
+			ExecutionBudgetMs: 0,
+		}
+		require.NoError(t, d.Validate())
+	})
 }

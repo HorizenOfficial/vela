@@ -177,6 +177,11 @@ func (c *Client) SendBatchProcessRequest(ctx context.Context, requests []*common
 			Requests:         requests,
 			ApplicationState: appState,
 			WasmModule:       wasmModule,
+			// One budget for the whole batch, from the same field this call's own
+			// give-up timer uses — see SendProcessRequest. The batch shares it, so a
+			// batch that cannot finish in time settles what it can and leaves the
+			// rest pending rather than being abandoned wholesale.
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(),
 		},
 	}
 

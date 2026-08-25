@@ -115,11 +115,24 @@ type BatchProcessRequestData struct {
 	ApplicationState *common.ApplicationState `json:"applicationState"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
+	// ExecutionBudgetMs is how much longer the caller will wait for the WHOLE batch,
+	// in milliseconds relative to send time. A batch is one message and therefore one
+	// budget: its requests share it, so a batch too large to finish within it settles
+	// the requests that fit and leaves the rest pending (see
+	// contextForExecutionBudget). 0 (or absent) means "not supplied", which leaves the
+	// executor's own guest bound as the only limit.
+	ExecutionBudgetMs int64 `json:"executionBudgetMs,omitempty"`
 }
 
 func (bpr *BatchProcessRequestData) Validate() error {
 	if len(bpr.Requests) == 0 {
 		return fmt.Errorf("Requests is required")
+	}
+	// Only negatives are rejected: 0 is the legitimate "not supplied" value that an
+	// absent field decodes to, so rejecting it would fail every request from a peer
+	// that does not set it.
+	if bpr.ExecutionBudgetMs < 0 {
+		return fmt.Errorf("executionBudgetMs must not be negative, got %d", bpr.ExecutionBudgetMs)
 	}
 	// A batch is scoped to one application, so the state is what defines that
 	// scope: without it there is nothing to validate the requests against.
