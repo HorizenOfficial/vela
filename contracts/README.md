@@ -12,6 +12,8 @@ Because that contract lives against the size limit, the compiler targets `evmVer
 
 See `../docs/design/PROCESSOR_ENDPOINT_SPLIT.md`.
 
+`ProcessorEndpoint`, `AuthorityRegistry` and `TeeAuthenticator` are all deployed behind a UUPS proxy (`ERC1967Proxy`), so the address printed by a deploy script — and the one every off-chain consumer should use — is the **proxy** address, not the implementation's. `NoAttestationTeeAuthenticator` (dev/test mode) is the one exception and is not upgradable. See `../docs/design/UPGRADABLE_CONTRACTS_DESIGN.md` for the full design and [Upgrading](#upgrading) below for how to push a new implementation.
+
 ## Manual deploy
 
 - Create an .env file with the correct properties:
@@ -40,6 +42,31 @@ npx hardhat run scripts/deploy/authorityRegistry.ts
   `scripts/deploy/processorEndpoint.ts` deploys `ProcessorEndpointExtension` together with the endpoint, in that order; there is no script that deploys the endpoint against a pre-existing extension.
 
 - when `DEPLOY_OUTPUT_DIR` is set, `all.ts` writes the deployed addresses to `deployed_addresses.env`, including `CHAIN_PROCESSOR_EXTENSION_ADDRESS`. Nothing reads that one at runtime, but it is the only record of which extension an endpoint delegates to.
+
+## Upgrading
+
+Each upgradable contract has a script in `scripts/upgrade/` that deploys a new implementation and points the existing proxy at it via `upgradeToAndCall`, keeping the proxy's address and all of its state (see `../docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`). The caller must be the account holding the upgrade authority — `ADMIN` role for `ProcessorEndpoint`, `owner()` for `AuthorityRegistry` and `TeeAuthenticator`.
+
+- `AuthorityRegistry`:
+    - PROXY_AUTHORITY_REGISTRY: address of the deployed proxy
+    ```bash
+    npx hardhat run scripts/upgrade/authorityRegistry.ts
+    ```
+
+- `TeeAuthenticator` (not applicable to `NoAttestationTeeAuthenticator`, which is not upgradable):
+    - PROXY_TEE_AUTHENTICATOR: address of the deployed proxy
+    ```bash
+    npx hardhat run scripts/upgrade/teeAuthenticator.ts
+    ```
+
+- `ProcessorEndpoint`:
+    - PROXY_PROCESSOR_ENDPOINT: address of the deployed proxy
+    - PROCESSOR_ENDPOINT_EXTENSION (optional): address of the `ProcessorEndpointExtension` the new implementation's constructor should point at. Defaults to the extension the current implementation already uses — set this only when the upgrade also changes the extension.
+    ```bash
+    npx hardhat run scripts/upgrade/processorEndpoint.ts
+    ```
+
+Each script prints the implementation address before and after the upgrade so it can be checked against what was intended to be deployed.
 
 ## Management scripts
 
