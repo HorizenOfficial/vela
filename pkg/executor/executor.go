@@ -659,6 +659,24 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 				req.RequestID, req.ApplicationID)
 			return nil, nil, fmt.Errorf("guest execution abandoned for deploy %s: %w", req.RequestID, err)
 		}
+		// A timeout is signed like any other request failure, but it must NOT go through
+		// errorResponse: that folds the runtime's error into the message, and the deploy
+		// path nests prefixes ("failed to load or get module: failed to load module:
+		// failed to instantiate WASM module: guest execution timed out" is 113
+		// characters). ErrorMsg is truncated to 100 characters on-chain, so the reason
+		// would be cut off — and since every one of these failures signs the same
+		// WASM_INTERNAL category, the message is the only thing that identifies a
+		// timeout (see docs/design/WASM_HOST_ABI.md, which tells integrators to match
+		// on it). Use the stable classified string instead, exactly as the request path
+		// does.
+		if errors.Is(err, apperrors.ErrGuestExecutionTimeout) {
+			e.log.Warn("Executor: deploy %s (app %d) exceeded the guest execution bound: %v",
+				req.RequestID, req.ApplicationID, err)
+			errorPayload, respErr := e.processErrorResponse(req, emptyStateRoot,
+				apperrors.New(apperrors.CodeGuestExecutionTimeout, apperrors.ErrGuestExecutionTimeout.Error()))
+			return errorPayload, nil, respErr
+		}
+
 		// The runtime's error message carries the specific failure mode
 		// (compile failure, invalid guest result, JSON parse error, etc.).
 		// errorResponse logs it locally and folds it into the signed-payload

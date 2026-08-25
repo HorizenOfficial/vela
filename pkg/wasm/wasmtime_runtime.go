@@ -705,10 +705,12 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 	// A module for this appId must not exist at deploy time: that means a duplicate
 	// deploy or an unexpected state (a request may have warmed the cache for an app
 	// deployed earlier). Rejected FIRST, before the module is built, so a doomed
-	// deploy neither compiles the module nor enters the guest's constructor —
-	// guest execution is unbounded today (see newPinnedEngine) and runs with
-	// execLock held, so a non-terminating constructor here would block every other
-	// app. Nothing to clean up either, since nothing was created yet.
+	// deploy neither compiles the module nor enters the guest's constructor. That
+	// still matters now that execution is time-bounded: a non-terminating
+	// constructor would be interrupted rather than hang forever, but it runs with
+	// execLock held, so it would still stall every other app for the whole
+	// EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS. Not entering it at all is strictly
+	// better. Nothing to clean up either, since nothing was created yet.
 	//
 	// One check is enough: Deploy holds execLock and moduleLock for this whole call
 	// and nothing below adds to r.modules, so the map cannot change underneath.
@@ -1237,11 +1239,15 @@ func (r *WasmtimeRuntime) cleanupModule(appId common.ApplicationIdType, module *
 //
 // The value only trades shutdown latency against how often teardown is skipped:
 // a guest call still running at the deadline is abandoned, which is harmless
-// because the process is exiting and the OS reclaims the memory anyway. Note that
-// this is NOT dimensioned so that a legitimate request always completes first —
-// nothing bounds guest execution today (see newPinnedEngine), so no timeout could
-// guarantee that, and a healthy but slow guest can trip it. 5s keeps SIGTERM
-// responsive; raise it only if skipped teardown ever proves to matter.
+// because the process is exiting and the OS reclaims the memory anyway.
+//
+// It is deliberately NOT dimensioned against the guest execution bound, because it
+// is no longer what stops a runaway guest: Close signals r.closing first, which
+// makes every in-flight call's watcher force an interrupt, so execLock is released
+// promptly and this timeout is not reached (TestCloseInterruptsRunningGuest pins
+// that). What remains is a backstop for the paths epoch interruption cannot reach —
+// module compilation and time spent inside a WASI host call — so 5s is about keeping
+// SIGTERM responsive, not about letting a slow guest finish.
 const shutdownExecLockTimeout = 5 * time.Second
 
 // tryAcquireExecLock acquires execLock, giving up after timeout. Reports whether

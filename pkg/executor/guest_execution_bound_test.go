@@ -161,19 +161,40 @@ func TestCancelledDeployIsTransient(t *testing.T) {
 	require.Nil(t, state)
 }
 
+// TestTimedOutDeployIsSignedOnChain also pins that the REASON survives the 100-char
+// truncation of the signed ErrorMsg.
+//
+// This is not hypothetical. The on-chain ErrorCode for a timeout is WASM_INTERNAL,
+// shared with every other host-side WASM failure, so the message is the only thing
+// that identifies a timeout — and docs/design/WASM_HOST_ABI.md tells integrators to
+// match on it. The deploy path builds its message by nesting prefixes, and the
+// start-section case ("failed to load or get module: failed to load module: failed to
+// instantiate WASM module: guest execution timed out") is 113 characters, so a naive
+// pass-through loses the reason exactly the way
+// JIRA_TASK_trap_error_classification.md describes.
 func TestTimedOutDeployIsSignedOnChain(t *testing.T) {
-	runtime := &boundStubRuntime{
-		deployErr: fmt.Errorf("failed to call deploy: %w", apperrors.ErrGuestExecutionTimeout),
+	for name, deployErr := range map[string]error{
+		"deploy export": fmt.Errorf("failed to call deploy: %w", apperrors.ErrGuestExecutionTimeout),
+		// The longest nesting the deploy path can produce: an interrupt during
+		// instantiation, wrapped by compileAndInstantiate, then getOrLoadModule.
+		"start section": fmt.Errorf("failed to load module: failed to instantiate WASM module: %w",
+			apperrors.ErrGuestExecutionTimeout),
+	} {
+		t.Run(name, func(t *testing.T) {
+			exec := newTestExecutor(t, &boundStubRuntime{deployErr: deployErr})
+			req, wasmModule := newDeployRequest(t)
+
+			payload, _, err := exec.HandleDeployApp(context.Background(), req, nil, wasmModule)
+
+			require.NoError(t, err)
+			require.NotNil(t, payload, "a deploy whose guest ran away must be signed, like any other request failure")
+			require.NotZero(t, payload.ErrorCode)
+			require.LessOrEqual(t, len(payload.ErrorMsg), 100,
+				"the signed message is truncated to 100 characters on-chain")
+			require.Contains(t, payload.ErrorMsg, apperrors.ErrGuestExecutionTimeout.Error(),
+				"the reason must survive truncation intact, or a timeout is indistinguishable on-chain")
+		})
 	}
-	exec := newTestExecutor(t, runtime)
-
-	req, wasmModule := newDeployRequest(t)
-
-	payload, _, err := exec.HandleDeployApp(context.Background(), req, nil, wasmModule)
-
-	require.NoError(t, err)
-	require.NotNil(t, payload, "a deploy whose constructor ran away must be signed, like any other request failure")
-	require.NotZero(t, payload.ErrorCode)
 }
 
 // The batch path shares the classification with the single-request path through the

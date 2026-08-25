@@ -105,9 +105,15 @@ sees `memory.grow` fail.
 `allocate`/`deallocate` calls around it, and instantiation including any `start`
 section — must complete within `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` (default
 10 000 ms, maximum 300 000, `0` selects the default; there is no unlimited setting).
-A guest exceeding it is interrupted with a trap, and the request fails on-chain with
-`GUEST_EXECUTION_TIMEOUT`. The bound is wall-clock, enforced by the host with
-wasmtime epoch interruption, and needs nothing from the guest.
+A guest exceeding it is interrupted with a trap and the request fails on-chain. The
+bound is wall-clock, enforced by the host with wasmtime epoch interruption, and needs
+nothing from the guest.
+
+What appears on-chain is the `WASM_INTERNAL` error code with the message
+`guest execution timed out`. There is no dedicated on-chain code: `ErrorCode` carries
+the failure *category* (`RequestFailure.Category()`), and `WASM_INTERNAL` is shared
+with other host-side WASM failures such as a failed memory write or an unusable
+result. To recognise a timeout specifically, match the message, not the code.
 
 Practical notes for guest authors:
 
@@ -127,7 +133,7 @@ the response. So two clocks run, owned by different sides:
 
 | Bound | Scope | Owner | On expiry |
 |---|---|---|---|
-| `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` | one guest operation | the enclave | `GUEST_EXECUTION_TIMEOUT`, **signed on-chain** |
+| `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` | one guest operation | the enclave | **signed on-chain**: `WASM_INTERNAL` + `guest execution timed out` |
 | caller execution budget | the whole batch | the caller, clamped by the enclave | not signed; the request stays pending and is retried |
 
 The consequences a guest author can actually observe:
@@ -210,9 +216,12 @@ worth singling out: it gates shared-memory creation, which is the same per-memor
 accounting concern the threads pin exists to address, so it is unpinnable rather than
 unimportant. Re-check when upgrading, in case the bindings begin exposing them.
 
-**Guest execution is currently unbounded** — no fuel, no epoch deadline, no stack
-limit. A guest that does not return blocks the Executor. See the TODO in
-`newPinnedEngine`; tracked separately.
+**Guest execution is bounded in time but not in work.** Wall-clock duration is
+bounded — see "Execution is time-bounded" above — so a guest that does not return is
+interrupted rather than blocking the Executor indefinitely. Fuel (how much computation
+a request may do) and stack depth are still unbounded, as is module compilation and
+time spent inside a WASI host call, none of which epoch interruption can reach. See
+the TODO in `newPinnedEngine`; tracked separately.
 
 ## Failure classification and the module cache
 
@@ -231,7 +240,7 @@ the interruption:
 
 | Cause | Reported as | Effect |
 |---|---|---|
-| The guest spent its whole budget | `GUEST_EXECUTION_TIMEOUT`, signed on-chain | request settles as failed, minimum fee charged |
+| The guest spent its whole budget | signed on-chain: `WASM_INTERNAL` + `guest execution timed out` | request settles as failed, minimum fee charged |
 | The host stopped waiting (executor shutdown, cancelled request) | not signed at all | request stays pending and is retried later |
 
 The second case never reaches the chain by design: the request was abandoned, not
