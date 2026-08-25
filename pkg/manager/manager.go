@@ -492,7 +492,7 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 		case <-m.stopChan:
 			return
 		case <-ticker.C:
-			err := m.processRequestFromChain(ctx)
+			err := m.processBatchFromChain(ctx)
 			if err != nil {
 				m.log.Error("Manager: Fatal error processing requests from chain: %v, initiating shutdown", err)
 				select {
@@ -506,12 +506,74 @@ func (m *SecureProcessorManager) pollBlockchain(ctx context.Context) {
 	}
 }
 
-// processRequestFromChain retrieves the next pending request from the blockchain and processes it
-func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) error {
-	// Attempt blockchain (re)connect before acquiring the manager lock.
-	// Connect has its own internal mutex and may block for up to the
-	// configured connect timeout; holding m.mu.RLock during that period
-	// would delay Stop().
+
+// reconcileStateRoot compares the local per-app state root against the on-chain root
+// and drives reorg detection/recovery. It returns proceed=true when the roots agree
+// (possibly after resolving a reorg) and the caller may process the request(s).
+// proceed=false with a nil error means "skip this poll" (transient issue or an
+// in-progress reorg wait); a non-nil error is fatal and should stop the poll loop.
+func (m *SecureProcessorManager) reconcileStateRoot(appID common.ApplicationIdType, stateRoot [32]byte) (bool, error) {
+	localStateRoot, err := m.dataLayer.LastVersionID(appID)
+	if err != nil {
+		if dbErr, ok := err.(*storageErrors.Error); ok && dbErr.Code == storageErrors.NoVersionInDb {
+			localStateRoot = make([]byte, 32) // Initialize to zero state root if no version exists
+		} else {
+			m.log.Error("Manager: Failed to get local state root for app %d: %v", appID, err)
+			return false, nil
+		}
+	}
+
+	if !bytes.Equal(localStateRoot, stateRoot[:]) {
+		m.log.Warn("Manager: State root mismatch for app %d, expected %x, got %x. Checking if it is a REORG.", appID, localStateRoot, stateRoot)
+
+		isReorg, err := m.checkIfReorg(appID, stateRoot)
+		if err != nil {
+			m.log.Error("Manager: Failed to check for reorg: %v", err)
+			return false, nil
+		}
+
+		if isReorg {
+			if m.endReorgTime.IsZero() {
+				m.log.Info("Manager: Starting REORG timeout %d for app %d", m.config.ReorgTimeout, appID)
+				m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
+				return false, nil
+			}
+			if time.Now().Before(m.endReorgTime) {
+				m.log.Info("Manager: REORG timeout not expired yet for app %d. Keep waiting...", appID)
+				return false, nil
+			}
+			m.log.Info("Manager: REORG not solved within timeout for app %d => Rollback the DB", appID)
+			if err := m.dataLayer.Rollback(appID, stateRoot[:]); err != nil {
+				m.log.Error("Manager: Error while rolling back the DB: %v", err)
+				return false, fmt.Errorf("fatal: rollback failed: %w", err)
+			}
+
+		} else {
+			m.log.Error("Manager: unrecoverable disalignment between DB and chain for app %d, no matching state root found in db", appID)
+			emptyStateRoot := [32]byte{}
+			if bytes.Equal(localStateRoot, emptyStateRoot[:]) {
+				m.log.Error("Manager: the DB is empty but the chain state root is non-zero, check if the database file is correct and restart the manager")
+			}
+			return false, fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
+		}
+
+	}
+
+	if !m.endReorgTime.IsZero() {
+		m.log.Info("Manager: State roots match for app %d, REORG resolved", appID)
+		m.endReorgTime = time.Time{}
+	}
+
+	return true, nil
+}
+
+// processBatchFromChain fetches up to MaxBatchSize pending requests for the
+// contract-selected application and processes them as a batch. The contract selects
+// the application (round-robin, see docs/design/BATCH_EXECUTION.md section 4.3); the
+// manager dispatches on request type/count and never queries triggerContracts.
+func (m *SecureProcessorManager) processBatchFromChain(ctx context.Context) error {
+	// Attempt blockchain (re)connect before acquiring the manager lock (see
+	// processRequestFromChain for the rationale).
 	if !m.blockchainClient.IsConnected() {
 		if err := m.blockchainClient.Connect(ctx); err != nil {
 			m.log.Warn("Manager: blockchain not connected, retrying next poll: %v", err)
@@ -528,79 +590,169 @@ func (m *SecureProcessorManager) processRequestFromChain(ctx context.Context) er
 		return nil
 	}
 
-	// Get next pending request from the blockchain
-	request, stateRoot, err := m.blockchainClient.GetNextPendingRequest(ctx)
+	appID, requests, onChainStateRoot, err := m.blockchainClient.GetPendingRequestsWithStateRoot(ctx, uint64(m.config.MaxBatchSize))
 	if err != nil {
-		m.log.Error("Manager: Failed to get pending request: %v", err)
+		m.log.Error("Manager: Failed to get pending requests: %v", err)
 		return nil
 	}
 
-	if request == nil { // No request in queue, nothing to process
+	if len(requests) == 0 { // Nothing in any queue, nothing to process
 		return nil
 	}
 
-	appID := request.ApplicationID
-
-	localStateRoot, err := m.dataLayer.LastVersionID(appID)
+	proceed, err := m.reconcileStateRoot(appID, onChainStateRoot)
 	if err != nil {
-		if dbErr, ok := err.(*storageErrors.Error); ok && dbErr.Code == storageErrors.NoVersionInDb {
-			localStateRoot = make([]byte, 32) // Initialize to zero state root if no version exists
-		} else {
-			m.log.Error("Manager: Failed to get local state root for app %d: %v", appID, err)
-			return nil
-		}
+		return err
+	}
+	if !proceed {
+		return nil
 	}
 
-	if !bytes.Equal(localStateRoot, stateRoot[:]) {
-		m.log.Warn("Manager: State root mismatch for app %d, expected %x, got %x. Checking if it is a REORG.", appID, localStateRoot, stateRoot)
-
-		isReorg, err := m.checkIfReorg(appID, stateRoot)
-		if err != nil {
-			m.log.Error("Manager: Failed to check for reorg: %v", err)
-			return nil
+	// A deploy is always alone in its application's queue (section 4.2) and uses a
+	// distinct flow (creates initial state, stores WASM); route it through the
+	// existing single-request path.
+	if requests[0].RequestType == common.Deploy {
+		m.log.Info("Manager: processing deploy request %s", requests[0].RequestID)
+		if err := m.processDeployApp(ctx, requests[0]); err != nil {
+			m.log.Error("Manager: Failed to process deploy request %s: %v", requests[0].RequestID, err)
 		}
-
-		if isReorg {
-			if m.endReorgTime.IsZero() {
-				m.log.Info("Manager: Starting REORG timeout %d for app %d", m.config.ReorgTimeout, appID)
-				m.endReorgTime = time.Now().Add(time.Duration(m.config.ReorgTimeout) * time.Second)
-				return nil
-			}
-			if time.Now().Before(m.endReorgTime) {
-				m.log.Info("Manager: REORG timeout not expired yet for app %d. Keep waiting...", appID)
-				return nil
-			}
-			m.log.Info("Manager: REORG not solved within timeout for app %d => Rollback the DB", appID)
-			if err := m.dataLayer.Rollback(appID, stateRoot[:]); err != nil {
-				m.log.Error("Manager: Error while rolling back the DB: %v", err)
-				return fmt.Errorf("fatal: rollback failed: %w", err)
-			}
-
-		} else {
-			m.log.Error("Manager: unrecoverable disalignment between DB and chain for app %d, no matching state root found in db", appID)
-			emptyStateRoot := [32]byte{}
-			if bytes.Equal(localStateRoot, emptyStateRoot[:]) {
-				m.log.Error("Manager: the DB is empty but the chain state root is non-zero, check if the database file is correct and restart the manager")
-			}
-			return fmt.Errorf("unrecoverable disalignment between DB and chain, no matching state root found in db")
-		}
-
+		return nil
 	}
 
-	if !m.endReorgTime.IsZero() {
-		m.log.Info("Manager: State roots match for app %d, REORG resolved", appID)
-		m.endReorgTime = time.Time{}
-	}
-
-	m.log.Info("Manager: processing request %s", request.RequestID)
-
-	if err := m.processRequest(ctx, request); err != nil {
-		m.log.Error("Manager: Failed to process request %s: %v", request.RequestID, err)
-	} else {
-		m.log.Info("Manager: Processed request %s", request.RequestID)
+	m.log.Info("Manager: processing batch of %d request(s) for application %d", len(requests), appID)
+	if err := m.processBatch(ctx, appID, requests, onChainStateRoot); err != nil {
+		m.log.Error("Manager: Failed to process batch for application %d: %v", appID, err)
 	}
 	return nil
+}
 
+// processBatch sends a batch of requests for a single application to the executor and
+// submits the results in one batchStateUpdate() transaction. On a hard failure the
+// executor returns fewer results than requests; the remaining requests stay pending
+// on-chain and are retried on the next poll.
+func (m *SecureProcessorManager) processBatch(ctx context.Context, appID common.ApplicationIdType, requests []*common.Request, prevStateRoot [32]byte) error {
+	// Get the application state.
+	appState, err := m.dataLayer.GetApplicationState(ctx, appID)
+	if err != nil {
+		m.log.Error("GetApplicationState returns an error: %v", err)
+		if !storageErrors.IsNotFound(err) {
+			// Likely a db error, retry on next poll.
+			return err
+		}
+		// If application state not found, pass a nil state to the executor: it rejects
+		// the batch with a hard error (app existence is enforced on-chain) and the
+		// requests stay pending.
+		appState = nil
+	}
+
+	// Get the WASM module for the application.
+	var wasmBytes []byte
+	if appState != nil {
+		wasmBytes, err = m.dataLayer.GetWASMBytecode(ctx, appID)
+		if err != nil {
+			m.log.Error("GetWASMBytecode returns an error: %v", err)
+			return err
+		}
+	}
+
+	executorStart := time.Now()
+	results, batchSignature, finalState, reports, err := m.executorClient.SendBatchProcessRequest(ctx, requests, appState, wasmBytes)
+	m.log.Info("Manager: executor round-trip for batch of %d request(s): executor_roundtrip_ms=%d", len(requests), time.Since(executorStart).Milliseconds())
+	if err != nil {
+		// Fallback case: executor couldn't produce a batch. Retry on next poll, no state to store.
+		return err
+	}
+
+	if len(results) == 0 {
+		// Hard failure on the very first request or batch signing failure — nothing to submit.
+		m.log.Warn("Manager: batch produced no results for application %d, retry next poll", appID)
+		return nil
+	}
+
+	// Save any deanonymization reports to disk before submitting on-chain.
+	if err := m.saveBatchDeanonymizationReports(reports, requests); err != nil {
+		// Treat as transient: log and retry on next poll instead of failing the batch.
+		return err
+	}
+
+	// Store the final encrypted state only if the batch advanced the state root. A
+	// batch of only soft failures leaves the root unchanged, so there is nothing new
+	// to persist (mirrors the single-request error-payload path, which does not store).
+	stateStored := false
+	if finalState != nil && finalState.StateRoot != prevStateRoot {
+		if err := m.storeStateToStorage(ctx, finalState); err != nil {
+			m.log.Error("failed to store batch state: %v", err)
+			return err
+		}
+		stateStored = true
+	}
+
+	if err := m.submitBatchStateOnChain(ctx, appID, results, batchSignature, prevStateRoot, stateStored); err != nil {
+		return err
+	}
+
+	// One payload per handled request, so a shortfall means a hard failure stopped the
+	// batch at request len(results)+1; those requests stay pending on-chain.
+	if len(results) < len(requests) {
+		m.log.Warn("Manager: request %d caused a hard stop for application %d; %d request(s) remain pending",
+			len(results), appID, len(requests)-len(results))
+	}
+
+	return nil
+}
+
+// submitBatchStateOnChain submits the batch results and, on failure, rolls the local
+// state back to the pre-batch root so the batch can be retried on the next poll.
+func (m *SecureProcessorManager) submitBatchStateOnChain(ctx context.Context, appID common.ApplicationIdType, updates []*common.UpdatePayload, batchSignature []byte, prevStateRoot [32]byte, stateStored bool) error {
+	if err := m.blockchainClient.SubmitBatchStateUpdate(ctx, updates, batchSignature); err != nil {
+		m.log.Error("Failed to submit batch state update: %v", err)
+		if stateStored {
+			m.log.Info("Rollback the application state to the pre-batch version")
+			if rollbackErr := m.dataLayer.Rollback(appID, prevStateRoot[:]); rollbackErr != nil {
+				// Local db and chain are out of sync and cannot be recovered automatically here.
+				// Log and return err to let REORG detection handle it on the next poll.
+				m.log.Error("Failed to rollback application state: %v. Will retry via REORG detection.", rollbackErr)
+				return rollbackErr
+			}
+			if _, ok := err.(blockchain.ReorgError); ok {
+				m.log.Warn("REORG, wait for next poll")
+				return nil
+			}
+		}
+		return err
+	}
+
+	m.log.Info("Manager: submitted batch of %d update(s) for application %d", len(updates), appID)
+	return nil
+}
+
+// saveBatchDeanonymizationReports persists any deanonymization reports produced by a
+// batch, matching each report to its originating request by RequestID.
+func (m *SecureProcessorManager) saveBatchDeanonymizationReports(reports []*common.DeanonymizationReport, requests []*common.Request) error {
+	if len(reports) == 0 {
+		return nil
+	}
+
+	reqByID := make(map[common.RequestIdType]*common.Request, len(requests))
+	for _, req := range requests {
+		reqByID[req.RequestID] = req
+	}
+
+	for _, report := range reports {
+		req, ok := reqByID[report.ReportID]
+		if !ok {
+			// The report does not correspond to any request in this batch — evidence of
+			// an executor/manager mismatch. Fail so the batch is retried rather than
+			// silently dropping the report.
+			return fmt.Errorf("deanonymization report %s does not match any request in the batch", report.ReportID)
+		}
+		if err := m.saveDeanonymizationReport(report, req); err != nil {
+			m.log.Error("Failed to save deanonymization report: %v", err)
+			return err
+		}
+		m.log.Info("Manager: Saved deanonymization report %s for application %d", report.ReportID, report.ApplicationID)
+	}
+	return nil
 }
 
 func (m *SecureProcessorManager) checkIfReorg(appID common.ApplicationIdType, stateRoot [32]byte) (bool, error) {
@@ -624,21 +776,6 @@ func (m *SecureProcessorManager) checkIfReorg(appID common.ApplicationIdType, st
 	}
 	return false, nil
 
-}
-
-// processRequest processes a request
-func (m *SecureProcessorManager) processRequest(ctx context.Context, req *common.Request) error {
-	if !m.isRunning {
-		m.log.Warn("Manager is not started yet, skipping")
-		return errors.New("manager is not running")
-	}
-
-	switch req.RequestType {
-	case common.Deploy:
-		return m.processDeployApp(ctx, req)
-	default: //Now it is the executor that has to check if a requestType is correct
-		return m.processProcessRequest(ctx, req)
-	}
 }
 
 func (m *SecureProcessorManager) submitStateOnChain(ctx context.Context, updatePayload *common.UpdatePayload) error {
@@ -674,8 +811,8 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 		return errors.New("manager is not running")
 	}
 
-	// Check if app was already deployed. With per-app state roots, the executor handles
-	// appState == nil gracefully (uses emptyStateRoot for signed error payloads).
+	// Check if app was already deployed. For deploys, appState == nil is the
+	// expected case (the app does not exist yet).
 	state, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
 	if err != nil {
 		if !storageErrors.IsNotFound(err) {
@@ -728,73 +865,6 @@ func (m *SecureProcessorManager) processDeployApp(ctx context.Context, req *comm
 	m.log.Info("Deployed application, submit the state update to the blockchain")
 	return m.submitStateOnChain(ctx, updatePayload)
 
-}
-
-// processProcessRequest processes a process request (including deanonymization requests)
-func (m *SecureProcessorManager) processProcessRequest(ctx context.Context, req *common.Request) error {
-	m.log.Info("Processing Process app request: %s (type: %s)", req.RequestID, req.RequestType)
-	if !m.isRunning {
-		m.log.Warn("Manager is not started yet, skipping")
-		return errors.New("manager is not running")
-	}
-
-	// Get the application state
-	//TODO ST manager shouldn't be able return a tampered state. Same for wasm
-	appState, err := m.dataLayer.GetApplicationState(ctx, req.ApplicationID)
-	if err != nil {
-		m.log.Error("GetApplicationState returns an error: %v", err)
-		if !storageErrors.IsNotFound(err) {
-			// Other errors are likely db errors, retry on next poll
-			return err
-		}
-		// if application state not found, pass a nil state to the executor to let it handle the error
-		appState = nil
-	}
-
-	// Get the WASM module for the application
-	var wasmBytes []byte
-	if appState != nil {
-		wasmBytes, err = m.dataLayer.GetWASMBytecode(ctx, req.ApplicationID)
-		if err != nil {
-			m.log.Error("GetWASMBytecode returns an error: %v", err)
-			return err
-		}
-	}
-	// Process the request
-	executorStart := time.Now()
-	updatePayload, updatedState, deanonymizationReport, err := m.executorClient.SendProcessRequest(ctx, req, appState, wasmBytes)
-	m.log.Info("Manager: executor round-trip for request %s: executor_roundtrip_ms=%d", req.RequestID, time.Since(executorStart).Milliseconds())
-	if err != nil {
-		// Fallback case: executor couldn't create signed payload. Retry on next poll, no state to store
-		return err
-	}
-
-	// Check if this is a signed error payload
-	if updatePayload.ErrorCode != 0 {
-		m.log.Info("Manager: Received signed error payload for request %s (error code: %d)", req.RequestID, updatePayload.ErrorCode)
-		// Submit the signed error payload to the blockchain (no state to store)
-		return m.submitStateOnChain(ctx, updatePayload)
-	}
-
-	// If a deanonymization report was generated, save it to filesystem
-	// Note: The executor already validates that reports are only and always generated for Deanonymize requests
-	if deanonymizationReport != nil {
-		if err := m.saveDeanonymizationReport(deanonymizationReport, req); err != nil {
-			// Treat as transient: log and retry on next poll instead of failing the request.
-			m.log.Error("Failed to save deanonymization report: %v", err)
-			return err
-		}
-		m.log.Info("Manager: Saved deanonymization report %s for application %d", deanonymizationReport.ReportID, req.ApplicationID)
-	}
-
-	// Store the updated application state
-	err = m.storeStateToStorage(ctx, updatedState)
-	if err != nil {
-		m.log.Error("failed to submit state update: %v", err)
-		return err
-	}
-
-	return m.submitStateOnChain(ctx, updatePayload)
 }
 
 // initAppStorage stores the application state and WASM bytecode for a newly deployed application.

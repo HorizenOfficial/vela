@@ -549,6 +549,8 @@ func (e *StatelessExecutor) validateRequest(req *common.Request) error {
 func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, *common.DeanonymizationReport, error) {
 	e.log.Info("Executor: Processing request %s for application %d", req.RequestID, req.ApplicationID)
 
+	// Also validated inside executeRequest; checked here first so tampered
+	// fields fail before any state access.
 	if err := e.validateRequest(req); err != nil {
 		return nil, nil, nil, err
 	}
@@ -557,304 +559,50 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		return nil, nil, nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
 	}
 
-	if appState == nil {
-		errorPayload, err := e.processErrorResponse(req,
-			emptyStateRoot,
-			apperrors.New(apperrors.CodeAppStateNotFound, fmt.Sprintf("state not found for application %s", req.ApplicationID)))
-		return errorPayload, nil, nil, err
-	}
-
-	// Validate wasm module integrity before processing any request path.
-	if len(wasmModule) == 0 {
-		return nil, nil, nil, fmt.Errorf("empty wasm module")
-	}
-
-	// Decrypt and parse the app data
-	appData, err := e.fromEncryptedStateToAppData(appState)
+	// State presence, wasm presence, state root and wasm fingerprint checks
+	appData, _, err := e.loadVerifiedAppData(appState, wasmModule, req.ApplicationID, fmt.Sprintf("request %s", req.RequestID))
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	expectedWasmFingerprint := appData.GetWasmFingerprint()
-	currentWasmFingerprint := sha256.Sum256(wasmModule)
-	if currentWasmFingerprint != expectedWasmFingerprint {
-		e.log.Warn(
-			"Executor: Wasm fingerprint mismatch for request %s app %d (gotPrefix=%x expectedPrefix=%x)",
-			req.RequestID,
-			req.ApplicationID,
-			currentWasmFingerprint[:4],
-			expectedWasmFingerprint[:4],
-		)
-		return nil, nil, nil, fmt.Errorf("wasm fingerprint mismatch")
+	// The manager pairs request and state by applicationId; a mismatch is
+	// evidence of a bug or tampering.
+	if req.ApplicationID != appState.ApplicationID {
+		return nil, nil, nil, fmt.Errorf("request applicationId %d does not match state applicationId %d", req.ApplicationID, appState.ApplicationID)
 	}
 
-	// If the request contains a deposit, handle it first
-	var tempState = appData.GetAppState()
-	var depositEvents []common.PlainEvent
-	var depositAppEvents []common.AppEvent
-	var totalFuel *big.Int = big.NewInt(0)
-	if req.AssetAmount.ToInt().Sign() > 0 {
-		newState, depEvents, depAppEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
-		if failure != nil {
-			if transientErr, ok := e.transientFailure(req, failure); ok {
-				return nil, nil, nil, transientErr
-			}
-			errorPayload, err := e.processErrorResponse(req, appState.StateRoot, failure)
-			return errorPayload, nil, nil, err
-		}
-		tempState = newState
-		depositEvents = depEvents
-		depositAppEvents = depAppEvents
-		totalFuel = totalFuel.Add(totalFuel, reqFuel)
-		e.log.Info("Executor: Successfully processed deposit for request %s", req.RequestID)
-	}
-
-	applicationFee := new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
-	if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
-		errorPayload, err := e.processErrorResponse(req, appState.StateRoot,
-			apperrors.New(apperrors.CodeInsufficientFuel,
-				fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
-					applicationFee.String(),
-					req.MaxFeeValue.ToInt().String(),
-				),
-			))
-		return errorPayload, nil, nil, err
-	}
-
-	var events []common.PlainEvent
-	var appEvents []common.AppEvent
-	var withdrawals []common.Withdrawal
-	var reportData []byte
-
-	if req.RequestType == common.AssociateKey {
-		//request of type associate key: the payload contains the new key (plaintext) and optionally an encrypted seed
-		e.log.Info("Associating new key - RequestID %s", req.RequestID)
-
-		const keyOnlyPayloadSize = 133
-		// encrypted seed = AES-GCM nonce (12) + seed (65) + tag (16) = 93 bytes
-		const encryptedSeedSize = 12 + appdata.SeedStore_ValSize + 16
-		const keyWithEncryptedSeedPayloadSize = keyOnlyPayloadSize + encryptedSeedSize // 226 bytes
-		if len(req.Payload) != keyOnlyPayloadSize && len(req.Payload) != keyWithEncryptedSeedPayloadSize {
-			return nil, nil, nil, fmt.Errorf("invalid payload length")
-		}
-
-		keyToAssociate, err := cryptotypes.NewPublicKeyP521(req.Payload[:keyOnlyPayloadSize])
-		if err != nil {
-			errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
-				apperrors.CodeParsingKeyError,
-				"failed to parse keyP521 in request payload", err)
-			return errorPayload, nil, nil, respErr
-		}
-
-		appData.AddKey(req.Sender, *keyToAssociate)
-
-		if len(req.Payload) == keyWithEncryptedSeedPayloadSize {
-			// Decrypt the encrypted seed using ECDH(enclave_priv_P521, user_pub_P521)
-			encryptedSeed := req.Payload[keyOnlyPayloadSize:keyWithEncryptedSeedPayloadSize]
-			seed, err := crypto.Decrypt(keyToAssociate, &e.keySet.CommunicationKey, encryptedSeed)
-			if err != nil {
-				errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
-					apperrors.CodeParsingKeyError,
-					"seed decryption failed", err)
-				return errorPayload, nil, nil, respErr
-			}
-			if err := appData.AddSeed(req.Sender, seed); err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to add seed for request %s: %w", req.RequestID, err)
-			}
-		}
-
-		totalFuel = totalFuel.Add(totalFuel, big.NewInt(10))
-	} else {
-		//any other case: forward the payload to the WASM to obtain the new state.
-		//Process and Deanonymize payloads are encrypted toward the enclave and must be
-		//decrypted first; TrustProcess payloads are sent in clear text and forwarded as-is.
-
-		wasmPayload := req.Payload
-		if req.RequestType != common.TrustProcess {
-			decryptedPayload, failure := e.decryptPayload(&e.keySet.CommunicationKey, req.Payload, req.Sender, appData.GetKeyStore())
-			if failure != nil {
-				errorPayload, err := e.processErrorResponse(req,
-					appState.StateRoot,
-					failure)
-				return errorPayload, nil, nil, err
-			}
-			wasmPayload = decryptedPayload
-		}
-
-		// Invoke WASM method to process the request
-		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, wasmPayload, tempState, wasmModule)
-		if failure != nil {
-			if transientErr, ok := e.transientFailure(req, failure); ok {
-				return nil, nil, nil, transientErr
-			}
-			errorPayload, err := e.processErrorResponse(req,
-				appState.StateRoot,
-				failure)
-			return errorPayload, nil, nil, err
-		}
-		tempState = newState
-		events = reqEvents
-		appEvents = reqAppEvents
-		withdrawals = reqWithdrawals
-		totalFuel = totalFuel.Add(totalFuel, reqFuel)
-
-		// Validate report generation rules:
-		// 1. Reports must only be generated for Deanonymize requests
-		// 2. Deanonymize requests must always generate a report
-		if len(reqReportData) > 0 {
-			if req.RequestType != common.Deanonymize {
-				errorPayload, err := e.processErrorResponse(req,
-					appState.StateRoot,
-					apperrors.New(apperrors.CodeRequestFuncFailed, fmt.Sprintf("WASM module generated unexpected report for request type %s", req.RequestType)))
-				return errorPayload, nil, nil, err
-			}
-			reportData = reqReportData
-		} else if req.RequestType == common.Deanonymize {
-			errorPayload, err := e.processErrorResponse(req,
-				appState.StateRoot,
-				apperrors.New(apperrors.CodeRequestFuncFailed,
-					"WASM module failed to generate report for Deanonymize request"))
-			return errorPayload, nil, nil, err
-		}
-		e.log.Info("Executor: Successfully processed request %s", req.RequestID)
-	}
-
-	// Check if there is enough ETH to cover the fuel costs.
-	// TRUSTPROCESS requests have maxFeeValue=0 (enqueued by the on-chain trigger
-	// contract with no user-provided fee). Skip fee adequacy checks for them;
-	// their authenticity is established on-chain.
-	if req.RequestType == common.TrustProcess {
-		applicationFee = big.NewInt(0)
-	} else {
-		applicationFee = new(big.Int).Mul(totalFuel, e.config.FuelPricePerUnit)
-
-		// Application fee must be minimum fee at least
-		if applicationFee.Cmp(e.config.MinFeePerRequest) < 0 {
-			applicationFee = new(big.Int).Set(e.config.MinFeePerRequest)
-		}
-
-		if req.MaxFeeValue.ToInt().Cmp(applicationFee) < 0 {
-			errorPayload, err := e.processErrorResponse(req,
-				appState.StateRoot,
-				apperrors.New(apperrors.CodeInsufficientFuel,
-					fmt.Sprintf("insufficient fuel: required %s wei, provided %s wei",
-						applicationFee.String(),
-						req.MaxFeeValue.ToInt().String(),
-					),
-				))
-			return errorPayload, nil, nil, err
-		}
-	}
-
-	// Compute refundAmount = req.MaxFeeValue - applicationFee
-	refundAmount := new(big.Int).Sub(req.MaxFeeValue.ToInt(), applicationFee)
-
-	//set the updated state
-	appData.SetAppState(tempState)
-
-	//increment appNonce
-	appData.IncrementNonce()
-
-	//serialize the new app data
-	newAppData, err := appData.Serialize()
+	// Execute the request against the decrypted app data
+	outcome, err := e.executeRequest(ctx, req, appData, appState.StateRoot, wasmModule)
 	if err != nil {
-		errorPayload, respErr := e.errorResponse(req, appState.StateRoot,
-			apperrors.CodeAppDataSerializationFailure,
-			"failed to serialize new app data", err)
-		return errorPayload, nil, nil, respErr
-	}
-
-	// Encrypt the new app data and events
-	encryptedNewAppData, err := crypto.EncryptWithAES(e.keySet.StateKey, newAppData)
-	if err != nil {
-		e.log.Error("Executor: error encrypting initial app data: %v", err)
 		return nil, nil, nil, err
 	}
-	// Encrypt events if they are not empty
-	events = append(depositEvents, events...)
-	appEvents = append(depositAppEvents, appEvents...)
-	encryptedEvents, failure, err := e.encryptEvents(ctx, events, req.ApplicationID, &e.keySet.CommunicationKey, e.server, appData.GetKeyStore(), appData.GetEventSeedStore())
-	if failure != nil {
-		errorPayload, err := e.processErrorResponse(req,
-			appState.StateRoot,
-			failure)
-		return errorPayload, nil, nil, err
-	}
-	if err != nil {
-		e.log.Error("Executor: error encrypting events: %v", err)
-		return nil, nil, nil, err
-	}
-	e.log.Info("Executor: Successfully encrypted new application data")
 
-	// Create appdata root hash
-	newStateRoot := sha256.Sum256(newAppData)
-
-	// Determine if a report was generated
-	reportGenerated := len(reportData) > 0
-
-	// Create the update payload
-	updatePayload := &common.UpdatePayload{
-		ApplicationID:  req.ApplicationID,
-		RequestID:      req.RequestID,
-		PrevStateRoot:  appState.StateRoot,
-		NewStateRoot:   newStateRoot,
-		Events:         encryptedEvents,
-		AppEvents:      appEvents,
-		Withdrawals:    withdrawals,
-		RefundAmount:   common.ToBig(refundAmount),
-		ApplicationFee: common.ToBig(applicationFee),
-	}
-
-	// Sign the update payload (produce attestation)
-	signature, err := e.signUpdatePayload(updatePayload)
+	// Sign the payload (success or soft-failure error payload) to produce the attestation
+	signature, err := e.signUpdatePayload(outcome.payload)
 	if err != nil {
 		e.log.Error("Executor: error signing update payload: %v", err)
 		return nil, nil, nil, err
 	}
-	updatePayload.Signature = signature
+	outcome.payload.Signature = signature
 
-	// Create the new application state
-	newApplicationState := &common.ApplicationState{
-		ApplicationID:  req.ApplicationID,
-		StateRoot:      newStateRoot,
-		EncryptedState: encryptedNewAppData,
+	// Soft failure: signed error payload, state unchanged, nothing to store
+	if outcome.payload.ErrorCode != 0 {
+		return outcome.payload, nil, nil, nil
 	}
 
-	// If a report was generated, encrypt it and create the DeanonymizationReport
-	var deanonymizationReport *common.DeanonymizationReport
-	if reportGenerated {
-		encryptedReport, failure, err := e.encryptDeanonymizationReport(
-			req.ApplicationID,
-			req.RequestID,
-			&e.keySet.CommunicationKey,
-			req.Sender,
-			reportData,
-			appData.GetKeyStore(),
-		)
-		if failure != nil {
-			errorPayload, err := e.processErrorResponse(req,
-				appState.StateRoot,
-				failure)
-			return errorPayload, nil, nil, err
-		}
-		if err != nil {
-			e.log.Error("Executor: error encrypting deanonymization report: %v", err)
-			return nil, nil, nil, err
-		}
-
-		e.log.Info("Executor: Successfully encrypted deanonymization report")
-
-		deanonymizationReport = &common.DeanonymizationReport{
-			ApplicationID:   req.ApplicationID,
-			ReportID:        req.RequestID,
-			EncryptedReport: encryptedReport,
-			Authority:       req.Sender,
-		}
-		e.log.Info("Executor: Successfully generated deanonymization report %s", req.RequestID)
+	// Success outcomes always carry the serialized app data (Serialize never
+	// returns empty bytes); a nil value here is a bug in executeRequest.
+	if outcome.newSerialized == nil {
+		return nil, nil, nil, fmt.Errorf("bug: success outcome without serialized app data for request %s", req.RequestID)
 	}
 
-	e.log.Info("Executor: Successfully processed request %s", req.RequestID)
-	return updatePayload, newApplicationState, deanonymizationReport, nil
+	// Encrypt the new app data
+	newApplicationState, err := e.buildEncryptedApplicationState(req.ApplicationID, outcome.payload.NewStateRoot, outcome.newSerialized)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return outcome.payload, newApplicationState, outcome.report, nil
 }
 
 // HandleDeployApp implements the RequestHandler interface
@@ -959,20 +707,12 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Create app data root hash
 	initialAppDataRoot := sha256.Sum256(initialAppDataBytes)
 
-	// Encrypt the initial state
-	encryptedState, err := crypto.EncryptWithAES(e.keySet.StateKey, initialAppDataBytes)
+	// Encrypt the initial state and build the application state
+	newAppState, err := e.buildEncryptedApplicationState(req.ApplicationID, initialAppDataRoot, initialAppDataBytes)
 	if err != nil {
-		e.log.Error("Executor: error encrypting initial app data: %v", err)
 		return nil, nil, err
 	}
 	e.log.Info("Executor: Successfully encrypted initial app data")
-
-	// Create the application state
-	newAppState := &common.ApplicationState{
-		ApplicationID:  req.ApplicationID,
-		StateRoot:      initialAppDataRoot,
-		EncryptedState: encryptedState,
-	}
 
 	// Create the update payload
 	updatePayload := &common.UpdatePayload{
@@ -997,31 +737,98 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 }
 
 func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.ApplicationState) (*appdata.AppData, error) {
+	appData, _, err := e.decryptAndDeserializeState(encState)
+	return appData, err
+}
+
+// buildEncryptedApplicationState encrypts serialized app data with the TEE
+// state key and wraps it into the ApplicationState handed back to the manager.
+func (e *StatelessExecutor) buildEncryptedApplicationState(appID common.ApplicationIdType, stateRoot [32]byte, serialized []byte) (*common.ApplicationState, error) {
+	encryptedState, err := crypto.EncryptWithAES(e.keySet.StateKey, serialized)
+	if err != nil {
+		e.log.Error("Executor: error encrypting app data for application %d: %v", appID, err)
+		return nil, err
+	}
+
+	return &common.ApplicationState{
+		ApplicationID:  appID,
+		StateRoot:      stateRoot,
+		EncryptedState: encryptedState,
+	}, nil
+}
+
+// decryptAndDeserializeState decrypts the state, verifies it against the state
+// root and parses it. It returns the parsed app data together with the
+// decrypted bytes it was parsed from.
+func (e *StatelessExecutor) decryptAndDeserializeState(encState *common.ApplicationState) (*appdata.AppData, []byte, error) {
 	// Decrypt the encrypted state
 	decryptedState, err := e.DecryptState(encState.EncryptedState, e.keySet.StateKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt state: %w", err)
+		return nil, nil, fmt.Errorf("failed to decrypt state: %w", err)
 	}
 
 	// Verify state consistency
 	hash := sha256.Sum256(decryptedState)
 	if hash != encState.StateRoot {
-		return nil, fmt.Errorf("state root mismatch: got %x, want %x", hash, encState.StateRoot)
+		return nil, nil, fmt.Errorf("state root mismatch: got %x, want %x", hash, encState.StateRoot)
 	}
 
 	// Parse the app data
 	appData, err := appdata.DeserializeAppData(decryptedState)
 	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize state: %w", err)
+		return nil, nil, fmt.Errorf("failed to deserialize state: %w", err)
 	}
 
-	return appData, nil
+	return appData, decryptedState, nil
 }
 
-// buildErrorPayload creates a signed error payload for failed requests.
+// loadVerifiedAppData runs the checks every state-consuming flow needs before
+// touching the WASM runtime: state presence, wasm presence, decryption, state
+// root verification, deserialization and wasm fingerprint verification.
+// It returns the parsed app data and the decrypted bytes it was parsed from, so
+// callers that need to re-deserialize the same state (batch execution) can
+// reuse them.
+//
+// applicationID and logCtx are used for diagnostics only; logCtx identifies the
+// caller (e.g. "request <id>" or "batch").
+func (e *StatelessExecutor) loadVerifiedAppData(appState *common.ApplicationState, wasmModule []byte, applicationID common.ApplicationIdType, logCtx string) (*appdata.AppData, []byte, error) {
+	// App existence is validated on-chain (validApplicationId modifier in
+	// ProcessorEndpoint), so a missing state here means tampering or
+	// manager-side state loss.
+	if appState == nil {
+		e.log.Error("Executor: state not found for application %d (%s): app existence is enforced on-chain, check the manager DB", applicationID, logCtx)
+		return nil, nil, fmt.Errorf("state not found for application %d", applicationID)
+	}
+
+	if len(wasmModule) == 0 {
+		return nil, nil, fmt.Errorf("empty wasm module for application %d", applicationID)
+	}
+
+	appData, serializedState, err := e.decryptAndDeserializeState(appState)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	expectedWasmFingerprint := appData.GetWasmFingerprint()
+	currentWasmFingerprint := sha256.Sum256(wasmModule)
+	if currentWasmFingerprint != expectedWasmFingerprint {
+		e.log.Warn(
+			"Executor: Wasm fingerprint mismatch for application %d (%s) (gotPrefix=%x expectedPrefix=%x)",
+			applicationID,
+			logCtx,
+			currentWasmFingerprint[:4],
+			expectedWasmFingerprint[:4],
+		)
+		return nil, nil, fmt.Errorf("wasm fingerprint mismatch for application %d", applicationID)
+	}
+
+	return appData, serializedState, nil
+}
+
+// buildUnsignedErrorPayload creates an unsigned error payload for failed requests.
 // The payload has: prevStateRoot == newStateRoot (unchanged), empty events/withdrawals,
 // refund = MaxFeeValue - MinFee, and the error code/message from the failure.
-func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+func (e *StatelessExecutor) buildUnsignedErrorPayload(req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) *common.UpdatePayload {
 	// Truncate error message if longer than 100 characters
 	errorMsg := failure.ExternalMessage()
 	if len(errorMsg) > 100 {
@@ -1029,7 +836,7 @@ func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32
 	}
 
 	// Create the error payload with state unchanged
-	updatePayload := &common.UpdatePayload{
+	return &common.UpdatePayload{
 		ApplicationID:  req.ApplicationID,
 		RequestID:      req.RequestID,
 		PrevStateRoot:  stateRoot,
@@ -1042,6 +849,11 @@ func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32
 		ErrorCode:      failure.Category(),
 		ErrorMsg:       errorMsg,
 	}
+}
+
+// buildErrorPayload creates a signed error payload for failed requests.
+func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32]byte, failure *apperrors.RequestFailure) (*common.UpdatePayload, error) {
+	updatePayload := e.buildUnsignedErrorPayload(req, stateRoot, failure)
 
 	// Sign the error payload
 	signature, err := e.signUpdatePayload(updatePayload)
@@ -1119,6 +931,12 @@ func (e *StatelessExecutor) signUpdatePayload(payload *common.UpdatePayload) ([]
 		return nil, fmt.Errorf("failed to create message to sign: %w", err)
 	}
 
+	return e.signHash(hash)
+}
+
+// signHash signs a prepared message hash with the TEE signing key and adjusts
+// the recovery byte to the 27/28 format expected by Solidity's ecrecover.
+func (e *StatelessExecutor) signHash(hash []byte) ([]byte, error) {
 	// Sign the hash
 	signature, err := e.keySet.SigningKey.Sign(hash)
 	if err != nil {

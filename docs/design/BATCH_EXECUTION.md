@@ -183,7 +183,22 @@ time ─────────────────────────
 - **Single stateRoot storage write**: read `applicationStateRoots[applicationId]` once at the start, chain through entries in memory, write once at the end — saves (N-1) warm `SSTORE` operations (~5,000 gas each)
 - **State root chain validation**: only the first entry checks `prevStateRoot` against storage; subsequent entries validate `entries[i].prevStateRoot == entries[i-1].newStateRoot` in memory
 - **Deduplicated `applicationId`**: passed once instead of per-entry
-- **Batch signature**: verify one signature over `keccak256(abi.encode(entry1_hash, entry2_hash, ...))` instead of N individual `ecrecover` calls, saving (N-1) × ~3,000+ gas. Individual entry hashes are emitted in events for off-chain verifiability
+- **Batch signature**: verify one signature over the batch digest instead of N individual `ecrecover` calls, saving (N-1) × ~3,000+ gas. Individual entry hashes are emitted in events for off-chain verifiability
+
+**Batch signing scheme** (as implemented in `MsgToSignBuilder.BuildBatchMsgHash`, `pkg/executor/msgtosign_builder.go`). Each entry hash is `entryHash_i = keccak256(abi.encode(<entry fields>))` — the same per-entry hash the single-request path uses (`buildEntryHash`). The batch digest is the Ethereum `personal_sign` (EIP-191) hash of the **concatenated** entry hashes:
+
+```
+batchDigest = keccak256("\x19Ethereum Signed Message:\n" || itoa(32*N) || entryHash_0 || entryHash_1 || ... || entryHash_N-1)
+```
+
+There is **no intermediate `keccak256` over the concatenation** — the concatenated bytes are the `personal_sign` message itself. Two properties make this unambiguous:
+
+- **Injectivity**: every entry hash is a fixed 32-byte `keccak256` output, so a concatenation of N of them splits exactly one way. This depends on the per-entry hash staying fixed-length.
+- **Length binding**: the `personal_sign` prefix commits to the total message length (`32*N`), so batches of different sizes cannot collide.
+
+A consequence is that a **1-entry batch digest is byte-identical to the single-request digest** (`BuildMsgHash` = `TextHash(entryHash)`), so both submission paths share one signing scheme and a 1-entry batch signature verifies on the single-request `stateUpdate()` path.
+
+The contract must reconstruct exactly this digest: `personal_sign` over the concatenated entry hashes with a **dynamic** length prefix (`32*N`), not a fixed one, and without an extra hash layer.
 
 **Pros:**
 
@@ -398,7 +413,7 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
 4. Add `batchStateUpdate(uint64 applicationId, BatchEntry[] calldata entries, bytes calldata batchSignature)` that:
    - Reverts if `triggerContracts[applicationId]` is set (section 5.4)
    - Requires `applicationId` to match the round-robin scan result and sets the cursor just past it (section 4.3); the same check applies to `stateUpdate()` when dequeuing from a per-application queue (trigger-queue processing bypasses it)
-   - Verifies the batch signature: recover the signer from `keccak256(abi.encode(hash(entries[0]), hash(entries[1]), ...))` and `batchSignature`, verify it matches the registered TEE signer. One `ecrecover` call for the entire batch. This requires a new verification function on the TEE authenticator (e.g., `checkBatchSignature(bytes32[] entryHashes, bytes signature)` in `ITeeAuthenticator` / `AbstractTeeAuthenticator`) — the existing `checkSignature()` hashes a single `SignatureParams` struct and cannot verify a batch message.
+   - Verifies the batch signature: recover the signer from the batch digest (section 3.2 — `personal_sign` over the concatenated entry hashes, dynamic `32*N` length prefix, no extra hash layer) and `batchSignature`, verify it matches the registered TEE signer. One `ecrecover` call for the entire batch. This requires a new verification function on the TEE authenticator (e.g., `checkBatchSignature(bytes32[] entryHashes, bytes signature)` in `ITeeAuthenticator` / `AbstractTeeAuthenticator`) — the existing `checkSignature()` hashes a single `SignatureParams` struct and cannot verify a batch message. Note the digest is built from the entry hashes only, so the authenticator can take `bytes32[] entryHashes` directly; it must build the prefix from the array length at runtime.
    - Reads `applicationStateRoots[applicationId]` from storage once into a local variable
    - Loops over entries, calling `_processOneStateUpdate()` for each (signature verification is already done — `_processOneStateUpdate` skips per-entry `ecrecover`), dequeuing from `pendingQueues[applicationId]`
    - Validates state root chaining: first entry checks `prevStateRoot` against storage; subsequent entries check `entries[i].prevStateRoot == entries[i-1].newStateRoot`
@@ -448,7 +463,7 @@ Add a batch message type to the executor so it can process multiple requests in 
    - `appData` is only mutated after successful WASM execution
    - On soft failure: error payload included in results, state unchanged, batch continues
    - On hard failure: batch stops, results for previously processed requests are returned
-   - The response includes `processedCount` so the manager knows how many requests were handled
+   - One payload is returned per handled request, in input order, so `len(payloads)` is how many of the input requests were consumed
 
 3. Add the message handler in `communication/server.go` to route `BatchProcessRequestMessage` to the executor's `HandleBatchProcessRequest`.
 
@@ -461,13 +476,14 @@ Add a batch message type to the executor so it can process multiple requests in 
    - Request with deposit + process where process fails — verify deposit changes are discarded
    - Single-request batch — equivalent to existing `SendProcessRequest`
    - Verify only 1 AES decrypt and 1 AES encrypt occur for the batch
-   - Verify `processedCount` matches number of results returned
+   - Verify a partial batch returns fewer payloads than input requests, so the shortfall is visible to the manager
    - Verify a single batch signature is returned (not per-entry signatures)
-   - Verify batch signature covers all entry hashes: recover signer from `keccak256(abi.encode(hash(entry1), ..., hash(entryN)))` and confirm it matches the executor's TEE key
+   - Verify batch signature covers all entry hashes: recover signer from the batch digest (section 3.2) and confirm it matches the executor's TEE key. Pin the digest against an independently computed expected value — recomputing it with `BuildBatchMsgHash` alone would pass under any scheme and cannot detect a change to it
+   - Verify a 1-entry batch digest equals `BuildMsgHash` of that entry (the two paths must share one scheme)
    - Batch signing failure — verify entire batch is discarded, error returned, no partial results
 
 **Files changed:**
-- `pkg/communication/messages.go` (new message types)
+- `pkg/communication/message.go` (new message types)
 - `pkg/communication/server.go` (new handler)
 - `pkg/communication/client.go` (new `SendBatchProcessRequest`)
 - `pkg/executor/executor.go` (new `HandleBatchProcessRequest`)
@@ -503,7 +519,7 @@ Refactor the manager's poll loop to fetch multiple requests and route them throu
 
 **Steps:**
 
-1. Add `MaxBatchSize` configuration to `config.go` with `MAX_BATCH_SIZE` env var (default 5). Add startup validation: `DataLayerNumOfVersions >= MaxBatchSize + 5`.
+1. Add `MaxBatchSize` configuration to `config.go` with `MAX_BATCH_SIZE` env var (default 5). Add startup validation: `MaxBatchSize > 0`.
 
 2. Add `GetPendingRequestsWithStateRoot(maxCount uint64)` to the blockchain client, returning `(uint64, []*common.Request, [32]byte, error)` — the contract-selected `applicationId`, up to `maxCount` of its pending requests, and its on-chain state root (section 4.3). The caller passes `MaxBatchSize` so only the requests that will actually be processed are fetched. The existing `GetPendingRequests()` only returns requests without the state root or selection logic.
 
@@ -531,21 +547,21 @@ Refactor the manager's poll loop to fetch multiple requests and route them throu
        processRequest(requests[0])  // existing single-request path
        return
 
-   results, batchSignature, finalState, processedCount := executor.SendBatchProcessRequest(
+   results, batchSignature, finalState := executor.SendBatchProcessRequest(
        requests, encryptedState[applicationId], wasmBytes[applicationId])
 
-   if processedCount == 0:
+   if len(results) == 0:
        // Hard failure on the very first request or batch signing failure — nothing to submit
        log warning, retry next poll
 
-   if processedCount > 0:
+   if len(results) > 0:
        save deanonymization reports to disk (if any)
        store final encrypted state in DB (1 write, versionID = final stateRoot)
-       submit batchStateUpdate(applicationId, results[0..processedCount-1], batchSignature) on chain
+       submit batchStateUpdate(applicationId, results, batchSignature) on chain
        on tx failure: rollback DB to pre-batch state for applicationId, retry next poll
 
-   if processedCount < len(requests):
-       log that request [processedCount] caused a hard stop
+   if len(results) < len(requests):
+       log that request [len(results)] caused a hard stop
        // remaining requests stay in the application's on-chain queue for the next poll
    ```
 
@@ -601,7 +617,6 @@ The current executor has two distinct error types, and the batch must handle the
 The executor produces an `UpdatePayload` with `prevStateRoot == newStateRoot` (state unchanged) and a non-zero `ErrorCode`. The error payload is not individually signed — it is covered by the batch signature alongside all other entries. The contract marks the request as `FAILED`, collects the minimum fee, refunds the rest, and advances the application's queue head.
 
 This happens for application-level errors where the executor has a valid stateRoot and can produce an error payload (see `HandleProcessRequest` in `pkg/executor/executor.go`):
-- App state not found
 - WASM execution failure — deposit or process
 - Insufficient fuel
 - Payload decryption failure
@@ -646,6 +661,7 @@ The executor returns a plain error — no signed payload. The manager cannot sub
 
 This happens for system-level errors, or for fields already validated on-chain whose unexpected value at the executor is evidence of tampering between the chain and the executor:
 - `validateRequest()` failure: wrong `applicationId`, wrong `protocolVersion`, fee below minimum (all validated on-chain)
+- App state not found — app existence is validated on-chain by the `validApplicationId` modifier in `ProcessorEndpoint`, so a nil state at the executor means tampering or manager-side state loss
 - Unsupported request type
 - State decryption failure
 - AES state encryption failure
@@ -698,19 +714,21 @@ HandleBatchProcessRequest(requests, encryptedState, wasmModule):
         results = append(results, buildSuccessPayload(...))
 
     if len(results) == 0:
-        return nil, nil, 0, nil  // nothing processed
+        return nil, nil, nil, nil  // nothing processed
 
-    // Batch signature — one sign operation covering all entries
-    batchHash := keccak256(abi.encode(hash(results[0]), ..., hash(results[N-1])))
+    // Batch signature — one sign operation covering all entries.
+    // personal_sign over the concatenated entry hashes (section 3.2):
+    //   keccak256("\x19Ethereum Signed Message:\n" || itoa(32*N) || hash(results[0]) || ... || hash(results[N-1]))
+    batchHash := personalSign(concat(hash(results[0]), ..., hash(results[N-1])))
     batchSignature, err := sign(batchHash)
     if err != nil:
-        return nil, nil, 0, err  // signing failure — entire batch discarded
+        return nil, nil, nil, err  // signing failure — entire batch discarded
 
     encryptedFinalState := encryptState(appData)       // 1 encrypt
-    return results, batchSignature, encryptedFinalState, processedCount
+    return results, batchSignature, encryptedFinalState
 ```
 
-The response includes `processedCount` so the manager knows how many of the N input requests were handled (whether successfully or with error payloads). If `processedCount < N`, the manager knows a hard failure stopped the batch at request `processedCount + 1`.
+One payload is returned per handled request, in input order, so `len(results)` is how many of the N input requests were handled (whether successfully or with error payloads) — there is no separate count to keep in sync. If `len(results) < N`, the manager knows a hard failure stopped the batch at request `len(results) + 1`.
 
 If batch signing fails after processing, all results are discarded and the executor returns an error. The requests remain pending on-chain and will be retried on the next poll. This is a rare system-level failure (key unavailable, HSM error) — not an application-level concern.
 
@@ -719,7 +737,7 @@ If batch signing fails after processing, all results are discarded and the execu
 Per-application queues (section 4.2) confine a permanently failing request to its own queue *structurally*, but the enforced round-robin selection (section 4.3) re-globalizes the blockage:
 
 1. Application A's head request hard-fails permanently (e.g., tampered `applicationId`). It is never dequeued — soft failures produce an error payload and advance the queue; hard failures leave the request at the head.
-2. When the cursor reaches A, the contract serves A and only accepts a state update for A. The manager gets a hard failure on request 1, `processedCount == 0`, and can submit nothing.
+2. When the cursor reaches A, the contract serves A and only accepts a state update for A. The manager gets a hard failure on request 1, no payloads are returned, and can submit nothing.
 3. The cursor never advances — a cursor advance requires a successful state update for A. Every subsequent poll selects A again.
 
 Result: one poisoned request stalls **all** applications, not just A. The manager cannot skip A — the cursor check in the state-update functions rejects submissions for any other application. This is a property of *any* contract-enforced selection, not of round-robin specifically: whatever algorithm the contract enforces, a request that can never be processed blocks the rotation at its turn.
@@ -736,5 +754,5 @@ A mechanism from this list must be chosen before the design is complete; until t
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_BATCH_SIZE` | `5` | Max requests per poll cycle (per batch, single application) |
-| `DataLayerNumOfVersions` | `10` | Must be >= `MaxBatchSize + 5`. Version chains are per-application, so the constraint applies to each application's chain independently. Currently hardcoded in `config.go`. |
+| `MAX_BATCH_SIZE` | `5` | Max requests per poll cycle (per batch, single application). Must be > 0. |
+| `DataLayerNumOfVersions` | `10` | Depth of per-application version history retained for rollback and reorg recovery. A batch stores only its final state (one version per batch), so this is independent of `MaxBatchSize`; size it for the reorg-recovery depth you need. Currently hardcoded in `config.go`. |

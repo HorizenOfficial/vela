@@ -22,6 +22,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mocktee"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/guardedtrigger"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpoint"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/processorendpointextension"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/noattestationtee"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/testtrigger"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/tokenallowlist"
@@ -190,10 +191,25 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	s.tokenAllowlistContract = tokenallowlist.NewTokenAllowlist()
 	s.tokenAllowlistInstance = s.tokenAllowlistContract.Instance(s.sim.Client(), s.TokenAllowlistAddress)
 
-	// 4) Deploy ProcessorEndpoint
+	// 4) Deploy ProcessorEndpointExtension — code moved out of ProcessorEndpoint to stay under
+	// EIP-170, reached by delegatecall. Stateless, and its address is a ProcessorEndpoint
+	// constructor argument, so it has to be deployed first.
+	// The extension takes no constructor arguments, so no Inputs entry is needed.
+	extDeployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&processorendpointextension.ProcessorEndpointExtensionMetaData},
+	}
+	extDeployRes, err := bind.LinkAndDeploy(&extDeployParams, deployer)
+	require.NoError(s.t, err)
+	extensionAddress := extDeployRes.Addresses[processorendpointextension.ProcessorEndpointExtensionMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), extDeployRes.Txs[processorendpointextension.ProcessorEndpointExtensionMetaData.ID].Hash())
+	require.NoError(s.t, err)
+	fmt.Printf("ProcessorEndpointExtension contract deployed at address 0x%x\n", extensionAddress)
+
+	// 5) Deploy ProcessorEndpoint
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5), s.TokenAllowlistAddress)
+	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5), s.TokenAllowlistAddress, extensionAddress)
 	// set up params to deploy an instance of the ProcessorEndpoint contract
 	deployParams = bind.DeploymentParams{
 		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},

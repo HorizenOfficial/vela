@@ -28,6 +28,7 @@ func validManagerConfig() *Config {
 		BlockchainConnectTimeout:  10,
 		CommunicationParams:       common.CommunicationParams{RequestTimeoutSec: 30},
 		AdminCommunicationParams:  common.CommunicationParams{RequestTimeoutSec: 30},
+		MaxBatchSize:              5,
 	}
 }
 
@@ -334,4 +335,13 @@ func TestValidate_LogServerPortAboveTCPRangeAcceptedWhenNoTCPHost(t *testing.T) 
 	cfg.LogServerTCPAddress = common.TcpChannelConnectionParams{Ip: "", Port: 70000}
 
 	require.NoError(t, cfg.Validate())
+}
+
+func TestValidate_MaxBatchSize_Zero(t *testing.T) {
+	cfg := validManagerConfig()
+	cfg.MaxBatchSize = 0
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MAX_BATCH_SIZE")
 }
