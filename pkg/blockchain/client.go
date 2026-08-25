@@ -37,9 +37,17 @@ import (
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpointExtension.sol:ProcessorEndpointExtension\"].abi' ../../contract_abis/ProcessorEndpointExtensionAbi/combined.json > ../../contract_abis/ProcessorEndpointExtensionAbi/ProcessorEndpointExtension.abi"
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpointExtension.sol:ProcessorEndpointExtension\"].bin' ../../contract_abis/ProcessorEndpointExtensionAbi/combined.json > ../../contract_abis/ProcessorEndpointExtensionAbi/ProcessorEndpointExtension.bin"
 //go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointExtensionAbi/ProcessorEndpointExtension.abi --bin ../../contract_abis/ProcessorEndpointExtensionAbi/ProcessorEndpointExtension.bin --pkg processorendpointextension --type ProcessorEndpointExtension --out ./contracts/processorendpointextension/ProcessorEndpointExtension.go
+// TeeAuthenticator isolates its own .abi + .bin (like MockERC20/TestTrigger in client_test.go)
+// rather than using --combined-json: being UUPS-upgradeable, it transitively imports
+// OpenZeppelin's utils/Errors.sol library. With --combined-json, abigen also binds that library
+// as a Go type named Errors, whose generated UnpackError method uses a receiver named "errors" —
+// which shadows the imported "errors" package and fails to compile. Passing solc's per-contract
+// .abi + .bin isolates TeeAuthenticator's own interface, so the Errors library is never bound.
 //go:generate mkdir -p ./contracts/tee
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TeeAuthenticatorAbi --overwrite
-//go:generate abigen --v2 --combined-json ../../contract_abis/TeeAuthenticatorAbi/combined.json --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TeeAuthenticator.sol:TeeAuthenticator\"].abi' ../../contract_abis/TeeAuthenticatorAbi/combined.json > ../../contract_abis/TeeAuthenticatorAbi/TeeAuthenticator.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TeeAuthenticator.sol:TeeAuthenticator\"].bin' ../../contract_abis/TeeAuthenticatorAbi/combined.json > ../../contract_abis/TeeAuthenticatorAbi/TeeAuthenticator.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/TeeAuthenticatorAbi/TeeAuthenticator.abi --bin ../../contract_abis/TeeAuthenticatorAbi/TeeAuthenticator.bin --pkg tee --type TeeAuthenticator --out ./contracts/tee/TeeAuthenticator.go
 //go:generate mkdir -p ./contracts/tokenallowlist
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/TokenAllowlist.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/TokenAllowlistAbi --overwrite
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/TokenAllowlist.sol:TokenAllowlist\"].abi' ../../contract_abis/TokenAllowlistAbi/combined.json > ../../contract_abis/TokenAllowlistAbi/TokenAllowlist.abi"

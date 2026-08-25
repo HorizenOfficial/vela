@@ -21,9 +21,17 @@ import (
 //go:generate mkdir -p ./contracts/noattestationtee
 //go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/mocks/NoAttestationTeeAuthenticator.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/NoAttestationTeeAuthenticatorAbi --overwrite
 //go:generate abigen --v2 --combined-json ../../contract_abis/NoAttestationTeeAuthenticatorAbi/combined.json --pkg noattestationtee --type NoAttestationTeeAuthenticator --out ./contracts/noattestationtee/NoAttestationTeeAuthenticator.go
+// AuthorityRegistry isolates its own .abi + .bin (like MockERC20/TestTrigger below) rather than
+// using --combined-json: being UUPS-upgradeable, it transitively imports OpenZeppelin's
+// utils/Errors.sol library. With --combined-json, abigen also binds that library as a Go type
+// named Errors, whose generated UnpackError method uses a receiver named "errors" — which shadows
+// the imported "errors" package and fails to compile. Passing solc's per-contract .abi + .bin
+// isolates AuthorityRegistry's own interface, so the Errors library is never bound.
 //go:generate mkdir -p ./contracts/authority
 //go:generate solc --via-ir --combined-json abi,bin ../../contracts/contracts/AuthorityRegistry.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/AuthorityRegistryAbi --overwrite
-//go:generate abigen --v2 --combined-json ../../contract_abis/AuthorityRegistryAbi/combined.json --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/AuthorityRegistry.sol:AuthorityRegistry\"].abi' ../../contract_abis/AuthorityRegistryAbi/combined.json > ../../contract_abis/AuthorityRegistryAbi/AuthorityRegistry.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/contracts/AuthorityRegistry.sol:AuthorityRegistry\"].bin' ../../contract_abis/AuthorityRegistryAbi/combined.json > ../../contract_abis/AuthorityRegistryAbi/AuthorityRegistry.bin"
+//go:generate abigen --v2 --abi ../../contract_abis/AuthorityRegistryAbi/AuthorityRegistry.abi --bin ../../contract_abis/AuthorityRegistryAbi/AuthorityRegistry.bin --pkg authority --type AuthorityRegistry --out ./contracts/authority/AuthorityRegistry.go
 // MockERC20 binding pipeline deviates from the --combined-json pattern used by
 // the other contracts above. MockERC20 declares `is ERC20, ERC20Permit`, and
 // both parents inherit OpenZeppelin's EIP712. With --combined-json, abigen

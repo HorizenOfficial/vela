@@ -18,6 +18,7 @@ import (
 	velacommon "github.com/HorizenOfficial/vela-common-go/common"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/authority"
 	defaultauthority "github.com/HorizenOfficial/vela/pkg/blockchain/contracts/defaultauthoritychecker"
+	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/erc1967proxy"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mockerc20"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/mocktee"
 	"github.com/HorizenOfficial/vela/pkg/blockchain/contracts/guardedtrigger"
@@ -29,6 +30,21 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/stretchr/testify/require"
 )
+
+// ERC1967Proxy (OpenZeppelin) is what AuthorityRegistry and ProcessorEndpoint are deployed
+// behind now that they are UUPS-upgradeable (docs/design/UPGRADABLE_CONTRACTS_DESIGN.md): the
+// implementation constructor only fixes immutables and disables initializers, and this test
+// helper deploys the implementation, then this proxy pointing at it with `initialize(...)` as
+// its constructor calldata, mirroring `contracts/scripts/deploy/*.ts`'s `upgrades.deployProxy`.
+// Isolates its own .abi + .bin (like MockERC20/TestTrigger in client_test.go) rather than using
+// --combined-json: ERC1967Proxy itself imports OpenZeppelin's utils/Errors.sol library, which
+// --combined-json would also bind as a Go type named Errors whose generated UnpackError method
+// uses a receiver named "errors" — shadowing the imported "errors" package and failing to compile.
+//go:generate mkdir -p ../contracts/erc1967proxy
+//go:generate solc --via-ir --optimize --combined-json abi,bin ../../../contracts/node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol --base-path ../../.. --include-path ../../../contracts/node_modules --pretty-json -o ../../../contract_abis/ERC1967ProxyAbi --overwrite
+//go:generate sh -c "jq -r '.contracts[\"contracts/node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy\"].abi' ../../../contract_abis/ERC1967ProxyAbi/combined.json > ../../../contract_abis/ERC1967ProxyAbi/ERC1967Proxy.abi"
+//go:generate sh -c "jq -r '.contracts[\"contracts/node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy\"].bin' ../../../contract_abis/ERC1967ProxyAbi/combined.json > ../../../contract_abis/ERC1967ProxyAbi/ERC1967Proxy.bin"
+//go:generate abigen --v2 --abi ../../../contract_abis/ERC1967ProxyAbi/ERC1967Proxy.abi --bin ../../../contract_abis/ERC1967ProxyAbi/ERC1967Proxy.bin --pkg erc1967proxy --type ERC1967Proxy --out ../contracts/erc1967proxy/ERC1967Proxy.go
 
 type SimTestHelper struct {
 	t *testing.T
@@ -90,6 +106,39 @@ func (s *SimTestHelper) GetEthBalance(addr ethCommon.Address) *big.Int {
 	return bal
 }
 
+// deployUUPSProxy deploys an implementation contract (constructorInput already packed for its
+// own constructor) and then an ERC1967Proxy pointing at it, calling initData as the proxy's
+// constructor calldata — the one-time `initialize(...)` call, mirroring `upgrades.deployProxy`
+// in `contracts/scripts/deploy/*.ts`. Returns the proxy's address, which callers should treat as
+// the contract's address: it forwards every call to the implementation.
+func (s *SimTestHelper) deployUUPSProxy(deployer bind.DeployFn, implMeta *bind.MetaData, constructorInput []byte, initData []byte) ethCommon.Address {
+	implDeployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{implMeta},
+		Inputs:    map[string][]byte{implMeta.ID: constructorInput},
+	}
+	implDeployRes, err := bind.LinkAndDeploy(&implDeployParams, deployer)
+	require.NoError(s.t, err)
+	implAddress := implDeployRes.Addresses[implMeta.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), implDeployRes.Txs[implMeta.ID].Hash())
+	require.NoError(s.t, err)
+
+	proxyContract := *erc1967proxy.NewERC1967Proxy()
+	proxyInput := proxyContract.PackConstructor(implAddress, initData)
+	proxyDeployParams := bind.DeploymentParams{
+		Contracts: []*bind.MetaData{&erc1967proxy.ERC1967ProxyMetaData},
+		Inputs:    map[string][]byte{erc1967proxy.ERC1967ProxyMetaData.ID: proxyInput},
+	}
+	proxyDeployRes, err := bind.LinkAndDeploy(&proxyDeployParams, deployer)
+	require.NoError(s.t, err)
+	proxyAddress := proxyDeployRes.Addresses[erc1967proxy.ERC1967ProxyMetaData.ID]
+	s.sim.Commit()
+	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), proxyDeployRes.Txs[erc1967proxy.ERC1967ProxyMetaData.ID].Hash())
+	require.NoError(s.t, err)
+
+	return proxyAddress
+}
+
 func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethCommon.Address, teePubSecp521r1 []byte) {
 	// use the default deployer: it simply creates, signs and submits the deployment transactions
 	deployer := bind.DefaultDeployer(s.Deployer, s.sim.Client())
@@ -149,28 +198,15 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	s.DefaultAuthorityAddress = defaultDeployRes.Addresses[defaultauthority.DefaultAuthorityMetaData.ID]
 	s.sim.Commit()
 
-	// 2) Deploy AuthorityRegistry with (owner, defaultAuthority)
+	// 2) Deploy AuthorityRegistry (UUPS-upgradeable: bare constructor, then initialize(owner,
+	// defaultAuthority) through an ERC1967Proxy — see deployUUPSProxy).
 	authorityContract := *authority.NewAuthorityRegistry()
-
-	constructorInput := authorityContract.PackConstructor(
-		s.Deployer.From,  // owner
-		s.DefaultAuthorityAddress,  // default authority contract
+	authorityInitData := authorityContract.PackInitialize(
+		s.Deployer.From,           // owner
+		s.DefaultAuthorityAddress, // default authority contract
 	)
 
-	deployParams := bind.DeploymentParams{
-		Contracts: []*bind.MetaData{&authority.AuthorityRegistryMetaData},
-		Inputs:    map[string][]byte{authority.AuthorityRegistryMetaData.ID: constructorInput},
-	}
-
-	deployRes, err := bind.LinkAndDeploy(&deployParams, deployer)
-	require.NoError(s.t, err)
-
-	s.AuthorityAddress, tx = deployRes.Addresses[authority.AuthorityRegistryMetaData.ID], deployRes.Txs[authority.AuthorityRegistryMetaData.ID]
-	s.sim.Commit()
-
-
-	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
-	require.NoError(s.t, err)
+	s.AuthorityAddress = s.deployUUPSProxy(deployer, &authority.AuthorityRegistryMetaData, nil, authorityInitData)
 	fmt.Printf("Authority contract deployed at address 0x%x\n", s.AuthorityAddress)
 
 	// 3) Deploy TokenAllowlist
@@ -206,28 +242,14 @@ func (s *SimTestHelper) setupContracts(useMockContracts bool, teeSigner *ethComm
 	require.NoError(s.t, err)
 	fmt.Printf("ProcessorEndpointExtension contract deployed at address 0x%x\n", extensionAddress)
 
-	// 5) Deploy ProcessorEndpoint
+	// 5) Deploy ProcessorEndpoint (UUPS-upgradeable: constructor only fixes the extension address,
+	// then initialize(...) through an ERC1967Proxy — see deployUUPSProxy).
 	contract := *processorendpoint.NewProcessorEndpoint()
 
-	constructorInput = contract.PackConstructor(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5), s.TokenAllowlistAddress, extensionAddress)
-	// set up params to deploy an instance of the ProcessorEndpoint contract
-	deployParams = bind.DeploymentParams{
-		Contracts: []*bind.MetaData{&processorendpoint.ProcessorEndpointMetaData},
-		Inputs:    map[string][]byte{processorendpoint.ProcessorEndpointMetaData.ID: constructorInput},
-	}
+	peConstructorInput := contract.PackConstructor(extensionAddress)
+	peInitData := contract.PackInitialize(s.TeeSignerAddress, s.AuthorityAddress, s.ManagerAccount.From, s.Deployer.From, ethCommon.Address{}, big.NewInt(5), s.TokenAllowlistAddress)
 
-	// create and submit the contract deployment
-	deployRes, err = bind.LinkAndDeploy(&deployParams, deployer)
-	require.NoError(s.t, err)
-
-	s.ProcessorContractAddress, tx = deployRes.Addresses[processorendpoint.ProcessorEndpointMetaData.ID], deployRes.Txs[processorendpoint.ProcessorEndpointMetaData.ID]
-
-	// call Commit to make the simulated backend mine a block
-	s.sim.Commit()
-
-	// wait for the pending contract to be deployed on-chain
-	_, err = bind.WaitDeployed(context.Background(), s.sim.Client(), tx.Hash())
-	require.NoError(s.t, err)
+	s.ProcessorContractAddress = s.deployUUPSProxy(deployer, &processorendpoint.ProcessorEndpointMetaData, peConstructorInput, peInitData)
 	fmt.Printf("Processor Endpoint contract deployed at address 0x%x\n", s.ProcessorContractAddress)
 
 }
