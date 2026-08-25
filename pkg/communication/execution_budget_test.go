@@ -11,8 +11,7 @@ import (
 )
 
 // The execution budget is the link between the caller's patience and the guest
-// execution bound inside the enclave (see PLAN_epoch_interruption.md, decision D5).
-// It can only ever SHORTEN execution: it arrives from outside the TEE, so the
+// execution bound inside the enclave. It can only ever SHORTEN execution: it arrives from outside the TEE, so the
 // enclave's own configured timeout stays the ceiling, and an interrupt caused by a
 // budget is classified as host-side abandonment — transient, never a signed
 // on-chain failure that would charge the user a fee.

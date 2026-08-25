@@ -14,7 +14,6 @@ import (
 )
 
 // Tests for the wall-clock execution bound (epoch interruption). See
-// PLAN_epoch_interruption.md for the decisions these pin, and
 // docs/design/WASM_HOST_ABI.md for the resulting guest-visible contract.
 //
 // The fixtures here spin FOREVER, unlike spinningProcessRequestWat in

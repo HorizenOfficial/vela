@@ -14,8 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These pin the two-channel rule for the guest execution bound (see
-// PLAN_epoch_interruption.md, decision D1):
+// These pin the two-channel rule for the guest execution bound:
 //
 //   - A guest that exceeded its wall-clock budget is a REQUEST FAILURE: signed and
 //     submitted on-chain, so the on-chain queue head advances. Treating it as
@@ -170,8 +169,8 @@ func TestCancelledDeployIsTransient(t *testing.T) {
 // match on it. The deploy path builds its message by nesting prefixes, and the
 // start-section case ("failed to load or get module: failed to load module: failed to
 // instantiate WASM module: guest execution timed out") is 113 characters, so a naive
-// pass-through loses the reason exactly the way
-// JIRA_TASK_trap_error_classification.md describes.
+// pass-through loses the reason off the end — the same way an untruncated wasm
+// backtrace would.
 func TestTimedOutDeployIsSignedOnChain(t *testing.T) {
 	for name, deployErr := range map[string]error{
 		"deploy export": fmt.Errorf("failed to call deploy: %w", apperrors.ErrGuestExecutionTimeout),

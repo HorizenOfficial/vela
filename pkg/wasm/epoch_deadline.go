@@ -325,8 +325,8 @@ func (g *guestExecution) interruptSentinel(err error) error {
 //
 // An interrupt takes its own code and a fixed message; anything else keeps the
 // call site's own code and message byte for byte, so this can be dropped in at
-// existing sites without changing what they report. (Classifying the OTHER trap
-// codes is a separate task — see JIRA_TASK_trap_error_classification.md.)
+// existing sites without changing what they report. (Mapping the OTHER trap codes to
+// stable messages is a separate, tracked task.)
 func (g *guestExecution) failure(err error, fallback apperrors.FailureCode, format string, args ...interface{}) *apperrors.RequestFailure {
 	if sentinel := g.interruptSentinel(err); sentinel != nil {
 		return apperrors.New(interruptCode(sentinel), sentinel.Error())
