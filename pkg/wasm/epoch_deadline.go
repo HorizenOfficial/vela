@@ -291,6 +291,21 @@ func isEpochInterrupt(err error) bool {
 // up in the signed on-chain ErrorMsg (truncated to 100 characters). A wasm
 // backtrace would both overflow that budget and couple a signed value to
 // wasmtime's error formatting.
+//
+// KNOWN RACE, deliberately not synchronised. g.cancelled is read after the guest
+// call has already returned, so a deadline expiry that coincides — within
+// microseconds — with a cancellation is reported as cancelled, i.e. transient,
+// when it was really a timeout. It is left alone because it self-corrects and
+// costs at most one wasted retry: the retry is a fresh call, and a cancellation
+// arriving again in that same window is uncorrelated with the deadline, so the
+// second attempt classifies as a timeout and is signed. The failure mode is a
+// slightly delayed on-chain settlement, never a permanent stall.
+//
+// Making it deterministic would mean latching the reason at the moment the
+// interrupt is forced (a generation counter the call site compares), which is more
+// machinery than a one-retry delay justifies. Revisit if the window ever widens —
+// it is only this narrow because the enclave's own bound is validated to expire
+// before any caller-supplied deadline (see pkg/executor.Config.Validate).
 func (g *guestExecution) interruptSentinel(err error) error {
 	if !isEpochInterrupt(err) {
 		return nil

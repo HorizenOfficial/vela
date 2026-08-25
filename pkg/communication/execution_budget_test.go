@@ -2,6 +2,7 @@ package communication
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func TestExecutionBudgetAppliesDeadline(t *testing.T) {
 	remaining := deadline.Sub(start)
 	require.Less(t, remaining, time.Duration(budgetMs)*time.Millisecond,
 		"the deadline must leave the executor margin to encrypt and sign the response")
-	require.Greater(t, remaining, time.Duration(budgetMs)*time.Millisecond-executionBudgetMargin-time.Second,
+	require.Greater(t, remaining, time.Duration(budgetMs)*time.Millisecond-ExecutionBudgetMargin-time.Second,
 		"the margin must not eat more than it needs")
 }
 
@@ -112,6 +113,45 @@ func TestExecutionBudgetValidation(t *testing.T) {
 			ExecutionBudgetMs: -1,
 		}
 		require.Error(t, d.Validate())
+	})
+
+	// An upper bound matters because the field crosses the TEE boundary and feeds
+	// `time.Duration(budgetMs) * time.Millisecond`, which overflows int64 above
+	// ~9.2e12 ms. Most wrapped values land negative and are ignored, but a crafted
+	// one can wrap to a small positive duration and silently cut a legitimate
+	// request short. Bounding the input removes the arithmetic hazard instead of
+	// relying on where the wrap happens to land.
+	t.Run("absurd budget rejected", func(t *testing.T) {
+		d := &ProcessRequestData{Request: newValidatableRequest(), ExecutionBudgetMs: MaxExecutionBudgetMs + 1}
+		require.Error(t, d.Validate())
+
+		dd := &DeployAppRequestData{Request: newValidatableRequest(), ExecutionBudgetMs: MaxExecutionBudgetMs + 1}
+		require.Error(t, dd.Validate())
+
+		bd := &BatchProcessRequestData{
+			Requests:          []*common.Request{newValidatableRequest()},
+			ApplicationState:  &common.ApplicationState{ApplicationID: common.NewApplicationId(1)},
+			ExecutionBudgetMs: MaxExecutionBudgetMs + 1,
+		}
+		require.Error(t, bd.Validate())
+	})
+
+	t.Run("budget past the ceiling never becomes a deadline", func(t *testing.T) {
+		// The ceiling is what makes the overflow unreachable: every value that could
+		// wrap is far above it, so the multiplication is only ever performed on inputs
+		// known to be safe. Checked here at the point of the arithmetic as well as in
+		// Validate, so a future caller that skips validation still cannot overflow it.
+		for _, budgetMs := range []int64{
+			MaxExecutionBudgetMs + 1,
+			math.MaxInt64 / 1_000_000, // the exact overflow threshold
+			math.MaxInt64,
+		} {
+			ctx, cancel := contextForExecutionBudget(context.Background(), budgetMs)
+			_, hasDeadline := ctx.Deadline()
+			require.False(t, hasDeadline,
+				"budget %d ms is past the ceiling and must be ignored, never turned into a deadline", budgetMs)
+			cancel()
+		}
 	})
 
 	t.Run("zero batch budget accepted", func(t *testing.T) {

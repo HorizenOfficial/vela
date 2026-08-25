@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
+	"github.com/HorizenOfficial/vela/pkg/communication"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
@@ -39,6 +41,10 @@ type boundStubRuntime struct {
 	// chosen position inside a batch. Zero means "fail every call".
 	failOnCall int
 	calls      int
+
+	// delay makes each ProcessRequest consume wall-clock time, so a test can watch a
+	// shared batch budget actually drain. An instant stub never shrinks the deadline.
+	delay time.Duration
 }
 
 func (r *boundStubRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
@@ -57,6 +63,9 @@ func (r *boundStubRuntime) Deposit(ctx context.Context, appId common.Application
 
 func (r *boundStubRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	r.calls++
+	if r.delay > 0 {
+		time.Sleep(r.delay)
+	}
 	if r.processFailure != nil && (r.failOnCall == 0 || r.calls == r.failOnCall) {
 		return nil, nil, nil, nil, nil, big.NewInt(0), r.processFailure
 	}
@@ -228,6 +237,61 @@ func TestBatchStopsAtAGuestCancellation(t *testing.T) {
 		"and nothing may be signed for the abandoned request — it stays pending and is retried")
 }
 
+// TestBatchStopsWhenBudgetCannotCoverAnotherRequest covers the budget-aware loop.
+//
+// A batch shares one caller budget. Without this check the loop starts a request it
+// cannot possibly finish: the guest runs until the budget expires, is interrupted,
+// classified as abandonment, and discarded — burning a full guest bound of execution
+// and evicting the module (an interrupt is a trap) only for the work to be redone on
+// the next poll. Stopping before starting it costs nothing and settles exactly the
+// same requests.
+func TestBatchStopsWhenBudgetCannotCoverAnotherRequest(t *testing.T) {
+	const guestBound = 1 * time.Second
+
+	runtime := &boundStubRuntime{delay: 700 * time.Millisecond}
+	exec := newTestExecutor(t, runtime)
+	exec.config.GuestExecutionTimeoutMs = guestBound.Milliseconds()
+
+	user, _, userPub := newBatchTestUser(t)
+	wasmModule := []byte("wasm")
+	appState := buildEncryptedAppState(t, exec, &user, userPub, wasmModule)
+
+	requests := []*common.Request{newBoundTestRequest(), newBoundTestRequest(), newBoundTestRequest()}
+
+	// Room for the first request's bound, but not a second one after it has run.
+	ctx, cancel := context.WithTimeout(context.Background(), guestBound+600*time.Millisecond)
+	defer cancel()
+
+	payloads, _, _, _, err := exec.HandleBatchProcessRequest(ctx, requests, appState, wasmModule)
+
+	require.NoError(t, err)
+	require.Len(t, payloads, 1,
+		"the loop must stop once the remaining budget cannot cover another guest bound")
+	require.Zero(t, payloads[0].ErrorCode)
+	require.Equal(t, 1, runtime.calls,
+		"the second request must never be started, not started and then interrupted")
+}
+
+// TestBatchWithoutADeadlineProcessesEverything is the other half: the budget-aware
+// check must not fire when no caller deadline was supplied at all.
+func TestBatchWithoutADeadlineProcessesEverything(t *testing.T) {
+	runtime := &boundStubRuntime{}
+	exec := newTestExecutor(t, runtime)
+	exec.config.GuestExecutionTimeoutMs = 10_000
+
+	user, _, userPub := newBatchTestUser(t)
+	wasmModule := []byte("wasm")
+	appState := buildEncryptedAppState(t, exec, &user, userPub, wasmModule)
+
+	requests := []*common.Request{newBoundTestRequest(), newBoundTestRequest(), newBoundTestRequest()}
+
+	payloads, _, _, _, err := exec.HandleBatchProcessRequest(
+		context.Background(), requests, appState, wasmModule)
+
+	require.NoError(t, err)
+	require.Len(t, payloads, 3, "with no deadline the whole batch must be processed")
+}
+
 // TestGuestExecutionTimeoutConfigValidation covers the startup guard. Unlike the
 // runtime setter, which clamps so a late change cannot take a running enclave
 // down, this must fail loudly before the executor serves anything.
@@ -269,5 +333,70 @@ func TestGuestExecutionTimeoutConfigValidation(t *testing.T) {
 		err := c.Validate()
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS")
+	})
+}
+
+// TestGuestTimeoutMustBeatCallerBudget guards the forward-progress invariant.
+//
+// The caller's budget becomes a context deadline at
+// requestTimeout - communication.ExecutionBudgetMargin. If the guest's own bound is
+// not below that, the BUDGET wins the race on every slow request — and a budget
+// expiry is host-side abandonment, i.e. transient. So a non-terminating guest would
+// be retried on every poll forever, nothing would ever be signed, and the on-chain
+// FIFO head would never advance. That is the stall signing a timeout exists to
+// prevent, reintroduced purely by configuration.
+//
+// A plain `timeout >= requestTimeout` check is NOT enough: it leaves a silent window
+// one margin wide (28000..29999 ms against the 30 s default) where validation passes
+// and the queue still wedges.
+func TestGuestTimeoutMustBeatCallerBudget(t *testing.T) {
+	const patienceSec = 30
+	budgetMs := int64(patienceSec)*1000 - communication.ExecutionBudgetMargin.Milliseconds()
+
+	configWith := func(timeoutMs int64, patience time.Duration) *Config {
+		return &Config{
+			ChannelType:             "tcp",
+			ChannelParams:           common.TcpChannelConnectionParams{Ip: "localhost", Port: 4000},
+			FuelPricePerUnit:        big.NewInt(1),
+			MinFeePerRequest:        big.NewInt(10),
+			CommunicationParams:     common.CommunicationParams{RequestTimeoutSec: patience},
+			KeySetRecoveryType:      common.RecoveryTypeUnsafe,
+			GuestExecutionTimeoutMs: timeoutMs,
+		}
+	}
+
+	t.Run("comfortably below the budget is accepted", func(t *testing.T) {
+		require.NoError(t, configWith(10_000, patienceSec).Validate())
+	})
+
+	t.Run("the default is resolved and accepted", func(t *testing.T) {
+		// 0 means the default, so the check must resolve it rather than skip.
+		require.NoError(t, configWith(0, patienceSec).Validate())
+	})
+
+	t.Run("equal to the budget is rejected", func(t *testing.T) {
+		err := configWith(budgetMs, patienceSec).Validate()
+		require.Error(t, err, "a bound equal to the budget lets the budget win the race")
+		require.Contains(t, err.Error(), "EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS")
+	})
+
+	t.Run("inside the silent window is rejected", func(t *testing.T) {
+		// The case a bare `>= requestTimeout` check misses entirely.
+		err := configWith(29_000, patienceSec).Validate()
+		require.Error(t, err, "29s beats the 28s budget deadline and must not pass validation")
+	})
+
+	t.Run("caller too impatient for the default is rejected", func(t *testing.T) {
+		// A request timeout at or below the margin drops the budget entirely, so the
+		// executor would run its full bound long after the caller stopped waiting.
+		require.Error(t, configWith(0, 3).Validate())
+	})
+
+	t.Run("a non-positive request timeout is left to its own check", func(t *testing.T) {
+		// Guarded so this does not mask the existing "must be > 0" error with a
+		// confusing message about the guest bound.
+		err := configWith(10_000, 0).Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "REQUEST_TIMEOUT_SEC")
 	})
 }

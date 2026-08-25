@@ -89,8 +89,8 @@ func (prd *ProcessRequestData) Validate() error {
 	if err := prd.Request.Validate(); err != nil {
 		return fmt.Errorf("invalid Request: %w", err)
 	}
-	if prd.ExecutionBudgetMs < 0 {
-		return fmt.Errorf("executionBudgetMs must not be negative, got %d", prd.ExecutionBudgetMs)
+	if err := validateExecutionBudget(prd.ExecutionBudgetMs); err != nil {
+		return err
 	}
 	return nil
 }
@@ -128,11 +128,8 @@ func (bpr *BatchProcessRequestData) Validate() error {
 	if len(bpr.Requests) == 0 {
 		return fmt.Errorf("Requests is required")
 	}
-	// Only negatives are rejected: 0 is the legitimate "not supplied" value that an
-	// absent field decodes to, so rejecting it would fail every request from a peer
-	// that does not set it.
-	if bpr.ExecutionBudgetMs < 0 {
-		return fmt.Errorf("executionBudgetMs must not be negative, got %d", bpr.ExecutionBudgetMs)
+	if err := validateExecutionBudget(bpr.ExecutionBudgetMs); err != nil {
+		return err
 	}
 	// A batch is scoped to one application, so the state is what defines that
 	// scope: without it there is nothing to validate the requests against.
@@ -193,8 +190,8 @@ func (dad *DeployAppRequestData) Validate() error {
 	if err := dad.Request.Validate(); err != nil {
 		return fmt.Errorf("invalid Request: %w", err)
 	}
-	if dad.ExecutionBudgetMs < 0 {
-		return fmt.Errorf("executionBudgetMs must not be negative, got %d", dad.ExecutionBudgetMs)
+	if err := validateExecutionBudget(dad.ExecutionBudgetMs); err != nil {
+		return err
 	}
 	return nil
 }

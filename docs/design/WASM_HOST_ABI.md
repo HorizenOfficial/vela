@@ -138,7 +138,10 @@ The consequences a guest author can actually observe:
   time, the requests that completed are settled and the remainder stay pending for a
   later batch — so a request may be started, abandoned, and later run again from
   scratch. Guest code must therefore not assume that being invoked means its result
-  will be used; state is only ever advanced by a settled request.
+  will be used; state is only ever advanced by a settled request. The executor avoids
+  this where it can, skipping a request whose guest bound the remaining budget cannot
+  cover, but a request that also carries a deposit makes two guest calls and can
+  still be cut between them.
 - **Only the enclave's own bound can fail a request on-chain.** A budget expiry is
   host-side abandonment, so it never charges a fee. This is deliberate: the budget
   crosses the TEE boundary, and a value supplied from outside must not be able to

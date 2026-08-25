@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
@@ -57,7 +58,26 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	var results []*common.UpdatePayload
 	var reports []*common.DeanonymizationReport
 
+	guestBound := e.config.guestExecutionBound()
+
 	for i, req := range requests {
+		// The whole batch shares one caller budget, so stop before starting a request
+		// the remaining budget cannot cover. Without this the guest would run until
+		// the budget expired, be interrupted, classified as host-side abandonment and
+		// discarded — burning a full guest bound of execution and evicting the module
+		// (an interrupt is a trap) only for the work to be repeated on the next poll.
+		// Stopping early settles exactly the same requests for free.
+		//
+		// The threshold is one bound, not two: a request that also carries a deposit
+		// makes two guest calls and may still be cut short, which simply falls back to
+		// the behaviour above. Requiring two would stop earlier than necessary and cost
+		// throughput on the common single-call case.
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < guestBound {
+			e.log.Info("Executor: batch stopping after %d/%d requests: %v left, less than the %v guest bound",
+				len(results), len(requests), time.Until(deadline), guestBound)
+			break
+		}
+
 		// A nil request cannot be executed and cannot be reported on-chain, so
 		// it is a hard failure like any other: stop and keep what was done.
 		if req == nil {

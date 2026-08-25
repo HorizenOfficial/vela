@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
 	"github.com/magiconair/properties"
 )
 
@@ -255,16 +256,48 @@ func (c *Config) Validate() error {
 			c.GuestExecutionTimeoutMs))
 	}
 
-	// A timeout at or above the manager's patience is self-defeating: the manager
-	// abandons the request first and the two ends are then permanently out of step on
-	// that request. Only a warning rather than an error, because this config cannot
-	// see the manager's value — it is set on the parent EC2, outside the enclave — so
-	// the comparison is against this side's equivalent and is indicative only.
-	if timeoutMs := c.GuestExecutionTimeoutMs; timeoutMs > 0 {
-		managerPatienceMs := int64(c.CommunicationParams.RequestTimeoutSec) * 1000
-		if managerPatienceMs > 0 && timeoutMs >= managerPatienceMs {
-			fmt.Printf("WARNING: EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS (%d ms) is not below the request timeout (%d ms); "+
-				"a slow guest will be abandoned by the caller before it is interrupted\n", timeoutMs, managerPatienceMs)
+	// The guest bound must also stay below the caller's execution budget, which is
+	// the request timeout minus communication.ExecutionBudgetMargin (reserved for the
+	// executor to encrypt, sign and reply). This is a forward-progress invariant, not
+	// a tuning hint, which is why it is a hard error:
+	//
+	// Whichever deadline fires first decides how the failure is classified. The
+	// enclave's own bound expiring is a signed on-chain failure, so the FIFO request
+	// queue advances. The caller's budget expiring is host-side abandonment, so
+	// nothing is signed and the request is retried unchanged. If the budget wins the
+	// race, a non-terminating guest is therefore retried on every poll forever and the
+	// queue head never advances — the exact stall that signing a timeout exists to
+	// prevent, reintroduced by configuration alone.
+	//
+	// Note this compares against the margin too, not just the raw request timeout: a
+	// bare `>= requestTimeout` check leaves a silent window one margin wide (28000 to
+	// 29999 ms against the 30 s default) that passes validation and still wedges.
+	//
+	// localRequestTimeoutMs is this side's OWN request timeout
+	// (EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC, which governs calls the
+	// executor makes back to the manager), used as a stand-in for the manager's
+	// give-up time. The enclave cannot see the real one — it is configured on the
+	// parent EC2 — but the two are set from the same deployment template, so this
+	// catches the misconfiguration that matters. The runtime half of the guarantee
+	// does not depend on it: a budget-driven interrupt is always classified as
+	// abandonment, so no host-supplied value can ever charge a user a fee.
+	localRequestTimeoutMs := int64(c.CommunicationParams.RequestTimeoutSec) * 1000
+	if localRequestTimeoutMs > 0 {
+		// 0 selects the default, so resolve it — otherwise a defaulted config with a
+		// short request timeout escapes the check entirely.
+		effectiveTimeoutMs := c.GuestExecutionTimeoutMs
+		if effectiveTimeoutMs == 0 {
+			effectiveTimeoutMs = common.DefaultGuestExecutionTimeoutMs
+		}
+
+		budgetMs := localRequestTimeoutMs - communication.ExecutionBudgetMargin.Milliseconds()
+		if effectiveTimeoutMs >= budgetMs {
+			errs = append(errs, fmt.Sprintf(
+				"EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS (%d ms, effective) must be below the caller execution "+
+					"budget of %d ms (request timeout %d ms minus the %d ms reply margin), otherwise a runaway "+
+					"guest is retried forever instead of being settled on-chain and the request queue stalls",
+				effectiveTimeoutMs, budgetMs, localRequestTimeoutMs,
+				communication.ExecutionBudgetMargin.Milliseconds()))
 		}
 	}
 
@@ -291,4 +324,16 @@ func (c *Config) validateKMSConfig() []string {
 		errs = append(errs, "KMS region is required when KMS is enabled (EXECUTOR_KMS_REGION)")
 	}
 	return errs
+}
+
+// guestExecutionBound returns the configured per-operation guest execution bound,
+// resolving 0 to the default. It is what the batch loop compares the remaining
+// caller budget against, so it must reflect the value the runtime actually arms
+// stores with rather than the raw config field.
+func (c *Config) guestExecutionBound() time.Duration {
+	ms := c.GuestExecutionTimeoutMs
+	if ms <= 0 {
+		ms = common.DefaultGuestExecutionTimeoutMs
+	}
+	return time.Duration(ms) * time.Millisecond
 }
