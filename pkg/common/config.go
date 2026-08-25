@@ -54,6 +54,33 @@ func GetConfigVarInt64(name string, defaultValue int64, fileProperties *properti
 // instead of keeping copies in step by hand.
 const MaxGuestMemoryCeilingBytes = 2 * 1024 * 1024 * 1024
 
+// Wall-clock bounds on a single WASM guest operation, in milliseconds. Guest
+// execution is interrupted once it exceeds the configured timeout (see pkg/wasm,
+// epoch interruption), so that a stuck or malicious module cannot hang the
+// executor. These live here, alongside MaxGuestMemoryCeilingBytes and for the same
+// reason: pkg/executor validates the configured value at start-up without linking
+// libwasmtime.
+const (
+	// DefaultGuestExecutionTimeoutMs is used when EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS
+	// is unset or 0. It must stay well under the manager's request timeout
+	// (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC, 30s by default), or the
+	// manager gives up on a request while the executor is still running it and the
+	// two end up permanently out of step. It is also orders of magnitude above what
+	// a real request needs — the reference guests in app/simple return in single-digit
+	// milliseconds — which is what makes exceeding it evidence of a pathological
+	// guest rather than of a slow one.
+	DefaultGuestExecutionTimeoutMs = 10_000
+
+	// MaxGuestExecutionTimeoutMs is an absurdity guard, not an ABI constraint (unlike
+	// MaxGuestMemoryCeilingBytes): any value this large already defeats the purpose of
+	// having a bound, since the manager stops waiting long before it. A configured
+	// value above it is a misconfiguration worth failing at start-up for.
+	//
+	// There is deliberately no "unlimited" setting: 0 selects the default. An
+	// unbounded guest is the failure mode this exists to remove.
+	MaxGuestExecutionTimeoutMs = 300_000
+)
+
 // MaxTCPPort is the highest valid TCP port number. GetConfigVarUint32 keeps an
 // out-of-range value from truncating to 0, but a value that fits in uint32 and is
 // still not a port (70000, say) would only fail later at bind time with a generic

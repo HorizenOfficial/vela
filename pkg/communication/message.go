@@ -68,6 +68,12 @@ type ProcessRequestData struct {
 	ApplicationState *common.ApplicationState `json:"applicationState"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
+	// ExecutionBudgetMs is how much longer the caller will wait for this request,
+	// in milliseconds relative to send time. 0 (or absent) means "not supplied",
+	// so an older peer that does not set it simply falls back to the executor's own
+	// configured bound. See contextForExecutionBudget for how it is applied and why
+	// it can only shorten execution.
+	ExecutionBudgetMs int64 `json:"executionBudgetMs,omitempty"`
 }
 
 func (prd *ProcessRequestData) Validate() error {
@@ -76,6 +82,9 @@ func (prd *ProcessRequestData) Validate() error {
 	}
 	if err := prd.Request.Validate(); err != nil {
 		return fmt.Errorf("invalid Request: %w", err)
+	}
+	if prd.ExecutionBudgetMs < 0 {
+		return fmt.Errorf("executionBudgetMs must not be negative, got %d", prd.ExecutionBudgetMs)
 	}
 	return nil
 }
@@ -98,6 +107,9 @@ type DeployAppRequestData struct {
 	ApplicationState *common.ApplicationState `json:"applicationState"`
 	// WasmModule is the resolved WASM bytecode if available; nil means artifact unavailable/unresolved.
 	WasmModule []byte `json:"wasmModule"`
+	// ExecutionBudgetMs is how much longer the caller will wait for this deploy, in
+	// milliseconds relative to send time. See ProcessRequestData.ExecutionBudgetMs.
+	ExecutionBudgetMs int64 `json:"executionBudgetMs,omitempty"`
 }
 
 func (dad *DeployAppRequestData) Validate() error {
@@ -106,6 +118,9 @@ func (dad *DeployAppRequestData) Validate() error {
 	}
 	if err := dad.Request.Validate(); err != nil {
 		return fmt.Errorf("invalid Request: %w", err)
+	}
+	if dad.ExecutionBudgetMs < 0 {
+		return fmt.Errorf("executionBudgetMs must not be negative, got %d", dad.ExecutionBudgetMs)
 	}
 	return nil
 }

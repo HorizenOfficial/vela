@@ -447,6 +447,11 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		return
 	}
 
+	// Shorten execution to what the caller is still willing to wait for, if it said.
+	// Never lengthens it — see contextForExecutionBudget.
+	ctx, cancelBudget := contextForExecutionBudget(ctx, reqData.ExecutionBudgetMs)
+	defer cancelBudget()
+
 	updatePayload, updatedState, deanonymizationReport, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
@@ -476,6 +481,10 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
 		return
 	}
+
+	// See handleProcessRequest: shortens only.
+	ctx, cancelBudget := contextForExecutionBudget(ctx, reqData.ExecutionBudgetMs)
+	defer cancelBudget()
 
 	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {

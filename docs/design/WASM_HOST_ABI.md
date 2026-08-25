@@ -101,6 +101,25 @@ exchanges guest pointers as **signed** 32-bit offsets, so no valid offset may re
 `EXECUTOR_MAX_GUEST_MEMORY_BYTES`; size the two together. A guest exceeding the cap
 sees `memory.grow` fail.
 
+**Execution is time-bounded.** A single guest operation — the export call plus the
+`allocate`/`deallocate` calls around it, and instantiation including any `start`
+section — must complete within `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` (default
+10 000 ms, maximum 300 000, `0` selects the default; there is no unlimited setting).
+A guest exceeding it is interrupted with a trap, and the request fails on-chain with
+`GUEST_EXECUTION_TIMEOUT`. The bound is wall-clock, enforced by the host with
+wasmtime epoch interruption, and needs nothing from the guest.
+
+Practical notes for guest authors:
+
+- The budget covers the **whole operation**, not each call, and it is not reset
+  between the host's `allocate` calls and your export.
+- Time spent blocked in a WASI host call is *not* interruptible, so a guest that
+  blocks there can still exceed the bound without being stopped by this mechanism.
+- The interrupt is a trap, so it evicts the module from the cache (see below) and no
+  guest cleanup runs. Do not rely on deferred work completing.
+- Real guests are nowhere near this: the reference apps return in single-digit
+  milliseconds. Reaching the bound means a loop that does not terminate.
+
 **Table storage is bounded separately.** Table elements do not live in linear memory,
 so the cap above does not cover them — an unbounded element count would let a module
 commit gigabytes regardless of the memory setting (measured: ~390 MB resident from a
@@ -172,6 +191,19 @@ is **whether guest code actually ran**, not whether the failure looks determinis
 | Application error | non-empty `error` in a well-formed result | kept — a healthy guest declining a request |
 | Guest fault | a trap; `allocate` failing, returning `0`, or returning an out-of-range offset; a result the host cannot parse | **evicted** — the heap is in an unknown state and must not serve the next request |
 | Host-side / static defect | a missing export; an export whose signature does not match the host ABI; a nil store | kept — nothing executed, so re-instantiating provably cannot change the outcome |
+| Execution bound exceeded | the guest ran past `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` and was interrupted | **evicted** — an interrupted guest's heap is in an unknown state, exactly like a trap |
+
+The execution bound splits into two on-chain outcomes, which differ in who caused
+the interruption:
+
+| Cause | Reported as | Effect |
+|---|---|---|
+| The guest spent its whole budget | `GUEST_EXECUTION_TIMEOUT`, signed on-chain | request settles as failed, minimum fee charged |
+| The host stopped waiting (executor shutdown, cancelled request) | not signed at all | request stays pending and is retried later |
+
+The second case never reaches the chain by design: the request was abandoned, not
+judged, so charging for it would be wrong. As a guest author you cannot tell the two
+apart and do not need to — the retry is a fresh call on a fresh instance.
 
 Two consequences worth knowing when writing a guest:
 
@@ -204,28 +236,28 @@ catch panics.
 
 Two layers, deliberately:
 
-**WAT fixtures (`pkg/wasm/wasmtime_runtime_test.go`)** assemble tiny modules from
+- **WAT fixtures (`pkg/wasm/wasmtime_runtime_test.go`)** assemble tiny modules from
 WebAssembly text at test time via `wasmtime.Wat2Wasm`, so they need no TinyGo
 toolchain and run in milliseconds. They implement just enough of the ABI to reach the
 path under test: an `allocate` that returns a fixed scratch offset, exports that
 ignore their parameters, and results pre-seeded as `(data ...)` blocks with a
 hand-computed length prefix.
 
-Their purpose is to drive the **host** through behaviour a correct guest never
+  Their purpose is to drive the **host** through behaviour a correct guest never
 exhibits, much of which cannot be expressed in a high-level language at all: a trap,
 an unterminating call, a valid length prefix followed by non-JSON, a missing
 `allocate`, an export with the wrong arity, an `allocate` returning a pointer past
 the end of memory, or a module declaring two memories. Each fixture's own doc comment
 states what it proves.
 
-Because the length prefix and the offsets are hand-written, compute them rather than
+  Because the length prefix and the offsets are hand-written, compute them rather than
 estimating — a prefix that disagrees with its body makes the host read truncated or
 trailing garbage, and the test then fails for a reason unrelated to its subject.
 
-**TinyGo integration tests (`app/simple/integration_test.go`)** compile the real
+- **TinyGo integration tests (`app/simple/integration_test.go`)** compile the real
 guest and exercise the real allocator, real serialisation and real business logic.
 
-Neither layer is sufficient alone. A WAT fixture encodes what we *believe* the ABI
+  Neither layer is sufficient alone. A WAT fixture encodes what we *believe* the ABI
 is, so it can pass while a real guest fails; the integration tests are the backstop
 that catches ABI drift, and they are also what proves the pinned feature set does not
 reject legitimate modules.

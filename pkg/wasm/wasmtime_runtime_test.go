@@ -418,6 +418,12 @@ func TestExtractResultBytes(t *testing.T) {
 
 	appModule := &ApplicationModule{store: store, memory: memory}
 
+	// extractResultBytes frees the guest buffer through the execution window, so it
+	// needs a live one. This module has no deallocate export, so nothing is actually
+	// freed here — the window is what the signature requires, not what is under test.
+	g := runtime.beginGuestExecution(context.Background(), store)
+	defer g.end()
+
 	// Write some test data to memory: 4 bytes for length, then the data
 	testData := []byte("hello world")
 	dataWithLen := make([]byte, 4+len(testData))
@@ -431,25 +437,25 @@ func TestExtractResultBytes(t *testing.T) {
 	copy(memSlice[testPtr:], dataWithLen)
 
 	t.Run("successful extraction", func(t *testing.T) {
-		result, err := runtime.extractResultBytes(testPtr, appModule)
+		result, err := runtime.extractResultBytes(g, testPtr, appModule)
 		require.NoError(t, err)
 		require.Equal(t, testData, result)
 	})
 
 	t.Run("null pointer", func(t *testing.T) {
-		_, err := runtime.extractResultBytes(int32(0), appModule)
+		_, err := runtime.extractResultBytes(g, int32(0), appModule)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "wasm module returned null pointer")
 	})
 
 	t.Run("invalid type", func(t *testing.T) {
-		_, err := runtime.extractResultBytes("not a pointer", appModule)
+		_, err := runtime.extractResultBytes(g, "not a pointer", appModule)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "wasm module returned unexpected type")
 	})
 
 	t.Run("out of bounds pointer", func(t *testing.T) {
-		_, err := runtime.extractResultBytes(int32(len(memSlice)), appModule)
+		_, err := runtime.extractResultBytes(g, int32(len(memSlice)), appModule)
 		require.Error(t, err)
 		require.Equal(t, "invalid memory access for length prefix", err.Error())
 	})
@@ -464,7 +470,7 @@ func TestExtractResultBytes(t *testing.T) {
 		errorPtr := int32(200)
 		copy(memSlice[errorPtr:], errorWithLen)
 
-		_, err := runtime.extractResultBytes(errorPtr, appModule)
+		_, err := runtime.extractResultBytes(g, errorPtr, appModule)
 		require.Error(t, err)
 		require.Equal(t, "wasm module failed to serialize response/error", err.Error())
 	})

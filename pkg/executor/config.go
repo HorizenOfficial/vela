@@ -74,6 +74,14 @@ type Config struct {
 	// outside linear memory and is bounded separately in pkg/wasm (a few tens of MiB
 	// per module at most), so it does not change the sizing arithmetic.
 	MaxGuestMemoryBytes int64
+
+	// GuestExecutionTimeoutMs bounds the wall-clock duration of a single WASM guest
+	// operation. A guest that exceeds it is interrupted and the request fails with a
+	// signed, on-chain error, so a stuck or malicious module cannot hang the executor.
+	// 0 means the default (common.DefaultGuestExecutionTimeoutMs); there is no
+	// "unlimited" setting. Keep it well below the manager's request timeout, or the
+	// manager gives up while the executor is still running the request.
+	GuestExecutionTimeoutMs int64
 }
 
 const confFileName = "executor.conf"
@@ -142,6 +150,8 @@ func LoadConfig() (*Config, error) {
 		CommunicationParams: communicationParams,
 		MaxCachedModules:    int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
 		MaxGuestMemoryBytes: common.GetConfigVarInt64("EXECUTOR_MAX_GUEST_MEMORY_BYTES", 0, fileProperties),
+
+		GuestExecutionTimeoutMs: common.GetConfigVarInt64("EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS", 0, fileProperties),
 	}, nil
 }
 
@@ -227,6 +237,35 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf(
 			"EXECUTOR_MAX_GUEST_MEMORY_BYTES must be between 0 (default: 2 GiB) and %d (2 GiB), got %d",
 			int64(maxGuestMemoryCeilingBytes), c.MaxGuestMemoryBytes))
+	}
+
+	// --- Guest execution timeout ---
+	// Bounds live in pkg/common so this check shares one definition with the runtime
+	// without linking libwasmtime into every pkg/executor consumer, exactly as for the
+	// guest memory cap. 0 selects the default; anything else must be in range rather
+	// than silently clamped, so a misconfigured operator finds out at startup.
+	//
+	// Note the asymmetry with the runtime's SetGuestExecutionTimeout, which clamps
+	// instead: failing here happens before the enclave is serving anything, whereas a
+	// late admin-driven change must not be able to take a running enclave down.
+	if c.GuestExecutionTimeoutMs < 0 || c.GuestExecutionTimeoutMs > common.MaxGuestExecutionTimeoutMs {
+		errs = append(errs, fmt.Sprintf(
+			"EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS must be between 0 (default: %d ms) and %d ms, got %d",
+			int64(common.DefaultGuestExecutionTimeoutMs), int64(common.MaxGuestExecutionTimeoutMs),
+			c.GuestExecutionTimeoutMs))
+	}
+
+	// A timeout at or above the manager's patience is self-defeating: the manager
+	// abandons the request first and the two ends are then permanently out of step on
+	// that request. Only a warning rather than an error, because this config cannot
+	// see the manager's value — it is set on the parent EC2, outside the enclave — so
+	// the comparison is against this side's equivalent and is indicative only.
+	if timeoutMs := c.GuestExecutionTimeoutMs; timeoutMs > 0 {
+		managerPatienceMs := int64(c.CommunicationParams.RequestTimeoutSec) * 1000
+		if managerPatienceMs > 0 && timeoutMs >= managerPatienceMs {
+			fmt.Printf("WARNING: EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS (%d ms) is not below the request timeout (%d ms); "+
+				"a slow guest will be abandoned by the caller before it is interrupted\n", timeoutMs, managerPatienceMs)
+		}
 	}
 
 	// --- KMS configuration ---

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -595,6 +596,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 	if req.AssetAmount.ToInt().Sign() > 0 {
 		newState, depEvents, depAppEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
 		if failure != nil {
+			if transientErr, ok := e.transientFailure(req, failure); ok {
+				return nil, nil, nil, transientErr
+			}
 			errorPayload, err := e.processErrorResponse(req, appState.StateRoot, failure)
 			return errorPayload, nil, nil, err
 		}
@@ -680,6 +684,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 		// Invoke WASM method to process the request
 		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, wasmPayload, tempState, wasmModule)
 		if failure != nil {
+			if transientErr, ok := e.transientFailure(req, failure); ok {
+				return nil, nil, nil, transientErr
+			}
 			errorPayload, err := e.processErrorResponse(req,
 				appState.StateRoot,
 				failure)
@@ -896,6 +903,14 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	// Deploy the module with constructor params and get initial state
 	initialAppState, fuel, err := e.runtime.Deploy(ctx, req.ApplicationID, descriptor.ConstructorParams, wasmModule)
 	if err != nil {
+		// Deploy returns a plain error, so the abandonment case arrives as a sentinel
+		// rather than a failure code. Same rule as the request path: retry, sign
+		// nothing. See transientFailure.
+		if errors.Is(err, apperrors.ErrGuestExecutionCancelled) {
+			e.log.Warn("Executor: deploy %s (app %d) abandoned mid-execution, retrying on the next poll rather than signing a failure",
+				req.RequestID, req.ApplicationID)
+			return nil, nil, fmt.Errorf("guest execution abandoned for deploy %s: %w", req.RequestID, err)
+		}
 		// The runtime's error message carries the specific failure mode
 		// (compile failure, invalid guest result, JSON parse error, etc.).
 		// errorResponse logs it locally and folds it into the signed-payload
@@ -1036,6 +1051,30 @@ func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32
 	updatePayload.Signature = signature
 
 	return updatePayload, nil
+}
+
+// transientFailure reports whether a runtime failure must bypass the signed
+// on-chain path entirely, and returns the plain Go error to propagate instead.
+//
+// This is the narrow exception to "a *RequestFailure becomes a signed error
+// payload". Almost every failure is a genuine execution failure the user should
+// learn about on-chain and be refunded for. But a guest interrupted because the
+// HOST stopped waiting — executor shutdown, a cancelled context, a caller-supplied
+// execution budget running out — says nothing about the request: signing it would
+// charge the user MinFeePerRequest for our own decision to stop, and would settle a
+// request that was never actually judged. Returning a plain error leaves it pending
+// so the manager retries it on the next poll, once the executor is healthy again.
+//
+// Contrast CodeGuestExecutionTimeout, which IS signed: there the guest really did
+// consume its whole budget, and leaving it pending would re-deliver it forever and
+// stall the on-chain queue behind it.
+func (e *StatelessExecutor) transientFailure(req *common.Request, failure *apperrors.RequestFailure) (error, bool) {
+	if !apperrors.IsTransient(failure) {
+		return nil, false
+	}
+	e.log.Warn("Executor: request %s (app %d) abandoned mid-execution (%s), retrying on the next poll rather than signing a failure",
+		req.RequestID, req.ApplicationID, failure.RequestError.Code)
+	return fmt.Errorf("guest execution abandoned for request %s: %s", req.RequestID, failure.ExternalMessage()), true
 }
 
 // processErrorResponse creates a signed error response for HandleProcessRequest.

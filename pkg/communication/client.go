@@ -130,6 +130,12 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 			Request:          req,
 			ApplicationState: appState,
 			WasmModule:       wasmModule,
+			// Same field sendRequestAndWaitForResponse uses for its own give-up time
+			// below, so what we promise the executor cannot drift from how long we
+			// actually wait. It derives from
+			// MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC, which is what links
+			// that setting to the guest execution bound.
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(),
 		},
 	}
 
@@ -167,9 +173,10 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
-			Request:          req,
-			ApplicationState: appState,
-			WasmModule:       wasmModule,
+			Request:           req,
+			ApplicationState:  appState,
+			WasmModule:        wasmModule,
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(), // see SendProcessRequest
 		},
 	}
 
