@@ -35,10 +35,12 @@ const (
 	// perfectly good answer was being signed.
 	//
 	// Exported because pkg/executor validates its configured guest bound against
-	// it at start-up: the guest bound must be below budget - margin, or the budget
-	// wins every race and no runaway guest is ever settled on-chain. Erring large is
-	// deliberate — too small discards a request that actually succeeded, whereas too
-	// large only shortens an allowance nothing depends on.
+	// it during the handshake, using the request timeout the manager reports there
+	// (GetKeysetRecoveryResponseData.RequestTimeoutMs): the guest bound must be below
+	// timeout - margin, or the budget wins every race and no runaway guest is ever
+	// settled on-chain. Erring large is deliberate — too small discards a request
+	// that actually succeeded, whereas too large only shortens an allowance nothing
+	// depends on.
 	ExecutionBudgetMargin = 2 * time.Second
 
 	// minUsableExecutionBudget is the least post-margin time worth starting work

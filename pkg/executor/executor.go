@@ -429,13 +429,29 @@ func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn commun
 func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communication.ServerConnection) (*EnclaveKeySet, error) {
 	e.log.Info("Executor: Performing key recovery handshake (Type %d)", e.config.KeySetRecoveryType)
 
-	found, recoveryData, err := conn.GetKeysetRecovery(ctx)
+	handshake, err := conn.GetKeysetRecovery(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get keyset recovery data: %w", err)
 	}
 
+	// Refuse to serve a manager whose patience cannot outlast the guest bound, before
+	// any keyset is restored or generated so a rejected first boot persists nothing.
+	// The manager is told why: its Start blocks on this handshake and exits with the
+	// error, so the misconfiguration surfaces on both sides at boot.
+	if handshake.RequestTimeoutMs == 0 {
+		e.log.Warn("Executor: manager did not report its request timeout (older manager?); cannot verify "+
+			"EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS fits the caller budget — keep it below "+
+			"MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC minus %v", communication.ExecutionBudgetMargin)
+	} else if err := e.config.checkGuestBoundFitsCallerBudget(handshake.RequestTimeoutMs); err != nil {
+		if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
+			e.log.Error("Executor: failed to send handshake rejection to manager: %v", notifyErr)
+		}
+		return nil, err
+	}
+
 	var keySet *EnclaveKeySet
-	if found {
+	if handshake.DataFound {
+		recoveryData := handshake.KeySetRecovery
 		e.log.Info("Executor: Keyset recovery data found (Type %d), restoring keyset...", recoveryData.RecoveryType)
 		keySet, err = RestoreEnclaveKeySet(ctx, recoveryData, e.kmsClient, e.enclaveHandle)
 		if err != nil {

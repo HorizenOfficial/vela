@@ -45,6 +45,10 @@ type mockExecutor struct {
 	conn           ServerConnection
 	handshakeDone  chan struct{}
 	handshakeError error
+
+	// reportedTimeoutMs records the RequestTimeoutMs the manager sent in its
+	// GetKeysetRecovery reply, so tests can check the field is populated.
+	reportedTimeoutMs int64
 }
 
 func (m *mockExecutor) handleConnection(ctx context.Context, conn ServerConnection) {
@@ -60,12 +64,14 @@ func (m *mockExecutor) handleConnection(ctx context.Context, conn ServerConnecti
 
 func (m *mockExecutor) performHandshake(ctx context.Context) error {
 	testLogger.Info("MockExecutor: entering %s", common.FnName())
-	found, recoveryData, err := m.conn.GetKeysetRecovery(ctx)
+	handshake, err := m.conn.GetKeysetRecovery(ctx)
 	if err != nil {
 		return err
 	}
+	m.reportedTimeoutMs = handshake.RequestTimeoutMs
 
-	if found {
+	if handshake.DataFound {
+		recoveryData := handshake.KeySetRecovery
 		// Simulate restoring keyset
 		if recoveryData == nil {
 			return nil
@@ -180,6 +186,11 @@ func TestHandshake_FirstConnection(t *testing.T) {
 	require.NoError(t, executor.handshakeError)
 	require.NotNil(t, manager.recoveryData)
 	require.Equal(t, []byte("new-keyset"), manager.recoveryData.KeySetCiphertext)
+
+	// The manager's reply must report its own request timeout: it is what the
+	// executor validates its guest execution bound against.
+	require.Equal(t, int64(commParams.RequestTimeoutSec)*1000, executor.reportedTimeoutMs,
+		"GetKeysetRecovery reply must carry the manager's request timeout in ms")
 }
 
 func TestHandshake_Reconnection(t *testing.T) {

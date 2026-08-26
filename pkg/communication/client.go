@@ -435,6 +435,10 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message
 		Data: GetKeysetRecoveryResponseData{
 			DataFound:      dataFound,
 			KeySetRecovery: respRecv,
+			// Same field that feeds ExecutionBudgetMs on every request and the
+			// give-up timer in sendRequestAndWaitForResponse, so what the executor
+			// validates against at handshake is exactly what it will be sent later.
+			RequestTimeoutMs: c.reqTimeout.Milliseconds(),
 		},
 	}
 

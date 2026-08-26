@@ -220,6 +220,14 @@ type GetKeysetRecoveryRequestData struct {
 type GetKeysetRecoveryResponseData struct {
 	DataFound      bool                          `json:"dataFound"`
 	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
+
+	// RequestTimeoutMs is how long the manager waits for any request it sends the
+	// executor, in milliseconds — the value every later ExecutionBudgetMs will be
+	// derived from. The executor validates its guest execution bound against it
+	// during the handshake: the enclave cannot read the manager's configuration, and
+	// checking against its own unrelated timeout gave false assurance. Optional: an
+	// older manager omits it and it decodes to 0, meaning "not reported".
+	RequestTimeoutMs int64 `json:"requestTimeoutMs,omitempty"`
 }
 
 // SetKeysetRecoveryRequestData represents data for a set keyset recovery request message

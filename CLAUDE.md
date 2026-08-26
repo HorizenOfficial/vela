@@ -81,7 +81,7 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
 
 Manager and Executor use bidirectional messaging (V-Socket for Nitro, TCP fallback):
 - Manager sends `ProcessRequest`, Executor may callback with `GetUserKeys`
-- Handshake protocol on connection for keyset recovery (see `docs/design/EXEC_MGR_HANDSHAKE.md`)
+- Handshake protocol on connection for keyset recovery (see `docs/design/EXEC_MGR_HANDSHAKE.md`); the Manager also reports its request timeout there, and the Executor refuses the connection if its guest execution bound does not fit inside it
 - Manager also forwards admin commands to the Executor over the same channel (`ForwardAdminCommand`)
 - `DeployApp` messages carry the WASM bytes and descriptor for the deploy flow
 

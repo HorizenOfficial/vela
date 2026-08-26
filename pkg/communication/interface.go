@@ -55,7 +55,10 @@ type ExecutorServer interface {
 // ServerConnection defines the interface for a server-side client connection,
 // allowing the server to send requests to the client.
 type ServerConnection interface {
-	GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error)
+	// GetKeysetRecovery asks the manager for the stored keyset recovery data and
+	// returns its whole reply, which also carries the manager's request timeout
+	// (see GetKeysetRecoveryResponseData).
+	GetKeysetRecovery(ctx context.Context) (*GetKeysetRecoveryResponseData, error)
 	SetKeysetRecovery(ctx context.Context, recovery *common.EnclaveKeySetRecovery, commPubKey, signingKeyAddr string) error
 	KeysetRecoveryResult(ctx context.Context, result error, commPubKey, signingKeyAddr string) error
 	Close()

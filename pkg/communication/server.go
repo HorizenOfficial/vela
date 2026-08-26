@@ -198,7 +198,7 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, idLogTag st
 }
 
 // GetKeysetRecovery sends a request to the client to get the keyset recovery data.
-func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error) {
+func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (*GetKeysetRecoveryResponseData, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: GetKeysetRecoveryRequestMessage,
@@ -208,27 +208,27 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 	c.log.Info("%s: Sending GetKeysetRecoveryRequestMessage (type %d) msg to Manager", c.idLogTag, GetKeysetRecoveryRequestMessage)
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
 
 	if respMsg.Type == ErrorMessage {
 		errorData, err := extractData[ErrorData](respMsg.Data)
 		if err != nil {
-			return false, nil, fmt.Errorf("failed to extract client error data: %w", err)
+			return nil, fmt.Errorf("failed to extract client error data: %w", err)
 		}
-		return false, nil, fmt.Errorf("client error: %s", errorData.Message)
+		return nil, fmt.Errorf("client error: %s", errorData.Message)
 	}
 
 	if respMsg.Type != GetKeysetRecoveryResponseMessage {
-		return false, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+		return nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
 	}
 
 	respData, err := extractData[GetKeysetRecoveryResponseData](respMsg.Data)
 	if err != nil {
-		return false, nil, fmt.Errorf("failed to extract response data: %w", err)
+		return nil, fmt.Errorf("failed to extract response data: %w", err)
 	}
 
-	return respData.DataFound, respData.KeySetRecovery, nil
+	return respData, nil
 }
 
 // KeysetRecoveryResult sends a confirmation to the client for the keyset recovery.

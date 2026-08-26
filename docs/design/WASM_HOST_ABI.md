@@ -154,8 +154,14 @@ The consequences a guest author can actually observe:
   make a user pay for a failure it manufactured.
 - **Sizing.** For every batch to settle at least one request per attempt, the enclave
   bound must be below the caller's budget — otherwise the budget always wins the race,
-  nothing is ever signed, and the FIFO queue cannot advance. For a *whole* batch to
-  finish in one attempt you additionally want
+  nothing is ever signed, and the FIFO queue cannot advance. Worse, since nothing is
+  signed nobody is charged, so a guest that spins past the caller's patience buys
+  unbounded executor time for free. The executor therefore **refuses the connection**
+  if `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` is not strictly below
+  `MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC` minus the 2 s reply margin: the
+  manager reports its timeout in the handshake and both processes fail at boot with an
+  error naming the two settings (see `docs/design/EXEC_MGR_HANDSHAKE.md`). For a
+  *whole* batch to finish in one attempt you additionally want
   `MAX_BATCH_SIZE × EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` to fit inside the budget;
   exceeding that is not an error, it just costs extra polls.
 

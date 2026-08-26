@@ -369,54 +369,43 @@ func TestGuestExecutionTimeoutConfigValidation(t *testing.T) {
 // A plain `timeout >= requestTimeout` check is NOT enough: it leaves a silent window
 // one margin wide (28000..29999 ms against the 30 s default) where validation passes
 // and the queue still wedges.
+//
+// The request timeout is the MANAGER's, learnt in the handshake — see
+// TestHandshakeValidatesGuestBoundAgainstManagerTimeout for the wiring. This test pins
+// the arithmetic.
 func TestGuestTimeoutMustBeatCallerBudget(t *testing.T) {
-	const patienceSec = 30
-	budgetMs := int64(patienceSec)*1000 - communication.ExecutionBudgetMargin.Milliseconds()
+	const patienceMs int64 = 30_000
+	budgetMs := patienceMs - communication.ExecutionBudgetMargin.Milliseconds()
 
-	configWith := func(timeoutMs int64, patience time.Duration) *Config {
-		return &Config{
-			ChannelType:             "tcp",
-			ChannelParams:           common.TcpChannelConnectionParams{Ip: "localhost", Port: 4000},
-			FuelPricePerUnit:        big.NewInt(1),
-			MinFeePerRequest:        big.NewInt(10),
-			CommunicationParams:     common.CommunicationParams{RequestTimeoutSec: patience},
-			KeySetRecoveryType:      common.RecoveryTypeUnsafe,
-			GuestExecutionTimeoutMs: timeoutMs,
-		}
+	check := func(timeoutMs, patienceMs int64) error {
+		return (&Config{GuestExecutionTimeoutMs: timeoutMs}).checkGuestBoundFitsCallerBudget(patienceMs)
 	}
 
 	t.Run("comfortably below the budget is accepted", func(t *testing.T) {
-		require.NoError(t, configWith(10_000, patienceSec).Validate())
+		require.NoError(t, check(10_000, patienceMs))
 	})
 
 	t.Run("the default is resolved and accepted", func(t *testing.T) {
 		// 0 means the default, so the check must resolve it rather than skip.
-		require.NoError(t, configWith(0, patienceSec).Validate())
+		require.NoError(t, check(0, patienceMs))
 	})
 
 	t.Run("equal to the budget is rejected", func(t *testing.T) {
-		err := configWith(budgetMs, patienceSec).Validate()
+		err := check(budgetMs, patienceMs)
 		require.Error(t, err, "a bound equal to the budget lets the budget win the race")
 		require.Contains(t, err.Error(), "EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS")
+		require.Contains(t, err.Error(), "MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC")
 	})
 
 	t.Run("inside the silent window is rejected", func(t *testing.T) {
 		// The case a bare `>= requestTimeout` check misses entirely.
-		err := configWith(29_000, patienceSec).Validate()
+		err := check(29_000, patienceMs)
 		require.Error(t, err, "29s beats the 28s budget deadline and must not pass validation")
 	})
 
 	t.Run("caller too impatient for the default is rejected", func(t *testing.T) {
 		// A request timeout at or below the margin drops the budget entirely, so the
 		// executor would run its full bound long after the caller stopped waiting.
-		require.Error(t, configWith(0, 3).Validate())
-	})
-
-	t.Run("a non-positive request timeout is left to its own check", func(t *testing.T) {
-		// Guarded so this does not mask the existing "must be > 0" error with a
-		// confusing message about the guest bound.
-		err := configWith(10_000, 0).Validate()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "REQUEST_TIMEOUT_SEC")
+		require.Error(t, check(0, 3_000))
 	})
 }

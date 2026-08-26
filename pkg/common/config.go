@@ -65,7 +65,8 @@ const (
 	// is unset or 0. It must stay well under the manager's request timeout
 	// (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC, 30s by default), or the
 	// manager gives up on a request while the executor is still running it and the
-	// two end up permanently out of step. It is also orders of magnitude above what
+	// two end up permanently out of step; the executor enforces this at handshake,
+	// where the manager reports that timeout. It is also orders of magnitude above what
 	// a real request needs — the reference guests in app/simple return in single-digit
 	// milliseconds — which is what makes exceeding it evidence of a pathological
 	// guest rather than of a slow one.
