@@ -12,7 +12,7 @@ import (
 
 // eventBroadcastingClient wraps a real blockchain.Client (typically a BlockChainClient
 // connected to the simulated backend) and intercepts:
-//   - GetNextPendingRequest / GetPendingRequestsWithStateRoot — to cache each
+//   - GetPendingRequestsWithStateRoot — to cache each
 //     request's RequestType, so SubmitStateUpdate / SubmitBatchStateUpdate can classify the completion
 //     the same way the contract does (DeployRequestCompleted vs
 //     RequestCompleted), and to track TRUSTPROCESS requests for test discovery.
@@ -30,7 +30,7 @@ type eventBroadcastingClient struct {
 	mu             sync.Mutex
 	eventChannel   chan<- interface{}
 	pendingIDs     map[common.RequestIdType]struct{}
-	requestTypes   map[common.RequestIdType]common.RequestType // cached from GetNextPendingRequest / GetPendingRequestsWithStateRoot
+	requestTypes   map[common.RequestIdType]common.RequestType // cached from GetPendingRequestsWithStateRoot
 	completedIDs   map[common.RequestIdType]struct{}
 	failedIDs      map[common.RequestIdType]struct{}
 	updatePayloads map[common.RequestIdType]*common.UpdatePayload
@@ -68,36 +68,19 @@ func newEventBroadcastingClient(inner blockchain.Client, eventCh chan<- interfac
 
 // markPending registers a request as pending so AssertRequestCompleted can
 // track it. Request-type tracking is populated automatically via
-// GetNextPendingRequest — callers do not need to supply it.
+// GetPendingRequestsWithStateRoot — callers do not need to supply it.
 func (c *eventBroadcastingClient) markPending(requestID common.RequestIdType) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pendingIDs[requestID] = struct{}{}
 }
 
-// GetNextPendingRequest delegates to the real client and caches the request's
-// RequestType so SubmitStateUpdate can later classify the completion
-// canonically (matches the contract's own DeployRequestCompleted vs
-// RequestCompleted emission logic).
-func (c *eventBroadcastingClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error) {
-	req, stateRoot, err := c.Client.GetNextPendingRequest(ctx)
-	if err != nil {
-		return req, stateRoot, err
-	}
-	if req != nil {
-		c.mu.Lock()
-		c.cacheRequestLocked(req)
-		c.mu.Unlock()
-	}
-	return req, stateRoot, nil
-}
-
 // GetPendingRequestsWithStateRoot delegates to the real client (the contract selects
 // the application and returns up to maxCount of its pending requests) and caches each
 // request's RequestType so a later SubmitBatchStateUpdate/SubmitStateUpdate can
-// classify the completion canonically. This is the batch-path counterpart of
-// GetNextPendingRequest — tests that drive the manager through batching rely on it to
-// populate the same request-type and TRUSTPROCESS bookkeeping.
+// classify the completion canonically (matches the contract's own
+// DeployRequestCompleted vs RequestCompleted emission logic), and populates the
+// TRUSTPROCESS bookkeeping tests rely on.
 func (c *eventBroadcastingClient) GetPendingRequestsWithStateRoot(ctx context.Context, maxCount uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
 	appID, requests, stateRoot, err := c.Client.GetPendingRequestsWithStateRoot(ctx, maxCount)
 	if err != nil {
@@ -191,7 +174,7 @@ func (c *eventBroadcastingClient) recordUpdateLocked(update *common.UpdatePayloa
 	// Remove from pending
 	delete(c.pendingIDs, update.RequestID)
 
-	// Classify using the cached RequestType (captured from GetNextPendingRequest).
+	// Classify using the cached RequestType (captured from GetPendingRequestsWithStateRoot).
 	// Matches the contract's DeployRequestCompleted vs RequestCompleted emission
 	// logic at ProcessorEndpoint.sol:401.
 	reqType, ok := c.requestTypes[update.RequestID]

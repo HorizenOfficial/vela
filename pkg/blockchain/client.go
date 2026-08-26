@@ -29,8 +29,8 @@ import (
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].abi' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi"
 //go:generate sh -c "jq -r '.contracts[\"contracts/contracts/ProcessorEndpoint.sol:ProcessorEndpoint\"].bin' ../../contract_abis/ProcessorEndpointAbi/combined.json > ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin"
 //go:generate abigen --v2 --abi ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.abi --bin ../../contract_abis/ProcessorEndpointAbi/ProcessorEndpoint.bin --pkg processorendpoint --type ProcessorEndpoint --out ./contracts/processorendpoint/ProcessorEndpoint.go
-// ProcessorEndpointExtension hosts code moved out of ProcessorEndpoint to stay under EIP-170 and is
-// reached by delegatecall. Bindings are only needed to deploy it (its address is a
+// ProcessorEndpointExtension hosts code moved out of ProcessorEndpoint to stay under EIP-170 and
+// is reached by delegatecall. Bindings are only needed to deploy it (its address is a
 // ProcessorEndpoint constructor argument); calls always go to the endpoint's ABI above.
 //go:generate mkdir -p ./contracts/processorendpointextension
 //go:generate solc --via-ir --optimize --combined-json abi,bin ../../contracts/contracts/ProcessorEndpointExtension.sol --base-path ../.. --include-path ../../contracts/node_modules --pretty-json -o ../../contract_abis/ProcessorEndpointExtensionAbi --overwrite
@@ -271,50 +271,14 @@ func (c *BlockChainClient) GetPendingRequests(ctx context.Context) ([]*common.Re
 
 	output := make([]*common.Request, 0, len(listOfRequests))
 	for _, request := range listOfRequests {
-		req := &common.Request{
-			ProtocolVersion: request.ProtocolVersion,
-			ApplicationID:   processorendpoint.ApplicationIdFromBindingType(request.ApplicationId),
-			RequestID:       request.RequestId,
-			RequestType:     common.RequestType(request.RequestType),
-			Payload:         request.Payload,
-			Timestamp:       common.ToBig(request.Timestamp),
-			Sender:          request.Sender,
-			Facilitator:     request.Facilitator,
-			TokenAddress:    request.TokenAddress,
-			AssetAmount:     common.ToBig(request.AssetAmount),
-			MaxFeeValue:     common.ToBig(request.MaxFeeValue),
-		}
-
-		output = append(output, req)
+		output = append(output, toCommonRequest(request))
 	}
 	return output, nil
 }
 
-func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected {
-		return nil, [32]byte{}, fmt.Errorf("client not connected, call Connect first")
-	}
-
-	output, err := bind.Call(c.processorBoundContract,
-		&bind.CallOpts{Pending: false},
-		c.processorEndpoint.PackGetNextPendingRequest(),
-		c.processorEndpoint.UnpackGetNextPendingRequest)
-
-	if err != nil {
-		return nil, [32]byte{}, c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
-	}
-
-	stateRoot := output.Arg1
-	if !output.Success {
-		return nil, stateRoot, nil
-	}
-
-	request := output.Arg0
-
-	req := &common.Request{
+// toCommonRequest converts a contract PendingRequest struct into the internal request type.
+func toCommonRequest(request processorendpoint.StructsPendingRequest) *common.Request {
+	return &common.Request{
 		ProtocolVersion: request.ProtocolVersion,
 		ApplicationID:   processorendpoint.ApplicationIdFromBindingType(request.ApplicationId),
 		RequestID:       common.RequestIdType(request.RequestId),
@@ -327,48 +291,98 @@ func (c *BlockChainClient) GetNextPendingRequest(ctx context.Context) (*common.R
 		AssetAmount:     common.ToBig(request.AssetAmount),
 		MaxFeeValue:     common.ToBig(request.MaxFeeValue),
 	}
-
-	return req, stateRoot, nil
 }
 
 // GetPendingRequestsWithStateRoot fetches up to maxCount pending requests for the
 // application selected by the contract, together with its applicationId and on-chain
-// state root.
-//
-// STUB: the ProcessorEndpoint contract does not yet expose the batch view
-// (per-application queues + round-robin selection, see docs/design/BATCH_EXECUTION.md
-// section 4). Until it does, this delegates to GetNextPendingRequest, so a batch
-// always contains at most one request. maxCount is accepted for API compatibility
-// but ignored.
+// state root. The caller does not choose the application: the contract serves the
+// trigger queue head first, then the deploy queue head, then up to maxCount requests
+// of the application whose turn it is in the round-robin rotation (see
+// docs/design/BATCH_EXECUTION.md section 4.3). An empty request slice means nothing
+// is pending.
 func (c *BlockChainClient) GetPendingRequestsWithStateRoot(ctx context.Context, maxCount uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
-	req, stateRoot, err := c.GetNextPendingRequest(ctx)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return 0, nil, [32]byte{}, fmt.Errorf("client not connected, call Connect first")
+	}
+
+	output, err := bind.Call(c.processorBoundContract,
+		&bind.CallOpts{Pending: false},
+		c.processorEndpoint.PackGetPendingRequestsWithStateRoot(new(big.Int).SetUint64(maxCount)),
+		c.processorEndpoint.UnpackGetPendingRequestsWithStateRoot)
+
 	if err != nil {
-		return 0, nil, [32]byte{}, err
+		return 0, nil, [32]byte{}, c.UnpackProcessorEndpointErrorAndCheckForReorg(err)
 	}
-	if req == nil {
-		return 0, nil, stateRoot, nil
+
+	requests := make([]*common.Request, 0, len(output.Requests))
+	for _, request := range output.Requests {
+		requests = append(requests, toCommonRequest(request))
 	}
-	return req.ApplicationID, []*common.Request{req}, stateRoot, nil
+
+	return processorendpoint.ApplicationIdFromBindingType(output.ApplicationId), requests, output.StateRoot, nil
 }
 
 // SubmitBatchStateUpdate submits a batch of per-request update payloads together with
-// a single batch signature covering all entry hashes.
+// a single batch signature covering all entry hashes, as one batchStateUpdate()
+// transaction (see docs/design/BATCH_EXECUTION.md section 3.2).
 //
-// STUB: the ProcessorEndpoint contract does not yet expose batchStateUpdate() (see
-// docs/design/BATCH_EXECUTION.md section 3.2). Until it does, this submits the batch
-// through the single-request stateUpdate() path. This works only for a size-1 batch:
-// the batch payloads are unsigned individually, but a 1-entry batch hashes identically
-// to the single-request message (MsgToSignBuilder.BuildBatchMsgHash), so the batch
-// signature verifies on-chain when attached to the lone payload. A batch of >1 cannot
-// be replayed this way and is rejected loudly rather than silently dropping entries.
+// The payloads are not signed individually: their Signature fields are ignored, because
+// the contract verifies one signature over the concatenated entry hashes instead. All
+// entries must belong to the same application — batchStateUpdate() takes the
+// applicationId once, dequeues from that application's queue only, and the manager only
+// ever batches one application's requests.
+//
+// The whole batch is atomic on-chain: if any entry is rejected the transaction reverts
+// and nothing was applied, so the caller retries the batch rather than reconciling a
+// partial result.
 func (c *BlockChainClient) SubmitBatchStateUpdate(ctx context.Context, updates []*common.UpdatePayload, batchSignature []byte) error {
-	if len(updates) != 1 {
-		return fmt.Errorf("SubmitBatchStateUpdate stub supports only size-1 batches, got %d: batchStateUpdate() is not yet supported by the ProcessorEndpoint contract", len(updates))
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected {
+		return fmt.Errorf("client not connected, call Connect first")
 	}
-	// The single payload is unsigned; the batch signature (== single-request
-	// signature for a 1-entry batch) is what stateUpdate() verifies on-chain.
-	updates[0].Signature = batchSignature
-	return c.SubmitStateUpdate(ctx, updates[0])
+	if c.account == nil {
+		return fmt.Errorf("client not configured for signing transactions")
+	}
+	if len(updates) == 0 {
+		return fmt.Errorf("SubmitBatchStateUpdate called with an empty batch")
+	}
+
+	applicationId := updates[0].ApplicationID
+	entries := make([]processorendpoint.StructsBatchEntry, len(updates))
+	for i, update := range updates {
+		// Caught here rather than on-chain: the contract would reject the mismatched entry with
+		// InvalidApplicationId after the caller has paid for the whole batch's calldata and
+		// signature verification.
+		if update.ApplicationID != applicationId {
+			return fmt.Errorf("batch entry %d is for application %d, not %d: batchStateUpdate applies to a single application", i, update.ApplicationID, applicationId)
+		}
+		entries[i] = processorendpoint.StructsBatchEntry{
+			PrevStateRoot:      update.PrevStateRoot,
+			NewStateRoot:       update.NewStateRoot,
+			ProcessedRequestId: update.RequestID,
+			UserEvents:         toUserEventData(update),
+			AppEvents:          toAppEventData(update),
+			WithdrawalRequests: toWithdrawalRequests(update),
+			Refund:             update.RefundAmount.ToInt(),
+			ApplicationFees:    update.ApplicationFee.ToInt(),
+			ErrorCode:          update.ErrorCode,
+			ErrorMsg:           update.ErrorMsg,
+		}
+	}
+
+	params := c.processorEndpoint.PackBatchStateUpdate(
+		processorendpoint.ApplicationIdToBindingType(applicationId),
+		entries,
+		batchSignature,
+	)
+
+	c.account.Value = nil
+	return c.sendTxAndWaitMined(ctx, params)
 }
 
 func (c *BlockChainClient) sendTxAndWaitMined(ctx context.Context, data []byte) error {
@@ -502,46 +516,15 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	if c.account == nil {
 		return fmt.Errorf("client not configured for signing transactions")
 	}
-	userEvents := make([][]byte, len(update.Events))
-	userEventSubTypes := make([][32]byte, len(update.Events))
-	for i, event := range update.Events {
-		userEvents[i] = event.EncryptedData
-		userEventSubTypes[i] = event.EventSubType
-	}
-	userEventData := processorendpoint.StructsEventData{
-		Events:   userEvents,
-		SubTypes: userEventSubTypes,
-	}
-
-	appEvents := make([][]byte, len(update.AppEvents))
-	appEventSubTypes := make([][32]byte, len(update.AppEvents))
-	for i, appEvent := range update.AppEvents {
-		appEvents[i] = appEvent.Data
-		appEventSubTypes[i] = appEvent.EventSubType
-	}
-	appEventData := processorendpoint.StructsEventData{
-		Events:   appEvents,
-		SubTypes: appEventSubTypes,
-	}
-
-	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
-	for i, withdrawal := range update.Withdrawals {
-		amount := withdrawal.Amount.ToInt()
-		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
-			TokenAddress: withdrawal.TokenAddress,
-			Receiver:     withdrawal.DestinationAddress,
-			Amount:       amount,
-		}
-	}
 
 	params := c.processorEndpoint.PackStateUpdate(
 		processorendpoint.ApplicationIdToBindingType(update.ApplicationID),
 		update.PrevStateRoot,
 		update.NewStateRoot,
 		update.RequestID,
-		userEventData,
-		appEventData,
-		withdrawals,
+		toUserEventData(update),
+		toAppEventData(update),
+		toWithdrawalRequests(update),
 		update.RefundAmount.ToInt(),
 		update.ApplicationFee.ToInt(),
 		update.ErrorCode,
@@ -552,6 +535,42 @@ func (c *BlockChainClient) SubmitStateUpdate(ctx context.Context, update *common
 	c.account.Value = nil
 	return c.sendTxAndWaitMined(ctx, params)
 
+}
+
+// toUserEventData packs an update's encrypted user events into the contract's EventData shape.
+func toUserEventData(update *common.UpdatePayload) processorendpoint.StructsEventData {
+	events := make([][]byte, len(update.Events))
+	subTypes := make([][32]byte, len(update.Events))
+	for i, event := range update.Events {
+		events[i] = event.EncryptedData
+		subTypes[i] = event.EventSubType
+	}
+	return processorendpoint.StructsEventData{Events: events, SubTypes: subTypes}
+}
+
+// toAppEventData packs an update's application-level (non-encrypted) events into the contract's
+// EventData shape.
+func toAppEventData(update *common.UpdatePayload) processorendpoint.StructsEventData {
+	events := make([][]byte, len(update.AppEvents))
+	subTypes := make([][32]byte, len(update.AppEvents))
+	for i, appEvent := range update.AppEvents {
+		events[i] = appEvent.Data
+		subTypes[i] = appEvent.EventSubType
+	}
+	return processorendpoint.StructsEventData{Events: events, SubTypes: subTypes}
+}
+
+// toWithdrawalRequests packs an update's withdrawals into the contract's WithdrawalRequest shape.
+func toWithdrawalRequests(update *common.UpdatePayload) []processorendpoint.StructsWithdrawalRequest {
+	withdrawals := make([]processorendpoint.StructsWithdrawalRequest, len(update.Withdrawals))
+	for i, withdrawal := range update.Withdrawals {
+		withdrawals[i] = processorendpoint.StructsWithdrawalRequest{
+			TokenAddress: withdrawal.TokenAddress,
+			Receiver:     withdrawal.DestinationAddress,
+			Amount:       withdrawal.Amount.ToInt(),
+		}
+	}
+	return withdrawals
 }
 
 // Close closes the blockchain client

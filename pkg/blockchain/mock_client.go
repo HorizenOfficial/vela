@@ -185,28 +185,10 @@ func (c *MockClient) GetPendingRequests(ctx context.Context) ([]*common.Request,
 	return requests, nil
 }
 
-// GetNextPendingRequest gets the next pending request and the current stateRoot from the blockchain
-func (c *MockClient) GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if f, ok := c.GetMockedFunc("GetNextPendingRequest"); ok {
-		return f.(func(context.Context) (*common.Request, [32]byte, error))(ctx)
-	}
-	if c.pendingRequests.Len() > 0 {
-		req := c.pendingRequests.Front().Value
-		return req, c.stateRoots[req.ApplicationID], nil
-	}
-
-	return nil, [32]byte{}, nil // no pending request — return zero root (matches contract behavior)
-
-}
-
 // GetPendingRequestsWithStateRoot returns up to maxCount pending requests for a single
 // application (the one at the queue head), together with its applicationId and state
-// root. Unlike the real client stub, the mock implements the batch semantics fully so
-// tests can exercise multi-request batches: a batch is scoped to one application, so
-// only the head application's requests are returned, in queue order.
+// root. A batch is scoped to one application, so only the head application's requests
+// are returned, in queue order.
 func (c *MockClient) GetPendingRequestsWithStateRoot(ctx context.Context, maxCount uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
 	if f, ok := c.GetMockedFunc("GetPendingRequestsWithStateRoot"); ok {
 		return f.(func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error))(ctx, maxCount)

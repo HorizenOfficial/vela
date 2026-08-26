@@ -72,6 +72,27 @@ contract Structs {
     string errorMsg;
   }
 
+  /// @notice One request's update payload inside a `batchStateUpdate` call.
+  /// @dev Mirrors the arguments of `stateUpdate` minus two of them:
+  ///      - `applicationId` is deduplicated to the batch — every entry of a batch belongs to the
+  ///        same application, so it is passed once alongside the entry array;
+  ///      - `signature` is replaced by the single batch signature covering every entry hash.
+  ///      Field names and order otherwise follow `SignatureParams`, which is what the per-entry
+  ///      hash is built from (`UpdateEntryHash.entryHash`): both event sets are carried, because
+  ///      the entry hash cannot be reconstructed without them.
+  struct BatchEntry {
+    bytes32 prevStateRoot;
+    bytes32 newStateRoot;
+    bytes32 processedRequestId;
+    EventData userEvents;
+    EventData appEvents;
+    WithdrawalRequest[] withdrawalRequests;
+    uint256 refund;
+    uint256 applicationFees;
+    ErrorCode errorCode;
+    string errorMsg;
+  }
+
   /// @notice Describes a token and amount pair.
   struct TokenAndAmount {
     /// @notice Token address; address(0) for ETH.

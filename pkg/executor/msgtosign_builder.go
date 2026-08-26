@@ -68,7 +68,7 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failure creating bytes32 type: %w", err)
 	}
-	// Order must match AbstractTeeAuthenticator.checkSignature in Solidity
+	// Order must match UpdateEntryHash.entryHash in Solidity
 	msgArgs := abi.Arguments{
 		{Type: uint64Type},  // applicationId
 		{Type: bytes32Type}, // prevStateRoot
@@ -90,8 +90,10 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 }
 
 // BuildMsgHash builds the Ethereum personal_sign hash for a single update
-// payload: TextHash(entryHash). This is what individually signed payloads sign
-// and what AbstractTeeAuthenticator.checkSignature recovers against.
+// payload: TextHash(entryHash). This is what individually signed payloads sign.
+// ProcessorEndpoint.stateUpdate verifies it through
+// AbstractTeeAuthenticator.checkBatchSignature with a 1-entry array, whose
+// digest is byte-identical to this one (see BuildBatchMsgHash).
 func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
 	entryHash, err := b.buildEntryHash(updatePayload)
 	if err != nil {
@@ -200,7 +202,7 @@ func (b *MsgToSignBuilder) buildEntryHash(updatePayload *common.UpdatePayload) (
 	withdrawalHash := ethCrypto.Keccak256(encodedWithdrawal)
 	var withdrawalArr [32]byte = [32]byte(withdrawalHash)
 
-	// Order must match msgArgs above and AbstractTeeAuthenticator.checkSignature
+	// Order must match msgArgs above and UpdateEntryHash.entryHash
 	values := []interface{}{
 		updatePayload.ApplicationID,       // applicationId
 		updatePayload.PrevStateRoot,       // prevStateRoot
