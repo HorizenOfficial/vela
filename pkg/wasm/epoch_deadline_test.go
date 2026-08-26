@@ -667,3 +667,78 @@ func TestSetGuestExecutionTimeoutClamps(t *testing.T) {
 	require.Equal(t, maxGuestExecutionTimeout, runtime.GetGuestExecutionTimeout(),
 		"an absurd timeout must be clamped to the ceiling")
 }
+
+// fdReadProbeWat reads into a 32-byte buffer from whichever fd it is given. It
+// imports fd_read directly, which checkGuestImportsAllowed refuses — so it is
+// instantiated through a bare linker rather than through the runtime's own load
+// path. That is the point: it probes the WASI configuration itself, not the import
+// gate layered above it.
+const fdReadProbeWat = `(module
+  (import "wasi_snapshot_preview1" "fd_read"
+    (func $fd_read (param i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  ;; iovec at 0: {buf = 64, len = 32}; bytes-read out-param at 16
+  (func (export "read_fd") (param $fd i32) (result i32)
+    (i32.store (i32.const 0) (i32.const 64))
+    (i32.store (i32.const 4) (i32.const 32))
+    (call $fd_read (local.get $fd) (i32.const 0) (i32.const 1) (i32.const 16)))
+)`
+
+// TestConfiguredWasiCannotBlockOnRead pins the configuration invariant the whole
+// WASI surface rests on: no descriptor a guest can read is one that can make it
+// wait. Today that holds because configureWasiLogPipes gives a guest nothing but
+// the write-only log pipes, leaving stdin at wasmtime's default empty stream.
+//
+// It is guarded here rather than left implicit because it is one line away from
+// being lost: an InheritStdin, a SetStdinFile or a PreopenDir added to
+// configureWasiLogPipes would hand a guest something that can block, and a blocking
+// read is beyond the execution bound entirely — epoch interruption only reaches
+// guest code, so a guest parked in a host call holds execLock past its own
+// deadline, past the caller's budget and past shutdown, stalling every application.
+//
+// The assertion is a wall-clock timeout, not an errno: what must never happen is
+// waiting. Which errno comes back is wasmtime's business and may change.
+func TestConfiguredWasiCannotBlockOnRead(t *testing.T) {
+	// The default bound, not the short test one: a store carries an epoch deadline
+	// from creation, and this test must not race it.
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	store := runtime.newModuleStore()
+	cleanup, err := runtime.configureWasiLogPipes(context.Background(), common.NewApplicationId(1), store)
+	require.NoError(t, err)
+	defer cleanup()
+
+	linker := wasmtime.NewLinker(runtime.engine)
+	require.NoError(t, linker.DefineWasi())
+
+	wasmBytes, err := wasmtime.Wat2Wasm(fdReadProbeWat)
+	require.NoError(t, err)
+	module, err := wasmtime.NewModule(runtime.engine, wasmBytes)
+	require.NoError(t, err)
+	instance, err := linker.Instantiate(store, module)
+	require.NoError(t, err)
+	readFd := instance.GetFunc(store, "read_fd")
+	require.NotNil(t, readFd)
+
+	// stdin, stdout, stderr, and the first fd beyond them: every descriptor a guest
+	// could name without one having been preopened for it.
+	for _, fd := range []int32{0, 1, 2, 3} {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = readFd.Call(store, fd)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			// Deliberately fatal: the goroutine is wedged in a host call and cannot be
+			// interrupted, which is precisely the condition being reported.
+			t.Fatalf("fd_read on fd %d did not return: the WASI configuration exposes a "+
+				"readable descriptor, so a guest can park the host thread past the "+
+				"execution bound (check configureWasiLogPipes for InheritStdin, "+
+				"SetStdinFile or PreopenDir)", fd)
+		}
+	}
+}

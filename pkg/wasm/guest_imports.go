@@ -39,8 +39,20 @@ import (
 //
 // The list is the exact import set that TinyGo's wasip1 target emits for the guests
 // in this system — app/simple, app/trigger and vela-nova's payment app all declare
-// these eight and nothing else. Notably absent are poll_oneoff and fd_read, the two
-// calls that can park the thread.
+// these eight and nothing else.
+//
+// Notably absent is poll_oneoff, which parks the thread unconditionally: a clock
+// subscription is a sleep for as long as the guest names, whatever the host's
+// configuration. fd_read is absent for a weaker reason and the distinction matters
+// if the list is ever revisited. It cannot block as this runtime is configured,
+// because the only descriptors a guest is given are an empty stdin (reads return
+// EOF at once) and the write-only log pipes — see configureWasiLogPipes, and
+// TestConfiguredWasiCannotBlockOnRead, which pins that. It is excluded because
+// nothing here needs it, so admitting it would buy a dependency on that
+// configuration for no gain. A guest that legitimately needs it — TinyGo links
+// os.File.Read transitively from io or crypto/rand, so an app can declare it
+// without ever calling it — may be admitted, but only together with the
+// configuration guarantee above, never on its own.
 //
 // Kept deliberately: clock_time_get and random_get return immediately and every
 // guest needs them. They are, however, real sources of non-determinism in a signed
