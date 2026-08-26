@@ -593,6 +593,15 @@ func (r *WasmtimeRuntime) compileAndInstantiate(ctx context.Context, appId commo
 		return nil, fmt.Errorf("failed to compile WASM module: %w", err)
 	}
 
+	// Refuse a guest that could call out of the execution bound's reach, before
+	// anything of it runs. Compilation executes no guest code, but instantiation
+	// below does (a start section), so this is the last point where the module can
+	// still be rejected without having run at all. See guest_imports.go.
+	if err := checkGuestImportsAllowed(module); err != nil {
+		module.Close()
+		return nil, err
+	}
+
 	// Create a per-module store
 	store := r.newModuleStore()
 

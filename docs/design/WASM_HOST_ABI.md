@@ -39,8 +39,44 @@ Two further exports are used only by reference and debug paths
 executor's `Runtime` interface, and are not required of a production app:
 `get_allocated_memory_stats (outPtr i32)` and `get_memory_stats () -> i32`.
 
-WASI is available: the host defines it on the linker (`linker.DefineWasi()`), which
-is what TinyGo-generated modules need in order to instantiate.
+## Host imports: a closed set
+
+WASI is defined on the linker (`linker.DefineWasi()`), which is what TinyGo-generated
+modules need in order to instantiate — but a guest may only **declare** the following
+imports, and nothing else:
+
+```
+wasi_snapshot_preview1.args_get           wasi_snapshot_preview1.environ_sizes_get
+wasi_snapshot_preview1.args_sizes_get     wasi_snapshot_preview1.fd_write
+wasi_snapshot_preview1.clock_time_get     wasi_snapshot_preview1.proc_exit
+wasi_snapshot_preview1.environ_get        wasi_snapshot_preview1.random_get
+```
+
+This is the import set TinyGo's `wasip1` target emits for a guest that does no I/O,
+so a normal app satisfies it without doing anything. The module's import section is
+checked after compilation and before instantiation, so a module declaring anything
+else is refused **before any of it runs**, including its start section. The refusal
+is a signed `FAILED_LOADING_OR_GETTING_MODULE` failure: at deploy the app simply
+does not deploy.
+
+Refusal is triggered by *declaring* an import, not by calling it. A guest that links
+`time.Sleep` anywhere reachable will import `poll_oneoff` and be rejected even if it
+never sleeps — rebuild without that path.
+
+**The rule this enforces, for anyone adding a host function:** a host import must
+return without blocking and without unbounded work. Guest execution is bounded by
+epoch interruption, which works through checks the compiler emits into *guest* code;
+while a host call is running, the guest bound, the caller's execution budget and
+shutdown are all suspended, and the runtime's global execution lock is held against
+every other application. A blocking import is therefore a system-wide stall that
+nothing can interrupt, and — since the request never completes — one that is never
+signed and never charged for. Adding to the allowed set is an ABI change: the new
+function must satisfy that rule, and must also satisfy the `externref` restriction
+below. Removing from the set bricks already-deployed guests that declare the entry.
+
+`clock_time_get` and `random_get` are permitted because they return immediately and
+every TinyGo guest needs them. Note they make a state transition non-reproducible,
+which matters if re-execution or multi-executor attestation is ever introduced.
 
 ## Passing bytes in: `allocate`
 
@@ -119,8 +155,10 @@ Practical notes for guest authors:
 
 - The budget covers the **whole operation**, not each call, and it is not reset
   between the host's `allocate` calls and your export.
-- Time spent blocked in a WASI host call is *not* interruptible, so a guest that
-  blocks there can still exceed the bound without being stopped by this mechanism.
+- Time spent inside a host call is *not* interruptible: the bound is enforced by
+  checks the compiler emits into guest code, which a blocked host call never
+  reaches. This is why the imports a guest may declare are a closed set (see "Host
+  imports: a closed set"); none of the permitted ones can block.
 - The interrupt is a trap, so it evicts the module from the cache (see below) and no
   guest cleanup runs. Do not rely on deferred work completing.
 - Real guests are nowhere near this: the reference apps return in single-digit
@@ -203,7 +241,7 @@ function references but not for host references.
 
 That is a deliberate narrowing, and what keeps it safe is a requirement rather than a
 coincidence: **no host import may take or return `externref`.** Today that holds
-trivially, since WASI is the only import surface. It must keep holding as host
+trivially, since the allowed import set is WASI-only. It must keep holding as host
 functions are added — a host-crypto bridge is specified, and it passes only `i32`
 pointers and lengths, so it is unaffected. If some future host import genuinely needs
 to hand a guest an opaque host reference, GC support has to be switched back on in the

@@ -85,6 +85,62 @@ const spinningStartSectionWat = `(module
     i32.const 100)
 )`
 
+// blockingWasiSleepWat does not spin at all: it asks the HOST to sleep, via the
+// WASI poll_oneoff clock subscription that TinyGo's time.Sleep lowers to.
+//
+// This is the one escape epoch interruption cannot close by itself. Epoch checks
+// are emitted into compiled guest code, so they are only reached while the guest
+// is executing; a guest parked inside a host call is off in native code, where
+// bumping the epoch does nothing until it comes back. The watcher, the caller's
+// execution budget and Close all pull that same dead lever, so without a host-side
+// restriction the guest runs for as long as it asked for — holding execLock, which
+// is global, so every other application waits behind it.
+//
+// The subscription layout (48 bytes at offset 0) is written with explicit stores
+// rather than a hand-encoded data segment so it stays auditable:
+//
+//	[0]  userdata u64     = 0
+//	[8]  eventtype u8     = 0 (clock); the union is 8-aligned, so it starts at 16
+//	[16] clock id u32     = 1 (monotonic)
+//	[24] timeout u64 (ns) = wasiSleepRequest
+//	[32] precision u64    = 0
+//	[40] flags u16        = 0 (relative)
+//
+// The out-events buffer is at 104 (8-aligned, as wasmtime requires) and the
+// nevents out-param at 200. The errno is dropped: a guest whose sleep is refused
+// carries on and returns its result, which is what makes the exclusion visible as
+// a fast, successful call rather than as a failure.
+const blockingWasiSleepWat = `(module
+  (import "wasi_snapshot_preview1" "poll_oneoff"
+    (func $poll (param i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+
+  ;; same result layout as dispatchTestWat: state [1]
+  (data (i32.const 300)
+    "\54\00\00\00"
+    "{\22state\22:[1],\22events\22:[],\22appEvents\22:[],\22withdrawals\22:[],\22report\22:null,\22fuel\22:\220x0\22}")
+
+  (func $sleep
+    (i64.store   (i32.const 0)  (i64.const 0))
+    (i32.store8  (i32.const 8)  (i32.const 0))
+    (i32.store   (i32.const 16) (i32.const 1))
+    (i64.store   (i32.const 24) (i64.const 5000000000))
+    (i64.store   (i32.const 32) (i64.const 0))
+    (i32.store16 (i32.const 40) (i32.const 0))
+    (drop (call $poll (i32.const 0) (i32.const 104) (i32.const 1) (i32.const 200))))
+
+  (func (export "allocate") (param i32) (result i32) i32.const 900)
+  (func (export "deallocate") (param i32 i32))
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    (call $sleep)
+    i32.const 300)
+)`
+
+// wasiSleepRequest is the sleep blockingWasiSleepWat asks the host for. It is far
+// above both testGuestTimeout and shutdownExecLockTimeout, so a guest that is
+// allowed to serve it is unmistakable in the elapsed time.
+const wasiSleepRequest = 5 * time.Second
+
 // spinningDeallocateWat succeeds at everything the host reads a result from, and
 // only hangs in `deallocate` — the fire-and-forget cleanup whose errors the host
 // drops. It models a guest that returns a valid result and then refuses to let go
@@ -216,6 +272,125 @@ func TestRunawayAllocateIsInterrupted(t *testing.T) {
 // TestSpinningStartSectionIsInterrupted pins measured fact M3: guest code can run
 // during Instantiate, so the store must be armed before instantiating and not
 // only before calling an export.
+// TestBlockingWasiCallCannotOutlastTheGuestBound is the exclusion test for the
+// restricted WASI surface: it proves a VIOLATING guest is refused, not merely that
+// legitimate ones still run. Every other fixture in this file spins in pure wasm,
+// where epoch interruption was never in doubt — this one blocks in a host call,
+// which is where the bound had no reach at all.
+//
+// The load-time import check makes this a refusal rather than a neutered call, so
+// the assertion is on elapsed time: whatever else happens, the host must never
+// serve the sleep the guest asked for.
+func TestBlockingWasiCallCannotOutlastTheGuestBound(t *testing.T) {
+	runtime := newBoundedRuntime(t, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(blockingWasiSleepWat)
+	require.NoError(t, err)
+
+	start := time.Now()
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		context.Background(), common.NewApplicationId(1), ethCommon.Address{},
+		common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	elapsed := time.Since(start)
+
+	require.Less(t, elapsed, wasiSleepRequest/2,
+		"a guest blocked in a WASI host call outran its execution bound: the host served "+
+			"the sleep it asked for, holding execLock and stalling every other application")
+	require.NotNil(t, failure, "a guest that can block the host must not be loaded at all")
+	require.Equal(t, apperrors.CodeFailedLoadingOrGettingModule, failure.RequestError,
+		"the refusal must be a signed load failure so the request settles and the queue advances")
+}
+
+// TestDisallowedImportIsRejectedAtLoad pins the shape of the restriction: a guest is
+// refused for DECLARING a host function outside the allowed set, whether or not it
+// ever calls it, and whether it comes from WASI or from some other namespace.
+//
+// Declaring is the right trigger. An import that is merely present is still an
+// import the guest can reach at any time, and refusing at load makes it a signed
+// on-chain failure at deploy — the earliest, loudest point, where the queue still
+// advances. The alternative, letting it load and neutering the call, would change
+// guest semantics silently: a guest tested against stock wasmtime would behave
+// differently inside the enclave, which is a worse failure than a refused deploy.
+func TestDisallowedImportIsRejectedAtLoad(t *testing.T) {
+	cases := []struct {
+		name    string
+		wat     string
+		offence string
+	}{
+		{
+			name:    "a blocking WASI import",
+			wat:     blockingWasiSleepWat,
+			offence: "wasi_snapshot_preview1.poll_oneoff",
+		},
+		{
+			name:    "a host function outside WASI",
+			offence: "vela_host.do_something",
+			wat: `(module
+  (import "vela_host" "do_something" (func (param i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100)
+)`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wasmBytes, err := wasmtime.Wat2Wasm(tc.wat)
+			require.NoError(t, err)
+
+			runtime := newBoundedRuntime(t, 0)
+			defer runtime.Close()
+
+			_, err = runtime.getOrLoadModule(context.Background(), common.NewApplicationId(1), wasmBytes)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.offence,
+				"the error must name the offending import so the app author can act on it")
+		})
+	}
+}
+
+// TestGuestKeepsTheWasiImportsItActuallyUses is the other half of the exclusion
+// test: the restriction must not cost a legitimate guest anything it uses. An
+// import a module declares but the linker does not define fails at INSTANTIATION,
+// not at call time, so removing one too many breaks every guest at load.
+//
+// The list is the exact import set of the shipped TinyGo guests, read off
+// app/simple/build/simple_app.wasm and app/trigger/build/trigger_app.wasm with
+// wasm2wat. It is spelled out as a WAT fixture rather than loaded from those
+// artifacts so this runs in the quick suite without a TinyGo build; the real
+// guests are covered end to end by app/simple/integration_test.go.
+const realGuestWasiImportsWat = `(module
+  (import "wasi_snapshot_preview1" "args_get" (func (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "args_sizes_get" (func (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "clock_time_get" (func (param i32 i64 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "environ_get" (func (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "environ_sizes_get" (func (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_write" (func (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "proc_exit" (func (param i32)))
+  (import "wasi_snapshot_preview1" "random_get" (func (param i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "allocate") (param i32) (result i32) i32.const 500)
+  (func (export "deallocate") (param i32 i32))
+  (func (export "process_request") (param i64 i32 i32 i32 i32 i32 i32 i32) (result i32)
+    i32.const 100)
+)`
+
+func TestGuestKeepsTheWasiImportsItActuallyUses(t *testing.T) {
+	wasmBytes, err := wasmtime.Wat2Wasm(realGuestWasiImportsWat)
+	require.NoError(t, err)
+
+	runtime := newBoundedRuntime(t, 0)
+	defer runtime.Close()
+
+	_, err = runtime.getOrLoadModule(context.Background(), common.NewApplicationId(1), wasmBytes)
+	require.NoError(t, err,
+		"a guest importing only what the real TinyGo guests import must still instantiate")
+}
+
 func TestSpinningStartSectionIsInterrupted(t *testing.T) {
 	runtime := newBoundedRuntime(t, 0)
 	defer runtime.Close()
