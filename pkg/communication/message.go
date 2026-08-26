@@ -230,6 +230,22 @@ type GetKeysetRecoveryResponseData struct {
 	RequestTimeoutMs int64 `json:"requestTimeoutMs,omitempty"`
 }
 
+// Validate rejects a reply whose DataFound flag and KeySetRecovery payload disagree.
+//
+// Nothing else pairs the two: the flag is what the executor branches on, and the payload
+// is what it then reads, so a reply claiming data while carrying none is dereferenced as
+// a nil pointer during the handshake — before any keyset exists, in a goroutine with no
+// recover, which takes the whole enclave down. This is the first message the executor
+// accepts from outside the TEE, so it must not be trusted to be self-consistent.
+//
+// A false flag with no payload is the ordinary first-connection reply and stays valid.
+func (gkr *GetKeysetRecoveryResponseData) Validate() error {
+	if gkr.DataFound && gkr.KeySetRecovery == nil {
+		return fmt.Errorf("dataFound is set but keySetRecovery is missing")
+	}
+	return nil
+}
+
 // SetKeysetRecoveryRequestData represents data for a set keyset recovery request message
 type SetKeysetRecoveryRequestData struct {
 	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`

@@ -452,6 +452,17 @@ func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communica
 	var keySet *EnclaveKeySet
 	if handshake.DataFound {
 		recoveryData := handshake.KeySetRecovery
+		// GetKeysetRecoveryResponseData.Validate rejects this pairing on the wire, but the
+		// handshake runs in a goroutine with no recover: a nil read here takes the enclave
+		// down, so the branch that dereferences the payload checks it too rather than
+		// relying on a caller having gone through the protocol layer.
+		if recoveryData == nil {
+			err := fmt.Errorf("manager reported keyset recovery data but sent none")
+			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
+				e.log.Error("Executor: failed to send handshake rejection to manager: %v", notifyErr)
+			}
+			return nil, err
+		}
 		e.log.Info("Executor: Keyset recovery data found (Type %d), restoring keyset...", recoveryData.RecoveryType)
 		keySet, err = RestoreEnclaveKeySet(ctx, recoveryData, e.kmsClient, e.enclaveHandle)
 		if err != nil {

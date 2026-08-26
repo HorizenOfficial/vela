@@ -124,3 +124,24 @@ func TestHandshakeValidatesGuestBoundAgainstManagerTimeout(t *testing.T) {
 		require.True(t, conn.setKeysetCalled)
 	})
 }
+
+// TestHandshakeRejectsPresentButMissingRecoveryData pins that a manager which reports
+// recovery data is present but sends none is refused, not dereferenced. The nil
+// KeySetRecovery would otherwise be read for its RecoveryType and panic the enclave —
+// and nothing on the wire pairs the flag with the payload. Patience is adequate so the
+// guest-bound check is not what rejects it.
+func TestHandshakeRejectsPresentButMissingRecoveryData(t *testing.T) {
+	conn := &scriptedServerConnection{reply: &communication.GetKeysetRecoveryResponseData{
+		DataFound:        true,
+		KeySetRecovery:   nil,
+		RequestTimeoutMs: 30_000,
+	}}
+
+	var err error
+	require.NotPanics(t, func() {
+		_, err = newHandshakeExecutor(10_000).performHandshake(context.Background(), conn)
+	})
+	require.Error(t, err)
+	require.True(t, conn.resultReported, "the manager must be told the handshake was refused")
+	require.False(t, conn.setKeysetCalled, "a refused handshake must not generate a keyset")
+}
