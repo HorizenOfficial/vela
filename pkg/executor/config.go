@@ -329,6 +329,22 @@ func (c *Config) guestExecutionBound() time.Duration {
 // configured apart.
 func (c *Config) checkGuestBoundFitsCallerBudget(callerTimeoutMs int64) error {
 	guestBoundMs := c.guestExecutionBound().Milliseconds()
+
+	// callerTimeoutMs crosses the TEE boundary and, unlike the per-request
+	// ExecutionBudgetMs, is not range-checked anywhere else. Guard both ends before the
+	// subtraction below. A negative value would underflow budgetMs to a large positive
+	// number and pass the comparison, silently disarming this invariant; a value above
+	// communication.MaxExecutionBudgetMs would pass here only for every later request to
+	// be rejected by validateExecutionBudget, stalling the queue forever. Refuse both at
+	// the handshake, where the operator is told once, rather than on every request.
+	if callerTimeoutMs <= 0 || callerTimeoutMs > communication.MaxExecutionBudgetMs {
+		return fmt.Errorf(
+			"the manager's request timeout (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC = %d ms) must be "+
+				"positive and at most %d ms; a value outside that range cannot yield a usable per-request "+
+				"execution budget",
+			callerTimeoutMs, int64(communication.MaxExecutionBudgetMs))
+	}
+
 	budgetMs := callerTimeoutMs - communication.ExecutionBudgetMargin.Milliseconds()
 	if guestBoundMs >= budgetMs {
 		return fmt.Errorf(

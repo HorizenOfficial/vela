@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -407,5 +408,21 @@ func TestGuestTimeoutMustBeatCallerBudget(t *testing.T) {
 		// A request timeout at or below the margin drops the budget entirely, so the
 		// executor would run its full bound long after the caller stopped waiting.
 		require.Error(t, check(0, 3_000))
+	})
+
+	t.Run("a negative manager timeout is rejected", func(t *testing.T) {
+		// callerTimeoutMs arrives straight off the wire, unlike ExecutionBudgetMs it is
+		// never range-checked. Without a guard, callerTimeoutMs - margin underflows to a
+		// huge positive budget and the invariant silently passes, disarming the one
+		// defence against a runaway guest never being settled on-chain.
+		require.Error(t, check(10_000, -1))
+		require.Error(t, check(10_000, math.MinInt64))
+	})
+
+	t.Run("an oversize manager timeout is rejected", func(t *testing.T) {
+		// Above communication.MaxExecutionBudgetMs the per-request ExecutionBudgetMs is
+		// refused by message validation, so a handshake that accepts the same value only
+		// defers the failure: every later request errors forever. Refuse it here instead.
+		require.Error(t, check(10_000, communication.MaxExecutionBudgetMs+1))
 	})
 }
