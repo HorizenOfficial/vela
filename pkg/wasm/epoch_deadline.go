@@ -185,13 +185,36 @@ func (g *guestExecution) cleanupWasInterrupted() bool {
 	return g.cleanupInterrupted.Load()
 }
 
-// beginGuestExecution arms store with the configured timeout and starts the
+// guestExecutionAllowance returns how long the operation about to start may run:
+// the configured bound, or whatever is left of the request's shared budget when
+// that is less (see common.WithGuestExecutionBudget).
+//
+// The distinction that matters is between "no budget was set" and "the budget is
+// spent". The first means this operation is not part of a request that bounds it as
+// a whole, so the configured bound applies on its own, exactly as before. The
+// second means the request has already had its full allowance across earlier
+// operations, and the answer is a non-positive duration — epochTicksFor floors that
+// at one tick, so the guest is interrupted at the first epoch check rather than
+// being handed another full bound. Either way the interrupt is the guest exhausting
+// its own allowance, which is signed; the caller's budget is a separate mechanism
+// that works through cancellation and stays transient.
+func (r *WasmtimeRuntime) guestExecutionAllowance(ctx context.Context) time.Duration {
+	bound := r.GetGuestExecutionTimeout()
+
+	remaining, bounded := common.GuestExecutionBudgetRemaining(ctx)
+	if bounded && remaining < bound {
+		return remaining
+	}
+	return bound
+}
+
+// beginGuestExecution arms store with the operation's allowance and starts the
 // watcher. The caller MUST defer end().
 //
 // Must be called with execLock held — see the guestExecution watcher for why that
 // is what makes the captured engine pointer safe.
 func (r *WasmtimeRuntime) beginGuestExecution(ctx context.Context, store *wasmtime.Store) *guestExecution {
-	timeout := r.GetGuestExecutionTimeout()
+	timeout := r.guestExecutionAllowance(ctx)
 	ticks := epochTicksFor(timeout)
 
 	// Arming is per operation, never once per store: the deadline is absolute, so a

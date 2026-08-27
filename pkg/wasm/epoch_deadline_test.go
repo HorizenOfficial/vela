@@ -742,3 +742,95 @@ func TestConfiguredWasiCannotBlockOnRead(t *testing.T) {
 		}
 	}
 }
+
+// TestRequestBudgetBoundsTheWholeRequest is the core of the per-request budget: a
+// request that declares a budget must be interrupted when THAT budget is spent,
+// not when each individual operation's bound is.
+//
+// The runtime bound here is the 10s default and the request budget is a fraction of
+// it, so the two are impossible to confuse: if operations were still armed from the
+// runtime bound alone the guest would spin for ten seconds.
+//
+// The classification matters as much as the timing. Exhausting the request's own
+// allowance is the guest's doing, so it must surface as CodeGuestExecutionTimeout,
+// which is SIGNED — the request settles on-chain and the queue advances. It must
+// NOT come back as CodeGuestExecutionCancelled, which is the transient,
+// nothing-is-signed path reserved for the host giving up.
+func TestRequestBudgetBoundsTheWholeRequest(t *testing.T) {
+	const requestBudget = 300 * time.Millisecond
+
+	// The default 10s bound, deliberately far above the request budget.
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	wasmBytes, err := wasmtime.Wat2Wasm(foreverSpinningProcessRequestWat)
+	require.NoError(t, err)
+
+	ctx := common.WithGuestExecutionBudget(context.Background(), requestBudget)
+
+	start := time.Now()
+	_, _, _, _, _, _, failure := runtime.ProcessRequest(
+		ctx, common.NewApplicationId(1), ethCommon.Address{},
+		common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+	elapsed := time.Since(start)
+
+	require.NotNil(t, failure)
+	require.Equal(t, apperrors.CodeGuestExecutionTimeout, failure.RequestError,
+		"spending the request's own budget is the guest's doing and must be signed, "+
+			"not reported as host-side cancellation")
+	require.Less(t, elapsed, requestBudget*4,
+		"the operation was armed from the runtime bound instead of the remaining request budget")
+	require.Greater(t, elapsed, requestBudget/2,
+		"interrupted far too early — the budget is not being honoured as the arming source")
+}
+
+// TestRequestBudgetIsSharedAcrossOperations pins the property the request budget
+// exists for: consecutive operations DRAW DOWN one allowance instead of each
+// receiving a fresh one. Without it, a request that loads a module, takes a deposit
+// and then processes gets three full bounds, and their sum is what the manager
+// waits through.
+//
+// Asserted on the armed tick count rather than on elapsed time, so it states the
+// arithmetic directly and cannot be blurred by scheduling jitter.
+func TestRequestBudgetIsSharedAcrossOperations(t *testing.T) {
+	const (
+		requestBudget = 2 * time.Second
+		spent         = 700 * time.Millisecond
+	)
+
+	// Default 10s bound, so the budget — not the bound — is what binds.
+	runtime := NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	ctx := common.WithGuestExecutionBudget(context.Background(), requestBudget)
+	store := runtime.newModuleStore()
+
+	first := runtime.beginGuestExecution(ctx, store)
+	first.end()
+
+	time.Sleep(spent)
+
+	second := runtime.beginGuestExecution(ctx, store)
+	second.end()
+
+	require.Less(t, second.ticks, first.ticks,
+		"the second operation was armed with a fresh allowance: the budget is per operation, "+
+			"not per request, so their sum can outlast the caller")
+	require.LessOrEqual(t, second.ticks, epochTicksFor(requestBudget-spent),
+		"the second operation was armed with more than the budget had left")
+}
+
+// TestWithoutARequestBudgetOperationsUseTheFullBound is the other half: the budget
+// is opt-in, and a caller that sets none must keep the previous behaviour rather
+// than inherit an allowance that is already spent.
+func TestWithoutARequestBudgetOperationsUseTheFullBound(t *testing.T) {
+	runtime := newBoundedRuntime(t, 0)
+	defer runtime.Close()
+
+	store := runtime.newModuleStore()
+	g := runtime.beginGuestExecution(context.Background(), store)
+	defer g.end()
+
+	require.Equal(t, epochTicksFor(testGuestTimeout), g.ticks,
+		"with no request budget an operation must be armed from the configured bound")
+}

@@ -45,9 +45,30 @@ type boundStubRuntime struct {
 	// delay makes each ProcessRequest consume wall-clock time, so a test can watch a
 	// shared batch budget actually drain. An instant stub never shrinks the deadline.
 	delay time.Duration
+
+	// depositDelay does the same for Deposit, so a test can watch the per-request
+	// budget drain ACROSS the two guest calls one request makes.
+	depositDelay time.Duration
+
+	// processBudgets and depositBudgets record the per-request guest budget each call
+	// observed, in call order, so a test can assert on how it is scoped and drawn
+	// down. A nil entry means the context carried no budget at all.
+	processBudgets []*time.Duration
+	depositBudgets []*time.Duration
+	deployBudgets  []*time.Duration
+}
+
+// recordBudget appends whatever per-request guest budget ctx carries.
+func recordBudget(ctx context.Context, into *[]*time.Duration) {
+	if remaining, ok := common.GuestExecutionBudgetRemaining(ctx); ok {
+		*into = append(*into, &remaining)
+		return
+	}
+	*into = append(*into, nil)
 }
 
 func (r *boundStubRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
+	recordBudget(ctx, &r.deployBudgets)
 	if r.deployErr != nil {
 		return nil, big.NewInt(0), r.deployErr
 	}
@@ -55,6 +76,10 @@ func (r *boundStubRuntime) Deploy(ctx context.Context, appId common.ApplicationI
 }
 
 func (r *boundStubRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, *big.Int, *apperrors.RequestFailure) {
+	recordBudget(ctx, &r.depositBudgets)
+	if r.depositDelay > 0 {
+		time.Sleep(r.depositDelay)
+	}
 	if r.depositFailure != nil {
 		return nil, nil, nil, big.NewInt(0), r.depositFailure
 	}
@@ -63,6 +88,7 @@ func (r *boundStubRuntime) Deposit(ctx context.Context, appId common.Application
 
 func (r *boundStubRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	r.calls++
+	recordBudget(ctx, &r.processBudgets)
 	if r.delay > 0 {
 		time.Sleep(r.delay)
 	}
@@ -425,4 +451,98 @@ func TestGuestTimeoutMustBeatCallerBudget(t *testing.T) {
 		// defers the failure: every later request errors forever. Refuse it here instead.
 		require.Error(t, check(10_000, communication.MaxExecutionBudgetMs+1))
 	})
+}
+
+// TestEachRequestGetsItsOwnGuestBudget pins the scope of the per-request budget: it
+// is per REQUEST, not per batch and not per operation.
+//
+// Per batch would be wrong in the obvious direction — later requests in a long
+// batch would inherit an allowance already spent by earlier ones and be interrupted
+// for someone else's work. Per operation is the bug this exists to remove: a request
+// making several guest calls would get a full bound for each, and their sum is what
+// the manager waits through.
+func TestEachRequestGetsItsOwnGuestBudget(t *testing.T) {
+	const guestBound = 5 * time.Second
+
+	runtime := &boundStubRuntime{delay: 300 * time.Millisecond}
+	exec := newTestExecutor(t, runtime)
+	exec.config.GuestExecutionTimeoutMs = guestBound.Milliseconds()
+
+	user, _, userPub := newBatchTestUser(t)
+	wasmModule := []byte("wasm")
+	appState := buildEncryptedAppState(t, exec, &user, userPub, wasmModule)
+
+	requests := []*common.Request{newBoundTestRequest(), newBoundTestRequest()}
+
+	payloads, _, _, _, err := exec.HandleBatchProcessRequest(
+		context.Background(), requests, appState, wasmModule)
+	require.NoError(t, err)
+	require.Len(t, payloads, 2)
+
+	require.Len(t, runtime.processBudgets, 2)
+	for i, observed := range runtime.processBudgets {
+		require.NotNil(t, observed, "request %d ran with no guest budget at all", i)
+		require.Greater(t, *observed, guestBound-time.Second,
+			"request %d started with a budget already spent by an earlier request", i)
+		require.LessOrEqual(t, *observed, guestBound,
+			"request %d was given more than the configured bound", i)
+	}
+}
+
+// TestDepositAndProcessShareOneRequestBudget covers the case the bound was missing:
+// a request carrying a deposit calls the guest twice, and the two must draw down one
+// allowance rather than each receiving a full one.
+func TestDepositAndProcessShareOneRequestBudget(t *testing.T) {
+	const (
+		guestBound   = 5 * time.Second
+		depositSpend = 400 * time.Millisecond
+	)
+
+	runtime := &boundStubRuntime{depositDelay: depositSpend}
+	exec := newTestExecutor(t, runtime)
+	exec.config.GuestExecutionTimeoutMs = guestBound.Milliseconds()
+
+	user, _, userPub := newBatchTestUser(t)
+	wasmModule := []byte("wasm")
+	appState := buildEncryptedAppState(t, exec, &user, userPub, wasmModule)
+
+	req := newBoundTestRequest()
+	req.AssetAmount = common.NewBig(1) // makes executeRequest call Deposit first
+	// Enough headroom for the fuel the deposit reports, or the request settles as an
+	// insufficient-fee error payload and never reaches the second guest call.
+	req.MaxFeeValue = common.NewBig(1_000_000)
+
+	_, _, _, _, err := exec.HandleBatchProcessRequest(
+		context.Background(), []*common.Request{req}, appState, wasmModule)
+	require.NoError(t, err)
+
+	require.Len(t, runtime.depositBudgets, 1)
+	require.Len(t, runtime.processBudgets, 1)
+	require.NotNil(t, runtime.depositBudgets[0])
+	require.NotNil(t, runtime.processBudgets[0])
+
+	require.Less(t, *runtime.processBudgets[0], *runtime.depositBudgets[0]-depositSpend/2,
+		"the second guest call of the same request was handed a fresh allowance instead "+
+			"of what the deposit left, so one request can consume several bounds")
+}
+
+// TestDeployGetsAGuestBudget covers the other entry point that runs guest code. A
+// deploy instantiates the module — running its start section — and then calls its
+// deploy export, so it needs the same single budget over both that a request gets.
+func TestDeployGetsAGuestBudget(t *testing.T) {
+	const guestBound = 5 * time.Second
+
+	runtime := &boundStubRuntime{}
+	exec := newTestExecutor(t, runtime)
+	exec.config.GuestExecutionTimeoutMs = guestBound.Milliseconds()
+
+	req, wasmModule := newDeployRequest(t)
+
+	_, _, err := exec.HandleDeployApp(context.Background(), req, nil, wasmModule)
+	require.NoError(t, err)
+
+	require.Len(t, runtime.deployBudgets, 1)
+	require.NotNil(t, runtime.deployBudgets[0], "a deploy ran with no guest budget at all")
+	require.Greater(t, *runtime.deployBudgets[0], guestBound-time.Second)
+	require.LessOrEqual(t, *runtime.deployBudgets[0], guestBound)
 }

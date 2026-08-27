@@ -67,6 +67,25 @@ func (e *StatelessExecutor) executeRequest(ctx context.Context, req *common.Requ
 		return nil, err
 	}
 
+	// Open this request's guest execution budget. Everything below shares it: a
+	// request carrying a deposit calls the guest twice, and either call may also have
+	// to load the module, whose start section is guest code too. Without one budget
+	// over the lot, each of those is armed with the full bound and their SUM is what
+	// the manager waits through — so a request could occupy the executor for several
+	// bounds, the manager would give up first, and the resulting interrupt would be
+	// classified as host-side abandonment: nothing signed, the queue head never
+	// advancing, the same request redelivered forever.
+	//
+	// Opened per request rather than per batch on purpose. A batch shares the
+	// caller's budget, but not this one: each request is entitled to the full bound,
+	// or a request late in a long batch would be interrupted for work done on behalf
+	// of the ones before it.
+	//
+	// The value is the executor's OWN configured bound and never anything the manager
+	// sent. Exhausting it is signed and charges MinFeePerRequest, so a host-supplied
+	// number must not be able to shorten it — see common.WithGuestExecutionBudget.
+	ctx = common.WithGuestExecutionBudget(ctx, e.config.guestExecutionBound())
+
 	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize && req.RequestType != common.TrustProcess {
 		return nil, fmt.Errorf("unsupported request type: %s", req.RequestType)
 	}

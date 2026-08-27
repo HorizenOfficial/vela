@@ -676,6 +676,11 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 
 	// Deploy the module with constructor params and get initial state
+	// A deploy runs guest code twice over — the module's start section when it is
+	// instantiated, then its deploy export — so it needs the same single budget over
+	// both that executeRequest opens for a request. See common.WithGuestExecutionBudget.
+	ctx = common.WithGuestExecutionBudget(ctx, e.config.guestExecutionBound())
+
 	initialAppState, fuel, err := e.runtime.Deploy(ctx, req.ApplicationID, descriptor.ConstructorParams, wasmModule)
 	if err != nil {
 		// Deploy returns a plain error, so the abandonment case arrives as a sentinel
