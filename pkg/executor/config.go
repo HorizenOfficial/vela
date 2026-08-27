@@ -300,6 +300,29 @@ func (c *Config) guestExecutionBound() time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
+// guestBoundSafetyMargin is the headroom the guest execution bound must leave inside
+// the caller's execution budget, on top of the bound itself.
+//
+// The bound is not enforced to the millisecond, and everything it fails to cover is
+// time the caller is already counting. Three things have to fit in here:
+//
+//   - Epoch overshoot. A window armed with T is interrupted somewhere in
+//     [T, T+2 ticks]: epochTicksFor rounds the tick count up and adds one more, so a
+//     store armed just before a tick fires still gets its full allowance.
+//   - Work before arming. The caller starts its clock when it sends the request; the
+//     executor arms the store only after decoding the message, decrypting the
+//     application state and hashing the module. For a multi-megabyte module and a
+//     large state that is tens to hundreds of milliseconds.
+//   - The floor on an exhausted budget. Once a request has spent its allowance,
+//     epochTicksFor still arms the minimum two ticks, so a further operation can run
+//     that long before it traps.
+//
+// One second covers all three with room to spare, and costs nothing: it only forbids
+// configurations in which the two deadlines were going to race anyway. It is a fixed
+// amount rather than a fraction of the timeout because every term above is
+// independent of how patient the caller is.
+const guestBoundSafetyMargin = time.Second
+
 // checkGuestBoundFitsCallerBudget verifies that the guest execution bound fires before
 // the caller's execution budget expires. callerTimeoutMs is the manager's request
 // timeout (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC) as reported in the
@@ -345,14 +368,21 @@ func (c *Config) checkGuestBoundFitsCallerBudget(callerTimeoutMs int64) error {
 			callerTimeoutMs, int64(communication.MaxExecutionBudgetMs))
 	}
 
+	// One request costs at most one bound of guest execution, whatever it does —
+	// loading the module, taking a deposit and processing all draw down a single
+	// per-request budget (see common.WithGuestExecutionBudget). So the whole
+	// requirement is that one bound, plus the slack the bound does not itself cover,
+	// still fits inside what the caller will wait.
 	budgetMs := callerTimeoutMs - communication.ExecutionBudgetMargin.Milliseconds()
-	if guestBoundMs >= budgetMs {
+	requiredMs := guestBoundMs + guestBoundSafetyMargin.Milliseconds()
+	if requiredMs >= budgetMs {
 		return fmt.Errorf(
-			"EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS (%d ms, effective) must be below the manager's execution "+
-				"budget of %d ms (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC = %d ms minus the %d ms reply "+
-				"margin), otherwise a runaway guest is retried forever instead of being settled on-chain and "+
-				"the request queue stalls",
-			guestBoundMs, budgetMs, callerTimeoutMs, communication.ExecutionBudgetMargin.Milliseconds())
+			"EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS (%d ms, effective) plus the %d ms safety margin must be below "+
+				"the manager's execution budget of %d ms (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC = "+
+				"%d ms minus the %d ms reply margin), otherwise a runaway guest is retried forever instead of "+
+				"being settled on-chain and the request queue stalls",
+			guestBoundMs, guestBoundSafetyMargin.Milliseconds(), budgetMs, callerTimeoutMs,
+			communication.ExecutionBudgetMargin.Milliseconds())
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/magiconair/properties"
 )
@@ -81,6 +82,19 @@ const (
 	// unbounded guest is the failure mode this exists to remove.
 	MaxGuestExecutionTimeoutMs = 300_000
 )
+
+// GuestExecutionEpochTick is the granularity of the guest execution bound: the
+// period at which pkg/wasm advances the engine epoch, and therefore the resolution
+// of every deadline armed from it. pkg/wasm derives its own epochTickInterval from
+// this, so the two cannot drift.
+//
+// It is exported because the bound is not enforced to the millisecond and callers
+// have to budget for that. A window armed with T is interrupted somewhere in
+// [T, T+2*GuestExecutionEpochTick]: the tick count is rounded UP, and one further
+// tick is added so that a store armed just before a tick fires still gets its full
+// allowance. pkg/executor sizes the safety margin in its handshake check from this
+// value rather than from a copied constant.
+const GuestExecutionEpochTick = 100 * time.Millisecond
 
 // MaxTCPPort is the highest valid TCP port number. GetConfigVarUint32 keeps an
 // out-of-range value from truncating to 0, but a value that fits in uint32 and is

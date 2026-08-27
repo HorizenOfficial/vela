@@ -436,6 +436,26 @@ func TestGuestTimeoutMustBeatCallerBudget(t *testing.T) {
 		require.Error(t, check(0, 3_000))
 	})
 
+	t.Run("a bound inside the overshoot pad is rejected", func(t *testing.T) {
+		// 27.5s is below the 28s budget, so a bare `bound < budget` comparison accepts
+		// it — and it still loses the race. Arming happens only after the message is
+		// decoded and the state decrypted, and epoch interruption overshoots by up to
+		// two ticks, so the guest is still running when the caller gives up. The
+		// interrupt is then classified as host-side abandonment: nothing signed, the
+		// request retried unchanged, forever.
+		err := check(27_500, patienceMs)
+		require.Error(t, err, "a bound this close to the budget always loses the race")
+	})
+
+	t.Run("the safety margin covers the epoch overshoot", func(t *testing.T) {
+		// epochTicksFor rounds up AND adds a tick, so a window armed with T is
+		// interrupted somewhere in [T, T+2 ticks]. A margin that did not cover that
+		// would leave the same silent band this check exists to close.
+		require.GreaterOrEqual(t,
+			guestBoundSafetyMargin, 2*common.GuestExecutionEpochTick,
+			"the margin must absorb the worst-case epoch overshoot")
+	})
+
 	t.Run("a negative manager timeout is rejected", func(t *testing.T) {
 		// callerTimeoutMs arrives straight off the wire, unlike ExecutionBudgetMs it is
 		// never range-checked. Without a guard, callerTimeoutMs - margin underflows to a

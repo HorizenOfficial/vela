@@ -48,7 +48,10 @@ const (
 	// spent, so the effective timeout overshoots by up to one interval. 100 ms keeps
 	// that overshoot negligible against the multi-second timeouts this bounds, at
 	// the cost of one cheap atomic increment per interval per runtime.
-	epochTickInterval = 100 * time.Millisecond
+	// Defined in pkg/common so pkg/executor can size its handshake safety margin from
+	// the real value without linking libwasmtime, exactly as for the timeout bounds
+	// below. Changing it there changes it here.
+	epochTickInterval = common.GuestExecutionEpochTick
 
 	// defaultGuestExecutionTimeout and maxGuestExecutionTimeout mirror the bounds
 	// pkg/executor validates EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS against; see the

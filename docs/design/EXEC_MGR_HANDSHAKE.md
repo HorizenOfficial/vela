@@ -2,7 +2,7 @@
 
 The handshake process is initiated by the Executor every time a new connection is established with the Manager. The primary goal of the handshake is to ensure the Executor has a valid and consistent set of cryptographic keys (`EnclaveKeySet`) to perform its duties.
 
-The Manager's first reply (`GetKeysetRecoveryResponse`) also carries `requestTimeoutMs`, the Manager's own request timeout (`MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC`, in milliseconds). It is the value every later per-request execution budget is derived from, and the Executor validates its guest execution bound (`EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS`) against it **before** restoring or generating any keyset: the bound must be strictly below the timeout minus the 2 s reply margin, otherwise the Manager would give up on a runaway guest before the Executor could sign its failure, and the request would be retried forever (see the sizing notes in `WASM_HOST_ABI.md`). The enclave cannot read the Manager's configuration, which is why the value travels in the handshake. The field is optional: an older Manager omits it, and the Executor logs a warning and proceeds unchecked.
+The Manager's first reply (`GetKeysetRecoveryResponse`) also carries `requestTimeoutMs`, the Manager's own request timeout (`MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC`, in milliseconds). It is the value every later per-request execution budget is derived from, and the Executor validates its guest execution bound (`EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS`) against it **before** restoring or generating any keyset: the bound plus a 1 s safety margin must be strictly below the timeout minus the 2 s reply margin, otherwise the Manager would give up on a runaway guest before the Executor could sign its failure, and the request would be retried forever (see the sizing notes in `WASM_HOST_ABI.md`). The enclave cannot read the Manager's configuration, which is why the value travels in the handshake. The field is optional: an older Manager omits it, and the Executor logs a warning and proceeds unchecked.
 
 There are two main scenarios for the handshake:
 
@@ -69,7 +69,7 @@ Manager                                     Executor
 
 ### Scenario 4: Guest Execution Bound Does Not Fit the Manager's Timeout
 
-If `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` is not strictly below `RequestTimeoutMs` minus the reply margin, the Executor rejects the connection before touching any keyset. The Manager blocks on the handshake at start-up and exits with the Executor's error, so the misconfiguration is visible on both sides and the Executor never serves a request under it.
+If `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` plus the 1 s safety margin is not strictly below `RequestTimeoutMs` minus the 2 s reply margin, the Executor rejects the connection before touching any keyset. The Manager blocks on the handshake at start-up and exits with the Executor's error, so the misconfiguration is visible on both sides and the Executor never serves a request under it.
 
 ```
 Manager                                     Executor
