@@ -276,7 +276,7 @@ the TODO in `newPinnedEngine`; tracked separately.
 
 ## Failure classification and the module cache
 
-The host sorts failures into three classes, because the response differs. The test
+The host sorts failures into four classes, because the response differs. The test
 is **whether guest code actually ran**, not whether the failure looks deterministic:
 
 | Class | Examples | Module cache |

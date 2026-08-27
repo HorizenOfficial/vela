@@ -4,10 +4,12 @@ The handshake process is initiated by the Executor every time a new connection i
 
 The Manager's first reply (`GetKeysetRecoveryResponse`) also carries `requestTimeoutMs`, the Manager's own request timeout (`MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC`, in milliseconds). It is the value every later per-request execution budget is derived from, and the Executor validates its guest execution bound (`EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS`) against it **before** restoring or generating any keyset: the bound plus a 1 s safety margin must be strictly below the timeout minus the 2 s reply margin, otherwise the Manager would give up on a runaway guest before the Executor could sign its failure, and the request would be retried forever (see the sizing notes in `WASM_HOST_ABI.md`). The enclave cannot read the Manager's configuration, which is why the value travels in the handshake. The field is optional: an older Manager omits it, and the Executor logs a warning and proceeds unchecked.
 
-There are two main scenarios for the handshake:
+There are four scenarios for the handshake, the first two being the normal paths:
 
 1.  **First Connection**: This occurs when the Manager connects to the Executor for the very first time, and no keyset recovery data exists in the Manager's persistent storage.
 2.  **Reconnection**: This occurs on subsequent connections, where the Manager already holds recovery data from a previous session.
+3.  **Reconnection with a keyset recovery failure**: the Manager holds recovery data, but the Executor cannot restore a keyset from it.
+4.  **Guest execution bound does not fit the Manager's timeout**: the configuration check described above rejects the connection.
 
 ---
 
@@ -67,28 +69,6 @@ Manager                                     Executor
 
 ---
 
-### Scenario 4: Guest Execution Bound Does Not Fit the Manager's Timeout
-
-If `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` plus the 1 s safety margin is not strictly below `RequestTimeoutMs` minus the 2 s reply margin, the Executor rejects the connection before touching any keyset. The Manager blocks on the handshake at start-up and exits with the Executor's error, so the misconfiguration is visible on both sides and the Executor never serves a request under it.
-
-```
-Manager                                     Executor
-   |                                            |
-   |----------- TCP/VSock Connection ---------->|
-   |                                            |
-   |<--- GetKeysetRecoveryRequest (ID: 1) <-----|
-   |                                            |
-   |---- GetKeysetRecoveryResponse (ID: 1) ---->| (…, RequestTimeoutMs: 5000)
-   |                                            |
-   |                                            | (Guest bound 10000 ms >= 5000 - 2000: reject)
-   |<--- KeysetRecoveryResult (ID: 2) <---------| (Result: failure naming both settings)
-   |                                            |
-   x (Start returns the error, Manager exits)   x (Executor closes connection, no keyset touched)
-   |                                            |
-```
-
----
-
 ### Scenario 3: Reconnection (Keyset Recovery Failure)
 
 If the Executor fails to restore its keyset from the data provided by the Manager (e.g., due to data corruption), it notifies the Manager of the failure.
@@ -111,3 +91,27 @@ Manager                                     Executor
    x (Handshake fails, Manager may terminate)   x (Handshake fails, Executor closes connection)
    |                                            |
 ```
+
+---
+
+### Scenario 4: Guest Execution Bound Does Not Fit the Manager's Timeout
+
+If `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` plus the 1 s safety margin is not strictly below `RequestTimeoutMs` minus the 2 s reply margin, the Executor rejects the connection before touching any keyset. The Manager blocks on the handshake at start-up and exits with the Executor's error, so the misconfiguration is visible on both sides and the Executor never serves a request under it.
+
+```
+Manager                                     Executor
+   |                                            |
+   |----------- TCP/VSock Connection ---------->|
+   |                                            |
+   |<--- GetKeysetRecoveryRequest (ID: 1) <-----|
+   |                                            |
+   |---- GetKeysetRecoveryResponse (ID: 1) ---->| (…, RequestTimeoutMs: 5000)
+   |                                            |
+   |                                            | (Guest bound 10000 ms >= 5000 - 2000: reject)
+   |<--- KeysetRecoveryResult (ID: 2) <---------| (Result: failure naming both settings)
+   |                                            |
+   x (Start returns the error, Manager exits)   x (Executor closes connection, no keyset touched)
+   |                                            |
+```
+
+---

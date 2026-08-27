@@ -329,9 +329,18 @@ func isEpochInterrupt(err error) bool {
 //
 // Making it deterministic would mean latching the reason at the moment the
 // interrupt is forced (a generation counter the call site compares), which is more
-// machinery than a one-retry delay justifies. Revisit if the window ever widens —
-// it is only this narrow because the enclave's own bound is validated to expire
-// before any caller-supplied deadline (see pkg/executor.Config.Validate).
+// machinery than a one-retry delay justifies.
+//
+// The "self-corrects" argument depends on the two deadlines not being correlated,
+// which in turn depends on the enclave's own bound expiring first. That is enforced
+// in two places, and if either goes the argument above stops holding and this
+// becomes a permanent stall rather than a delayed settlement: one request consumes
+// at most ONE bound however many guest operations it makes
+// (common.WithGuestExecutionBudget — before that, their sum could outlast the
+// caller), and the bound plus its safety margin is validated at handshake to fit
+// inside the caller's budget (pkg/executor.Config.checkGuestBoundFitsCallerBudget,
+// which runs there rather than at start-up because only the manager knows its own
+// timeout).
 func (g *guestExecution) interruptSentinel(err error) error {
 	if !isEpochInterrupt(err) {
 		return nil

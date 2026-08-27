@@ -416,10 +416,16 @@ func NewWasmtimeRuntime(log logger.Logger, maxCachedModules int) *WasmtimeRuntim
 		epochTickerDone:     make(chan struct{}),
 	}
 
-	// Guest execution is bounded from the moment the runtime exists: the engine has
-	// epoch interruption enabled, and with it an un-armed store traps immediately, so
-	// there is no window in which a store could be created with no timeout to arm it
-	// with. A caller may narrow the bound afterwards via SetGuestExecutionTimeout.
+	// Guest code is bounded from the moment the runtime exists: the engine has epoch
+	// interruption enabled, and with it an un-armed store traps immediately, so there
+	// is no window in which a store could be created with no timeout to arm it with. A
+	// caller may narrow the bound afterwards via SetGuestExecutionTimeout.
+	//
+	// "Guest code" is the exact claim. Epoch interruption reaches only what the
+	// compiler instrumented, so a guest sitting inside a host call is outside it for as
+	// long as that call takes. What makes the bound hold in practice is that no
+	// permitted import can block — see guest_imports.go, which refuses at load any
+	// module declaring one that could.
 	r.guestExecutionTimeoutNs.Store(int64(defaultGuestExecutionTimeout))
 	r.startEpochTicker(engine)
 
@@ -1328,9 +1334,10 @@ func (r *WasmtimeRuntime) Close() error {
 
 	// Closes every module and the engine, so it must not overlap an in-flight guest
 	// call. Still bounded rather than blocking, even though execution is now bounded:
-	// module compilation and any time a guest spends inside a WASI host call are not
-	// covered by epoch interruption, so a pathological case could still hold execLock
-	// longer than the deadline suggests. In practice the interrupt above means this
+	// module compilation is not covered by epoch interruption, so a pathological case
+	// could still hold execLock longer than the deadline suggests. Time inside a host
+	// call is not covered either, but no permitted import can block (guest_imports.go),
+	// so that is no longer a way to outlast this. In practice the interrupt above means this
 	// timeout is not reached — TestCloseInterruptsRunningGuest pins that, and
 	// TestCloseDoesNotHangOnStuckGuest still covers the fallback.
 	//
