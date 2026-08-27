@@ -183,9 +183,11 @@ The consequences a guest author can actually observe:
   later batch — so a request may be started, abandoned, and later run again from
   scratch. Guest code must therefore not assume that being invoked means its result
   will be used; state is only ever advanced by a settled request. The executor avoids
-  this where it can, skipping a request whose guest bound the remaining budget cannot
-  cover, but a request that also carries a deposit makes two guest calls and can
-  still be cut between them.
+  this where it can, skipping a request the remaining budget cannot cover a full guest
+  bound for — one bound is the whole cost of a request however many guest calls it
+  makes, so a request carrying a deposit is no longer a special case. The skip applies
+  from the second request onward: the first is always started, since refusing it would
+  settle nothing and have the identical batch redelivered on every poll.
 - **Only the enclave's own bound can fail a request on-chain.** A budget expiry is
   host-side abandonment, so it never charges a fee. This is deliberate: the budget
   crosses the TEE boundary, and a value supplied from outside must not be able to

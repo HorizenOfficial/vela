@@ -566,3 +566,47 @@ func TestDeployGetsAGuestBudget(t *testing.T) {
 	require.Greater(t, *runtime.deployBudgets[0], guestBound-time.Second)
 	require.LessOrEqual(t, *runtime.deployBudgets[0], guestBound)
 }
+
+// TestBatchAlwaysStartsItsFirstRequest is the counterpart to
+// TestBatchStopsWhenBudgetCannotCoverAnotherRequest: the budget check must never
+// refuse to start the request the batch was assembled for.
+//
+// Refusing it produces a batch that settles nothing, and a batch that settles
+// nothing is indistinguishable on the wire from one that made progress — the same
+// requests are fetched again on the next poll and refused again, forever, with no
+// error anywhere naming the cause. The handshake guarantees the caller's budget
+// exceeds the guest bound only by a margin, and decrypting the state and hashing the
+// module have already eaten into it by the time the loop reads the clock, so this is
+// reachable with a configuration the executor accepted at start-up.
+//
+// Starting it is safe: a request that overruns is interrupted by its OWN budget
+// first (the enclave's bound, checked before the caller's — see
+// checkGuestBoundFitsCallerBudget), which is a signed failure, so the queue advances
+// either way.
+func TestBatchAlwaysStartsItsFirstRequest(t *testing.T) {
+	const guestBound = 1 * time.Second
+
+	runtime := &boundStubRuntime{}
+	exec := newTestExecutor(t, runtime)
+	exec.config.GuestExecutionTimeoutMs = guestBound.Milliseconds()
+
+	user, _, userPub := newBatchTestUser(t)
+	wasmModule := []byte("wasm")
+	appState := buildEncryptedAppState(t, exec, &user, userPub, wasmModule)
+
+	requests := []*common.Request{newBoundTestRequest(), newBoundTestRequest()}
+
+	// Less than one guest bound left before the first request even starts.
+	ctx, cancel := context.WithTimeout(context.Background(), guestBound/2)
+	defer cancel()
+
+	payloads, _, _, _, err := exec.HandleBatchProcessRequest(ctx, requests, appState, wasmModule)
+
+	require.NoError(t, err)
+	require.Len(t, payloads, 1,
+		"the batch refused to start its own first request, so it settles nothing and the "+
+			"identical batch is redelivered on every poll")
+	require.Zero(t, payloads[0].ErrorCode)
+	require.Equal(t, 1, runtime.calls,
+		"only the first request may run: the second is correctly left for the next poll")
+}

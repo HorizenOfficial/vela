@@ -68,14 +68,27 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 		// (an interrupt is a trap) only for the work to be repeated on the next poll.
 		// Stopping early settles exactly the same requests for free.
 		//
-		// The threshold is one bound, not two: a request that also carries a deposit
-		// makes two guest calls and may still be cut short, which simply falls back to
-		// the behaviour above. Requiring two would stop earlier than necessary and cost
-		// throughput on the common single-call case.
-		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < guestBound {
-			e.log.Info("Executor: batch stopping after %d/%d requests: %v left, less than the %v guest bound",
-				len(results), len(requests), time.Until(deadline), guestBound)
-			break
+		// One bound is the right threshold because one bound is what a request costs,
+		// however many guest calls it makes: loading the module, taking a deposit and
+		// processing all draw down a single per-request budget (see
+		// common.WithGuestExecutionBudget).
+		//
+		// Never applied to the first request. This check exists to avoid starting work
+		// that cannot finish, but refusing the request the batch was assembled for
+		// achieves nothing: the batch settles nothing, and nothing on the wire tells
+		// the manager why, so it fetches the same requests and is refused again on
+		// every poll. The gap the handshake guarantees is only a margin wide, and
+		// decrypting the state and hashing the module have already consumed part of it
+		// by the time the clock is read here, so that is reachable with a configuration
+		// the executor accepted at start-up. Starting it is safe: the request's own
+		// budget expires before the caller's, which is a signed failure, so the queue
+		// advances whatever happens.
+		if i > 0 {
+			if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < guestBound {
+				e.log.Info("Executor: batch stopping after %d/%d requests: %v left, less than the %v guest bound",
+					len(results), len(requests), time.Until(deadline), guestBound)
+				break
+			}
 		}
 
 		// A nil request cannot be executed and cannot be reported on-chain, so
@@ -131,6 +144,18 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	if len(results) == 0 {
 		// Hard failure on the very first request: nothing to submit, the
 		// manager retries on the next poll.
+		//
+		// Logged at Error, and not folded into a wire error. The return contract stays
+		// as it is — the manager treats an empty batch as "retry", and turning it into
+		// a handler error would only change which of its log lines fires. What is worth
+		// being loud about is the event itself: a whole poll cycle that settled nothing
+		// is the signature of a stalled queue, and the individual break above says which
+		// request stopped it but not that the batch as a whole came away empty. If this
+		// line repeats every poll for the same application, the head of that queue can
+		// never be settled and no amount of retrying will change it.
+		e.log.Error("Executor: batch for application %d settled none of its %d requests; "+
+			"nothing will be submitted and the same requests will be redelivered on the next poll",
+			appState.ApplicationID, len(requests))
 		return nil, nil, nil, nil, nil
 	}
 
