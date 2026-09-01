@@ -9,21 +9,23 @@ import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/IAuthorityRegistry.sol';
 import './interfaces/ITokenAllowlist.sol';
 import './Structs.sol';
+import './RequestQueues.sol';
+import './UpdateEntryHash.sol';
 import './ProcessorEndpointStorage.sol';
 import './interfaces/ITrigger.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
-/// @dev State lives in `ProcessorEndpointStorage`, which `ProcessorEndpointExtension` also derives
-///      from: this contract is close enough to the EIP-170 deployed-bytecode limit that parts of it
-///      are hosted in the extension and reached by `delegatecall`. See
+/// @dev State lives in `ProcessorEndpointStorage`, which `ProcessorEndpointExtension` also
+///      derives from: this contract is close enough to the EIP-170 deployed-bytecode limit that
+///      parts of it are hosted in the extension and reached by `delegatecall`. See
 ///      `ProcessorEndpointStorage` for the rules that keeps safe, and
 ///      `docs/design/PROCESSOR_ENDPOINT_SPLIT.md` for the rationale.
 contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   using SafeERC20 for IERC20;
 
-  /// @dev Extension contract holding code moved out of this one for size reasons. Immutable, so it
-  ///      lives in this contract's code rather than in storage and cannot be repointed.
+  /// @dev Extension contract holding code moved out of this one for size reasons. Immutable, so
+  ///      it lives in this contract's code rather than in storage and cannot be repointed.
   address private immutable _extension;
 
   /// @param _teeAuthenticator Contract used to verify update signatures.
@@ -34,7 +36,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
   /// @param _tokenAllowlist External token allowlist contract.
-  /// @param extension Deployed `ProcessorEndpointExtension` serving the delegated entry points.
+  /// @param extensionAddress Deployed `ProcessorEndpointExtension` serving the delegated entry points.
   constructor(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
@@ -43,7 +45,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     address resetOperator,
     uint256 _minFeePerRequest,
     ITokenAllowlist _tokenAllowlist,
-    address extension
+    address extensionAddress
   ) {
     if (
       address(_teeAuthenticator) == address(0) ||
@@ -51,15 +53,15 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       updateStatusOperator == address(0) ||
       admin == address(0) ||
       address(_tokenAllowlist) == address(0) ||
-      extension == address(0)
+      extensionAddress == address(0)
     ) revert AddressCantBeZero();
 
     // A delegatecall to an address without code succeeds and returns nothing, so a wrong
     // extension address would turn submitRequestFor into a silent no-op that keeps the fee
     // instead of reverting. _extension is immutable, so this is the only chance to catch it.
-    if (extension.code.length == 0) revert InvalidExtension();
+    if (extensionAddress.code.length == 0) revert InvalidExtension();
 
-    _extension = extension;
+    _extension = extensionAddress;
     teeAuthenticator = _teeAuthenticator;
     authorityRegistry = _authorityRegistry;
     tokenAllowlist = _tokenAllowlist;
@@ -180,13 +182,13 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @dev Forwards the current call to `_extension` with `delegatecall`, so the extension's code
-  ///      runs against this contract's storage, balance, `msg.sender` and `msg.value`. Returns the
-  ///      extension's return data, or bubbles up its revert data unchanged, and never returns to
-  ///      the caller of this function.
-  ///
-  ///      Scratches memory above the free-memory pointer rather than at offset 0, and is annotated
-  ///      `memory-safe` accordingly: unannotated assembly would switch off solc's `memoryguard`
-  ///      for the whole contract, and `stateUpdate` then fails to compile with "stack too deep".
+  ///      runs against this contract's storage, balance, `msg.sender` and `msg.value`. Returns
+  ///      the extension's return data, or bubbles up its revert data unchanged, and never returns
+  ///      to the caller of this function.
+  ///      Scratches memory above the free-memory pointer rather than at offset 0, and is
+  ///      annotated `memory-safe` accordingly: unannotated assembly would switch off solc's
+  ///      `memoryguard` for the whole contract, and `stateUpdate` then fails to compile with
+  ///      "stack too deep".
   function _delegateToExtension() private {
     address target = _extension;
     assembly ('memory-safe') {
@@ -235,13 +237,108 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     _delegateToExtension();
   }
 
-  function _removeRequest(bytes32 requestId) private {
-    // _queueIsHead already returns false for an empty queue (tail > head check),
-    // so no separate size guard is needed here.
-    if (_queueIsHead(_triggerQueue, requestId)) {
-      _queueDequeueHead(_triggerQueue);
-    } else {
-      _queueDequeueHead(_requestQueue);
+  /// @dev The queue a request belongs to, derived from its type alone. This is the single place
+  ///      that encodes the type ⇔ queue mapping documented on `RequestQueues.Store`; both the
+  ///      validity check and the removal in `stateUpdate` resolve their queue through it, so the
+  ///      request that is verified to be the head is always the one that gets dequeued.
+  ///
+  ///      Resolving the queue is what a search over all three would otherwise cost: for a plain
+  ///      request, `isHead` on the empty trigger and deploy queues reads four cold slots
+  ///      (`tail`/`head` of each, ~8.4k gas) purely to rule them out. The type comes from the
+  ///      slot that packs `facilitator`, `applicationId`, `protocolVersion` and `requestType`,
+  ///      which `stateUpdate` loads anyway, so routing adds no storage read of its own.
+  ///
+  ///      Note that DEPLOYAPP is enum value 0: an unknown requestId reads back as a zeroed
+  ///      request and resolves to the deploy queue. That is harmless — `isHead` still compares
+  ///      the id against the queue's actual head — but it is why callers must treat the `isHead`
+  ///      result, not the resolved queue, as proof that the request exists.
+  function _queueOf(
+    uint64 applicationId,
+    Structs.RequestType requestType
+  ) private view returns (RequestQueues.Queue storage) {
+    if (requestType == Structs.RequestType.TRUSTPROCESS) return _queueStore.triggers;
+    if (requestType == Structs.RequestType.DEPLOYAPP) return _queueStore.deploys;
+    return _queueStore.pending[applicationId];
+  }
+
+  /// @dev Enforces the round-robin turn for a request taken from a per-application queue: the
+  ///      submitted application must be reached by the cursor scan no later than the first queue
+  ///      head older than `selectionGrace`, so the manager cannot starve an application by
+  ///      serving another out of turn. Without this, the only ordering the contract enforced was
+  ///      FIFO *within* an application, leaving cross-application selection to the manager's
+  ///      discretion.
+  ///
+  ///      `selectionGrace` is what makes the rule race-free. `getPendingRequestsWithStateRoot` is
+  ///      a `view`: it leaves no on-chain trace, so the contract cannot know when the manager read
+  ///      it, and a request enqueued between that read and this call legitimately changes the
+  ///      scan's result. Reconstructing the read instant is impossible — any value the manager
+  ///      supplied for it could be chosen to justify its pick — so instead heads younger than
+  ///      `selectionGrace` are skipped by the enforcement scan: they are too young for the manager
+  ///      to have seen them. A head older than the grace is a hard stop: it was already in place
+  ///      at every possible read instant within the window, so no honest pick can sit past it in
+  ///      scan order (`RequestQueues.selectionConflict`). Exempting only the *first* selected
+  ///      queue instead would let a colluding submitter reopen the window each rotation and jump
+  ///      the cursor past a starving application by serving one beyond it.
+  ///
+  ///      The comparison is against the wall clock, deliberately, and not against the submitted
+  ///      request's own timestamp. The latter looks equivalent but is not: because FIFO forces the
+  ///      manager to serve its application's *oldest* request, "the competitor is younger than my
+  ///      pick" holds for competitors that arrived long before any selection view was read, so the
+  ///      exemption would widen with however long the submitted request had been queued and the
+  ///      rule would decay into approximate oldest-first. Against the clock, the exemption is
+  ///      bounded by `selectionGrace` whatever the queue's history.
+  ///
+  ///      Starvation is bounded as a result: every application the scan allows sits at or before
+  ///      the first aged head, so serving one moves the cursor toward it, never past it — its turn
+  ///      arrives within one rotation.
+  ///
+  ///      Trigger and deploy requests bypass the per-application cursor by design, but their
+  ///      *precedence* — triggers before deploys before per-application work — is enforced under
+  ///      the same grace rule (`PriorityQueueNotServed`): an aged TRUSTPROCESS head blocks deploy
+  ///      and per-application updates, and an aged DEPLOYAPP head blocks per-application updates.
+  ///      A TRUSTPROCESS update is never constrained. The blast radius of a permanently failing
+  ///      head widens accordingly: aged and unservable in a global queue, it halts every
+  ///      lower-priority update until `selectionGrace` is raised past its age (section 7.4 of
+  ///      `docs/design/BATCH_EXECUTION.md`).
+  function _enforceSelection(uint64 applicationId, Structs.RequestType requestType) private view {
+    if (requestType == Structs.RequestType.TRUSTPROCESS) return;
+
+    uint256 grace = selectionGrace;
+    if (RequestQueues.isHeadAged(_queueStore, _queueStore.triggers, grace)) {
+      revert PriorityQueueNotServed(Structs.RequestType.TRUSTPROCESS);
+    }
+
+    if (requestType == Structs.RequestType.DEPLOYAPP) return;
+
+    if (RequestQueues.isHeadAged(_queueStore, _queueStore.deploys, grace)) {
+      revert PriorityQueueNotServed(Structs.RequestType.DEPLOYAPP);
+    }
+
+    // The scan always encounters the submitted application — the request sits at the head of a
+    // non-empty per-application queue — so "not found" cannot mask a conflict.
+    (uint64 conflictingAppId, bool conflict) = RequestQueues.selectionConflict(
+      _queueStore,
+      _deployedAppIds,
+      applicationId,
+      grace
+    );
+    if (conflict) revert ApplicationNotSelected(conflictingAppId);
+  }
+
+  /// @dev Removes the head of the request's own queue. The caller must have established that the
+  ///      request *is* that head (`stateUpdate` does so through the same `_queueOf`);
+  ///      `RequestQueues.dequeueHead` does not re-check the id.
+  function _removeRequest(uint64 applicationId, Structs.RequestType requestType) private {
+    RequestQueues.dequeueHead(_queueStore, _queueOf(applicationId, requestType));
+    // Only per-application queues take part in the round robin. The application has had its
+    // turn: move the cursor just past it so the next selection starts from the following
+    // application. Trigger- and deploy-queue processing bypasses the cursor, leaving the
+    // rotation where it paused.
+    if (
+      requestType != Structs.RequestType.TRUSTPROCESS &&
+      requestType != Structs.RequestType.DEPLOYAPP
+    ) {
+      RequestQueues.advanceCursor(_queueStore, _deployedAppIds, applicationId);
     }
   }
 
@@ -254,7 +351,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     string memory errorMsg,
     Structs.RequestType requestType
   ) private {
-    _removeRequest(requestId);
+    _removeRequest(applicationId, requestType);
 
     if (requestType == Structs.RequestType.DEPLOYAPP) {
       emit DeployRequestCompleted(
@@ -279,17 +376,17 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
 
   /// @inheritdoc IProcessorEndpoint
   function getTriggerQueueSize() public view returns (uint256) {
-    return _queueSize(_triggerQueue);
+    return RequestQueues.size(_queueStore.triggers);
   }
 
   /// @inheritdoc IProcessorEndpoint
   function getTriggerRequests() external view returns (Structs.PendingRequest[] memory) {
-    return _queueGetAll(_triggerQueue);
+    return _copyRange(_queueStore.triggers, RequestQueues.size(_queueStore.triggers));
   }
 
   /// @inheritdoc IProcessorEndpoint
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory) {
-    return _queueGetAll(_requestQueue);
+    return _pendingRequestsPage(0, type(uint256).max);
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -297,16 +394,53 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     uint256 offset,
     uint256 limit
   ) external view returns (Structs.PendingRequest[] memory) {
-    return _queueGetPage(_requestQueue, offset, limit);
+    return _pendingRequestsPage(offset, limit);
   }
 
-  /// @notice Returns the stored request for a given id (normal queue only).
+  /// @inheritdoc IProcessorEndpoint
   function requestById(bytes32 id) external view returns (Structs.PendingRequest memory) {
-    return _requestQueue.requestById[id];
+    return _queueStore.requests[id];
+  }
+
+  /// @dev Flattens every pending request outside the trigger queue — the deploy queue first (it
+  ///      is served first, see _selectPendingRequests), then each application's queue in
+  ///      _deployedAppIds order — and returns the [offset, offset + limit) window of that list.
+  ///      Requests are FIFO-ordered within a queue, but submission order across applications is
+  ///      not preserved: the applications are independent.
+  function _pendingRequestsPage(
+    uint256 offset,
+    uint256 limit
+  ) internal view returns (Structs.PendingRequest[] memory result) {
+    Structs.PendingRequest[] memory all = new Structs.PendingRequest[](_pendingRequestsSize());
+    uint256 n = _copyInto(_queueStore.deploys, all, 0);
+    uint256 appCount = _deployedAppIds.length;
+    uint256 a;
+    while (a != appCount) {
+      n = _copyInto(_queueStore.pending[_deployedAppIds[a]], all, n);
+      unchecked {
+        ++a;
+      }
+    }
+
+    if (offset >= n || limit == 0) return new Structs.PendingRequest[](0);
+    uint256 count = n - offset;
+    if (count > limit) count = limit;
+    result = new Structs.PendingRequest[](count);
+    uint256 j;
+    while (j != count) {
+      result[j] = all[offset + j];
+      unchecked {
+        ++j;
+      }
+    }
   }
 
   //update status
   /// @inheritdoc IProcessorEndpoint
+  /// @dev Thin wrapper around `_processOneStateUpdate`, which is also what `batchStateUpdate`
+  ///      loops over: there are two entry points, not two implementations. Kept alongside the
+  ///      batch entry point because it is what the whole pre-batch test suite exercises, so it is
+  ///      the proof that extracting `_processOneStateUpdate` did not change any behaviour.
   function stateUpdate(
     uint64 applicationId,
     bytes32 prevStateRoot,
@@ -321,40 +455,191 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     string calldata errorMsg,
     bytes calldata signature
   ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant {
-    //check valid request
-    if (!isCurrentPendingRequest(processedRequestId)) revert InvalidRequestId();
+    bytes32 currentRoot = applicationStateRoots[applicationId];
+    bytes32 newRoot = _processOneStateUpdate(
+      Structs.SignatureParams({
+        applicationId: applicationId,
+        prevStateRoot: prevStateRoot,
+        newStateRoot: newStateRoot,
+        processedRequestId: processedRequestId,
+        userEvents: userEventData,
+        appEvents: appEventData,
+        withdrawalRequests: withdrawalRequests,
+        refundAmount: refund,
+        applicationFee: applicationFees,
+        errorCode: errorCode,
+        errorMsg: errorMsg
+      }),
+      currentRoot,
+      true,
+      true,
+      signature
+    );
+    // The error path leaves the root untouched and returns it unchanged, which is exactly when no
+    // write must happen — the success path always moves it (an unchanged root reverts there).
+    if (newRoot != currentRoot) applicationStateRoots[applicationId] = newRoot;
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  function batchStateUpdate(
+    uint64 applicationId,
+    Structs.BatchEntry[] calldata entries,
+    bytes calldata batchSignature
+  ) external onlyRole(UPDATE_STATUS_ROLE) nonReentrant {
+    uint256 n = entries.length;
+    // Declared here rather than left to the authenticator's own EmptyBatch: an error the endpoint
+    // does not declare reaches clients as undecodable revert data.
+    if (n == 0) revert EmptyBatch();
+
+    // One batch belongs to one application, but three request kinds must stay unbatched: a
+    // TRUSTPROCESS or DEPLOYAPP head (both live in a global queue, and both are processed one at a
+    // time — see _selectPendingRequests), and any request of an application with a registered
+    // trigger. For those the entry array must hold exactly one entry, which makes this function a
+    // strict superset of stateUpdate rather than a second path with its own rules.
+    //
+    // Why they cannot be batched: the trigger contract is invoked *during* the update and can
+    // enqueue a TRUSTPROCESS request whose payload is derived on-chain, so it cannot exist when
+    // the TEE builds the batch. Entries computed after it in the same transaction would silently
+    // observe a state the trigger flow never intended — a semantic violation that does not revert
+    // (section 5.2 of docs/design/BATCH_EXECUTION.md).
+    //
+    // DEPLOYAPP is enum value 0, so an unknown requestId reads back as a zeroed request and lands
+    // here as a deploy: a multi-entry batch whose first entry names a request that does not exist
+    // reverts BatchNotAllowed rather than InvalidRequestId. Both reject the call; only the reason
+    // is less precise.
+    if (n != 1) {
+      Structs.RequestType headType = _queueStore
+        .requests[entries[0].processedRequestId]
+        .requestType;
+      if (
+        headType == Structs.RequestType.TRUSTPROCESS ||
+        headType == Structs.RequestType.DEPLOYAPP ||
+        address(triggerContracts[applicationId]) != address(0)
+      ) revert BatchNotAllowed();
+    }
+
+    // Build every entry hash first: the batch signature covers all of them at once, and it is
+    // verified before any entry is processed. Params are kept alongside the hashes so the calldata
+    // is copied into memory once rather than per loop.
+    bytes32[] memory entryHashes = new bytes32[](n);
+    Structs.SignatureParams[] memory params = new Structs.SignatureParams[](n);
+    uint256 i;
+    while (i != n) {
+      Structs.SignatureParams memory p = Structs.SignatureParams({
+        applicationId: applicationId,
+        prevStateRoot: entries[i].prevStateRoot,
+        newStateRoot: entries[i].newStateRoot,
+        processedRequestId: entries[i].processedRequestId,
+        userEvents: entries[i].userEvents,
+        appEvents: entries[i].appEvents,
+        withdrawalRequests: entries[i].withdrawalRequests,
+        refundAmount: entries[i].refund,
+        applicationFee: entries[i].applicationFees,
+        errorCode: entries[i].errorCode,
+        errorMsg: entries[i].errorMsg
+      });
+      params[i] = p;
+      entryHashes[i] = UpdateEntryHash.entryHash(p);
+      unchecked {
+        ++i;
+      }
+    }
+
+    // One ecrecover for the whole batch, over the personal_sign digest of the concatenated entry
+    // hashes with its dynamic 32*N length prefix (see ITeeAuthenticator.checkBatchSignature).
+    if (!teeAuthenticator.checkBatchSignature(entryHashes, batchSignature))
+      revert InvalidSignature();
+
+    // Chain the state root through the entries in memory: the first entry is validated against
+    // storage, each later one against its predecessor's newStateRoot, and storage is written once
+    // after the loop.
+    bytes32 currentRoot = applicationStateRoots[applicationId];
+    bytes32 root = currentRoot;
+    i = 0;
+    while (i != n) {
+      // The turn is enforced on the first entry only: every entry shares one applicationId, and
+      // the entries above that would need a different priority tier are limited to a lone entry.
+      root = _processOneStateUpdate(params[i], root, i == 0, false, batchSignature);
+      unchecked {
+        ++i;
+      }
+    }
+    if (root != currentRoot) applicationStateRoots[applicationId] = root;
+
+    // The per-entry hashes are not recoverable from the individual events, so emit them: they are
+    // what an off-chain verifier needs to re-derive the batch digest this signature was checked
+    // against.
+    emit BatchProcessed(applicationId, entryHashes);
+  }
+
+  /// @dev Processes one update entry: validates it, emits its events, moves its funds, invokes the
+  ///      application's trigger if one is registered, and dequeues the request. The single
+  ///      implementation behind both `stateUpdate` and `batchStateUpdate`.
+  /// @param p The entry's fields, in the shape its hash is built from.
+  /// @param currentRoot The application's state root as of this entry — read from storage for the
+  ///        first entry of a call, the previous entry's `newStateRoot` afterwards. Deliberately not
+  ///        read from storage here, so a batch can chain entries in memory and write the root once.
+  ///        The one exception is an application with a registered trigger: there the root is
+  ///        written before the trigger runs, because the trigger is external code that observes the
+  ///        endpoint's state mid-transaction. Such applications are capped at one entry per batch,
+  ///        so this costs the batch path nothing.
+  /// @param enforceTurn Whether to enforce the selection rules (`_enforceSelection`). Callers pass
+  ///        true for the first entry only: one check covers a whole batch.
+  /// @param verifySignature Whether to verify `signature` as a 1-entry batch here. False for batch
+  ///        entries, which one signature over every entry hash already covers — `signature` is then
+  ///        ignored. Never derived from `signature` being empty: an empty signature must still fail
+  ///        verification rather than skip it.
+  /// @param signature Signature over this entry alone, ignored when `verifySignature` is false.
+  /// @return The application's state root after this entry: `currentRoot` for an error entry,
+  ///         `p.newStateRoot` for a successful one.
+  function _processOneStateUpdate(
+    Structs.SignatureParams memory p,
+    bytes32 currentRoot,
+    bool enforceTurn,
+    bool verifySignature,
+    bytes calldata signature
+  ) private returns (bytes32) {
+    uint64 applicationId = p.applicationId;
+    bytes32 processedRequestId = p.processedRequestId;
+
+    // Check valid request. The stored type resolves the one queue this request can be in (see
+    // _queueOf), so this is a single head comparison rather than a scan of all three queues —
+    // and it is the same queue _removeRequest will dequeue from.
+    Structs.PendingRequest storage requestInfo = _queueStore.requests[processedRequestId];
+    if (
+      !RequestQueues.isHead(
+        _queueOf(requestInfo.applicationId, requestInfo.requestType),
+        processedRequestId
+      )
+    ) revert InvalidRequestId();
+
+    bool fromTriggerQueue = requestInfo.requestType == Structs.RequestType.TRUSTPROCESS;
 
     // Check application Id
-    bool fromTriggerQueue = _queueIsHead(_triggerQueue, processedRequestId);
-    Structs.PendingRequest storage requestInfo = fromTriggerQueue
-      ? _triggerQueue.requestById[processedRequestId]
-      : _requestQueue.requestById[processedRequestId];
     if (applicationId != requestInfo.applicationId) revert InvalidApplicationId();
 
+    // Enforce whose turn it is. Checked before the signature so a rejected turn costs the manager
+    // no ecrecover, and before any state is touched.
+    if (enforceTurn) _enforceSelection(applicationId, requestInfo.requestType);
+
     //check prev state root
-    if (prevStateRoot != applicationStateRoots[applicationId]) revert InvalidStateRoot();
+    if (p.prevStateRoot != currentRoot) revert InvalidStateRoot();
 
-    uint256 eventsLength = userEventData.events.length;
-    if (eventsLength != userEventData.subTypes.length) revert InvalidPayload();
+    uint256 eventsLength = p.userEvents.events.length;
+    if (eventsLength != p.userEvents.subTypes.length) revert InvalidPayload();
 
-    uint256 appEventsLength = appEventData.events.length;
-    if (appEventsLength != appEventData.subTypes.length) revert InvalidPayload();
+    uint256 appEventsLength = p.appEvents.events.length;
+    if (appEventsLength != p.appEvents.subTypes.length) revert InvalidPayload();
 
     //check signature
-    Structs.SignatureParams memory sigParams = Structs.SignatureParams({
-      applicationId: applicationId,
-      prevStateRoot: prevStateRoot,
-      newStateRoot: newStateRoot,
-      processedRequestId: processedRequestId,
-      userEvents: userEventData,
-      appEvents: appEventData,
-      withdrawalRequests: withdrawalRequests,
-      refundAmount: refund,
-      applicationFee: applicationFees,
-      errorCode: errorCode,
-      errorMsg: errorMsg
-    });
-    if (!teeAuthenticator.checkSignature(sigParams, signature)) revert InvalidSignature();
+    if (verifySignature) {
+      // Single-request updates are verified as a 1-entry batch: the batch digest of one
+      // entry hash is byte-identical to the single-request digest, so both submission
+      // paths share one signing scheme.
+      bytes32[] memory entryHashes = new bytes32[](1);
+      entryHashes[0] = UpdateEntryHash.entryHash(p);
+      if (!teeAuthenticator.checkBatchSignature(entryHashes, signature)) revert InvalidSignature();
+    }
 
     //check values
 
@@ -366,12 +651,12 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       : sender;
 
     // Handle error case (signed error payload from TEE)
-    if (errorCode != Structs.ErrorCode.NO_ERROR) {
+    if (p.errorCode != Structs.ErrorCode.NO_ERROR) {
       // For errors: state unchanged (prevStateRoot == newStateRoot), no events, no withdrawals
       // Refund user (minus minimum fee) and collect minimum fee
-      if (eventsLength != 0 || appEventsLength != 0 || withdrawalRequests.length != 0)
+      if (eventsLength != 0 || appEventsLength != 0 || p.withdrawalRequests.length != 0)
         revert InvalidPayload();
-      if (applicationStateRoots[applicationId] != newStateRoot) revert InvalidStateRoot();
+      if (currentRoot != p.newStateRoot) revert InvalidStateRoot();
 
       // Per-app per-token solvency check, then ETH balance check for fee outflow.
       uint256 assetAmount = requestInfo.assetAmount;
@@ -425,28 +710,31 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
         processedRequestId,
         fromTriggerQueue ? 0 : minFeePerRequest,
         Structs.RequestResult.FAILED,
-        Structs.ErrorCode(errorCode),
-        errorMsg,
+        p.errorCode,
+        p.errorMsg,
         requestInfo.requestType
       );
 
-      return;
+      // State unchanged: the caller must not write the root for this entry, and a batch continues
+      // from the same root.
+      return currentRoot;
     }
 
     // Handle success case
     // State cannot remain the same
-    if (applicationStateRoots[applicationId] == newStateRoot) revert InvalidStateRoot();
+    if (currentRoot == p.newStateRoot) revert InvalidStateRoot();
 
     // don't check fees if we are from trigger queue
     if (!fromTriggerQueue) {
-      if (refund + applicationFees != maxFeeValue) revert InvalidValue();
-      if (applicationFees < minFeePerRequest) {
+      if (p.refundAmount + p.applicationFee != maxFeeValue) revert InvalidValue();
+      if (p.applicationFee < minFeePerRequest) {
         revert InvalidValue();
       }
     }
 
     //check withdrawal sums and debit per-app per-token custody
     uint256 i;
+    Structs.WithdrawalRequest[] memory withdrawalRequests = p.withdrawalRequests;
     uint256 withdrawalsLength = withdrawalRequests.length;
     uint256 ethWithdrawalSum;
     // Accumulate per-token ERC-20 withdrawal sums for a single post-loop solvency check
@@ -508,7 +796,7 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     }
 
     // ETH solvency: contract must hold enough ETH to cover fee outflow + ETH withdrawals
-    uint256 totalEthOutflow = refund + applicationFees + ethWithdrawalSum;
+    uint256 totalEthOutflow = p.refundAmount + p.applicationFee + ethWithdrawalSum;
     if (totalEthOutflow > _getAvailableEthBalance()) revert InsufficientBalance();
 
     //emit encrypted event
@@ -517,8 +805,8 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       emit UserEvent(
         applicationId,
         processedRequestId,
-        userEventData.subTypes[i],
-        userEventData.events[i]
+        p.userEvents.subTypes[i],
+        p.userEvents.events[i]
       );
       unchecked {
         ++i;
@@ -531,8 +819,8 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       emit AppEvent(
         applicationId,
         processedRequestId,
-        appEventData.subTypes[i],
-        appEventData.events[i]
+        p.appEvents.subTypes[i],
+        p.appEvents.events[i]
       );
       unchecked {
         ++i;
@@ -545,26 +833,30 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       emit ReportGenerated(applicationId, processedRequestId);
     }
 
-    //update state root and request
-    applicationStateRoots[applicationId] = newStateRoot;
+    //update request
     if (reqType == Structs.RequestType.DEPLOYAPP) {
       _deployedAppIds.push(applicationId);
       // The trigger (if any) was already validated and registered eagerly in
       // submitDeployRequestWithTrigger, so a successful deploy needs no further
       // trigger bookkeeping here.
     }
-    emit StateRootUpdate(applicationId, processedRequestId, prevStateRoot, newStateRoot);
+    emit StateRootUpdate(applicationId, processedRequestId, p.prevStateRoot, p.newStateRoot);
 
     //credit refund to feeRecipient's pending balance (pull pattern) — refund is always ETH
-    if (refund > 0) {
-      _asyncTransfer(ETH_TOKEN, feeRecipient, refund);
-      emit Refund(applicationId, processedRequestId, feeRecipient, ETH_TOKEN, refund);
+    if (p.refundAmount > 0) {
+      _asyncTransfer(ETH_TOKEN, feeRecipient, p.refundAmount);
+      emit Refund(applicationId, processedRequestId, feeRecipient, ETH_TOKEN, p.refundAmount);
     }
 
     //credit withdrawals to receivers' pending balances
     i = 0;
     uint256 insertIntoClaimable;
-    address trigger = address(triggerContracts[applicationId]);
+    ITrigger triggerContract = triggerContracts[applicationId];
+    address trigger = address(triggerContract);
+    // The state root normally reaches storage once per call, after the last entry. A registered
+    // trigger is the exception: _invokeTrigger below hands control to external code that can read
+    // this contract's state, and it must not observe a root the update has already moved past.
+    if (trigger != address(0)) applicationStateRoots[applicationId] = p.newStateRoot;
     address[] memory claimableTemp = new address[](withdrawalsLength);
     while (i < withdrawalsLength) {
       // Only classify a withdrawal as "claimable by the trigger" when a trigger is actually
@@ -605,18 +897,20 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     }
 
     //invoke trigger contracts, if registered
-    _invokeTrigger(applicationId, processedRequestId, appEventData, claimable);
+    _invokeTrigger(triggerContract, applicationId, processedRequestId, p.appEvents, claimable);
 
     //set requests as completed
     _markRequestCompleted(
       applicationId,
       processedRequestId,
-      applicationFees,
+      p.applicationFee,
       Structs.RequestResult.COMPLETED,
       Structs.ErrorCode.NO_ERROR,
       '',
       reqType
     );
+
+    return p.newStateRoot;
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -630,6 +924,13 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
   function updateMaxNumOfApplications(uint256 newMax) external {
     newMax;
+    _delegateToExtension();
+  }
+
+  /// @inheritdoc IProcessorEndpoint
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`.
+  function updateSelectionGrace(uint256 newGrace) external {
+    newGrace;
     _delegateToExtension();
   }
 
@@ -660,29 +961,64 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function getNextPendingRequest()
+  function getPendingRequestsWithStateRoot(
+    uint256 maxCount
+  )
     external
     view
-    returns (Structs.PendingRequest memory, bytes32, bool success)
+    returns (uint64 applicationId, Structs.PendingRequest[] memory requests, bytes32 stateRoot)
   {
-    if (_queueSize(_triggerQueue) > 0) {
-      bytes32 requestId = _queuePeekHead(_triggerQueue);
-      Structs.PendingRequest storage req = _triggerQueue.requestById[requestId];
-      return (req, applicationStateRoots[req.applicationId], true);
-    }
-    if (_queueSize(_requestQueue) > 0) {
-      bytes32 requestId = _queuePeekHead(_requestQueue);
-      Structs.PendingRequest storage req = _requestQueue.requestById[requestId];
-      return (req, applicationStateRoots[req.applicationId], true);
-    }
+    return _selectPendingRequests(maxCount);
+  }
 
-    Structs.PendingRequest memory emptyReq;
-    return (emptyReq, bytes32(0), false);
+  /// @dev Picks the requests to serve next, in precedence order:
+  ///      1. the trigger queue head, alone — a TRUSTPROCESS must be processed immediately after
+  ///         the request that created it, before any other pending request of any application;
+  ///      2. the deploy queue head, alone — deploys are a separate, never-batched flow;
+  ///      3. up to maxCount requests of the application selected by the round-robin cursor,
+  ///         capped at one when the application has a registered trigger contract (such
+  ///         applications do not support batching).
+  ///      Returns an empty list when nothing is pending. The cursor is not moved here: it only
+  ///      advances when a request is actually dequeued from a per-application queue.
+  function _selectPendingRequests(
+    uint256 maxCount
+  )
+    internal
+    view
+    returns (uint64 applicationId, Structs.PendingRequest[] memory requests, bytes32 stateRoot)
+  {
+    if (maxCount != 0) {
+      if (RequestQueues.size(_queueStore.triggers) > 0) return _headAsBatch(_queueStore.triggers);
+      if (RequestQueues.size(_queueStore.deploys) > 0) return _headAsBatch(_queueStore.deploys);
+
+      (uint64 appId, bool found) = RequestQueues.selectApplication(_queueStore, _deployedAppIds);
+      if (found) {
+        uint256 count = RequestQueues.size(_queueStore.pending[appId]);
+        if (count > maxCount) count = maxCount;
+        if (address(triggerContracts[appId]) != address(0)) count = 1;
+        return (appId, _copyRange(_queueStore.pending[appId], count), applicationStateRoots[appId]);
+      }
+    }
+    return (0, new Structs.PendingRequest[](0), bytes32(0));
+  }
+
+  /// @dev Returns the queue head as a single-element batch, together with its application's
+  ///      state root.
+  function _headAsBatch(
+    RequestQueues.Queue storage q
+  ) internal view returns (uint64, Structs.PendingRequest[] memory, bytes32) {
+    Structs.PendingRequest[] memory requests = _copyRange(q, 1);
+    uint64 applicationId = requests[0].applicationId;
+    return (applicationId, requests, applicationStateRoots[applicationId]);
   }
 
   /// @inheritdoc IProcessorEndpoint
+  /// @dev An unknown requestId reads back as a zeroed request and resolves to the deploy queue,
+  ///      where the head comparison fails — so it returns false, as it does for a request that is
+  ///      queued but not at its queue's head.
   function isCurrentPendingRequest(bytes32 requestId) public view returns (bool) {
-    return _queueIsHead(_triggerQueue, requestId) || _queueIsHead(_requestQueue, requestId);
+    Structs.PendingRequest storage request = _queueStore.requests[requestId];
+    return RequestQueues.isHead(_queueOf(request.applicationId, request.requestType), requestId);
   }
 
   // Pull payment pattern functions. `_asyncTransfer` is declared in `ProcessorEndpointStorage`,
@@ -755,17 +1091,61 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     _delegateToExtension();
   }
 
+  /// @dev The first `count` requests of the queue, in FIFO order. `count` must not exceed the
+  ///      queue size. Kept in this contract rather than in RequestQueues: as a library
+  ///      `internal` function it gets inlined at every call site, and as a `public` one the
+  ///      returned array would be ABI-encoded for the delegatecall and decoded again here —
+  ///      both cost more code than they move out.
+  function _copyRange(
+    RequestQueues.Queue storage q,
+    uint256 count
+  ) internal view returns (Structs.PendingRequest[] memory result) {
+    result = new Structs.PendingRequest[](count);
+    uint256 i = q.head;
+    uint256 stop = q.head + count;
+    uint256 j;
+    while (i != stop) {
+      result[j] = _queueStore.requests[q.idByOrder[i]];
+      unchecked {
+        ++i;
+        ++j;
+      }
+    }
+  }
+
+  /// @dev Appends the whole queue into `dest` starting at `offset`, returning the next free
+  ///      index. Used to flatten several queues into one array.
+  function _copyInto(
+    RequestQueues.Queue storage q,
+    Structs.PendingRequest[] memory dest,
+    uint256 offset
+  ) internal view returns (uint256) {
+    uint256 i = q.head;
+    uint256 tail = q.tail;
+    while (i != tail) {
+      dest[offset] = _queueStore.requests[q.idByOrder[i]];
+      unchecked {
+        ++i;
+        ++offset;
+      }
+    }
+    return offset;
+  }
+
   // Calls execute then withdraw on the trigger contract registered for the given applicationId,
   // if any. Each call is wrapped in an independent try/catch so that a revert in the trigger
   // never propagates to the caller: both calls are always attempted regardless of the outcome
   // of the first.
+  //
+  // The trigger is passed in rather than read here: the caller loads it anyway, to decide whether
+  // the state root has to reach storage before this external code runs.
   function _invokeTrigger(
+    ITrigger trigger,
     uint64 applicationId,
     bytes32 processedRequestId,
-    Structs.EventData calldata appEventData,
+    Structs.EventData memory appEventData,
     address[] memory claimable
   ) internal {
-    ITrigger trigger = triggerContracts[applicationId];
     //do nothing if trigger not defined for application
     if (address(trigger) == address(0)) return;
 
@@ -866,11 +1246,12 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       keccak256(payload),
       address(0),
       0,
-      _triggerQueue.tail
+      _queueStore.triggers.tail
     );
 
-    _queueEnqueue(
-      _triggerQueue,
+    RequestQueues.enqueue(
+      _queueStore,
+      _queueStore.triggers,
       requestId,
       Structs.PendingRequest({
         timestamp: block.timestamp,
@@ -888,47 +1269,5 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     );
 
     emit RequestSubmitted(applicationId, requestId, trigger, address(0));
-  }
-
-  // Internal queue helpers
-
-  function _queueGetAll(
-    RequestQueue storage q
-  ) internal view returns (Structs.PendingRequest[] memory result) {
-    uint256 n = _queueSize(q);
-    result = new Structs.PendingRequest[](n);
-    uint256 i = q.head;
-    uint256 tail = q.tail;
-    uint256 j;
-    while (i < tail) {
-      result[j] = q.requestById[q.idByOrder[i]];
-      unchecked {
-        ++i;
-        ++j;
-      }
-    }
-  }
-
-  function _queueGetPage(
-    RequestQueue storage q,
-    uint256 offset,
-    uint256 limit
-  ) internal view returns (Structs.PendingRequest[] memory result) {
-    uint256 n = _queueSize(q);
-    if (offset >= n || limit == 0) return new Structs.PendingRequest[](0);
-    uint256 end = offset + limit;
-    if (end > n) end = n;
-    uint256 count = end - offset;
-    result = new Structs.PendingRequest[](count);
-    uint256 i = q.head + offset;
-    uint256 stop = q.head + end;
-    uint256 j;
-    while (i < stop) {
-      result[j] = q.requestById[q.idByOrder[i]];
-      unchecked {
-        ++i;
-        ++j;
-      }
-    }
   }
 }

@@ -123,9 +123,22 @@ interface IProcessorEndpoint is IProcessorEndpointState {
     bytes32 oldStateRoot,
     bytes32 newStateRoot
   );
+  /// @notice Emitted once per `batchStateUpdate` call, carrying the per-entry hashes the batch
+  ///         signature covered. The individual `StateRootUpdate`, `UserEvent`, `AppEvent` and
+  ///         `RequestCompleted` events are emitted per entry exactly as on the single-request path;
+  ///         this event adds only what those cannot express — the digest the one signature was
+  ///         verified against, which an off-chain verifier needs to re-derive it.
+  /// @param applicationId Application every entry of the batch belongs to.
+  /// @param entryHashes Per-entry hashes, in submission order.
+  event BatchProcessed(uint64 indexed applicationId, bytes32[] entryHashes);
+
   /// @notice Emitted when the queue size threshold is changed.
   /// @param newThreshold New maximum queue size.
   event QueueThresholdUpdated(uint256 newThreshold);
+
+  /// @notice Emitted when the selection grace period is updated.
+  /// @param newGrace New grace period, in seconds.
+  event SelectionGraceUpdated(uint256 newGrace);
   /// @notice Emitted when the maximum number of applications is updated.
   /// @param oldMax Previous maximum.
   /// @param newMax New maximum.
@@ -178,6 +191,28 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   error InvalidApplicationId();
   /// @notice The provided request id is not the current pending request.
   error InvalidRequestId();
+
+  /// @notice Serving the submitted application would skip one whose queue head is older than
+  ///         `selectionGrace`: the round-robin scan reaches that application first, and its head
+  ///         cannot be explained by a request that arrived after the manager read the selection
+  ///         view.
+  /// @param selectedApplicationId The application whose turn it is.
+  error ApplicationNotSelected(uint64 selectedApplicationId);
+
+  /// @notice Serving the submitted request would skip a higher-priority global queue whose head
+  ///         is older than `selectionGrace`: triggers outrank deploys, and both outrank
+  ///         per-application requests. A younger head is exempt — it may have arrived after the
+  ///         manager read the selection view.
+  /// @param queueType The queue that must be served first: TRUSTPROCESS or DEPLOYAPP.
+  error PriorityQueueNotServed(Structs.RequestType queueType);
+  /// @notice `batchStateUpdate` was called with no entries.
+  error EmptyBatch();
+
+  /// @notice The batch holds more than one entry for a request kind that must be processed alone:
+  ///         a TRUSTPROCESS or DEPLOYAPP queue head, or any request of an application with a
+  ///         registered trigger contract. Such a batch would compute its later entries without the
+  ///         on-chain trusted callback the trigger flow depends on.
+  error BatchNotAllowed();
   /// @notice The provided state root does not match the expected value.
   error InvalidStateRoot();
   /// @notice The signature could not be verified.
@@ -293,7 +328,9 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   /// @return extensionAddress Address of the extension contract.
   function extension() external view returns (address extensionAddress);
 
-  /// @notice Returns the number of pending requests in the queue.
+  /// @notice Returns the total number of pending requests: the sum of the deploy queue and
+  ///         every per-application queue. Trigger-queue requests are reported separately by
+  ///         getTriggerQueueSize().
   /// @return size Current pending request count.
   function getPendingRequestsSize() external view returns (uint256);
 
@@ -305,18 +342,27 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   /// @return requests Array of trigger-queue requests.
   function getTriggerRequests() external view returns (Structs.PendingRequest[] memory);
 
-  /// @notice Returns the list of pending requests in order.
+  /// @notice Returns every pending request outside the trigger queue: the deploy queue first,
+  ///         then each application's queue. Requests are FIFO-ordered within a queue, but
+  ///         submission order across applications is not preserved.
   /// @return requests Array of pending requests.
   function getPendingRequests() external view returns (Structs.PendingRequest[] memory);
 
-  /// @notice Returns a paginated slice of pending requests in order.
-  /// @param offset Number of requests to skip from the head of the queue.
+  /// @notice Returns a paginated slice of getPendingRequests().
+  /// @param offset Number of requests to skip.
   /// @param limit Maximum number of requests to return.
   /// @return requests Array of pending requests.
   function getPendingRequestsPage(
     uint256 offset,
     uint256 limit
   ) external view returns (Structs.PendingRequest[] memory);
+
+  /// @notice Returns the stored request for a given id, from whichever queue holds it. Request
+  ///         ids are unique across the trigger, deploy and per-application queues, so no
+  ///         applicationId is needed. Returns a zeroed struct for an unknown id.
+  /// @param id Request identifier.
+  /// @return request Stored pending request.
+  function requestById(bytes32 id) external view returns (Structs.PendingRequest memory request);
 
   /// @notice Updates the state root, emits events, and finalizes the processed request.
   /// @param applicationId Application identifier.
@@ -346,6 +392,32 @@ interface IProcessorEndpoint is IProcessorEndpointState {
     bytes calldata signature
   ) external;
 
+  /// @notice Applies several update payloads for one application atomically, verified by a single
+  ///         signature covering every entry.
+  /// @dev Each entry is processed exactly as `stateUpdate` processes its single one — same
+  ///       validation, events, refunds, withdrawals, trigger invocation and dequeuing — in array
+  ///       order, from the head of `pendingQueues[applicationId]` onward. All-or-nothing: any entry
+  ///       reverting reverts the whole call.
+  ///
+  ///       The state root is chained through the entries: the first entry's `prevStateRoot` must
+  ///       match the stored root, each later one must match its predecessor's `newStateRoot`, and
+  ///       storage is written once at the end. An error entry leaves the root unchanged and the
+  ///       next entry continues from it.
+  ///
+  ///       The round-robin turn is enforced once for the whole batch (see `updateSelectionGrace`),
+  ///       and request kinds that must be processed alone are limited to a single entry — see
+  ///       {BatchNotAllowed}.
+  /// @param applicationId Application every entry belongs to, passed once instead of per entry.
+  /// @param entries Per-request update payloads, in the order the requests are queued.
+  /// @param batchSignature Single TEE signature over the EIP-191 digest of the concatenated entry
+  ///        hashes (see `ITeeAuthenticator.checkBatchSignature`). For a one-entry batch this is
+  ///        byte-identical to the signature `stateUpdate` accepts.
+  function batchStateUpdate(
+    uint64 applicationId,
+    Structs.BatchEntry[] calldata entries,
+    bytes calldata batchSignature
+  ) external;
+
   /// @notice Updates the maximum pending queue size.
   /// @param newThreshold New queue size limit.
   function updateQueueThreshold(uint256 newThreshold) external;
@@ -353,6 +425,13 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   /// @notice Updates the maximum number of deployable applications.
   /// @param newMax New maximum. Must be >= currently deployed count.
   function updateMaxNumOfApplications(uint256 newMax) external;
+
+  /// @notice Updates the window during which a freshly enqueued request does not yet constrain
+  ///         which application may be served.
+  /// @param newGrace New grace period in seconds. Zero enforces the round-robin turn strictly,
+  ///        with no tolerance for requests that arrive while a state update is in flight. A value
+  ///        exceeding any plausible request age disables enforcement.
+  function updateSelectionGrace(uint256 newGrace) external;
 
   /// @notice Updates the fee collector address.
   /// @param newFeeCollector New fee collector address.
@@ -371,18 +450,27 @@ interface IProcessorEndpoint is IProcessorEndpointState {
   /// @return allowed True when the address has deploy permission.
   function isAllowedDeployer(address deployer) external view returns (bool allowed);
 
-  /// @notice Returns the current pending request and state root.
-  /// @return request Pending request data.
-  /// @return currentStateRoot Current state root.
-  /// @return success True if a pending request exists.
-  function getNextPendingRequest()
+  /// @notice Returns the requests to process next, together with the application they belong to
+  ///         and that application's state root. The application is selected by the contract, not
+  ///         by the caller: a pending trigger-queue (TRUSTPROCESS) request is served first and
+  ///         alone, then a pending deploy request alone, otherwise up to maxCount requests of the
+  ///         application whose turn it is in the round-robin rotation. An application with a
+  ///         registered trigger contract yields at most one request regardless of maxCount,
+  ///         because such applications do not support batching.
+  /// @param maxCount Maximum number of requests to return.
+  /// @return applicationId Application the returned requests belong to (0 when none is pending).
+  /// @return requests Requests to process, in queue order. Empty when nothing is pending.
+  /// @return stateRoot On-chain state root of the returned application.
+  function getPendingRequestsWithStateRoot(
+    uint256 maxCount
+  )
     external
     view
-    returns (Structs.PendingRequest memory, bytes32, bool);
+    returns (uint64 applicationId, Structs.PendingRequest[] memory requests, bytes32 stateRoot);
 
-  /// @notice Checks whether a request is the current pending request.
+  /// @notice Checks whether a request is at the head of the queue holding it.
   /// @param requestId Request identifier.
-  /// @return isCurrent True if the request is at the head of the queue.
+  /// @return isCurrent True if the request is at the head of its queue.
   function isCurrentPendingRequest(bytes32 requestId) external view returns (bool);
 
   /// @notice Generates a deterministic request id.

@@ -632,27 +632,25 @@ func (m *SecureProcessorManager) processBatchFromChain(ctx context.Context) erro
 // on-chain and are retried on the next poll.
 func (m *SecureProcessorManager) processBatch(ctx context.Context, appID common.ApplicationIdType, requests []*common.Request, prevStateRoot [32]byte) error {
 	// Get the application state.
+	// A missing state is not a recoverable condition either: app existence is enforced
+	// on-chain, so the contract selected an application whose local state is gone. The
+	// executor can do nothing with a nil state — the batch would be rejected by the
+	// protocol layer before it even reaches HandleBatchProcessRequest
+	// (BatchProcessRequestData.Validate) — so returning here saves an enclave
+	// round-trip per poll and keeps the diagnostic next to the DB that is wrong. The
+	// requests stay pending on-chain either way. Returned unwrapped so callers can
+	// still classify it with storageErrors.IsNotFound.
 	appState, err := m.dataLayer.GetApplicationState(ctx, appID)
 	if err != nil {
 		m.log.Error("GetApplicationState returns an error: %v", err)
-		if !storageErrors.IsNotFound(err) {
-			// Likely a db error, retry on next poll.
-			return err
-		}
-		// If application state not found, pass a nil state to the executor: it rejects
-		// the batch with a hard error (app existence is enforced on-chain) and the
-		// requests stay pending.
-		appState = nil
+		return err
 	}
 
 	// Get the WASM module for the application.
-	var wasmBytes []byte
-	if appState != nil {
-		wasmBytes, err = m.dataLayer.GetWASMBytecode(ctx, appID)
-		if err != nil {
-			m.log.Error("GetWASMBytecode returns an error: %v", err)
-			return err
-		}
+	wasmBytes, err := m.dataLayer.GetWASMBytecode(ctx, appID)
+	if err != nil {
+		m.log.Error("GetWASMBytecode returns an error: %v", err)
+		return err
 	}
 
 	executorStart := time.Now()
@@ -766,6 +764,16 @@ func (m *SecureProcessorManager) checkIfReorg(appID common.ApplicationIdType, st
 	if err != nil {
 		m.log.Error("Manager: Failed to get db old versions: %v", err)
 		return false, err
+	}
+
+	// No versions at all for this app: there is no older root the chain could have
+	// reorged back to, so this is not a reorg — the caller reports it as an
+	// unrecoverable disalignment (its "DB is empty" branch is exactly this case).
+	// The guard is also what keeps the oldVersions[1:] slice below in range: an
+	// unknown app yields an empty list, and slicing it at 1 panics.
+	if len(oldVersions) == 0 {
+		m.log.Error("Manager: No db version found for app %d, cannot be a REORG", appID)
+		return false, nil
 	}
 
 	for _, oldVersion := range oldVersions[1:] {

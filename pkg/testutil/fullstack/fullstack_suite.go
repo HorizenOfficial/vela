@@ -91,7 +91,7 @@ func NewFullStackSystemTestSuiteWithConfigs(
 // signer while the executor still uses its REAL signing key. Because the two
 // addresses differ, every on-chain stateUpdate's signature recovers to an
 // address that does NOT match the registered signer, and
-// teeAuthenticator.checkSignature returns false, which triggers
+// teeAuthenticator.checkBatchSignature returns false, which triggers
 // ProcessorEndpoint's InvalidSignature revert. Use this to prove the
 // TEE-verify wiring is actually enforced end-to-end — a regression that
 // removed or short-circuited the check would pass every other fullstack test
@@ -141,7 +141,7 @@ func newFullStackSuiteInternal(
 	// GetTeePublicKey returns 133 zero bytes and wallet flows that encrypt
 	// payloads (RegisterUser, Deposit) fail with "invalid public key".
 	teeSignerAddr := ethCrypto.PubkeyToAddress(*keySet.SigningKey.PublicKey().PublicKey)
-	// Default: deploy the MockTeeAuthenticator (checkSignature always
+	// Default: deploy the MockTeeAuthenticator (checkBatchSignature always
 	// returns true — convenient for the happy-path suite). The rejection
 	// variant needs the NoAttestationTeeAuthenticator, which inherits the
 	// real ECDSA recover+compare logic, so we switch contracts when an

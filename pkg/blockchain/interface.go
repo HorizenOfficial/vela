@@ -18,8 +18,6 @@ type Client interface {
 	SubmitDeployRequest(ctx context.Context, protocolVersion uint8, payload []byte, maxFeeValue *big.Int) (common.ApplicationIdType, common.RequestIdType, uint64, error)
 	// GetPendingRequests gets pending requests from the blockchain
 	GetPendingRequests(ctx context.Context) ([]*common.Request, error)
-	// GetNextPendingRequest gets next pending request and current state root from the blockchain
-	GetNextPendingRequest(ctx context.Context) (*common.Request, [32]byte, error)
 	// GetPendingRequestsWithStateRoot fetches up to maxCount pending requests for the
 	// application selected on-chain (round-robin, see docs/design/BATCH_EXECUTION.md
 	// section 4.3), together with the selected applicationId and its on-chain state root.

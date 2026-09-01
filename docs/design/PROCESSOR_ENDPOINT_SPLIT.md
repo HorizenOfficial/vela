@@ -263,19 +263,32 @@ internal implementations in the base. `evmVersion: cancun` (section 2.1) takes a
 `extension()` getter adds 79 back. Moving the remaining nine non-hot-path entry points (section 3)
 takes a further 3,138.
 
-**This should now cover batch execution.** Section 1 measured the batch work at 26,353 bytes on the
-old 23,246-byte `paris` baseline — +3,107 — and `batchStateUpdate()` was not written yet. Carried
-onto the 17,295-byte baseline that lands around 20,400, roughly 4,100 bytes under the limit, with
-`batchStateUpdate()` still to account for. The batch numbers are re-measured against the current
-baseline, not extrapolated, before deciding.
+**This covers batch execution — measured, not extrapolated.** Section 1 measured the batch work at
+26,353 bytes on the old 23,246-byte `paris` baseline — +3,107 — and `batchStateUpdate()` was not
+written yet. Merged onto the 17,295-byte baseline, the per-application queues, the deploy queue, the
+round-robin cursor and the selection view land at **19,626 bytes, 4,950 under the limit**
+(`ProcessorEndpointExtension` at 12,352), against the extrapolated ~20,400. `batchStateUpdate()` then
+cost **4,130 bytes** — `_processOneStateUpdate`, the entry loop and the `BatchEntry[]` calldata
+decoder — leaving the endpoint at **23,756 bytes, 820 under the limit**. It fits, but that is now the
+whole budget: the next contract change of any size needs one of the levers below. Same settings as
+the rest of this section: hardhat, `cancun`, `runs: 0`.
+
+The merge is also where the two designs meet in the extension: the deploy-submission and reset entry
+points hosted there operate on the batch branch's per-application queue state (`RequestQueues.Store`
+behind the shared `_q`), not on the single global queue they were moved with.
 
 If more room is needed after that, in increasing order of cost:
 
 1. the read-only surface behind a generic `fallback()` and a merged ABI (−2,353, section 3.1);
-2. `stateUpdate` itself, which measures **−7,967** — by far the largest single module, but it is the
-   manager's per-request hot path, so moving it puts ~2,600 gas on every state update. The cheaper
-   version of the same idea is to implement `batchStateUpdate()` **in the extension from the start**,
-   which buys the headroom for the new code without relocating the existing hot path.
+2. retiring the `stateUpdate` entry point, which `batchStateUpdate` now subsumes: a one-entry batch
+   is equivalent to it and takes the same signature, so once the manager routes its single-request
+   path through `SubmitBatchStateUpdate` the wrapper and its 12-argument calldata decoder can go
+   (`BATCH_EXECUTION.md` section 5.4). This costs no gas on any path;
+3. moving one of the two state-update entry points into the extension, which puts ~2,600 gas on every
+   update it hosts. Less attractive than it looks now that both share `_processOneStateUpdate` and its
+   helpers (`_enforceSelection`, `_queueOf`, `_markRequestCompleted`, `_invokeTrigger`): moving either
+   one alone means duplicating those into the extension or promoting them to the storage base, so the
+   endpoint sheds only the moved entry point's own decoder and loop.
 
 Note that the `go:generate` solc invocation passes `--optimize` (default `runs: 200`) and no
 `--evm-version`, so it uses solc 0.8.30's own default EVM version and produces different sizes from

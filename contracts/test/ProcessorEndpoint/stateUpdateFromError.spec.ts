@@ -322,7 +322,7 @@ describe('ProcessorEndpoint Test', function () {
         ).to.be.revertedWithCustomError(processorEndpoint, 'InvalidStateRoot');
       });
 
-      it('reverts with InvalidSignature when teeAuthenticator checkSignature fails', async () => {
+      it('reverts with InvalidSignature when teeAuthenticator checkBatchSignature fails', async () => {
         const fixture = await deployWithNoAttestation(signers[3]);
         const request = await submitRequest(
           fixture.processorEndpoint,
@@ -849,48 +849,8 @@ describe('ProcessorEndpoint Test', function () {
       const { processorEndpoint: pe, tokenAllowlist: tl } = await fixture.deployProcessorEndpoint();
       tokenAllowlistForTrigger = tl;
 
-      const TestTrigger = await ethers.getContractFactory('TestTrigger');
-      const mockTrigger: any = await TestTrigger.deploy(
-        await pe.getAddress(),
-        false, // revertOnExecute
-        false // revertOnPostWithdraw
-      );
-
-      const descriptorPayload = '0x' + 'ab'.repeat(40);
-      const deployTx = await pe
-        .connect(fixture.signers[2])
-        .submitDeployRequestWithTrigger(0, descriptorPayload, await mockTrigger.getAddress(), {
-          value: fixture.minFeePerRequest,
-        });
-      const deployReceipt = await deployTx.wait();
-      const deployLog = deployReceipt.logs.find((log: any) => {
-        try {
-          return pe.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
-        } catch {
-          return false;
-        }
-      });
-      const parsed = pe.interface.parseLog(deployLog);
-      const appId: bigint = parsed.args.applicationId;
-      const deployRequestId: string = parsed.args.requestId;
-
-      // Complete the DEPLOYAPP request
-      await pe
-        .connect(fixture.signers[1])
-        .stateUpdate(
-          appId,
-          BYTES32_ZERO,
-          INITIAL_STATE_ROOT,
-          deployRequestId,
-          { events: [], subTypes: [] },
-          { events: [], subTypes: [] },
-          [],
-          0,
-          fixture.minFeePerRequest,
-          0,
-          '',
-          '0x'
-        );
+      const { trigger: mockTrigger, applicationId: appId } =
+        await fixture.bootstrapApplicationWithTrigger(pe);
 
       // Set the trusted payload on the mock trigger
       await (await mockTrigger.setTrustedPayload(trustedPayload)).wait();
@@ -952,7 +912,8 @@ describe('ProcessorEndpoint Test', function () {
       const pendingBefore = await pe.pendingClaims(ETH_TOKEN, feeCollectorAddr);
 
       // Confirm the next pending request is the TRUSTPROCESS
-      const [req] = await pe.getNextPendingRequest();
+      const [, pending] = await pe.getPendingRequestsWithStateRoot(1);
+      const req = pending[0];
       expect(req.requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
       const trustedRequestId: string = req.requestId;
 

@@ -62,10 +62,10 @@ describe('ProcessorEndpoint Test', function () {
       expect(pending[1].requestId).to.equal(second.requestId);
       expect(pending[1].assetAmount).to.equal(5n);
 
-      const [nextPending, stateRoot, success] = await processorEndpoint.getNextPendingRequest();
-      expect(success).to.equal(true);
+      const [, next, stateRoot] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+      expect(next.length).to.equal(1);
       expect(stateRoot).to.equal(INITIAL_STATE_ROOT);
-      expect(nextPending.requestId).to.equal(first.requestId);
+      expect(next[0].requestId).to.equal(first.requestId);
 
       expect(await processorEndpoint.isCurrentPendingRequest(first.requestId)).to.equal(true);
       expect(await processorEndpoint.isCurrentPendingRequest(second.requestId)).to.equal(false);
@@ -174,8 +174,8 @@ describe('ProcessorEndpoint Test', function () {
       expect(senderBPendingAmountAfter - senderBPendingAfterSubmit).to.equal(expectedRefundB);
 
       expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
-      const [, , success] = await processorEndpoint.getNextPendingRequest();
-      expect(success).to.equal(false);
+      const [, requests] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+      expect(requests.length).to.equal(0);
     });
   });
 });

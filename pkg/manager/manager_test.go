@@ -940,8 +940,8 @@ func TestProcessBatchWithErrors(t *testing.T) {
 	appState, err := manager.dataLayer.GetApplicationState(context.Background(), ApplicationId)
 	require.NoError(t, err)
 	initialStateRoot := appState.StateRoot
-	// Simulate application state not found. SendProcessRequest is still called with a nil
-	// state, but the executor rejects it with a hard error: the request stays pending.
+	// Simulate application state not found: the manager stops before the executor
+	// round-trip and returns the storage error, so the request stays pending.
 	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState", func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
 		return nil, storageErrors.ErrNotFound("application state not found")
 	})
@@ -950,9 +950,9 @@ func TestProcessBatchWithErrors(t *testing.T) {
 	require.NoError(t, err)
 
 	failure := manager.processBatch(context.Background(), ApplicationId, []*common.Request{request}, initialStateRoot)
-	
+
 	require.Error(t, failure)
-	require.ErrorContains(t, failure, "state not found for application")
+	require.True(t, storageErrors.IsNotFound(failure))
 
 	completedRequests := mockBCClient.GetCompletedRequests()
 	require.Equal(t, 1, len(completedRequests), "expected 1 completed request")
@@ -1169,7 +1169,7 @@ func TestProcessBatchRequestFromChainWithReorgs(t *testing.T) {
 	require.Equal(t, ApplicationId, nextPendingReq[0].ApplicationID)
 	require.Equal(t, request3.RequestID, nextPendingReq[0].RequestID)
 
-	// Now simulate a reorg on chain, by making GetNextPendingRequest to always return the first request and initial state root
+	// Now simulate a reorg on chain, by making GetPendingRequestsWithStateRoot to always return the first request and initial state root
 
 	mockedGetPendingRequestsWithStateRoot := func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
 		return request1.ApplicationID, []*common.Request{request1}, initialStateRootOnChain, nil
@@ -2565,6 +2565,60 @@ func TestProcessBatchFromChain_HardFailureMidBatch(t *testing.T) {
 	pending, _ := mockBC.GetPendingRequests(ctx)
 	require.Equal(t, 1, len(pending), "the request that caused the hard stop stays pending")
 	require.Equal(t, 3, len(mockBC.GetCompletedRequests()), "deploy + 2 processed requests")
+}
+
+func TestProcessBatch_MissingAppStateDoesNotReachExecutor(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	// The version chain still holds the app's root — so the poll loop gets past the
+	// state-root reconciliation — but the state itself is gone.
+	prevStateRoot := seedDeployedApp(t, mockBC, manager, ApplicationId)
+	manager.dataLayer.(*mockdb.MockDataLayer).AddMockedFunc("GetApplicationState",
+		func(context.Context, common.ApplicationIdType) (*common.ApplicationState, error) {
+			return nil, storageErrors.ErrNotFound("application state not found")
+		})
+
+	manager.executorClient.(*MockExecutorClient).AddMockedFunc("SendBatchProcessRequest",
+		func(context.Context, []*common.Request, *common.ApplicationState, []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+			t.Fatal("a batch without application state must not be sent to the executor")
+			return nil, nil, nil, nil, nil
+		})
+
+	request := createRequest(common.Process, ApplicationId)
+	require.NoError(t, mockBC.SendRequestToChain(ctx, request))
+
+	err := manager.processBatch(ctx, ApplicationId, []*common.Request{request}, prevStateRoot)
+	require.Error(t, err, "a missing application state must be reported by the manager, not by the executor")
+	require.True(t, storageErrors.IsNotFound(err),
+		"the storage error must be returned unwrapped so callers can still classify it")
+
+	pending, _ := mockBC.GetPendingRequests(ctx)
+	require.Equal(t, 1, len(pending), "the request stays pending and is retried on the next poll")
+}
+
+func TestProcessBatchFromChain_NoLocalVersionsIsUnrecoverable(t *testing.T) {
+	mockBC, manager := setupTest(t)
+	ctx := context.Background()
+
+	// The chain reports a non-zero root for an application the local DB knows
+	// nothing about: no versions at all, so there is nothing to roll back to.
+	onChainStateRoot := [32]byte{0xaa}
+
+	isReorg, err := manager.checkIfReorg(ApplicationId, onChainStateRoot)
+	require.NoError(t, err)
+	require.False(t, isReorg, "an empty version chain cannot hold the on-chain root, so this is not a reorg")
+
+	request := createRequest(common.Process, ApplicationId)
+	mockBC.AddMockedFunc("GetPendingRequestsWithStateRoot",
+		func(context.Context, uint64) (common.ApplicationIdType, []*common.Request, [32]byte, error) {
+			return ApplicationId, []*common.Request{request}, onChainStateRoot, nil
+		})
+
+	err = manager.processBatchFromChain(ctx)
+	require.Error(t, err, "an empty local DB against a non-zero on-chain root is an unrecoverable disalignment")
+	require.ErrorContains(t, err, "unrecoverable disalignment")
+	require.True(t, manager.endReorgTime.IsZero(), "no reorg timer should be started")
 }
 
 func TestProcessBatchFromChain_SavesDeanonymizationReports(t *testing.T) {

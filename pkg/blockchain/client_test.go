@@ -68,7 +68,7 @@ func deployApplication(t *testing.T, testHelper *testutil.SimTestHelper, blockch
 	deployTx := testHelper.SubmitDeployRequest(nil, big.NewInt(100))
 	testHelper.WaitMined(deployTx)
 
-	deployReq, deployStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	deployReq, deployStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.NotNil(t, deployReq)
 
@@ -108,7 +108,7 @@ func TestGetPendingRequests(t *testing.T) {
 
 	require.Equal(t, 0, len(res), "There should be zero pending request")
 
-	pendingRequest, stateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	pendingRequest, stateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.Nil(t, pendingRequest, "There should be no pending request")
 	require.Equal(t, [32]byte{}, stateRoot)
@@ -140,7 +140,7 @@ func TestGetPendingRequests(t *testing.T) {
 	require.Equal(t, testHelper.Deployer.From, request.Sender, "Sender should match")
 	require.Equal(t, 0, request.AssetAmount.ToInt().Sign(), "Deposit amount should be zero for deploy requests")
 
-	pendingRequest, stateRoot, err = blockchainClient.GetNextPendingRequest(context.Background())
+	pendingRequest, stateRoot, err = nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.Equal(t, request.RequestID, pendingRequest.RequestID, "RequestID should match")
 	require.Equal(t, testHelper.ProtocolVersion, pendingRequest.ProtocolVersion, "Protocol version should match")
@@ -180,7 +180,7 @@ func TestSubmitStateUpdate(t *testing.T) {
 	funds := testHelper.GetAppCustody(deployedAppId, velacommon.ETH_TOKEN)
 	require.Equal(t, 0, funds.Cmp(transferValue), "appLockedFunds should equal depositAmount after submit")
 
-	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	res, oldStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 
 	events := [1]common.Event{{ApplicationID: res.ApplicationID, EncryptedData: []byte{0x04, 0x05, 0x06}}}
@@ -305,7 +305,7 @@ func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 	funds := testHelper.GetAppCustody(deployedAppId, velacommon.ETH_TOKEN)
 	require.Equal(t, 0, funds.Cmp(transferValue), "appLockedFunds should equal depositAmount after submit")
 
-	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	res, oldStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 
 	signature := [65]byte{}
@@ -333,6 +333,115 @@ func TestSubmitStateUpdateRequestFailed(t *testing.T) {
 	// After failed stateUpdate: appLockedFunds should be debited by depositAmount
 	fundsAfterFail := testHelper.GetAppCustody(deployedAppId, velacommon.ETH_TOKEN)
 	require.Equal(t, 0, fundsAfterFail.Sign(), "appLockedFunds should be zero after failed stateUpdate")
+}
+
+// SubmitBatchStateUpdate packs a real batchStateUpdate() transaction: several update payloads for
+// one application, plus one signature covering every entry hash. This exercises the packing and the
+// on-chain loop against the deployed contract — the batch digest itself is verified by the contract
+// tests, because the simulated chain here runs MockTeeAuthenticator, which accepts any signature.
+func TestSubmitBatchStateUpdate(t *testing.T) {
+	testHelper := setupSimTestHelper(t, true, nil)
+	defer testHelper.Close()
+
+	blockchainClient := SetupNewBlockChainClient(testHelper)
+	deployedAppId := deployApplication(t, testHelper, blockchainClient)
+
+	const batchSize = 3
+	depositAmount := big.NewInt(1000000)
+	maxFeeValue := big.NewInt(100)
+	for i := 0; i < batchSize; i++ {
+		tx := testHelper.SubmitRequest(deployedAppId, common.Process, []byte{byte(i)}, velacommon.ETH_TOKEN, depositAmount, maxFeeValue)
+		testHelper.WaitMined(tx)
+	}
+
+	// The contract picks the application and returns its queue in FIFO order, so the payloads can
+	// be built straight from this list.
+	applicationId, requests, stateRoot, err := blockchainClient.GetPendingRequestsWithStateRoot(context.Background(), batchSize)
+	require.NoError(t, err)
+	require.Equal(t, deployedAppId, applicationId)
+	require.Len(t, requests, batchSize)
+
+	// Chain prevStateRoot -> newStateRoot across the batch, the way the executor does. Entry 1 is
+	// an error payload: its state root does not move, and the next entry continues from it.
+	batchSignature := make([]byte, 65)
+	updates := make([]*common.UpdatePayload, batchSize)
+	currentRoot := stateRoot
+	withdrawalAmount := big.NewInt(10)
+	for i, request := range requests {
+		update := &common.UpdatePayload{
+			ApplicationID: applicationId,
+			RequestID:     request.RequestID,
+			PrevStateRoot: currentRoot,
+			Events:        []common.Event{},
+			Withdrawals:   []common.Withdrawal{},
+			// Left nil on purpose: only the batch signature is verified on-chain.
+			Signature:      nil,
+			RefundAmount:   common.NewBig(90),
+			ApplicationFee: common.NewBig(10), // 90 + 10 == maxFeeValue
+		}
+		if i == 1 {
+			update.NewStateRoot = currentRoot
+			update.RefundAmount = common.ToBig(maxFeeValue)
+			update.ApplicationFee = common.NewBig(0)
+			update.ErrorCode = 1
+			update.ErrorMsg = "entry failed in the TEE"
+		} else {
+			update.NewStateRoot = [32]byte{0x0b, 0x0a, byte(i + 1)}
+			update.Events = []common.Event{{ApplicationID: applicationId, EncryptedData: []byte{byte(i)}}}
+			update.Withdrawals = []common.Withdrawal{
+				{DestinationAddress: ethCommon.HexToAddress("0x1234567890123456789012345678901234567890"), Amount: common.ToBig(withdrawalAmount)},
+			}
+		}
+		currentRoot = update.NewStateRoot
+		updates[i] = update
+	}
+
+	// =========================================================
+	// Case entries for more than one application -> rejected before any transaction
+	// =========================================================
+	crossApp := make([]*common.UpdatePayload, batchSize)
+	copy(crossApp, updates)
+	mismatched := *updates[2]
+	mismatched.ApplicationID = applicationId + 1
+	crossApp[2] = &mismatched
+	err = blockchainClient.SubmitBatchStateUpdate(context.Background(), crossApp, batchSignature)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "single application")
+
+	// =========================================================
+	// Case broken state root chain -> the contract rejects the whole batch
+	// =========================================================
+	brokenChain := make([]*common.UpdatePayload, batchSize)
+	copy(brokenChain, updates)
+	broken := *updates[2]
+	broken.PrevStateRoot = [32]byte{0xde, 0xad}
+	brokenChain[2] = &broken
+	err = blockchainClient.SubmitBatchStateUpdate(context.Background(), brokenChain, batchSignature)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ProcessorEndpointInvalidStateRoot")
+
+	// Nothing was applied: the batch is atomic, so all three requests are still pending.
+	pending, err := blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, batchSize, "a reverted batch must leave every request pending")
+	require.Equal(t, stateRoot, testHelper.GetStateRoot(applicationId))
+
+	// =========================================================
+	// Case OK: the whole batch lands in one transaction
+	// =========================================================
+	err = blockchainClient.SubmitBatchStateUpdate(context.Background(), updates, batchSignature)
+	require.NoError(t, err)
+
+	pending, err = blockchainClient.GetPendingRequests(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, pending, "every batched request should be dequeued")
+	require.Equal(t, updates[batchSize-1].NewStateRoot, testHelper.GetStateRoot(applicationId),
+		"the final entry's newStateRoot should be the stored root")
+
+	// Two successful entries withdrew 10 each; the error entry refunded its whole deposit.
+	expectedCustody := new(big.Int).Sub(new(big.Int).Mul(depositAmount, big.NewInt(2)), big.NewInt(20))
+	require.Equal(t, 0, testHelper.GetAppCustody(applicationId, velacommon.ETH_TOKEN).Cmp(expectedCustody),
+		"custody should be debited by the withdrawals of the successful entries and the refund of the failed one")
 }
 
 func TestSubmitRequest(t *testing.T) {
@@ -464,7 +573,7 @@ func TestGetPendingPaymentsAndWithdraw(t *testing.T) {
 	appFunds := testHelper.GetAppCustody(deployedAppId, velacommon.ETH_TOKEN)
 	require.Equal(t, 0, appFunds.Cmp(depositAmount), "appLockedFunds should equal depositAmount after submit")
 
-	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	res, oldStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -532,7 +641,7 @@ func TestInsufficientAppBalance(t *testing.T) {
 	tx := testHelper.SubmitRequest(deployedAppId, common.Process, nil, velacommon.ETH_TOKEN, big.NewInt(0), maxFeeValue)
 	testHelper.WaitMined(tx)
 
-	res, oldStateRoot, err := blockchainClient.GetNextPendingRequest(context.Background())
+	res, oldStateRoot, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 
 	// Attempt stateUpdate: withdrawal(1) > appLockedFunds(0)
@@ -588,7 +697,7 @@ func TestCrossAppFundIsolation(t *testing.T) {
 	require.Equal(t, 0, fundsB.Cmp(big.NewInt(10)), "App B should have 10 locked (deposit only)")
 
 	// Step 3: Process App A — withdraw 500 (within A's budget)
-	reqA, stateRootA, err := blockchainClient.GetNextPendingRequest(context.Background())
+	reqA, stateRootA, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.Equal(t, appA, reqA.ApplicationID)
 
@@ -615,7 +724,7 @@ func TestCrossAppFundIsolation(t *testing.T) {
 	// Step 4: Process App B — attempt to withdraw 500 (exceeds B's 10 locked funds)
 	// The contract's global balance is sufficient (App A's 500 is still in the contract),
 	// but the per-app solvency check must block this.
-	reqB, stateRootB, err := blockchainClient.GetNextPendingRequest(context.Background())
+	reqB, stateRootB, err := nextPendingRequest(blockchainClient)
 	require.NoError(t, err)
 	require.Equal(t, appB, reqB.ApplicationID)
 
@@ -656,4 +765,15 @@ func TestGetTeePublicKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, publicKey, "Public key should not be nil")
 	require.Equal(t, key.PublicKey().Bytes(), publicKey.Bytes(), "Public key not equal to the given one")
+}
+
+// nextPendingRequest fetches the single request the contract selects next, together with
+// the selected application's on-chain state root. Returns a nil request (and the zero
+// state root) when no request is pending.
+func nextPendingRequest(c *BlockChainClient) (*common.Request, [32]byte, error) {
+	_, requests, stateRoot, err := c.GetPendingRequestsWithStateRoot(context.Background(), 1)
+	if err != nil || len(requests) == 0 {
+		return nil, stateRoot, err
+	}
+	return requests[0], stateRoot, nil
 }

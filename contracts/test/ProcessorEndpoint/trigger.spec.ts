@@ -15,12 +15,14 @@ describe('ProcessorEndpoint Trigger Tests', function () {
   let tokenAllowlist: any;
   let signers: Signer[];
   let minFeePerRequest: bigint;
+  let bootstrapWithTrigger: any;
 
   beforeEach(async function () {
     const fixture = await deployProcessorEndpointFixture();
     ({ processorEndpoint, tokenAllowlist } = await fixture.deployProcessorEndpoint());
     signers = fixture.signers;
     minFeePerRequest = fixture.minFeePerRequest;
+    bootstrapWithTrigger = fixture.bootstrapApplicationWithTrigger;
   });
 
   // HELPER FUNCTIONS FOR TESTS
@@ -31,53 +33,11 @@ describe('ProcessorEndpoint Trigger Tests', function () {
     revertOnExecute: boolean,
     revertOnPostWithdraw: boolean
   ) {
-    const TestTrigger = await ethers.getContractFactory('TestTrigger');
-    const mockTrigger: any = await TestTrigger.deploy(
-      await processorEndpoint.getAddress(),
+    const { trigger, applicationId } = await bootstrapWithTrigger(processorEndpoint, {
       revertOnExecute,
-      revertOnPostWithdraw
-    );
-
-    // Register the trigger explicitly. The payload is an opaque (non-address)
-    // deploy descriptor — it is NEVER interpreted as a trigger address.
-    const descriptorPayload = '0x' + 'ab'.repeat(40);
-
-    const deployTx = await processorEndpoint
-      .connect(signers[2])
-      .submitDeployRequestWithTrigger(0, descriptorPayload, await mockTrigger.getAddress(), {
-        value: minFeePerRequest,
-      });
-    const deployReceipt = await deployTx.wait();
-
-    const deployLog = deployReceipt.logs.find((log: any) => {
-      try {
-        return processorEndpoint.interface.parseLog(log)?.name === 'DeployRequestSubmitted';
-      } catch {
-        return false;
-      }
+      revertOnPostWithdraw,
     });
-    const parsed = processorEndpoint.interface.parseLog(deployLog);
-    const applicationId: bigint = parsed.args.applicationId;
-    const requestId: string = parsed.args.requestId;
-
-    await processorEndpoint
-      .connect(signers[1])
-      .stateUpdate(
-        applicationId,
-        BYTES32_ZERO,
-        INITIAL_STATE_ROOT,
-        requestId,
-        { events: [], subTypes: [] },
-        { events: [], subTypes: [] },
-        [],
-        0,
-        minFeePerRequest,
-        0,
-        '',
-        '0x'
-      );
-
-    return { applicationId, mockTrigger };
+    return { applicationId, mockTrigger: trigger };
   }
 
   // Submits a PROCESS request, processes it via stateUpdate, and returns the receipt.
@@ -304,7 +264,8 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       expect(await processorEndpoint.getTriggerQueueSize()).to.equal(1n);
 
       // Trigger queue takes priority — the enqueued trusted request is next.
-      const [request] = await processorEndpoint.getNextPendingRequest();
+      const [, pending] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+      const request = pending[0];
       expect(request.applicationId).to.equal(applicationId);
       expect(request.requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
       expect(request.payload).to.equal(trustedPayload);
@@ -343,7 +304,8 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       await normalTx.wait();
 
       // Trigger queue has priority — the trusted request is the current pending one.
-      const [request] = await processorEndpoint.getNextPendingRequest();
+      const [, pending] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+      const request = pending[0];
       expect(request.requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
       expect(request.sender).to.equal(await mockTrigger.getAddress());
     });
@@ -849,7 +811,8 @@ describe('ProcessorEndpoint Trigger Tests', function () {
       await submitAndProcess(applicationId, INITIAL_STATE_ROOT, '0x' + '33'.repeat(32));
       expect(await processorEndpoint.getTriggerQueueSize()).to.equal(1n);
 
-      const [req] = await processorEndpoint.getNextPendingRequest();
+      const [, pendingTrusted] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+      const req = pendingTrusted[0];
       expect(req.requestType).to.equal(REQUEST_TYPE_TRUSTPROCESS);
       const trustedRequestId: string = req.requestId;
 

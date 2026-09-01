@@ -87,7 +87,7 @@ Both approaches share a common starting point: fetch up to `MaxBatchSize` pendin
 
 A batch is always scoped to **one application**: one WASM module, one encrypted state, one state root chain. Requests from different applications are never mixed in the same batch.
 
-> **Applications with a registered trigger contract are excluded from both approaches.** See section 5 for why, and for what happens to them instead.
+> **Applications with a registered trigger contract get no batching benefit from either approach:** their requests are served one at a time. See section 5 for why, and for how that is enforced.
 
 ### 3.1. Approach A — Pipeline Execution (individual transactions)
 
@@ -180,7 +180,7 @@ time ─────────────────────────
 
 **Contract changes:** New `batchStateUpdate()` function that loops over entries, calling the same internal validation logic as current `stateUpdate()`. Since the contract is not in production, this is a refactor of the existing code — extract the body of `stateUpdate()` into an internal `_processOneStateUpdate()` and call it in a loop. Additional optimizations:
 
-- **Single stateRoot storage write**: read `applicationStateRoots[applicationId]` once at the start, chain through entries in memory, write once at the end — saves (N-1) warm `SSTORE` operations (~5,000 gas each)
+- **Single stateRoot storage write**: read `applicationStateRoots[applicationId]` once at the start, chain through entries in memory, write once at the end. Worth less than it looks: under EIP-2200 only the *first* `SSTORE` to the slot pays the 2,900-gas reset, and every later write in the same transaction hits an already-dirty warm slot at 100 gas — so this saves ~100 × (N-1), not ~5,000 × (N-1). It is implemented anyway because chaining the root in memory is what the entry-to-entry validation needs regardless. One exception: when the application has a registered trigger, the root is written before `_invokeTrigger` hands control to external code that can read the endpoint's state. Such applications are capped at one entry per batch, so the batch path never pays for it.
 - **State root chain validation**: only the first entry checks `prevStateRoot` against storage; subsequent entries validate `entries[i].prevStateRoot == entries[i-1].newStateRoot` in memory
 - **Deduplicated `applicationId`**: passed once instead of per-entry
 - **Batch signature**: verify one signature over the batch digest instead of N individual `ecrecover` calls, saving (N-1) × ~3,000+ gas. Individual entry hashes are emitted in events for off-chain verifiability
@@ -284,10 +284,17 @@ The current single global FIFO queue (`_requestQueue`) cannot work with batches.
 
 The contract needs **per-application pending queues**. Each application maintains its own queue head/tail, and requests are enqueued into `pendingQueues[applicationId]`. `batchStateUpdate()` dequeues from the queue matching its `applicationId`. The trigger queue (`_triggerQueue`, see section 5) remains a single global priority queue.
 
+Because request ids are unique across queues, the `PendingRequest` structs themselves live in **one global store** keyed by `requestId` (`mapping(bytes32 => PendingRequest)`); a queue only holds the ordered ids plus its head/tail. This keeps `requestById()` and `isCurrentPendingRequest(requestId)` working without an `applicationId` argument. A single `_totalQueuedRequests` counter, maintained on enqueue/dequeue, makes the aggregate size views O(1) so the `maxQueueSize` check on the submit path does not have to scan every application.
+
+**Which queue holds a request is a function of its `requestType`, and only of that**: TRUSTPROCESS ⇔ trigger queue, DEPLOYAPP ⇔ deploy queue, every other type ⇔ `pendingQueues[applicationId]`. The three enqueue sites establish it (the trusted-request and deploy paths each hardcode their type; the public submit paths reject both of those types), and `ProcessorEndpoint._queueOf` relies on it so that `stateUpdate` and `isCurrentPendingRequest` resolve the one queue a request can be in instead of testing all three heads — worth ~8k gas per `stateUpdate`, which for a plain request would otherwise spend two cold `head`/`tail` SLOAD pairs ruling out the empty trigger and deploy queues. The same helper resolves the queue for the removal, so the head that is verified is always the head that is dequeued. A new enqueue site that breaks the mapping would **not** revert: `dequeueHead` removes whatever sits at the head of the queue it is given without checking the id, so a mis-routed removal silently deletes another queue's head. `test/ProcessorEndpoint/queueRouting.spec.ts` pins this by keeping more than one queue non-empty across every removal path.
+
+**Deploy requests use a third, global queue** (`_deployQueue`), not per-application queues. A deploy's application does not exist yet — it has no state root and is absent from `_deployedAppIds` until the deploy succeeds — so a request sitting in `pendingQueues[derivedAppId]` would be invisible to the round-robin scan of section 4.3 and would never be served. `_deployQueue` is served with precedence over the per-application queues (and after the trigger queue), always one request at a time, matching the manager's existing individual `processDeployApp()` path. Deploys are permissioned and capped by `availableDeploySlots`, so they cannot starve the rotation.
+
+**`maxQueueSize` stays an aggregate cap**: `getPendingRequestsSize()` returns the sum of the deploy queue and every per-application queue (the trigger queue is reported separately by `getTriggerQueueSize()`), and the submit paths check that sum, exactly as before. One application can therefore still consume the global capacity; a per-application cap can be introduced later if that becomes a problem.
+
 Side benefits:
 
 - A permanently failing request for application A blocks A's queue at the structural level. **Note:** this does not by itself isolate other applications — the round-robin selection (section 4.3) is enforced on-chain, so the cursor cannot advance past the blocked application and the whole system stalls. See section 7.4.
-- Deploy handling becomes trivial: each deploy derives a unique `applicationId` from its `requestId` at submission, and regular requests for that application can only be submitted after the deploy completes (`validApplicationId` requires a non-zero state root). A pending deploy is therefore always **alone in its application's queue** — it can never appear in the middle of a batch.
 - Per-application queues enable a deterministic application selection algorithm (section 4.3).
 
 ### 4.3. Required: fetching with round-robin application selection
@@ -302,22 +309,35 @@ GetPendingRequestsWithStateRoot(maxCount uint64) (uint64, []*common.Request, [32
 The contract reuses the existing array of deployed applications (`_deployedAppIds`, `ProcessorEndpoint.sol:40`) and adds a single piece of new state: a round-robin cursor into it. No per-queue bookkeeping is needed — the array is append-only (deploys only ever add to it), so the enqueue and dequeue paths are untouched.
 
 - **Selection**: starting at the cursor, scan `_deployedAppIds` (wrapping around) for the first application with a non-empty queue. The view returns up to `maxCount` of its requests, together with its state root and `applicationId`. If no application has pending work, the view returns an empty request list and the cursor stays put.
-- **Enforcement**: any state update that dequeues from a per-application queue — `batchStateUpdate()` and `stateUpdate()` alike — recomputes the same scan, requires the submitted `applicationId` to be the scan's result, and sets the cursor just past it. Trigger-queue processing bypasses the cursor (see below). Selection is not a convention the manager follows — it is a rule the contract enforces.
+- **Enforcement**: any state update that dequeues from a per-application queue — `batchStateUpdate()` and `stateUpdate()` alike — recomputes the same scan, requires the submitted `applicationId` to be the scan's result, and sets the cursor just past it. Trigger-queue processing bypasses the cursor (see below). Selection is not a convention the manager follows — it is a rule the contract enforces. **Done** for both, through the same `ProcessorEndpoint._enforceSelection`; `batchStateUpdate()` calls it once per batch, on the first entry.
+
+- **The selection race, and `selectionGrace`**: the scan cannot be pinned to what the manager read earlier. `getPendingRequestsWithStateRoot` is a `view` — it leaves no on-chain trace, so the contract cannot know when it was called, and any reference instant the manager supplied could be chosen to justify its pick. A request enqueued for a previously-empty application between that read and the update landing therefore changes the scan's result legitimately, and a naive check would reject an honest update.
+
+  The rule tolerates this with a grace period: the enforcement scan (`RequestQueues.selectionConflict`) walks the non-empty queues from the cursor and *skips* any whose head was enqueued less than `selectionGrace` seconds ago — too recently for the manager to have seen it. The first head **older** than the grace is a hard stop: it was already in place at every possible read instant within the window, so no honest pick can sit past it in scan order. The submitted application must be reached by the scan no later than that first aged head, or the update reverts `ApplicationNotSelected` with it. Exempting only the first selected queue (rather than treating the first aged head as a hard stop) was considered and rejected: it would let a colluding submitter reopen the window each rotation — one fresh request into an empty queue ahead of the victim — and serving an application *beyond* the victim would then jump the cursor past it, deferring its turn by a rotation per attacker-controlled queue.
+
+  The age comparison is against `block.timestamp`, **not** against the submitted request's own timestamp. That alternative looks equivalent and is not: FIFO forces the manager to serve its application's *oldest* request, so "the competitor is younger than my pick" holds for competitors that arrived long before any view was read; the exemption would widen with however long the submitted request had been queued, and enforcement would decay into approximate oldest-first (rejected below). Against the clock the exemption is bounded by `selectionGrace` whatever the queue's history.
+
+  **Resulting guarantee**: every application the scan allows sits at or before the first head aged past `selectionGrace`, so serving one moves the cursor toward that application, never past it — its turn arrives within one rotation. Starvation is bounded by roughly one rotation plus the grace window, rather than by another application's backlog depth. `selectionGrace` is admin-settable (`updateSelectionGrace`, default 60s): zero enforces the turn strictly and reverts on any in-flight arrival; a value above any plausible request age disables enforcement (see section 7.4).
 
 Because the scan skips empty queues, round-robin is work-conserving: a single busy application gets every batch when nothing else is pending.
 
 The scan costs one queue-emptiness storage read per skipped application, so enforcement is O(number of deployed apps) in the worst case. Deploys are permissioned (`DEPLOYAPP` role), so the array stays small and this is negligible; if the platform ever hosts hundreds of mostly-idle applications, revisit with an actively maintained non-empty-queue index.
 
-Two exceptions to the plain round-robin rule:
+Three exceptions to the plain round-robin rule:
 
 - **Trigger queue precedence.** If the global trigger queue is non-empty, its head (a TRUSTPROCESS request) is returned alone, before any per-application selection — preserving the existing priority semantics (section 5.1). Processing it does not advance the cursor; rotation resumes where it paused.
+- **Deploy queue precedence.** If the global deploy queue is non-empty, its head is returned alone, before any per-application selection (section 4.2). Processing it does not advance the cursor either.
 - **Trigger applications capped at one.** If the selected application has a registered trigger contract, at most one request is returned regardless of `maxCount` (section 5.4). Processing it advances the cursor like any other turn.
+
+The two precedence rules are enforced with the same grace mechanism (`RequestQueues.isHeadAged`): a trigger-queue head older than `selectionGrace` makes deploy and per-application updates revert `PriorityQueueNotServed(TRUSTPROCESS)`, and an aged deploy-queue head makes per-application updates revert `PriorityQueueNotServed(DEPLOYAPP)`; younger heads are exempt for the same reason as in the per-application scan. TRUSTPROCESS updates are never constrained. These checks run before the per-application scan, so per-application updates read the two global queues' head/tail slots (~8.4k gas cold) on every call — the price of making the whole selection order verifiable rather than only its per-application part.
 
 **Why round-robin — and why the contract selects, not the manager:**
 
 - **Anti-censorship, enforced.** If the manager chose which application to process next, a malicious or biased manager could starve specific applications by never selecting them. With the cursor check in the state-update functions, the selection is enforced on-chain — the manager cannot bypass the view and submit for an application out of turn.
 - **Fairness for low-traffic applications.** Each application with pending work gets an equal share of batches. An application submitting one request is served after at most one batch per other active application — it never waits behind another application's entire backlog.
 - **Simplicity.** No timestamp comparisons, no tie-breaking rules — the cursor is the whole algorithm.
+
+> **Note on timestamps.** "The cursor is the whole algorithm" still holds for *selection*: the scan reads queue-emptiness only. Timestamp reads happen in the *enforcement scan* above, against the wall clock — one per non-empty queue it walks, stopping at the first aged head (in the common case, the submitted application is reached first and no timestamp is read at all). It is not a minimum over every head, which is what the rejected alternative below would require.
 
 > **Alternative considered — oldest-first.** Selecting the application whose queue head has the oldest block timestamp approximates global FIFO across applications. It was rejected for two reasons. First, enforcement cost: verifying "this application had the oldest head" inside a state-update transaction requires reading *every* queue head's timestamp on *every* call to find the minimum, whereas the round-robin scan reads only queue-emptiness flags and stops at the first non-empty queue. Second, fairness: global FIFO means a high-volume application imposes its entire queue latency on low-traffic applications. Cross-application submission order is not worth preserving — applications are fully independent, so nothing depends on it.
 
@@ -336,17 +356,18 @@ The executor already processes work scoped to a single application — one WASM 
 | Component | Change | Status |
 |---|---|---|
 | Contract: state storage | `mapping(uint64 => bytes32) applicationStateRoots` | Already implemented |
-| Contract: queue | Single global queue → `mapping(uint64 => Queue) pendingQueues` (trigger queue stays global) | Required |
-| Contract: `batchStateUpdate()` | New function; reads/writes `applicationStateRoots[applicationId]`; requires `applicationId` to match the round-robin scan and advances the cursor | Required |
-| Contract: round-robin tracking | Cursor into the existing `_deployedAppIds` array; scan skips empty queues | Required |
-| Contract: view functions | `GetPendingRequestsWithStateRoot(maxCount)` serving the scan result; trigger queue precedence | Required |
-| Manager: poll loop | One batch per poll cycle; contract selects the application | Required |
+| Contract: queue | Single global queue → `mapping(uint64 => Queue) pendingQueues` + global deploy queue (trigger queue stays global) | Implemented |
+| Contract: `batchStateUpdate()` | New function; reads/writes `applicationStateRoots[applicationId]`; requires `applicationId` to match the round-robin scan | Implemented |
+| Contract: round-robin tracking | Cursor into the existing `_deployedAppIds` array; scan skips empty queues; cursor advanced on every per-application dequeue | Implemented |
+| Contract: cursor enforcement | `require(applicationId == scan result)` in the state-update functions | Implemented |
+| Contract: view functions | `getPendingRequestsWithStateRoot(maxCount)` serving the scan result; trigger and deploy queue precedence | Implemented |
+| Manager: poll loop | One batch per poll cycle; contract selects the application | Implemented |
 | Manager: state storage | Keyed by `applicationId` | Already implemented |
-| Executor | Batch protocol only (section 6, Stage 2) | Required |
+| Executor | Batch protocol only (section 6, Stage 2) | Implemented |
 
-## 5. Trigger Applications (TRUSTPROCESS): Not Supported by This Design
+## 5. Trigger Applications (TRUSTPROCESS): Processed One at a Time
 
-Neither approach from section 3 works for applications that have a **trigger contract** registered. This section explains why, lists the alternatives considered, and records the decision.
+Neither approach from section 3 works for applications that have a **trigger contract** registered: their requests are processed one at a time, through the same `batchStateUpdate()` entry point but never more than one per call. This section explains why, lists the alternatives considered, and records the decision.
 
 ### 5.1. How the trigger flow works
 
@@ -355,7 +376,7 @@ An application can register a trigger contract at deploy time (`triggerContracts
 1. A processed request emits AppEvents. During the `stateUpdate()` transaction, the contract invokes the registered trigger with the AppEvent data (`_invokeTrigger`, `ProcessorEndpoint.sol:1102`).
 2. The trigger contract acts on the events (e.g., receives unshielded funds, executes an action, re-shields the remainder) and derives a trusted payload **on-chain**.
 3. If the trigger returns a payload, the contract enqueues a **TRUSTPROCESS** request into a dedicated priority queue (`_triggerQueue`). This is the only way a TRUSTPROCESS can be created.
-4. `getNextPendingRequest()` serves the trigger queue **before** the regular queue (`ProcessorEndpoint.sol:872`), so the TRUSTPROCESS is processed immediately after the request that fired it — before any other pending request, for any application.
+4. The selection view (`getPendingRequestsWithStateRoot`, `_selectPendingRequests`) serves the trigger queue **before** the deploy and per-application queues, so the TRUSTPROCESS is processed immediately after the request that fired it — before any other pending request, for any application.
 
 Trigger applications depend on this ordering. In the unshield/re-shield round trip, for example, request K sends funds out to the trigger and the subsequent TRUSTPROCESS credits the returned funds back into the application state. Any request processed between K and its TRUSTPROCESS would observe an intermediate state where funds have left the application but the trusted callback has not yet landed.
 
@@ -377,22 +398,18 @@ Both approaches rest on the same premise: the set of requests to process is know
 
 ### 5.4. Decision
 
-**For now, applications with a registered trigger contract do not support batch requests** (alternative 3).
+**Applications with a registered trigger contract are processed one request at a time** (alternative 3) — but not through a separate code path. `batchStateUpdate()` accepts them as a **one-entry batch** and reverts `BatchNotAllowed` only when more than one entry is supplied. The same rule covers the other two kinds that must be processed alone: a TRUSTPROCESS queue head and a DEPLOYAPP queue head.
 
-- The contract's selection logic returns at most one request for a trigger application, and the global trigger queue always takes precedence (section 4.3). TRUSTPROCESS requests are themselves always processed individually — their `stateUpdate()` also runs `_invokeTrigger`, so they have the same problem as the requests that fire them.
-- As defense in depth, `batchStateUpdate()` reverts if the application has a registered trigger — the no-batching rule is enforced on-chain, not just by manager convention.
+- The contract's selection logic returns at most one request for a trigger application, and the global trigger queue always takes precedence (section 4.3). TRUSTPROCESS requests are themselves always processed individually — their state update also runs `_invokeTrigger`, so they have the same problem as the requests that fire them.
+- The rule is enforced on-chain, not by manager convention: `batchStateUpdate()` checks the first entry's stored request type and `triggerContracts[applicationId]` before touching any state.
 - With per-application queues (section 4.2), single-request processing of a trigger application does not delay batching of other applications.
-- The manager does not detect trigger applications itself: the contract's selection caps them at one request, so the manager simply routes any single-request fetch through the single-request path (section 6, Stage 4). The trigger rule lives on-chain only — in the selection view and in the `batchStateUpdate()` revert.
+- The manager does not detect trigger applications itself: the contract's selection caps them at one request, so the manager simply submits whatever it fetched. It needs no trigger knowledge and never queries `triggerContracts`.
 
-**Why `stateUpdate()` is kept alongside `batchStateUpdate()`:** a 1-entry batch is semantically equivalent to `stateUpdate()`, so the two paths could in principle be unified. Keeping the single-request function is a deliberate risk/sequencing choice:
+**Why a one-entry batch rather than a revert.** An outright revert for trigger applications was the original plan, and would have forced the manager to keep two submission paths permanently: something has to process a trigger application's requests, and if the batch entry point refuses them, that something is `stateUpdate()`. Admitting them as a one-entry batch makes `batchStateUpdate()` a strict superset of `stateUpdate()` — one entry point that can process anything the queues hold — while the entry-count limit preserves exactly the property that matters: no entry is ever computed by the TEE *after* a trigger fired in the same transaction, which is the silent semantic violation section 5.2 describes. The invariant to audit is "a request that must be processed alone is the only entry in its batch", which is stated in one place and pinned by tests, rather than "trigger applications cannot reach this function at all".
 
-- **Near-zero cost.** After the Stage 1 refactor, all real logic lives in `_processOneStateUpdate()`; `stateUpdate()` is a thin wrapper calling it once. There are two entry points, not two implementations.
-- **Refactor validation.** All existing contract tests run unchanged against the wrapper (Stage 1, step 3) — the proof that extracting `_processOneStateUpdate()` did not alter behavior.
-- **New code stays away from the fragile flow.** Trigger-flow mistakes do not revert — they silently violate application semantics (section 5.2). Routing trigger applications and TRUSTPROCESS through the proven `stateUpdate()` path confines the new batch code (batch signature, entry loop) to flows where failures are loud.
-- **Trigger queue handling.** `batchStateUpdate()` dequeues from `pendingQueues[applicationId]` only; TRUSTPROCESS requests live in the global `_triggerQueue`. Unifying would require teaching the batch function about the second queue and TRUSTPROCESS fee semantics (`maxFeeValue = 0`) from day one.
-- **Crisp guard.** "Trigger application → batch path reverts" is a simpler invariant to audit than "batch allowed but only with one entry, from the right queue".
+**Why `stateUpdate()` is still kept:** with the superset above, `stateUpdate()` is no longer needed for any input. It is retained for one reason — validating the refactor. All 347 pre-existing contract tests run unchanged against the wrapper (Stage 1, step 3), which is the proof that extracting `_processOneStateUpdate()` did not alter behaviour; deleting the wrapper would mean rewriting that entire suite against the new calling convention in the same change that introduced it. The cost of keeping it is two entry points over one implementation, plus its 12-argument calldata decoder in a contract with 820 bytes of headroom.
 
-**Intended evolution:** once the batch path is proven, the trigger-app revert can be relaxed to `require(entries.length == 1)`, `batchStateUpdate()` can accept trigger-queue heads, and `stateUpdate()` can be retired — one submission path, one signature scheme. Alternatives 1 and 2 can likewise be revisited if trigger-application throughput becomes a bottleneck.
+**Intended evolution:** retire `stateUpdate()`. The manager's single-request path (`processRequest`) must first move onto `SubmitBatchStateUpdate` with a one-entry batch — the signatures are already compatible, since a one-entry batch digest is byte-identical to the single-request digest — after which the wrapper and its decoder can be deleted, recovering size and leaving one submission path with one signature scheme. Alternatives 1 and 2 can likewise be revisited if trigger-application throughput becomes a bottleneck.
 
 ## 6. Implementation Plan
 
@@ -404,50 +421,84 @@ Refactor `ProcessorEndpoint.sol` to support per-application queues and batch sub
 
 **Steps:**
 
-1. Replace the single global `_requestQueue` with `mapping(uint64 => RequestQueue) pendingQueues`. Enqueue into `pendingQueues[applicationId]`; `_triggerQueue` remains a single global priority queue. Add the round-robin cursor into `_deployedAppIds` and the shared scan helper (first app with a non-empty queue, starting at the cursor, wrapping — section 4.3). Update `getNextPendingRequest()`, `isCurrentPendingRequest()`, `getPendingRequests*()` and the queue-size cap (`maxQueueSize`) accordingly — decide whether the cap is per-application or aggregate.
+1. Replace the single global `_requestQueue` with `mapping(uint64 => RequestQueue) pendingQueues` plus the global `_deployQueue`; move the `PendingRequest` structs into one global `_requests` store keyed by `requestId`. `_triggerQueue` remains a single global priority queue. Add the round-robin cursor into `_deployedAppIds` and the shared scan helper (first app with a non-empty queue, starting at the cursor, wrapping — section 4.3), advancing the cursor on every per-application dequeue. Update `getNextPendingRequest()`, `isCurrentPendingRequest()`, `getPendingRequests*()` and `_resetQueue()` accordingly; `maxQueueSize` stays an aggregate cap (section 4.2). **Done.**
 
-2. Extract the body of `stateUpdate()` into an internal function `_processOneStateUpdate()` that takes the same parameters and performs all validation, state updates, event emission, refunds, withdrawals, trigger invocation, and request dequeuing.
+2. Extract the body of `stateUpdate()` into a private function `_processOneStateUpdate()` that performs all validation, state updates, event emission, refunds, withdrawals, trigger invocation, and request dequeuing. **Done.** It does not take `stateUpdate()`'s parameter list literally: the entry fields arrive as the `Structs.SignatureParams memory` struct they are already assembled into for hashing (which avoids a 12-argument private function and the "stack too deep" it would risk), plus three parameters the two call sites differ on:
+   - `currentRoot` — the application's root as of this entry, and the value the entry's `prevStateRoot` and error-path `newStateRoot` are checked against. Read from storage for the first entry of a call, taken from the previous entry's `newStateRoot` afterwards. The function returns the root after the entry (`currentRoot` unchanged for an error entry), so the caller writes storage once.
+   - `enforceTurn` — true for the first entry only (see step 4).
+   - `verifySignature` + `signature` — true for `stateUpdate()`, which verifies its lone entry as a 1-entry batch at exactly the point the pre-batch code did (after the request/application/root/payload checks, before any state is touched); false for batch entries, where one signature already covers every entry. Deliberately a separate flag rather than "`signature` is empty": an empty signature must still *fail* verification, not skip it.
 
-3. Rewrite `stateUpdate()` as a thin wrapper that calls `_processOneStateUpdate()` once. This preserves backward compatibility and confirms the refactor is correct — all existing contract tests must still pass without modification.
+3. Rewrite `stateUpdate()` as a thin wrapper that calls `_processOneStateUpdate()` once. This preserves backward compatibility and confirms the refactor is correct — all existing contract tests must still pass without modification. **Done** — all 347 pre-existing contract tests pass unmodified.
 
-4. Add `batchStateUpdate(uint64 applicationId, BatchEntry[] calldata entries, bytes calldata batchSignature)` that:
-   - Reverts if `triggerContracts[applicationId]` is set (section 5.4)
-   - Requires `applicationId` to match the round-robin scan result and sets the cursor just past it (section 4.3); the same check applies to `stateUpdate()` when dequeuing from a per-application queue (trigger-queue processing bypasses it)
-   - Verifies the batch signature: recover the signer from the batch digest (section 3.2 — `personal_sign` over the concatenated entry hashes, dynamic `32*N` length prefix, no extra hash layer) and `batchSignature`, verify it matches the registered TEE signer. One `ecrecover` call for the entire batch. This requires a new verification function on the TEE authenticator (e.g., `checkBatchSignature(bytes32[] entryHashes, bytes signature)` in `ITeeAuthenticator` / `AbstractTeeAuthenticator`) — the existing `checkSignature()` hashes a single `SignatureParams` struct and cannot verify a batch message. Note the digest is built from the entry hashes only, so the authenticator can take `bytes32[] entryHashes` directly; it must build the prefix from the array length at runtime.
+4. Add `batchStateUpdate(uint64 applicationId, BatchEntry[] calldata entries, bytes calldata batchSignature)` that: **Done.**
+   - Reverts `EmptyBatch` on a zero-length entry array. Declared on `IProcessorEndpoint` rather than left to the authenticator's own `EmptyBatch`, which the endpoint's ABI does not carry and clients therefore cannot decode
+   - Requires **exactly one entry** when the first entry's request must be processed alone: a TRUSTPROCESS or DEPLOYAPP queue head, or any request of an application with a registered trigger (`triggerContracts[applicationId] != address(0)`). Otherwise reverts `BatchNotAllowed`. This makes `batchStateUpdate()` a strict superset of `stateUpdate()` rather than a second path with its own admissible inputs — see section 5.4
+   - Requires `applicationId` to match the round-robin scan result, subject to the `selectionGrace` exemption, and sets the cursor just past it (section 4.3). The same check already applies to `stateUpdate()` when dequeuing from a per-application queue (`ProcessorEndpoint._enforceSelection`; trigger- and deploy-queue processing bypass it) — `batchStateUpdate()` calls the same helper via `_processOneStateUpdate`'s `enforceTurn` on the first entry, which is once per batch and before any entry is processed: every entry shares one `applicationId`, and the kinds that would need a different priority tier are limited to a lone entry
+   - Verifies the batch signature: recover the signer from the batch digest (section 3.2 — `personal_sign` over the concatenated entry hashes, dynamic `32*N` length prefix, no extra hash layer) and `batchSignature`, verify it matches the registered TEE signer. One `ecrecover` call for the entire batch. This requires a new verification function on the TEE authenticator (`checkBatchSignature(bytes32[] entryHashes, bytes signature)` in `ITeeAuthenticator` / `AbstractTeeAuthenticator`) — the existing `checkSignature()` hashes a single `SignatureParams` struct and cannot verify a batch message. The digest is built from the entry hashes only, so the authenticator takes `bytes32[] entryHashes` directly and builds the prefix from the array length at runtime
    - Reads `applicationStateRoots[applicationId]` from storage once into a local variable
    - Loops over entries, calling `_processOneStateUpdate()` for each (signature verification is already done — `_processOneStateUpdate` skips per-entry `ecrecover`), dequeuing from `pendingQueues[applicationId]`
    - Validates state root chaining: first entry checks `prevStateRoot` against storage; subsequent entries check `entries[i].prevStateRoot == entries[i-1].newStateRoot`
    - Writes `applicationStateRoots[applicationId]` to storage once at the end of the loop (not per iteration)
-   - Emits individual entry hashes in events for off-chain verifiability
+   - Emits `BatchProcessed(applicationId, entryHashes)` once per call. The per-entry events (`StateRootUpdate`, `UserEvent`, `AppEvent`, `RequestCompleted`, …) are emitted inside the loop exactly as on the single-request path; this event carries only what those cannot express — the entry hashes an off-chain verifier needs to re-derive the digest the one signature was checked against
 
-5. Add the `GetPendingRequestsWithStateRoot(maxCount)` view serving the round-robin scan result, with trigger-queue precedence and the trigger-app cap (section 4.3).
+5. Add the `getPendingRequestsWithStateRoot(maxCount)` view serving the round-robin scan result, with trigger- and deploy-queue precedence and the trigger-app cap (section 4.3). **Done.**
 
-6. Define the `BatchEntry` struct containing per-request fields: `prevStateRoot`, `newStateRoot`, `processedRequestId`, `events`, `eventSubTypes`, `withdrawalRequests`, `refund`, `applicationFees`, `errorCode`, `errorMsg`.
+   `getNextPendingRequest()` is **removed** rather than kept as a `maxCount = 1` wrapper: every caller can pass `maxCount = 1` instead, and the wrapper's separate return shape (`(request, stateRoot, success)` with an empty-struct sentinel) only existed to preserve the pre-batch ABI. Removing it deletes a struct-returning external view — the most expensive kind of code in this contract (section "Open blocker"). Callers updated: `BlockChainClient.GetNextPendingRequest` and the `Client` interface method are gone; `GetPendingRequestsWithStateRoot` now calls the contract view directly instead of delegating to the removed one, and the hardhat tests call `getPendingRequestsWithStateRoot(1)`. **Done.**
+
+6. Define the `BatchEntry` struct containing per-request fields: `prevStateRoot`, `newStateRoot`, `processedRequestId`, `userEvents`, `appEvents`, `withdrawalRequests`, `refund`, `applicationFees`, `errorCode`, `errorMsg`. **Done.** It is `stateUpdate()`'s argument list minus two: `applicationId` is deduplicated to the batch, and `signature` is replaced by the single batch signature. Both event sets are carried, as `Structs.EventData` — batched requests emit user *and* app events like any other, and the per-entry hash cannot be reconstructed without both (`UpdateEntryHash.entryHash`). Field order follows `SignatureParams`, so the two stay legible against each other and against `MsgToSignBuilder.buildEntryHash`.
 
 7. Write contract tests:
    - Batch of N successful requests with valid batch signature
-   - Batch with an error payload mid-batch (request K fails, K+1 continues from unchanged state)
-   - Batch with first entry having wrong `prevStateRoot` (reverts)
-   - Batch with broken state root chain between entries (reverts)
-   - Single-entry batch (equivalent to `stateUpdate()`)
-   - Invalid batch signature (reverts)
-   - Batch signature signed by wrong key (reverts)
-   - `batchStateUpdate()` for an application with a registered trigger (reverts)
-   - Mixed-app enqueue: requests for A, B, A — selection returns both A requests; B's queue untouched
-   - Round-robin rotation: batches for A, B alternate while both have pending work; cursor skips an application whose queue empties
-   - Cursor enforcement: `batchStateUpdate()` (and `stateUpdate()` on a per-application queue) for an application other than the round-robin scan result reverts
-   - Scan correctness: applications with empty queues are skipped; scan wraps past the end of `_deployedAppIds`; all queues empty → view returns no requests and the cursor is unchanged
-   - Trigger queue precedence: pending TRUSTPROCESS returned alone before any batch selection
-   - Trigger application selected: at most one request returned regardless of `maxCount`
-   - Gas measurement: compare `batchStateUpdate(N entries)` vs N × `stateUpdate()`
+   - Batch with an error payload mid-batch (request K fails, K+1 continues from unchanged state) *(done)*
+   - Batch with first entry having wrong `prevStateRoot` (reverts) *(done)*
+   - Batch with broken state root chain between entries (reverts) *(done)*
+   - Single-entry batch (equivalent to `stateUpdate()`) *(done — signed with the single-request helper, which pins that the two paths share one scheme)*
+   - Invalid batch signature (reverts) *(done — signature covering only part of the batch, an entry altered after signing, and the entries reordered)*
+   - Batch signature signed by wrong key (reverts) *(done)*
+   - Empty entry array (reverts `EmptyBatch`) *(done)*
+   - Caller without `UPDATE_STATUS_ROLE` (reverts) *(done)*
+   - `batchStateUpdate()` with more than one entry for an application with a registered trigger, or alongside a pending deploy head (reverts `BatchNotAllowed`); the same inputs as a one-entry batch succeed, and the trigger is invoked *(done)*
+   - Mixed-app enqueue: requests for A, B, A — selection returns both A requests; B's queue untouched *(done)*
+   - Round-robin rotation: batches for A, B alternate while both have pending work; cursor skips an application whose queue empties *(done)*
+   - Cursor enforcement: `batchStateUpdate()` (and `stateUpdate()` on a per-application queue) for an application other than the round-robin scan result reverts *(done)*; a whole batch consumes exactly one turn, so the next selection is the following application *(done)*
+   - Scan correctness: applications with empty queues are skipped; scan wraps past the end of `_deployedAppIds`; all queues empty → view returns no requests and the cursor is unchanged *(done)*
+   - Trigger queue precedence: pending TRUSTPROCESS returned alone before any batch selection *(done)*
+   - Deploy queue precedence: pending deploy returned alone before any application selection *(done)*
+   - Trigger application selected: at most one request returned regardless of `maxCount` *(done)*
+   - Cross-application queue independence: processing one application's head leaves the others' queues and state roots untouched; `adminReset` drains every application queue and refunds its deposits *(done)*
+   - Gas measurement: compare `batchStateUpdate(N entries)` vs N × `stateUpdate()` *(done — for N = 5, 365,628 vs 708,480 execution gas, a 48% saving before the 4 × 21,000 intrinsic cost the batch also avoids)*
+
+**Contract size — see `PROCESSOR_ENDPOINT_SPLIT.md`.** The per-application queue work in step 1 pushed `ProcessorEndpoint` past the 24,576-byte EIP-170 limit. Making room is a self-contained refactor with no batch concepts in it, so it was done on its own branch and is documented separately: `ProcessorEndpointStorage` holds all state, `ProcessorEndpointExtension` hosts the facilitator path, the deploy-submission entry points, the operator resets and the admin setters behind a `delegatecall`, EIP-170 is now enforced by the hardhat config, and `npm run check:layout` guards the shared storage layout in CI. The entry points hosted in the extension operate on this design's per-application queue state (`RequestQueues.Store`, reached through the shared `_q`), so `submitDeployRequest*` enqueues into the global deploy queue and the resets drain every per-application queue.
+
+What matters for this design is the budget that leaves:
+
+| | Deployed bytes | vs limit |
+|---|---|---|
+| After the first split (facilitator path only), before the queue work | 21,609 | −2,967 |
+| With per-app queues, deploy queue, round-robin and the selection view | 23,990 | −586 |
+| Same, after the split's second pass moved deploy submission, the resets and the admin setters out | 19,626 | −4,950 |
+| With `batchStateUpdate()`, `_processOneStateUpdate()` and the `BatchEntry` decoder | **23,756** | **−820** |
+
+The −586 figure was **not** enough for `batchStateUpdate()` (step 4): with `viaIR` + `runs: 0`, the `BatchEntry[]` calldata decoder — nested dynamic arrays plus `string errorMsg` — is the expensive part, plausibly 1.5–2.5KB on its own. The room came from the split's second pass rather than from moving the queue views. Measured after the fact, step 4 cost **4,130 bytes** — inside the estimate, and it fits in the endpoint with **820 bytes left**. That is thin: the next contract change of any size will need one of the levers in `PROCESSOR_ENDPOINT_SPLIT.md` section 4 — the read-only surface behind a generic `fallback()` (−2,353), or moving one of the two state-update entry points into the extension. Note that moving `batchStateUpdate()` alone buys less than it looks: `_processOneStateUpdate` and the helpers it reaches (`_enforceSelection`, `_queueOf`, `_markRequestCompleted`, `_invokeTrigger`) are shared with `stateUpdate()`, so they would have to be duplicated or promoted to the storage base. Retiring `stateUpdate()` once the manager routes everything through the batch path (see section 5.4) frees its 12-argument decoder and is the cheaper move. Rows 1–2 above are the hardhat `paris` path and rows 3–4 hardhat `cancun` (`runs: 0` throughout), because the split switched the EVM target (`PROCESSOR_ENDPOINT_SPLIT.md` section 2.1); the `go:generate` solc path uses `runs: 200` and no explicit EVM target, so it reports different numbers — always say which produced a figure.
+
+Two removals of redundant external surface also helped, and belong to this design rather than the split:
+
+- `getNextPendingRequest()` (−332 bytes), replaced by `getPendingRequestsWithStateRoot(1)` — see step 5.
+- Candidates for the next pass: `getPendingRequests()` and `getPendingRequestsPage()` (−1,178 together), if the subgraph and `pkg/blockchain` turn out not to need them.
 
 **Files changed:**
 - `contracts/contracts/ProcessorEndpoint.sol`
+- `contracts/contracts/ProcessorEndpointStorage.sol` (per-application queue state replaces the single global queue)
+- `contracts/contracts/ProcessorEndpointExtension.sol` (the entry points it hosts — deploy submission and the operator resets — move onto the per-application queues)
+- `contracts/contracts/RequestQueues.sol` (new — queue library)
 - `contracts/contracts/interfaces/IProcessorEndpoint.sol`
 - `contracts/contracts/AbstractTeeAuthenticator.sol` (new batch signature verification)
 - `contracts/contracts/interfaces/ITeeAuthenticator.sol`
 - `contracts/contracts/Structs.sol` (new `BatchEntry` struct)
 - `contracts/test/` (new and updated test files)
+
+The storage base, the extension, `IProcessorEndpointState` and the two guardrails come from the
+contract split (`PROCESSOR_ENDPOINT_SPLIT.md`), which this work builds on.
 
 ### Stage 2 — Executor: Batch Processing
 
@@ -495,24 +546,28 @@ Add a batch message type to the executor so it can process multiple requests in 
 
 ### Stage 3 — Go Contract Bindings
 
-Regenerate the Go bindings after the contract changes so the manager can call `batchStateUpdate()`.
+Regenerate the Go bindings after the contract changes so the manager can call `batchStateUpdate()`. **Done.**
 
 **Steps:**
 
-1. Regenerate bindings: `go generate ./...`
-2. Add `SubmitBatchStateUpdate()` to `BlockChainClient` that:
+1. Regenerate bindings: `go generate ./...` **Done** — yields `StructsBatchEntry` and `PackBatchStateUpdate`, plus the `BatchProcessed` event and the `EmptyBatch` / `BatchNotAllowed` errors on the endpoint's ABI, so `UnpackProcessorEndpointError` decodes a rejected batch instead of returning raw revert data.
+2. Add `SubmitBatchStateUpdate()` to `BlockChainClient` that: **Done.**
    - Takes `[]*common.UpdatePayload` (the batch results) and `[]byte` (the batch signature)
-   - Packs all entries into `BatchEntry[]` calldata
+   - Packs all entries into `BatchEntry[]` calldata. The payloads' own `Signature` fields are ignored: only the batch signature is verified on-chain
    - Passes the single batch signature as `bytes`
+   - Rejects an empty batch, and a batch whose entries do not all share one `ApplicationID`, before sending anything — the contract takes the `applicationId` once, so a mismatched entry would otherwise be paid for in calldata and signature verification and then revert `InvalidApplicationId`
    - Calls `sendTxAndWaitMined()` (existing method — single tx, blocking wait is fine here)
-3. Add `SubmitBatchStateUpdate` to the `Client` interface in `interface.go`
-4. Implement the mock in `mock_client.go`
+3. Add `SubmitBatchStateUpdate` to the `Client` interface in `interface.go` **Done** (landed with Stage 4).
+4. Implement the mock in `mock_client.go` **Done** (landed with Stage 4).
+5. Extract the payload → binding conversions (`toUserEventData`, `toAppEventData`, `toWithdrawalRequests`) so `SubmitStateUpdate` and `SubmitBatchStateUpdate` encode an entry identically — a divergence there would produce a payload whose on-chain hash does not match what the TEE signed. **Done.**
 
 **Files changed:**
-- `pkg/blockchain/bindings/` (regenerated)
+- `pkg/blockchain/contracts/` (regenerated bindings)
 - `pkg/blockchain/client.go`
+- `pkg/blockchain/client_test.go` (`TestSubmitBatchStateUpdate` — a real `batchStateUpdate()` transaction against the simulated chain, covering the happy path, the cross-application guard, and a reverted batch leaving every request pending)
 - `pkg/blockchain/interface.go`
 - `pkg/blockchain/mock_client.go`
+- `subgraphs/hcce/abis/ProcessorEndpoint.json` (regenerated; no handler changes — the per-request events are unchanged, see section 3.2)
 
 ### Stage 4 — Manager: Batch Orchestration
 
@@ -522,7 +577,7 @@ Refactor the manager's poll loop to fetch multiple requests and route them throu
 
 1. Add `MaxBatchSize` configuration to `config.go` with `MAX_BATCH_SIZE` env var (default 5). Add startup validation: `MaxBatchSize > 0`.
 
-2. Add `GetPendingRequestsWithStateRoot(maxCount uint64)` to the blockchain client, returning `(uint64, []*common.Request, [32]byte, error)` — the contract-selected `applicationId`, up to `maxCount` of its pending requests, and its on-chain state root (section 4.3). The caller passes `MaxBatchSize` so only the requests that will actually be processed are fetched. The existing `GetPendingRequests()` only returns requests without the state root or selection logic.
+2. Add `GetPendingRequestsWithStateRoot(maxCount uint64)` to the blockchain client, returning `(uint64, []*common.Request, [32]byte, error)` — the contract-selected `applicationId`, up to `maxCount` of its pending requests, and its on-chain state root (section 4.3). The caller passes `MaxBatchSize` so only the requests that will actually be processed are fetched. The existing `GetPendingRequests()` only returns requests without the state root or selection logic. **Done** — it calls the contract view directly (it was previously a stub delegating to the now-removed `GetNextPendingRequest`).
 
 3. Implement `processBatchFromChain()` in the manager:
    ```
@@ -663,7 +718,7 @@ The executor returns a plain error — no signed payload. The manager cannot sub
 
 This happens for system-level errors, or for fields already validated on-chain whose unexpected value at the executor is evidence of tampering between the chain and the executor:
 - `validateRequest()` failure: wrong `applicationId`, wrong `protocolVersion`, fee below minimum (all validated on-chain)
-- App state not found — app existence is validated on-chain by the `validApplicationId` modifier in `ProcessorEndpoint`, so a nil state at the executor means tampering or manager-side state loss
+- App state not found — app existence is validated on-chain by the `validApplicationId` modifier in `ProcessorEndpoint`, so a nil state at the executor means tampering or manager-side state loss. Defence in depth: an honest manager never dispatches such a batch (`processBatch` returns as soon as `GetApplicationState` reports not-found), and the protocol layer rejects a nil `ApplicationState` before the handler runs (`BatchProcessRequestData.Validate`). Either way the requests stay pending
 - Unsupported request type
 - State decryption failure
 - AES state encryption failure
@@ -751,6 +806,8 @@ Per-application queues (section 4.2) confine a permanently failing request to it
 
 Result: one poisoned request stalls **all** applications, not just A. The manager cannot skip A — the cursor check in the state-update functions rejects submissions for any other application. This is a property of *any* contract-enforced selection, not of round-robin specifically: whatever algorithm the contract enforces, a request that can never be processed blocks the rotation at its turn.
 
+The enforced precedence of the global queues (section 4.3) widens the blast radius further: a permanently failing TRUSTPROCESS head blocks deploy and per-application updates once it ages past `selectionGrace`, and a permanently failing deploy head blocks per-application updates — in both cases immediately, not only when a cursor reaches them. The mitigations below apply unchanged.
+
 **Possible solutions**, in order of how much they preserve the anti-censorship goal:
 
 1. **On-chain failure escalation.** The manager reports the hard failure on-chain (e.g., `markRequestBlocked(requestId)`, possibly gated by a timeout or evidence requirement). The contract moves the request to a parked state or the queue tail and advances the cursor, so rotation moves on. Verifiable, deterministic, auditable.
@@ -758,6 +815,8 @@ Result: one poisoned request stalls **all** applications, not just A. The manage
 3. **Manager-supplied skip/exclusion parameter** on the state-update call. Simplest, but reintroduces exactly the discretion section 4.3 removes — a manager could "skip" any application indefinitely. Note that the manager can already censor by idling; the real anti-censorship property is *detectability*, so an on-chain skip event with an emitted audit trail could be acceptable.
 
 A mechanism from this list must be chosen before the design is complete; until then, a permanently failing request is a system-wide blocker.
+
+**Interim mitigation (implemented).** `selectionGrace` (section 4.3) doubles as a manual escape hatch: raising it above the blocked head's age lets the manager serve other applications again, and lowering it afterwards restores the fairness bound. This is strictly better than `adminReset` — it discards nothing and needs no `RESET_OPERATOR`, which production deployments set to `address(0)` — but it is an operator action requiring the `ADMIN` role, it suspends the fairness guarantee platform-wide while raised, and it does not retire the poisoned request. It buys time to react; it is not a substitute for option 1 or 2.
 
 ### 7.5. Caller execution budget exhausted — batch stops early (not a failure)
 

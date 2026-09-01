@@ -134,8 +134,8 @@ describe('ProcessorEndpoint Test', function () {
         expect(processorBalanceAfter).to.equal(processorBalanceBefore + maxFeeValue);
 
         // appLockedFunds should remain 0 for deploys (no deposit, fees tracked globally)
-        const [pendingReq] = await processorEndpoint.getNextPendingRequest();
-        const deployAppId = pendingReq.applicationId;
+        const [, pending] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+        const deployAppId = pending[0].applicationId;
         expect(await processorEndpoint.appCustody(deployAppId, ETH_TOKEN)).to.equal(0n);
       });
 
