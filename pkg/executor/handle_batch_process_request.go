@@ -25,8 +25,12 @@ import (
 //     discarded and an error is returned
 //
 // One payload is returned per handled request, in input order, so len(payloads)
-// is how many of the input requests were consumed: len(payloads) < len(requests)
-// means a hard failure stopped the batch at request len(payloads).
+// is how many of the input requests were consumed. len(payloads) < len(requests)
+// means the batch stopped early, for one of two reasons: a hard failure at request
+// len(payloads), or the caller's remaining execution budget no longer covering
+// another guest bound (see the budget check in the loop). The two are
+// indistinguishable to the caller and need not be told apart — either way the
+// unhandled requests stay pending and are redelivered on the next poll.
 func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 	if len(requests) == 0 {
 		return nil, nil, nil, nil, fmt.Errorf("empty batch")
@@ -145,14 +149,28 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 		// Hard failure on the very first request: nothing to submit, the
 		// manager retries on the next poll.
 		//
-		// Logged at Error, and not folded into a wire error. The return contract stays
-		// as it is — the manager treats an empty batch as "retry", and turning it into
-		// a handler error would only change which of its log lines fires. What is worth
-		// being loud about is the event itself: a whole poll cycle that settled nothing
-		// is the signature of a stalled queue, and the individual break above says which
-		// request stopped it but not that the batch as a whole came away empty. If this
-		// line repeats every poll for the same application, the head of that queue can
-		// never be settled and no amount of retrying will change it.
+		// Not folded into a wire error. The return contract stays as it is — the
+		// manager treats an empty batch as "retry", and turning it into a handler
+		// error would only change which of its log lines fires. What is worth being
+		// loud about is the event itself: a whole poll cycle that settled nothing is
+		// the signature of a stalled queue, and the individual break above says which
+		// request stopped it but not that the batch as a whole came away empty. If
+		// this line repeats every poll for the same application, the head of that
+		// queue can never be settled and no amount of retrying will change it.
+		//
+		// Except when the context is already done. Then the batch settled nothing
+		// because the executor is shutting down or the caller stopped waiting, which
+		// is an expected outcome of an ordinary SIGTERM rather than a stalled queue:
+		// the first request is cancelled, which is a hard failure, so every in-flight
+		// batch would otherwise raise the alarm above on every clean shutdown. The
+		// condition clears by itself once the executor is running again, so it is
+		// reported but not escalated.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			e.log.Warn("Executor: batch for application %d settled none of its %d requests: %v; "+
+				"nothing will be submitted and the requests stay pending for a later poll",
+				appState.ApplicationID, len(requests), ctxErr)
+			return nil, nil, nil, nil, nil
+		}
 		e.log.Error("Executor: batch for application %d settled none of its %d requests; "+
 			"nothing will be submitted and the same requests will be redelivered on the next poll",
 			appState.ApplicationID, len(requests))

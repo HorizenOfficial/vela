@@ -463,6 +463,7 @@ Add a batch message type to the executor so it can process multiple requests in 
    - `appData` is only mutated after successful WASM execution
    - On soft failure: error payload included in results, state unchanged, batch continues
    - On hard failure: batch stops, results for previously processed requests are returned
+   - On an exhausted caller execution budget: batch stops before starting the next request, results so far are returned (section 7.5)
    - One payload is returned per handled request, in input order, so `len(payloads)` is how many of the input requests were consumed
 
 3. Add the message handler in `communication/server.go` to route `BatchProcessRequestMessage` to the executor's `HandleBatchProcessRequest`.
@@ -618,6 +619,7 @@ The executor produces an `UpdatePayload` with `prevStateRoot == newStateRoot` (s
 
 This happens for application-level errors where the executor has a valid stateRoot and can produce an error payload (see `HandleProcessRequest` in `pkg/executor/executor.go`):
 - WASM execution failure — deposit or process
+- Guest execution timeout — the guest spent its whole `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` budget and was interrupted. Deliberately soft despite being non-deterministic: the queue is FIFO and only advances when an update is submitted, so retrying a non-terminating guest would pin the queue head forever (see `docs/design/WASM_HOST_ABI.md`)
 - Insufficient fuel
 - Payload decryption failure
 - Deanonymize report validation failure
@@ -665,6 +667,7 @@ This happens for system-level errors, or for fields already validated on-chain w
 - Unsupported request type
 - State decryption failure
 - AES state encryption failure
+- Guest execution abandoned — the guest was interrupted because the *host* stopped waiting (executor shutdown, cancelled context, the caller's execution budget expiring). Nothing is known to be wrong with the request, so signing it would charge the author the minimum fee for our own decision to stop; it stays pending and is retried. Contrast the guest *timeout* in section 7.1, which is soft and is signed
 
 > **Note:** Signing failure is no longer a per-request hard failure. With batch signature, signing happens once after the batch loop completes. If batch signing fails, the entire batch is discarded — the executor returns an error with no results.
 
@@ -691,6 +694,12 @@ HandleBatchProcessRequest(requests, encryptedState, wasmModule):
     results := []
 
     for i, req := range requests:
+        // Budget check — not a failure (section 7.5). Never applied to i == 0:
+        // refusing the request the batch was assembled for settles nothing and
+        // has the identical batch redelivered on every poll.
+        if i > 0 and callerBudgetRemaining() < guestExecutionBound():
+            break  // stop batch, return results so far
+
         // Pre-validation — can cause hard failure
         if err := validateRequest(req); err != nil:
             break  // stop batch, return results so far
@@ -728,7 +737,7 @@ HandleBatchProcessRequest(requests, encryptedState, wasmModule):
     return results, batchSignature, encryptedFinalState
 ```
 
-One payload is returned per handled request, in input order, so `len(results)` is how many of the N input requests were handled (whether successfully or with error payloads) — there is no separate count to keep in sync. If `len(results) < N`, the manager knows a hard failure stopped the batch at request `len(results) + 1`.
+One payload is returned per handled request, in input order, so `len(results)` is how many of the N input requests were handled (whether successfully or with error payloads) — there is no separate count to keep in sync. If `len(results) < N`, the batch stopped early at request `len(results) + 1`, either because that request hard-failed or because the caller's remaining execution budget could not cover another guest bound (section 7.5). The manager does not need to tell the two apart: in both cases the unhandled requests stay pending and are redelivered on the next poll.
 
 If batch signing fails after processing, all results are discarded and the executor returns an error. The requests remain pending on-chain and will be retried on the next poll. This is a rare system-level failure (key unavailable, HSM error) — not an application-level concern.
 
@@ -750,9 +759,32 @@ Result: one poisoned request stalls **all** applications, not just A. The manage
 
 A mechanism from this list must be chosen before the design is complete; until then, a permanently failing request is a system-wide blocker.
 
+### 7.5. Caller execution budget exhausted — batch stops early (not a failure)
+
+A batch is one message and therefore carries one *execution budget*: how much longer the manager will wait for the whole response, derived from `MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC` minus a reply margin (`pkg/communication/execution_budget.go`). All requests in the batch share it.
+
+Before starting each request after the first, the loop checks whether the remaining budget still covers one full `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS`, and stops if it does not. One guest bound is the right threshold because one bound is what a request costs however many guest calls it makes — loading the module, taking a deposit and processing all draw down a single per-request budget.
+
+This is **not** a failure of any request. Nothing is wrong with the request that was not started; it simply was not reached. Without the check the guest would run until the budget expired, be interrupted, be classified as host-side abandonment (section 7.2) and be discarded — burning a full guest bound of execution and evicting the module from the cache, for work that has to be repeated on the next poll anyway. Stopping first settles exactly the same requests for free.
+
+**The first request is always started**, whatever the remaining budget. The check exists to avoid starting work that cannot finish, but refusing the request the batch was assembled for achieves nothing: the batch settles nothing, nothing on the wire tells the manager why, and the same requests are fetched and refused again on every poll. Starting it is safe — the request's own guest bound expires before the caller's budget (enforced at handshake, see `docs/design/EXEC_MGR_HANDSHAKE.md`), and that is a soft failure, so the queue advances either way.
+
+```
+Budget: 28s        Guest bound: 10s
+Request 1: success      → state₁     ← always started
+Request 2: success      → state₂     ← 21s left ≥ 10s
+Request 3: success      → state₃     ← 12s left ≥ 10s
+Request 4: not started               ← 6s left < 10s: batch stops
+Request 5: not started               ← remains pending
+```
+
+For a *whole* batch to settle in one attempt, size `MAX_BATCH_SIZE × EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` to fit inside the budget. Exceeding it is not an error — the batch settles what fits and the rest are retried — it just costs extra polls. In practice guests return in milliseconds, so the bound is a worst case rather than a per-request cost.
+
 ## 8. Configuration
 
 | Variable | Default | Description |
 |---|---|---|
 | `MAX_BATCH_SIZE` | `5` | Max requests per poll cycle (per batch, single application). Must be > 0. |
+| `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` | `0` (10 000 ms) | Wall-clock bound on one request's guest execution. Also the threshold the batch loop stops at when the shared caller budget can no longer cover another request (section 7.5). Must fit inside `MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC`; enforced at handshake. |
+| `MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC` | `30` | How long the manager waits for a batch response. Minus a 2 s reply margin, this is the execution budget the whole batch shares (section 7.5). |
 | `DataLayerNumOfVersions` | `10` | Depth of per-application version history retained for rollback and reorg recovery. A batch stores only its final state (one version per batch), so this is independent of `MaxBatchSize`; size it for the reorg-recovery depth you need. Currently hardcoded in `config.go`. |
