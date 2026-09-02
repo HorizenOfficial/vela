@@ -127,6 +127,8 @@ For each contract the deployment sequence is:
    - `initData` encodes a `reinitialize(uint64 version, ...)` call if new state variables must be seeded.
 3. Verify the upgrade via `ERC1967Utils.getImplementation(proxyAddress)`.
 
+The scripts in `scripts/upgrade/` drive steps 1–2 through `upgrades.upgradeProxy`, which also checks the new implementation's storage layout against the deployed one ([Storage Layout and Upgrade Safety](#storage-layout-and-upgrade-safety)). It reads the deployed layout from the OpenZeppelin upgrades manifest under `contracts/.openzeppelin/`, because a storage layout cannot be recovered from chain. The manifest is therefore a **required input** to an upgrade rather than a build artifact: it is written by `upgrades.deployProxy` when the contract is first deployed, must be committed for every public network so the upgrade is reproducible by CI and by anyone other than the original deployer, and without a current copy the upgrade aborts with `Deployment at address ... is not registered`. `upgrades.forceImport` re-registers a proxy whose entry is lost, but takes the layout from the currently compiled source, so it is only correct if that source matches what is deployed. See `contracts/README.md` § Upgrading for the per-network file names and the local-node caveat.
+
 ---
 
 ## Storage Layout and Upgrade Safety

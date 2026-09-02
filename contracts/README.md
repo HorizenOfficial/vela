@@ -47,6 +47,12 @@ npx hardhat run scripts/deploy/authorityRegistry.ts
 
 Each upgradable contract has a script in `scripts/upgrade/` that deploys a new implementation and points the existing proxy at it via `upgradeToAndCall`, keeping the proxy's address and all of its state (see `../docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`). The caller must be the account holding the upgrade authority — `ADMIN` role for `ProcessorEndpoint`, `owner()` for `AuthorityRegistry` and `TeeAuthenticator`.
 
+The scripts need more than the proxy address and the right signer. `upgradeProxy` validates the new implementation's storage layout against the deployed one, and it reads the deployed layout from the OpenZeppelin upgrades manifest — that layout is not recoverable from chain. **The manifest for the target network must be present and current before an upgrade script is run**, otherwise the upgrade aborts with `Deployment at address ... is not registered`.
+
+- **Public networks** — the deploy writes the manifest to `.openzeppelin/`, and it **must be committed**, so the layout history is a repo artifact rather than a file on whoever happened to run the deploy. Without it an upgrade cannot be run from CI or by anyone else. The plugin names the file after the chain: `sepolia.json` for `sepolia-testnet`, and `unknown-<chainId>.json` for `horizen-l3-testnet`, whose chain id is not in the plugin's network-name map. That second name looks disposable but is the one worth keeping — never ignore `.openzeppelin/unknown-*`.
+- **Local (`hardhat` / `anvil`)** — nothing lands in the repo. The manifest goes to `$TMPDIR/openzeppelin-upgrades/<hardhat|anvil>-31337-<instanceId>.json`, keyed by the node's instance id, so it does not survive an `anvil` restart even with `--state` persistence. A local upgrade after a restart needs the recovery below.
+- **Recovery** — `upgrades.forceImport(proxyAddress, Factory, { kind: 'uups' })` re-registers a proxy whose manifest entry is lost. It takes the layout from whatever source is currently compiled, so it is only correct if that source matches what is actually deployed; importing against the wrong source yields a manifest that passes the layout check while the real layouts diverge.
+
 - `AuthorityRegistry`:
     - PROXY_AUTHORITY_REGISTRY: address of the deployed proxy
     ```bash
