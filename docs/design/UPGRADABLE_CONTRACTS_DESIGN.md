@@ -65,6 +65,10 @@ A proxy that has been deployed but whose `initialize` function has not yet been 
 
 The `_authorizeUpgrade` function required by the UUPS pattern must be restricted to the existing owner / admin role for each contract. No unauthorised party may trigger an upgrade.
 
+That authority must also be **rotatable and revocable**. A role whose admin is left at the `AccessControl` default of `DEFAULT_ADMIN_ROLE` cannot be granted or revoked at all when nobody holds that role, so a compromised upgrade key would stay valid forever and a lost one would freeze upgradeability permanently — the UUPS escape hatch is itself gated on the same role, so it could not be repaired by upgrading. `ProcessorEndpoint.initialize` therefore calls `_setRoleAdmin(ADMIN, ADMIN)`, making `ADMIN` self-administered. For the `Ownable` contracts (`TeeAuthenticator`, `AuthorityRegistry`) `transferOwnership` already provides this.
+
+Self-administration still lets a sole holder strand the role via `renounceRole` or by revoking the last holder; holding `ADMIN` with a multisig is what covers that.
+
 ### R6 — Storage Gap
 
 Each upgradable contract must declare a `uint256[50] private __gap` array at the end of its storage variables. This reserves 50 storage slots that future versions may consume by replacing the gap with new variables. The gap size must be adjusted (reduced) when new variables are added, keeping the total storage footprint constant.

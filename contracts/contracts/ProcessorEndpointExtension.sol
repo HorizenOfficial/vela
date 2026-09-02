@@ -92,6 +92,19 @@ contract ProcessorEndpointExtension is ProcessorEndpointStorage {
     feeCollector = payable(updateStatusOperator);
     _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
     _grantRole(ADMIN, admin);
+    // ADMIN administers itself, and administers UPDATE_STATUS_ROLE and DEPLOYER_ROLE. Without
+    // this, every role's admin would default to DEFAULT_ADMIN_ROLE, which is granted to nobody:
+    // ADMIN and the status operator could then never be rotated or revoked, so a compromised key
+    // would stay valid forever and a lost one would freeze every configuration setter and
+    // `_authorizeUpgrade` permanently — including the upgrade that would fix it.
+    //
+    // RESET_OPERATOR is deliberately left under DEFAULT_ADMIN_ROLE: that is what makes passing
+    // `address(0)` for it disable the reset functions *permanently*, as production deployments
+    // require (docs/design/PROCESSOR_ENDPOINT_ADMIN_RESET.md). Putting it under ADMIN, or
+    // granting DEFAULT_ADMIN_ROLE to anyone, would let ADMIN grant itself the role after
+    // deployment and sweep per-app custody via `adminResetApps`.
+    _setRoleAdmin(ADMIN, ADMIN);
+    _setRoleAdmin(UPDATE_STATUS_ROLE, ADMIN);
     _setRoleAdmin(DEPLOYER_ROLE, ADMIN);
     _grantRole(DEPLOYER_ROLE, admin);
     minFeePerRequest = _minFeePerRequest;
