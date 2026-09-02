@@ -1,5 +1,4 @@
 import { ethers, upgrades } from 'hardhat';
-import { PROCESSOR_ENDPOINT_UPGRADE_OPTIONS } from '../util';
 
 async function deploy() {
   const deployer = (await ethers.getSigners())[0];
@@ -48,7 +47,6 @@ async function deploy() {
     {
       kind: 'uups',
       constructorArgs: [extensionAddr],
-      unsafeAllow: [...PROCESSOR_ENDPOINT_UPGRADE_OPTIONS.unsafeAllow],
     }
   );
   await processorEndpoint.waitForDeployment();

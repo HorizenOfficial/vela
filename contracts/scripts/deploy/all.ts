@@ -1,7 +1,6 @@
 import { ethers, upgrades } from 'hardhat';
 import * as fs from 'fs';
 import * as path from 'path';
-import { PROCESSOR_ENDPOINT_UPGRADE_OPTIONS } from '../util';
 
 /*
   Deploy scripts for all the contracts.
@@ -152,7 +151,6 @@ async function deploy() {
     {
       kind: 'uups',
       constructorArgs: [processorEndpointExtensionAddr],
-      unsafeAllow: [...PROCESSOR_ENDPOINT_UPGRADE_OPTIONS.unsafeAllow],
     }
   );
   await processorEndpoint.waitForDeployment();

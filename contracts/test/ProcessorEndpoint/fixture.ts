@@ -1,7 +1,7 @@
 import { Signer } from 'ethers';
 import { ethers, upgrades } from 'hardhat';
 import { BYTES_ZERO, BYTES32_ZERO } from '../util';
-import { ethSignStateUpdate, PROCESSOR_ENDPOINT_UPGRADE_OPTIONS } from '../../scripts/util';
+import { ethSignStateUpdate } from '../../scripts/util';
 
 export const INITIAL_STATE_ROOT =
   '0x0000000000000000000000000000000000000000000000000000000000000001';
@@ -82,7 +82,6 @@ export async function deployProcessorEndpointFixture() {
       {
         kind: 'uups',
         constructorArgs: [extensionAddress],
-        unsafeAllow: [...PROCESSOR_ENDPOINT_UPGRADE_OPTIONS.unsafeAllow],
       }
     );
   }

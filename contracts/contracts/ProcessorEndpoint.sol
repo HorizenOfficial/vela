@@ -39,6 +39,15 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, UUPSUpgradeable, IProces
   ///      immutable never touches storage, so it resolves correctly whether this code runs
   ///      directly or via `delegatecall` from the proxy. Upgrading which extension is used means
   ///      deploying a new implementation (with its own `_extension`) and pointing the proxy at it.
+  /// @dev The `@openzeppelin/hardhat-upgrades` validator rejects `immutable` state under a proxy
+  ///      by default, because an immutable is baked into the implementation's bytecode instead of
+  ///      proxy storage: configuration held that way cannot be set per proxy and is silently
+  ///      re-baked (or lost) by every upgrade. That is not what this is — see above — and the
+  ///      upgrade script re-passes the current value read from `extension()`
+  ///      (`scripts/upgrade/processorEndpoint.ts`). Annotated here rather than waived through the
+  ///      deploy options so the exception covers this declaration only, and a future `immutable`
+  ///      that should have been proxy state still fails validation.
+  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   address private immutable _extension;
 
   /// @param extensionAddress Deployed `ProcessorEndpointExtension` serving the delegated entry
@@ -67,6 +76,11 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, UUPSUpgradeable, IProces
   ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
   /// @param _tokenAllowlist External token allowlist contract.
+  /// @dev The validator cannot see the parent initializers run: this body only `delegatecall`s
+  ///      into `ProcessorEndpointExtension.initialize`, which is where `__AccessControl_init` and
+  ///      `__EIP712_init` are actually called, under the `initializer` modifier. Annotated on this
+  ///      function so the exception does not extend to any other initializer.
+  /// @custom:oz-upgrades-unsafe-allow missing-initializer-call
   function initialize(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
@@ -231,6 +245,14 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, UUPSUpgradeable, IProces
   ///      `stateUpdate`/`batchStateUpdate` path, so every successful update now pays one extra
   ///      delegatecall (~2,600 gas) regardless of whether the application has a registered
   ///      trigger — a deliberate trade of a small, constant per-call cost for the headroom.
+  /// @dev The validator flags every `delegatecall`, since one into untrusted or layout-divergent
+  ///      code can corrupt proxy storage. Safe here because the target is `_extension`, fixed at
+  ///      construction to a contract that shares this one's storage layout — enforced by
+  ///      `npm run check:layout` (docs/design/PROCESSOR_ENDPOINT_SPLIT.md). This is the only
+  ///      `delegatecall` the validator detects: it matches Solidity-level calls by type
+  ///      identifier and has no Yul handling, so the one inside `_delegateToExtension`'s
+  ///      `assembly` block is invisible to it and cannot be annotated.
+  /// @custom:oz-upgrades-unsafe-allow delegatecall
   function _delegateToExtensionCall(bytes memory data) private {
     (bool ok, bytes memory ret) = _extension.delegatecall(data);
     if (!ok) {

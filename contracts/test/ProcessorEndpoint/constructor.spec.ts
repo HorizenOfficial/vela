@@ -1,7 +1,6 @@
 import { expect } from 'chai';
 import { upgrades } from 'hardhat';
 import { ADDRESS_ZERO } from '../util';
-import { PROCESSOR_ENDPOINT_UPGRADE_OPTIONS } from '../../scripts/util';
 import { deployProcessorEndpointFixture } from './fixture';
 
 // ProcessorEndpoint is deployed behind a UUPS proxy (docs/design/UPGRADABLE_CONTRACTS_DESIGN.md).
@@ -100,7 +99,6 @@ describe('ProcessorEndpoint Test', function () {
             {
               kind: 'uups',
               constructorArgs: [extensionAddress],
-              unsafeAllow: [...PROCESSOR_ENDPOINT_UPGRADE_OPTIONS.unsafeAllow],
             }
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');
@@ -122,7 +120,6 @@ describe('ProcessorEndpoint Test', function () {
             {
               kind: 'uups',
               constructorArgs: [extensionAddress],
-              unsafeAllow: [...PROCESSOR_ENDPOINT_UPGRADE_OPTIONS.unsafeAllow],
             }
           )
         ).to.be.revertedWithCustomError(processorEndpointFactory, 'AddressCantBeZero');

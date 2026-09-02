@@ -1,5 +1,4 @@
 import { ethers, upgrades } from 'hardhat';
-import { PROCESSOR_ENDPOINT_UPGRADE_OPTIONS } from '../util';
 
 // Upgrades the ProcessorEndpoint proxy to a new implementation. See
 // docs/design/UPGRADABLE_CONTRACTS_DESIGN.md for the UUPS upgrade flow.
@@ -31,7 +30,6 @@ async function upgrade() {
   const upgraded = await upgrades.upgradeProxy(proxyAddress, ProcessorEndpointV2, {
     kind: 'uups',
     constructorArgs: [extensionAddress],
-    unsafeAllow: [...PROCESSOR_ENDPOINT_UPGRADE_OPTIONS.unsafeAllow],
   });
   await upgraded.waitForDeployment();
 
