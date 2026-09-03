@@ -69,6 +69,12 @@ orderedmap
   Source:     https://github.com/elliotchance/orderedmap
   Notice:     Copyright (c) 2020 Elliot Chance.
 
+cbor
+  Version:    v2.2.0
+  License:    MIT
+  Source:     https://github.com/fxamacker/cbor
+  Notice:     Copyright (c) 2019-2023 Faye Amacker.
+
 go-cmp
   Version:    v0.7.0
   License:    BSD-3-Clause
@@ -163,12 +169,6 @@ gogo/protobuf
   Source:     https://github.com/gogo/protobuf
   Notice:     Copyright (c) 2013 The GoGo Authors. Copyright 2010 The Go Authors.
 
-cbor
-  Version:    v2.2.0
-  License:    MIT
-  Source:     https://github.com/fxamacker/cbor
-  Notice:     Copyright (c) 2019-2023 Faye Amacker.
-
 golang/protobuf
   Version:    v1.5.4
   License:    BSD-3-Clause
@@ -192,28 +192,46 @@ PERMISSIVE DEPENDENCIES - npm (contracts/)
 ================================================================================
 
 @openzeppelin/contracts
-  Version:    ^5.3.0
+  Version:    5.6.1
   License:    MIT
   Source:     https://github.com/OpenZeppelin/openzeppelin-contracts
   Notice:     Copyright (c) 2016-2024 zOS Global Limited and contributors.
 
+@openzeppelin/contracts-upgradeable
+  Version:    5.6.1
+  License:    MIT
+  Source:     https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
+  Notice:     Copyright (c) 2016-2024 zOS Global Limited and contributors.
+
 dotenv
-  Version:    ^17.0.0
+  Version:    17.0.0
   License:    BSD-2-Clause
   Source:     https://github.com/motdotla/dotenv
   Notice:     Copyright (c) 2015 Scott Motte.
 
 hardhat (dev dependency)
-  Version:    ^2.25.0
+  Version:    2.27.2
   License:    MIT
   Source:     https://github.com/NomicFoundation/hardhat
   Notice:     Copyright (c) 2019 Nomic Labs LLC.
 
 @nomicfoundation/hardhat-toolbox (dev dependency)
-  Version:    ^6.0.0
+  Version:    6.0.0
   License:    MIT
   Source:     https://github.com/NomicFoundation/hardhat
   Notice:     Copyright (c) 2022 Nomic Foundation.
+
+@openzeppelin/hardhat-upgrades (dev dependency)
+  Version:    3.9.1
+  License:    MIT
+  Source:     https://github.com/OpenZeppelin/openzeppelin-upgrades
+  Notice:     Copyright (c) OpenZeppelin.
+
+hardhat-abi-exporter (dev dependency)
+  Version:    2.11.0
+  License:    MIT
+  Source:     https://github.com/ItsNickBarry/hardhat-abi-exporter
+  Notice:     Copyright (c) Nick Barry.
 
 ================================================================================
 PERMISSIVE DEPENDENCIES - npm (subgraphs/hcce/)
