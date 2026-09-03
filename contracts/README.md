@@ -39,7 +39,7 @@ npx hardhat run scripts/deploy/all.ts
 npx hardhat run scripts/deploy/authorityRegistry.ts
 ```
 
-  `scripts/deploy/processorEndpoint.ts` deploys `ProcessorEndpointExtension` together with the endpoint, in that order; there is no script that deploys the endpoint against a pre-existing extension.
+  `scripts/deploy/processorEndpoint.ts` deploys `ProcessorEndpointExtension` together with the endpoint, in that order; there is no script that deploys the endpoint against a pre-existing extension. `scripts/deploy/processorEndpointExtension.ts` deploys the extension alone, which is what an upgrade that changes it needs — see [Upgrading](#upgrading).
 
 - when `DEPLOY_OUTPUT_DIR` is set, `all.ts` writes the deployed addresses to `deployed_addresses.env`, including `CHAIN_PROCESSOR_EXTENSION_ADDRESS`. Nothing reads that one at runtime, but it is the only record of which extension an endpoint delegates to.
 
@@ -67,10 +67,15 @@ The scripts need more than the proxy address and the right signer. `upgradeProxy
 
 - `ProcessorEndpoint`:
     - PROXY_PROCESSOR_ENDPOINT: address of the deployed proxy
-    - PROCESSOR_ENDPOINT_EXTENSION (optional): address of the `ProcessorEndpointExtension` the new implementation's constructor should point at. Defaults to the extension the current implementation already uses — set this only when the upgrade also changes the extension.
+    - PROCESSOR_ENDPOINT_EXTENSION (optional): address of the `ProcessorEndpointExtension` the new implementation's constructor should point at. Defaults to the extension the current implementation already uses — set this when the upgrade also changes the extension, after deploying the new one with `npx hardhat run scripts/deploy/processorEndpointExtension.ts`.
+    - ALLOW_STALE_EXTENSION (optional): set to `true` to downgrade the extension bytecode check below to a warning.
     ```bash
     npx hardhat run scripts/upgrade/processorEndpoint.ts
     ```
+
+    Before upgrading, the script checks that the code deployed at whichever extension address it is using matches the locally compiled `ProcessorEndpointExtension`, and refuses the upgrade if it does not. **Changing `ProcessorEndpointExtension.sol` means deploying a new extension and passing its address**: the extension is a separate contract that the endpoint reaches by `delegatecall`, so an upgrade that reuses the old address leaves the new endpoint logic live while every delegated entry point (`submitRequestFor`, deploy submission, `initialize`, `invokeTrigger`, the operator resets, the admin setters) keeps running the old extension code against the proxy's storage — without reverting. Nothing else catches that: the endpoint's constructor only rejects an address with no code, `upgradeProxy` never inspects `constructorArgs`, and `npm run check:layout` compares compiled artifacts without touching the chain.
+
+    A compiler or optimiser-settings change alters the extension's bytecode even when its source is untouched, so the check also fires when the deployed extension is functionally the one intended. That is the case `ALLOW_STALE_EXTENSION=true` exists for — the message says whether the two differ in length (a different source) or only in content (a different build of it).
 
 Each script prints the implementation address before and after the upgrade so it can be checked against what was intended to be deployed.
 

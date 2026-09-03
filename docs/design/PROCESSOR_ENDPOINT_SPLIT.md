@@ -245,7 +245,11 @@ events are referenced from the base and the extension as `IProcessorEndpoint.<na
   `delegatecall`s, so storage stays in the proxy throughout, and an `immutable` in the
   implementation is still readable. Upgrading the extension means deploying a new implementation
   pointing at it — the normal UUPS path. The `__gap` that design requires belongs in the storage
-  base.
+  base. The reverse mistake — changing `ProcessorEndpointExtension.sol` but upgrading against the
+  already-deployed extension — is silent, so `scripts/upgrade/processorEndpoint.ts` compares the
+  deployed extension's code with the local build and refuses on mismatch
+  (`scripts/upgrade/extensionBytecode.ts`); the endpoint's constructor cannot catch it, because a
+  stale extension still has code.
 
 ## 4. Result
 
