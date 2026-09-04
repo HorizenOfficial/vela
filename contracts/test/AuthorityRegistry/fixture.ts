@@ -1,4 +1,4 @@
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 import { Signer } from 'ethers';
 
 export async function deployDefaultAuthorityFixture() {
@@ -12,9 +12,10 @@ export async function deployDefaultAuthorityFixture() {
 export async function deployAuthorityRegistryFixture() {
   const { signers, defaultAuthority } = await deployDefaultAuthorityFixture();
   const AuthorityRegistry = await ethers.getContractFactory('AuthorityRegistry');
-  const authorityRegistry = await AuthorityRegistry.deploy(
-    await signers[0].getAddress(),
-    await defaultAuthority.getAddress()
+  const authorityRegistry = await upgrades.deployProxy(
+    AuthorityRegistry,
+    [await signers[0].getAddress(), await defaultAuthority.getAddress()],
+    { kind: 'uups' }
   );
 
   return { signers, defaultAuthority, authorityRegistry };

@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import '@openzeppelin/contracts/access/AccessControl.sol';
-import '@openzeppelin/contracts/utils/ReentrancyGuard.sol';
+import '@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol';
+import '@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
-import '@openzeppelin/contracts/utils/cryptography/EIP712.sol';
-import '@openzeppelin/contracts/utils/Strings.sol';
+import '@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol';
 
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
@@ -25,9 +24,8 @@ import './RequestQueues.sol';
 ///      contracts derive from this base, which is the single declaration of every state variable:
 ///      because a `delegatecall` executes the extension's code against the endpoint's storage, the
 ///      two layouts must be **identical**, and inheriting one common base is what guarantees that.
-///      `AccessControl`, `ReentrancyGuard` and `EIP712` are inherited here, in this order, for the
-///      same reason — they contribute storage slots (`_roles`, `_status`, the EIP-712 name/version
-///      fallbacks) that must sit at the same offsets on both sides.
+///      `AccessControlUpgradeable` and `EIP712Upgradeable` are inherited here, in this order, so
+///      both contracts resolve the same namespaced storage for roles and the EIP-712 domain.
 ///
 ///      Consequences to respect when editing:
 ///      - Never declare state in `ProcessorEndpoint` or `ProcessorEndpointExtension`; declare it
@@ -41,10 +39,23 @@ import './RequestQueues.sol';
 ///        `ProcessorEndpoint` and forwards to the `internal` implementation, so that inheriting
 ///        both this base and `IProcessorEndpoint` does not create an override conflict.
 ///      See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md` for the full rationale.
+///
+/// @dev Upgradeability (see `docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`): `ProcessorEndpoint` is
+///      deployed behind an ERC1967/UUPS proxy, so this base uses the `*Upgradeable` OpenZeppelin
+///      variants, which keep their own storage in ERC-7201 namespaced slots rather than the
+///      sequential slots plain `AccessControl`/`EIP712` used — the declared state below still
+///      starts at slot 0. `ReentrancyGuardTransient` is used instead of a `ReentrancyGuardUpgradeable`
+///      (no longer shipped by the OpenZeppelin upgradeable package): it guards via transient
+///      storage (EIP-1153), which is inherently proxy-safe and needs no initialization. Both
+///      `ProcessorEndpoint` and `ProcessorEndpointExtension` read the same EIP-712 domain: only
+///      `ProcessorEndpoint.initialize` calls `__EIP712_init`, since `EIP712Upgradeable` stores
+///      name/version in the shared namespaced slot rather than per-contract immutables. The
+///      `__gap` reserves storage for future versions; see the design doc's storage-gap convention
+///      before touching it.
 abstract contract ProcessorEndpointStorage is
-  AccessControl,
-  ReentrancyGuard,
-  EIP712,
+  AccessControlUpgradeable,
+  ReentrancyGuardTransient,
+  EIP712Upgradeable,
   IProcessorEndpointState
 {
   using SafeERC20 for IERC20;
@@ -58,14 +69,14 @@ abstract contract ProcessorEndpointStorage is
   //state variables
   mapping(uint64 => bytes32) public applicationStateRoots;
   uint64[] internal _deployedAppIds;
-  uint256 public maxNumOfApplications = 10;
-  uint256 public availableDeploySlots = maxNumOfApplications;
+  uint256 public maxNumOfApplications;
+  uint256 public availableDeploySlots;
 
   // All pending-request queue state: the global request store, the per-application queues, the
   // global deploy and trigger queues, the round-robin cursor and the total request count. Held
   // as one struct so it can be handed to RequestQueues as a single storage pointer.
   RequestQueues.Store internal _queueStore;
-  uint256 public maxQueueSize = 10;
+  uint256 public maxQueueSize;
 
   ITeeAuthenticator public teeAuthenticator;
   IAuthorityRegistry public authorityRegistry;
@@ -113,7 +124,12 @@ abstract contract ProcessorEndpointStorage is
   ///         permanently failing queue head short of `adminReset` (see section 7.4 of
   ///         `docs/design/BATCH_EXECUTION.md`). Zero means strict enforcement with no tolerance
   ///         for the race.
-  uint256 public selectionGrace = 60;
+  uint256 public selectionGrace;
+
+  /// @dev Reserved storage for future versions (see `docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`).
+  ///      Must be reduced by the number of slots any new variable added above it consumes, and
+  ///      must always remain the last declaration in this contract.
+  uint256[50] private __gap;
 
   modifier validProtocolVersion(uint8 protocolVersion) {
     if (protocolVersion != PROTOCOL_VERSION) revert IProcessorEndpoint.InvalidProtocolVersion();
@@ -125,14 +141,6 @@ abstract contract ProcessorEndpointStorage is
       revert IProcessorEndpoint.InvalidApplicationId();
     _;
   }
-
-  /// @dev Only fixes the EIP-712 domain, which must be identical on both sides so that a
-  ///      signature verified in the extension matches one produced against the endpoint.
-  ///      OpenZeppelin's `EIP712` caches the domain separator against the deploying address and
-  ///      recomputes it whenever `address(this)` differs, so the extension resolves the endpoint's
-  ///      domain when reached by `delegatecall`. All other initialisation belongs to
-  ///      `ProcessorEndpoint`'s constructor: the extension holds no state of its own.
-  constructor() EIP712('Vela', Strings.toString(PROTOCOL_VERSION)) {}
 
   /// @dev Internal implementation of `ProcessorEndpoint.getPendingRequestsSize`. The public
   ///      function stays on the endpoint; see the contract-level note on override conflicts.

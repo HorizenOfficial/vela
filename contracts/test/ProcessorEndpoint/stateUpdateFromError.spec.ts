@@ -166,15 +166,10 @@ describe('ProcessorEndpoint Test', function () {
       await teeSigner.getAddress(),
       pk
     );
-    const processorEndpointWithNoAttestation = await fixture.processorEndpointFactory.deploy(
+    const processorEndpointWithNoAttestation = await fixture.deployProcessorEndpointWith(
       await teeAuthenticator.getAddress(),
       await fixture.authorityRegistry.getAddress(),
-      fixture.updateStatusOperator,
-      fixture.admin,
-      fixture.resetOperator,
-      fixture.minFeePerRequest,
-      await fixture.sharedTokenAllowlist.getAddress(),
-      fixture.extensionAddress
+      await fixture.sharedTokenAllowlist.getAddress()
     );
 
     const { applicationId: appId } = await fixture.bootstrapApplication(

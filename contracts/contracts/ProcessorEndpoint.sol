@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
+import '@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol';
 
 import './interfaces/ITeeAuthenticator.sol';
 import './interfaces/IProcessorEndpoint.sol';
@@ -12,7 +13,7 @@ import './Structs.sol';
 import './RequestQueues.sol';
 import './UpdateEntryHash.sol';
 import './ProcessorEndpointStorage.sol';
-import './interfaces/ITrigger.sol';
+import './ProcessorEndpointExtension.sol';
 
 /// @title ProcessorEndpoint
 /// @notice Implementation of the processor endpoint interface.
@@ -21,13 +22,52 @@ import './interfaces/ITrigger.sol';
 ///      parts of it are hosted in the extension and reached by `delegatecall`. See
 ///      `ProcessorEndpointStorage` for the rules that keeps safe, and
 ///      `docs/design/PROCESSOR_ENDPOINT_SPLIT.md` for the rationale.
-contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
+/// @dev Deployed behind a UUPS proxy (`docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`): the
+///      constructor only fixes `_extension` and disables initializers on the implementation
+///      itself, and `initialize` replaces it as the one-time setup entry point the proxy calls.
+///      `initialize`'s body, like the other admin entry points, is implemented in
+///      `ProcessorEndpointExtension` and reached by `delegatecall`: unlike a constructor, an
+///      initializer is runtime code the proxy actually deploys, and this contract has no headroom
+///      left under the EIP-170 limit to hold it directly.
+contract ProcessorEndpoint is ProcessorEndpointStorage, UUPSUpgradeable, IProcessorEndpoint {
   using SafeERC20 for IERC20;
 
   /// @dev Extension contract holding code moved out of this one for size reasons. Immutable, so
-  ///      it lives in this contract's code rather than in storage and cannot be repointed.
+  ///      it lives in this contract's code rather than in storage and cannot be repointed — it
+  ///      stays immutable even under the proxy, because unlike ordinary state it is a fact about
+  ///      *this implementation's* bytecode, not about a given proxy's configuration: reading an
+  ///      immutable never touches storage, so it resolves correctly whether this code runs
+  ///      directly or via `delegatecall` from the proxy. Upgrading which extension is used means
+  ///      deploying a new implementation (with its own `_extension`) and pointing the proxy at it.
+  /// @dev The `@openzeppelin/hardhat-upgrades` validator rejects `immutable` state under a proxy
+  ///      by default, because an immutable is baked into the implementation's bytecode instead of
+  ///      proxy storage: configuration held that way cannot be set per proxy and is silently
+  ///      re-baked (or lost) by every upgrade. That is not what this is — see above — and the
+  ///      upgrade script re-passes the current value read from `extension()`
+  ///      (`scripts/upgrade/processorEndpoint.ts`). Annotated here rather than waived through the
+  ///      deploy options so the exception covers this declaration only, and a future `immutable`
+  ///      that should have been proxy state still fails validation.
+  /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
   address private immutable _extension;
 
+  /// @param extensionAddress Deployed `ProcessorEndpointExtension` serving the delegated entry
+  ///        points. Fixed for the lifetime of this implementation contract; see `_extension`.
+  /// @custom:oz-upgrades-unsafe-allow constructor
+  constructor(address extensionAddress) {
+    // A delegatecall to an address without code succeeds and returns nothing, so a wrong
+    // extension address would turn submitRequestFor into a silent no-op that keeps the fee
+    // instead of reverting. _extension is immutable, so this is the only chance to catch it.
+    if (extensionAddress == address(0)) revert AddressCantBeZero();
+    if (extensionAddress.code.length == 0) revert InvalidExtension();
+    _extension = extensionAddress;
+    _disableInitializers();
+  }
+
+  /// @notice One-time setup for this implementation, called through the proxy as its
+  ///         `ERC1967Proxy` constructor calldata. See `ProcessorEndpointExtension.initialize`,
+  ///         whose declaration and documentation this implements.
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`. See the note on
+  ///      `submitRequestFor` for how these stubs work and why the parameter names stay here.
   /// @param _teeAuthenticator Contract used to verify update signatures.
   /// @param _authorityRegistry Registry for authority checks.
   /// @param updateStatusOperator Initial operator for status updates.
@@ -36,45 +76,34 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   ///        permanently (required for production). The role cannot be granted after deployment.
   /// @param _minFeePerRequest Minimum fee enforced per request.
   /// @param _tokenAllowlist External token allowlist contract.
-  /// @param extensionAddress Deployed `ProcessorEndpointExtension` serving the delegated entry points.
-  constructor(
+  /// @dev The validator cannot see the parent initializers run: this body only `delegatecall`s
+  ///      into `ProcessorEndpointExtension.initialize`, which is where `__AccessControl_init` and
+  ///      `__EIP712_init` are actually called, under the `initializer` modifier. Annotated on this
+  ///      function so the exception does not extend to any other initializer.
+  /// @custom:oz-upgrades-unsafe-allow missing-initializer-call
+  function initialize(
     ITeeAuthenticator _teeAuthenticator,
     IAuthorityRegistry _authorityRegistry,
     address updateStatusOperator,
     address admin,
     address resetOperator,
     uint256 _minFeePerRequest,
-    ITokenAllowlist _tokenAllowlist,
-    address extensionAddress
-  ) {
-    if (
-      address(_teeAuthenticator) == address(0) ||
-      address(_authorityRegistry) == address(0) ||
-      updateStatusOperator == address(0) ||
-      admin == address(0) ||
-      address(_tokenAllowlist) == address(0) ||
-      extensionAddress == address(0)
-    ) revert AddressCantBeZero();
-
-    // A delegatecall to an address without code succeeds and returns nothing, so a wrong
-    // extension address would turn submitRequestFor into a silent no-op that keeps the fee
-    // instead of reverting. _extension is immutable, so this is the only chance to catch it.
-    if (extensionAddress.code.length == 0) revert InvalidExtension();
-
-    _extension = extensionAddress;
-    teeAuthenticator = _teeAuthenticator;
-    authorityRegistry = _authorityRegistry;
-    tokenAllowlist = _tokenAllowlist;
-    feeCollector = payable(updateStatusOperator);
-    _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
-    _grantRole(ADMIN, admin);
-    _setRoleAdmin(DEPLOYER_ROLE, ADMIN);
-    _grantRole(DEPLOYER_ROLE, admin);
-    minFeePerRequest = _minFeePerRequest;
-    if (resetOperator != address(0)) {
-      _grantRole(RESET_OPERATOR, resetOperator);
-    }
+    ITokenAllowlist _tokenAllowlist
+  ) external {
+    _teeAuthenticator;
+    _authorityRegistry;
+    updateStatusOperator;
+    admin;
+    resetOperator;
+    _minFeePerRequest;
+    _tokenAllowlist;
+    _delegateToExtension();
   }
+
+  /// @inheritdoc UUPSUpgradeable
+  /// @dev Restricted to `ADMIN`, matching the role that governs every other configuration setter
+  ///      on this contract (`docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`, R5).
+  function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN) {}
 
   // @notice receive ETH (sent back by trigger contracts)
   receive() external payable {}
@@ -203,6 +232,32 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
       }
       default {
         return(ptr, size)
+      }
+    }
+  }
+
+  /// @dev Like `_delegateToExtension`, but for a call built with `abi.encodeCall` from within
+  ///      another function rather than one forwarding its own calldata, and one that returns to
+  ///      its caller instead of returning from the transaction. Used by `_processOneStateUpdate`
+  ///      to reach `ProcessorEndpointExtension.invokeTrigger`: moved there, like `initialize` and
+  ///      `claim`, to make room under the EIP-170 limit for the upgradeability machinery added by
+  ///      `docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`. Called unconditionally from the hot
+  ///      `stateUpdate`/`batchStateUpdate` path, so every successful update now pays one extra
+  ///      delegatecall (~2,600 gas) regardless of whether the application has a registered
+  ///      trigger — a deliberate trade of a small, constant per-call cost for the headroom.
+  /// @dev The validator flags every `delegatecall`, since one into untrusted or layout-divergent
+  ///      code can corrupt proxy storage. Safe here because the target is `_extension`, fixed at
+  ///      construction to a contract that shares this one's storage layout — enforced by
+  ///      `npm run check:layout` (docs/design/PROCESSOR_ENDPOINT_SPLIT.md). This is the only
+  ///      `delegatecall` the validator detects: it matches Solidity-level calls by type
+  ///      identifier and has no Yul handling, so the one inside `_delegateToExtension`'s
+  ///      `assembly` block is invisible to it and cannot be annotated.
+  /// @custom:oz-upgrades-unsafe-allow delegatecall
+  function _delegateToExtensionCall(bytes memory data) private {
+    (bool ok, bytes memory ret) = _extension.delegatecall(data);
+    if (!ok) {
+      assembly ('memory-safe') {
+        revert(add(ret, 0x20), mload(ret))
       }
     }
   }
@@ -851,11 +906,11 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     //credit withdrawals to receivers' pending balances
     i = 0;
     uint256 insertIntoClaimable;
-    ITrigger triggerContract = triggerContracts[applicationId];
-    address trigger = address(triggerContract);
+    address trigger = address(triggerContracts[applicationId]);
     // The state root normally reaches storage once per call, after the last entry. A registered
-    // trigger is the exception: _invokeTrigger below hands control to external code that can read
-    // this contract's state, and it must not observe a root the update has already moved past.
+    // trigger is the exception: the delegated `invokeTrigger` call below hands control to
+    // external code that can read this contract's state, and it must not observe a root the
+    // update has already moved past.
     if (trigger != address(0)) applicationStateRoots[applicationId] = p.newStateRoot;
     address[] memory claimableTemp = new address[](withdrawalsLength);
     while (i < withdrawalsLength) {
@@ -897,7 +952,12 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     }
 
     //invoke trigger contracts, if registered
-    _invokeTrigger(triggerContract, applicationId, processedRequestId, p.appEvents, claimable);
+    _delegateToExtensionCall(
+      abi.encodeCall(
+        ProcessorEndpointExtension.invokeTrigger,
+        (applicationId, processedRequestId, p.appEvents, claimable)
+      )
+    );
 
     //set requests as completed
     _markRequestCompleted(
@@ -1029,25 +1089,15 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
   }
 
   /// @inheritdoc IProcessorEndpoint
-  function claim(address tokenAddress, address payable payee) public nonReentrant {
-    return _claim(tokenAddress, payee);
-  }
-  //logic is reentrable because it will be invoked in invokeTrigger
-  function _claim(address tokenAddress, address payable payee) internal {
-    uint256 amount = pendingClaims[tokenAddress][payee];
-    if (amount == 0) return;
-
-    pendingClaims[tokenAddress][payee] = 0;
-    totalPendingClaims[tokenAddress] -= amount;
-
-    emit PaymentWithdrawn(tokenAddress, payee, amount);
-
-    if (tokenAddress == ETH_TOKEN) {
-      (bool success, ) = payee.call{value: amount}('');
-      if (!success) revert TransferFailed();
-    } else {
-      IERC20(tokenAddress).safeTransfer(payee, amount);
-    }
+  /// @dev Forwarding stub; implemented in `ProcessorEndpointExtension`, to make room for the
+  ///      upgradeability machinery added by `docs/design/UPGRADABLE_CONTRACTS_DESIGN.md` under
+  ///      the EIP-170 limit. The trigger-invocation path (`invokeTrigger`) moved there too, so
+  ///      this contract no longer has a reentrant caller of its own for the claim logic — the
+  ///      extension owns the only copy.
+  function claim(address tokenAddress, address payable payee) external {
+    tokenAddress;
+    payee;
+    _delegateToExtension();
   }
 
   /// @inheritdoc IProcessorEndpoint
@@ -1132,142 +1182,9 @@ contract ProcessorEndpoint is ProcessorEndpointStorage, IProcessorEndpoint {
     return offset;
   }
 
-  // Calls execute then withdraw on the trigger contract registered for the given applicationId,
-  // if any. Each call is wrapped in an independent try/catch so that a revert in the trigger
-  // never propagates to the caller: both calls are always attempted regardless of the outcome
-  // of the first.
-  //
-  // The trigger is passed in rather than read here: the caller loads it anyway, to decide whether
-  // the state root has to reach storage before this external code runs.
-  function _invokeTrigger(
-    ITrigger trigger,
-    uint64 applicationId,
-    bytes32 processedRequestId,
-    Structs.EventData memory appEventData,
-    address[] memory claimable
-  ) internal {
-    //do nothing if trigger not defined for application
-    if (address(trigger) == address(0)) return;
-
-    //claims for the trigger
-    uint256 ti;
-    uint256 tokenCount = claimable.length;
-    while (ti != tokenCount) {
-      _claim(claimable[ti], payable(address(trigger)));
-      unchecked {
-        ++ti;
-      }
-    }
-
-    // invoke execute
-    bool executeSuccess = true;
-    try trigger.execute(appEventData) {} catch {
-      executeSuccess = false;
-    }
-    emit TriggerExecuted(applicationId, processedRequestId, executeSuccess);
-
-    //invoke withdraw (sweep only)
-    Structs.TokenAndAmount[] memory returnedTokens;
-    Structs.TokenAndAmount[] memory failedTokens;
-    bool withdrawSuccess = true;
-    try trigger.withdraw() returns (
-      Structs.TokenAndAmount[] memory _returnedTokens,
-      Structs.TokenAndAmount[] memory _failedTokens
-    ) {
-      returnedTokens = _returnedTokens;
-      failedTokens = _failedTokens;
-    } catch {
-      withdrawSuccess = false;
-    }
-
-    // Re-shield: returnedTokens contains returned tokens + ETH_TOKEN
-    ti = 0;
-    tokenCount = returnedTokens.length;
-    while (ti != tokenCount) {
-      _addToCustody(applicationId, returnedTokens[ti].token, returnedTokens[ti].amount);
-      unchecked {
-        ++ti;
-      }
-    }
-
-    // Explicit, isolated trusted-payload step, decoupled from the sweep: getTrustProcessPayload
-    // is called here in its own try/catch (a revert cannot block stateUpdate). It runs even when
-    // withdraw failed, so the application can react to a failed sweep (damage control).
-    bytes memory trustedPayload;
-    bool postWithdrawSuccess = true;
-    try
-      trigger.getTrustProcessPayload(
-        appEventData,
-        executeSuccess,
-        withdrawSuccess,
-        returnedTokens,
-        failedTokens
-      )
-    returns (bytes memory _trustedPayload) {
-      trustedPayload = _trustedPayload;
-    } catch {
-      postWithdrawSuccess = false;
-    }
-
-    emit TriggerWithdraw(
-      applicationId,
-      processedRequestId,
-      withdrawSuccess,
-      postWithdrawSuccess,
-      returnedTokens,
-      failedTokens
-    );
-
-    // stateUpdate is the ONLY place a trusted (TRUSTPROCESS) request can be
-    // created. If getTrustProcessPayload returned a non-empty payload, enqueue it
-    // into the trigger queue.
-    if (trustedPayload.length > 0) {
-      _enqueueTrustedRequest(applicationId, address(trigger), trustedPayload);
-    }
-  }
-
-  /// @notice Enqueues a TRUSTPROCESS request into the trigger queue. PRIVATE and
-  ///         reachable ONLY from _invokeTrigger (i.e. during stateUpdate), which is
-  ///         the single authorized point allowed to create a trusted request. The
-  ///         payload is produced by the trigger's getTrustProcessPayload hook; callers must
-  ///         skip empty payloads (no trusted request is created for them).
-  /// @param applicationId Application the trusted request belongs to.
-  /// @param trigger Trigger contract that produced the payload (recorded as sender).
-  /// @param payload Trusted request payload (forwarded to the WASM as-is).
-  function _enqueueTrustedRequest(
-    uint64 applicationId,
-    address trigger,
-    bytes memory payload
-  ) private {
-    bytes32 requestId = _generateRequestId(
-      trigger,
-      applicationId,
-      Structs.RequestType.TRUSTPROCESS,
-      keccak256(payload),
-      address(0),
-      0,
-      _queueStore.triggers.tail
-    );
-
-    RequestQueues.enqueue(
-      _queueStore,
-      _queueStore.triggers,
-      requestId,
-      Structs.PendingRequest({
-        timestamp: block.timestamp,
-        tokenAddress: address(0),
-        assetAmount: 0,
-        maxFeeValue: 0,
-        requestId: requestId,
-        payload: payload,
-        sender: trigger,
-        facilitator: address(0),
-        applicationId: applicationId,
-        protocolVersion: PROTOCOL_VERSION,
-        requestType: Structs.RequestType.TRUSTPROCESS
-      })
-    );
-
-    emit RequestSubmitted(applicationId, requestId, trigger, address(0));
-  }
+  // Trigger invocation (execute/withdraw/getTrustProcessPayload) and the resulting TRUSTPROCESS
+  // enqueue used to live here as `_invokeTrigger`/`_enqueueTrustedRequest`. They are implemented
+  // in `ProcessorEndpointExtension.invokeTrigger` now, reached via `_delegateToExtensionCall`
+  // above — see that function's docs for why and at what per-call cost
+  // (`docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`).
 }

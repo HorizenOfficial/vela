@@ -51,7 +51,7 @@ After an upgrade, the address of each contract must remain unchanged. Users, off
 
 ### R2 — No Fund Loss
 
-An upgrade to `ProcessorEndpoint` must not require draining or migrating ETH balances. All `payments`, `appLockedFunds`, and `_totalDeposits` values must survive the upgrade intact, because they are stored in the proxy's storage and the new implementation reads the same slots.
+An upgrade to `ProcessorEndpoint` must not require draining or migrating ETH or ERC-20 balances. The pull-payment balances (`pendingClaims`, `totalPendingClaims`), the per-app custody accounting (`appCustody`, `totalAppCustody`), the state roots (`applicationStateRoots`), the deployed-app list (`_deployedAppIds`, `availableDeploySlots`) and the pending-request queues (`_queueStore`) must all survive the upgrade intact, because they are stored in the proxy's storage and the new implementation reads the same slots.
 
 ### R3 — Constructor-Free Initialisation
 
@@ -65,6 +65,10 @@ A proxy that has been deployed but whose `initialize` function has not yet been 
 
 The `_authorizeUpgrade` function required by the UUPS pattern must be restricted to the existing owner / admin role for each contract. No unauthorised party may trigger an upgrade.
 
+That authority must also be **rotatable and revocable**. A role whose admin is left at the `AccessControl` default of `DEFAULT_ADMIN_ROLE` cannot be granted or revoked at all when nobody holds that role, so a compromised upgrade key would stay valid forever and a lost one would freeze upgradeability permanently — the UUPS escape hatch is itself gated on the same role, so it could not be repaired by upgrading. `ProcessorEndpoint.initialize` therefore calls `_setRoleAdmin(ADMIN, ADMIN)`, making `ADMIN` self-administered. For the `Ownable` contracts (`TeeAuthenticator`, `AuthorityRegistry`) `transferOwnership` already provides this.
+
+Self-administration still lets a sole holder strand the role via `renounceRole` or by revoking the last holder; holding `ADMIN` with a multisig is what covers that.
+
 ### R6 — Storage Gap
 
 Each upgradable contract must declare a `uint256[50] private __gap` array at the end of its storage variables. This reserves 50 storage slots that future versions may consume by replacing the gap with new variables. The gap size must be adjusted (reduced) when new variables are added, keeping the total storage footprint constant.
@@ -72,7 +76,7 @@ Each upgradable contract must declare a `uint256[50] private __gap` array at the
 > **Note — `ProcessorEndpoint` no longer declares its own storage.** Since the EIP-170 work in `PROCESSOR_ENDPOINT_SPLIT.md`, all of its state (and therefore the `__gap` this requirement asks for) belongs in `abstract contract ProcessorEndpointStorage`, shared with `ProcessorEndpointExtension`, which the endpoint reaches by `delegatecall`. Two consequences for this design:
 >
 > - The gap goes in the storage base, and `npm run check:layout` must keep passing after any change to it — the extension executes against the proxy's storage just as the implementation does, so a layout divergence between the two is as damaging as a bad upgrade.
-> - Nesting works: proxy → implementation → extension are both `delegatecall`s, so storage stays in the proxy throughout, and the extension address (an `immutable` in the implementation's code) is still readable. Upgrading the extension means deploying a new implementation pointing at it, which under UUPS is the normal upgrade path.
+> - Nesting works: proxy → implementation → extension are both `delegatecall`s, so storage stays in the proxy throughout, and the extension address (an `immutable` in the implementation's code) is still readable. Upgrading the extension means deploying a new implementation pointing at it, which under UUPS is the normal upgrade path — deploy the new extension with `scripts/deploy/processorEndpointExtension.ts` and pass its address to the upgrade script. Because the upgrade script otherwise defaults to the extension the current implementation uses, it verifies that the deployed extension's bytecode matches the local build and refuses the upgrade if it does not: pointing a new implementation at old extension code leaves the delegated entry points running the old logic against the proxy's storage without reverting. See `contracts/README.md` § Upgrading.
 
 ---
 
@@ -127,6 +131,8 @@ For each contract the deployment sequence is:
    - `initData` encodes a `reinitialize(uint64 version, ...)` call if new state variables must be seeded.
 3. Verify the upgrade via `ERC1967Utils.getImplementation(proxyAddress)`.
 
+The scripts in `scripts/upgrade/` drive steps 1–2 through `upgrades.upgradeProxy`, which also checks the new implementation's storage layout against the deployed one ([Storage Layout and Upgrade Safety](#storage-layout-and-upgrade-safety)). It reads the deployed layout from the OpenZeppelin upgrades manifest under `contracts/.openzeppelin/`, because a storage layout cannot be recovered from chain. The manifest is therefore a **required input** to an upgrade rather than a build artifact: it is written by `upgrades.deployProxy` when the contract is first deployed, must be committed for every public network so the upgrade is reproducible by CI and by anyone other than the original deployer, and without a current copy the upgrade aborts with `Deployment at address ... is not registered`. `upgrades.forceImport` re-registers a proxy whose entry is lost, but takes the layout from the currently compiled source, so it is only correct if that source matches what is deployed. See `contracts/README.md` § Upgrading for the per-network file names and the local-node caveat.
+
 ---
 
 ## Storage Layout and Upgrade Safety
@@ -172,11 +178,11 @@ This pattern is the same one used by OpenZeppelin's own upgradeable contracts (e
 
 ## Implementation Changes per Contract
 
-All three contracts must apply the same mechanical transformation:
+This section describes the transformation from the original non-proxied contracts; it is implemented as of the upgradeability work, so "currently" below refers to the pre-upgrade code. All three contracts must apply the same mechanical transformation:
 
 1. Replace standard OpenZeppelin base contracts with their `*Upgradeable` variants.
-2. Remove constructor arguments; the constructor body must only call `_disableInitializers()`.
-3. Add an `initialize(...)` function with the `initializer` modifier that performs all previous constructor logic. **Important:** inline state-variable initializers (e.g. `uint256 public maxNumOfApplications = 10;`) are part of the constructor in plain contracts but are **not** executed by the proxy. Every such default value must be moved inside `initialize()` explicitly.
+2. Remove constructor arguments; the constructor body must only call `_disableInitializers()`. **`ProcessorEndpoint` deviates:** its constructor keeps one argument, the `ProcessorEndpointExtension` address, and validates it. That address is deliberately `immutable` — a fact about the implementation's own bytecode rather than per-proxy configuration — so it cannot move into `initialize`; see the R6 note above and the `_extension` doc comment on the contract.
+3. Add an `initialize(...)` function with the `initializer` modifier that performs all previous constructor logic. **Important:** inline state-variable initializers (e.g. `uint256 public maxNumOfApplications = 10;`) are part of the constructor in plain contracts but are **not** executed by the proxy. Every such default value must be moved inside `initialize()` explicitly. **`ProcessorEndpoint` deviates:** it has no EIP-170 headroom for an initializer body, so `ProcessorEndpoint.initialize` is a forwarding stub that `delegatecall`s `ProcessorEndpointExtension.initialize`; the `initializer` modifier (and the parent `__*_init` calls) sit on the extension's copy, which runs against the proxy's storage and so protects it exactly as if it were declared on the endpoint. The stub carries `/// @custom:oz-upgrades-unsafe-allow missing-initializer-call`, because the validator cannot see through the `delegatecall`.
 4. Inherit from `UUPSUpgradeable` and implement `_authorizeUpgrade`.
 5. Add `uint256[50] private __gap` at the end of their own storage variables.
 
@@ -197,15 +203,16 @@ function initialize(
     address admin,
     uint256 _minFeePerRequest
 ) external initializer {
-    // zero-address guards (same as current constructor)
+    // zero-address guards (same as the previous constructor)
     __AccessControl_init();
-    __ReentrancyGuard_init();
-    __UUPSUpgradeable_init();
-    // ... assign storage variables
+    __EIP712_init('Vela', Strings.toString(PROTOCOL_VERSION));
+    // ... assign storage variables, including every former inline default
 }
 ```
 
-The `initializer` modifier guarantees `initialize` can only be called once. Calling `_disableInitializers()` in the constructor prevents anyone from calling `initialize` directly on the implementation contract (bypassing the proxy).
+Only the bases that own storage need initialising. There is no `__ReentrancyGuard_init()`: `ProcessorEndpointStorage` uses `ReentrancyGuardTransient`, whose guard lives in transient storage and needs no setup (see the table below). `__UUPSUpgradeable_init()` is not called either — OpenZeppelin v5 does not define it at all, because `UUPSUpgradeable` holds no storage of its own (it keeps its own address in an `immutable` and reads the implementation from the EIP-1967 slot). `__Ownable_init(owner)` replaces `__AccessControl_init()` in `TeeAuthenticator` and `AuthorityRegistry`.
+
+The `initializer` modifier guarantees `initialize` can only be called once. Calling `_disableInitializers()` in the constructor prevents anyone from calling `initialize` directly on the implementation contract (bypassing the proxy). For `ProcessorEndpoint` the modifier is on `ProcessorEndpointExtension.initialize`, which the endpoint's stub reaches by `delegatecall` (see step 3 above); the extension guards its own copy with `onlyDelegateCall`, so it cannot be initialised outside the proxy either.
 
 ### Upgrade Authorisation
 
@@ -221,30 +228,34 @@ function _authorizeUpgrade(address newImplementation)
 
 No dedicated `initialized` check is needed beyond the `initializer` modifier. An uninitialised proxy will always revert on any meaningful call:
 
-- `ProcessorEndpoint`: all write paths require `onlyRole(...)` or `nonReentrant`; roles are empty until `initialize` is called.
+- `ProcessorEndpoint`: every privileged write path is `onlyRole(...)`, and no role is held until `initialize` runs — this covers `stateUpdate`/`batchStateUpdate` (`UPDATE_STATUS_ROLE`), the deploy submissions (`DEPLOYER_ROLE`), the admin setters (`ADMIN`) and the resets (`RESET_OPERATOR`). The unprivileged paths are closed by their own preconditions rather than by roles: `submitRequest`/`submitRequestFor` revert in `validApplicationId`, because `applicationStateRoots[applicationId]` is zero until a deploy is finalised, and `claim` is a no-op against zero balances. Note that `nonReentrant` contributes nothing here — a transient reentrancy guard is unset on a fresh call whether the proxy is initialised or not. The one call that does succeed is `receive()`: ETH sent to an uninitialised proxy is credited to no application and no `appCustody` entry, so it cannot be swept afterwards. `upgrades.deployProxy` closes that window by construction, since the proxy's own constructor performs the `initialize` call.
 - `TeeAuthenticator` / `AuthorityRegistry`: all write paths require `onlyOwner`; `owner()` returns `address(0)` until `initialize` is called.
 
 ### Storage Layout
 
-Existing variables must remain in declaration order, unchanged. The `__gap` buffer is appended last. Example for `ProcessorEndpoint`:
+Existing variables must remain in declaration order, unchanged. The `__gap` buffer is appended last. For `ProcessorEndpoint` they are declared in `ProcessorEndpointStorage` rather than in the endpoint itself (see the R6 note), and `npm run check:layout` is what proves the endpoint and the extension still agree on them:
 
 ```solidity
 // --- existing variables (order locked) ---
 mapping(uint64 => bytes32) public applicationStateRoots;
+uint64[] internal _deployedAppIds;
 uint256 public maxNumOfApplications;
 uint256 public availableDeploySlots;
-mapping(bytes32 => Structs.PendingRequest) public requestById;
-mapping(uint256 => bytes32) private _requestIdByOrder;
-uint256 private _head;
-uint256 private _tail;
+RequestQueues.Store internal _queueStore;
 uint256 public maxQueueSize;
 ITeeAuthenticator public teeAuthenticator;
 IAuthorityRegistry public authorityRegistry;
-mapping(address => uint256) public payments;
-uint256 private _totalDeposits;
-mapping(uint64 => uint256) public appLockedFunds;
+ITokenAllowlist public tokenAllowlist;
+mapping(address => mapping(address => uint256)) public pendingClaims;
+mapping(address => uint256) public totalPendingClaims;
+mapping(uint64 => mapping(address => uint256)) public appCustody;
+mapping(address => uint256) public totalAppCustody;
 uint256 public minFeePerRequest;
 address payable public feeCollector;
+mapping(address => uint256) public facilitatorNonces;
+mapping(uint64 => ITrigger) public triggerContracts;
+mapping(address => uint64) public triggersToAppIds;
+uint256 public selectionGrace;
 
 // --- storage buffer (must always be last) ---
 uint256[50] private __gap;
@@ -254,7 +265,7 @@ uint256[50] private __gap;
 
 | Contract | Base contracts to replace | Additional notes |
 |----------|--------------------------|-----------------|
-| `ProcessorEndpoint` | `AccessControl` → `AccessControlUpgradeable`, `ReentrancyGuard` → `ReentrancyGuardUpgradeable` | No other changes to contract logic. |
+| `ProcessorEndpoint` | `AccessControl` → `AccessControlUpgradeable`, `EIP712` → `EIP712Upgradeable`, `ReentrancyGuard` → `ReentrancyGuardTransient` | The replacements happen in `ProcessorEndpointStorage`, the shared base (see the R6 note). There is no `ReentrancyGuardUpgradeable`: the OpenZeppelin upgradeable package no longer ships one, so the guard moves to `ReentrancyGuardTransient`, which keeps its flag in transient storage (EIP-1153) — proxy-safe by construction and requiring no initialisation. `EIP712Upgradeable` replaces the plain `EIP712`, whose name/version are `immutable` and would therefore not survive in proxy storage; it recomputes the domain separator from the namespaced slot and `address(this)`, so the endpoint and the extension resolve the same domain. Fitting `UUPSUpgradeable` and the initializer under the EIP-170 limit also required moving `initialize`, `claim` and the trigger invocation into `ProcessorEndpointExtension` — see `PROCESSOR_ENDPOINT_SPLIT.md`. |
 | `TeeAuthenticator` | `Ownable` → `OwnableUpgradeable` | `nitroProver` and `maxVerificationAge` are currently `immutable`. `immutable` variables are embedded in bytecode and invisible to the proxy's storage, so they must be converted to regular storage variables. The minor gas cost on reads is accepted given the low call frequency of attestation-related functions. |
 | `AuthorityRegistry` | `Ownable` → `OwnableUpgradeable` | No other changes to contract logic. |
 

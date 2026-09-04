@@ -10,6 +10,11 @@ import './interfaces/ITokenAllowlist.sol';
 contract TokenAllowlist is AccessControl, ITokenAllowlist {
   constructor(address admin) {
     _grantRole(keccak256('ADMIN'), admin);
+    // ADMIN administers itself. Left at the DEFAULT_ADMIN_ROLE default it would be unrotatable
+    // and unrevokable, since that role is granted to nobody — and this contract is not
+    // upgradable, so recovering from a compromised or lost key would mean redeploying the
+    // allowlist and re-pointing every ProcessorEndpoint at it.
+    _setRoleAdmin(keccak256('ADMIN'), keccak256('ADMIN'));
   }
   mapping(address => bool) public allowedTokens;
   address[] private _allowedTokenList;

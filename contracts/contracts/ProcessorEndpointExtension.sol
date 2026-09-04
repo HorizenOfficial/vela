@@ -5,7 +5,10 @@ import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
+import '@openzeppelin/contracts/utils/Strings.sol';
 
+import './interfaces/ITeeAuthenticator.sol';
+import './interfaces/IAuthorityRegistry.sol';
 import './interfaces/IProcessorEndpoint.sol';
 import './interfaces/ITokenAllowlist.sol';
 import './interfaces/ITrigger.sol';
@@ -25,6 +28,14 @@ import './ProcessorEndpointStorage.sol';
 ///      re-encoded and internal helpers can be reused, unlike an external-call or linked-library
 ///      split. Helpers this contract needs are duplicated into its bytecode, which costs nothing:
 ///      only the endpoint is near the size limit.
+///
+///      `initialize` and `invokeTrigger` are the exceptions: they moved here purely to make room
+///      under the EIP-170 limit for the upgradeability machinery added by
+///      `docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`, not because they were off the hot path.
+///      `invokeTrigger` in particular is called unconditionally from every successful
+///      `stateUpdate`/`batchStateUpdate` entry, so that call now pays the ~2,600 gas delegatecall
+///      even for applications with no registered trigger — see
+///      `ProcessorEndpoint._delegateToExtensionCall`.
 contract ProcessorEndpointExtension is ProcessorEndpointStorage {
   using SafeERC20 for IERC20;
 
@@ -40,6 +51,71 @@ contract ProcessorEndpointExtension is ProcessorEndpointStorage {
   modifier onlyDelegateCall() {
     if (address(this) == _self) revert DirectCallNotAllowed();
     _;
+  }
+
+  /// @notice One-time setup for `ProcessorEndpoint`, invoked through the proxy's
+  ///         `ERC1967Proxy` constructor calldata. See `IProcessorEndpoint`'s docs on the
+  ///         `ProcessorEndpoint.initialize` stub that forwards here, and
+  ///         `docs/design/UPGRADABLE_CONTRACTS_DESIGN.md` for why constructor logic moved into an
+  ///         initializer and why it lives in this contract rather than on the endpoint itself.
+  /// @param _teeAuthenticator Contract used to verify update signatures.
+  /// @param _authorityRegistry Registry for authority checks.
+  /// @param updateStatusOperator Initial operator for status updates.
+  /// @param admin Initial admin address.
+  /// @param resetOperator Address granted RESET_OPERATOR role. Pass address(0) to disable reset
+  ///        permanently (required for production). The role cannot be granted after deployment.
+  /// @param _minFeePerRequest Minimum fee enforced per request.
+  /// @param _tokenAllowlist External token allowlist contract.
+  function initialize(
+    ITeeAuthenticator _teeAuthenticator,
+    IAuthorityRegistry _authorityRegistry,
+    address updateStatusOperator,
+    address admin,
+    address resetOperator,
+    uint256 _minFeePerRequest,
+    ITokenAllowlist _tokenAllowlist
+  ) external onlyDelegateCall initializer {
+    if (
+      address(_teeAuthenticator) == address(0) ||
+      address(_authorityRegistry) == address(0) ||
+      updateStatusOperator == address(0) ||
+      admin == address(0) ||
+      address(_tokenAllowlist) == address(0)
+    ) revert IProcessorEndpoint.AddressCantBeZero();
+
+    __AccessControl_init();
+    __EIP712_init('Vela', Strings.toString(PROTOCOL_VERSION));
+
+    teeAuthenticator = _teeAuthenticator;
+    authorityRegistry = _authorityRegistry;
+    tokenAllowlist = _tokenAllowlist;
+    feeCollector = payable(updateStatusOperator);
+    _grantRole(UPDATE_STATUS_ROLE, updateStatusOperator);
+    _grantRole(ADMIN, admin);
+    // ADMIN administers itself, and administers UPDATE_STATUS_ROLE and DEPLOYER_ROLE. Without
+    // this, every role's admin would default to DEFAULT_ADMIN_ROLE, which is granted to nobody:
+    // ADMIN and the status operator could then never be rotated or revoked, so a compromised key
+    // would stay valid forever and a lost one would freeze every configuration setter and
+    // `_authorizeUpgrade` permanently — including the upgrade that would fix it.
+    //
+    // RESET_OPERATOR is deliberately left under DEFAULT_ADMIN_ROLE: that is what makes passing
+    // `address(0)` for it disable the reset functions *permanently*, as production deployments
+    // require (docs/design/PROCESSOR_ENDPOINT_ADMIN_RESET.md). Putting it under ADMIN, or
+    // granting DEFAULT_ADMIN_ROLE to anyone, would let ADMIN grant itself the role after
+    // deployment and sweep per-app custody via `adminResetApps`.
+    _setRoleAdmin(ADMIN, ADMIN);
+    _setRoleAdmin(UPDATE_STATUS_ROLE, ADMIN);
+    _setRoleAdmin(DEPLOYER_ROLE, ADMIN);
+    _grantRole(DEPLOYER_ROLE, admin);
+    minFeePerRequest = _minFeePerRequest;
+    if (resetOperator != address(0)) {
+      _grantRole(RESET_OPERATOR, resetOperator);
+    }
+
+    maxNumOfApplications = 10;
+    availableDeploySlots = maxNumOfApplications;
+    maxQueueSize = 10;
+    selectionGrace = 60;
   }
 
   /// @notice Submits a request on behalf of `sender`, authorized by an EIP-712 signature, with
@@ -371,5 +447,175 @@ contract ProcessorEndpointExtension is ProcessorEndpointStorage {
     unchecked {
       availableDeploySlots += freedDeploySlots;
     }
+  }
+
+  /// @notice Claims pending balance for a given token and payee. See `IProcessorEndpoint.claim`;
+  ///         `ProcessorEndpoint.claim` is the entry point callers use.
+  /// @dev The only copy of this logic: `ProcessorEndpoint` no longer has a resident `_claim` of
+  ///      its own now that `invokeTrigger` (below), its one other caller, also lives here.
+  function claim(
+    address tokenAddress,
+    address payable payee
+  ) external onlyDelegateCall nonReentrant {
+    _claim(tokenAddress, payee);
+  }
+
+  //logic is reentrant-safe because it is also invoked from within invokeTrigger below
+  function _claim(address tokenAddress, address payable payee) private {
+    uint256 amount = pendingClaims[tokenAddress][payee];
+    if (amount == 0) return;
+
+    pendingClaims[tokenAddress][payee] = 0;
+    totalPendingClaims[tokenAddress] -= amount;
+
+    emit IProcessorEndpoint.PaymentWithdrawn(tokenAddress, payee, amount);
+
+    if (tokenAddress == ETH_TOKEN) {
+      (bool success, ) = payee.call{value: amount}('');
+      if (!success) revert IProcessorEndpoint.TransferFailed();
+    } else {
+      IERC20(tokenAddress).safeTransfer(payee, amount);
+    }
+  }
+
+  /// @notice Invokes the trigger contract registered for `applicationId` (execute, withdraw, and
+  ///         the trusted-payload callback), if any. Called unconditionally from
+  ///         `ProcessorEndpoint._processOneStateUpdate` on every successful `stateUpdate`/
+  ///         `batchStateUpdate` entry, via `_delegateToExtensionCall` — see that function's docs
+  ///         in `ProcessorEndpoint.sol` for why this moved here and at what per-call cost
+  ///         (`docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`).
+  /// @dev Each external call to the trigger is wrapped in an independent try/catch so that a
+  ///      revert in the trigger never propagates to the caller: both calls are always attempted
+  ///      regardless of the outcome of the first.
+  function invokeTrigger(
+    uint64 applicationId,
+    bytes32 processedRequestId,
+    Structs.EventData memory appEventData,
+    address[] memory claimable
+  ) external onlyDelegateCall {
+    ITrigger trigger = triggerContracts[applicationId];
+    //do nothing if trigger not defined for application
+    if (address(trigger) == address(0)) return;
+
+    //claims for the trigger
+    uint256 ti;
+    uint256 tokenCount = claimable.length;
+    while (ti != tokenCount) {
+      _claim(claimable[ti], payable(address(trigger)));
+      unchecked {
+        ++ti;
+      }
+    }
+
+    // invoke execute
+    bool executeSuccess = true;
+    try trigger.execute(appEventData) {} catch {
+      executeSuccess = false;
+    }
+    emit IProcessorEndpoint.TriggerExecuted(applicationId, processedRequestId, executeSuccess);
+
+    //invoke withdraw (sweep only)
+    Structs.TokenAndAmount[] memory returnedTokens;
+    Structs.TokenAndAmount[] memory failedTokens;
+    bool withdrawSuccess = true;
+    try trigger.withdraw() returns (
+      Structs.TokenAndAmount[] memory _returnedTokens,
+      Structs.TokenAndAmount[] memory _failedTokens
+    ) {
+      returnedTokens = _returnedTokens;
+      failedTokens = _failedTokens;
+    } catch {
+      withdrawSuccess = false;
+    }
+
+    // Re-shield: returnedTokens contains returned tokens + ETH_TOKEN
+    ti = 0;
+    tokenCount = returnedTokens.length;
+    while (ti != tokenCount) {
+      _addToCustody(applicationId, returnedTokens[ti].token, returnedTokens[ti].amount);
+      unchecked {
+        ++ti;
+      }
+    }
+
+    // Explicit, isolated trusted-payload step, decoupled from the sweep: getTrustProcessPayload
+    // is called here in its own try/catch (a revert cannot block stateUpdate). It runs even when
+    // withdraw failed, so the application can react to a failed sweep (damage control).
+    bytes memory trustedPayload;
+    bool postWithdrawSuccess = true;
+    try
+      trigger.getTrustProcessPayload(
+        appEventData,
+        executeSuccess,
+        withdrawSuccess,
+        returnedTokens,
+        failedTokens
+      )
+    returns (bytes memory _trustedPayload) {
+      trustedPayload = _trustedPayload;
+    } catch {
+      postWithdrawSuccess = false;
+    }
+
+    emit IProcessorEndpoint.TriggerWithdraw(
+      applicationId,
+      processedRequestId,
+      withdrawSuccess,
+      postWithdrawSuccess,
+      returnedTokens,
+      failedTokens
+    );
+
+    // stateUpdate is the ONLY place a trusted (TRUSTPROCESS) request can be
+    // created. If getTrustProcessPayload returned a non-empty payload, enqueue it
+    // into the trigger queue.
+    if (trustedPayload.length > 0) {
+      _enqueueTrustedRequest(applicationId, address(trigger), trustedPayload);
+    }
+  }
+
+  /// @notice Enqueues a TRUSTPROCESS request into the trigger queue. PRIVATE and
+  ///         reachable ONLY from invokeTrigger (i.e. during stateUpdate), which is
+  ///         the single authorized point allowed to create a trusted request. The
+  ///         payload is produced by the trigger's getTrustProcessPayload hook; callers must
+  ///         skip empty payloads (no trusted request is created for them).
+  /// @param applicationId Application the trusted request belongs to.
+  /// @param trigger Trigger contract that produced the payload (recorded as sender).
+  /// @param payload Trusted request payload (forwarded to the WASM as-is).
+  function _enqueueTrustedRequest(
+    uint64 applicationId,
+    address trigger,
+    bytes memory payload
+  ) private {
+    bytes32 requestId = _generateRequestId(
+      trigger,
+      applicationId,
+      Structs.RequestType.TRUSTPROCESS,
+      keccak256(payload),
+      address(0),
+      0,
+      _queueStore.triggers.tail
+    );
+
+    RequestQueues.enqueue(
+      _queueStore,
+      _queueStore.triggers,
+      requestId,
+      Structs.PendingRequest({
+        timestamp: block.timestamp,
+        tokenAddress: address(0),
+        assetAmount: 0,
+        maxFeeValue: 0,
+        requestId: requestId,
+        payload: payload,
+        sender: trigger,
+        facilitator: address(0),
+        applicationId: applicationId,
+        protocolVersion: PROTOCOL_VERSION,
+        requestType: Structs.RequestType.TRUSTPROCESS
+      })
+    );
+
+    emit IProcessorEndpoint.RequestSubmitted(applicationId, requestId, trigger, address(0));
   }
 }

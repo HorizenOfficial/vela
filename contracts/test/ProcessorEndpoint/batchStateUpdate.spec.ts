@@ -125,15 +125,10 @@ describe('ProcessorEndpoint batchStateUpdate', function () {
       await f.signers[4].getAddress(),
       '0x' + '11'.repeat(133)
     );
-    const endpoint = await f.processorEndpointFactory.deploy(
+    const endpoint = await f.deployProcessorEndpointWith(
       await teeAuthenticator.getAddress(),
       await f.authorityRegistry.getAddress(),
-      f.updateStatusOperator,
-      f.admin,
-      f.resetOperator,
-      f.minFeePerRequest,
-      await (await f.deployTokenAllowlist()).getAddress(),
-      f.extensionAddress
+      await (await f.deployTokenAllowlist()).getAddress()
     );
 
     const appIds: bigint[] = [];

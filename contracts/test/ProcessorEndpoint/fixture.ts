@@ -1,5 +1,5 @@
 import { Signer } from 'ethers';
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 import { BYTES_ZERO, BYTES32_ZERO } from '../util';
 import { ethSignStateUpdate } from '../../scripts/util';
 
@@ -30,9 +30,10 @@ export async function deployProcessorEndpointFixture() {
   const defaultAuthority = await DefaultAuthority.deploy(await signers[0].getAddress());
 
   const AuthorityRegistry = await ethers.getContractFactory('AuthorityRegistry');
-  const authorityRegistry = await AuthorityRegistry.deploy(
-    await signers[0].getAddress(),
-    await defaultAuthority.getAddress()
+  const authorityRegistry = await upgrades.deployProxy(
+    AuthorityRegistry,
+    [await signers[0].getAddress(), await defaultAuthority.getAddress()],
+    { kind: 'uups' }
   );
 
   const MockTeeAuthenticator = await ethers.getContractFactory('MockTeeAuthenticator');
@@ -57,17 +58,41 @@ export async function deployProcessorEndpointFixture() {
 
   const sharedTokenAllowlist = await deployTokenAllowlist();
 
+  // Deployed behind a UUPS proxy (docs/design/UPGRADABLE_CONTRACTS_DESIGN.md). `extensionAddress`
+  // is a constructor argument (it stays `immutable`, not proxy state), so it goes in
+  // `constructorArgs`, not the initializer args. Exposed so tests that need a differently
+  // configured endpoint (e.g. a different TeeAuthenticator) can deploy one directly.
+  async function deployProcessorEndpointWith(
+    teeAuthenticatorAddress: string,
+    authorityRegistryAddress: string,
+    tokenAllowlistAddress: string,
+    resetOperatorOverride?: string
+  ) {
+    return upgrades.deployProxy(
+      processorEndpointFactory,
+      [
+        teeAuthenticatorAddress,
+        authorityRegistryAddress,
+        updateStatusOperator,
+        admin,
+        resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator,
+        minFeePerRequest,
+        tokenAllowlistAddress,
+      ],
+      {
+        kind: 'uups',
+        constructorArgs: [extensionAddress],
+      }
+    );
+  }
+
   async function deployProcessorEndpoint(resetOperatorOverride?: string) {
     const tokenAllowlist = await deployTokenAllowlist();
-    const processorEndpoint = await processorEndpointFactory.deploy(
+    const processorEndpoint = await deployProcessorEndpointWith(
       await teeAuthenticator.getAddress(),
       await authorityRegistry.getAddress(),
-      updateStatusOperator,
-      admin,
-      resetOperatorOverride !== undefined ? resetOperatorOverride : resetOperator,
-      minFeePerRequest,
       await tokenAllowlist.getAddress(),
-      extensionAddress
+      resetOperatorOverride
     );
     return { processorEndpoint, tokenAllowlist, extension };
   }
@@ -177,13 +202,13 @@ export async function deployProcessorEndpointFixture() {
     authorityRegistry,
     teeAuthenticator,
     processorEndpointFactory,
-    // Last constructor argument for any direct processorEndpointFactory.deploy() call.
     extensionAddress,
     updateStatusOperator,
     admin,
     resetOperator,
     minFeePerRequest,
     deployProcessorEndpoint,
+    deployProcessorEndpointWith,
     deployTokenAllowlist,
     sharedTokenAllowlist,
     bootstrapApplication,
