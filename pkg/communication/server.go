@@ -198,7 +198,7 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, idLogTag st
 }
 
 // GetKeysetRecovery sends a request to the client to get the keyset recovery data.
-func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common.EnclaveKeySetRecovery, error) {
+func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (*GetKeysetRecoveryResponseData, error) {
 	msg := Message{
 		ID:   generateID(),
 		Type: GetKeysetRecoveryRequestMessage,
@@ -208,27 +208,27 @@ func (c *ClientConnection) GetKeysetRecovery(ctx context.Context) (bool, *common
 	c.log.Info("%s: Sending GetKeysetRecoveryRequestMessage (type %d) msg to Manager", c.idLogTag, GetKeysetRecoveryRequestMessage)
 	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
 
 	if respMsg.Type == ErrorMessage {
 		errorData, err := extractData[ErrorData](respMsg.Data)
 		if err != nil {
-			return false, nil, fmt.Errorf("failed to extract client error data: %w", err)
+			return nil, fmt.Errorf("failed to extract client error data: %w", err)
 		}
-		return false, nil, fmt.Errorf("client error: %s", errorData.Message)
+		return nil, fmt.Errorf("client error: %s", errorData.Message)
 	}
 
 	if respMsg.Type != GetKeysetRecoveryResponseMessage {
-		return false, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+		return nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
 	}
 
 	respData, err := extractData[GetKeysetRecoveryResponseData](respMsg.Data)
 	if err != nil {
-		return false, nil, fmt.Errorf("failed to extract response data: %w", err)
+		return nil, fmt.Errorf("failed to extract response data: %w", err)
 	}
 
-	return respData.DataFound, respData.KeySetRecovery, nil
+	return respData, nil
 }
 
 // KeysetRecoveryResult sends a confirmation to the client for the keyset recovery.
@@ -449,6 +449,11 @@ func (c *ClientConnection) handleProcessRequest(ctx context.Context, msg Message
 		return
 	}
 
+	// Shorten execution to what the caller is still willing to wait for, if it said.
+	// Never lengthens it — see contextForExecutionBudget.
+	ctx, cancelBudget := contextForExecutionBudget(ctx, reqData.ExecutionBudgetMs)
+	defer cancelBudget()
+
 	updatePayload, updatedState, deanonymizationReport, err := handler.HandleProcessRequest(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {
 		c.sendErrorResponse(msg.ID, "HANDLER_ERROR", err)
@@ -478,6 +483,10 @@ func (c *ClientConnection) handleBatchProcessRequest(ctx context.Context, msg Me
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
 		return
 	}
+
+	// One deadline for the whole batch; see handleProcessRequest. Shortens only.
+	ctx, cancelBudget := contextForExecutionBudget(ctx, reqData.ExecutionBudgetMs)
+	defer cancelBudget()
 
 	updatePayloads, batchSignature, finalState, reports, err := handler.HandleBatchProcessRequest(ctx, reqData.Requests, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {
@@ -509,6 +518,10 @@ func (c *ClientConnection) handleDeployAppRequest(ctx context.Context, msg Messa
 		c.sendErrorResponse(msg.ID, "INVALID_REQUEST", err)
 		return
 	}
+
+	// See handleProcessRequest: shortens only.
+	ctx, cancelBudget := contextForExecutionBudget(ctx, reqData.ExecutionBudgetMs)
+	defer cancelBudget()
 
 	updatePayload, appState, err := handler.HandleDeployApp(ctx, reqData.Request, reqData.ApplicationState, reqData.WasmModule)
 	if err != nil {

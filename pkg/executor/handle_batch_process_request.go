@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/appdata"
@@ -24,8 +25,12 @@ import (
 //     discarded and an error is returned
 //
 // One payload is returned per handled request, in input order, so len(payloads)
-// is how many of the input requests were consumed: len(payloads) < len(requests)
-// means a hard failure stopped the batch at request len(payloads).
+// is how many of the input requests were consumed. len(payloads) < len(requests)
+// means the batch stopped early, for one of two reasons: a hard failure at request
+// len(payloads), or the caller's remaining execution budget no longer covering
+// another guest bound (see the budget check in the loop). The two are
+// indistinguishable to the caller and need not be told apart — either way the
+// unhandled requests stay pending and are redelivered on the next poll.
 func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
 	if len(requests) == 0 {
 		return nil, nil, nil, nil, fmt.Errorf("empty batch")
@@ -57,7 +62,39 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	var results []*common.UpdatePayload
 	var reports []*common.DeanonymizationReport
 
+	guestBound := e.config.guestExecutionBound()
+
 	for i, req := range requests {
+		// The whole batch shares one caller budget, so stop before starting a request
+		// the remaining budget cannot cover. Without this the guest would run until
+		// the budget expired, be interrupted, classified as host-side abandonment and
+		// discarded — burning a full guest bound of execution and evicting the module
+		// (an interrupt is a trap) only for the work to be repeated on the next poll.
+		// Stopping early settles exactly the same requests for free.
+		//
+		// One bound is the right threshold because one bound is what a request costs,
+		// however many guest calls it makes: loading the module, taking a deposit and
+		// processing all draw down a single per-request budget (see
+		// common.WithGuestExecutionBudget).
+		//
+		// Never applied to the first request. This check exists to avoid starting work
+		// that cannot finish, but refusing the request the batch was assembled for
+		// achieves nothing: the batch settles nothing, and nothing on the wire tells
+		// the manager why, so it fetches the same requests and is refused again on
+		// every poll. The gap the handshake guarantees is only a margin wide, and
+		// decrypting the state and hashing the module have already consumed part of it
+		// by the time the clock is read here, so that is reachable with a configuration
+		// the executor accepted at start-up. Starting it is safe: the request's own
+		// budget expires before the caller's, which is a signed failure, so the queue
+		// advances whatever happens.
+		if i > 0 {
+			if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < guestBound {
+				e.log.Info("Executor: batch stopping after %d/%d requests: %v left, less than the %v guest bound",
+					len(results), len(requests), time.Until(deadline), guestBound)
+				break
+			}
+		}
+
 		// A nil request cannot be executed and cannot be reported on-chain, so
 		// it is a hard failure like any other: stop and keep what was done.
 		if req == nil {
@@ -111,6 +148,32 @@ func (e *StatelessExecutor) HandleBatchProcessRequest(ctx context.Context, reque
 	if len(results) == 0 {
 		// Hard failure on the very first request: nothing to submit, the
 		// manager retries on the next poll.
+		//
+		// Not folded into a wire error. The return contract stays as it is — the
+		// manager treats an empty batch as "retry", and turning it into a handler
+		// error would only change which of its log lines fires. What is worth being
+		// loud about is the event itself: a whole poll cycle that settled nothing is
+		// the signature of a stalled queue, and the individual break above says which
+		// request stopped it but not that the batch as a whole came away empty. If
+		// this line repeats every poll for the same application, the head of that
+		// queue can never be settled and no amount of retrying will change it.
+		//
+		// Except when the context is already done. Then the batch settled nothing
+		// because the executor is shutting down or the caller stopped waiting, which
+		// is an expected outcome of an ordinary SIGTERM rather than a stalled queue:
+		// the first request is cancelled, which is a hard failure, so every in-flight
+		// batch would otherwise raise the alarm above on every clean shutdown. The
+		// condition clears by itself once the executor is running again, so it is
+		// reported but not escalated.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			e.log.Warn("Executor: batch for application %d settled none of its %d requests: %v; "+
+				"nothing will be submitted and the requests stay pending for a later poll",
+				appState.ApplicationID, len(requests), ctxErr)
+			return nil, nil, nil, nil, nil
+		}
+		e.log.Error("Executor: batch for application %d settled none of its %d requests; "+
+			"nothing will be submitted and the same requests will be redelivered on the next poll",
+			appState.ApplicationID, len(requests))
 		return nil, nil, nil, nil, nil
 	}
 

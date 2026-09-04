@@ -41,6 +41,24 @@ type requestOutcome struct {
 // workData may be partially mutated on soft failure; the caller discards it.
 func (e *StatelessExecutor) executeRequest(ctx context.Context, req *common.Request, workData *appdata.AppData, prevStateRoot [32]byte, wasmModule []byte) (*requestOutcome, error) {
 	softFailure := func(failure *apperrors.RequestFailure) (*requestOutcome, error) {
+		// One class of runtime failure must NOT become an error payload: a guest
+		// interrupted because the HOST stopped waiting for it (executor shutdown, a
+		// cancelled context, an expired caller execution budget). Nothing is known to
+		// be wrong with the request, so signing it would charge the user
+		// MinFeePerRequest for our own decision to stop, and would settle a request
+		// that was never actually judged. Reporting it as a hard failure instead
+		// leaves it pending: the single-request path returns a plain error and the
+		// manager retries on the next poll, while the batch path stops here and
+		// submits whatever it had already collected.
+		//
+		// This is the ONLY place the distinction is applied, so it holds for both
+		// paths at once. Contrast a guest that exhausted its own wall-clock bound
+		// (CodeGuestExecutionTimeout), which stays a soft failure and IS signed: the
+		// request queue is FIFO and only advances when an update is submitted, so
+		// retrying a non-terminating guest forever would stall every application.
+		if transientErr, ok := e.transientFailure(req, failure); ok {
+			return nil, transientErr
+		}
 		e.log.Info("Executor: Returning error payload for request %s (error code: %d)", req.RequestID, failure.Category())
 		return &requestOutcome{payload: e.buildUnsignedErrorPayload(req, prevStateRoot, failure)}, nil
 	}
@@ -48,6 +66,25 @@ func (e *StatelessExecutor) executeRequest(ctx context.Context, req *common.Requ
 	if err := e.validateRequest(req); err != nil {
 		return nil, err
 	}
+
+	// Open this request's guest execution budget. Everything below shares it: a
+	// request carrying a deposit calls the guest twice, and either call may also have
+	// to load the module, whose start section is guest code too. Without one budget
+	// over the lot, each of those is armed with the full bound and their SUM is what
+	// the manager waits through — so a request could occupy the executor for several
+	// bounds, the manager would give up first, and the resulting interrupt would be
+	// classified as host-side abandonment: nothing signed, the queue head never
+	// advancing, the same request redelivered forever.
+	//
+	// Opened per request rather than per batch on purpose. A batch shares the
+	// caller's budget, but not this one: each request is entitled to the full bound,
+	// or a request late in a long batch would be interrupted for work done on behalf
+	// of the ones before it.
+	//
+	// The value is the executor's OWN configured bound and never anything the manager
+	// sent. Exhausting it is signed and charges MinFeePerRequest, so a host-supplied
+	// number must not be able to shorten it — see common.WithGuestExecutionBudget.
+	ctx = common.WithGuestExecutionBudget(ctx, e.config.guestExecutionBound())
 
 	if req.RequestType != common.Process && req.RequestType != common.AssociateKey && req.RequestType != common.Deanonymize && req.RequestType != common.TrustProcess {
 		return nil, fmt.Errorf("unsupported request type: %s", req.RequestType)

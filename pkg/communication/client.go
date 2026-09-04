@@ -130,6 +130,12 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 			Request:          req,
 			ApplicationState: appState,
 			WasmModule:       wasmModule,
+			// Same field sendRequestAndWaitForResponse uses for its own give-up time
+			// below, so what we promise the executor cannot drift from how long we
+			// actually wait. It derives from
+			// MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC, which is what links
+			// that setting to the guest execution bound.
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(),
 		},
 	}
 
@@ -171,6 +177,11 @@ func (c *Client) SendBatchProcessRequest(ctx context.Context, requests []*common
 			Requests:         requests,
 			ApplicationState: appState,
 			WasmModule:       wasmModule,
+			// One budget for the whole batch, from the same field this call's own
+			// give-up timer uses — see SendProcessRequest. The batch shares it, so a
+			// batch that cannot finish in time settles what it can and leaves the
+			// rest pending rather than being abandoned wholesale.
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(),
 		},
 	}
 
@@ -208,9 +219,10 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
-			Request:          req,
-			ApplicationState: appState,
-			WasmModule:       wasmModule,
+			Request:           req,
+			ApplicationState:  appState,
+			WasmModule:        wasmModule,
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(), // see SendProcessRequest
 		},
 	}
 
@@ -423,6 +435,10 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message
 		Data: GetKeysetRecoveryResponseData{
 			DataFound:      dataFound,
 			KeySetRecovery: respRecv,
+			// Same field that feeds ExecutionBudgetMs on every request and the
+			// give-up timer in sendRequestAndWaitForResponse, so what the executor
+			// validates against at handshake is exactly what it will be sent later.
+			RequestTimeoutMs: c.reqTimeout.Milliseconds(),
 		},
 	}
 

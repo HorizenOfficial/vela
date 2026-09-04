@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -428,13 +429,40 @@ func (e *StatelessExecutor) handleNewConnection(ctx context.Context, conn commun
 func (e *StatelessExecutor) performHandshake(ctx context.Context, conn communication.ServerConnection) (*EnclaveKeySet, error) {
 	e.log.Info("Executor: Performing key recovery handshake (Type %d)", e.config.KeySetRecoveryType)
 
-	found, recoveryData, err := conn.GetKeysetRecovery(ctx)
+	handshake, err := conn.GetKeysetRecovery(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get keyset recovery data: %w", err)
 	}
 
+	// Refuse to serve a manager whose patience cannot outlast the guest bound, before
+	// any keyset is restored or generated so a rejected first boot persists nothing.
+	// The manager is told why: its Start blocks on this handshake and exits with the
+	// error, so the misconfiguration surfaces on both sides at boot.
+	if handshake.RequestTimeoutMs == 0 {
+		e.log.Warn("Executor: manager did not report its request timeout (older manager?); cannot verify "+
+			"EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS fits the caller budget — keep it below "+
+			"MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC minus %v", communication.ExecutionBudgetMargin)
+	} else if err := e.config.checkGuestBoundFitsCallerBudget(handshake.RequestTimeoutMs); err != nil {
+		if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
+			e.log.Error("Executor: failed to send handshake rejection to manager: %v", notifyErr)
+		}
+		return nil, err
+	}
+
 	var keySet *EnclaveKeySet
-	if found {
+	if handshake.DataFound {
+		recoveryData := handshake.KeySetRecovery
+		// GetKeysetRecoveryResponseData.Validate rejects this pairing on the wire, but the
+		// handshake runs in a goroutine with no recover: a nil read here takes the enclave
+		// down, so the branch that dereferences the payload checks it too rather than
+		// relying on a caller having gone through the protocol layer.
+		if recoveryData == nil {
+			err := fmt.Errorf("manager reported keyset recovery data but sent none")
+			if notifyErr := conn.KeysetRecoveryResult(ctx, err, "", ""); notifyErr != nil {
+				e.log.Error("Executor: failed to send handshake rejection to manager: %v", notifyErr)
+			}
+			return nil, err
+		}
 		e.log.Info("Executor: Keyset recovery data found (Type %d), restoring keyset...", recoveryData.RecoveryType)
 		keySet, err = RestoreEnclaveKeySet(ctx, recoveryData, e.kmsClient, e.enclaveHandle)
 		if err != nil {
@@ -648,8 +676,39 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 	}
 
 	// Deploy the module with constructor params and get initial state
+	// A deploy runs guest code twice over — the module's start section when it is
+	// instantiated, then its deploy export — so it needs the same single budget over
+	// both that executeRequest opens for a request. See common.WithGuestExecutionBudget.
+	ctx = common.WithGuestExecutionBudget(ctx, e.config.guestExecutionBound())
+
 	initialAppState, fuel, err := e.runtime.Deploy(ctx, req.ApplicationID, descriptor.ConstructorParams, wasmModule)
 	if err != nil {
+		// Deploy returns a plain error, so the abandonment case arrives as a sentinel
+		// rather than a failure code. Same rule as the request path: retry, sign
+		// nothing. See transientFailure.
+		if errors.Is(err, apperrors.ErrGuestExecutionCancelled) {
+			e.log.Warn("Executor: deploy %s (app %d) abandoned mid-execution, retrying on the next poll rather than signing a failure",
+				req.RequestID, req.ApplicationID)
+			return nil, nil, fmt.Errorf("guest execution abandoned for deploy %s: %w", req.RequestID, err)
+		}
+		// A timeout is signed like any other request failure, but it must NOT go through
+		// errorResponse: that folds the runtime's error into the message, and the deploy
+		// path nests prefixes ("failed to load or get module: failed to load module:
+		// failed to instantiate WASM module: guest execution timed out" is 113
+		// characters). ErrorMsg is truncated to 100 characters on-chain, so the reason
+		// would be cut off — and since every one of these failures signs the same
+		// WASM_INTERNAL category, the message is the only thing that identifies a
+		// timeout (see docs/design/WASM_HOST_ABI.md, which tells integrators to match
+		// on it). Use the stable classified string instead, exactly as the request path
+		// does.
+		if errors.Is(err, apperrors.ErrGuestExecutionTimeout) {
+			e.log.Warn("Executor: deploy %s (app %d) exceeded the guest execution bound: %v",
+				req.RequestID, req.ApplicationID, err)
+			errorPayload, respErr := e.processErrorResponse(req, emptyStateRoot,
+				apperrors.New(apperrors.CodeGuestExecutionTimeout, apperrors.ErrGuestExecutionTimeout.Error()))
+			return errorPayload, nil, respErr
+		}
+
 		// The runtime's error message carries the specific failure mode
 		// (compile failure, invalid guest result, JSON parse error, etc.).
 		// errorResponse logs it locally and folds it into the signed-payload
@@ -854,6 +913,30 @@ func (e *StatelessExecutor) buildErrorPayload(req *common.Request, stateRoot [32
 	updatePayload.Signature = signature
 
 	return updatePayload, nil
+}
+
+// transientFailure reports whether a runtime failure must bypass the signed
+// on-chain path entirely, and returns the plain Go error to propagate instead.
+//
+// This is the narrow exception to "a *RequestFailure becomes a signed error
+// payload". Almost every failure is a genuine execution failure the user should
+// learn about on-chain and be refunded for. But a guest interrupted because the
+// HOST stopped waiting — executor shutdown, a cancelled context, a caller-supplied
+// execution budget running out — says nothing about the request: signing it would
+// charge the user MinFeePerRequest for our own decision to stop, and would settle a
+// request that was never actually judged. Returning a plain error leaves it pending
+// so the manager retries it on the next poll, once the executor is healthy again.
+//
+// Contrast CodeGuestExecutionTimeout, which IS signed: there the guest really did
+// consume its whole budget, and leaving it pending would re-deliver it forever and
+// stall the on-chain queue behind it.
+func (e *StatelessExecutor) transientFailure(req *common.Request, failure *apperrors.RequestFailure) (error, bool) {
+	if !apperrors.IsTransient(failure) {
+		return nil, false
+	}
+	e.log.Warn("Executor: request %s (app %d) abandoned mid-execution (%s), retrying on the next poll rather than signing a failure",
+		req.RequestID, req.ApplicationID, failure.RequestError.Code)
+	return fmt.Errorf("guest execution abandoned for request %s: %s", req.RequestID, failure.ExternalMessage()), true
 }
 
 // processErrorResponse creates a signed error response for HandleProcessRequest.
