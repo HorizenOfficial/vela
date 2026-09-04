@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: [ main, dev ]
 
+env:
+  # Pinned: the committed contract bindings embed the compiler version and
+  # its metadata hash, so a solc bump silently breaks the go generate check.
+  SOLC_VERSION: '0.8.30'
+
 jobs:
   quick-test:
     name: Quick Test Suite
@@ -48,9 +53,14 @@ jobs:
       # Install solc
       - name: Install solc
         run: |
-          sudo add-apt-repository -y ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install -y solc
+          sudo wget -q "https://github.com/ethereum/solidity/releases/download/v${SOLC_VERSION}/solc-static-linux" \
+            -O /usr/local/bin/solc
+          sudo chmod +x /usr/local/bin/solc
+          solc --version
+          solc --version | grep -q "${SOLC_VERSION}" || {
+            echo "::error::solc ${SOLC_VERSION} expected, got: $(solc --version | tail -1)"
+            exit 1
+          }
 
       # Install abigen (from go-ethereum)
       - name: Install abigen
@@ -141,9 +151,14 @@ jobs:
       # Install dependencies for solc
       - name: Install solc
         run: |
-          sudo add-apt-repository -y ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install -y solc
+          sudo wget -q "https://github.com/ethereum/solidity/releases/download/v${SOLC_VERSION}/solc-static-linux" \
+            -O /usr/local/bin/solc
+          sudo chmod +x /usr/local/bin/solc
+          solc --version
+          solc --version | grep -q "${SOLC_VERSION}" || {
+            echo "::error::solc ${SOLC_VERSION} expected, got: $(solc --version | tail -1)"
+            exit 1
+          }
 
       # Install abigen (from go-ethereum)
       - name: Install abigen

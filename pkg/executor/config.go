@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
+	"github.com/HorizenOfficial/vela/pkg/communication"
 	"github.com/magiconair/properties"
 )
 
@@ -74,6 +75,16 @@ type Config struct {
 	// outside linear memory and is bounded separately in pkg/wasm (a few tens of MiB
 	// per module at most), so it does not change the sizing arithmetic.
 	MaxGuestMemoryBytes int64
+
+	// GuestExecutionTimeoutMs bounds the wall-clock duration of a single WASM guest
+	// operation. A guest that exceeds it is interrupted and the request fails with a
+	// signed, on-chain error, so a stuck or malicious module cannot hang the executor.
+	// 0 means the default (common.DefaultGuestExecutionTimeoutMs); there is no
+	// "unlimited" setting. It must be below the manager's request timeout minus the
+	// reply margin, or the manager gives up while the executor is still running the
+	// request; the manager reports that timeout in the handshake and the executor
+	// refuses the connection if this does not fit (checkGuestBoundFitsCallerBudget).
+	GuestExecutionTimeoutMs int64
 }
 
 const confFileName = "executor.conf"
@@ -142,6 +153,8 @@ func LoadConfig() (*Config, error) {
 		CommunicationParams: communicationParams,
 		MaxCachedModules:    int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
 		MaxGuestMemoryBytes: common.GetConfigVarInt64("EXECUTOR_MAX_GUEST_MEMORY_BYTES", 0, fileProperties),
+
+		GuestExecutionTimeoutMs: common.GetConfigVarInt64("EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS", 0, fileProperties),
 	}, nil
 }
 
@@ -229,6 +242,27 @@ func (c *Config) Validate() error {
 			int64(maxGuestMemoryCeilingBytes), c.MaxGuestMemoryBytes))
 	}
 
+	// --- Guest execution timeout ---
+	// Bounds live in pkg/common so this check shares one definition with the runtime
+	// without linking libwasmtime into every pkg/executor consumer, exactly as for the
+	// guest memory cap. 0 selects the default; anything else must be in range rather
+	// than silently clamped, so a misconfigured operator finds out at startup.
+	//
+	// Note the asymmetry with the runtime's SetGuestExecutionTimeout, which clamps
+	// instead: failing here happens before the enclave is serving anything, whereas a
+	// late admin-driven change must not be able to take a running enclave down.
+	if c.GuestExecutionTimeoutMs < 0 || c.GuestExecutionTimeoutMs > common.MaxGuestExecutionTimeoutMs {
+		errs = append(errs, fmt.Sprintf(
+			"EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS must be between 0 (default: %d ms) and %d ms, got %d",
+			int64(common.DefaultGuestExecutionTimeoutMs), int64(common.MaxGuestExecutionTimeoutMs),
+			c.GuestExecutionTimeoutMs))
+	}
+
+	// The bound must also stay below the manager's execution budget, but the manager's
+	// request timeout is configured on the parent EC2, out of the enclave's sight. The
+	// manager reports it in the handshake, and checkGuestBoundFitsCallerBudget rejects
+	// the connection there if the two do not fit; see that method for the invariant.
+
 	// --- KMS configuration ---
 	errs = append(errs, c.validateKMSConfig()...)
 
@@ -252,4 +286,103 @@ func (c *Config) validateKMSConfig() []string {
 		errs = append(errs, "KMS region is required when KMS is enabled (EXECUTOR_KMS_REGION)")
 	}
 	return errs
+}
+
+// guestExecutionBound returns the configured per-operation guest execution bound,
+// resolving 0 to the default. It is what the batch loop compares the remaining
+// caller budget against, so it must reflect the value the runtime actually arms
+// stores with rather than the raw config field.
+func (c *Config) guestExecutionBound() time.Duration {
+	ms := c.GuestExecutionTimeoutMs
+	if ms <= 0 {
+		ms = common.DefaultGuestExecutionTimeoutMs
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// guestBoundSafetyMargin is the headroom the guest execution bound must leave inside
+// the caller's execution budget, on top of the bound itself.
+//
+// The bound is not enforced to the millisecond, and everything it fails to cover is
+// time the caller is already counting. Three things have to fit in here:
+//
+//   - Epoch overshoot. A window armed with T is interrupted somewhere in
+//     [T, T+2 ticks]: epochTicksFor rounds the tick count up and adds one more, so a
+//     store armed just before a tick fires still gets its full allowance.
+//   - Work before arming. The caller starts its clock when it sends the request; the
+//     executor arms the store only after decoding the message, decrypting the
+//     application state and hashing the module. For a multi-megabyte module and a
+//     large state that is tens to hundreds of milliseconds.
+//   - The floor on an exhausted budget. Once a request has spent its allowance,
+//     epochTicksFor still arms the minimum two ticks, so a further operation can run
+//     that long before it traps.
+//
+// One second covers all three with room to spare, and costs nothing: it only forbids
+// configurations in which the two deadlines were going to race anyway. It is a fixed
+// amount rather than a fraction of the timeout because every term above is
+// independent of how patient the caller is.
+const guestBoundSafetyMargin = time.Second
+
+// checkGuestBoundFitsCallerBudget verifies that the guest execution bound fires before
+// the caller's execution budget expires. callerTimeoutMs is the manager's request
+// timeout (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC) as reported in the
+// handshake; the budget the executor will actually receive on every request is that
+// value minus communication.ExecutionBudgetMargin, reserved for decrypting, signing
+// and replying.
+//
+// This is a forward-progress invariant, not a tuning hint, which is why it is a hard
+// error. Whichever deadline fires first decides how a runaway guest is classified. The
+// enclave's own bound expiring is a signed on-chain failure, so the FIFO request queue
+// advances and the request's author pays the minimum fee. The caller's budget expiring
+// is host-side abandonment: nothing is signed and the request is retried unchanged. If
+// the budget wins the race, a non-terminating guest is retried on every poll forever,
+// the queue head never advances, and — since nothing is ever signed — nobody is charged
+// for the executor time it keeps burning. That is the stall signing a timeout exists to
+// prevent, reintroduced purely by configuration, and it turns a fee-paying nuisance
+// into a free denial of service.
+//
+// It compares against the margin too, not just the raw timeout: a bare
+// `>= requestTimeout` check leaves a silent window one margin wide (28000 to 29999 ms
+// against the 30 s default) that passes and still wedges.
+//
+// It runs at handshake rather than at start-up because only the manager knows its own
+// timeout. An earlier version compared against the executor's request timeout
+// (EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC) as a stand-in; that setting
+// governs calls in the other direction and gave false assurance whenever the two were
+// configured apart.
+func (c *Config) checkGuestBoundFitsCallerBudget(callerTimeoutMs int64) error {
+	guestBoundMs := c.guestExecutionBound().Milliseconds()
+
+	// callerTimeoutMs crosses the TEE boundary and, unlike the per-request
+	// ExecutionBudgetMs, is not range-checked anywhere else. Guard both ends before the
+	// subtraction below. A negative value would underflow budgetMs to a large positive
+	// number and pass the comparison, silently disarming this invariant; a value above
+	// communication.MaxExecutionBudgetMs would pass here only for every later request to
+	// be rejected by validateExecutionBudget, stalling the queue forever. Refuse both at
+	// the handshake, where the operator is told once, rather than on every request.
+	if callerTimeoutMs <= 0 || callerTimeoutMs > communication.MaxExecutionBudgetMs {
+		return fmt.Errorf(
+			"the manager's request timeout (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC = %d ms) must be "+
+				"positive and at most %d ms; a value outside that range cannot yield a usable per-request "+
+				"execution budget",
+			callerTimeoutMs, int64(communication.MaxExecutionBudgetMs))
+	}
+
+	// One request costs at most one bound of guest execution, whatever it does —
+	// loading the module, taking a deposit and processing all draw down a single
+	// per-request budget (see common.WithGuestExecutionBudget). So the whole
+	// requirement is that one bound, plus the slack the bound does not itself cover,
+	// still fits inside what the caller will wait.
+	budgetMs := callerTimeoutMs - communication.ExecutionBudgetMargin.Milliseconds()
+	requiredMs := guestBoundMs + guestBoundSafetyMargin.Milliseconds()
+	if requiredMs >= budgetMs {
+		return fmt.Errorf(
+			"EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS (%d ms, effective) plus the %d ms safety margin must be below "+
+				"the manager's execution budget of %d ms (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC = "+
+				"%d ms minus the %d ms reply margin), otherwise a runaway guest is retried forever instead of "+
+				"being settled on-chain and the request queue stalls",
+			guestBoundMs, guestBoundSafetyMargin.Milliseconds(), budgetMs, callerTimeoutMs,
+			communication.ExecutionBudgetMargin.Milliseconds())
+	}
+	return nil
 }

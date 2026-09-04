@@ -21,7 +21,7 @@ ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 RUN go version
 
 # Install solc
-ENV SOLC_VERSION=0.8.28
+ENV SOLC_VERSION=0.8.30
 RUN wget https://github.com/ethereum/solidity/releases/download/v$SOLC_VERSION/solc-static-linux \
     -O /usr/local/bin/solc && \
     chmod +x /usr/local/bin/solc

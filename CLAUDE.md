@@ -18,7 +18,7 @@ go build ./...
 go build ./cmd/executor
 go build ./cmd/manager
 
-# Run tests (quick suite - skips Wasmtime-dependent tests)
+# Run tests (quick suite - skips the long-running fullstack/system tests)
 CI_FLAG=true go test -v ./...
 
 # Run tests (full suite - includes all tests)
@@ -81,7 +81,7 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
 
 Manager and Executor use bidirectional messaging (V-Socket for Nitro, TCP fallback):
 - Manager sends `ProcessRequest`, Executor may callback with `GetUserKeys`
-- Handshake protocol on connection for keyset recovery (see `docs/design/EXEC_MGR_HANDSHAKE.md`)
+- Handshake protocol on connection for keyset recovery (see `docs/design/EXEC_MGR_HANDSHAKE.md`); the Manager also reports its request timeout there, and the Executor refuses the connection if its guest execution bound does not fit inside it
 - Manager also forwards admin commands to the Executor over the same channel (`ForwardAdminCommand`)
 - `DeployApp` messages carry the WASM bytes and descriptor for the deploy flow
 
@@ -122,7 +122,16 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 
 **Shared Helpers Need a Caller Sweep:** Before changing the behaviour of a shared helper — `pkg/common/config.go` parsers above all, but any function with callers across packages — enumerate every caller and state what the change does to each, including the ones you conclude are unaffected. Report the search you used so its scope can be judged. Widening `GetConfigVarInt64` to 64-bit was audited for `uint32(...)` truncation at the call sites and still broke a caller one step further downstream, where `maxUploadMB * bytesInMB` overflowed and silently removed an HTTP body limit. Grepping for the call sites is not the same as enumerating the consequences.
 
-**Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
+**Test Skipping:** Use `CI_FLAG=true` to skip the long-running tests that stand up real
+components — the fullstack/system suites (`tests/system`, `pkg/testutil/fullstack`) and one
+long TCP test. Tests opt out individually with `os.Getenv("CI_FLAG") != ""`, so this is a
+per-test switch, not a package-level one: anything without that check runs in **both** CI jobs.
+
+In particular it does **not** skip `pkg/wasm`. Wasmtime is a linked Go dependency needing no
+external install, so every WASM runtime test — including the execution-bound and feature-pin
+tests — runs in the quick suite too. That is deliberate: those guard against regressions
+(a wedged executor, a silently widened feature set) worth catching on the fast path. Grep
+`CI_FLAG` before assuming a test is gated.
 
 **Configuration:** Environment variables with `.conf` file fallbacks. Key configs:
 - `CHANNEL_TYPE` - `tcp` or `vsock`

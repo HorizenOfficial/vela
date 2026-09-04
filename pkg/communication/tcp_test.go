@@ -658,7 +658,7 @@ func TestTCPClientServer_ServerToClientRequest(t *testing.T) {
 		// When a client connects, send a request to it.
 		go func() {
 			defer wg.Done()
-			_, _, err := conn.GetKeysetRecovery(ctx)
+			_, err := conn.GetKeysetRecovery(ctx)
 			require.NoError(t, err)
 		}()
 	})

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/magiconair/properties"
 )
@@ -53,6 +54,47 @@ func GetConfigVarInt64(name string, defaultValue int64, fileProperties *properti
 // links libwasmtime) and pkg/executor (which must not) can share one definition
 // instead of keeping copies in step by hand.
 const MaxGuestMemoryCeilingBytes = 2 * 1024 * 1024 * 1024
+
+// Wall-clock bounds on a single WASM guest operation, in milliseconds. Guest
+// execution is interrupted once it exceeds the configured timeout (see pkg/wasm,
+// epoch interruption), so that a stuck or malicious module cannot hang the
+// executor. These live here, alongside MaxGuestMemoryCeilingBytes and for the same
+// reason: pkg/executor validates the configured value at start-up without linking
+// libwasmtime.
+const (
+	// DefaultGuestExecutionTimeoutMs is used when EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS
+	// is unset or 0. It must stay well under the manager's request timeout
+	// (MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC, 30s by default), or the
+	// manager gives up on a request while the executor is still running it and the
+	// two end up permanently out of step; the executor enforces this at handshake,
+	// where the manager reports that timeout. It is also orders of magnitude above what
+	// a real request needs — the reference guests in app/simple return in single-digit
+	// milliseconds — which is what makes exceeding it evidence of a pathological
+	// guest rather than of a slow one.
+	DefaultGuestExecutionTimeoutMs = 10_000
+
+	// MaxGuestExecutionTimeoutMs is an absurdity guard, not an ABI constraint (unlike
+	// MaxGuestMemoryCeilingBytes): any value this large already defeats the purpose of
+	// having a bound, since the manager stops waiting long before it. A configured
+	// value above it is a misconfiguration worth failing at start-up for.
+	//
+	// There is deliberately no "unlimited" setting: 0 selects the default. An
+	// unbounded guest is the failure mode this exists to remove.
+	MaxGuestExecutionTimeoutMs = 300_000
+)
+
+// GuestExecutionEpochTick is the granularity of the guest execution bound: the
+// period at which pkg/wasm advances the engine epoch, and therefore the resolution
+// of every deadline armed from it. pkg/wasm derives its own epochTickInterval from
+// this, so the two cannot drift.
+//
+// It is exported because the bound is not enforced to the millisecond and callers
+// have to budget for that. A window armed with T is interrupted somewhere in
+// [T, T+2*GuestExecutionEpochTick]: the tick count is rounded UP, and one further
+// tick is added so that a store armed just before a tick fires still gets its full
+// allowance. pkg/executor sizes the safety margin in its handshake check from this
+// value rather than from a copied constant.
+const GuestExecutionEpochTick = 100 * time.Millisecond
 
 // MaxTCPPort is the highest valid TCP port number. GetConfigVarUint32 keeps an
 // out-of-range value from truncating to 0, but a value that fits in uint32 and is

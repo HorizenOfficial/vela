@@ -45,6 +45,10 @@ type mockExecutor struct {
 	conn           ServerConnection
 	handshakeDone  chan struct{}
 	handshakeError error
+
+	// reportedTimeoutMs records the RequestTimeoutMs the manager sent in its
+	// GetKeysetRecovery reply, so tests can check the field is populated.
+	reportedTimeoutMs int64
 }
 
 func (m *mockExecutor) handleConnection(ctx context.Context, conn ServerConnection) {
@@ -60,12 +64,14 @@ func (m *mockExecutor) handleConnection(ctx context.Context, conn ServerConnecti
 
 func (m *mockExecutor) performHandshake(ctx context.Context) error {
 	testLogger.Info("MockExecutor: entering %s", common.FnName())
-	found, recoveryData, err := m.conn.GetKeysetRecovery(ctx)
+	handshake, err := m.conn.GetKeysetRecovery(ctx)
 	if err != nil {
 		return err
 	}
+	m.reportedTimeoutMs = handshake.RequestTimeoutMs
 
-	if found {
+	if handshake.DataFound {
+		recoveryData := handshake.KeySetRecovery
 		// Simulate restoring keyset
 		if recoveryData == nil {
 			return nil
@@ -180,6 +186,11 @@ func TestHandshake_FirstConnection(t *testing.T) {
 	require.NoError(t, executor.handshakeError)
 	require.NotNil(t, manager.recoveryData)
 	require.Equal(t, []byte("new-keyset"), manager.recoveryData.KeySetCiphertext)
+
+	// The manager's reply must report its own request timeout: it is what the
+	// executor validates its guest execution bound against.
+	require.Equal(t, int64(commParams.RequestTimeoutSec)*1000, executor.reportedTimeoutMs,
+		"GetKeysetRecovery reply must carry the manager's request timeout in ms")
 }
 
 func TestHandshake_Reconnection(t *testing.T) {
@@ -269,4 +280,29 @@ func TestHandshake_ExecutorRestoreFailure(t *testing.T) {
 	// Executor should see an error
 	require.Error(t, executor.handshakeError)
 	require.Contains(t, executor.handshakeError.Error(), "simulated restore error")
+}
+
+// TestGetKeysetRecoveryResponseRejectsMissingPayload pins that "recovery data found" and
+// "here is the recovery data" cannot disagree on the wire. Unlike the process/batch/deploy
+// payloads this type had no Validate, so a reply claiming data while carrying none was
+// decoded cleanly and handed to the executor, which reads it without a nil check.
+func TestGetKeysetRecoveryResponseRejectsMissingPayload(t *testing.T) {
+	t.Run("dataFound with a null payload is rejected", func(t *testing.T) {
+		_, err := extractData[GetKeysetRecoveryResponseData](map[string]interface{}{
+			"dataFound":        true,
+			"keySetRecovery":   nil,
+			"requestTimeoutMs": 30_000,
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("dataFound false with no payload stays valid", func(t *testing.T) {
+		// A first connection legitimately reports no stored keyset.
+		data, err := extractData[GetKeysetRecoveryResponseData](map[string]interface{}{
+			"dataFound":        false,
+			"requestTimeoutMs": 30_000,
+		})
+		require.NoError(t, err)
+		require.False(t, data.DataFound)
+	})
 }

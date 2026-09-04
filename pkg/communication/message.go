@@ -74,6 +74,12 @@ type ProcessRequestData struct {
 	ApplicationState *common.ApplicationState `json:"applicationState"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
+	// ExecutionBudgetMs is how much longer the caller will wait for this request,
+	// in milliseconds relative to send time. 0 (or absent) means "not supplied",
+	// so an older peer that does not set it simply falls back to the executor's own
+	// configured bound. See contextForExecutionBudget for how it is applied and why
+	// it can only shorten execution.
+	ExecutionBudgetMs int64 `json:"executionBudgetMs,omitempty"`
 }
 
 func (prd *ProcessRequestData) Validate() error {
@@ -82,6 +88,9 @@ func (prd *ProcessRequestData) Validate() error {
 	}
 	if err := prd.Request.Validate(); err != nil {
 		return fmt.Errorf("invalid Request: %w", err)
+	}
+	if err := validateExecutionBudget(prd.ExecutionBudgetMs); err != nil {
+		return err
 	}
 	return nil
 }
@@ -106,11 +115,21 @@ type BatchProcessRequestData struct {
 	ApplicationState *common.ApplicationState `json:"applicationState"`
 	// WasmModule is the WASM module to execute
 	WasmModule []byte `json:"wasmModule"`
+	// ExecutionBudgetMs is how much longer the caller will wait for the WHOLE batch,
+	// in milliseconds relative to send time. A batch is one message and therefore one
+	// budget: its requests share it, so a batch too large to finish within it settles
+	// the requests that fit and leaves the rest pending (see
+	// contextForExecutionBudget). 0 (or absent) means "not supplied", which leaves the
+	// executor's own guest bound as the only limit.
+	ExecutionBudgetMs int64 `json:"executionBudgetMs,omitempty"`
 }
 
 func (bpr *BatchProcessRequestData) Validate() error {
 	if len(bpr.Requests) == 0 {
 		return fmt.Errorf("Requests is required")
+	}
+	if err := validateExecutionBudget(bpr.ExecutionBudgetMs); err != nil {
+		return err
 	}
 	// A batch is scoped to one application, so the state is what defines that
 	// scope: without it there is nothing to validate the requests against.
@@ -159,6 +178,9 @@ type DeployAppRequestData struct {
 	ApplicationState *common.ApplicationState `json:"applicationState"`
 	// WasmModule is the resolved WASM bytecode if available; nil means artifact unavailable/unresolved.
 	WasmModule []byte `json:"wasmModule"`
+	// ExecutionBudgetMs is how much longer the caller will wait for this deploy, in
+	// milliseconds relative to send time. See ProcessRequestData.ExecutionBudgetMs.
+	ExecutionBudgetMs int64 `json:"executionBudgetMs,omitempty"`
 }
 
 func (dad *DeployAppRequestData) Validate() error {
@@ -167,6 +189,9 @@ func (dad *DeployAppRequestData) Validate() error {
 	}
 	if err := dad.Request.Validate(); err != nil {
 		return fmt.Errorf("invalid Request: %w", err)
+	}
+	if err := validateExecutionBudget(dad.ExecutionBudgetMs); err != nil {
+		return err
 	}
 	return nil
 }
@@ -195,6 +220,30 @@ type GetKeysetRecoveryRequestData struct {
 type GetKeysetRecoveryResponseData struct {
 	DataFound      bool                          `json:"dataFound"`
 	KeySetRecovery *common.EnclaveKeySetRecovery `json:"keySetRecovery"`
+
+	// RequestTimeoutMs is how long the manager waits for any request it sends the
+	// executor, in milliseconds — the value every later ExecutionBudgetMs will be
+	// derived from. The executor validates its guest execution bound against it
+	// during the handshake: the enclave cannot read the manager's configuration, and
+	// checking against its own unrelated timeout gave false assurance. Optional: an
+	// older manager omits it and it decodes to 0, meaning "not reported".
+	RequestTimeoutMs int64 `json:"requestTimeoutMs,omitempty"`
+}
+
+// Validate rejects a reply whose DataFound flag and KeySetRecovery payload disagree.
+//
+// Nothing else pairs the two: the flag is what the executor branches on, and the payload
+// is what it then reads, so a reply claiming data while carrying none is dereferenced as
+// a nil pointer during the handshake — before any keyset exists, in a goroutine with no
+// recover, which takes the whole enclave down. This is the first message the executor
+// accepts from outside the TEE, so it must not be trusted to be self-consistent.
+//
+// A false flag with no payload is the ordinary first-connection reply and stays valid.
+func (gkr *GetKeysetRecoveryResponseData) Validate() error {
+	if gkr.DataFound && gkr.KeySetRecovery == nil {
+		return fmt.Errorf("dataFound is set but keySetRecovery is missing")
+	}
+	return nil
 }
 
 // SetKeysetRecoveryRequestData represents data for a set keyset recovery request message
