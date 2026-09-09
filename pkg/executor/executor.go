@@ -103,7 +103,8 @@ func (e *StatelessExecutor) DumpPublicKeys() {
 	keySecp256k1StrAddress := e.keySet.SigningKey.PublicKey().Address()
 	e.log.Info("###: Communication key P521 (public): 0x" + keyP521StrPub)
 	e.log.Info("###: Signing key Secp256k1 (public):  0x" + keySecp256k1StrPub)
-	e.log.Info("###:             Secp256k1 (address): 0x" + keySecp256k1StrAddress)
+	// Address() already returns a 0x-prefixed, checksummed address.
+	e.log.Info("###:             Secp256k1 (address): " + keySecp256k1StrAddress)
 }
 
 func (e *StatelessExecutor) DumpPrivateKeys() {
