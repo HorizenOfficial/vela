@@ -89,6 +89,7 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
 
 /tests                      - System integration tests
 /dockerfiles                - Container configuration
+/install-helper             - Guided installer for server deployments (vela-install.sh)
 ```
 
 ## Architecture
@@ -159,6 +160,8 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 **File Formatting:** If you modify contracts or TypeScript files, run `npm run format` after any modification to keep the correct formatting.
 
 **Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
+
+**Installer Coupling:** `install-helper/vela-install.sh` derives the server bundle from `dockerfiles/docker-compose.yml`, `dockerfiles/.env.template`, `subgraphs/hcce/subgraph.yaml` and `contracts/scripts/management/addAllowedToken.ts`, and asserts on their shape. Renaming a service or volume, adding a service, or changing the `0x<processor_address>` / `0x<token_allowlist_address>` placeholders or the `TOKEN_ALLOWLIST` / `TOKEN_TO_ALLOW` constants will make the installer stop with an explicit error — update it in the same change. It reads a release tag by default, so the fix lands with the next tag.
 
 **Configuration:** Environment variables with `.conf` file fallbacks. Key configs:
 - `CHANNEL_TYPE` - `tcp` or `vsock`

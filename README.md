@@ -47,6 +47,7 @@ vela/
     │
     ├── docs/                           # Design documents
     ├── dockerfiles/                    # Container configuration and dev docker-compose
+    ├── install-helper/                 # Guided installer for server deployments
     └── tests/                          # System tests and integration tests
 ```
 
@@ -132,6 +133,23 @@ For local testing and development:
 - TCP can be used as a fallback communication method — either on host or in docker container.
 - docker does not support vsock
 - QEMU can be used to emulate vsock communication, with executor running in the VM, and manager running on the host.
+
+For a ready-made local stack (dev chain, contract deploy and subgraph all in containers), see [dockerfiles/README.md](dockerfiles/README.md).
+
+### Deploying to a server
+
+`install-helper/vela-install.sh` is a guided installer for a **without-TEE**
+deployment on a public testnet. It runs on the operator workstation, generates
+the manager and executor keys, walks through the manual contract and subgraph
+deploys, and produces a ready-to-upload `docker-compose.yml` + `.env` pair
+derived from the files in `dockerfiles/`.
+
+```bash
+./install-helper/vela-install.sh
+```
+
+See [install-helper/README.md](install-helper/README.md) for prerequisites,
+supported networks and the full step list.
 
 ## Generate contracts bindings
 The interaction with the contracts on chain is managed using a Geth tool called `abigen`, that can convert contract code into Go code that can be used directly in Go applications. For more information, see [Go contract binding](https://geth.ethereum.org/docs/developers/dapp-developer/native-bindings-v2). 

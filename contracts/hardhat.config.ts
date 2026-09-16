@@ -41,6 +41,10 @@ const config: HardhatUserConfig = {
       url: 'https://horizen-testnet.rpc.caldera.xyz/http',
       accounts,
     },
+    'base-sepolia': {
+      url: 'https://sepolia.base.org',
+      accounts,
+    },
     local: {
       url: process.env.CHAIN_RPC_URL || 'http://127.0.0.1:8545/',
       accounts,
