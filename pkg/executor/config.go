@@ -65,7 +65,15 @@ type Config struct {
 	// MaxCachedModules is the maximum number of WASM modules to keep in the LRU cache.
 	// 0 means unlimited.
 	MaxCachedModules int
+
+	// MaxAppStateSize is the maximum size in bytes of an application state, before and after
+	// each guest call. A request over the limit fails with APP_STATE_TOO_LARGE and leaves the
+	// state unchanged. 0 means no limit.
+	MaxAppStateSize int
 }
+
+// DefaultMaxAppStateSize keeps guest calls well below the manager request timeout.
+const DefaultMaxAppStateSize = 10 * 1024 * 1024
 
 const confFileName = "executor.conf"
 
@@ -132,6 +140,7 @@ func LoadConfig() (*Config, error) {
 		LogNetworkLevel:     common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
 		CommunicationParams:  communicationParams,
 		MaxCachedModules:     int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
+		MaxAppStateSize:      int(common.GetConfigVarInt64("EXECUTOR_MAX_APP_STATE_SIZE", DefaultMaxAppStateSize, fileProperties)),
 	}, nil
 }
 
@@ -178,6 +187,10 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf(
 			"EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC must be > 0 (seconds), got %d",
 			c.CommunicationParams.RequestTimeoutSec))
+	}
+
+	if c.MaxAppStateSize < 0 {
+		errs = append(errs, fmt.Sprintf("EXECUTOR_MAX_APP_STATE_SIZE must be >= 0 (bytes, 0 = no limit), got %d", c.MaxAppStateSize))
 	}
 
 	// --- KMS configuration ---

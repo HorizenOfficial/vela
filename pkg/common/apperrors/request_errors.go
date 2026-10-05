@@ -71,6 +71,7 @@ var (
 	CodeWrongKey                     = FailureCode{"WRONG_KEY", CategoryWrongKeySentMeta}
 	CodeNoReportDataFound            = FailureCode{"NO_REPORT_DATA_FOUND", CategoryNoReportDataFoundMeta}
 	CodeInsufficientFuel             = FailureCode{"INSUFFICIENT_FUEL", CategoryInsufficientFuelMeta}
+	CodeAppStateTooLarge             = FailureCode{"APP_STATE_TOO_LARGE", CategoryRequestFuncFailedMeta}
 )
 
 type RequestFailure struct {

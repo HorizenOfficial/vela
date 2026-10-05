@@ -589,11 +589,18 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 	// If the request contains a deposit, handle it first
 	var tempState = appData.GetAppState()
+	if failure := e.checkAppStateSize(tempState); failure != nil {
+		errorPayload, err := e.processErrorResponse(req, appState.StateRoot, failure)
+		return errorPayload, nil, nil, err
+	}
 	var depositEvents []common.PlainEvent
 	var depositAppEvents []common.AppEvent
 	var totalFuel *big.Int = big.NewInt(0)
 	if req.AssetAmount.ToInt().Sign() > 0 {
 		newState, depEvents, depAppEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
+		if failure == nil {
+			failure = e.checkAppStateSize(newState)
+		}
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req, appState.StateRoot, failure)
 			return errorPayload, nil, nil, err
@@ -679,6 +686,9 @@ func (e *StatelessExecutor) HandleProcessRequest(ctx context.Context, req *commo
 
 		// Invoke WASM method to process the request
 		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, wasmPayload, tempState, wasmModule)
+		if failure == nil {
+			failure = e.checkAppStateSize(newState)
+		}
 		if failure != nil {
 			errorPayload, err := e.processErrorResponse(req,
 				appState.StateRoot,
@@ -905,6 +915,10 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 			deployLoadFailureMsg, err)
 		return errorPayload, nil, respErr
 	}
+	if failure := e.checkAppStateSize(initialAppState); failure != nil {
+		errorPayload, err := e.processErrorResponse(req, emptyStateRoot, failure)
+		return errorPayload, nil, err
+	}
 
 	// Check if there is enough ETH to cover the fuel costs
 	// TODO make a helper function?
@@ -1001,6 +1015,18 @@ func (e *StatelessExecutor) fromEncryptedStateToAppData(encState *common.Applica
 	}
 
 	return appData, nil
+}
+
+// checkAppStateSize returns an APP_STATE_TOO_LARGE failure when state exceeds MaxAppStateSize.
+// The guest time grows with the state size, and a call slower than the manager request timeout
+// is retried forever, blocking the request queue.
+func (e *StatelessExecutor) checkAppStateSize(state []byte) *apperrors.RequestFailure {
+	limit := e.config.MaxAppStateSize
+	if limit <= 0 || len(state) <= limit {
+		return nil
+	}
+	return apperrors.New(apperrors.CodeAppStateTooLarge,
+		fmt.Sprintf("application state too large: %d bytes, limit %d bytes", len(state), limit))
 }
 
 // buildErrorPayload creates a signed error payload for failed requests.

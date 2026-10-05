@@ -168,3 +168,31 @@ func TestValidate_MultipleErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "EXECUTOR_FUEL_PRICE_PER_UNIT")
 	assert.Contains(t, err.Error(), "EXECUTOR_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC")
 }
+
+func TestLoadConfig_MaxAppStateSize_DefaultsTo10MiB(t *testing.T) {
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+	require.Equal(t, 10*1024*1024, cfg.MaxAppStateSize)
+}
+
+func TestLoadConfig_MaxAppStateSize_FromEnv(t *testing.T) {
+	t.Setenv("EXECUTOR_MAX_APP_STATE_SIZE", "2048")
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+	require.Equal(t, 2048, cfg.MaxAppStateSize)
+}
+
+func TestValidate_MaxAppStateSize_Zero_DisablesTheLimit(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.MaxAppStateSize = 0
+	require.NoError(t, cfg.Validate())
+}
+
+func TestValidate_MaxAppStateSize_Negative(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.MaxAppStateSize = -1
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_MAX_APP_STATE_SIZE")
+}
