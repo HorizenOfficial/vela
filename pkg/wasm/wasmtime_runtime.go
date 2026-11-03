@@ -46,8 +46,8 @@ const (
 	// memory cap is accounted against. The cap is enforced per linear memory,
 	// not per store, so without these a guest declaring N memories could use N
 	// times the cap and break the enclave RAM budget documented in
-	// pkg/executor.Config (MaxCachedModules * MaxGuestMemoryBytes). Each store
-	// holds exactly one instance with its single exported memory.
+	// pkg/executor.Config (about one MaxGuestMemoryBytes, one live store at a
+	// time). Each store holds exactly one instance with its single exported memory.
 	maxInstancesPerStore = 1
 	maxMemoriesPerStore  = 1
 
@@ -72,9 +72,10 @@ const (
 // from host-side failures such as a nil store or a missing export. The three
 // failure classes and their effect on the cache are summarised in
 // docs/design/WASM_HOST_ABI.md. Only the
-// former mean the guest's heap is in an unknown state and the module must be
-// dropped from the cache (see evictFaultedModule); recompiling a module that is
-// simply missing an export would repeat on every request forever.
+// former drop the module from the cache (see evictFaultedModule); recompiling a
+// module that is simply missing an export would repeat on every request forever.
+// The instance itself is discarded at the end of every call, faulted or not, so no
+// request ever runs on a heap a previous call left behind.
 //
 // The test is whether guest code actually ran, NOT whether the failure looks
 // deterministic. A missing export, an export whose signature does not match the
@@ -86,11 +87,9 @@ const (
 // case, and is deliberately treated as a fault even though a broken serializer
 // would fail identically on every request: the guest did run, and did write that
 // buffer, so the host cannot distinguish a deterministic serialization defect
-// (where the recompile is wasted) from a heap bug that clobbered the result
-// (where reusing the instance is dangerous). The costs are asymmetric — being
-// wrong here spends one recompile per request on an app that is already failing
-// every request, whereas being wrong the other way lets the next request run on a
-// damaged heap and possibly commit a plausible-but-incorrect state root on-chain.
+// (where the recompile is wasted) from a heap bug that clobbered the result.
+// Being wrong here only spends one recompile per request on an app that is
+// already failing every request.
 var errGuestFault = errors.New("guest fault")
 
 // guestFaultError tags an error as a guest fault while leaving its message
@@ -156,18 +155,26 @@ func (r *WasmtimeRuntime) newModuleStore() *wasmtime.Store {
 	return store
 }
 
-// ApplicationModule contains the compiled module, its instantiated instance,
-// the module-specific store, the exported memory, and convenience handles.
+// ApplicationModule is used in two roles:
+//   - cache entry (WasmtimeRuntime.modules): the compiled module and the WASI log pipe of
+//     the app (module, logPipePath, cleanupFds), kept until the module is evicted or unloaded;
+//   - guest instance: a store and instance created for a single guest call (store,
+//     instance, memory, deallocate), released when the call ends. It does not own the
+//     compiled module, so closing it leaves the cache entry intact.
+//
+// Every call runs on a fresh instance because TinyGo guests never free large allocations,
+// so the linear memory of a long-lived instance only grows until it hits the memory cap.
 // Note: a Store represents module execution state and is not safe sharing one store across modules
 // and concurrent requests because that can lead to races or panics.
 type ApplicationModule struct {
-	store      *wasmtime.Store
-	module     *wasmtime.Module
-	instance   *wasmtime.Instance
-	memory     *wasmtime.Memory
-	deallocate *wasmtime.Func
-	cleanupFds func()
-	closeOnce  sync.Once
+	store       *wasmtime.Store
+	module      *wasmtime.Module
+	instance    *wasmtime.Instance
+	memory      *wasmtime.Memory
+	deallocate  *wasmtime.Func
+	logPipePath string
+	cleanupFds  func()
+	closeOnce   sync.Once
 }
 
 // Close releases all resources associated with the ApplicationModule.
@@ -198,6 +205,7 @@ func (m *ApplicationModule) Close() {
 		m.memory = nil
 		m.store = nil
 		m.deallocate = nil
+		m.logPipePath = ""
 	})
 }
 
@@ -219,7 +227,7 @@ type WasmtimeRuntime struct {
 	//
 	// Atomic rather than guarded by moduleLock, unlike maxGuestMemoryBytes, because
 	// it is read while arming a store and one of the arming sites
-	// (compileAndInstantiate) already holds moduleLock — a locking getter there
+	// (instantiate) already holds moduleLock — a locking getter there
 	// would deadlock.
 	guestExecutionTimeoutNs atomic.Int64
 
@@ -234,15 +242,15 @@ type WasmtimeRuntime struct {
 
 	// execLock serializes guest execution against module teardown. It is held for
 	// the whole duration of every operation that runs guest code or closes a
-	// module, so a store can never be freed while another goroutine is calling
-	// into it.
+	// module, so a cache entry can never be torn down while one of its instances
+	// is running.
 	//
-	// moduleLock alone is not sufficient: Deposit and ProcessRequest look the
-	// module up under moduleLock but release it before calling into the guest, so
-	// a concurrent load for a different appId could pick that same module as the
-	// LRU eviction victim and close its store mid-call. Since Close frees the
-	// native wasmtime state immediately rather than at a GC finalizer pass, that
-	// is a use-after-free — a native segfault inside the enclave.
+	// moduleLock alone is not sufficient: Deposit and ProcessRequest create their
+	// instance under moduleLock but release it before calling into the guest, so
+	// a concurrent load for a different appId could pick that app as the LRU
+	// eviction victim mid-call. The instance has its own store, but eviction closes
+	// the app's log pipe, which the running guest writes to. It also serializes a
+	// request retried by the manager after a timeout behind the attempt still running.
 	//
 	// The transport dispatches every inbound message in its own goroutine (see
 	// pkg/communication/shared_impl.go), so the only thing preventing this today
@@ -554,46 +562,54 @@ func (r *WasmtimeRuntime) writeToMemory(module *ApplicationModule, data []byte) 
 // Module loading / lifecycle
 // -----------------------------
 
-// TODO - this method most of times does not use the wasm bytes, because it will find the module already loaded, unless the executor has
+// TODO - this method most of times does not use the wasm bytes, because it will find the module already compiled, unless the executor has
 // undergo a restart, and the cache has to be populated again. This caching is also sub-optimal because every time the wasm bytes are passed along
 // without being used.
 // One approach could be that we use just the appId, and the executor asks to the manager for wasm bytes (that are stored in the dblayer) if it
 // does not find them in the cache.
+
+// getOrLoadModule returns a fresh instance of the module of appId for a single guest call,
+// compiling and caching the module on a cache miss. No guest initialization function is
+// called: the application state is supplied by the caller in every call.
+//
+// The caller owns the returned instance and must release it with releaseInstance once the
+// call is over, deferred deallocates included. Must be called with execLock held.
 func (r *WasmtimeRuntime) getOrLoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (*ApplicationModule, error) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
 
-	if module, exists := r.modules[appId]; exists {
-		r.touchModule(appId)
-		return module, nil
+	entry, cached := r.modules[appId]
+	if !cached {
+		var err error
+		entry, err = r.compileModule(appId, wasm)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load module: %w", err)
+		}
 	}
 
-	// Not cached: compile and instantiate the module without invoking any guest
-	// initialization function. The application state is supplied by the caller
-	// (loaded from persistent storage), so warming the cache needs no guest call.
-	appModule, err := r.compileAndInstantiate(ctx, appId, wasm)
+	inst, err := r.instantiate(ctx, entry)
 	if err != nil {
+		// A module that never instantiated is not cached. One already cached stays: its
+		// compiled code is unchanged, so recompiling it would not help.
+		if !cached {
+			entry.Close()
+		}
 		return nil, fmt.Errorf("failed to load module: %w", err)
 	}
 
-	r.modules[appId] = appModule
+	if !cached {
+		r.modules[appId] = entry
+		r.log.Info("Wasmtime Runtime: Successfully loaded WASM module for application %d", appId)
+	}
 	r.touchModule(appId)
 	r.evictIfNeeded()
-	r.log.Info("Wasmtime Runtime: Successfully loaded WASM module for application %d", appId)
-	return appModule, nil
+	return inst, nil
 }
 
-// compileAndInstantiate compiles the given WASM bytes, creates a per-module store with
-// WASI log pipes configured, instantiates the module through a WASI-enabled linker, and
-// resolves the exports required by every operation (the "memory" export and the optional
-// "deallocate" function). It returns a ready-to-use ApplicationModule.
-//
-// This is the shared setup used by both deployUnlocked and getOrLoadModule. It deliberately
-// does NOT call any guest function: each caller invokes the specific guest export it needs
-// (deploy, deposit, ...) afterwards. On any error it releases the log pipes it created; on
-// success, ownership of the module (and responsibility for cleanup) passes to the caller.
-func (r *WasmtimeRuntime) compileAndInstantiate(ctx context.Context, appId common.ApplicationIdType, wasm []byte) (*ApplicationModule, error) {
-	// Compile the WASM module
+// compileModule compiles the WASM bytes, checks their imports and opens the WASI log pipe
+// of the app. It runs no guest code. The returned cache entry is not stored: the caller
+// caches it or closes it.
+func (r *WasmtimeRuntime) compileModule(appId common.ApplicationIdType, wasm []byte) (*ApplicationModule, error) {
 	module, err := wasmtime.NewModule(r.engine, wasm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile WASM module: %w", err)
@@ -601,63 +617,67 @@ func (r *WasmtimeRuntime) compileAndInstantiate(ctx context.Context, appId commo
 
 	// Refuse a guest that could call out of the execution bound's reach, before
 	// anything of it runs. Compilation executes no guest code, but instantiation
-	// below does (a start section), so this is the last point where the module can
+	// does (a start section), so this is the last point where the module can
 	// still be rejected without having run at all. See guest_imports.go.
 	if err := checkGuestImportsAllowed(module); err != nil {
 		module.Close()
 		return nil, err
 	}
 
-	// Create a per-module store
-	store := r.newModuleStore()
-
-	// Registered as early as possible — immediately after the store exists and
-	// BEFORE configureWasiLogPipes — so that every failure path from here on
-	// releases the native state, including a log-pipe failure (mkfifo/open),
-	// which would otherwise fall back to a finalizer. cleanupLogPipes is declared
-	// up front and nil-checked, since it is only assigned below.
-	success := false
-	var cleanupLogPipes func()
-	defer func() {
-		if success {
-			return
-		}
-		if cleanupLogPipes != nil {
-			cleanupLogPipes()
-		}
-		// Release the native state explicitly on every failure path, for the same
-		// reason ApplicationModule.Close does it on eviction: the Go GC does not
-		// see the guest linear memory held by the store, so leaving it to a
-		// finalizer can keep hundreds of MB alive inside the enclave. Nothing else
-		// can close these — the module never reaches r.modules on these paths.
-		// This function registers no deallocate defers, so there is no ordering
-		// constraint here; deployUnlocked does, and relies on LIFO for it.
-		store.Close()
-		module.Close()
-	}()
-
-	cleanupLogPipes, err = r.configureWasiLogPipes(ctx, appId, store)
+	logPipePath, cleanupLogPipe, err := r.openLogPipe(appId)
 	if err != nil {
+		module.Close()
 		return nil, fmt.Errorf("failed to configure WASI log pipes: %w", err)
 	}
 
-	// Create WASI configuration and linker for TinyGo WASI imports
+	return &ApplicationModule{module: module, logPipePath: logPipePath, cleanupFds: cleanupLogPipe}, nil
+}
+
+// instantiate creates a store, with the guest memory cap and the app's log pipe, and a
+// fresh instance of a cached module in it, resolving the exports every operation needs
+// (the "memory" export and the optional "deallocate"). It calls no guest export: each
+// caller invokes the one it needs afterwards.
+//
+// The caller must release the instance with releaseInstance. Must be called with
+// moduleLock held (see newModuleStore).
+func (r *WasmtimeRuntime) instantiate(ctx context.Context, entry *ApplicationModule) (*ApplicationModule, error) {
+	if entry == nil || entry.module == nil {
+		return nil, fmt.Errorf("module not loaded")
+	}
+
+	store := r.newModuleStore()
+
+	// Release the native state explicitly on every failure path: the Go GC does not
+	// see the guest linear memory held by the store, so leaving it to a finalizer can
+	// keep hundreds of MB alive inside the enclave.
+	success := false
+	defer func() {
+		if !success {
+			store.Close()
+		}
+	}()
+
+	if err := r.attachLogPipe(store, entry.logPipePath); err != nil {
+		return nil, fmt.Errorf("failed to configure WASI log pipes: %w", err)
+	}
+
+	// Create the linker for TinyGo WASI imports. The instance does not depend on it.
 	linker := wasmtime.NewLinker(r.engine)
-	if err = linker.DefineWasi(); err != nil {
+	defer linker.Close()
+	if err := linker.DefineWasi(); err != nil {
 		return nil, fmt.Errorf("failed to define WASI: %w", err)
 	}
 
 	// Instantiating is not a purely static step: a module with a start section runs
 	// guest code here, before any export is ever called. So the store is armed first
 	// — an infinite loop in a start section would otherwise hang the executor exactly
-	// like a runaway export, and this path is reachable both from a deploy and from
-	// any cache-miss reload. Deferred after the cleanup defer above so that, defers
-	// being LIFO, the watcher is joined before the store is closed.
+	// like a runaway export, and this path runs on every guest call. Deferred after
+	// the cleanup defer above so that, defers being LIFO, the watcher is joined before
+	// the store is closed.
 	g := r.beginGuestExecution(ctx, store)
 	defer g.end()
 
-	// Instantiate the module using the module-specific store
-	instance, err := linker.Instantiate(store, module)
+	instance, err := linker.Instantiate(store, entry.module)
 	if err != nil {
 		return nil, g.wrapErr(err, "failed to instantiate WASM module")
 	}
@@ -675,28 +695,31 @@ func (r *WasmtimeRuntime) compileAndInstantiate(ctx context.Context, appId commo
 		return nil, fmt.Errorf("memory export is not a memory")
 	}
 
-	// Get the deallocate function (optional, but recommended for memory management)
-	deallocateFunc := instance.GetFunc(store, "deallocate")
+	success = true
+	return &ApplicationModule{
+		store:    store,
+		instance: instance,
+		memory:   memory,
+		// The deallocate function is optional, but recommended for memory management
+		deallocate: instance.GetFunc(store, "deallocate"),
+	}, nil
+}
 
-	appModule := &ApplicationModule{
-		store:      store,
-		module:     module,
-		instance:   instance,
-		memory:     memory,
-		deallocate: deallocateFunc,
-		cleanupFds: cleanupLogPipes,
-	}
-
-	success = true // Ownership of the module (and its log pipes) passes to the caller
-	return appModule, nil
+// releaseInstance discards a guest instance at the end of a call. Closing its store frees
+// the guest linear memory and the WASI descriptors of the log pipe immediately, rather
+// than at a finalizer pass; the cached module and the log pipe itself are untouched.
+//
+// Must run after every deallocate of the call, so callers defer it first.
+func (r *WasmtimeRuntime) releaseInstance(inst *ApplicationModule) {
+	inst.Close()
 }
 
 // Deploy loads a WASM module and initializes it with constructor parameters.
 // The guest export is deploy(appId, paramsPtr, paramsLen) -> resultPtr.
 //
-// This method is the deploy-time entry point: it compiles and instantiates the module (via
-// compileAndInstantiate), calls the guest's deploy function with constructor params, and
-// returns the initial application state.
+// This method is the deploy-time entry point: it compiles the module (compileModule), calls
+// the guest's deploy function with constructor params on a temporary instance, caches the
+// compiled module and returns the initial application state.
 func (r *WasmtimeRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
 	// Runs guest code (deploy) and may evict/close other modules.
 	r.execLock.Lock()
@@ -734,41 +757,49 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 		return nil, big.NewInt(0), fmt.Errorf("application %d is already deployed", appId)
 	}
 
-	// Compile and instantiate the module (shared setup with getOrLoadModule).
-	appModule, err := r.compileAndInstantiate(ctx, appId, wasm)
+	// Compile the module (shared setup with getOrLoadModule).
+	entry, err := r.compileModule(appId, wasm)
 	if err != nil {
 		return nil, big.NewInt(0), err
 	}
 
 	// Until the module is stored in the registry, this function owns it and must
-	// release it (and its log pipes) if any subsequent step fails.
+	// release it (and its log pipe) if any subsequent step fails.
 	success := false
 	defer func() {
 		if !success {
-			appModule.Close()
+			entry.Close()
 		}
 	}()
 
-	// Arm the store for the constructor call. compileAndInstantiate's window covered
+	// The constructor runs on a temporary instance, like any other guest call: only
+	// the compiled module is cached. Released before the entry cleanup above (LIFO).
+	appModule, err := r.instantiate(ctx, entry)
+	if err != nil {
+		return nil, big.NewInt(0), err
+	}
+	defer r.releaseInstance(appModule)
+
+	// Arm the store for the constructor call. instantiate's window covered
 	// instantiation only and its deadline is already spent, so this is a fresh one
 	// rather than a continuation — the deadline is absolute, not an allowance.
 	g := r.beginGuestExecution(ctx, appModule.store)
 	defer g.end()
 
-	// Unlike the request path, this function CACHES the instance rather than evicting
-	// it, and it does so before the deferred deallocate below has run — so whether
-	// cleanup was interrupted is not yet known at that point. This defer is therefore
-	// registered here, before the deallocate defer: LIFO runs it afterwards, when the
-	// flag is final. An interrupted cleanup means the allocator trapped mid-free, so
-	// the instance must not be cached even though the deploy itself succeeded; the
-	// deploy result stays valid and is still returned, and clearing success hands the
-	// module to the cleanup defer above.
+	// Unlike the request path, this function CACHES the module, and it does so before
+	// the deferred deallocate below has run — so whether cleanup was interrupted is not
+	// yet known at that point. This defer is therefore registered here, before the
+	// deallocate defer: LIFO runs it afterwards, when the flag is final. An interrupted
+	// cleanup means the allocator trapped mid-free; the instance is discarded anyway,
+	// and the module is not cached either, the same rule evictFaultedModule applies on
+	// the request path. The deploy result stays valid and is still returned, and
+	// clearing success hands the module to the cleanup defer above.
 	defer func() {
 		if !success || !g.cleanupWasInterrupted() {
 			return
 		}
 		r.log.Warn("Wasmtime Runtime: deploy of application %d succeeded but its cleanup was interrupted; "+
-			"discarding the instance, it will be rebuilt on the next request", appId)
+			"discarding the module, it will be rebuilt on the next request", appId)
 		delete(r.modules, appId)
 		r.removeFromAccessOrder(appId)
 		success = false
@@ -802,8 +833,6 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 		return nil, big.NewInt(0), fmt.Errorf("failed to extract deploy result bytes: %w", err)
 	}
 
-	r.log.Debug("Wasmtime Runtime: Raw result from WASM deploy: %s", string(resultBytes))
-
 	// Deserialize the result
 	var deployResult appCommon.DeployResult
 	if err := json.Unmarshal(resultBytes, &deployResult); err != nil {
@@ -817,7 +846,7 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 	success = true // Disables the deferred cleanup
 
 	// Store the module in the runtime registry and update LRU
-	r.modules[appId] = appModule
+	r.modules[appId] = entry
 	r.touchModule(appId)
 	r.evictIfNeeded()
 	r.log.Info("Wasmtime Runtime: Successfully deployed WASM module for application %d", appId)
@@ -836,9 +865,9 @@ func (r *WasmtimeRuntime) deployUnlocked(ctx context.Context, appId common.Appli
 func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, tokenAddress ethCommon.Address, depositAmount *big.Int, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, *big.Int, *apperrors.RequestFailure) {
 	r.log.Info("Wasmtime Runtime: Processing deposit for application %d (token: %v, value: %v wei for sender: %v)", appId, tokenAddress, depositAmount, sender)
 
-	// Held across the guest call: the module is fetched under moduleLock but
+	// Held across the guest call: the instance is created under moduleLock but
 	// executed after releasing it, so only execLock keeps a concurrent eviction
-	// from closing this store mid-call.
+	// from closing the app's log pipe mid-call. See the execLock declaration.
 	r.execLock.Lock()
 	defer r.execLock.Unlock()
 
@@ -864,6 +893,8 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 		}
 		return nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeInternalFallback, fmt.Sprintf("failed to get or load module: %v", err))
 	}
+	// Registered first so that it runs last, after every deallocate of this call.
+	defer r.releaseInstance(appModule)
 
 	// Bound the whole operation — the allocate calls below, the export, and the
 	// deferred deallocates all share one window. Created before the eviction defer
@@ -872,15 +903,14 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 	// execLock is released.
 	g := r.beginGuestExecution(ctx, appModule.store)
 
-	// Drop the module if the guest faults: its heap is left in an unknown state
-	// and must not serve the next request (see evictFaultedModule). Registered
-	// BEFORE the deallocate defers below so that, defers being LIFO, the store is
-	// closed only after those have run — closing it first would leave them
-	// calling into freed memory.
+	// Drop the cached module if the guest faults (see evictFaultedModule); the
+	// faulted instance itself is released at the end of the call anyway. Registered
+	// BEFORE the deallocate defers below so that, defers being LIFO, the app's log
+	// pipe is closed only after those have run — they are guest code too.
 	//
 	// cleanupWasInterrupted covers the case no checked call reports: a guest that
-	// returned a valid result and then had its deallocate interrupted still has an
-	// allocator that trapped mid-free, so the instance must go even though the
+	// returned a valid result and then had its deallocate interrupted has an
+	// allocator that trapped mid-free, so the module is dropped even though the
 	// request succeeded.
 	guestFaulted := false
 	defer func() {
@@ -944,8 +974,6 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 		return nil, nil, nil, big.NewInt(0), g.failure(err, apperrors.CodeFailedExtractingResultBytes, "failed to extract wasm module result bytes: %v", err)
 	}
 
-	r.log.Info("Wasmtime Runtime: Raw deposit result from WASM: %s", string(resultBytes))
-
 	// Deserialize the result
 	var depositResult appCommon.DepositResult
 	if err := json.Unmarshal(resultBytes, &depositResult); err != nil {
@@ -966,9 +994,9 @@ func (r *WasmtimeRuntime) Deposit(ctx context.Context, appId common.ApplicationI
 func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.ApplicationIdType, sender ethCommon.Address, requestType common.RequestType, payload []byte, state []byte, wasm []byte) ([]byte, []common.PlainEvent, []common.AppEvent, []common.Withdrawal, []byte, *big.Int, *apperrors.RequestFailure) {
 	r.log.Info("Wasmtime Runtime: Processing request for application %d (type: %s, payload size: %d, state size: %d)", appId, requestType, len(payload), len(state))
 
-	// Held across the guest call: the module is fetched under moduleLock but
+	// Held across the guest call: the instance is created under moduleLock but
 	// executed after releasing it, so only execLock keeps a concurrent eviction
-	// from closing this store mid-call.
+	// from closing the app's log pipe mid-call. See the execLock declaration.
 	r.execLock.Lock()
 	defer r.execLock.Unlock()
 
@@ -992,18 +1020,19 @@ func (r *WasmtimeRuntime) ProcessRequest(ctx context.Context, appId common.Appli
 		}
 		return nil, nil, nil, nil, nil, big.NewInt(0), apperrors.New(apperrors.CodeFailedLoadingOrGettingModule, fmt.Sprintf("failed to get or load module: %v", err))
 	}
+	// Registered first so that it runs last, after every deallocate of this call.
+	defer r.releaseInstance(appModule)
 
 	// Bound the whole operation — the allocate calls, whichever export is dispatched
 	// below, and the deferred deallocates all share one window. Created before the
 	// eviction defer so that defer can consult it; see Deposit for the ordering.
 	g := r.beginGuestExecution(ctx, appModule.store)
 
-	// Drop the module if the guest faults: its heap is left in an unknown state
-	// and must not serve the next request (see evictFaultedModule). Registered
-	// BEFORE the deallocate defers below so that, defers being LIFO, the store is
-	// closed only after those have run — closing it first would leave them
-	// calling into freed memory. Covers both the TrustProcess branch and the
-	// process_request path.
+	// Drop the cached module if the guest faults (see evictFaultedModule); the
+	// faulted instance itself is released at the end of the call anyway. Registered
+	// BEFORE the deallocate defers below so that, defers being LIFO, the app's log
+	// pipe is closed only after those have run. Covers both the TrustProcess branch
+	// and the process_request path.
 	//
 	// cleanupWasInterrupted covers an interrupted deallocate after a valid result;
 	// see Deposit.
@@ -1234,12 +1263,10 @@ func (r *WasmtimeRuntime) removeFromAccessOrder(appId common.ApplicationIdType) 
 	}
 }
 
-// cleanupModule releases all resources associated with a single ApplicationModule.
+// cleanupModule releases a cache entry: its compiled module and its log pipe.
 //
-// CONCURRENCY: module.Close() calls store.Close(), which frees the native
-// wasmtime state immediately (rather than at a GC finalizer pass), so it must
-// never run while another goroutine is calling into that store — that would be a
-// use-after-free, i.e. a native segfault inside the enclave. Callers must hold
+// CONCURRENCY: it must never run while an instance of the module is executing,
+// because that guest is writing to the log pipe being closed. Callers must hold
 // BOTH execLock and moduleLock: moduleLock alone does not cover the guest call,
 // because Deposit and ProcessRequest execute after releasing it. See the execLock
 // declaration for the full rationale and for what needs to change here to allow
@@ -1287,21 +1314,16 @@ func (r *WasmtimeRuntime) tryAcquireExecLock(timeout time.Duration) bool {
 }
 
 // evictFaultedModule drops a module from the cache after its guest faulted, so
-// that the next request for that app gets a freshly instantiated one.
+// that the next request for that app recompiles it from the wasm bytes.
 //
-// A trap unwinds the guest without running any of its cleanup, so the instance is
-// left with a heap in an unknown state: whatever was allocated before the trap is
-// never freed and the allocator's own bookkeeping may be inconsistent. Keeping
-// that instance in the LRU means the next request runs on the damaged heap, and
-// the leak accumulates until the module happens to be evicted for capacity. The
-// guest memory cap makes this materially more likely, since exceeding it makes
-// TinyGo panic (a trap) rather than growing memory.
-//
-// Cheap by design: the cost of being wrong here is one recompile plus
-// re-instantiation on the next request for that app.
+// A trap unwinds the guest without running any of its cleanup, leaving its heap in
+// an unknown state. That instance is never reused: every call runs on a fresh one
+// and releases it at the end. The compiled code cannot be damaged by a guest, so
+// this eviction is conservative rather than required for heap safety; it costs one
+// recompile on the next request for that app.
 //
 // Must be called with execLock held and moduleLock NOT held — it closes the
-// store, see cleanupModule.
+// app's log pipe, see cleanupModule.
 func (r *WasmtimeRuntime) evictFaultedModule(appId common.ApplicationIdType) {
 	r.moduleLock.Lock()
 	defer r.moduleLock.Unlock()
@@ -1433,8 +1455,8 @@ func (r *WasmtimeRuntime) GetMaxCachedModules() int {
 }
 
 // SetMaxGuestMemoryBytes updates the per-guest linear memory cap. The cap is
-// applied to stores created from now on; modules already cached keep the cap
-// they were created with. Values <= 0 or above the 2 GiB ABI ceiling are
+// applied to stores created from now on, i.e. from the next guest call, cached
+// modules included: every call creates its own store. Values <= 0 or above the 2 GiB ABI ceiling are
 // replaced with the ceiling (see maxGuestMemoryCeilingBytes) and reported.
 // Clamps rather than rejecting (unlike pkg/executor.Config.Validate, which fails
 // at start-up) so a late call cannot take a running enclave down.
@@ -1478,14 +1500,14 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats(ctx context.Context, appId com
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
 	}
+	defer r.releaseInstance(appModule) // runs last, after the deallocate below
 
 	// Bounded like the request path: these run guest code too. Created before the
 	// eviction defer so that defer can consult it; see Deposit for the ordering.
 	g := r.beginGuestExecution(ctx, appModule.store)
 
-	// Same rule as the request path: a guest that faults leaves its heap in an unknown
-	// state and must not serve the next call. Registered BEFORE the deallocate defer
-	// below so LIFO closes the store only after that has run.
+	// Same rule as the request path: a guest fault drops the cached module.
+	// Registered BEFORE the deallocate defer below so LIFO runs it only after that.
 	guestFaulted := false
 	defer func() {
 		if guestFaulted || g.cleanupWasInterrupted() {
@@ -1571,6 +1593,7 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get or load module: %w", err)
 	}
+	defer r.releaseInstance(appModule) // runs last, after the deallocate below
 
 	// Bounded like the request path: these run guest code too.
 	g := r.beginGuestExecution(ctx, appModule.store)
@@ -1621,10 +1644,11 @@ func (r *WasmtimeRuntime) GetAllocatedMemoryStats2(ctx context.Context, appId co
 	return mem_size, total_bytes, nil
 }
 
-func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.ApplicationIdType, store *wasmtime.Store) (func(), error) {
-	// create a new WASI config
-	wasiConfig := wasmtime.NewWasiConfig()
-
+// openLogPipe creates the named pipe that captures the WASI output of an app and the
+// goroutine forwarding it to the host log. The pipe lives as long as the cached module:
+// every guest instance of the app attaches to it (attachLogPipe). The returned cleanup
+// closes the pipe and removes its path.
+func (r *WasmtimeRuntime) openLogPipe(appId common.ApplicationIdType) (string, func(), error) {
 	// Create a named pipe to capture WASI output
 	r.log.Info("Creating named log pipe")
 	// add a nanosecond timestamp to the path to prevent collisions between concurrent module loads
@@ -1636,26 +1660,31 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 	// Create the FIFO (Named Pipe)
 	if err := syscall.Mkfifo(fifoPath, 0600); err != nil {
 		r.log.Error("Error creating pipe")
-		return nil, fmt.Errorf("failed to create log pipe: %w", err)
+		return "", nil, fmt.Errorf("failed to create log pipe: %w", err)
 	}
 
-	// immediate Unlink after creation (The file disappears from /tmp but data flows)
-	// this is especially useful in the enclave environment, where we have a RAMFS file system
-	defer os.Remove(fifoPath)
+	// The path stays until cleanup, because every new guest instance opens it for writing.
+	// A FIFO holds no data on the file system, so this is cheap also on the enclave RAMFS.
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(fifoPath)
+		}
+	}()
 
 	// we use this for avoiding that the Reader OpenFile(O_RDONLY) blocks waiting for the WASI writer to connect
 	// this Dummy writer must stay open until cleanup, otherwise will send EOF to the reader below
 	// (reader blocking is potentially dangerous in edge cases on some error path for races, resource dangling and panics)
 	dummyWriter, err := os.OpenFile(fifoPath, os.O_RDWR, 0600)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open dummy fifo writer: %w", err)
+		return "", nil, fmt.Errorf("failed to open dummy fifo writer: %w", err)
 	}
 
 	// Open the reader on main thread - won't block because dummyWriter is already connected
 	readerFile, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
 	if err != nil {
 		dummyWriter.Close()
-		return nil, fmt.Errorf("failed to open fifo reader: %w", err)
+		return "", nil, fmt.Errorf("failed to open fifo reader: %w", err)
 	}
 
 	// Channel to signal goroutine termination
@@ -1767,13 +1796,12 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		r.log.Debug("WASM log pipe reader exited for app %d", appId)
 	}()
 
-	// This helper cleanup func will be also used when the module is disposed of.
+	// This helper cleanup func is used when the module is disposed of.
 	// We should call it when we unload a module otherwise we might leak file descriptors.
 	// Note: the closure maintains all necessary state to coordinate cleanup with the background goroutine, regardless of when or where it's invoked
 	// ---
-	// Because the wasmtime map holds the reference to a module, the GC cannot touch the module and all associated resources.
-	//     Map->ApplicationModule->store->writer fd open->go routine blocked->reader fd open
-	// therefore for every WASM module 2 fds are leaked and a go routine is alive in bg (beside the allocated memory)
+	// The dummy writer keeps the reader goroutine alive between guest calls, so for every
+	// cached module 2 fds and a goroutine stay open until this runs.
 	cleanupFileDescriptors := func() {
 		r.log.Info("Closing log pipe FDs for app %d", appId)
 
@@ -1787,6 +1815,7 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		if err := readerFile.Close(); err != nil {
 			r.log.Warn("Failed to close reader FD: %v", err)
 		}
+		_ = os.Remove(fifoPath)
 
 		// Brief wait for goroutine to complete. The loop in the goroutine
 		// handles os.ErrClosed, so this is safe and deterministic.
@@ -1798,24 +1827,21 @@ func (r *WasmtimeRuntime) configureWasiLogPipes(_ context.Context, appId common.
 		}
 	}
 
-	r.log.Info("Installing log pipes")
-	// Configure WASI to use the 'write' end of our pipe
-	err = wasiConfig.SetStdoutFile(fifoPath)
-	if err != nil {
-		cleanupFileDescriptors()
-		return nil, fmt.Errorf("failed to install stdout to pipe: %w", err)
-	}
-	r.log.Info("Installed stdout log pipe")
+	success = true
+	return fifoPath, cleanupFileDescriptors, nil
+}
 
-	err = wasiConfig.SetStderrFile(fifoPath)
-	if err != nil {
-		cleanupFileDescriptors()
-		return nil, fmt.Errorf("failed to install stderr to pipe: %w", err)
+// attachLogPipe gives a guest store its WASI configuration: stdout and stderr write to
+// the log pipe of the app, and nothing else is exposed (stdin stays wasmtime's default
+// empty stream, nothing is preopened). The descriptors are released with the store.
+func (r *WasmtimeRuntime) attachLogPipe(store *wasmtime.Store, fifoPath string) error {
+	wasiConfig := wasmtime.NewWasiConfig()
+	if err := wasiConfig.SetStdoutFile(fifoPath); err != nil {
+		return fmt.Errorf("failed to install stdout to pipe: %w", err)
 	}
-	r.log.Info("Installed stderr log pipe")
-
-	// attach WASI config to the store
+	if err := wasiConfig.SetStderrFile(fifoPath); err != nil {
+		return fmt.Errorf("failed to install stderr to pipe: %w", err)
+	}
 	store.SetWasi(wasiConfig)
-
-	return cleanupFileDescriptors, nil
+	return nil
 }

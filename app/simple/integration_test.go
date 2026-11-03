@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
-	"sync"
 	"testing"
 
 	velacommon "github.com/HorizenOfficial/vela-common-go/common"
@@ -195,20 +194,6 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(events[0].Data, &eventData)
 	require.NoError(t, err)
 	t.Log("Event:\n", testutil.PrettyPrintJSON(eventData))
-
-	// check we have no memory leaks
-	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), mem_map_entries)
-	require.Equal(t, int64(0), total_allocated_bytes)
-	t.Logf("stats - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
-
-	// use an alternative implementation of the function
-	mem_map_entries, total_allocated_bytes, err = runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), mem_map_entries)
-	require.Equal(t, int64(0), total_allocated_bytes)
-	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 }
 
 func TestSimpleAppIntegration_NullPayload(t *testing.T) {
@@ -439,222 +424,6 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 	})
 }
 
-func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
-	// Build and load the wasm module
-	wasmBytes := buildAndLoadWasmModule(t)
-
-	// Create a new wasmtime runtime with limited memory to make leaks surface faster.
-	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
-	defer runtime.Close()
-
-	ctx := context.Background()
-
-	initialStateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
-	require.NoError(t, err)
-
-	// Mutex to protect access to the shared WASM runtime instance
-	// Note this might not be enough, due to the stateful nature of the underlying Wasm instance and store which are being shared and reused across all goroutines.
-	// See TODO at the end
-	var runtimeMutex sync.Mutex
-
-	// Repeatedly make calls and check mem is ok
-	// TODO - we use 1 only routine until we will have a correct handling of wasm runtime concurrency (see TODO below), otherwise we might have sporadic failures
-	const numGoroutines = 1
-	const iterationsPerGoroutine = 40
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	for i := range numGoroutines {
-		go func(goroutineIndex int) {
-			defer wg.Done()
-			stateBytes := initialStateBytes
-			for j := 0; j < iterationsPerGoroutine; j++ {
-				iterationIndex := goroutineIndex*iterationsPerGoroutine + j
-				depositAmount := big.NewInt(1)
-				userAddress, err := types.HexToAddress(fmt.Sprintf("0xadd%037d", iterationIndex))
-				require.NoError(t, err)
-
-				runtimeMutex.Lock()
-				newStateBytes, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), velacommon.ETH_TOKEN, depositAmount, stateBytes, wasmBytes)
-				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
-				stateBytes = newStateBytes
-				runtimeMutex.Unlock()
-
-				// Process a withdraw request for the current user
-				withdrawAmount := big.NewInt(1)
-				withdrawInstruction := app.WithdrawInstruction{
-					To:     recipient1Address,
-					Amount: new(types.Uint256).SetBytes(withdrawAmount.Bytes()),
-				}
-				withdrawPayload := app.PayloadInstructions{
-					Type:     "withdraw",
-					Withdraw: &withdrawInstruction,
-				}
-				withdrawPayloadBytes, ret := json.Marshal(withdrawPayload)
-				require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
-
-				runtimeMutex.Lock()
-				processStateBytes, _, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), common.Process, withdrawPayloadBytes, stateBytes, wasmBytes)
-				require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
-				stateBytes = processStateBytes
-				runtimeMutex.Unlock()
-
-				// Generate deanonymization report via ProcessRequest with type "deanonymize"
-				deanonPayload := app.PayloadInstructions{
-					Type:        "deanonymize",
-					Deanonymize: &app.DeanonymizeInstruction{IncludeTag: fmt.Sprintf("memory_stress_report_%d", iterationIndex)},
-				}
-				deanonPayloadBytes, ret := json.Marshal(deanonPayload)
-				require.NoError(t, ret, "failed to marshal deanonymize payload at iteration %d", iterationIndex)
-				runtimeMutex.Lock()
-				deanonStateBytes, _, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), common.Deanonymize, deanonPayloadBytes, stateBytes, wasmBytes)
-				require.Nil(t, err, "Deanonymize ProcessRequest failed at iteration %d", iterationIndex)
-				stateBytes = deanonStateBytes
-				runtimeMutex.Unlock()
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), mem_map_entries)
-	require.Equal(t, int64(0), total_allocated_bytes)
-	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
-
-	// TODO -  The correct approach would be creating a new wasmtime.Instance for each concurrent operation.
-	// While the wasmtime.Store and compiled wasmtime.Module can be shared, the wasmtime.Instance must be unique per goroutine.
-	// We should:
-	// 1. Separate the compiled module from the instance. The ApplicationModule should only contain the compiled wasmtime.Module,
-	// not the wasmtime.Instance.
-	// 2. Instantiate on demand. The Deposit, ProcessRequest, and other execution functions should get the shared wasmtime.Module
-	// from the cache, and then create a brand new wasmtime.Instance for the duration of that specific function call
-}
-
-// requireMemoryClean is a helper that checks guest memory is fully deallocated.
-func requireMemoryClean(t *testing.T, runtime *vela_wasm.WasmtimeRuntime, wasmBytes []byte, errMsg string) {
-	t.Helper()
-	ctx := context.Background()
-	mapEntries, totalBytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), mapEntries, errMsg)
-	require.Equal(t, int64(0), totalBytes, errMsg)
-}
-
-// TestSimpleAppIntegration_MemoryCleanBetweenOps verifies that BytesToPtr allocations
-// (created by SerializeAndWriteResult inside the WASM guest) are fully deallocated after
-// each host call. This exercises the allocate -> BytesToPtr -> extractResultBytes -> deallocate
-// round-trip that cannot be unit-tested in native 64-bit Go.
-func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
-	wasmBytes := buildAndLoadWasmModule(t)
-	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
-	defer runtime.Close()
-
-	ctx := context.Background()
-
-	// Deploy: exercises SerializeAndWriteResult for DeployResult
-	stateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
-	require.NoError(t, err)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after Deploy")
-
-	// Deposit: exercises SerializeAndWriteResult for DepositResult (with events)
-	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(5000), stateBytes, wasmBytes)
-	require.Nil(t, failure)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after Deposit")
-
-	// ProcessRequest (withdraw): exercises SerializeAndWriteResult for ProcessResult (with events + withdrawals)
-	payload := app.PayloadInstructions{
-		Type: "withdraw",
-		Withdraw: &app.WithdrawInstruction{
-			To:     recipient1Address,
-			Amount: types.NewUint256(100),
-		},
-	}
-	payloadBytes, err := json.Marshal(payload)
-	require.NoError(t, err)
-
-	stateBytes, _, _, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
-	require.Nil(t, failure2)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (withdraw)")
-
-	// Deposit a second user so we can compare
-	stateBytes, _, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), velacommon.ETH_TOKEN, big.NewInt(3000), stateBytes, wasmBytes)
-	require.Nil(t, failure)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after second Deposit")
-
-	// ProcessRequest (compare): different result shape
-	payload2 := app.PayloadInstructions{
-		Type: "compare_addresses",
-		CompareAccounts: &app.CompareInstructions{
-			TargetAddress: user2Address,
-		},
-	}
-	payloadBytes2, err := json.Marshal(payload2)
-	require.NoError(t, err)
-
-	stateBytes, _, _, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes2, stateBytes, wasmBytes)
-	require.Nil(t, failure2)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (compare)")
-
-	// 4. Generate deanonymization report via ProcessRequest with type "deanonymize"
-	deanonPayload := app.PayloadInstructions{
-		Type:        "deanonymize",
-		Deanonymize: &app.DeanonymizeInstruction{IncludeTag: "my_custom_tag"},
-	}
-	payloadBytes, err = json.Marshal(deanonPayload)
-	require.NoError(t, err)
-
-	_, _, _, _, _, _, failure = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, stateBytes, wasmBytes)
-
-	require.Nil(t, failure)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after GenerateDeanonymizationReport")
-}
-
-// TestSimpleAppIntegration_ErrorPathMemory verifies that error results returned by the guest
-// (which still use SerializeAndWriteResult -> BytesToPtr) do not leak memory.
-func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
-	wasmBytes := buildAndLoadWasmModule(t)
-	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
-	defer runtime.Close()
-
-	ctx := context.Background()
-
-	stateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
-	require.NoError(t, err)
-
-	// Deposit so user1 has a balance
-	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(100), stateBytes, wasmBytes)
-	require.Nil(t, failure)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after initial deposit")
-
-	// Trigger error: withdraw more than balance.
-	// The guest returns an error result via SerializeAndWriteResult -> BytesToPtr.
-	payload := app.PayloadInstructions{
-		Type: "withdraw",
-		Withdraw: &app.WithdrawInstruction{
-			To:     recipient1Address,
-			Amount: types.NewUint256(9999),
-		},
-	}
-	payloadBytes, err := json.Marshal(payload)
-	require.NoError(t, err)
-
-	_, _, _, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
-	require.NotNil(t, failure2, "expected error for insufficient balance")
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result from ProcessRequest")
-
-	// Trigger error: non-existent account
-	_, _, _, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user2Address), common.Process, payloadBytes, stateBytes, wasmBytes)
-	require.NotNil(t, failure2, "expected error for non-existent account")
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for non-existent account")
-
-	// Trigger error: invalid state
-	_, _, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(100), []byte("{bad-json}"), wasmBytes)
-	require.NotNil(t, failure, "expected error for invalid state")
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for invalid state")
-}
-
 // TestSimpleAppIntegration_LargeResultRoundTrip exercises BytesToPtr with a large JSON payload.
 // By depositing to many accounts and then generating a report, the guest serializes a large
 // result that stresses the allocate -> BytesToPtr -> extractResultBytes -> deallocate pipeline.
@@ -704,9 +473,6 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "my_custom_tag", report.Tag)
 	require.Len(t, report.Accounts, numAccounts)
-
-	// Verify no memory leaked despite the large allocation
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after large result round-trip")
 }
 
 // --- ERC-20 integration tests ---

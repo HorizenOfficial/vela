@@ -328,3 +328,32 @@ func TestValidate_LogPortZeroAccepted(t *testing.T) {
 
 	require.NoError(t, cfg.Validate())
 }
+
+func TestLoadConfig_MaxAppStateSize_DefaultsTo10MiB(t *testing.T) {
+	t.Setenv("EXECUTOR_MAX_APP_STATE_SIZE", "")
+	t.Setenv("EXECUTOR_KEYSET_RECOVERY_TYPE", "")
+	cfg := loadConfigFromFile(t, "EXECUTOR_KEYSET_RECOVERY_TYPE=0\n")
+	require.Equal(t, 10*1024*1024, cfg.MaxAppStateSize)
+}
+
+func TestLoadConfig_MaxAppStateSize_FromEnv(t *testing.T) {
+	t.Setenv("EXECUTOR_MAX_APP_STATE_SIZE", "2048")
+	t.Setenv("EXECUTOR_KEYSET_RECOVERY_TYPE", "")
+	cfg := loadConfigFromFile(t, "EXECUTOR_KEYSET_RECOVERY_TYPE=0\n")
+	require.Equal(t, 2048, cfg.MaxAppStateSize)
+}
+
+func TestValidate_MaxAppStateSize_Zero_DisablesTheLimit(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.MaxAppStateSize = 0
+	require.NoError(t, cfg.Validate())
+}
+
+func TestValidate_MaxAppStateSize_Negative(t *testing.T) {
+	cfg := validExecutorConfig()
+	cfg.MaxAppStateSize = -1
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "EXECUTOR_MAX_APP_STATE_SIZE")
+}

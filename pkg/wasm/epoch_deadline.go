@@ -166,9 +166,9 @@ type guestExecution struct {
 
 	// cleanupInterrupted records an interrupt during a fire-and-forget cleanup call
 	// — a deallocate, whose error the host otherwise drops. Without it, a guest that
-	// returns a valid result and then hangs in deallocate would stay cached with an
-	// allocator that trapped mid-free, which is the damaged heap evictFaultedModule
-	// exists to drop. See noteCleanupCall.
+	// returns a valid result and then hangs in deallocate would not be treated as a
+	// fault, and its module would stay cached (see evictFaultedModule). See
+	// noteCleanupCall.
 	cleanupInterrupted atomic.Bool
 }
 
@@ -182,7 +182,7 @@ func (g *guestExecution) noteCleanupCall(err error) {
 }
 
 // cleanupWasInterrupted reports whether any cleanup call in this window was
-// interrupted, meaning the instance must not serve another request even though the
+// interrupted, meaning the module is dropped like after a fault even though the
 // operation itself may have succeeded.
 func (g *guestExecution) cleanupWasInterrupted() bool {
 	return g.cleanupInterrupted.Load()

@@ -839,13 +839,10 @@ func TestGuestTableGrowthIsBounded(t *testing.T) {
 	require.NoError(t, err)
 
 	appId := common.NewApplicationId(1)
-	_, err = runtime.getOrLoadModule(context.Background(), appId, wasmBytes)
+	module, err := runtime.getOrLoadModule(context.Background(), appId, wasmBytes)
 	require.NoError(t, err, "the module itself is within the limits")
-
-	runtime.moduleLock.RLock()
-	module := runtime.modules[appId]
-	runtime.moduleLock.RUnlock()
 	require.NotNil(t, module)
+	defer runtime.releaseInstance(module)
 
 	res, err := module.instance.GetFunc(module.store, "grow").Call(module.store)
 	require.NoError(t, err, "a refused table.grow reports failure, it does not trap")
@@ -901,8 +898,8 @@ func TestSignatureMismatchKeepsModuleCached(t *testing.T) {
 // TestGuestTableIsBounded verifies that table storage is capped, not just linear
 // memory. Table elements live outside the guest's memory, so an unbounded element
 // count would let a module commit gigabytes regardless of
-// EXECUTOR_MAX_GUEST_MEMORY_BYTES — falsifying the
-// "MaxCachedModules * MaxGuestMemoryBytes" sizing rule the config documents.
+// EXECUTOR_MAX_GUEST_MEMORY_BYTES — falsifying the enclave RAM budget the config
+// documents (about one MaxGuestMemoryBytes of linear memory at a time).
 func TestGuestTableIsBounded(t *testing.T) {
 	runtime := NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
@@ -932,8 +929,13 @@ func TestDuplicateDeployIsRejectedAndKeepsCachedModule(t *testing.T) {
 	appId := common.NewApplicationId(1)
 	ctx := context.Background()
 
-	original, err := runtime.getOrLoadModule(ctx, appId, wasmBytes)
+	warm, err := runtime.getOrLoadModule(ctx, appId, wasmBytes)
 	require.NoError(t, err)
+	runtime.releaseInstance(warm)
+
+	runtime.moduleLock.RLock()
+	original := runtime.modules[appId]
+	runtime.moduleLock.RUnlock()
 
 	_, _, err = runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.Error(t, err, "a deploy for an already-cached appId must be rejected")
@@ -944,10 +946,13 @@ func TestDuplicateDeployIsRejectedAndKeepsCachedModule(t *testing.T) {
 	runtime.moduleLock.RUnlock()
 	require.Same(t, original, cached, "the original module must stay cached, not be replaced or dropped")
 
-	// The original's store must have survived the rejected duplicate's cleanup:
+	// The original must have survived the rejected duplicate's cleanup:
 	// calling into it would fail (or panic) if the guard's error path had torn
 	// down the wrong module.
-	res, err := cached.instance.GetFunc(cached.store, "allocate").Call(cached.store, int32(1))
+	inst, err := runtime.getOrLoadModule(ctx, appId, nil)
+	require.NoError(t, err)
+	defer runtime.releaseInstance(inst)
+	res, err := inst.instance.GetFunc(inst.store, "allocate").Call(inst.store, int32(1))
 	require.NoError(t, err, "the original module must remain usable after the rejected deploy")
 	require.Equal(t, int32(500), res)
 }
