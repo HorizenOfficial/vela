@@ -209,6 +209,55 @@ func TestRecycledInstancesAreReleased(t *testing.T) {
 	require.LessOrEqual(t, openFds(t), baseline+10, "open fds grew from %d", baseline)
 }
 
+// TestGuestCallsWaitForTheExecutionLock checks that guest calls are serialized: a request
+// retried after a timeout must wait for the previous attempt instead of running beside it.
+func TestGuestCallsWaitForTheExecutionLock(t *testing.T) {
+	wasmBytes := recycleTestWasm(t)
+	ctx := context.Background()
+	calls := map[string]func(r *WasmtimeRuntime) error{
+		"ProcessRequest": func(r *WasmtimeRuntime) error {
+			_, _, _, _, _, _, failure := r.ProcessRequest(ctx, common.NewApplicationId(1), ethCommon.Address{}, common.Process, []byte("{}"), []byte("{}"), wasmBytes)
+			if failure != nil {
+				return failure
+			}
+			return nil
+		},
+		"Deposit": func(r *WasmtimeRuntime) error {
+			_, _, _, _, failure := r.Deposit(ctx, common.NewApplicationId(1), ethCommon.Address{}, ethCommon.Address{}, big.NewInt(1), []byte("{}"), wasmBytes)
+			if failure != nil {
+				return failure
+			}
+			return nil
+		},
+		"Deploy": func(r *WasmtimeRuntime) error {
+			_, _, err := r.Deploy(ctx, common.NewApplicationId(2), nil, wasmBytes)
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			runtime := NewWasmtimeRuntime(testLogger, 0)
+			defer runtime.Close()
+
+			runtime.execLock.Lock() // a call in progress
+			done := make(chan error, 1)
+			go func() { done <- call(runtime) }()
+			select {
+			case err := <-done:
+				t.Fatalf("%s ran while another guest call held the execution lock (err: %v)", name, err)
+			case <-time.After(200 * time.Millisecond):
+			}
+			runtime.execLock.Unlock()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%s did not run after the execution lock was released", name)
+			}
+		})
+	}
+}
+
 // TestGuestOutputStillReachesTheLog checks that every per-call instance writes to the
 // app's log pipe, which outlives the instances.
 func TestGuestOutputStillReachesTheLog(t *testing.T) {

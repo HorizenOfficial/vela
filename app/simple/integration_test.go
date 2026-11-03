@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 
 	velacommon "github.com/HorizenOfficial/vela-common-go/common"
@@ -384,7 +385,7 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 		require.Contains(t, err.Error(), "failed to compile WASM module")
 	})
 
-	// For other functions, the error will come from getOrLoadModule -> compileAndInstantiate
+	// For other functions, the error will come from getOrLoadModule -> compileModule
 	t.Run("deposit with nil wasm", func(t *testing.T) {
 		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(1000), initialStateBytes, nil)
 		require.Error(t, err)
@@ -422,6 +423,82 @@ func TestSimpleAppIntegration_InvalidState(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Failed to parse application state")
 	})
+}
+
+func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
+	// Build and load the wasm module
+	wasmBytes := buildAndLoadWasmModule(t)
+
+	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
+	defer runtime.Close()
+
+	ctx := context.Background()
+
+	initialStateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
+	require.NoError(t, err)
+
+	// Mutex to protect access to the shared WASM runtime instance
+	var runtimeMutex sync.Mutex
+
+	// Repeatedly make calls on the real guest
+	// TODO - we use 1 only routine until we will have a correct handling of wasm runtime concurrency, otherwise we might have sporadic failures
+	const numGoroutines = 1
+	const iterationsPerGoroutine = 40
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	for i := range numGoroutines {
+		go func(goroutineIndex int) {
+			defer wg.Done()
+			stateBytes := initialStateBytes
+			for j := 0; j < iterationsPerGoroutine; j++ {
+				iterationIndex := goroutineIndex*iterationsPerGoroutine + j
+				depositAmount := big.NewInt(1)
+				userAddress, err := types.HexToAddress(fmt.Sprintf("0xadd%037d", iterationIndex))
+				require.NoError(t, err)
+
+				runtimeMutex.Lock()
+				newStateBytes, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(userAddress), velacommon.ETH_TOKEN, depositAmount, stateBytes, wasmBytes)
+				require.Nil(t, err, "deposit failed at iteration %d", iterationIndex)
+				stateBytes = newStateBytes
+				runtimeMutex.Unlock()
+
+				// Process a withdraw request for the current user
+				withdrawAmount := big.NewInt(1)
+				withdrawInstruction := app.WithdrawInstruction{
+					To:     recipient1Address,
+					Amount: new(types.Uint256).SetBytes(withdrawAmount.Bytes()),
+				}
+				withdrawPayload := app.PayloadInstructions{
+					Type:     "withdraw",
+					Withdraw: &withdrawInstruction,
+				}
+				withdrawPayloadBytes, ret := json.Marshal(withdrawPayload)
+				require.NoError(t, ret, "failed to marshal withdraw payload at iteration %d", iterationIndex)
+
+				runtimeMutex.Lock()
+				processStateBytes, _, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), common.Process, withdrawPayloadBytes, stateBytes, wasmBytes)
+				require.Nil(t, err, "ProcessRequest failed at iteration %d", iterationIndex)
+				stateBytes = processStateBytes
+				runtimeMutex.Unlock()
+
+				// Generate deanonymization report via ProcessRequest with type "deanonymize"
+				deanonPayload := app.PayloadInstructions{
+					Type:        "deanonymize",
+					Deanonymize: &app.DeanonymizeInstruction{IncludeTag: fmt.Sprintf("memory_stress_report_%d", iterationIndex)},
+				}
+				deanonPayloadBytes, ret := json.Marshal(deanonPayload)
+				require.NoError(t, ret, "failed to marshal deanonymize payload at iteration %d", iterationIndex)
+				runtimeMutex.Lock()
+				deanonStateBytes, _, _, _, _, _, err := runtime.ProcessRequest(ctx, appId, ethCommon.Address(userAddress), common.Deanonymize, deanonPayloadBytes, stateBytes, wasmBytes)
+				require.Nil(t, err, "Deanonymize ProcessRequest failed at iteration %d", iterationIndex)
+				stateBytes = deanonStateBytes
+				runtimeMutex.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }
 
 // TestSimpleAppIntegration_LargeResultRoundTrip exercises BytesToPtr with a large JSON payload.

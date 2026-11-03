@@ -202,7 +202,7 @@ func TestTimedOutDeployIsSignedOnChain(t *testing.T) {
 	for name, deployErr := range map[string]error{
 		"deploy export": fmt.Errorf("failed to call deploy: %w", apperrors.ErrGuestExecutionTimeout),
 		// The longest nesting the deploy path can produce: an interrupt during
-		// instantiation, wrapped by compileAndInstantiate, then getOrLoadModule.
+		// instantiation, wrapped by instantiate, then getOrLoadModule.
 		"start section": fmt.Errorf("failed to load module: failed to instantiate WASM module: %w",
 			apperrors.ErrGuestExecutionTimeout),
 	} {
