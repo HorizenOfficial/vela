@@ -50,6 +50,23 @@ jobs:
       - name: Download Go dependencies
         run: go mod download
 
+      # Wasmtime is a prebuilt libwasmtime.a inside wasmtime-go, so neither Dependabot
+      # nor govulncheck reports its advisories (CVE-2026-115889/115893 went unflagged).
+      # Raise MIN_WASMTIME_GO whenever a new Wasmtime advisory is fixed upstream.
+      - name: Check wasmtime-go is at a patched version
+        env:
+          MIN_WASMTIME_GO: v50.0.0
+        run: |
+          found=$(go list -m all | awk '$1 ~ /^github\.com\/bytecodealliance\/wasmtime-go(\/v[0-9]+)?$/ {print $2}')
+          if [ "$(echo "$found" | grep -c .)" -ne 1 ]; then
+            echo "expected exactly one wasmtime-go module, found: '${found}'"; exit 1
+          fi
+          lowest=$(printf '%s\n%s\n' "$found" "$MIN_WASMTIME_GO" | sort -V | head -1)
+          if [ "$lowest" != "$MIN_WASMTIME_GO" ]; then
+            echo "wasmtime-go ${found} is below the patched floor ${MIN_WASMTIME_GO}"; exit 1
+          fi
+          echo "wasmtime-go ${found} >= ${MIN_WASMTIME_GO}"
+
       # Install solc
       - name: Install solc
         run: |

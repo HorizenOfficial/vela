@@ -282,8 +282,11 @@ Pinning `memory64` off is not only an ABI matter: it also neutralised
 
 One gap to be aware of: a few flags exist in Wasmtime's C API but are not wrapped by
 `wasmtime-go`, so they cannot be pinned from Go and stay at upstream defaults. As of
-v47 those are `shared_memory`, branch hinting, custom page sizes, stack switching, and
-the component-model sub-flags — all documented `false` by default. `shared_memory` is
+v50 those are `shared_memory`, branch hinting, custom page sizes, compact imports, stack
+switching, and the component-model sub-flags — all documented `false` by default.
+Documented defaults are not trusted on their own: v50's default engine accepts both
+exceptions and wide arithmetic although its `config.h` documents both as `false`, which
+is why every flag that *can* be pinned is. `shared_memory` is
 worth singling out: it gates shared-memory creation, which is the same per-memory RAM
 accounting concern the threads pin exists to address, so it is unpinnable rather than
 unimportant. Re-check when upgrading, in case the bindings begin exposing them.
