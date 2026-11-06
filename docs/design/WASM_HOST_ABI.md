@@ -133,9 +133,30 @@ Replacing it with host-metered fuel is a separate, tracked change.
 2 GiB and is configurable with `EXECUTOR_MAX_GUEST_MEMORY_BYTES`, which may lower it
 but not raise it. 2 GiB is a hard ABI ceiling, not a tuning choice: the host
 exchanges guest pointers as **signed** 32-bit offsets, so no valid offset may reach
-2^31. Worst-case enclave RAM is roughly `EXECUTOR_MAX_CACHED_MODULES` ×
-`EXECUTOR_MAX_GUEST_MEMORY_BYTES`; size the two together. A guest exceeding the cap
-sees `memory.grow` fail.
+2^31. A guest exceeding the cap sees `memory.grow` fail. The cap applies per call
+(see below), and guest calls are serialized, so guest linear memory peaks at about
+one cap; a cached module holds only its compiled code and log pipe. A cap lowered at
+runtime applies from the next call.
+
+**Every call runs on a fresh instance.** The host caches each app's compiled module,
+not its instance: every guest call (`deploy`, `deposit`, `process_request`,
+`trusted_request`, the memory stats) gets a new store and instance, released when the
+call ends. No initialization export runs on it. Consequences for guest authors:
+
+- Do not keep state in globals between calls; it is gone at the next one. The
+  application state is passed in every call and returned in every result.
+- Memory a call does not free does not carry over to the next call. This is why
+  instances are not reused: TinyGo guests never free large allocations, so a
+  long-lived instance grew until it hit the cap. Within one call the heap still grows
+  to several times the state size, so a single large state can still exhaust the cap.
+
+**The application state is size-limited.** The executor rejects a request whose state
+exceeds `EXECUTOR_MAX_APP_STATE_SIZE` bytes (default 10 MiB, `0` = no limit) before
+calling the guest, and rejects a `deploy`, `deposit` or `process_request` /
+`trusted_request` result whose new state exceeds it. Either way the request fails
+on-chain with `APP_STATE_TOO_LARGE` (category `REQUEST_FUNC_FAILED`) and the state is
+unchanged, so an app cannot grow past the limit. In a batch, the requests after it
+continue from the last accepted state.
 
 **Execution is time-bounded.** A single guest operation — the export call plus the
 `allocate`/`deallocate` calls around it, and instantiation including any `start`
@@ -282,9 +303,9 @@ is **whether guest code actually ran**, not whether the failure looks determinis
 | Class | Examples | Module cache |
 |---|---|---|
 | Application error | non-empty `error` in a well-formed result | kept — a healthy guest declining a request |
-| Guest fault | a trap; `allocate` failing, returning `0`, or returning an out-of-range offset; a result the host cannot parse | **evicted** — the heap is in an unknown state and must not serve the next request |
-| Host-side / static defect | a missing export; an export whose signature does not match the host ABI; a nil store | kept — nothing executed, so re-instantiating provably cannot change the outcome |
-| Execution bound exceeded | the guest ran past `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` and was interrupted | **evicted** — an interrupted guest's heap is in an unknown state, exactly like a trap |
+| Guest fault | a trap; `allocate` failing, returning `0`, or returning an out-of-range offset; a result the host cannot parse | **evicted** — conservatively: the faulted instance is discarded at the end of the call like every other, and the compiled module is dropped too |
+| Host-side / static defect | a missing export; an export whose signature does not match the host ABI; a nil store | kept — nothing executed, so recompiling provably cannot change the outcome |
+| Execution bound exceeded | the guest ran past `EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS` and was interrupted | **evicted** — same as a trap |
 
 The execution bound splits into two on-chain outcomes, which differ in who caused
 the interruption:
@@ -300,9 +321,9 @@ apart and do not need to — the retry is a fresh call on a fresh instance.
 
 Two consequences worth knowing when writing a guest:
 
-- A trap unwinds without running guest cleanup, so an evicted module is recompiled
-  and re-instantiated on the next request. That is intentional and cheap relative to
-  reusing a damaged heap.
+- A trap unwinds without running guest cleanup, so the heap it leaves is never
+  reused: the next request runs on a fresh instance, of a module recompiled because
+  it was evicted.
 - **A signature mismatch is deployable.** Only `deploy`'s signature is exercised at
   deploy time, so an app built against a stale host ABI deploys cleanly and then
   fails every subsequent request when the host cannot invoke the export. This is why
