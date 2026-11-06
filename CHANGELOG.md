@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 ### Features
 
@@ -10,6 +10,7 @@
 
 ### Breaking changes
 
+- **Horizen L3 network support removed.** Vela now targets Base (Sepolia for testing). The `horizen-l3-testnet` and `sepolia-testnet` networks are gone from `contracts/hardhat.config.ts`, which now defines `base-sepolia`. The subgraph (`subgraphs/hcce/subgraph.yaml`) is configured for `network: base-sepolia`, and its `startBlock` values are reset to `0` and must be set to the Base Sepolia deployment blocks. Existing Horizen L3 deployments can no longer be upgraded or indexed from this repository; Base Sepolia needs a fresh deploy.
 - **`ProcessorEndpoint.getFacilitatorNonce(address)` removed.** It duplicated the auto-generated getter of the `public facilitatorNonces` mapping; clients must read `facilitatorNonces(user)` instead. See `docs/design/FACILITATOR.md`.
 - **`ProcessorEndpoint`'s constructor now takes only the address of a deployed `ProcessorEndpointExtension`**; every other setup argument moved to `initialize` (see the proxy entry below). Deploy the extension first.
 - **A malformed facilitator signature now reverts `InvalidSignature`.** `submitRequestFor` recovers with `ECDSA.tryRecover`, so `ECDSAInvalidSignature`, `ECDSAInvalidSignatureLength` and `ECDSAInvalidSignatureS` are gone from the `ProcessorEndpoint` ABI. Clients that decode those three errors must handle `InvalidSignature` instead. Valid signatures behave exactly as before.
