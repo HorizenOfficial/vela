@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import './interfaces/ITeeAuthenticator.sol';
 import './Structs.sol';
+import './UpdateEntryHash.sol';
 import '@openzeppelin/contracts/utils/cryptography/ECDSA.sol';
 import '@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol';
 
@@ -23,32 +24,31 @@ abstract contract AbstractTeeAuthenticator is ITeeAuthenticator {
   ) external view returns (bool) {
     if (getTeeSigner() == address(0) || getPubSecp521r1().length != PK_LENGTH) revert TeeIsNotSet();
 
-    bytes32 userEventsHash = keccak256(abi.encode(params.userEvents.events));
-    bytes32 userEventSubTypesHash = keccak256(abi.encode(params.userEvents.subTypes));
-    bytes32 appEventsHash = keccak256(abi.encode(params.appEvents.events));
-    bytes32 appEventSubTypesHash = keccak256(abi.encode(params.appEvents.subTypes));
-    bytes32 withdrawalRequestsHash = keccak256(abi.encode(params.withdrawalRequests));
-
-    bytes32 messageHash = keccak256(
-      abi.encode(
-        params.applicationId,
-        params.prevStateRoot,
-        params.newStateRoot,
-        params.processedRequestId,
-        userEventsHash,
-        userEventSubTypesHash,
-        appEventsHash,
-        appEventSubTypesHash,
-        withdrawalRequestsHash,
-        params.refundAmount,
-        params.applicationFee,
-        params.errorCode,
-        params.errorMsg
-      )
-    );
+    bytes32 messageHash = UpdateEntryHash.entryHash(params);
 
     address recovered = ECDSA.recover(
       MessageHashUtils.toEthSignedMessageHash(messageHash),
+      signature
+    );
+    return recovered == getTeeSigner();
+  }
+
+  /// @inheritdoc ITeeAuthenticator
+  function checkBatchSignature(
+    bytes32[] calldata entryHashes,
+    bytes calldata signature
+  ) external view returns (bool) {
+    if (getTeeSigner() == address(0) || getPubSecp521r1().length != PK_LENGTH) revert TeeIsNotSet();
+    if (entryHashes.length == 0) revert EmptyBatch();
+
+    // EIP-191 personal_sign over the concatenated entry hashes, with the length
+    // prefix built at runtime from the total byte length (32 * N). There is no
+    // intermediate keccak256 over the concatenation: entry hashes are fixed
+    // 32-byte values, so the concatenation splits exactly one way, and the
+    // prefix binds the batch size. A 1-entry batch therefore produces the same
+    // digest as checkSignature() over that entry.
+    address recovered = ECDSA.recover(
+      MessageHashUtils.toEthSignedMessageHash(abi.encodePacked(entryHashes)),
       signature
     );
     return recovered == getTeeSigner();

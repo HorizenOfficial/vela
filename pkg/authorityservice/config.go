@@ -2,6 +2,7 @@ package authorityservice
 
 import (
 	"fmt"
+	"github.com/HorizenOfficial/vela/pkg/authorityservice/deployartifact"
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/magiconair/properties"
 )
@@ -75,6 +76,13 @@ func LoadConfig() (*Config, error) {
 	deployArtifactsMaxSizeMB := common.GetConfigVarInt64("DEPLOY_ARTIFACTS_MAX_SIZE_MB", defaultDeployArtifactsMaxSizeMB, fileProps)
 	if deployArtifactsMaxSizeMB < 0 {
 		return nil, fmt.Errorf("DEPLOY_ARTIFACTS_MAX_SIZE_MB must be >= 0")
+	}
+	// Upper bound too: the megabytes-to-bytes conversion overflows int64 above this,
+	// and a negative byte limit disables the upload body limit entirely rather than
+	// enlarging it. Rejected at start-up so a misconfiguration is visible there.
+	if deployArtifactsMaxSizeMB > deployartifact.MaxUploadSizeMB {
+		return nil, fmt.Errorf("DEPLOY_ARTIFACTS_MAX_SIZE_MB must be <= %d, got %d",
+			int64(deployartifact.MaxUploadSizeMB), deployArtifactsMaxSizeMB)
 	}
 
 	rpcURL := common.GetConfigVar("CHAIN_RPC_PROTOCOL", "http", fileProps) + "://" +

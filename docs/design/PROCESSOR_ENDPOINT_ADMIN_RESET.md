@@ -31,6 +31,8 @@ if (resetOperator != address(0)) {
 
 The role is intentionally not administered by `ADMIN` (i.e. `_setRoleAdmin` is not called for it) so that even an `ADMIN` cannot grant it after deployment. It can only be assigned at initialisation time.
 
+This guarantee rests on its admin staying `DEFAULT_ADMIN_ROLE` **and that role being granted to nobody**. `ADMIN`, `UPDATE_STATUS_ROLE` and `DEPLOYER_ROLE` are each given an explicit admin in `initialize` precisely so they can be rotated without anyone holding `DEFAULT_ADMIN_ROLE`; `RESET_OPERATOR` is the one role deliberately left out. Granting `DEFAULT_ADMIN_ROLE` to any address — or calling `_setRoleAdmin(RESET_OPERATOR, ...)` — silently voids the permanent-disable property: the holder could grant itself `RESET_OPERATOR` post-deployment and sweep every app's custody to itself via `adminResetApps`.
+
 ### Deployed App ID Tracking
 
 `ProcessorEndpoint` maintains an append-only array of all application IDs that have ever been successfully deployed:

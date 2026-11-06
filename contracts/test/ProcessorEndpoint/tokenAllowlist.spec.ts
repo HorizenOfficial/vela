@@ -95,6 +95,31 @@ describe('ProcessorEndpoint Test', function () {
     });
   });
 
+  // TokenAllowlist is not upgradable, so a lost or compromised ADMIN key would mean redeploying
+  // the allowlist and re-pointing the endpoint at it. ADMIN administers itself so it can be
+  // rotated in place instead.
+  describe('role administration', function () {
+    it('makes ADMIN its own role admin', async () => {
+      const adminRole = ethers.id('ADMIN');
+      expect(await tokenAllowlist.getRoleAdmin(adminRole)).to.equal(adminRole);
+    });
+
+    it('admin can rotate ADMIN to a new holder', async () => {
+      const adminRole = ethers.id('ADMIN');
+      const newAdmin = await signers[5].getAddress();
+
+      await tokenAllowlist.connect(signers[2]).grantRole(adminRole, newAdmin);
+      await tokenAllowlist.connect(signers[5]).revokeRole(adminRole, await signers[2].getAddress());
+
+      await expect(
+        tokenAllowlist.connect(signers[5]).addAllowedToken(await mockERC20.getAddress())
+      ).to.emit(tokenAllowlist, 'TokenAllowed');
+      await expect(
+        tokenAllowlist.connect(signers[2]).addAllowedToken(await mockERC20.getAddress())
+      ).to.be.revertedWithCustomError(tokenAllowlist, 'AccessControlUnauthorizedAccount');
+    });
+  });
+
   describe('isAllowedToken', function () {
     it('returns true for ETH (address(0))', async () => {
       expect(await tokenAllowlist.isAllowedToken(ETH_TOKEN)).to.be.true;

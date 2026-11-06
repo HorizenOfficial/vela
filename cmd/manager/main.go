@@ -31,7 +31,7 @@ func createDataLayer(config *manager.Config) (storage.DataLayer, error) {
 	})
 }
 
-func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
+func createBlockchainClient(config *manager.Config, log logger.Logger) (blockchain.Client, error) {
 	if config.MockBlockChainClient {
 		return blockchain.NewMockClient(), nil
 	}
@@ -55,6 +55,7 @@ func createBlockchainClient(config *manager.Config) (blockchain.Client, error) {
 		ethCommon.HexToAddress(config.TeeAuthAddress),
 		config.RpcURL,
 		&config.PrivateKey)
+	bcClient.SetLogger(log)
 
 	if config.BlockchainConnectTimeout > 0 {
 		if err := bcClient.SetConnectTimeout(time.Duration(config.BlockchainConnectTimeout) * time.Second); err != nil {
@@ -131,7 +132,7 @@ func main() {
 	}
 
 	// Create the blockchain client
-	blockchainClient, err := createBlockchainClient(config)
+	blockchainClient, err := createBlockchainClient(config, log)
 	if err != nil {
 		log.Error("Failed to create blockchain client: %v", err)
 		return

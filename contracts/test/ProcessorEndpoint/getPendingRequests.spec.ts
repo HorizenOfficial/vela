@@ -243,9 +243,9 @@ describe('ProcessorEndpoint Test', function () {
         const receipt3 = await tx3.wait();
         const requestId3 = receipt3.logs[0].args.requestId;
 
-        const [request, , success] = await processorEndpoint.getNextPendingRequest();
-        expect(success).to.equal(true);
-        expect(request.requestId).to.equal(requestId3);
+        const [, requests] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+        expect(requests.length).to.equal(1);
+        expect(requests[0].requestId).to.equal(requestId3);
       });
     });
   });

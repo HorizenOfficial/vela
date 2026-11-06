@@ -41,7 +41,7 @@ yarn global add @graphprotocol/graph-cli
 ## Generate and build the subgraph
 Edit the file: <br/>
 subgraphs/hcce/subgraph.yaml <br/>
-(replace <contract_address> in *dataSources.source.address* with the address of the deployed **ProcessorEndpoint** contract)<br/>
+(replace the address placeholders in *dataSources.source.address* with the addresses of the deployed **ProcessorEndpoint** and **TokenAllowlist** contracts, set *startBlock* to each contract's deployment block, and set *network* to `base-sepolia`)<br/>
 
 From this directory:
 ```bash
@@ -51,7 +51,6 @@ graph build
 ```
 
 ## Deploy to Goldsky
-Guide: https://docs.goldsky.com/chains/horizen#install-goldskys-cli-and-log-in
 For deployment details and options, follow the Goldsky documentation:
 https://docs.goldsky.com/subgraphs/
 

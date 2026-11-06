@@ -14,7 +14,11 @@ import (
 // wasm package (wasmtime-go) can coexist in the same test binary without
 // duplicate zstd symbol errors at link time.
 //
-// If this test compiles and runs, the cgo LDFLAGS fix works.
+// The assertion is the link itself: if this test binary builds and runs, the two
+// zstd copies did not collide. It used to demonstrate that the
+// -Wl,--allow-multiple-definition workaround worked; since that workaround was
+// removed it demonstrates the stronger property that none is needed. See
+// cgo_ldflags.go for why, and for what would make the collision return.
 func TestLinking(t *testing.T) {
 	t.Log("fullstack + wasmtime linked successfully")
 }

@@ -68,7 +68,7 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failure creating bytes32 type: %w", err)
 	}
-	// Order must match AbstractTeeAuthenticator.checkSignature in Solidity
+	// Order must match UpdateEntryHash.entryHash in Solidity
 	msgArgs := abi.Arguments{
 		{Type: uint64Type},  // applicationId
 		{Type: bytes32Type}, // prevStateRoot
@@ -89,7 +89,57 @@ func NewMsgToSignBuilder() (*MsgToSignBuilder, error) {
 	return msgBuilder, nil
 }
 
+// BuildMsgHash builds the Ethereum personal_sign hash for a single update
+// payload: TextHash(entryHash). This is what individually signed payloads sign.
+// ProcessorEndpoint.stateUpdate verifies it through
+// AbstractTeeAuthenticator.checkBatchSignature with a 1-entry array, whose
+// digest is byte-identical to this one (see BuildBatchMsgHash).
 func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]byte, error) {
+	entryHash, err := b.buildEntryHash(updatePayload)
+	if err != nil {
+		return nil, err
+	}
+	return accounts.TextHash(entryHash), nil
+}
+
+// BuildBatchMsgHash builds the Ethereum personal_sign hash covering all batch
+// entries: TextHash(entryHash_0 || entryHash_1 || ... || entryHash_N-1).
+//
+// The entry hashes are concatenated and TextHash-ed directly, WITHOUT an
+// intermediate keccak256 over the concatenation. Two properties make this
+// unambiguous and safe:
+//   - Injectivity: every entry hash is a fixed 32-byte keccak256 output, so a
+//     concatenation of N of them splits exactly one way. This relies on the
+//     per-entry hash staying fixed-length — do not make buildEntryHash variable.
+//   - Length binding: the personal_sign prefix commits to the total byte length
+//     (32*N), so batches of different sizes can never collide.
+//
+// A consequence is that a single-entry batch hashes identically to BuildMsgHash of
+// that entry, so single-request and batch submission share one signing scheme (and
+// a 1-entry batch signature verifies on the single-request stateUpdate() path).
+// The contract side must reconstruct the same digest: TextHash of the concatenated
+// entry hashes using a DYNAMIC length prefix (32*N), not a fixed length.
+func (b *MsgToSignBuilder) BuildBatchMsgHash(updatePayloads []*common.UpdatePayload) ([]byte, error) {
+	if len(updatePayloads) == 0 {
+		return nil, fmt.Errorf("no payloads to hash")
+	}
+
+	concatenated := make([]byte, 0, 32*len(updatePayloads))
+	for i, payload := range updatePayloads {
+		entryHash, err := b.buildEntryHash(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash batch entry %d: %w", i, err)
+		}
+		concatenated = append(concatenated, entryHash...)
+	}
+
+	return accounts.TextHash(concatenated), nil
+}
+
+// buildEntryHash computes keccak256 of the ABI-encoded payload fields, without
+// the Ethereum message prefix. It is the per-entry hash: prefixed and signed
+// directly for single payloads, or aggregated into the batch hash.
+func (b *MsgToSignBuilder) buildEntryHash(updatePayload *common.UpdatePayload) ([]byte, error) {
 
 	events := make([][]byte, len(updatePayload.Events))
 	eventSubTypes := make([][32]byte, len(updatePayload.Events))
@@ -152,7 +202,7 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 	withdrawalHash := ethCrypto.Keccak256(encodedWithdrawal)
 	var withdrawalArr [32]byte = [32]byte(withdrawalHash)
 
-	// Order must match msgArgs above and AbstractTeeAuthenticator.checkSignature
+	// Order must match msgArgs above and UpdateEntryHash.entryHash
 	values := []interface{}{
 		updatePayload.ApplicationID,       // applicationId
 		updatePayload.PrevStateRoot,       // prevStateRoot
@@ -175,9 +225,5 @@ func (b *MsgToSignBuilder) BuildMsgHash(updatePayload *common.UpdatePayload) ([]
 		return nil, fmt.Errorf("failed to encode parameters: %w", err)
 	}
 
-	hash := ethCrypto.Keccak256(encoded)
-
-	hash = accounts.TextHash(hash)
-	return hash, nil
-
+	return ethCrypto.Keccak256(encoded), nil
 }

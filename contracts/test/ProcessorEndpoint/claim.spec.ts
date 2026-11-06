@@ -126,7 +126,8 @@ describe('ProcessorEndpoint Test', function () {
           { value: 100n + minFeePerRequest }
         );
 
-        const [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
+        const [, pending] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+        const currentPendingRequest = pending[0];
 
         const currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
         await processorEndpoint
@@ -175,7 +176,8 @@ describe('ProcessorEndpoint Test', function () {
         await submitTx.wait();
 
         const initialStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
-        const [currentPendingRequest] = await processorEndpoint.getNextPendingRequest();
+        const [, pending] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+        const currentPendingRequest = pending[0];
         const newStateRoot = '0x1234000000000000000000000000000000000000000000000000000000000000';
 
         const { ethSignStateUpdate } = await import('../../scripts/util');
@@ -250,7 +252,8 @@ describe('ProcessorEndpoint Test', function () {
         await submitTx.wait();
 
         let currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
-        const [req1] = await processorEndpoint.getNextPendingRequest();
+        const [, pending1] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+        const req1 = pending1[0];
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(
@@ -269,7 +272,8 @@ describe('ProcessorEndpoint Test', function () {
           );
 
         currentStateRoot = await processorEndpoint.applicationStateRoots(applicationId);
-        const [req2] = await processorEndpoint.getNextPendingRequest();
+        const [, pending2] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+        const req2 = pending2[0];
         await processorEndpoint
           .connect(signers[1])
           .stateUpdate(

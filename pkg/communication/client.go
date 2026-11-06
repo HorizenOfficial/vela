@@ -130,6 +130,12 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 			Request:          req,
 			ApplicationState: appState,
 			WasmModule:       wasmModule,
+			// Same field sendRequestAndWaitForResponse uses for its own give-up time
+			// below, so what we promise the executor cannot drift from how long we
+			// actually wait. It derives from
+			// MANAGER_COMMUNICATION_PARAMS_REQUEST_TIMEOUT_SEC, which is what links
+			// that setting to the guest execution bound.
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(),
 		},
 	}
 
@@ -158,6 +164,52 @@ func (c *Client) SendProcessRequest(ctx context.Context, req *common.Request, ap
 	return respData.UpdatePayload, respData.UpdatedApplicationState, respData.DeanonymizationReport, nil
 }
 
+// SendBatchProcessRequest sends a batch of requests for a single application
+// and waits for the response. Returns the unsigned per-request update payloads,
+// the batch signature, the final application state and any deanonymization
+// reports. One payload is returned per handled request, in input order, so
+// len(payloads) < len(requests) means a hard failure stopped the batch.
+func (c *Client) SendBatchProcessRequest(ctx context.Context, requests []*common.Request, appState *common.ApplicationState, wasmModule []byte) ([]*common.UpdatePayload, []byte, *common.ApplicationState, []*common.DeanonymizationReport, error) {
+	msg := Message{
+		ID:   generateID(),
+		Type: BatchProcessRequestMessage,
+		Data: BatchProcessRequestData{
+			Requests:         requests,
+			ApplicationState: appState,
+			WasmModule:       wasmModule,
+			// One budget for the whole batch, from the same field this call's own
+			// give-up timer uses — see SendProcessRequest. The batch shares it, so a
+			// batch that cannot finish in time settles what it can and leaves the
+			// rest pending rather than being abandoned wholesale.
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(),
+		},
+	}
+
+	respMsg, err := c.sendRequestAndWaitForResponse(ctx, msg)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to send batch process request: %w", err)
+	}
+
+	if respMsg.Type == ErrorMessage {
+		errorData, err := extractData[ErrorData](respMsg.Data)
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("failed to extract server error data: %w", err)
+		}
+		return nil, nil, nil, nil, fmt.Errorf("server error: %s", errorData.Message)
+	}
+
+	if respMsg.Type != BatchProcessResponseMessage {
+		return nil, nil, nil, nil, fmt.Errorf("unexpected response type: %v", respMsg.Type)
+	}
+
+	respData, err := extractData[BatchProcessResponseData](respMsg.Data)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	return respData.UpdatePayloads, respData.BatchSignature, respData.UpdatedApplicationState, respData.DeanonymizationReports, nil
+}
+
 // SendDeployApp sends a deploy app request and waits for response
 func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appState *common.ApplicationState, wasmModule []byte) (*common.UpdatePayload, *common.ApplicationState, error) {
 	uid := generateID()
@@ -167,9 +219,10 @@ func (c *Client) SendDeployApp(ctx context.Context, req *common.Request, appStat
 		ID:   uid,
 		Type: DeployAppRequestMessage,
 		Data: DeployAppRequestData{
-			Request:          req,
-			ApplicationState: appState,
-			WasmModule:       wasmModule,
+			Request:           req,
+			ApplicationState:  appState,
+			WasmModule:        wasmModule,
+			ExecutionBudgetMs: c.reqTimeout.Milliseconds(), // see SendProcessRequest
 		},
 	}
 
@@ -382,6 +435,10 @@ func (c *Client) handleGetKeysetRecoveryRequest(ctx context.Context, msg Message
 		Data: GetKeysetRecoveryResponseData{
 			DataFound:      dataFound,
 			KeySetRecovery: respRecv,
+			// Same field that feeds ExecutionBudgetMs on every request and the
+			// give-up timer in sendRequestAndWaitForResponse, so what the executor
+			// validates against at handshake is exactly what it will be sent later.
+			RequestTimeoutMs: c.reqTimeout.Milliseconds(),
 		},
 	}
 

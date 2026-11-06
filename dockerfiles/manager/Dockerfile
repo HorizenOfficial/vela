@@ -1,10 +1,10 @@
 # --- Build Stage ---
-FROM debian:bullseye-slim AS builder
+FROM debian:bookworm-slim AS builder
 
 # Install base dependencies
 RUN apt-get update && apt-get install -y wget ca-certificates gnupg git
 
-# Manuallt install Node.js 20 from NodeSource (the one in debian:bullseye-slim is too old)
+# Manuallt install Node.js 20 from NodeSource (the one in debian:bookworm-slim is too old)
 RUN mkdir -p /etc/apt/keyrings && \
     wget -qO- https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
@@ -21,7 +21,7 @@ ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 RUN go version
 
 # Install solc
-ENV SOLC_VERSION=0.8.28
+ENV SOLC_VERSION=0.8.30
 RUN wget https://github.com/ethereum/solidity/releases/download/v$SOLC_VERSION/solc-static-linux \
     -O /usr/local/bin/solc && \
     chmod +x /usr/local/bin/solc

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/communication"
@@ -61,6 +62,13 @@ func main() {
 
 	// Create the WASM runtime
 	runtime := wasm.NewWasmtimeRuntime(log, config.MaxCachedModules)
+	if config.MaxGuestMemoryBytes > 0 {
+		runtime.SetMaxGuestMemoryBytes(config.MaxGuestMemoryBytes)
+	}
+	// 0 means "keep the runtime's default"; the runtime is never unbounded.
+	if config.GuestExecutionTimeoutMs > 0 {
+		runtime.SetGuestExecutionTimeout(time.Duration(config.GuestExecutionTimeoutMs) * time.Millisecond)
+	}
 
 	// Create the appropriate server based on configuration
 	var server communication.ExecutorServer

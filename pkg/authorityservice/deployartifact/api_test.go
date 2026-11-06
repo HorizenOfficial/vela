@@ -136,3 +136,21 @@ func testLogger() logger.Logger {
 		ConsoleColor: false,
 	})
 }
+
+// TestNewAPI_OverflowingLimitStillBounded covers a size that overflows the
+// megabytes-to-bytes conversion.
+//
+// Regression: widening the shared config parser to the full int64 range let values
+// above math.MaxInt32 reach this constructor (previously they fell back to the 50 MB
+// default). maxUploadMB * bytesInMB then overflows int64 and goes negative, the
+// `maxUploadBytes > 0` guard in HandleUpload turns false, and MaxBytesReader is never
+// installed — leaving POST /deploy/upload accepting an unbounded body.
+func TestNewAPI_OverflowingLimitStillBounded(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	// 2^43 MiB: the product with bytesInMB is exactly math.MinInt64.
+	api := NewAPI(store, 8796093022208, testLogger())
+	require.Greater(t, api.maxUploadBytes, int64(0),
+		"an overflowing limit must not disable the body limit")
+}

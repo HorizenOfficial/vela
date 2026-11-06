@@ -82,7 +82,7 @@ func TestSimpleAppIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module
-	initialStateBytes, fuel, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, fuel, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
 
@@ -195,20 +195,6 @@ func TestSimpleAppIntegration(t *testing.T) {
 	err = json.Unmarshal(events[0].Data, &eventData)
 	require.NoError(t, err)
 	t.Log("Event:\n", testutil.PrettyPrintJSON(eventData))
-
-	// check we have no memory leaks
-	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), mem_map_entries)
-	require.Equal(t, int64(0), total_allocated_bytes)
-	t.Logf("stats - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
-
-	// use an alternative implementation of the function
-	mem_map_entries, total_allocated_bytes, err = runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), mem_map_entries)
-	require.Equal(t, int64(0), total_allocated_bytes)
-	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
 }
 
 func TestSimpleAppIntegration_NullPayload(t *testing.T) {
@@ -222,7 +208,7 @@ func TestSimpleAppIntegration_NullPayload(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module to get an initial state
-	initialStateBytes, fuel, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, fuel, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 	require.Equal(t, 0, fuel.Cmp(big.NewInt(5)))
 
@@ -244,7 +230,7 @@ func TestSimpleAppIntegration_NegativeScenarios(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Load the module to get an initial state
-	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	// 2. Create a populated state for testing
@@ -354,7 +340,7 @@ func TestSimpleAppIntegration_NilData(t *testing.T) {
 	ctx := context.Background()
 
 	// Load the module to verify it works (state used in later tests is created separately)
-	_, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	_, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	t.Run("deposit with nil state", func(t *testing.T) {
@@ -387,19 +373,19 @@ func TestSimpleAppIntegration_InvalidWasm(t *testing.T) {
 	// A dummy state, as we expect failures before the state is even used.
 	initialStateBytes := []byte(`{"appId":"simple_app_test","accounts":{}}`)
 
-	t.Run("load module with nil wasm", func(t *testing.T) {
-		_, _, err := runtime.LoadModule(ctx, appId, nil)
+	t.Run("deploy with nil wasm", func(t *testing.T) {
+		_, _, err := runtime.Deploy(ctx, appId, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to compile WASM module")
 	})
 
-	t.Run("load module with invalid wasm", func(t *testing.T) {
-		_, _, err := runtime.LoadModule(ctx, appId, []byte("invalid wasm"))
+	t.Run("deploy with invalid wasm", func(t *testing.T) {
+		_, _, err := runtime.Deploy(ctx, appId, nil, []byte("invalid wasm"))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to compile WASM module")
 	})
 
-	// For other functions, the error will come from getOrLoadModule -> LoadModule
+	// For other functions, the error will come from getOrLoadModule -> compileModule
 	t.Run("deposit with nil wasm", func(t *testing.T) {
 		_, _, _, _, err := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(1000), initialStateBytes, nil)
 		require.Error(t, err)
@@ -443,22 +429,19 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 	// Build and load the wasm module
 	wasmBytes := buildAndLoadWasmModule(t)
 
-	// Create a new wasmtime runtime with limited memory to make leaks surface faster.
 	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
 	defer runtime.Close()
 
 	ctx := context.Background()
 
-	initialStateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	initialStateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	// Mutex to protect access to the shared WASM runtime instance
-	// Note this might not be enough, due to the stateful nature of the underlying Wasm instance and store which are being shared and reused across all goroutines.
-	// See TODO at the end
 	var runtimeMutex sync.Mutex
 
-	// Repeatedly make calls and check mem is ok
-	// TODO - we use 1 only routine until we will have a correct handling of wasm runtime concurrency (see TODO below), otherwise we might have sporadic failures
+	// Repeatedly make calls on the real guest
+	// TODO - we use 1 only routine until we will have a correct handling of wasm runtime concurrency, otherwise we might have sporadic failures
 	const numGoroutines = 1
 	const iterationsPerGoroutine = 40
 	var wg sync.WaitGroup
@@ -516,143 +499,6 @@ func TestSimpleAppIntegration_MemoryStress(t *testing.T) {
 	}
 
 	wg.Wait()
-
-	mem_map_entries, total_allocated_bytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), mem_map_entries)
-	require.Equal(t, int64(0), total_allocated_bytes)
-	t.Logf("stats2 - memory map entries: %d, total bytes allocated: %d", mem_map_entries, total_allocated_bytes)
-
-	// TODO -  The correct approach would be creating a new wasmtime.Instance for each concurrent operation.
-	// While the wasmtime.Store and compiled wasmtime.Module can be shared, the wasmtime.Instance must be unique per goroutine.
-	// We should:
-	// 1. Separate the compiled module from the instance. The ApplicationModule should only contain the compiled wasmtime.Module,
-	// not the wasmtime.Instance.
-	// 2. Instantiate on demand. The Deposit, ProcessRequest, and other execution functions should get the shared wasmtime.Module
-	// from the cache, and then create a brand new wasmtime.Instance for the duration of that specific function call
-}
-
-// requireMemoryClean is a helper that checks guest memory is fully deallocated.
-func requireMemoryClean(t *testing.T, runtime *vela_wasm.WasmtimeRuntime, wasmBytes []byte, errMsg string) {
-	t.Helper()
-	ctx := context.Background()
-	mapEntries, totalBytes, err := runtime.GetAllocatedMemoryStats2(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), mapEntries, errMsg)
-	require.Equal(t, int64(0), totalBytes, errMsg)
-}
-
-// TestSimpleAppIntegration_MemoryCleanBetweenOps verifies that BytesToPtr allocations
-// (created by SerializeAndWriteResult inside the WASM guest) are fully deallocated after
-// each host call. This exercises the allocate -> BytesToPtr -> extractResultBytes -> deallocate
-// round-trip that cannot be unit-tested in native 64-bit Go.
-func TestSimpleAppIntegration_MemoryCleanBetweenOps(t *testing.T) {
-	wasmBytes := buildAndLoadWasmModule(t)
-	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
-	defer runtime.Close()
-
-	ctx := context.Background()
-
-	// LoadModule: exercises SerializeAndWriteResult for LoadModuleResult
-	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after LoadModule")
-
-	// Deposit: exercises SerializeAndWriteResult for DepositResult (with events)
-	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(5000), stateBytes, wasmBytes)
-	require.Nil(t, failure)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after Deposit")
-
-	// ProcessRequest (withdraw): exercises SerializeAndWriteResult for ProcessResult (with events + withdrawals)
-	payload := app.PayloadInstructions{
-		Type: "withdraw",
-		Withdraw: &app.WithdrawInstruction{
-			To:     recipient1Address,
-			Amount: types.NewUint256(100),
-		},
-	}
-	payloadBytes, err := json.Marshal(payload)
-	require.NoError(t, err)
-
-	stateBytes, _, _, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
-	require.Nil(t, failure2)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (withdraw)")
-
-	// Deposit a second user so we can compare
-	stateBytes, _, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user2Address), velacommon.ETH_TOKEN, big.NewInt(3000), stateBytes, wasmBytes)
-	require.Nil(t, failure)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after second Deposit")
-
-	// ProcessRequest (compare): different result shape
-	payload2 := app.PayloadInstructions{
-		Type: "compare_addresses",
-		CompareAccounts: &app.CompareInstructions{
-			TargetAddress: user2Address,
-		},
-	}
-	payloadBytes2, err := json.Marshal(payload2)
-	require.NoError(t, err)
-
-	stateBytes, _, _, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes2, stateBytes, wasmBytes)
-	require.Nil(t, failure2)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after ProcessRequest (compare)")
-
-	// 4. Generate deanonymization report via ProcessRequest with type "deanonymize"
-	deanonPayload := app.PayloadInstructions{
-		Type:        "deanonymize",
-		Deanonymize: &app.DeanonymizeInstruction{IncludeTag: "my_custom_tag"},
-	}
-	payloadBytes, err = json.Marshal(deanonPayload)
-	require.NoError(t, err)
-
-	_, _, _, _, _, _, failure = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Deanonymize, payloadBytes, stateBytes, wasmBytes)
-
-	require.Nil(t, failure)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after GenerateDeanonymizationReport")
-}
-
-// TestSimpleAppIntegration_ErrorPathMemory verifies that error results returned by the guest
-// (which still use SerializeAndWriteResult -> BytesToPtr) do not leak memory.
-func TestSimpleAppIntegration_ErrorPathMemory(t *testing.T) {
-	wasmBytes := buildAndLoadWasmModule(t)
-	runtime := vela_wasm.NewWasmtimeRuntime(testLogger, 0)
-	defer runtime.Close()
-
-	ctx := context.Background()
-
-	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
-	require.NoError(t, err)
-
-	// Deposit so user1 has a balance
-	stateBytes, _, _, _, failure := runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(100), stateBytes, wasmBytes)
-	require.Nil(t, failure)
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after initial deposit")
-
-	// Trigger error: withdraw more than balance.
-	// The guest returns an error result via SerializeAndWriteResult -> BytesToPtr.
-	payload := app.PayloadInstructions{
-		Type: "withdraw",
-		Withdraw: &app.WithdrawInstruction{
-			To:     recipient1Address,
-			Amount: types.NewUint256(9999),
-		},
-	}
-	payloadBytes, err := json.Marshal(payload)
-	require.NoError(t, err)
-
-	_, _, _, _, _, _, failure2 := runtime.ProcessRequest(ctx, appId, ethCommon.Address(user1Address), common.Process, payloadBytes, stateBytes, wasmBytes)
-	require.NotNil(t, failure2, "expected error for insufficient balance")
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result from ProcessRequest")
-
-	// Trigger error: non-existent account
-	_, _, _, _, _, _, failure2 = runtime.ProcessRequest(ctx, appId, ethCommon.Address(user2Address), common.Process, payloadBytes, stateBytes, wasmBytes)
-	require.NotNil(t, failure2, "expected error for non-existent account")
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for non-existent account")
-
-	// Trigger error: invalid state
-	_, _, _, _, failure = runtime.Deposit(ctx, appId, ethCommon.Address(user1Address), velacommon.ETH_TOKEN, big.NewInt(100), []byte("{bad-json}"), wasmBytes)
-	require.NotNil(t, failure, "expected error for invalid state")
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after error result for invalid state")
 }
 
 // TestSimpleAppIntegration_LargeResultRoundTrip exercises BytesToPtr with a large JSON payload.
@@ -665,7 +511,7 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 
 	ctx := context.Background()
 
-	stateBytes, _, err := runtime.LoadModule(ctx, appId, wasmBytes)
+	stateBytes, _, err := runtime.Deploy(ctx, appId, nil, wasmBytes)
 	require.NoError(t, err)
 
 	// Create 100 accounts with deposits to build a large state
@@ -704,9 +550,6 @@ func TestSimpleAppIntegration_LargeResultRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "my_custom_tag", report.Tag)
 	require.Len(t, report.Accounts, numAccounts)
-
-	// Verify no memory leaked despite the large allocation
-	requireMemoryClean(t, runtime, wasmBytes, "memory leak after large result round-trip")
 }
 
 // --- ERC-20 integration tests ---

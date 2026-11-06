@@ -6,14 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Horizen Vela - A privacy-preserving execution platform using AWS Nitro Enclaves (TEE). The system executes WebAssembly modules securely, with encrypted state management and blockchain-based coordination.
 
-**Stack:** Go 1.24, Solidity 0.8.30, Wasmtime-go (WASM runtime), LevelDB, Hardhat, The Graph (subgraphs)
-
 ## Language Stack
 
-- **Primary languages:** Go, TypeScript, Solidity
 - This is a blockchain/TEE/WASM project. Be aware of smart contract security patterns (reentrancy, pull payments) and WASM memory management concerns.
-- **Solidity:** Check reentrancy, access control, gas optimization.
-- **Go:** Check error handling, goroutine leaks, resource cleanup.
 
 ## Build Commands
 
@@ -23,7 +18,7 @@ go build ./...
 go build ./cmd/executor
 go build ./cmd/manager
 
-# Run tests (quick suite - skips Wasmtime-dependent tests)
+# Run tests (quick suite - skips the long-running fullstack/system tests)
 CI_FLAG=true go test -v ./...
 
 # Run tests (full suite - includes all tests)
@@ -42,6 +37,7 @@ go generate ./...
 npm ci
 npm run build
 npm run test
+npm run check:layout   # ProcessorEndpoint / ProcessorEndpointExtension: layouts must match, extension errors must be declared on the endpoint
 
 # WASM guest (app/simple)
 cd app/simple && make build            # Development build
@@ -51,44 +47,6 @@ cd app/simple && make production_build # Optimized build
 cd subgraphs/hcce && npm run codegen   # Generate types from schema
 cd subgraphs/hcce && npm run build     # Build subgraph
 cd subgraphs/hcce && npm run test      # Run subgraph tests
-```
-
-## Project Structure
-
-```
-/cmd                        - Main application entrypoints
-  /manager                  - Secure Processor Manager (main Go service)
-  /executor                 - WASM Executor (runs in AWS Nitro Enclave)
-  /authorityservice         - HTTP service for deanonymization reports
-  /keytool                  - Key management utility
-  /admincli                 - Interactive admin CLI (log levels, attestation, version)
-
-/pkg                        - Shared Go library code
-  /wasm                     - Wasmtime runtime integration
-  /executor                 - WASM execution, state handling, event encryption
-  /manager                  - Manager orchestration, blockchain interaction
-  /blockchain               - Smart contract bindings and interaction layer
-  /communication            - V-Socket & TCP messaging between Manager/Executor
-  /storage                  - LevelDB versioning system and mock implementations
-  /common                   - Shared data models, types, configuration
-  /crypto                   - Key management (AES, P521, secp256k1, X25519)
-  /logger                   - Zerolog wrapper and custom loggers
-  /authorityservice         - Authority HTTP service (API types, endpoints)
-  /subgraph                 - GraphQL subgraph client (queries, types)
-  /testutil                 - Testing utilities and helpers
-
-/app                        - TinyGo WASM guest applications
-  /simple                   - Example WASM application
-
-/contracts                  - Solidity smart contracts (Hardhat project)
-  /contracts                - Solidity source files
-  /test                     - Hardhat tests (TypeScript)
-
-/subgraphs                  - The Graph subgraphs
-  /hcce                     - HCCE indexer subgraph
-
-/tests                      - System integration tests
-/dockerfiles                - Container configuration
 ```
 
 ## Architecture
@@ -112,7 +70,7 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
    - `POST /getreport` - Serves reports after on-chain verification
 
 4. **Smart Contracts** (`contracts/`) - On-chain coordination:
-   - `ProcessorEndpoint.sol` - Request handling, ERC-20 deposits/withdrawals (with EIP-2612 permit and facilitator path), per-app locked funds, deploy descriptor and allowed-deployer roles
+   - `ProcessorEndpoint.sol` - Request handling, ERC-20 deposits/withdrawals (with EIP-2612 permit and facilitator path), per-app locked funds, deploy descriptor and allowed-deployer roles. Sits close to the EIP-170 size limit: state is declared in `ProcessorEndpointStorage.sol`, and the entry points that are off the per-request hot path (`submitRequestFor`, deploy submission, the operator resets, the admin setters) are hosted in `ProcessorEndpointExtension.sol` and reached by `delegatecall`. Read-only functions **cannot** move: a `view` function may not `delegatecall`, so they would need a generic `fallback()` and a merged ABI. Declare new state **only** in the storage base, and run `npm run check:layout` after touching it — a layout divergence corrupts storage silently instead of reverting, and an extension error the endpoint does not declare reaches clients as undecodable revert data. Deploy the extension first; its address is the endpoint's last constructor argument, readable afterwards via `extension()`. Changing the extension means deploying a new one and passing its address to `scripts/upgrade/processorEndpoint.ts` in `PROCESSOR_ENDPOINT_EXTENSION` — the script defaults to the extension the current implementation uses and refuses the upgrade when that no longer matches the local build, because reusing stale extension code does not revert. The compiler targets `evmVersion: 'cancun'` for the bytes, so deployment chains must be at Cancun or later. See `docs/design/PROCESSOR_ENDPOINT_SPLIT.md`
    - `TeeAuthenticator.sol` - TEE attestation verification (PCR-based, including WASM fingerprint for deploys)
    - `AuthorityRegistry.sol` - Authority management
 
@@ -123,7 +81,7 @@ cd subgraphs/hcce && npm run test      # Run subgraph tests
 
 Manager and Executor use bidirectional messaging (V-Socket for Nitro, TCP fallback):
 - Manager sends `ProcessRequest`, Executor may callback with `GetUserKeys`
-- Handshake protocol on connection for keyset recovery (see `docs/design/EXEC_MGR_HANDSHAKE.md`)
+- Handshake protocol on connection for keyset recovery (see `docs/design/EXEC_MGR_HANDSHAKE.md`); the Manager also reports its request timeout there, and the Executor refuses the connection if its guest execution bound does not fit inside it
 - Manager also forwards admin commands to the Executor over the same channel (`ForwardAdminCommand`)
 - `DeployApp` messages carry the WASM bytes and descriptor for the deploy flow
 
@@ -158,7 +116,22 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 
 **File Formatting:** If you modify contracts or TypeScript files, run `npm run format` after any modification to keep the correct formatting.
 
-**Test Skipping:** Use `CI_FLAG=true` to skip tests requiring Wasmtime or external dependencies. Tests check `os.Getenv("CI_FLAG")`.
+**WASM Host ABI:** The contract between the Wasmtime host and guest modules — required exports and their signatures, the length-prefix + JSON result encoding, `allocate`/`deallocate` ownership, the 2 GiB offset ceiling, the pinned WASM feature set, and how failures are classified — is documented in `docs/design/WASM_HOST_ABI.md`. If you change any of those, update that file in the same commit: a host/guest signature mismatch is deployable and only fails at request time, so the written contract is what guest authors rely on.
+
+**Restrictions Need Exclusion Tests:** Any new limit, pin, or failure classification in `pkg/wasm` (a store-limiter dimension, a `newPinnedEngine` feature pin, a guest-fault-vs-host-side rule) ships in the same commit as a test proving a *violating* input is rejected — not only that legitimate guests still work. Verifying that the real TinyGo guest still runs says nothing about what a restriction excludes, which is where the bugs have been: a memory cap that tables escaped, a `reference types` pin that silently rejected `externref`, a proposal pinned off that nothing tested. `TestPinnedEngineRejectsDisabledProposals` and `TestGuestTableIsBounded` are the pattern to copy.
+
+**Shared Helpers Need a Caller Sweep:** Before changing the behaviour of a shared helper — `pkg/common/config.go` parsers above all, but any function with callers across packages — enumerate every caller and state what the change does to each, including the ones you conclude are unaffected. Report the search you used so its scope can be judged. Widening `GetConfigVarInt64` to 64-bit was audited for `uint32(...)` truncation at the call sites and still broke a caller one step further downstream, where `maxUploadMB * bytesInMB` overflowed and silently removed an HTTP body limit. Grepping for the call sites is not the same as enumerating the consequences.
+
+**Test Skipping:** Use `CI_FLAG=true` to skip the long-running tests that stand up real
+components — the fullstack/system suites (`tests/system`, `pkg/testutil/fullstack`) and one
+long TCP test. Tests opt out individually with `os.Getenv("CI_FLAG") != ""`, so this is a
+per-test switch, not a package-level one: anything without that check runs in **both** CI jobs.
+
+In particular it does **not** skip `pkg/wasm`. Wasmtime is a linked Go dependency needing no
+external install, so every WASM runtime test — including the execution-bound and feature-pin
+tests — runs in the quick suite too. That is deliberate: those guard against regressions
+(a wedged executor, a silently widened feature set) worth catching on the fast path. Grep
+`CI_FLAG` before assuming a test is gated.
 
 **Configuration:** Environment variables with `.conf` file fallbacks. Key configs:
 - `CHANNEL_TYPE` - `tcp` or `vsock`
@@ -172,25 +145,13 @@ Manager, Executor, storage, contracts and subgraph are multi-app aware: each app
 ## Code Review Guidelines
 
 ### Go Code
-- **Error handling**: Check all errors; avoid `_` for error returns unless explicitly justified
-- **Concurrency**: Review goroutine lifecycle, channel usage, and potential race conditions
-- **Context propagation**: Ensure `context.Context` is passed through call chains for cancellation
-- **Resource cleanup**: Verify `defer` for closing resources (files, connections, locks)
-- **Interface design**: Prefer small, focused interfaces; accept interfaces, return structs
-- **Testing**: Look for table-driven tests, proper mocking, and edge case coverage
 - **Logging**: Use structured logging (zerolog); avoid fmt.Print in production code
 
 ### TypeScript Code (Contracts/Subgraphs)
-- **Type safety**: Avoid `any`; prefer explicit types and interfaces
-- **Null checks**: Handle nullable values explicitly
-- **BigInt handling**: Use appropriate BigInt libraries for blockchain values
 - **Event handlers** (subgraphs): Ensure entity IDs are unique and deterministic
-- **Contract tests**: Check for edge cases, revert conditions, and gas optimization
 
-### GraphQL (Subgraphs)
-- **Schema design**: Use appropriate scalar types (BigInt, Bytes, ID)
-- **Entity relationships**: Review `@derivedFrom` directives for efficiency
-- **Indexing**: Ensure indexed fields support common query patterns
+### Configuration
+- **Docker env wiring**: Every time a new config param is introduced (e.g. a new field/env var in `pkg/manager/config.go` or another component's config), verify the corresponding environment variable is wired through the Docker files — added to the relevant service's `environment` list in `dockerfiles/docker-compose.yml` and documented with a default in `dockerfiles/.env.template`.
 
 ## Things to Avoid
 

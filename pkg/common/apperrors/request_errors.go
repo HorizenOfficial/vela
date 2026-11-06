@@ -12,7 +12,6 @@ const (
 	categoryFunctionNotFound
 	categoryDepositFailed
 	categoryRequestFuncFailed
-	categoryAppNotDeployed
 	categoryWrongKeySent
 	categoryPubKeyNotRegistered
 	categoryNoReportDataFound
@@ -34,7 +33,6 @@ var (
 	CategoryFunctionNotFoundMeta           = errorCategory{Category: categoryFunctionNotFound, Message: "requested function not found"}
 	CategoryDepositFailedMeta              = errorCategory{Category: categoryDepositFailed, Message: "deposit operation failed"}
 	CategoryRequestFuncFailedMeta          = errorCategory{Category: categoryRequestFuncFailed, Message: "request function execution failed"}
-	CategoryAppNotDeployedMeta             = errorCategory{Category: categoryAppNotDeployed, Message: "application is not deployed"}
 	CategoryWrongKeySentMeta               = errorCategory{Category: categoryWrongKeySent, Message: "wrong key sent"}
 	CategoryPubKeyNotRegisteredMeta        = errorCategory{Category: categoryPubKeyNotRegistered, Message: "public key not registered"}
 	CategoryNoReportDataFoundMeta          = errorCategory{Category: categoryNoReportDataFound, Message: "no report data found"}
@@ -55,7 +53,6 @@ var (
 	// Internal errors with more details
 	CodeInternalFallback             = FailureCode{"INTERNAL_FALLBACK", CategoryInternalMeta}
 	CodeApplicationAlreadyDeployed   = FailureCode{"APPLICATION_ALREADY_DEPLOYED", CategoryApplicationAlreadyDeployedMeta}
-	CodeAppStateNotFound             = FailureCode{"APPLICATION_STATE_NOT_FOUND", CategoryAppNotDeployedMeta}
 	CodeJsonUnmarshalError           = FailureCode{"JSON_UNMARSHAL_ERROR", CategoryInternalMeta}
 	CodeJsonMarshalError             = FailureCode{"JSON_MARSHAL_ERROR", CategoryInternalMeta}
 	CodeParsingKeyError              = FailureCode{"PARSING_KEY_ERROR", CategoryWrongKeySentMeta}
@@ -71,7 +68,63 @@ var (
 	CodeWrongKey                     = FailureCode{"WRONG_KEY", CategoryWrongKeySentMeta}
 	CodeNoReportDataFound            = FailureCode{"NO_REPORT_DATA_FOUND", CategoryNoReportDataFoundMeta}
 	CodeInsufficientFuel             = FailureCode{"INSUFFICIENT_FUEL", CategoryInsufficientFuelMeta}
+	CodeAppStateTooLarge             = FailureCode{"APP_STATE_TOO_LARGE", CategoryRequestFuncFailedMeta}
+
+	// CodeGuestExecutionTimeout marks a guest that exceeded the configured
+	// wall-clock execution bound and was interrupted (see pkg/wasm, epoch
+	// interruption). It is a REQUEST FAILURE: signed and submitted on-chain.
+	//
+	// That is deliberate despite the non-determinism of a wall-clock bound — the
+	// same request could in principle time out on a loaded host and succeed on an
+	// idle one. The on-chain request queue is FIFO and its head only advances when
+	// an update is submitted for it, so a transient error re-delivers the very same
+	// request on the next poll, forever. Treating a runaway guest as transient would
+	// therefore let a single non-terminating app pin the queue head and stall every
+	// other application indefinitely — worse than the hang this bound removes. The
+	// default timeout is set orders of magnitude above a real request precisely so
+	// that reaching it means the guest is pathological.
+	CodeGuestExecutionTimeout = FailureCode{"GUEST_EXECUTION_TIMEOUT", CategoryWasmInternalMeta}
+
+	// CodeGuestExecutionCancelled marks a guest interrupted because the HOST gave up
+	// on the request — context cancellation, executor shutdown, or a caller-supplied
+	// execution budget running out. It is TRANSIENT: pkg/executor converts it to a
+	// plain Go error so the request is retried on the next poll and nothing is signed.
+	//
+	// The distinction from CodeGuestExecutionTimeout is about who is at fault. Here
+	// nothing is known to be wrong with the request, so charging the user
+	// MinFeePerRequest for our own shutdown would be indefensible; and the condition
+	// clears by itself once the executor is running again. It matters most for the
+	// caller-supplied budget, which arrives from outside the enclave: routing it here
+	// means no host-supplied value can ever produce a signed, fee-charging failure.
+	//
+	// Keep this in sync with IsTransient below.
+	CodeGuestExecutionCancelled = FailureCode{"GUEST_EXECUTION_CANCELLED", CategoryWasmInternalMeta}
 )
+
+// Sentinels for the runtime entry points that return a plain error rather than a
+// *RequestFailure (Deploy and the module-load path), so those callers can classify
+// an interrupted guest with errors.Is. They carry the same meaning as the codes of
+// the same name.
+// Their messages double as the signed on-chain ErrorMsg for these failures, so
+// they are deliberately short, fixed, and free of any wasmtime formatting or code
+// offsets: ErrorMsg is truncated to 100 characters and changing one of these
+// changes a signed value.
+var (
+	ErrGuestExecutionTimeout   = errors.New("guest execution timed out")
+	ErrGuestExecutionCancelled = errors.New("guest execution cancelled")
+)
+
+// IsTransient reports whether a failure must NOT be turned into a signed on-chain
+// error payload, and should instead surface as a plain Go error so the manager
+// retries the request on its next poll.
+//
+// This is the executor's two-channel rule (see pkg/executor): almost every
+// RequestFailure is a genuine execution failure that the user should learn about
+// on-chain and be refunded for. The exception is a failure caused by the host
+// abandoning the work rather than by anything about the request.
+func IsTransient(failure *RequestFailure) bool {
+	return failure != nil && failure.RequestError == CodeGuestExecutionCancelled
+}
 
 type RequestFailure struct {
 	RequestError FailureCode

@@ -150,6 +150,18 @@ This authorizes the contract to call `transferFrom` and pull `assetAmount` token
 
 #### New function: `submitRequestFor`
 
+> **Where the code lives.** `submitRequestFor` is *declared* on `ProcessorEndpoint` — same address,
+> same ABI, same selector, so nothing changes for relayers or the facilitator service — but its
+> body was moved to `ProcessorEndpointExtension` and is reached by `delegatecall`, because
+> `ProcessorEndpoint` had run out of room under the EIP-170 deployed-bytecode limit. The extension
+> executes against the endpoint's storage, balance, `msg.sender` and `msg.value`, so everything
+> described below (nonce consumption, EIP-712 domain, custody accounting, `msg.value` as the fee)
+> behaves identically. Two consequences worth knowing: OpenZeppelin's `EIP712` recomputes the
+> domain separator when `address(this)` differs from the deploying address, which is what keeps the
+> `verifyingContract` equal to the endpoint; and each call pays one extra cold-account access
+> (~2,600 gas) for the `delegatecall`. See `PROCESSOR_ENDPOINT_SPLIT.md` for the mechanism and
+> `ProcessorEndpointStorage.sol` for the storage-layout contract between the two contracts.
+
 ```solidity
 function submitRequestFor(
     address sender,
@@ -193,9 +205,13 @@ submitRequestFor()
   │     // nonce, ecrecover will return a wrong address and fail the sender check.
   │
   ├─ 4. Recover user address from EIP-712 request signature and verify
-  │     user = ecrecover(hashTypedData(requestAuth), requestSignature)
-  │     require(user != address(0))   // invalid signature guard
-  │     require(user == sender)       // ecrecover result must match declared sender
+  │     (user, err) = ECDSA.tryRecover(hashTypedData(requestAuth), requestSignature)
+  │     // tryRecover, not recover: a malformed signature (wrong length, non-canonical s)
+  │     // must revert with InvalidSignature, which IProcessorEndpoint declares. recover()
+  │     // would raise ECDSAInvalidSignature*, which the endpoint's ABI does not carry —
+  │     // this code runs by delegatecall, so callers only ever see the endpoint.
+  │     require(err == NoError && user != address(0))  // → InvalidSignature
+  │     require(user == sender)                        // → InvalidSigner
   │
   ├─ 5. Consume nonce (replay protection)
   │     facilitatorNonces[sender]++
@@ -236,9 +252,11 @@ submitRequestFor()
 ```solidity
 // Sequential nonces per user (consistent with EIP-2612's sequential model)
 mapping(address => uint256) public facilitatorNonces;
-
-function getFacilitatorNonce(address user) external view returns (uint256);
 ```
+
+The mapping is `public`, so solc generates the `facilitatorNonces(address)` getter clients read. An
+explicit `getFacilitatorNonce(address)` wrapper existed initially and was removed: it duplicated
+that getter, and `ProcessorEndpoint` needed the bytes (see `PROCESSOR_ENDPOINT_SPLIT.md`).
 
 **Why a dedicated nonce is needed.** The `facilitatorNonces` counter is independent from both the Ethereum account nonce (used by the facilitator's EOA to order on-chain transactions) and the EIP-2612 nonce (managed by the token contract for `permit`). It protects the EIP-712 request authorization (Signature 1) against replay. This is critical when `assetAmount == 0` (e.g., `ASSOCIATEKEY` or `PROCESS` requests): in that case there is no Signature 2 / EIP-2612 permit, so without this nonce there would be **no replay protection at all** — a facilitator could re-submit the same signed request multiple times. When `assetAmount > 0` the EIP-2612 nonce would already block a second permit, but the dedicated nonce provides defense-in-depth.
 
@@ -532,7 +550,7 @@ If a user uses both paths, there is no conflict: direct calls are not nonce-gate
 | File | Change |
 |---|---|
 | `ProcessorEndpoint.sol` | Add `submitRequestFor()`, `facilitatorNonces` mapping, EIP-712 domain separator + `REQUEST_AUTHORIZATION_TYPEHASH`, EIP-2612 `permit` + `transferFrom` for deposit handling, refactor `generateRequestId` to internal `_generateRequestId`, modify `stateUpdate` claim routing for split claims (user asset / facilitator ETH fee) |
-| `IProcessorEndpoint.sol` | Add `submitRequestFor()` and `getFacilitatorNonce()` to interface |
+| `IProcessorEndpoint.sol` | Add `submitRequestFor()` to interface |
 | `Structs.sol` | Add `facilitator` field to `PendingRequest` |
 
 ### Go Backend

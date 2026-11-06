@@ -2,7 +2,14 @@ import { expect } from 'chai';
 import { Signer } from 'ethers';
 import { ethers } from 'hardhat';
 import { deployProcessorEndpointFixture, INITIAL_STATE_ROOT } from './fixture';
-import { ADDRESS_ZERO, ETH_TOKEN, BYTES32_ZERO } from '../util';
+import {
+  ADDRESS_ZERO,
+  ETH_TOKEN,
+  BYTES32_ZERO,
+  getRequestIdFromReceipt,
+  PROTOCOL_VERSION,
+  REQUEST_TYPE_PROCESS,
+} from '../util';
 
 describe('ProcessorEndpoint Test', function () {
   let processorEndpoint: any;
@@ -27,6 +34,45 @@ describe('ProcessorEndpoint Test', function () {
     mockERC20 = await MockERC20.deploy('Mock Token', 'MCK', 18);
     await tokenAllowlist.connect(signers[2]).addAllowedToken(await mockERC20.getAddress());
   });
+
+  async function submitProcess(applicationId: bigint, payload: string) {
+    const tx = await processorEndpoint.submitRequest(
+      PROTOCOL_VERSION,
+      applicationId,
+      REQUEST_TYPE_PROCESS,
+      payload,
+      ETH_TOKEN,
+      0,
+      minFeePerRequest,
+      { value: minFeePerRequest }
+    );
+    return getRequestIdFromReceipt(processorEndpoint, await tx.wait());
+  }
+
+  // Completes a request through the single-request path, which advances the round-robin cursor.
+  async function processRequest(
+    applicationId: bigint,
+    requestId: string,
+    prev: string,
+    next: string
+  ) {
+    await processorEndpoint
+      .connect(signers[1])
+      .stateUpdate(
+        applicationId,
+        prev,
+        next,
+        requestId,
+        { events: [], subTypes: [] },
+        { events: [], subTypes: [] },
+        [],
+        0,
+        minFeePerRequest,
+        0,
+        '',
+        '0x'
+      );
+  }
 
   describe('getAllowedTokens', function () {
     it('returns empty array when no tokens are allowlisted', async () => {
@@ -127,6 +173,27 @@ describe('ProcessorEndpoint Test', function () {
         await processorEndpoint.connect(signers[3]).adminReset();
         expect(await processorEndpoint.getPendingRequestsSize()).to.equal(0n);
         expect(await processorEndpoint.availableDeploySlots()).to.equal(slotsBefore);
+      });
+
+      it('resets the round-robin cursor', async () => {
+        // The cursor is an index into the deployed-app list, so it needs more than one entry
+        // to be observable.
+        const { applicationId: appA } = await bootstrapApplication(processorEndpoint);
+        const { applicationId: appB } = await bootstrapApplication(processorEndpoint);
+        await bootstrapApplication(processorEndpoint);
+
+        // Give A its turn, which moves the cursor off index 0 and onto B.
+        const a1 = await submitProcess(appA, '0x01');
+        await processRequest(appA, a1, INITIAL_STATE_ROOT, '0x' + 'a1'.repeat(32));
+
+        await processorEndpoint.connect(signers[3]).adminReset();
+
+        // Both A and B have pending work again. With the cursor back at index 0 the scan
+        // starts from A; had the reset left it at index 1, B would be served first.
+        await submitProcess(appA, '0x02');
+        await submitProcess(appB, '0x03');
+        const [appId] = await processorEndpoint.getPendingRequestsWithStateRoot(1);
+        expect(appId).to.equal(appA);
       });
 
       it('does not free slots for already-deployed apps', async () => {

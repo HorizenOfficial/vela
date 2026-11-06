@@ -121,6 +121,13 @@ means unlimited. Always targets the executor.
 The initial value is set via the `EXECUTOR_MAX_CACHED_MODULES` environment
 variable (default `0`).
 
+A cached module holds only its compiled code and log pipe: guest instances are
+created per call and released at its end, and calls are serialized, so guest linear
+memory peaks at about one `EXECUTOR_MAX_GUEST_MEMORY_BYTES` (default and maximum
+`2 GiB`), plus WASM table storage, which lives outside linear memory and is capped
+separately. The cache size therefore scales compiled code, not guest memory. The
+memory cap itself is start-up only and cannot be tuned via the admin CLI.
+
 ### Targets
 
 | Value      | Behaviour                                              |

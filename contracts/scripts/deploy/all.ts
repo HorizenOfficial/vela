@@ -1,4 +1,4 @@
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -67,15 +67,19 @@ async function deployTeeAuthenticator(deployer: any, deployerAddress: string): P
   console.log(`  contract address: ${nitroProverAddress}`);
 
   const TeeAuthenticator = await ethers.getContractFactory('TeeAuthenticator');
-  const teeAuthenticator = await TeeAuthenticator.deploy(
-    deployerAddress,
-    nitroProverAddress,
-    process.env.TEE_PCR0!,
-    process.env.TEE_MAX_VERIFICATION_AGE!
+  const teeAuthenticator = await upgrades.deployProxy(
+    TeeAuthenticator,
+    [
+      deployerAddress,
+      nitroProverAddress,
+      process.env.TEE_PCR0!,
+      process.env.TEE_MAX_VERIFICATION_AGE!,
+    ],
+    { kind: 'uups' }
   );
-  await teeAuthenticator.deploymentTransaction()!.wait();
+  await teeAuthenticator.waitForDeployment();
   const addr = await teeAuthenticator.getAddress();
-  console.log(`TeeAuthenticator`);
+  console.log(`TeeAuthenticator (proxy)`);
   console.log(`  contract address: ${addr}`);
   return addr;
 }
@@ -95,12 +99,16 @@ async function deploy() {
   console.log(`DefaultAuthority`);
   console.log(`  contract address: ${defaultAuthorityAddr}`);
 
-  // 2) AuthorityRegistry (proxy) usando el default
+  // 2) AuthorityRegistry, behind a UUPS proxy, pointing at the default authority
   const AuthorityRegistry = await ethers.getContractFactory('AuthorityRegistry');
-  const authorityRegistry = await AuthorityRegistry.deploy(deployerAddress, defaultAuthorityAddr);
-  await authorityRegistry.deploymentTransaction()!.wait();
+  const authorityRegistry = await upgrades.deployProxy(
+    AuthorityRegistry,
+    [deployerAddress, defaultAuthorityAddr],
+    { kind: 'uups' }
+  );
+  await authorityRegistry.waitForDeployment();
   const authorityRegistryAddr = await authorityRegistry.getAddress();
-  console.log(`AuthorityRegistry`);
+  console.log(`AuthorityRegistry (proxy)`);
   console.log(`  contract address: ${authorityRegistryAddr}`);
   console.log(`  default authority contract: ${defaultAuthorityAddr}`);
 
@@ -115,28 +123,47 @@ async function deploy() {
   console.log(`TokenAllowlist`);
   console.log(`  contract address: ${tokenAllowlistAddr}`);
 
-  // 5) ProcessorEndpoint
+  // 5) ProcessorEndpointExtension — code moved out of ProcessorEndpoint to stay under EIP-170,
+  //    reached by delegatecall. Stateless, so it must be deployed before the endpoint, whose
+  //    constructor takes its address.
+  const ProcessorEndpointExtension = await ethers.getContractFactory('ProcessorEndpointExtension');
+  const processorEndpointExtension = await ProcessorEndpointExtension.deploy();
+  await processorEndpointExtension.deploymentTransaction()!.wait();
+  const processorEndpointExtensionAddr = await processorEndpointExtension.getAddress();
+  console.log(`ProcessorEndpointExtension`);
+  console.log(`  contract address: ${processorEndpointExtensionAddr}`);
+
+  // 6) ProcessorEndpoint behind a UUPS proxy. The extension address is a constructor argument
+  //    (it stays `immutable`, not proxy state), so it goes in `constructorArgs`.
   const resetOperator = process.env.RESET_OPERATOR || '0x0000000000000000000000000000000000000000';
   const ProcessorEndpoint = await ethers.getContractFactory('ProcessorEndpoint');
-  const processorEndpoint = await ProcessorEndpoint.deploy(
-    teeAuthenticatorAddr,
-    authorityRegistryAddr,
-    process.env.UPDATE_STATUS_OPERATOR!,
-    process.env.ADMIN!,
-    resetOperator,
-    process.env.MIN_FEE_PER_REQUEST!,
-    tokenAllowlistAddr
+  const processorEndpoint = await upgrades.deployProxy(
+    ProcessorEndpoint,
+    [
+      teeAuthenticatorAddr,
+      authorityRegistryAddr,
+      process.env.UPDATE_STATUS_OPERATOR!,
+      process.env.ADMIN!,
+      resetOperator,
+      process.env.MIN_FEE_PER_REQUEST!,
+      tokenAllowlistAddr,
+    ],
+    {
+      kind: 'uups',
+      constructorArgs: [processorEndpointExtensionAddr],
+    }
   );
-  await processorEndpoint.deploymentTransaction()!.wait();
+  await processorEndpoint.waitForDeployment();
   var processorEndpointAddr = await processorEndpoint.getAddress();
-  console.log(`ProcessorEndpoint`);
+  console.log(`ProcessorEndpoint (proxy)`);
   console.log(`  contract address: ${processorEndpointAddr}`);
   console.log(`  update status operator (manager address): ${process.env.UPDATE_STATUS_OPERATOR!}`);
   console.log(`  admin / bootstrap deployer: ${process.env.ADMIN!}`);
   console.log(`  reset operator (address(0) = disabled): ${resetOperator}`);
   console.log(`  token allowlist: ${tokenAllowlistAddr}`);
+  console.log(`  extension: ${processorEndpointExtensionAddr}`);
 
-  // 5) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
+  // 7) Optional MockERC20 for dev/test. Opt-in via DEPLOY_MOCK_ERC20=true.
   //    Must be deployed AFTER ProcessorEndpoint so that its CREATE address
   //    stays stable across runs (deterministic on deployer nonce).
   //    Requires the deployer to hold the ADMIN role on ProcessorEndpoint,
@@ -168,6 +195,10 @@ async function deploy() {
   if (outputDir) {
     const lines = [
       `CHAIN_PROCESSOR_ADDRESS=${processorEndpointAddr}`,
+      // Nothing reads this at runtime — the endpoint holds the address in an immutable — but it is
+      // the only record of which extension a deployed endpoint delegates to, needed to verify or
+      // redeploy it.
+      `CHAIN_PROCESSOR_EXTENSION_ADDRESS=${processorEndpointExtensionAddr}`,
       `CHAIN_TEEAUTHENTICATOR_ADDRESS=${teeAuthenticatorAddr}`,
       `CHAIN_TOKEN_ALLOWLIST_ADDRESS=${tokenAllowlistAddr}`,
     ];

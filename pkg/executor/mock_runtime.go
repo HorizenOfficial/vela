@@ -72,24 +72,6 @@ func NewMockRuntime(log logger.Logger) *MockRuntime {
 	return &MockRuntime{fuel: big.NewInt(10), log: log}
 }
 
-// LoadModule loads a WASM module and returns initial state
-func (r *MockRuntime) LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error) {
-	r.log.Info("Mock Runtime: Loading mock runtime module for application %d (wasm size: %d bytes)", appId, len(wasm))
-
-	initialState := &testApplicationInternalState{
-		AppID:    appId,
-		Accounts: make(map[ethCommon.Address]*testAccountState),
-		Nonce:    0,
-	}
-	stateBytes, err := json.Marshal(initialState)
-	if err != nil {
-		return nil, r.fuel, fmt.Errorf("failed to marshal initial state: %w", err)
-	}
-
-	r.log.Info("Mock Runtime: Successfully loaded mock runtime module for application %d", appId)
-	return stateBytes, r.fuel, nil
-}
-
 // Deploy loads a WASM module and initializes it with constructor parameters
 func (r *MockRuntime) Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error) {
 	r.log.Info("Mock Runtime: Deploying mock runtime module for application %d (wasm size: %d bytes, params size: %d bytes)", appId, len(wasm), len(constructorParams))

@@ -74,16 +74,6 @@ func Deploy(appId int64, paramsJSON string) types.DeployResult {
 	return types.DeployResult{State: stateJSON, Fuel: fuel}
 }
 
-// LoadModule is retained for cache warm-up by getOrLoadModule (see wasmtime_runtime.go).
-func LoadModule(appId int64) types.LoadModuleResult {
-	stateJSON, err := json.Marshal(newInitialState(appId, nil, "", ""))
-	if err != nil {
-		utils.LogError("LoadModule: failed to marshal initial state: %v", err)
-		return types.LoadModuleResult{Error: fmt.Sprintf("failed to marshal initial state: %v", err)}
-	}
-	return types.LoadModuleResult{State: stateJSON, Fuel: types.NewUint256(5)}
-}
-
 // DepositFunds credits the sender's per-token balance and emits a deposit event.
 func DepositFunds(senderPtr *types.Address, tokenPtr *types.Address, value *types.Uint256, stateJSON string) types.DepositResult {
 	if senderPtr == nil || tokenPtr == nil || value == nil {

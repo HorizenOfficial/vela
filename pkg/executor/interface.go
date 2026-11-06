@@ -33,8 +33,6 @@ type moduleCacheController interface {
 
 // Runtime defines the interface for a WASM runtime
 type Runtime interface {
-	// LoadModule loads a module from bytecode. Must return the initial application state (or an empty byte array if any)
-	LoadModule(ctx context.Context, appId common.ApplicationIdType, wasm []byte) ([]byte, *big.Int, error)
 	// Deploy loads a module and initializes it with constructor parameters
 	Deploy(ctx context.Context, appId common.ApplicationIdType, constructorParams []byte, wasm []byte) ([]byte, *big.Int, error)
 	// Deposit processes a deposit with token awareness (tokenAddress = 0x0 for ETH)

@@ -75,19 +75,6 @@ func getPopulatedState(t *testing.T) (string, ApplicationInternalState) {
 	return string(stateBytes), state
 }
 
-func TestLoadModule(t *testing.T) {
-	result := LoadModule(int64(testAppId))
-	require.NotNil(t, result.State)
-	require.NotNil(t, result.Fuel)
-
-	var state ApplicationInternalState
-	err := json.Unmarshal(result.State, &state)
-	require.NoError(t, err)
-
-	require.Equal(t, testAppId, state.AppID)
-	require.Empty(t, state.Accounts)
-}
-
 func TestDepositFunds(t *testing.T) {
 	t.Run("deposit to new account", func(t *testing.T) {
 		stateJSON, _ := getInitialState(t)
@@ -518,22 +505,6 @@ func TestJsonCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, hostAddr, hostWithdrawal.DestinationAddress)
 	require.Equal(t, guestWithdrawal.Amount.String(), hostWithdrawal.Amount.String())
-
-	// LoadModuleResult
-	guestLoadModuleResult := types.LoadModuleResult{
-		State: []byte("state"),
-		Fuel:  types.NewUint256(10),
-		Error: "load error",
-	}
-	jsonBytes, err = json.Marshal(guestLoadModuleResult)
-	require.NoError(t, err)
-
-	var hostLoadModuleResult wasmCommon.LoadModuleResult
-	err = json.Unmarshal(jsonBytes, &hostLoadModuleResult)
-	require.NoError(t, err)
-	require.Equal(t, guestLoadModuleResult.State, hostLoadModuleResult.State)
-	require.Equal(t, guestLoadModuleResult.Fuel.String(), hostLoadModuleResult.Fuel.String())
-	require.Equal(t, guestLoadModuleResult.Error, hostLoadModuleResult.Error)
 
 	// DepositResult
 	guestDepositResult := types.DepositResult{
