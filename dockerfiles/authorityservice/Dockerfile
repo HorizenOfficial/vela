@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM debian:bullseye-slim AS builder
+FROM debian:bookworm-slim AS builder
 
 # Install base dependencies
 RUN apt-get update && apt-get install -y wget git

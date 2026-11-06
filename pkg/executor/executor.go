@@ -718,6 +718,10 @@ func (e *StatelessExecutor) HandleDeployApp(ctx context.Context, req *common.Req
 			deployLoadFailureMsg, err)
 		return errorPayload, nil, respErr
 	}
+	if failure := e.checkAppStateSize(initialAppState); failure != nil {
+		errorPayload, err := e.processErrorResponse(req, emptyStateRoot, failure)
+		return errorPayload, nil, err
+	}
 
 	// Check if there is enough ETH to cover the fuel costs
 	// TODO make a helper function?

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v50"
 )
 
 // The set of host functions a guest is allowed to declare, and why it is a closed
@@ -46,7 +46,7 @@ import (
 // configuration. fd_read is absent for a weaker reason and the distinction matters
 // if the list is ever revisited. It cannot block as this runtime is configured,
 // because the only descriptors a guest is given are an empty stdin (reads return
-// EOF at once) and the write-only log pipes — see configureWasiLogPipes, and
+// EOF at once) and the write-only log pipes — see attachLogPipe, and
 // TestConfiguredWasiCannotBlockOnRead, which pins that. It is excluded because
 // nothing here needs it, so admitting it would buy a dependency on that
 // configuration for no gain. A guest that legitimately needs it — TinyGo links

@@ -8,7 +8,7 @@ import (
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v50"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
@@ -72,7 +72,7 @@ const foreverSpinningAllocateWat = `(module
 )`
 
 // spinningStartSectionWat hangs during Instantiate rather than in an export, so
-// it is only bounded if compileAndInstantiate arms the store before
+// it is only bounded if instantiate arms the store before
 // instantiating (measured fact M3 in the plan). Reachable from Deploy and from
 // any cache-miss reload.
 const spinningStartSectionWat = `(module
@@ -686,12 +686,12 @@ const fdReadProbeWat = `(module
 
 // TestConfiguredWasiCannotBlockOnRead pins the configuration invariant the whole
 // WASI surface rests on: no descriptor a guest can read is one that can make it
-// wait. Today that holds because configureWasiLogPipes gives a guest nothing but
+// wait. Today that holds because attachLogPipe gives a guest nothing but
 // the write-only log pipes, leaving stdin at wasmtime's default empty stream.
 //
 // It is guarded here rather than left implicit because it is one line away from
 // being lost: an InheritStdin, a SetStdinFile or a PreopenDir added to
-// configureWasiLogPipes would hand a guest something that can block, and a blocking
+// attachLogPipe would hand a guest something that can block, and a blocking
 // read is beyond the execution bound entirely — epoch interruption only reaches
 // guest code, so a guest parked in a host call holds execLock past its own
 // deadline, past the caller's budget and past shutdown, stalling every application.
@@ -705,9 +705,10 @@ func TestConfiguredWasiCannotBlockOnRead(t *testing.T) {
 	defer runtime.Close()
 
 	store := runtime.newModuleStore()
-	cleanup, err := runtime.configureWasiLogPipes(context.Background(), common.NewApplicationId(1), store)
+	fifoPath, cleanup, err := runtime.openLogPipe(common.NewApplicationId(1))
 	require.NoError(t, err)
 	defer cleanup()
+	require.NoError(t, runtime.attachLogPipe(store, fifoPath))
 
 	linker := wasmtime.NewLinker(runtime.engine)
 	require.NoError(t, linker.DefineWasi())
@@ -737,7 +738,7 @@ func TestConfiguredWasiCannotBlockOnRead(t *testing.T) {
 			// interrupted, which is precisely the condition being reported.
 			t.Fatalf("fd_read on fd %d did not return: the WASI configuration exposes a "+
 				"readable descriptor, so a guest can park the host thread past the "+
-				"execution bound (check configureWasiLogPipes for InheritStdin, "+
+				"execution bound (check attachLogPipe for InheritStdin, "+
 				"SetStdinFile or PreopenDir)", fd)
 		}
 	}

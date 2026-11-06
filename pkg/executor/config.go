@@ -67,13 +67,18 @@ type Config struct {
 	// 0 means unlimited.
 	MaxCachedModules int
 
+	// MaxAppStateSize is the maximum size in bytes of an application state, before and after
+	// each guest call. A request over the limit fails with APP_STATE_TOO_LARGE and leaves the
+	// state unchanged. 0 means no limit.
+	MaxAppStateSize int
+
 	// MaxGuestMemoryBytes caps the linear memory a single WASM guest can grow to.
 	// 0 means the 2 GiB default, which is also the maximum allowed value (the
-	// host ABI exchanges guest pointers as signed 32-bit offsets). Note that the
-	// worst-case enclave RAM usage is roughly MaxCachedModules * MaxGuestMemoryBytes,
-	// so size the two together against the enclave memory budget. Table storage sits
-	// outside linear memory and is bounded separately in pkg/wasm (a few tens of MiB
-	// per module at most), so it does not change the sizing arithmetic.
+	// host ABI exchanges guest pointers as signed 32-bit offsets). Every guest call
+	// runs on its own instance, released at the end, and calls are serialized, so guest
+	// linear memory peaks at about one MaxGuestMemoryBytes whatever MaxCachedModules is.
+	// Table storage sits outside linear memory and is bounded separately in pkg/wasm (a
+	// few tens of MiB per store at most), so it does not change the sizing arithmetic.
 	MaxGuestMemoryBytes int64
 
 	// GuestExecutionTimeoutMs bounds the wall-clock duration of a single WASM guest
@@ -86,6 +91,9 @@ type Config struct {
 	// refuses the connection if this does not fit (checkGuestBoundFitsCallerBudget).
 	GuestExecutionTimeoutMs int64
 }
+
+// DefaultMaxAppStateSize keeps guest calls well below the manager request timeout.
+const DefaultMaxAppStateSize = 10 * 1024 * 1024
 
 const confFileName = "executor.conf"
 
@@ -152,6 +160,7 @@ func LoadConfig() (*Config, error) {
 		LogNetworkLevel:     common.GetConfigVar("EXECUTOR_LOG_NETWORK_LEVEL", "info", fileProperties),
 		CommunicationParams: communicationParams,
 		MaxCachedModules:    int(common.GetConfigVarInt64("EXECUTOR_MAX_CACHED_MODULES", 0, fileProperties)),
+		MaxAppStateSize:     int(common.GetConfigVarInt64("EXECUTOR_MAX_APP_STATE_SIZE", DefaultMaxAppStateSize, fileProperties)),
 		MaxGuestMemoryBytes: common.GetConfigVarInt64("EXECUTOR_MAX_GUEST_MEMORY_BYTES", 0, fileProperties),
 
 		GuestExecutionTimeoutMs: common.GetConfigVarInt64("EXECUTOR_GUEST_EXECUTION_TIMEOUT_MS", 0, fileProperties),
@@ -240,6 +249,10 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf(
 			"EXECUTOR_MAX_GUEST_MEMORY_BYTES must be between 0 (default: 2 GiB) and %d (2 GiB), got %d",
 			int64(maxGuestMemoryCeilingBytes), c.MaxGuestMemoryBytes))
+	}
+
+	if c.MaxAppStateSize < 0 {
+		errs = append(errs, fmt.Sprintf("EXECUTOR_MAX_APP_STATE_SIZE must be >= 0 (bytes, 0 = no limit), got %d", c.MaxAppStateSize))
 	}
 
 	// --- Guest execution timeout ---

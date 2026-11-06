@@ -92,11 +92,17 @@ func (e *StatelessExecutor) executeRequest(ctx context.Context, req *common.Requ
 
 	// If the request contains a deposit, handle it first
 	var tempState = workData.GetAppState()
+	if failure := e.checkAppStateSize(tempState); failure != nil {
+		return softFailure(failure)
+	}
 	var depositEvents []common.PlainEvent
 	var depositAppEvents []common.AppEvent
 	var totalFuel *big.Int = big.NewInt(0)
 	if req.AssetAmount.ToInt().Sign() > 0 {
 		newState, depEvents, depAppEvents, reqFuel, failure := e.runtime.Deposit(ctx, req.ApplicationID, req.Sender, req.TokenAddress, req.AssetAmount.ToInt(), tempState, wasmModule)
+		if failure == nil {
+			failure = e.checkAppStateSize(newState)
+		}
 		if failure != nil {
 			return softFailure(failure)
 		}
@@ -175,6 +181,9 @@ func (e *StatelessExecutor) executeRequest(ctx context.Context, req *common.Requ
 
 		// Invoke WASM method to process the request
 		newState, reqEvents, reqAppEvents, reqWithdrawals, reqReportData, reqFuel, failure := e.runtime.ProcessRequest(ctx, req.ApplicationID, req.Sender, req.RequestType, wasmPayload, tempState, wasmModule)
+		if failure == nil {
+			failure = e.checkAppStateSize(newState)
+		}
 		if failure != nil {
 			return softFailure(failure)
 		}
@@ -302,4 +311,17 @@ func (e *StatelessExecutor) executeRequest(ctx context.Context, req *common.Requ
 		newSerialized: newAppData,
 		report:        deanonymizationReport,
 	}, nil
+}
+
+// checkAppStateSize returns an APP_STATE_TOO_LARGE failure when state exceeds MaxAppStateSize.
+// The guest time grows with the state size, and checking the input before the guest runs
+// fails fast instead of spending a whole guest execution bound; checking every output keeps
+// the state from ever growing past the limit.
+func (e *StatelessExecutor) checkAppStateSize(state []byte) *apperrors.RequestFailure {
+	limit := e.config.MaxAppStateSize
+	if limit <= 0 || len(state) <= limit {
+		return nil
+	}
+	return apperrors.New(apperrors.CodeAppStateTooLarge,
+		fmt.Sprintf("application state too large: %d bytes, limit %d bytes", len(state), limit))
 }
