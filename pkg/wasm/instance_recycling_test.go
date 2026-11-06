@@ -14,7 +14,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/logger"
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v50"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )

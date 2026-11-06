@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v50"
 )
 
 // The set of host functions a guest is allowed to declare, and why it is a closed

@@ -25,6 +25,7 @@
 
 - **Guest memory no longer accumulates across requests** (ported from 0.2.1): every guest call (deploy, deposit, process request, memory stats) now runs on a fresh WASM instance; compiled modules stay cached, so a call pays only instantiation. TinyGo guests never free large allocations, so a long-lived instance kept growing until it hit `EXECUTOR_MAX_GUEST_MEMORY_BYTES`: the request that crossed it trapped and failed with a signed error, even though nothing was wrong with it, and every cached app held up to the cap in enclave RAM. Guest memory now peaks at one instance at a time. A lowered guest memory cap applies from the next call, cached apps included. Guests must not keep state in globals between calls (see `docs/design/WASM_HOST_ABI.md`).
 - **Guest results are no longer logged**: the deposit and deploy results contained the full application state.
+- **Wasmtime upgraded to 50.0.0 (`wasmtime-go/v50`) for two Cranelift sandbox escapes** (CVSS 9.9): CVE-2026-115889 / GHSA-897f-g5gm-fmxm (all architectures; affects every 0.2.x and earlier release, which embed Wasmtime 1.0) and CVE-2026-115893 / GHSA-mghf-wjfp-p5xm (ARM64 only; affects the previous Wasmtime 47 dependency on arm64 builds). Both are reachable by a crafted module submitted through the deploy flow. Executor images must be rebuilt, so the enclave PCRs change and attestation and KMS policies must be updated with the rollout. The accepted WASM feature set is unchanged; note that v50's default engine accepts wide arithmetic, which the existing pin keeps disabled.
 
 ## 0.2.0
 

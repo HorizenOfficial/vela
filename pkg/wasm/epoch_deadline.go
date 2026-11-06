@@ -9,7 +9,7 @@ import (
 
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v50"
 )
 
 // Wall-clock bound on guest execution, built on wasmtime's epoch interruption.
@@ -31,8 +31,8 @@ import (
 //   - A watcher goroutine per operation forces that same interrupt early when the
 //     host stops caring about the result (context cancelled, runtime closing).
 //
-// Two measured properties of wasmtime-go v47 drive the shape of this and must not
-// be "simplified" away without re-measuring:
+// Two measured properties of wasmtime-go (measured on v47, re-measured on v50) drive
+// the shape of this and must not be "simplified" away without re-measuring:
 //
 //  1. With epoch interruption enabled, a store that was NEVER armed traps
 //     immediately — its default deadline is already reached. Enabling the engine

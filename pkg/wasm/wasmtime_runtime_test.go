@@ -12,7 +12,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v50"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1250,8 +1250,8 @@ func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
 			// (exceptions build on GC types): the explicit pin is what keeps it off
 			// if GC support is ever switched back on for externref.
 			//
-			// Note the default engine *accepts* this module even though v47's
-			// config.h documents wasm_exceptions as "false by default" — a concrete
+			// Note the default engine *accepts* this module even though config.h
+			// (v47 and v50) documents wasm_exceptions as "false by default" — a concrete
 			// reason this file pins the feature set rather than trusting documented
 			// defaults.
 			name: "exceptions",
@@ -1305,21 +1305,29 @@ func TestPinnedEngineRejectsDisabledProposals(t *testing.T) {
 				(func (export "f") (result (ref null $s)) ref.null $s))`,
 		},
 		{
-			// Unlike the cases above, v47's default engine also rejects this one, so
-			// this guards against an upstream default flip rather than against our pin
-			// being dropped. Kept because the pin exists and the rule is categorical.
+			// v47's default engine rejected this, so the pin looked redundant; v50's
+			// default engine accepts it (measured), although config.h still documents
+			// wasm_wide_arithmetic as "false by default". The pin is what rejects it now.
 			name: "wide arithmetic",
 			wat: `(module
 				(func (export "f") (result i64 i64)
 					(i64.const 1) (i64.const 2) (i64.const 3) (i64.const 4) (i64.add128)))`,
+		},
+		{
+			// No Go knob: wasmtime-go v50 does not wrap wasm_compact_imports, so this
+			// cannot be pinned and rests on the upstream default (false). It guards
+			// against that default flipping on a bump — when it does, newPinnedEngine
+			// cannot fix it from Go, so the bump has to wait for the binding.
+			name: "compact imports",
+			wat:  `(module (import "wasi" (item "a" (func)) (item "b" (func))))`,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Wat2Wasm is proposal-agnostic and encodes all of these fine; the
-			// rejection must come from the engine's pinned feature set. v47's
-			// *default* engine compiles all of them except "wide arithmetic"
+			// rejection must come from the engine's pinned feature set. v50's
+			// *default* engine compiles all of them except "compact imports"
 			// (measured), which is exactly why the set is pinned explicitly rather
 			// than inherited — and why each case notes what it actually guards.
 			wasmBytes, err := wasmtime.Wat2Wasm(tc.wat)

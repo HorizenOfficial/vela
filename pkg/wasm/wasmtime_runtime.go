@@ -22,7 +22,7 @@ import (
 	"github.com/HorizenOfficial/vela/pkg/common/apperrors"
 	"github.com/HorizenOfficial/vela/pkg/logger"
 	appCommon "github.com/HorizenOfficial/vela/pkg/wasm/common"
-	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v50"
 	ethCommon "github.com/ethereum/go-ethereum/common"
 )
 
@@ -299,22 +299,27 @@ type WasmtimeRuntime struct {
 // exposes is therefore set here explicitly: adding a proposal must be a
 // deliberate, reviewed change.
 //
-// "Every feature knob" is meant literally: as of v47 the wrapped Set* methods this
+// "Every feature knob" is meant literally: as of v50 the wrapped Set* methods this
 // does NOT call are execution-bounding (SetConsumeFuel, SetMaxWasmStack — see the
 // TODO below) or compiler/tuning knobs (strategy, opt level, profiler, debug info,
 // unwind info, parallel compilation, COW init, target, Cranelift flags), none of
 // which change the accepted feature set. Verify with:
 //
-//	B=$(go env GOMODCACHE)/github.com/bytecodealliance/wasmtime-go/v47@v47.0.0
+//	B=$(go env GOMODCACHE)/github.com/bytecodealliance/wasmtime-go/v50@v50.0.0
 //	grep -ho 'func (cfg \*Config) Set[A-Za-z0-9]*' $B/config*.go | sed 's/.*Config) //' | sort -u
 //
 // Caveat: the C API also carries flags that wasmtime-go does not wrap at all, so they
-// cannot be pinned from Go and stay at their upstream defaults — as of v47 those are
-// shared_memory, branch hinting, custom page sizes, stack switching, and the
-// component-model sub-flags, all documented false by default. shared_memory is worth
-// singling out: it gates shared-memory creation, the same per-memory RAM-accounting
-// concern the threads pin addresses, so it is unpinnable rather than unimportant.
-// Re-run the grep above when bumping, in case the bindings start exposing more.
+// cannot be pinned from Go and stay at their upstream defaults — as of v50 those are
+// shared_memory, branch hinting, custom page sizes, compact imports, stack switching,
+// and the component-model sub-flags, all documented false by default. shared_memory is
+// worth singling out: it gates shared-memory creation, the same per-memory
+// RAM-accounting concern the threads pin addresses, so it is unpinnable rather than
+// unimportant. Compact imports is covered by TestPinnedEngineRejectsDisabledProposals,
+// which catches an upstream default flip. List the C flags with
+//
+//	grep -o 'WASMTIME_CONFIG_PROP(void, [a-z0-9_]*' $B/build/include/wasmtime/config.h
+//
+// and re-run both greps when bumping, in case the bindings start exposing more.
 //
 // TODO: bound guest *work* and stack depth. Wall-clock time is now bounded (see
 // SetEpochInterruption below and pkg/wasm/epoch_deadline.go), but SetConsumeFuel
