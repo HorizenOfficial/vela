@@ -50,7 +50,7 @@ done
 
 # --- 3. Generate subgraph-local.yaml from the template ---
 echo "Subgraph deployer: generating subgraph-local.yaml..."
-sed -e "s/network: horizen-testnet/network: local/" \
+sed -e "s/network: base-sepolia/network: local/" \
     -e "s/address: \"0x<processor_address>\"/address: \"${CHAIN_PROCESSOR_ADDRESS}\"/" \
     -e "s/address: \"0x<token_allowlist_address>\"/address: \"${CHAIN_TOKEN_ALLOWLIST_ADDRESS}\"/" \
     -e "s/startBlock: [0-9]*/startBlock: 0/" \
