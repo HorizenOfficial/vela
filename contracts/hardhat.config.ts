@@ -48,12 +48,8 @@ const config: HardhatUserConfig = {
     ],
   },
   networks: {
-    'sepolia-testnet': {
-      url: 'https://rpc.sepolia.org/',
-      accounts,
-    },
-    'horizen-l3-testnet': {
-      url: 'https://horizen-testnet.rpc.caldera.xyz/http',
+    'base-sepolia': {
+      url: 'https://sepolia.base.org',
       accounts,
     },
     local: {
