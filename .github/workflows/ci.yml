@@ -128,6 +128,12 @@ jobs:
         working-directory: contracts
         run: npm run check:layout
 
+      # The dev contract addresses in dockerfiles/README.md follow the deploy order in
+      # scripts/deploy/all.ts; any change to that order silently makes them stale.
+      - name: Check dev contract addresses in dockerfiles/README.md
+        working-directory: contracts
+        run: npm run check:dev-addresses
+
       # Test contracts
       - name: Test contracts
         working-directory: contracts
@@ -226,6 +232,12 @@ jobs:
       - name: Check ProcessorEndpoint storage layout
         working-directory: contracts
         run: npm run check:layout
+
+      # The dev contract addresses in dockerfiles/README.md follow the deploy order in
+      # scripts/deploy/all.ts; any change to that order silently makes them stale.
+      - name: Check dev contract addresses in dockerfiles/README.md
+        working-directory: contracts
+        run: npm run check:dev-addresses
 
       # Test contracts
       - name: Test contracts

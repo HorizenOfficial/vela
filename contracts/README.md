@@ -43,6 +43,8 @@ npx hardhat run scripts/deploy/authorityRegistry.ts
 
 - when `DEPLOY_OUTPUT_DIR` is set, `all.ts` writes the deployed addresses to `deployed_addresses.env`, including `CHAIN_PROCESSOR_EXTENSION_ADDRESS`. Nothing reads that one at runtime, but it is the only record of which extension an endpoint delegates to.
 
+- the dev environment (`dockerfiles/`) runs `all.ts` from a fixed account on a fresh chain, so its contract addresses are fixed by the deploy order, and `dockerfiles/README.md` documents them. **Any change to the deployments in `all.ts`** (adding, removing or reordering one, or moving a contract behind a proxy, which takes two) shifts them. Run `npm run check:dev-addresses` after such a change: it runs `all.ts` with the settings from `dockerfiles/.env.dev` on a fresh in-process chain and fails if `dockerfiles/README.md` no longer matches. CI runs it too.
+
 ## Upgrading
 
 Each upgradable contract has a script in `scripts/upgrade/` that deploys a new implementation and points the existing proxy at it via `upgradeToAndCall`, keeping the proxy's address and all of its state (see `../docs/design/UPGRADABLE_CONTRACTS_DESIGN.md`). The caller must be the account holding the upgrade authority — `ADMIN` role for `ProcessorEndpoint`, `owner()` for `AuthorityRegistry` and `TeeAuthenticator`.
