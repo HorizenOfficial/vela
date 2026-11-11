@@ -38,6 +38,7 @@ npm ci
 npm run build
 npm run test
 npm run check:layout   # ProcessorEndpoint / ProcessorEndpointExtension: layouts must match, extension errors must be declared on the endpoint
+npm run check:dev-addresses   # dev addresses in dockerfiles/README.md must match a fresh run of scripts/deploy/all.ts; run after any change to the deployments in all.ts
 
 # WASM guest (app/simple)
 cd app/simple && make build            # Development build
